@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Producción / Receta · Export a Excel
+   Golden Touch · Producción / Receta · Export a Excel
    Genera un .xlsx con los materiales usados y el resumen de
    costos de una producción (= receta para X unidades).
    ============================================================ */
@@ -48,7 +48,7 @@ export async function descargarProduccionExcel(id: string): Promise<void> {
   const cp = prod.costo_material + prod.mano_obra + prod.costos_indirectos;
 
   const encabezado: (string | number)[][] = [
-    ['RECETA / PRODUCCIÓN · MGG'],
+    ['RECETA / PRODUCCIÓN · Golden Touch'],
     ['Producto', prod.producto_nombre],
     ['Cantidad producida (und)', prod.cantidad],
     ['Almacén destino', prod.almacen_destino],

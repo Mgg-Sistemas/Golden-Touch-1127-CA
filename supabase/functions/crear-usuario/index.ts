@@ -1,4 +1,4 @@
-// MGG · Edge Function: crear-usuario
+// Golden Touch · Edge Function: crear-usuario
 // Solo callable por admin. Crea el usuario en auth.users con clave por defecto
 // '123456' (must_change_password=true) e inserta su ficha en public.usuarios.
 

@@ -1,10 +1,14 @@
 import { supabase } from '@/shared/lib/supabase';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
+import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type {
+  AbonoCredito,
+  CuentaCaja,
   EstadoOrden,
   EventoHistorial,
   ItemOrden,
   Orden,
+  PagoMetodo,
   Producto,
   Proveedor,
   Usuario,
@@ -14,7 +18,7 @@ import type {
 const BUCKET_OC = 'compras-oc';
 
 /* ============================================================
-   MGG · Pedidos (Órdenes) · Repository
+   Golden Touch · Pedidos (Órdenes) · Repository
    Portado del demo `src-full/modules/ordenes/ordenes.controller.*`
    a Supabase. La lógica de negocio (estados, historial, etc.)
    se mantiene en el cliente para preservar la cronología y los
@@ -183,12 +187,22 @@ export async function aprobarOrdenConOferta(
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
   const ocCodigo = o.oc_codigo ?? (await nextOcCodigo());
   const nowIso = new Date().toISOString();
+  // Copiamos las condiciones de pago de la oferta elegida a la orden.
+  // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
+  // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
+  const { data: ofRow } = await supabase
+    .from('ofertas_proveedor').select('condiciones_pago')
+    .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
+    .order('registrada_en', { ascending: false })
+    .limit(1)
+    .maybeSingle();
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
     items: ofertaItems,
     total: ofertaPrecioTotal,
     oc_codigo: ocCodigo,
+    condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     oc_creada_por: actorEmail,
     oc_creada_en: nowIso,
     historial: appendHistorial(o, 'oc_creada', actorEmail, {
@@ -209,8 +223,22 @@ export async function aprobarOrdenConOferta(
 }
 
 /**
+ * Estado destino de una OC al confirmarla el gerente, según su condición de pago:
+ *  · contra_entrega → 'por_recibir'   (recibe primero, luego paga lo recibido)
+ *  · credito        → 'cuenta_abierta' (abonos hasta saldar)
+ *  · contado/anticipado/null → 'confirmada_metodo' (flujo actual: indicar método → Tesorería paga)
+ */
+export function destinoPorCondicion(cond?: string | null): EstadoOrden {
+  if (cond === 'contra_entrega') return 'por_recibir';
+  if (cond === 'credito') return 'cuenta_abierta';
+  return 'confirmada_metodo';
+}
+
+/**
  * Aprueba/confirma EN LOTE varias OCs creadas (checklist). Cada OC pasa de
- * `oc_creada` → `oc_aprobada` y queda lista para que Tesorería la pague.
+ * `oc_creada` al estado que corresponde a su condición de pago (ver
+ * `destinoPorCondicion`): anticipado→Tesorería, contra_entrega→recepción,
+ * crédito→cuenta abierta. Un lote con condiciones mixtas reparte cada orden.
  */
 export async function aprobarOcsEnLote(
   ordenes: Orden[],
@@ -222,18 +250,70 @@ export async function aprobarOcsEnLote(
   const destino = almacenDestino?.trim() || null;
   const nowIso = new Date().toISOString();
   for (const o of elegibles) {
+    const nuevoEstado = destinoPorCondicion(o.condiciones_pago);
     const patch = {
-      estado: 'oc_aprobada' as EstadoOrden,
+      estado: nuevoEstado,
       oc_aprobada_por: actorEmail,
       oc_aprobada_en: nowIso,
       // Si se indicó destino, lo guardamos; si no, conservamos el que ya tuviera la orden.
       ...(destino ? { almacen_destino: destino } : {}),
-      historial: appendHistorial(o, 'oc_aprobada', actorEmail, { oc_codigo: o.oc_codigo, almacen_destino: destino }),
+      historial: appendHistorial(o, `confirmada_${nuevoEstado}`, actorEmail, { oc_codigo: o.oc_codigo, almacen_destino: destino, condicion: o.condiciones_pago }),
     };
     const { error } = await supabase.from(TABLE).update(patch).eq('id', o.id);
     if (error) throw error;
   }
   return elegibles.length;
+}
+
+/**
+ * Indica el método de pago de una OC confirmada (multipago) y la ENVÍA A PAGAR:
+ * `confirmada_metodo` → `oc_aprobada` (Confirmada pagar). Aparece en Tesorería.
+ */
+/** Catálogo de métodos de pago. `sinComprobante` = no exige comprobante (efectivo). */
+export const METODOS_PAGO: { value: string; label: string; sinComprobante?: boolean }[] = [
+  { value: 'divisas_efectivo', label: 'Divisas en efectivo', sinComprobante: true },
+  { value: 'efectivo_bs', label: 'Efectivo (Bs)', sinComprobante: true },
+  { value: 'transferencia', label: 'Transferencia' },
+  { value: 'pago_movil', label: 'Pago móvil' },
+  { value: 'binance_usdt', label: 'Binance / USDT' },
+  { value: 'zelle', label: 'Zelle' },
+  { value: 'otro', label: 'Otro' },
+];
+export function labelMetodoPago(v?: string | null): string {
+  return METODOS_PAGO.find((m) => m.value === v)?.label ?? (v ?? '—');
+}
+/** true si TODAS las patas son en efectivo (no requieren comprobante). */
+export function pagoSinComprobante(metodos?: PagoMetodo[] | null): boolean {
+  const list = metodos ?? [];
+  if (!list.length) return false;
+  return list.every((m) => METODOS_PAGO.find((x) => x.value === m.metodo)?.sinComprobante);
+}
+
+export async function indicarMetodoPago(
+  o: Orden,
+  metodos: PagoMetodo[],
+  actorEmail: string,
+): Promise<Orden> {
+  // Flujo normal: confirmada_metodo → oc_aprobada. Contra entrega: tras recibir
+  // (recibida) se indica el método para pagar SOLO lo recibido → oc_aprobada.
+  const esContraEntregaRecibida = o.estado === 'recibida' && o.condiciones_pago === 'contra_entrega';
+  if (o.estado !== 'confirmada_metodo' && !esContraEntregaRecibida)
+    throw new Error('La OC debe estar en "Confirmada (indicar método de pago)".');
+  // El monto lo define Tesorería al pagar; acá solo se registran método(s) y moneda(s).
+  const limpios = (metodos ?? [])
+    .map((m) => ({ metodo: m.metodo, moneda: m.moneda, monto: Math.round((Number(m.monto) || 0) * 100) / 100 }))
+    .filter((m) => m.metodo && m.moneda);
+  if (!limpios.length) throw new Error('Indicá al menos un método de pago.');
+  const patch = {
+    estado: 'oc_aprobada' as EstadoOrden,
+    metodo_pago: limpios,
+    metodo_pago_por: actorEmail,
+    metodo_pago_en: new Date().toISOString(),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
 }
 
 export async function rechazarOrden(
@@ -376,9 +456,26 @@ export async function urlAdjuntoOc(path: string): Promise<string> {
 export interface OrdenPorPagar {
   orden: Orden;
   proveedorNombre: string;
+  /** Contra entrega = se paga solo lo recibido. */
+  esContraEntrega: boolean;
+  /** Monto sugerido a pagar (lo recibido en contra entrega, el total en el resto). */
+  montoAPagar: number;
 }
 
-/** Lista las OC confirmadas (oc_aprobada) pendientes de pago en Tesorería. */
+function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
+  const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
+  const montoAPagar = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
+  return {
+    orden,
+    proveedorNombre: (orden.proveedor_id && pm.get(orden.proveedor_id)) || '—',
+    esContraEntrega,
+    montoAPagar,
+  };
+}
+
+/** Lista las OC confirmadas (oc_aprobada) pendientes de pago en Tesorería.
+ *  Captura anticipado (oc_aprobada) y contra_entrega (oc_aprobada tras recibir e
+ *  indicar método). Las de crédito NO aparecen: se saldan por abonos. */
 export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   const [{ data: os, error }, { data: provs }] = await Promise.all([
     supabase.from(TABLE).select('*').eq('estado', 'oc_aprobada').order('oc_aprobada_en', { ascending: true }),
@@ -386,10 +483,18 @@ export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   ]);
   if (error) throw error;
   const pm = new Map((provs ?? []).map((p) => [p.id as string, p.razon_social as string]));
-  return (os ?? []).map((r) => {
-    const orden = r as Orden;
-    return { orden, proveedorNombre: (orden.proveedor_id && pm.get(orden.proveedor_id)) || '—' };
-  });
+  return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
+}
+
+/** Lista las OC a crédito con cuenta abierta (para la vista de crédito + abonos). */
+export async function listOrdenesEnCredito(): Promise<OrdenPorPagar[]> {
+  const [{ data: os, error }, { data: provs }] = await Promise.all([
+    supabase.from(TABLE).select('*').eq('estado', 'cuenta_abierta').order('oc_aprobada_en', { ascending: true }),
+    supabase.from('proveedores').select('id, razon_social'),
+  ]);
+  if (error) throw error;
+  const pm = new Map((provs ?? []).map((p) => [p.id as string, p.razon_social as string]));
+  return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
 }
 
 export interface PagarOcInput {
@@ -444,12 +549,100 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   return data as Orden;
 }
 
+export interface PagarOcMultiLeg {
+  cuenta: CuentaCaja;
+  moneda: string;
+  monto: number;        // EN SU PROPIA MONEDA
+  montoUsd?: number;    // equivalente USD (solo para la traza)
+}
+export interface PagarOcMultiInput {
+  orden: Orden;
+  cajaId: string;
+  legs: PagarOcMultiLeg[];
+  factura?: File | null;
+  actorEmail: string;
+  actorName?: string | null;
+}
+
+/**
+ * Paga una OC confirmada con MULTIPAGO desde la caja Multimoneda: una pata por
+ * moneda (USDT, Bs, USD físico…), cada una descontada de su saldo real en
+ * `caja_saldos`. Cada pata queda como un egreso en el Libro Mayor casado con la
+ * orden. Deja la OC en `pagada`.
+ */
+export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<Orden> {
+  const { orden: o } = input;
+  if (o.estado !== 'oc_aprobada')
+    throw new Error('Solo se pagan órdenes de compra confirmadas (aprobadas en lote).');
+  if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
+  const legs = (input.legs ?? []).filter((l) => l.moneda && (Number(l.monto) || 0) > 0);
+  if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');
+
+  // Un egreso por moneda (cada uno valida el saldo de su cuenta).
+  const movIds: string[] = [];
+  for (const leg of legs) {
+    const mov = await egresarDivisa({
+      cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+      concepto: `Pago OC ${o.oc_codigo ?? o.codigo} · ${leg.moneda}`, categoria: 'pago_oc', refOrdenId: o.id,
+      actor: input.actorEmail, actorName: input.actorName ?? null,
+    });
+    movIds.push(mov.id);
+  }
+
+  let facturaPath: string | null = null, facturaNombre: string | null = null;
+  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+
+  const patch = {
+    estado: 'pagada' as EstadoOrden,
+    pagada_por: input.actorEmail,
+    pagada_en: new Date().toISOString(),
+    caja_id: input.cajaId,
+    caja_mov_id: movIds[0] ?? null,
+    factura_path: facturaPath, factura_nombre: facturaNombre,
+    historial: appendHistorial(o, 'pagada', input.actorEmail, {
+      oc_codigo: o.oc_codigo,
+      multipago: legs.map((l) => ({ moneda: l.moneda, cuenta: l.cuenta, monto: l.monto })),
+    }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 /**
  * Cierra el ciclo: el analista/obrero confirma que el pedido fue
  * recibido correctamente. Solo aplicable post-recepción.
  */
+/** ¿El crédito está totalmente saldado? (Σ abonos ≥ total). */
+function creditoSaldado(o: Orden): boolean {
+  return (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
+}
+
+/**
+ * Crédito saldado y SIN recibir → lo envía a "Pendiente por recepción" (por_recibir).
+ * Lo dispara el analista desde Compras cuando ve la cuenta resaltada como pagada.
+ */
+export async function enviarCreditoARecepcion(o: Orden, actorEmail: string): Promise<Orden> {
+  if (o.estado !== 'cuenta_abierta') throw new Error('Solo aplica a créditos con cuenta abierta.');
+  if (!creditoSaldado(o)) throw new Error('La cuenta aún tiene saldo pendiente por pagar.');
+  if (o.recibida_en) throw new Error('La mercancía ya fue recibida.');
+  const patch = {
+    estado: 'por_recibir' as EstadoOrden,
+    historial: appendHistorial(o, 'credito_saldado', actorEmail, { enviada_a: 'por_recibir' }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 export async function finalizarPedido(o: Orden, actorEmail: string): Promise<Orden> {
-  if (o.estado !== 'recibida')
+  // Anticipado/contado/crédito finalizan desde 'recibida'. Contra entrega recibe
+  // ANTES de pagar, así que finaliza desde 'pagada' (ya tiene recibida_en).
+  const contraEntregaPagada = o.estado === 'pagada' && o.condiciones_pago === 'contra_entrega' && !!o.recibida_en;
+  // Crédito recibido ANTES de saldar: cuando termina de pagarse queda listo para
+  // finalizar directamente (ya entró al inventario, ya está saldado).
+  const creditoRecibidoSaldado = o.estado === 'cuenta_abierta' && o.condiciones_pago === 'credito' && !!o.recibida_en && creditoSaldado(o);
+  if (o.estado !== 'recibida' && !contraEntregaPagada && !creditoRecibidoSaldado)
     throw new Error('Solo se finaliza una orden ya recibida');
   const patch = {
     estado: 'finalizada' as EstadoOrden,
@@ -467,19 +660,39 @@ export async function finalizarPedido(o: Orden, actorEmail: string): Promise<Ord
   return data as Orden;
 }
 
-export async function recibirOrden(
+/**
+ * Recepción PARCIAL: confirma cuánto entró realmente por ítem (≤ lo pedido).
+ * Solo lo recibido entra al inventario (entrada con delta = cantidad_recibida y
+ * recálculo de PMP). Si hay diferencia se documenta en `nota_recepcion` y la
+ * orden cierra como `recibida` SIN saldo pendiente (los faltantes solo se anotan).
+ * Para contra_entrega, `recibido_total` es el monto que luego se paga en Tesorería.
+ */
+export async function recibirOrdenParcial(
   o: Orden,
+  recepciones: { sku: string; cantidad_recibida: number }[],
+  nota: string | null,
   actorEmail: string,
-  actorName: string | null
+  actorName: string | null,
+  almacenDestino?: string | null,
 ): Promise<Orden> {
-  if (!['pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
-    throw new Error('Solo se recibe una orden de compra ya pagada');
+  // 'cuenta_abierta' = crédito: la mercancía puede llegar ANTES de terminar de pagar.
+  if (!['por_recibir', 'cuenta_abierta', 'pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
+    throw new Error('La orden no está en un estado recibible.');
+  if (o.recibida_en) throw new Error('Esta orden ya fue recibida.');
+  // Almacén al que entra la mercancía: el elegido al recibir manda; si no, el de la OC.
+  const destinoFinal = (almacenDestino && almacenDestino.trim()) || (o.almacen_destino && o.almacen_destino.trim()) || null;
+  const recMap = new Map(recepciones.map((r) => [r.sku, Math.max(0, Number(r.cantidad_recibida) || 0)]));
+  for (const it of o.items) {
+    const rec = recMap.get(it.sku) ?? 0;
+    if (rec > Number(it.cantidad)) throw new Error(`No podés recibir más de lo pedido en ${it.sku}.`);
+  }
+  if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0))
+    throw new Error('Indicá al menos una cantidad recibida.');
 
-  // Generar movimientos de entrada por cada ítem. Calculamos stock_antes/después
-  // y el nuevo precio promedio ponderado (cost averaging) leyendo el producto.
-  // Cada ítem es un producto distinto → procesamos en paralelo.
+  // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
   await Promise.all(o.items.map(async (it) => {
-    if (!it.productoId) return;
+    const rec = recMap.get(it.sku) ?? 0;
+    if (!it.productoId || rec <= 0) return;
     const { data: prod, error: pErr } = await supabase
       .from('productos')
       .select('stock, precio, precio_promedio, almacen')
@@ -487,23 +700,18 @@ export async function recibirOrden(
       .maybeSingle();
     if (pErr) throw pErr;
     const stockAntes = Number(prod?.stock ?? 0);
-    const stockDespues = stockAntes + Number(it.cantidad);
-    // La mercancía entra al almacén destino elegido al confirmar la OC; si no se
-    // eligió (OCs viejas o confirmadas en lote sin destino), cae al del producto.
-    const almacenProd = (o.almacen_destino && o.almacen_destino.trim()) || (prod?.almacen as string) || 'General';
-
-    // Precio promedio ponderado: ((stock × precio_actual) + (cantidad × precio_compra)) / stock_total
+    const stockDespues = stockAntes + rec;
+    const almacenProd = destinoFinal || (prod?.almacen as string) || 'General';
     const precioActual = Number(prod?.precio_promedio ?? prod?.precio ?? 0);
     const precioCompra = Number(it.precio);
-    const cantidad = Number(it.cantidad);
     const precioPromedio = stockDespues > 0
-      ? Number(((stockAntes * precioActual + cantidad * precioCompra) / stockDespues).toFixed(4))
+      ? Number(((stockAntes * precioActual + rec * precioCompra) / stockDespues).toFixed(4))
       : precioCompra;
 
     const { error: mErr } = await supabase.from('movimientos').insert({
       producto_id: it.productoId,
       tipo: 'entrada',
-      delta: it.cantidad,
+      delta: rec,
       stock_antes: stockAntes,
       stock_despues: stockDespues,
       actor: actorEmail,
@@ -512,7 +720,7 @@ export async function recibirOrden(
       ref_id: o.id,
       ref_codigo: o.codigo,
       proveedor_id: o.proveedor_id,
-      detalle: `Recepción de ${it.cantidad} ${it.sku} @ $${precioCompra.toFixed(2)} (promedio: $${precioPromedio.toFixed(2)}) → ${almacenProd}`,
+      detalle: `Recepción de ${rec}/${it.cantidad} ${it.sku} @ $${precioCompra.toFixed(2)} (promedio: $${precioPromedio.toFixed(2)}) → ${almacenProd}`,
     });
     if (mErr) throw mErr;
 
@@ -522,16 +730,13 @@ export async function recibirOrden(
       .eq('id', it.productoId);
     if (uErr) throw uErr;
 
-    // Mantener la existencia del almacén del producto en sincronía con el stock
-    // recibido (la cantidad entra al almacén del producto). Evita que producción
-    // e inventario por almacén muestren cantidades irreales.
     const { data: exRow } = await supabase
       .from('existencias')
       .select('stock')
       .eq('producto_id', it.productoId)
       .eq('almacen', almacenProd)
       .maybeSingle();
-    const exStockNuevo = (Number(exRow?.stock) || 0) + Number(it.cantidad);
+    const exStockNuevo = (Number(exRow?.stock) || 0) + rec;
     const { error: exErr } = await supabase
       .from('existencias')
       .upsert(
@@ -541,18 +746,171 @@ export async function recibirOrden(
     if (exErr) throw exErr;
   }));
 
+  const itemsRec = o.items.map((it) => ({ ...it, cantidad_recibida: recMap.get(it.sku) ?? 0 }));
+  const recibidoTotal = Math.round(itemsRec.reduce((a, it) => a + (it.cantidad_recibida ?? 0) * Number(it.precio), 0) * 100) / 100;
+  const huboDiferencia = itemsRec.some((it) => (it.cantidad_recibida ?? 0) < Number(it.cantidad));
+  // Crédito recibido sin terminar de pagar: queda RECIBIDO pero la cuenta sigue
+  // abierta (pendiente por pagar). Cuando se salde, pasará a 'recibida' y se finaliza.
+  const esCredito = o.condiciones_pago === 'credito';
+  const saldadoCredito = (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
+  const estadoRecepcion: EstadoOrden = esCredito && !saldadoCredito ? 'cuenta_abierta' : 'recibida';
   const patch = {
-    estado: 'recibida' as EstadoOrden,
-    historial: appendHistorial(o, 'recibida', actorEmail),
+    estado: estadoRecepcion,
+    items: itemsRec,
+    recibido_total: recibidoTotal,
+    ...(destinoFinal ? { almacen_destino: destinoFinal } : {}),
+    nota_recepcion: huboDiferencia ? (nota?.trim() || 'Recepción parcial: llegó menos de lo solicitado.') : (nota?.trim() || null),
+    recibida_por: actorEmail,
+    recibida_en: new Date().toISOString(),
+    historial: appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal }),
   };
-  const { data, error } = await supabase
-    .from(TABLE)
-    .update(patch)
-    .eq('id', o.id)
-    .select('*')
-    .single();
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
   return data as Orden;
+}
+
+/**
+ * Registra un ABONO de una compra a crédito: descuenta el monto de la caja
+ * (egreso real en Tesorería vía pagarOrden) y lo acumula. Al saldar el total
+ * (Σ abonos ≥ total) la orden pasa a `por_recibir` (Pendiente por recepción).
+ */
+export async function registrarAbono(
+  o: Orden,
+  monto: number,
+  cajaId: string,
+  moneda: string,
+  nota: string | null,
+  actorEmail: string,
+  actorName: string | null,
+  factura?: File | null,
+): Promise<{ orden: Orden; abono: AbonoCredito }> {
+  if (o.estado !== 'cuenta_abierta') throw new Error('Solo se abonan órdenes a crédito con cuenta abierta.');
+  if (!cajaId) throw new Error('Elegí la caja del abono.');
+  const m = Math.round((Number(monto) || 0) * 100) / 100;
+  if (m <= 0) throw new Error('Indicá el monto del abono.');
+
+  // Egreso real en Tesorería (valida saldo) casado con la orden.
+  const mov = await pagarOrden({
+    cajaId, ordenId: o.id, monto: m,
+    concepto: `Abono crédito ${o.oc_codigo ?? o.codigo}`,
+    actor: actorEmail, actorName: actorName ?? null,
+  });
+
+  // Comprobante del abono (opcional, reusa el storage de adjuntos de la OC).
+  let comprobantePath: string | null = null, comprobanteNombre: string | null = null;
+  if (factura) { comprobantePath = await subirAdjuntoOc(o.id, factura, 'factura'); comprobanteNombre = factura.name; }
+
+  const { data: prev } = await supabase.from('abonos_credito').select('monto').eq('orden_id', o.id);
+  const previo = (prev ?? []).reduce((a, r) => a + Number((r as { monto: number }).monto), 0);
+  const acumulado = Math.round((previo + m) * 100) / 100;
+  const saldoRestante = Math.round((Number(o.total) - acumulado) * 100) / 100;
+
+  const { data: ab, error: abErr } = await supabase
+    .from('abonos_credito')
+    .insert({
+      orden_id: o.id, monto: m, moneda, caja_id: cajaId, caja_mov_id: mov.id,
+      saldo_restante: saldoRestante, actor: actorEmail, actor_name: actorName ?? null, nota: nota?.trim() || null,
+      comprobante_path: comprobantePath, comprobante_nombre: comprobanteNombre,
+    })
+    .select('*')
+    .single();
+  if (abErr) throw abErr;
+
+  const saldado = acumulado >= Number(o.total) - 0.01;
+  // No se cambia de estado automáticamente al saldar (ver registrarAbonoMulti).
+  const patch = {
+    abonado_total: acumulado,
+    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', actorEmail, { monto: m, saldo_restante: saldoRestante }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return { orden: data as Orden, abono: ab as AbonoCredito };
+}
+
+export interface AbonoLeg {
+  cajaId: string;
+  cuenta: CuentaCaja;
+  moneda: string;
+  monto: number;        // en su propia moneda
+  montoUsd: number;     // equivalente USD (para acumular contra el total)
+}
+export interface RegistrarAbonoMultiInput {
+  orden: Orden;
+  legs: AbonoLeg[];
+  nota?: string | null;
+  factura?: File | null;
+  actorEmail: string;
+  actorName?: string | null;
+}
+
+/**
+ * Abono MULTIPAGO de una compra a crédito desde Tesorería: una pata por moneda
+ * (USDT, Bs, USD físico…), cada una descontada de su saldo real (`caja_saldos`).
+ * El abono acumulado se mide en USD (equivalente con la tasa del día). Al saldar
+ * el total, la orden pasa a `recibida` (si ya llegó) o `por_recibir`.
+ */
+export async function registrarAbonoMulti(input: RegistrarAbonoMultiInput): Promise<{ orden: Orden; abono: AbonoCredito }> {
+  const { orden: o } = input;
+  if (o.estado !== 'cuenta_abierta') throw new Error('Solo se abonan órdenes a crédito con cuenta abierta.');
+  const legs = (input.legs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
+  if (!legs.length) throw new Error('Indicá al menos un monto a abonar.');
+  const abonoUsd = Math.round(legs.reduce((a, l) => a + (Number(l.montoUsd) || 0), 0) * 100) / 100;
+  if (abonoUsd <= 0) throw new Error('El abono debe ser mayor que 0.');
+
+  // Un egreso por moneda (cada uno valida su saldo).
+  const movIds: string[] = [];
+  for (const leg of legs) {
+    const mov = await egresarDivisa({
+      cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+      concepto: `Abono crédito ${o.oc_codigo ?? o.codigo} · ${leg.moneda}`, categoria: 'pago_oc', refOrdenId: o.id,
+      actor: input.actorEmail, actorName: input.actorName ?? null,
+    });
+    movIds.push(mov.id);
+  }
+
+  let comprobantePath: string | null = null, comprobanteNombre: string | null = null;
+  if (input.factura) { comprobantePath = await subirAdjuntoOc(o.id, input.factura, 'factura'); comprobanteNombre = input.factura.name; }
+
+  const { data: prev } = await supabase.from('abonos_credito').select('monto').eq('orden_id', o.id);
+  const previo = (prev ?? []).reduce((a, r) => a + Number((r as { monto: number }).monto), 0);
+  const acumulado = Math.round((previo + abonoUsd) * 100) / 100;
+  const saldoRestante = Math.round((Number(o.total) - acumulado) * 100) / 100;
+  const detalle = legs.map((l) => `${l.monto} ${l.moneda}`).join(' + ');
+
+  const { data: ab, error: abErr } = await supabase
+    .from('abonos_credito')
+    .insert({
+      orden_id: o.id, monto: abonoUsd, moneda: 'USD', caja_id: legs[0].cajaId, caja_mov_id: movIds[0] ?? null,
+      saldo_restante: saldoRestante, actor: input.actorEmail, actor_name: input.actorName ?? null,
+      nota: [input.nota?.trim(), `Multipago: ${detalle}`].filter(Boolean).join(' · '),
+      comprobante_path: comprobantePath, comprobante_nombre: comprobanteNombre,
+    })
+    .select('*')
+    .single();
+  if (abErr) throw abErr;
+
+  const saldado = acumulado >= Number(o.total) - 0.01;
+  // No saltamos de estado automáticamente: el crédito queda saldado pero la
+  // orden sigue como `cuenta_abierta` (resaltada en Compras). El analista decide
+  // enviarla a recepción o finalizarla (si ya llegó) desde el detalle.
+  const patch = {
+    abonado_total: acumulado,
+    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', input.actorEmail, { monto: abonoUsd, saldo_restante: saldoRestante, multipago: legs.map((l) => ({ moneda: l.moneda, monto: l.monto })) }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return { orden: data as Orden, abono: ab as AbonoCredito };
+}
+
+/** Traza de abonos de una orden a crédito (orden cronológico). */
+export async function listAbonos(ordenId: string): Promise<AbonoCredito[]> {
+  const { data, error } = await supabase
+    .from('abonos_credito')
+    .select('*')
+    .eq('orden_id', ordenId)
+    .order('at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as AbonoCredito[];
 }
 
 export async function cancelarOrden(

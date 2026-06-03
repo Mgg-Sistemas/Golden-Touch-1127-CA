@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Combustible (Supabase)
+   Golden Touch · Combustible (Supabase)
    Inventario de combustible por tipo (litros + costo promedio por
    litro) y solicitudes de salida con flujo de aprobación:
      por_aprobar → aprobada → finalizada (descuenta litros).

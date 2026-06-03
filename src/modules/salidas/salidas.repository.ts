@@ -1,13 +1,16 @@
 /* ============================================================
-   MGG · Salidas / Traslados · Material (Supabase)
+   Golden Touch · Salidas / Traslados · Material (Supabase)
    Salida (descuenta stock hacia un destino) y traslado (mueve
    stock entre almacenes llevando el PMP). Reutiliza el kardex
    (`movimientos`) y la lógica de existencias por almacén.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Movimiento } from '@/shared/lib/types';
+import type {
+  Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida,
+} from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
+import { salidaDinero, trasladoDinero } from './cajas.repository';
 
 export interface SalidaMaterialInput {
   productoId: string;
@@ -64,7 +67,7 @@ export interface TrasladoMaterialInput {
  * Traslado de material entre almacenes: salida en origen + entrada en destino
  * llevando el costo (PMP) del origen para fundirlo en el destino.
  */
-export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<void> {
+export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Movimiento> {
   const cantidad = Number(input.cantidad) || 0;
   if (cantidad <= 0) throw new Error('La cantidad debe ser mayor que 0.');
   if (input.almacenOrigen === input.almacenDestino) throw new Error('El almacén origen y destino deben ser distintos.');
@@ -76,8 +79,8 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<vo
   const motivo = input.motivo?.trim() || null;
   const notaEntrega = input.notaEntrega?.trim() || null;
 
-  // Salida del origen.
-  await registrarMovimiento({
+  // Salida del origen (se devuelve este movimiento para trazar el traslado).
+  const movSalida = await registrarMovimiento({
     producto_id: input.productoId,
     tipo: 'transferencia',
     delta: -cantidad,
@@ -106,6 +109,7 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<vo
     detalle: motivo ? `Traslado desde ${input.almacenOrigen} · ${motivo}` : `Traslado desde ${input.almacenOrigen}`,
     precio_unitario: costoOrigen,
   });
+  return movSalida;
 }
 
 /* ───────────── Directorio de personas (destino) ───────────── */
@@ -147,4 +151,208 @@ export async function listTrasladosMaterial(): Promise<Movimiento[]> {
     .order('at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as Movimiento[];
+}
+
+/* ============================================================
+   Solicitudes de salida/traslado con aprobación
+   El obrero crea (por_aprobar); admin/analista aprueba y ejecuta.
+   Al ejecutar se reutilizan las funciones inmediatas de arriba
+   (salidaMaterial/trasladoMaterial/salidaDinero/trasladoDinero).
+   ============================================================ */
+
+const SOL = 'solicitudes_salida';
+
+function appendHistorial(s: Pick<SolicitudSalida, 'historial'>, evento: string, actor: string, meta: Record<string, unknown> = {}): EventoHistorial[] {
+  const ev = { at: new Date().toISOString(), evento, actor, ...meta } as EventoHistorial;
+  return [...(s.historial ?? []), ev];
+}
+
+/** Próximo código SAL-AAAA-NNNN (salida) o TRA-AAAA-NNNN (traslado). */
+async function nextCodigoSolicitudSalida(scope: ScopeSalida): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefijo = scope === 'traslado' ? 'TRA' : 'SAL';
+  const { count, error } = await supabase
+    .from(SOL)
+    .select('id', { count: 'exact', head: true })
+    .eq('scope', scope);
+  if (error) throw error;
+  return `${prefijo}-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
+}
+
+export async function listSolicitudesSalida(filtros?: {
+  scope?: ScopeSalida; tipo?: TipoSalida; estado?: EstadoSolicitudSalida;
+}): Promise<SolicitudSalida[]> {
+  let qy = supabase.from(SOL).select('*').order('created_at', { ascending: false });
+  if (filtros?.scope) qy = qy.eq('scope', filtros.scope);
+  if (filtros?.tipo) qy = qy.eq('tipo', filtros.tipo);
+  if (filtros?.estado) qy = qy.eq('estado', filtros.estado);
+  const { data, error } = await qy;
+  if (error) throw error;
+  return (data ?? []) as SolicitudSalida[];
+}
+
+export interface CrearSolicitudSalidaInput {
+  scope: ScopeSalida;
+  tipo: TipoSalida;
+  solicitante: string;
+  destino?: string | null;
+  motivo?: string | null;
+  // material
+  productoId?: string | null;
+  productoNombre?: string | null;
+  almacenOrigen?: string | null;
+  almacenDestino?: string | null;
+  cantidad?: number | null;
+  precioUnit?: number | null;
+  fechaEntrega?: string | null;
+  notaEntrega?: string | null;
+  // dinero
+  cajaId?: string | null;
+  cajaDestinoId?: string | null;
+  monto?: number | null;
+  moneda?: string | null;
+  cuenta?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/** Crea la solicitud en estado 'por_aprobar'. NO ejecuta el movimiento. */
+export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Promise<SolicitudSalida> {
+  if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+  if (input.tipo === 'material') {
+    const cantidad = Number(input.cantidad) || 0;
+    if (cantidad <= 0) throw new Error('La cantidad debe ser mayor que 0.');
+    if (!input.productoId) throw new Error('Elegí el producto.');
+    if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
+    if (input.scope === 'traslado') {
+      if (!input.almacenDestino) throw new Error('Indicá el almacén destino.');
+      if (input.almacenOrigen === input.almacenDestino) throw new Error('El almacén origen y destino deben ser distintos.');
+    } else if (!input.destino?.trim()) {
+      throw new Error('Indicá a quién va dirigida la salida.');
+    }
+  } else {
+    const monto = Number(input.monto) || 0;
+    if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+    if (!input.cajaId) throw new Error('Elegí la caja.');
+    if (input.scope === 'traslado') {
+      if (!input.cajaDestinoId) throw new Error('Elegí la caja destino.');
+      if (input.cajaId === input.cajaDestinoId) throw new Error('La caja origen y destino deben ser distintas.');
+    } else if (!input.destino?.trim()) {
+      throw new Error('Indicá a quién va dirigida la salida de dinero.');
+    }
+  }
+
+  const codigo = await nextCodigoSolicitudSalida(input.scope);
+  const historial = appendHistorial({ historial: [] }, 'creada', input.actor);
+  const { data, error } = await supabase
+    .from(SOL)
+    .insert({
+      codigo,
+      scope: input.scope,
+      tipo: input.tipo,
+      estado: 'por_aprobar',
+      producto_id: input.productoId ?? null,
+      producto_nombre: input.productoNombre ?? null,
+      almacen_origen: input.almacenOrigen ?? null,
+      almacen_destino: input.almacenDestino ?? null,
+      cantidad: input.cantidad != null ? Number(input.cantidad) : null,
+      precio_unit: input.precioUnit != null ? Number(input.precioUnit) : null,
+      fecha_entrega: input.fechaEntrega || null,
+      nota_entrega: input.notaEntrega?.trim() || null,
+      caja_id: input.cajaId ?? null,
+      caja_destino_id: input.cajaDestinoId ?? null,
+      monto: input.monto != null ? Number(input.monto) : null,
+      moneda: input.moneda ?? null,
+      cuenta: input.cuenta ?? null,
+      solicitante: input.solicitante.trim(),
+      destino: input.destino?.trim() || null,
+      motivo: input.motivo?.trim() || null,
+      historial,
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as SolicitudSalida;
+}
+
+/** Aprueba la solicitud (por_aprobar → aprobada). NO ejecuta el movimiento. */
+export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string): Promise<void> {
+  if (s.estado !== 'por_aprobar') throw new Error('Solo se aprueban solicitudes por aprobar.');
+  const { error } = await supabase
+    .from(SOL)
+    .update({
+      estado: 'aprobada',
+      aprobada_por: actor,
+      aprobada_en: new Date().toISOString(),
+      historial: appendHistorial(s, 'aprobada', actor),
+    })
+    .eq('id', s.id);
+  if (error) throw error;
+}
+
+/**
+ * Ejecuta la solicitud aprobada: realiza el movimiento real reutilizando las
+ * funciones inmediatas (que validan stock/saldo) y cierra como 'ejecutada'.
+ */
+export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string, actorName?: string | null): Promise<void> {
+  if (s.estado !== 'aprobada') throw new Error('Solo se ejecutan solicitudes aprobadas.');
+
+  let movId: string | null = null;
+  let movRef = '';
+  if (s.scope === 'salida' && s.tipo === 'material') {
+    const mov = await salidaMaterial({
+      productoId: s.producto_id!, almacen: s.almacen_origen!, cantidad: Number(s.cantidad) || 0,
+      destino: s.destino || '', motivo: s.motivo, precioUnit: s.precio_unit,
+      fechaEntrega: s.fecha_entrega, actor, actorName,
+    });
+    movId = mov.id; movRef = 'salida_modulo';
+  } else if (s.scope === 'traslado' && s.tipo === 'material') {
+    const mov = await trasladoMaterial({
+      productoId: s.producto_id!, almacenOrigen: s.almacen_origen!, almacenDestino: s.almacen_destino!,
+      cantidad: Number(s.cantidad) || 0, motivo: s.motivo, precioUnit: s.precio_unit,
+      notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, actor, actorName,
+    });
+    movId = mov.id; movRef = 'traslado_modulo';
+  } else if (s.scope === 'salida' && s.tipo === 'dinero') {
+    const mov = await salidaDinero({
+      cajaId: s.caja_id!, destino: s.destino || '', motivo: s.motivo || '',
+      monto: Number(s.monto) || 0, actor, actorName,
+    });
+    movId = mov.id; movRef = 'salida_dinero';
+  } else if (s.scope === 'traslado' && s.tipo === 'dinero') {
+    const mov = await trasladoDinero({
+      origenId: s.caja_id!, destinoId: s.caja_destino_id!, monto: Number(s.monto) || 0,
+      motivo: s.motivo, notaEntrega: s.nota_entrega, actor, actorName,
+    });
+    movId = mov.id; movRef = 'traslado_dinero';
+  } else {
+    throw new Error('Combinación de solicitud no soportada.');
+  }
+
+  const { error } = await supabase
+    .from(SOL)
+    .update({
+      estado: 'ejecutada',
+      ejecutada_por: actor,
+      ejecutada_en: new Date().toISOString(),
+      mov_id: movId,
+      mov_ref: movRef,
+      historial: appendHistorial(s, 'ejecutada', actor),
+    })
+    .eq('id', s.id);
+  if (error) throw error;
+}
+
+export async function cancelarSolicitudSalida(s: SolicitudSalida, actor: string, motivo: string): Promise<void> {
+  if (s.estado === 'ejecutada') throw new Error('No se puede cancelar una solicitud ya ejecutada.');
+  const { error } = await supabase
+    .from(SOL)
+    .update({
+      estado: 'cancelada',
+      historial: appendHistorial(s, 'cancelada', actor, { motivo }),
+    })
+    .eq('id', s.id);
+  if (error) throw error;
 }

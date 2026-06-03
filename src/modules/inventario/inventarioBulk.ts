@@ -367,7 +367,7 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
 
 function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
   const rows: (string | null)[][] = [
-    ['INSTRUCCIONES DE CARGA · PLANTILLA INVENTARIO MGG'],
+    ['INSTRUCCIONES DE CARGA · PLANTILLA INVENTARIO Golden Touch'],
     [''],
     ['1. ESTRUCTURA DEL ARCHIVO'],
     ['• Trabajá exclusivamente sobre la hoja "Productos". No renombres columnas.'],
@@ -499,8 +499,8 @@ export async function exportarInventarioExcel(productos: Producto[]): Promise<vo
     'Precio promedio': p.precio_promedio ?? p.precio,
     'Valor': (p.stock ?? 0) * (p.precio ?? 0),
     Estado: p.estado,
-    'Receta fundición': p.receta_fundicion ?? '',
-    'En proceso fundición': p.en_fundicion ? 'Sí' : 'No',
+    'Receta producción': p.receta_fundicion ?? '',
+    'En proceso producción': p.en_fundicion ? 'Sí' : 'No',
     'Bajo mínimo': (p.stock ?? 0) < (p.stock_min ?? 0) ? 'Sí' : 'No',
   }));
   const ws = XLSXMod.utils.json_to_sheet(rows);
@@ -535,7 +535,7 @@ export async function exportarInventarioPdf(productos: Producto[]): Promise<void
   doc.text('Inventario · Reporte filtrado', TEXT_X, y + 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text(`MGG · ${productos.length} productos · ${dateTime(new Date().toISOString())}`, TEXT_X, y + 34);
+  doc.text(`Golden Touch · ${productos.length} productos · ${dateTime(new Date().toISOString())}`, TEXT_X, y + 34);
   y += Math.max(LOGO_SIZE, 36) + 8;
 
   doc.setDrawColor(255, 138, 0);

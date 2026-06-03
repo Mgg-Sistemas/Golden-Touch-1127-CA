@@ -1,19 +1,19 @@
 /* ============================================================
-   MGG · Sistema de Gestión de Inventarios
-   Tema base · paleta dark + naranja/dorado (logo)
+   Golden Touch · Sistema de Gestión de Inventarios
+   Tema base · gris carbón neutro + naranja (logo GOLDEN TOUCH)
    ============================================================ */
 
 :root {
-  /* Paleta base */
-  --bg-0: #07080b;
-  --bg-1: #0d1014;
-  --bg-2: #131820;
-  --bg-3: #1a212c;
-  --surface: #161c25;
-  --surface-2: #1e2733;
-  --surface-3: #28323f;
-  --border: #232c39;
-  --border-strong: #2f3a4a;
+  /* Paleta base · gris carbón neutro (suave a la vista) */
+  --bg-0: #1c1f24;
+  --bg-1: #20242a;
+  --bg-2: #262a31;
+  --bg-3: #2d323a;
+  --surface: #23272e;
+  --surface-2: #2b3038;
+  --surface-3: #353b45;
+  --border: #333944;
+  --border-strong: #434a56;
 
   /* Tipografía */
   --text: #e7ecf3;
@@ -38,7 +38,7 @@
   /* Gradientes */
   --grad-primary: linear-gradient(135deg, #ff8a00 0%, #ffd54a 100%);
   --grad-primary-soft: linear-gradient(135deg, rgba(255,138,0,0.18) 0%, rgba(255,213,74,0.10) 100%);
-  --grad-surface: linear-gradient(180deg, #1a2230 0%, #131820 100%);
+  --grad-surface: linear-gradient(180deg, #2b3038 0%, #23272e 100%);
   --grad-glow: radial-gradient(circle at 50% 0%, rgba(255,138,0,0.18), transparent 60%);
 
   /* Sombras */
@@ -179,6 +179,7 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
   border-radius: var(--r-lg);
   padding: 1.25rem;
   box-shadow: var(--shadow-sm);
+  color: var(--text);
 }
 
 .card-title {
@@ -378,7 +379,8 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
 }
 .brand img {
   width: 38px; height: 38px;
-  border-radius: 10px;
+  border-radius: 50%;
+  object-fit: cover;
   filter: drop-shadow(0 4px 12px rgba(255,138,0,0.35));
 }
 .brand .brand-text {

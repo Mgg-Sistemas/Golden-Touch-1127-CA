@@ -20,7 +20,7 @@ interface InventarioFilterbarProps {
   onChange: (key: keyof FilterValues, value: string) => void;
 }
 
-/** Barra de filtros reutilizable de inventario (búsqueda + categoría/fundición/ABC/stock/estado). */
+/** Barra de filtros reutilizable de inventario (búsqueda + categoría/producción/ABC/stock/estado). */
 export function InventarioFilterbar({ values, categorias, onChange }: InventarioFilterbarProps) {
   return (
     <div className="filterbar">
@@ -48,8 +48,8 @@ export function InventarioFilterbar({ values, categorias, onChange }: Inventario
         onChange={(e) => onChange('filterFundicion', e.target.value)}
       >
         <option value="">Todos</option>
-        <option value="si">Con receta de fundición</option>
-        <option value="en_proceso">En proceso de fundición</option>
+        <option value="si">Con receta de producción</option>
+        <option value="en_proceso">En proceso de producción</option>
         <option value="no">Sin receta</option>
       </select>
       <select

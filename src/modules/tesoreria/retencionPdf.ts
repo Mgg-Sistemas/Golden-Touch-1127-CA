@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Tesorería · Comprobante de Retención (PDF).
+   Golden Touch · Tesorería · Comprobante de Retención (PDF).
    Se descarga SOLO al hacer clic (regla del sistema).
    ============================================================ */
 import type { Retencion } from '@/shared/lib/types';
@@ -31,7 +31,7 @@ export async function descargarComprobanteRetencionPdf(r: Retencion, proveedorNo
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
   doc.text('Comprobante de Retención', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text('Mineral Group Guayana C.A.', tx, y + 36);
+  doc.text('Golden Touch 1127 C.A.', tx, y + 36);
   doc.text(`Generado ${fmt.dateTime(new Date().toISOString())}`, tx, y + 50);
   y += 70;
 

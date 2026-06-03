@@ -1,0 +1,179 @@
+/* ============================================================
+   Golden Touch · Tesorería · Caja multimoneda (saldos + lotes + promedio)
+   Una caja contiene varias monedas (Bs, USD, USDT, COP). Bs se
+   divide en dos cuentas: jurídica y personal. Cada moneda lleva
+   su saldo y una TASA PROMEDIO PONDERADA (Bs por unidad), igual
+   que el PMP del inventario: un ingreso recalcula el promedio,
+   un egreso sale a esa tasa. Cada ingreso queda como un "lote"
+   para la trazabilidad de a qué tasa entró cada parte.
+   ============================================================ */
+import { supabase } from '@/shared/lib/supabase';
+import type { CajaSaldo, CajaLote, CuentaCaja } from '@/shared/lib/types';
+
+const SALDOS = 'caja_saldos';
+const LOTES = 'caja_lotes';
+
+export function round2(n: number): number { return Math.round((Number(n) || 0) * 100) / 100; }
+export function round4(n: number): number { return Math.round((Number(n) || 0) * 10000) / 10000; }
+
+/** Saldos de todas las cajas (con nombre de caja). */
+export async function listSaldos(): Promise<CajaSaldo[]> {
+  const { data, error } = await supabase
+    .from(SALDOS)
+    .select('*, caja:cajas(nombre)')
+    .order('moneda', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as CajaSaldo[];
+}
+
+/** Saldos de una caja puntual. */
+export async function saldosDeCaja(cajaId: string): Promise<CajaSaldo[]> {
+  const { data, error } = await supabase.from(SALDOS).select('*').eq('caja_id', cajaId).order('moneda');
+  if (error) throw error;
+  return (data ?? []) as CajaSaldo[];
+}
+
+export interface IngresarDivisaInput {
+  cajaId: string;
+  cuenta: CuentaCaja;
+  moneda: string;
+  monto: number;
+  /** Bs por 1 unidad de la moneda al comprarla (para USD/USDT/COP). Bs = 1. */
+  tasaBs?: number | null;
+  origen?: string | null;
+  motivo?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Ingresa divisa a una caja: suma al saldo y recalcula la tasa promedio
+ * ponderada. Registra el lote (trazabilidad). Devuelve el saldo actualizado.
+ */
+export async function ingresarDivisa(input: IngresarDivisaInput): Promise<CajaSaldo> {
+  const monto = round2(input.monto);
+  if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+  const esBs = input.moneda === 'Bs';
+  const tasaBs = esBs ? 1 : round4(Number(input.tasaBs) || 0);
+  if (!esBs && tasaBs <= 0) throw new Error('Indicá la tasa de compra (Bs por unidad).');
+
+  // Saldo actual de (caja, cuenta, moneda).
+  const { data: actual } = await supabase
+    .from(SALDOS)
+    .select('id, saldo, tasa_prom')
+    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda)
+    .maybeSingle();
+
+  const saldoAntes = Number(actual?.saldo) || 0;
+  const tasaAntes = Number(actual?.tasa_prom) || 0;
+  const saldoDespues = round2(saldoAntes + monto);
+  // Promedio ponderado (Bs por unidad). Bs siempre 1.
+  const tasaProm = esBs
+    ? 1
+    : (saldoAntes > 0 && tasaAntes > 0
+        ? round4((saldoAntes * tasaAntes + monto * tasaBs) / saldoDespues)
+        : tasaBs);
+
+  // Upsert del saldo.
+  const { data: up, error: upErr } = await supabase
+    .from(SALDOS)
+    .upsert(
+      { caja_id: input.cajaId, cuenta: input.cuenta, moneda: input.moneda, saldo: saldoDespues, tasa_prom: tasaProm, updated_at: new Date().toISOString() },
+      { onConflict: 'caja_id,cuenta,moneda' },
+    )
+    .select('*')
+    .single();
+  if (upErr) throw upErr;
+
+  // Lote para la trazabilidad.
+  const { error: loteErr } = await supabase.from(LOTES).insert({
+    caja_id: input.cajaId, cuenta: input.cuenta, moneda: input.moneda,
+    monto, tasa_bs: esBs ? null : tasaBs,
+    origen: input.origen ?? null, motivo: input.motivo ?? null,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  });
+  if (loteErr) throw loteErr;
+
+  // Movimiento en el libro de la caja (para el historial visible).
+  await supabase.from('movimientos_caja').insert({
+    caja_id: input.cajaId, tipo: 'ingreso', monto, moneda: input.moneda,
+    cuenta: input.cuenta, tasa_bs: esBs ? null : tasaBs,
+    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    motivo: input.motivo ?? input.origen ?? 'Ingreso de divisa',
+    actor: input.actor, actor_name: input.actorName ?? null,
+  });
+
+  return up as CajaSaldo;
+}
+
+/** Trazabilidad: lotes (ingresos) de una caja, filtrable por moneda/cuenta. */
+export async function listLotes(filtros: { cajaId: string; moneda?: string; cuenta?: CuentaCaja }): Promise<CajaLote[]> {
+  let q = supabase.from(LOTES).select('*').eq('caja_id', filtros.cajaId).order('created_at', { ascending: false });
+  if (filtros.moneda) q = q.eq('moneda', filtros.moneda);
+  if (filtros.cuenta) q = q.eq('cuenta', filtros.cuenta);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as CajaLote[];
+}
+
+export interface EgresarDivisaInput {
+  cajaId: string;
+  cuenta: CuentaCaja;
+  moneda: string;
+  monto: number;             // EN LA MONEDA de la cuenta
+  concepto?: string | null;
+  categoria?: string | null; // ej. 'pago_oc'
+  refOrdenId?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Egreso de una (caja, cuenta, moneda) puntual: descuenta del saldo multimoneda
+ * (valida fondos) y deja el movimiento en el libro de la caja. Se usa para el
+ * multipago de una OC desde la caja Multimoneda (una pata por moneda).
+ */
+export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: string }> {
+  const monto = round2(input.monto);
+  if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+
+  const { data: actual } = await supabase
+    .from(SALDOS)
+    .select('id, saldo, tasa_prom')
+    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda)
+    .maybeSingle();
+  const saldoAntes = Number(actual?.saldo) || 0;
+  if (monto > saldoAntes)
+    throw new Error(`Saldo insuficiente en ${input.moneda}${input.cuenta !== 'general' ? ` (${input.cuenta})` : ''}. Disponible: ${saldoAntes}.`);
+  const saldoDespues = round2(saldoAntes - monto);
+  const tasaBs = input.moneda === 'Bs' ? null : (Number(actual?.tasa_prom) || null);
+
+  const { error: upErr } = await supabase
+    .from(SALDOS)
+    .update({ saldo: saldoDespues, updated_at: new Date().toISOString() })
+    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda);
+  if (upErr) throw upErr;
+
+  const { data: mov, error: movErr } = await supabase.from('movimientos_caja').insert({
+    caja_id: input.cajaId, tipo: 'salida', monto, moneda: input.moneda, cuenta: input.cuenta,
+    tasa_bs: tasaBs, saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    motivo: input.concepto?.trim() || 'Pago de compra', categoria: input.categoria ?? 'pago_oc',
+    ref_orden_id: input.refOrdenId ?? null,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  }).select('id').single();
+  if (movErr) throw movErr;
+  return mov as { id: string };
+}
+
+/** Ajusta (fija) el saldo y/o la tasa promedio de una (caja, cuenta, moneda). */
+export async function ajustarSaldoDivisa(input: {
+  cajaId: string; cuenta: CuentaCaja; moneda: string; saldo: number; tasaProm?: number | null;
+}): Promise<void> {
+  const saldo = round2(input.saldo);
+  const tasaProm = input.moneda === 'Bs' ? 1 : (input.tasaProm != null ? round4(input.tasaProm) : null);
+  const { error } = await supabase.from(SALDOS).upsert(
+    { caja_id: input.cajaId, cuenta: input.cuenta, moneda: input.moneda, saldo, tasa_prom: tasaProm, updated_at: new Date().toISOString() },
+    { onConflict: 'caja_id,cuenta,moneda' },
+  );
+  if (error) throw error;
+}

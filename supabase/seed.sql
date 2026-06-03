@@ -1,5 +1,5 @@
 -- =============================================================
--- MGG-Inventario · Seed (datos demo)
+-- Golden Touch-Inventario · Seed (datos demo)
 -- Correr DESPUÉS de schema.sql, en Supabase SQL Editor.
 -- Idempotente: usa ON CONFLICT (rif/sku/codigo/numero) DO NOTHING.
 -- =============================================================

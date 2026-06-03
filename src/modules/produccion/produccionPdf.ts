@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Producción · Reporte PDF
+   Golden Touch · Producción · Reporte PDF
    Genera el PDF del proceso de producción (materiales, costos,
    PMP y posible ganancia). Devuelve base64 para enviarlo por correo.
    ============================================================ */
@@ -23,7 +23,7 @@ async function construir(prod: Produccion) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Reporte de Producción', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`MGG · ${dateTime(new Date().toISOString())}`, tx, y + 33);
+  doc.text(`Golden Touch · ${dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
 
   doc.setFontSize(11); doc.setFont('helvetica', 'bold');

@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Producción · Hornos (Supabase)
+   Golden Touch · Producción · Hornos (Supabase)
    Catálogo de hornos. Se administran como las categorías:
    alta, renombrado e inhabilitación (con motivo). El campo
    `produccion.horno` guarda el NOMBRE del horno (texto).

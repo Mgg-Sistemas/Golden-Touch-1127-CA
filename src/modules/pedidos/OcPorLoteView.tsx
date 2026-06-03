@@ -64,7 +64,7 @@ export function OcPorLoteView() {
     setAprobando(true);
     try {
       const n = await aprobarOcsEnLote(elegidas.map((r) => r.orden), user?.email ?? 'sistema');
-      notify(`${n} orden(es) de compra confirmada(s) · pasan a Tesorería`, 'success', { link: '#/app/tesoreria' });
+      notify(`${n} orden(es) de compra confirmada(s) · cada una sigue su flujo según la condición de pago`, 'success', { link: '#/app/pedidos' });
       setSel(new Set());
       setConfirmAprob(false);
       await reload();

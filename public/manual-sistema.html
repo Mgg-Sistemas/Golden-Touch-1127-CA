@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Manual de Usuario — Sistema de Gestión MGG</title>
-<link rel="icon" href="image.jpeg" />
+<title>Manual de Usuario — Sistema de Gestión Golden Touch</title>
+<link rel="icon" href="LOGO.jpg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
 <style>
-  /* Paleta y tokens del sistema MGG (src/styles/theme.css) */
+  /* Paleta y tokens del sistema Golden Touch (src/styles/theme.css) */
   :root {
     --bg-0: #07080b;
     --bg-1: #0d1014;
@@ -217,14 +217,14 @@
 <div class="wrap">
 
   <header class="cover">
-    <div class="brand-logo"><img src="image.jpeg" alt="Logo Mineral Group Guayana" /></div>
+    <div class="brand-logo"><img src="LOGO.jpg" alt="Logo Golden Touch 1127 CA" /></div>
     <div class="eyebrow">Manual de Usuario</div>
     <h1>Sistema de Gestión</h1>
-    <div class="empresa">Mineral Group Guayana C.A.</div>
+    <div class="empresa">Golden Touch 1127 C.A.</div>
   </header>
 
   <div class="bienvenida">
-    Bienvenido al manual de usuario del sistema de gestión de la empresa Mineral Group Guayana.
+    Bienvenido al manual de usuario del sistema de gestión de la empresa Golden Touch 1127 CA.
   </div>
 
   <p class="intro">
@@ -244,9 +244,11 @@
       <li><a href="#s6">Proveedores</a></li>
       <li><a href="#s7">Producción</a></li>
       <li><a href="#s8">Salidas / Traslados</a></li>
+      <li><a href="#steso">Tesorería</a></li>
       <li><a href="#scomb">Combustible</a></li>
       <li><a href="#s9">Usuarios</a></li>
       <li><a href="#s10">Ajustes</a></li>
+      <li><a href="#srespaldo">Respaldo de Data</a></li>
     </ol>
   </nav>
 
@@ -303,13 +305,19 @@
     <p>Gestiona el ciclo de compra y deja registro ordenado (trazabilidad) de cada paso. Tiene cuatro pestañas: <strong>Órdenes de Pedido</strong>, <strong>Órdenes de Compra</strong>, <strong>OC por lote</strong> (checklist) y <strong>Compra Directa</strong>.</p>
     <h3>Flujo de compra (paso a paso)</h3>
     <ol>
-      <li><strong>Orden de Pedido (OP):</strong> solicitud interna; al crearla se indica su <strong>clasificación</strong> (Producción, Bienes o Servicios). En el detalle de la OP solo hay dos acciones: <strong>Aprobar Orden de Pedido</strong> o <strong>Rechazar Orden de Pedido</strong>, y se puede descargar el <strong>PDF de la OP</strong>.</li>
+      <li><strong>Orden de Pedido (OP):</strong> solicitud interna; al crearla se indica su <strong>clasificación</strong> (Producción, Bienes, Servicios o Papelería). En el detalle de la OP solo hay dos acciones: <strong>Aprobar Orden de Pedido</strong> o <strong>Rechazar Orden de Pedido</strong>, y se puede descargar el <strong>PDF de la OP</strong>.</li>
       <li><strong>Al aprobar la OP</strong> aparece en <strong>Órdenes de Compra</strong> como pendiente (columna "Pendiente · cargar ofertas").</li>
-      <li><strong>Cotizaciones:</strong> en esa etapa se cargan las ofertas de proveedores (<strong>mínimo 2, máximo 4</strong>) y el jefe <strong>elige la ganadora</strong>. Al elegirla se crea la <strong>Orden de Compra</strong> (estado <span class="badge">OC creada</span>, sin confirmar) con su <strong>código OC</strong> y el proveedor casado.</li>
-      <li><strong>Checklist (OC por lote):</strong> la pestaña <strong>OC por lote</strong> lista las OC por confirmar. Se seleccionan con casillas y se <strong>aprueban en lote</strong> (<span class="badge">OC confirmada</span>); también se puede <strong>imprimir el PDF</strong> o <strong>enviar por correo</strong> solo las seleccionadas para la aprobación final.</li>
-      <li><strong>Confirmación con destino:</strong> al confirmar una OC de forma individual (botón <strong>✔ Aprobar OC</strong>) se abre un modal que <strong>desglosa los almacenes existentes</strong> y exige elegir <strong>a qué almacén se dirige la mercancía</strong>. Ahí entrará el stock cuando se reciba.</li>
-      <li><strong>Pago (Tesorería):</strong> las OC confirmadas pasan a <strong>Tesorería → Órdenes pendientes por pagar</strong>. El analista abre la orden (con todo el detalle y fechas, de la OP a la confirmación), <strong>elige la caja</strong>, <strong>adjunta la factura en PDF</strong> y registra el pago. El monto se descuenta de la caja y queda en el <strong>registro de movimientos</strong> (estado <span class="badge">Pagada</span>).</li>
-      <li><strong>Recepción:</strong> una vez pagada, al llegar la mercadería se marca <strong>Recibida</strong> y el inventario se actualiza con su costo (PMP).</li>
+      <li><strong>Cotizaciones:</strong> se cargan las ofertas de proveedores (<strong>mínimo 2, máximo 4</strong>). Al cargar <strong>cada oferta</strong> es <strong>obligatorio</strong> indicar la <strong>Condición del Pago</strong>: <strong>Pago de Contado</strong>, <strong>Pago Contra Entrega</strong>, <strong>Pago Anticipado</strong> o <strong>Pago a Crédito</strong> (esto define el flujo de la OC). Al elegir un proveedor ya registrado se muestra su <strong>calificación histórica</strong> (estrellas de calidad, % de puntualidad y nº de evaluaciones), que se guarda al finalizar cada pedido. El jefe <strong>elige la ganadora</strong>; al elegirla se crea la <strong>Orden de Compra</strong> (estado <span class="badge">OC creada</span>, sin confirmar) con su <strong>código OC</strong>, el proveedor casado y la condición de pago de su oferta.</li>
+      <li><strong>Checklist (OC por lote):</strong> la pestaña <strong>OC por lote</strong> lista las OC por confirmar. Se seleccionan con casillas y el gerente las <strong>aprueba en lote</strong>; también se puede <strong>imprimir el PDF</strong> o <strong>enviar por correo</strong> solo las seleccionadas. Al confirmar una OC individual (<strong>✔ Aprobar OC</strong>) un modal <strong>desglosa los almacenes</strong> y exige elegir <strong>a qué almacén va la mercancía</strong>.</li>
+      <li><strong>Según la condición de pago, la OC sigue un camino distinto al confirmarla el gerente:</strong>
+        <ul>
+          <li><strong>Contado / Anticipado:</strong> queda en <span class="badge">Confirmada (indicar método de pago)</span>. Con <strong>💳 Indicar método de pago / Enviar para Pagar</strong> se eligen solo el/los <strong>método(s)</strong> y la(s) <strong>moneda(s)</strong> (Bs, $, USDT, COP y las agregadas; puede ser <strong>multipago</strong>); <strong>el monto lo define Tesorería al pagar</strong>. Pasa a <span class="badge">Confirmada pagar</span> → <strong>Tesorería paga</strong> → recepción → finalizada. <em>(Flujo de siempre.)</em></li>
+          <li><strong>Contra Entrega:</strong> <strong>no</strong> va a Tesorería todavía. Pasa a <span class="badge">Pendiente por recepción</span>: primero se <strong>recibe y verifica</strong> la mercancía y <strong>luego</strong> se paga <strong>solo lo recibido</strong>. Al indicar el método de pago se debe marcar el check de <strong>Nota de entrega</strong> (confirmás que recibiste y verificaste). Luego → <span class="badge">Confirmada pagar</span> → Tesorería paga el monto recibido → finalizada.</li>
+          <li><strong>Crédito:</strong> pasa a <span class="badge">Crédito / cuentas abiertas</span> (cuenta por pagar). El seguimiento se hace desde <strong>Pedidos/Compras</strong>, pero <strong>los abonos se registran en Tesorería</strong> → botón <strong>💳 CUENTAS POR PAGAR (CRÉDITOS)</strong>: muestra total, abonado y saldo, y permite <strong>abonar en multipago</strong> (una parte en cada moneda de la caja, con la tasa del día) adjuntando <strong>comprobante</strong>. Cada abono es un <strong>egreso real</strong> de caja hasta <strong>saldar</strong>. La mercancía <strong>puede recibirse antes de terminar de pagar</strong>: queda <span class="badge">Recibido · pendiente por pagar</span> y se sigue abonando. Al saldar (y estar recibida) queda lista para <strong>finalizar</strong>.</li>
+        </ul>
+      </li>
+      <li><strong>Pago (Tesorería):</strong> las OC en <span class="badge">Confirmada pagar</span> están en <strong>Tesorería → Órdenes pendientes por pagar</strong> (muestra la <strong>condición</strong> y el <strong>monto a pagar</strong>; en contra entrega es <strong>lo recibido</strong>). El analista <strong>elige la caja</strong> y paga. Si la caja es <strong>Multimoneda</strong>, aparece una grilla de <strong>multipago por cuenta</strong>: se indica cuánto sale de cada moneda (USDT, Bs, $ físico…) <strong>en su propia moneda</strong> y el sistema suma el equivalente en USD con la <strong>tasa del día</strong> hasta cubrir el total; cada moneda se descuenta de su saldo real. El <strong>comprobante</strong> (PDF o imagen) se <strong>adjunta</strong> salvo cuando el método es <strong>efectivo (divisas o Bs)</strong>, donde <strong>no es obligatorio</strong>. El monto se descuenta de la caja (estado <span class="badge">Pagada</span>).</li>
+      <li><strong>Recepción (parcial posible):</strong> al recibir, un modal confirma <strong>cuánto entró realmente por ítem</strong> (no más de lo pedido) y exige elegir el <strong>almacén destino</strong> (lista de almacenes registrados) al que entra la mercancía, que queda en la <strong>trazabilidad final</strong>. <strong>Solo lo recibido</strong> entra al inventario (recalcula el PMP). Si llegó <strong>menos</strong> de lo solicitado, se exige una <strong>nota</strong> y la orden <strong>cierra sin saldo pendiente</strong> (los faltantes solo quedan documentados).</li>
       <li><strong>Finalización:</strong> al finalizar se abre un modal que pide <strong>evaluar la recepción</strong>: <strong>calidad</strong> (1-5), <strong>puntualidad</strong> (en fecha / adelantado / atrasado, con días) y un <strong>comentario opcional</strong>. La orden se cierra como <strong>Finalizada</strong>. La trazabilidad se descarga en PDF o se envía por correo; el PDF muestra el <strong>código de la Orden de Compra</strong>, el <strong>almacén destino</strong> y la <strong>evaluación</strong> (calidad, puntualidad y comentario).</li>
     </ol>
     <p class="nota">Si un proveedor <strong>desiste</strong>, se registra fecha, hora y motivo y la orden queda abierta para re-elegir oferta.</p>
@@ -335,10 +343,10 @@
 
   <section class="modulo" id="s7">
     <h2>🔥 7. Producción</h2>
-    <p>Fabricación/fundición de productos a partir de materiales del inventario, usando <strong>recetas</strong>.</p>
+    <p>Fabricación/producción de productos a partir de materiales del inventario, usando <strong>recetas</strong>.</p>
     <ul>
       <li><strong>Recetas:</strong> definen los materiales que consume cada producto; al producir, se descuentan del inventario.</li>
-      <li><strong>Vista kanban:</strong> producciones en proceso y últimas finalizadas.</li>
+      <li><strong>Vista kanban:</strong> fundiciones en proceso y últimas finalizadas.</li>
       <li>Cada producción registra el <strong>horno</strong> utilizado y la cantidad producida.</li>
       <li>Descarga de la receta/producción en <strong>Excel</strong> (encabezado naranja característico).</li>
     </ul>
@@ -348,7 +356,9 @@
     <h2>↘ 8. Salidas / Traslados</h2>
     <p>Controla la salida de cosas de la empresa y los movimientos internos. Interruptor superior <strong>Salidas / Traslados</strong> y sub-interruptor <strong>Material / Dinero</strong>.</p>
     <ul>
-      <li><strong>Salida de material:</strong> despacha un producto desde un almacén a un destino. No permite sacar más de lo disponible y descuenta el inventario. El <strong>precio unitario</strong> se trae del inventario y <strong>no se modifica</strong> en la salida.</li>
+      <li><strong>Todo pasa por aprobación:</strong> cada salida o traslado (de material <strong>o</strong> de dinero) se crea como <strong>solicitud</strong> en estado <span class="badge">Por aprobar</span> (no descuenta nada todavía). El <strong>obrero</strong> la registra; el <strong>analista o el administrador</strong> la <strong>Aprueba</strong> y la <strong>Ejecuta</strong>. Recién al ejecutar se descuenta el stock o sale el dinero. Estados: <span class="badge">Por aprobar</span> → <span class="badge">Aprobada</span> → <span class="badge">Ejecutada</span> (o <span class="badge">Cancelada</span>). El botón <strong>Aprobar</strong> solo lo ven el analista y el admin.</li>
+      <li><strong>Vista Solicitudes / Historial:</strong> <strong>🗂 Solicitudes</strong> muestra el kanban del trámite (4 columnas) por cada combinación; <strong>📜 Historial</strong> muestra los movimientos ya ejecutados (kardex), como antes.</li>
+      <li><strong>Salida de material:</strong> despacha un producto desde un almacén a un destino. No permite sacar más de lo disponible y descuenta el inventario al ejecutar. El <strong>precio unitario</strong> se trae del inventario y <strong>no se modifica</strong> en la salida.</li>
       <li><strong>Traslado de material:</strong> mueve productos entre almacenes conservando el costo (PMP).</li>
       <li><strong>"A quién va dirigido":</strong> interruptor <strong>Almacén</strong> (almacenes registrados + Consumo Interno) o <strong>Persona</strong> (usuarios: nombre, apellido y cargo).</li>
       <li><strong>Fecha de entrega:</strong> se indica la fecha en que se entregó al destino; aparece en el detalle, en el <strong>PDF</strong> del comprobante y en el <strong>correo</strong>.</li>
@@ -360,8 +370,27 @@
     </ul>
   </section>
 
+  <section class="modulo" id="steso">
+    <h2>🏦 9. Tesorería</h2>
+    <p>Maneja el flujo de dinero de la empresa sobre las mismas <strong>cajas</strong> de Salidas (una sola fuente).</p>
+    <ul>
+      <li><strong>Tasa del día (BCV):</strong> en la barra superior se muestra la <strong>tasa USD y EUR del día</strong> con su fecha. El botón <strong>Historial Tasas</strong> permite consultarlas filtrando por fecha y moneda (y corregirlas manualmente). <strong>La tasa BCV solo se usa en la barra superior</strong> y cuando se tilda "pagar con tasa BCV"; el conversor usa tasa personalizada.</li>
+      <li><strong>Cajas multimoneda:</strong> una caja puede contener varias monedas (<strong>Bs, USD, USDT, COP</strong> y las que se agreguen) y el Bs se divide en cuenta <strong>jurídica</strong> y <strong>personal</strong>. Cada moneda lleva su saldo y una <strong>tasa promedio ponderada</strong> (Bs por unidad), igual que el costo promedio del inventario: al <strong>ingresar divisa</strong> se indica el monto y la <strong>tasa de compra</strong>, y el promedio se recalcula. Ej.: 1000 USDT @ 500 + 200 USDT @ 700 = 1200 USDT a tasa promedio <strong>533,33</strong>. Cada ingreso queda como un <strong>lote</strong> en la <strong>trazabilidad</strong> (a qué tasa entró cada parte). Todo se administra desde el <strong>detalle de la caja</strong> (saldos por cuenta/moneda, ingresar divisa, lotes y movimientos).</li>
+      <li><strong>Agregar una moneda nueva:</strong> si necesitás una moneda que no está registrada, desde el selector de moneda (al ingresar divisa) usá <strong>+ Nueva moneda</strong> y la cargás al instante — igual que se agregan categorías. A partir de ahí queda disponible en <strong>todos</strong> los selectores de moneda del sistema (Tesorería, método de pago de las OC, etc.).</li>
+      <li><strong>Conversor multimoneda:</strong> el botón <strong>Conversor</strong> convierte entre <strong>Bs, USD, USDT y COP</strong> con una <strong>tasa personalizada editable</strong>. La sugerencia toma el dólar de <strong>Binance (USDT/VES)</strong> y la TRM del COP; <strong>no usa BCV</strong>. Redondea a 2 decimales.</li>
+      <li><strong>Gráfico de tasas:</strong> el botón <strong>Gráfico de tasas</strong> muestra la evolución día a día (y varias veces al día) de <strong>USDT/VES (Binance P2P)</strong> y <strong>COP/USD (TRM)</strong>, a partir de los snapshots guardados. El botón <strong>↻ Actualizar ahora</strong> trae la tasa del momento.</li>
+      <li><strong>Disponibilidad financiera:</strong> tarjetas con el disponible en <strong>USD</strong>, su <strong>equivalente en Bs</strong> (× tasa), el disponible en <strong>Bs</strong> y el <strong>total general en Bs</strong> (2 decimales en cada cálculo).</li>
+      <li><strong>Órdenes pendientes por pagar:</strong> lista las Órdenes de Compra en <span class="badge">Confirmada pagar</span>. Al abrir una (<strong>Ver / Pagar</strong>) se ve todo el detalle y fechas (de la OP a la confirmación), la <strong>condición y el método de pago</strong> indicados en Compras y la <strong>conversión del total $ ⇄ Bs</strong> con la tasa BCV del día (editable). Con <strong>PAGAR ORDEN</strong> se elige la caja: si es en <strong>Bs</strong>, el monto se <strong>autocompleta convertido</strong> con la tasa; si es en <strong>$</strong>, queda en dólares. Se <strong>adjunta el comprobante (PDF o imagen)</strong>, salvo cuando el método de pago es <strong>efectivo (divisas o Bs en efectivo)</strong>, donde <strong>no es obligatorio</strong>. Se registra el pago (se descuenta de la caja y queda en el registro de movimientos).</li>
+      <li><strong>Ingreso de dinero:</strong> el botón <strong>+ Ingreso</strong> (o el formulario "Ingresar dinero" dentro del detalle de una caja) <strong>suma</strong> el monto al saldo. Ej.: caja con 100 + ingreso de 100 = <strong>200</strong>. Distinto de <strong>Ajustar saldo</strong>, que <strong>fija</strong> el saldo a un valor de conciliación (no lo suma).</li>
+      <li><strong>Gasto:</strong> egreso simple etiquetado por la moneda de la caja.</li>
+      <li><strong>Traspaso de dinero:</strong> entre cajas de la misma moneda.</li>
+      <li><strong>Pago a personal:</strong> multipagos a las personas del sistema desde una caja.</li>
+      <li><strong>Registro de movimientos:</strong> todas las entradas y salidas con su saldo, <strong>filtrable por rango de fechas</strong>, moneda y tipo de movimiento.</li>
+    </ul>
+  </section>
+
   <section class="modulo" id="scomb">
-    <h2>⛽ 9. Combustible</h2>
+    <h2>⛽ 10. Combustible</h2>
     <p>Inventario de combustible por tipo y solicitudes de salida con aprobación. Flujo: <strong>Por aprobar → Aprobada → Finalizada</strong>.</p>
     <ul>
       <li><strong>Vinculado al inventario:</strong> cada combustible se <strong>registra primero en el inventario</strong> (queda como un producto de categoría <em>Combustible</em>, en litros) marcando el <strong>almacén</strong> donde estará; de ahí se vincula al módulo de Combustible. Sus movimientos quedan trazados también en Inventario.</li>
@@ -374,24 +403,8 @@
     </ul>
   </section>
 
-  <section class="modulo" id="steso">
-    <h2>🏦 9b. Tesorería</h2>
-    <p>Maneja el flujo de dinero de la empresa sobre las mismas <strong>cajas</strong> de Salidas (una sola fuente).</p>
-    <ul>
-      <li><strong>Tasa del día (BCV):</strong> en la barra superior se muestra la <strong>tasa USD y EUR del día</strong> con su fecha. El botón <strong>Historial Tasas</strong> permite consultarlas filtrando por fecha y moneda (y corregirlas manualmente si hace falta).</li>
-      <li><strong>Conversor $ ⇄ Bs:</strong> el botón <strong>Conversor</strong> abre una calculadora para convertir de <strong>$ a Bs</strong> o de <strong>Bs a $</strong> usando la tasa del BCV del día (editable para corrección manual). Aplica las fórmulas <em>Bs = monto × tasa</em> y <em>$ = Bs ÷ tasa</em>, redondeando a 2 decimales.</li>
-      <li><strong>Disponibilidad financiera:</strong> tarjetas con el disponible en <strong>USD</strong>, su <strong>equivalente en Bs</strong> (× tasa), el disponible en <strong>Bs</strong> y el <strong>total general en Bs</strong> (2 decimales en cada cálculo).</li>
-      <li><strong>Órdenes pendientes por pagar:</strong> lista las Órdenes de Compra <strong>confirmadas</strong>. Al abrir una (<strong>Ver / Pagar</strong>) se ve todo el detalle y fechas (de la OP a la confirmación) y la <strong>conversión del total $ ⇄ Bs</strong> con la tasa BCV del día (editable). Con <strong>PAGAR ORDEN</strong> se elige la caja: si es en <strong>Bs</strong>, el monto se <strong>autocompleta convertido</strong> con la tasa; si es en <strong>$</strong>, queda en dólares. Se <strong>adjunta el comprobante (PDF o imagen)</strong> y se registra el pago (se descuenta de la caja y queda en el registro de movimientos).</li>
-      <li><strong>Ingreso de dinero:</strong> el botón <strong>+ Ingreso</strong> (o el formulario "Ingresar dinero" dentro del detalle de una caja) <strong>suma</strong> el monto al saldo. Ej.: caja con 100 + ingreso de 100 = <strong>200</strong>. Distinto de <strong>Ajustar saldo</strong>, que <strong>fija</strong> el saldo a un valor de conciliación (no lo suma).</li>
-      <li><strong>Gasto:</strong> egreso simple etiquetado por la moneda de la caja.</li>
-      <li><strong>Traspaso de dinero:</strong> entre cajas de la misma moneda.</li>
-      <li><strong>Pago a personal:</strong> multipagos a las personas del sistema desde una caja.</li>
-      <li><strong>Registro de movimientos:</strong> todas las entradas y salidas con su saldo, <strong>filtrable por rango de fechas</strong>, moneda y tipo de movimiento.</li>
-    </ul>
-  </section>
-
   <section class="modulo" id="s9">
-    <h2>👤 10. Usuarios</h2>
+    <h2>👤 11. Usuarios</h2>
     <p>Administra las personas que usan el sistema y qué puede hacer cada una. <em>(Perfiles administradores.)</em></p>
     <ul>
       <li>Alta y edición de usuarios con nombre, cargo y departamento.</li>
@@ -401,12 +414,22 @@
   </section>
 
   <section class="modulo" id="s10">
-    <h2>⚙ 11. Ajustes</h2>
+    <h2>⚙ 12. Ajustes</h2>
     <p>Tu espacio personal de configuración.</p>
     <ul>
       <li><strong>Perfil:</strong> revisa y actualiza tus datos.</li>
       <li><strong>Preferencias:</strong> opciones de tu cuenta.</li>
       <li><strong>Cambiar contraseña</strong> de forma segura.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="srespaldo">
+    <h2>💾 Respaldo de Data</h2>
+    <p>En el menú lateral (debajo de <strong>Menú del Sistema</strong>) el <strong>administrador</strong> y los <strong>analistas</strong> ven la opción <strong>💾 Respaldo de Data</strong>.</p>
+    <ul>
+      <li><strong>Manual:</strong> al hacer clic se <strong>descarga un archivo <code>.sql</code></strong> con todos los datos del sistema (un <code>INSERT</code> por registro de cada tabla). Sirve para guardar una copia o restaurarla sobre el esquema de la base.</li>
+      <li><strong>Automático:</strong> <strong>cada 30 días</strong>, la primera vez que entra un administrador o analista, el respaldo se <strong>descarga solo</strong> y queda registrada la fecha del último respaldo.</li>
+      <li>Solo <strong>admin/analista</strong> pueden generarlo (el filtro de usuarios se afinará más adelante).</li>
     </ul>
   </section>
 
@@ -422,7 +445,7 @@
   </section>
 
   <footer>
-    Documento interno de Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios.
+    Documento interno de Golden Touch 1127 C.A. · Sistema de Gestión de Inventarios.
   </footer>
 
 </div>

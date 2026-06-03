@@ -3,7 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import type { Caja } from '@/shared/lib/types';
-import { trasladoDinero } from './cajas.repository';
+import { crearSolicitudSalida } from './salidas.repository';
 
 export function TrasladoDineroForm({
   cajas, actor, actorName, onClose, onSaved,
@@ -44,13 +44,19 @@ export function TrasladoDineroForm({
     if (montoNum > saldo) { setError(`Saldo insuficiente. Disponible: ${money(saldo)} ${origen?.moneda}.`); return; }
     setSaving(true);
     try {
-      await trasladoDinero({ origenId, destinoId: destinoValido, monto: montoNum, motivo: motivo.trim() || null, notaEntrega: notaOn ? (notaTexto.trim() || null) : null, actor, actorName });
       const dest = activas.find((c) => c.id === destinoValido);
-      notify(`Traslado de dinero: ${money(montoNum)} ${origen?.moneda} · ${origen?.nombre} → ${dest?.nombre}`, 'success');
+      await crearSolicitudSalida({
+        scope: 'traslado', tipo: 'dinero',
+        cajaId: origenId, cajaDestinoId: destinoValido, monto: montoNum, moneda: origen?.moneda ?? null,
+        destino: dest?.nombre ?? null, motivo: motivo.trim() || null,
+        notaEntrega: notaOn ? (notaTexto.trim() || null) : null,
+        solicitante: actorName || actor, actor, actorName,
+      });
+      notify(`Solicitud de traslado de dinero creada: ${money(montoNum)} ${origen?.moneda} · ${origen?.nombre} → ${dest?.nombre} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar el traslado.');
+      setError(err instanceof Error ? err.message : 'No se pudo crear la solicitud.');
     } finally {
       setSaving(false);
     }
@@ -60,13 +66,13 @@ export function TrasladoDineroForm({
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="traslado-dinero-form" className="btn btn-primary" disabled={saving}>
-        {saving ? 'Trasladando…' : 'Registrar traslado'}
+        {saving ? 'Creando…' : 'Crear solicitud'}
       </button>
     </>
   );
 
   return (
-    <Modal title="Nuevo traslado de dinero" size="lg" onClose={onClose} footer={footer}>
+    <Modal title="Nueva solicitud de traslado de dinero" size="lg" onClose={onClose} footer={footer}>
       <form id="traslado-dinero-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -91,7 +97,7 @@ export function TrasladoDineroForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Monto ({origen?.moneda ?? '—'})</label>
-            <input className="input mono" type="number" min={0} step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} required />
+            <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} required />
           </div>
           <div className="form-row">
             <label>Motivo (opcional)</label>

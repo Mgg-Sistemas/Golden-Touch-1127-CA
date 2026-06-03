@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Inventario · Repository (Supabase)
+   Golden Touch · Inventario · Repository (Supabase)
    Acceso a `productos`. Las mutaciones de `stock` se hacen
    exclusivamente desde `movimientos.repository.ts` (kardex).
    ============================================================ */

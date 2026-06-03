@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Salidas / Traslados · Reportes PDF
+   Golden Touch · Salidas / Traslados · Reportes PDF
    Comprobantes de salida/traslado de material y de salida de
    dinero. Se descargan SOLO al hacer clic (regla del sistema).
    ============================================================ */
@@ -21,7 +21,7 @@ async function nuevoDoc(titulo: string) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text(titulo, tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`MGG · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
+  doc.text(`Golden Touch · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
   return { doc, autoTable, fmt, MARGIN, y };
 }

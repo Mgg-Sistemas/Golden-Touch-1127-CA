@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Tesorería (Supabase)
+   Golden Touch · Tesorería (Supabase)
    Maneja el flujo de dinero sobre las mismas cajas/movimientos_caja
    del módulo Salidas (una sola fuente). Agrega: gastos (etiquetados
    por moneda), pago a personal (multipagos), pago de OC, libro mayor,
@@ -126,15 +126,20 @@ export interface Disponibilidad {
 }
 
 export async function disponibilidadFinanciera(): Promise<Disponibilidad> {
-  const { data, error } = await supabase.from(TABLE).select('moneda, saldo').eq('estado', 'activo');
+  // Multimoneda: se calcula desde caja_saldos (Bs jurídica/personal, USD, USDT, COP).
+  // Cada divisa se valora en Bs con su tasa promedio ponderada (costo real).
+  const { data, error } = await supabase.from('caja_saldos').select('moneda, saldo, tasa_prom');
   if (error) throw error;
-  const rows = (data ?? []) as Array<{ moneda: Moneda; saldo: number }>;
-  const usd = round2(rows.filter((r) => r.moneda === 'USD').reduce((a, r) => a + (Number(r.saldo) || 0), 0));
+  const rows = (data ?? []) as Array<{ moneda: string; saldo: number; tasa_prom: number | null }>;
+  const equiv = (r: { moneda: string; saldo: number; tasa_prom: number | null }) =>
+    r.moneda === 'Bs' ? (Number(r.saldo) || 0) : round2((Number(r.saldo) || 0) * (Number(r.tasa_prom) || 0));
+  const esDolar = (m: string) => m === 'USD' || m === 'USDT';
   const bs = round2(rows.filter((r) => r.moneda === 'Bs').reduce((a, r) => a + (Number(r.saldo) || 0), 0));
+  const usd = round2(rows.filter((r) => esDolar(r.moneda)).reduce((a, r) => a + (Number(r.saldo) || 0), 0));
+  const usdEnBs = round2(rows.filter((r) => esDolar(r.moneda)).reduce((a, r) => a + equiv(r), 0));
+  const totalBs = round2(rows.reduce((a, r) => a + equiv(r), 0));
   const tasa = await getTasaHoy();
-  const tasaUsd = tasa.usd;
-  const usdEnBs = tasaUsd != null ? round2(usd * tasaUsd) : 0;
-  return { usd, bs, tasaUsd, usdEnBs, totalBs: round2(bs + usdEnBs), fecha: tasa.fecha };
+  return { usd, bs, tasaUsd: tasa.usd, usdEnBs, totalBs, fecha: tasa.fecha };
 }
 
 /* ───────────── Libro mayor (entradas/salidas con filtros) ───────────── */

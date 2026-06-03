@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Inventario · Restock
+   Golden Touch · Inventario · Restock
    Clasificación ABC (Pareto) y detección de productos a
    reabastecer. Portado desde docs/reference/demo-old/src-full/
    shared/restock.js.

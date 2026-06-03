@@ -1,11 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import type { ItemOrden, Orden, Proveedor } from '@/shared/lib/types';
-import { crearOferta, subirPdfOferta } from './ofertas.repository';
+import { crearOferta, subirPdfOferta, CONDICIONES_PAGO } from './ofertas.repository';
+import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+
+/** Estrellas ★ según un promedio 1–5. */
+function estrellas(avg: number): string {
+  const full = Math.round(avg);
+  return '★★★★★'.slice(0, full) + '☆☆☆☆☆'.slice(0, 5 - full);
+}
 
 interface Props {
   orden: Orden;
@@ -44,6 +51,15 @@ export function AgregarOfertaModal({
   const [provEmail, setProvEmail] = useState('');
   const [provDireccion, setProvDireccion] = useState('');
 
+  // Calificación histórica de los proveedores (se guarda al finalizar cada pedido).
+  const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
+  useEffect(() => {
+    const ids = opcionesProveedor.map((p) => p.id);
+    if (!ids.length) return;
+    getStatsForProveedores(ids).then(setStats).catch(() => setStats(new Map()));
+  }, [opcionesProveedor]);
+  const statSel = !nuevoProveedor ? stats.get(proveedorId) : undefined;
+
   const [items, setItems] = useState<FormItem[]>(orden.items.map((i) => ({ ...i, precio: 0 })));
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
   const [condiciones, setCondiciones] = useState('');
@@ -76,6 +92,10 @@ export function AgregarOfertaModal({
   async function handleSubmit() {
     if (precioTotal <= 0) {
       toast('El precio total debe ser mayor a cero', 'error');
+      return;
+    }
+    if (!condiciones.trim()) {
+      toast('Elegí la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
     setSubmitting(true);
@@ -221,11 +241,27 @@ export function AgregarOfertaModal({
         <div className="form-row">
           <label>Proveedor</label>
           {opcionesProveedor.length ? (
-            <select className="select" value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>
-              {opcionesProveedor.map((p) => (
-                <option key={p.id} value={p.id}>{p.razon_social} ({p.rif})</option>
-              ))}
-            </select>
+            <>
+              <select className="select" value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>
+                {opcionesProveedor.map((p) => (
+                  <option key={p.id} value={p.id}>{p.razon_social} ({p.rif})</option>
+                ))}
+              </select>
+              {statSel && (
+                <div className="card" style={{ marginTop: '.4rem', padding: '.45rem .6rem', background: 'var(--bg-1)', fontSize: '.82rem' }}>
+                  {statSel.total_evaluaciones > 0 ? (
+                    <span>
+                      <strong style={{ color: 'var(--warning)' }}>{estrellas(statSel.calidad_avg)}</strong>{' '}
+                      <strong>{statSel.calidad_avg.toFixed(1)}/5</strong> calidad ·{' '}
+                      {Math.round(statSel.puntualidad_pct * 100)}% puntual ·{' '}
+                      <span className="muted">{statSel.total_evaluaciones} evaluación{statSel.total_evaluaciones !== 1 ? 'es' : ''} previa{statSel.total_evaluaciones !== 1 ? 's' : ''}</span>
+                    </span>
+                  ) : (
+                    <span className="muted">Proveedor sin evaluaciones previas (calificación neutra hasta su primer pedido recibido).</span>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>
               No quedan proveedores activos sin oferta. Marca <strong>"Proveedor no registrado"</strong> arriba para crear uno nuevo.
@@ -284,8 +320,11 @@ export function AgregarOfertaModal({
           <input type="date" className="input" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} />
         </div>
         <div className="form-row">
-          <label>Condiciones de pago</label>
-          <input type="text" className="input" placeholder="Ej. 50% anticipo, 50% a entrega" value={condiciones} onChange={(e) => setCondiciones(e.target.value)} />
+          <label>Condiciones del Pago *</label>
+          <select className="select" value={condiciones} onChange={(e) => setCondiciones(e.target.value)} required>
+            <option value="">— elegir —</option>
+            {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
         </div>
       </div>
 

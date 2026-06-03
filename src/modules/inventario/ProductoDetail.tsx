@@ -85,7 +85,7 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
               <span className="badge info">Receta: {producto.receta_fundicion}</span>
             )}
             {producto.en_fundicion && (
-              <span className="badge warning">🔥 EN PROCESO DE FUNDICIÓN</span>
+              <span className="badge warning">🔥 EN PROCESO DE PRODUCCIÓN</span>
             )}
           </div>
         </div>

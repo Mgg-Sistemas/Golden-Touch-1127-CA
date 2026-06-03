@@ -1,7 +1,7 @@
 /* ============================================================
-   MGG · Manual de Usuario (PDF)
+   Golden Touch · Manual de Usuario (PDF)
    Genera un PDF descargable que explica, pantalla por pantalla,
-   cómo usar el sistema de gestión de Mineral Group Guayana.
+   cómo usar el sistema de gestión de Golden Touch 1127 CA.
    Se descarga SOLO cuando el usuario hace clic en el menú.
    ============================================================ */
 import { dateTime } from '@/shared/lib/format';
@@ -121,7 +121,7 @@ const SECCIONES: Seccion[] = [
     titulo: 'Producción',
     captura: 'produccion',
     intro:
-      'Gestiona la fabricación o fundición de productos a partir de materiales del inventario, usando "recetas" que indican qué insumos y en qué cantidad se necesitan.',
+      'Gestiona la fabricación o producción de productos a partir de materiales del inventario, usando "recetas" que indican qué insumos y en qué cantidad se necesitan.',
     puntos: [
       'Recetas: definen los materiales que consume cada producto que se fabrica; al producir, el sistema descuenta esos insumos del inventario.',
       'Vista kanban: muestra las producciones en proceso y las últimas finalizadas.',
@@ -284,11 +284,11 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(13);
   doc.setTextColor(GRIS_TEXTO[0], GRIS_TEXTO[1], GRIS_TEXTO[2]);
-  doc.text('Sistema de Gestión · Mineral Group Guayana C.A.', PAGE_W / 2, y, { align: 'center' });
+  doc.text('Sistema de Gestión · Golden Touch 1127 C.A.', PAGE_W / 2, y, { align: 'center' });
   y += 40;
 
   // Mensaje de bienvenida (recuadro).
-  const bienvenida = 'Bienvenido al manual de usuario del sistema de gestión de la empresa Mineral Group Guayana.';
+  const bienvenida = 'Bienvenido al manual de usuario del sistema de gestión de la empresa Golden Touch 1127 CA.';
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(13);
   const bLines = doc.splitTextToSize(bienvenida, CONTENT_W - 40) as string[];
@@ -367,9 +367,9 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
-    doc.text('Mineral Group Guayana C.A. · Manual de Usuario', MARGIN, PAGE_H - 28);
+    doc.text('Golden Touch 1127 C.A. · Manual de Usuario', MARGIN, PAGE_H - 28);
     doc.text(`Página ${i} de ${total}`, PAGE_W - MARGIN, PAGE_H - 28, { align: 'right' });
   }
 
-  doc.save('Manual-de-Usuario-MGG.pdf');
+  doc.save('Manual-de-Usuario-Golden Touch.pdf');
 }

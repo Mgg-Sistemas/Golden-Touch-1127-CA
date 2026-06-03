@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Salidas / Traslados · Tesorería (Supabase)
+   Golden Touch · Salidas / Traslados · Tesorería (Supabase)
    Cajas con saldo (USD/Bs) y su libro de movimientos. La salida
    de dinero es un anticipo que queda PENDIENTE y luego se concilia
    con la recepción de mineral equivalente (entra al inventario).
@@ -160,7 +160,7 @@ export interface TrasladoDineroInput {
   actorName?: string | null;
 }
 
-export async function trasladoDinero(input: TrasladoDineroInput): Promise<void> {
+export async function trasladoDinero(input: TrasladoDineroInput): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   if (input.origenId === input.destinoId) throw new Error('La caja origen y destino deben ser distintas.');
@@ -174,7 +174,7 @@ export async function trasladoDinero(input: TrasladoDineroInput): Promise<void> 
 
   const motivo = input.motivo?.trim() || null;
   const notaEntrega = input.notaEntrega?.trim() || null;
-  const { error: e1 } = await supabase.from(LIBRO).insert([
+  const { data: movs, error: e1 } = await supabase.from(LIBRO).insert([
     {
       caja_id: input.origenId, tipo: 'traslado_salida', monto, moneda: origen.moneda,
       saldo_antes: saldoOrigenAntes, saldo_despues: saldoOrigenDespues,
@@ -187,13 +187,17 @@ export async function trasladoDinero(input: TrasladoDineroInput): Promise<void> 
       motivo, nota_entrega: notaEntrega, destino: origen.nombre, ref_caja_id: input.origenId,
       actor: input.actor, actor_name: input.actorName ?? null,
     },
-  ]);
+  ]).select('*');
   if (e1) throw e1;
 
   const { error: e2 } = await supabase.from(TABLE).update({ saldo: saldoOrigenDespues, updated_at: new Date().toISOString() }).eq('id', input.origenId);
   if (e2) throw e2;
   const { error: e3 } = await supabase.from(TABLE).update({ saldo: saldoDestinoDespues, updated_at: new Date().toISOString() }).eq('id', input.destinoId);
   if (e3) throw e3;
+
+  // Devuelve el lado salida (traslado_salida) para trazar la solicitud.
+  const ladoSalida = (movs ?? []).find((m) => (m as MovimientoCaja).tipo === 'traslado_salida');
+  return (ladoSalida ?? (movs ?? [])[0]) as MovimientoCaja;
 }
 
 /* ───────────── Conciliación con recepción de mineral ───────────── */

@@ -84,7 +84,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.text(
-    `Mineral Group Guayana C.A. · Generado ${dateTime(new Date().toISOString())}`,
+    `Golden Touch 1127 C.A. · Generado ${dateTime(new Date().toISOString())}`,
     TEXT_X,
     y + 36,
   );

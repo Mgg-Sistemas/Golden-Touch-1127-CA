@@ -3,7 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
-import { salidaMaterial } from './salidas.repository';
+import { crearSolicitudSalida } from './salidas.repository';
 import { DestinoSelect } from './DestinoSelect';
 
 export function SalidaMaterialForm({
@@ -81,16 +81,18 @@ export function SalidaMaterialForm({
     if (!destino.trim()) { setError('Indicá a quién va dirigido.'); return; }
     setSaving(true);
     try {
-      await salidaMaterial({
-        productoId, almacen, cantidad: cantNum, destino: destino.trim(),
-        motivo: motivo.trim() || null, precioUnit: precioNum || null,
-        fechaEntrega: fechaEntrega || null, actor, actorName,
+      await crearSolicitudSalida({
+        scope: 'salida', tipo: 'material',
+        productoId, productoNombre: producto?.nombre ?? null, almacenOrigen: almacen,
+        cantidad: cantNum, destino: destino.trim(), motivo: motivo.trim() || null,
+        precioUnit: precioNum || null, fechaEntrega: fechaEntrega || null,
+        solicitante: actorName || actor, actor, actorName,
       });
-      notify(`Salida registrada: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} → ${destino}`, 'success', { link: '#/app/inventario' });
+      notify(`Solicitud de salida creada: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar la salida.');
+      setError(err instanceof Error ? err.message : 'No se pudo crear la solicitud.');
     } finally {
       setSaving(false);
     }
@@ -100,13 +102,13 @@ export function SalidaMaterialForm({
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || excede || cantNum <= 0 || stock <= 0}>
-        {saving ? 'Registrando…' : 'Registrar salida'}
+        {saving ? 'Creando…' : 'Crear solicitud'}
       </button>
     </>
   );
 
   return (
-    <Modal title="Nueva salida de material" size="lg" onClose={onClose} footer={footer}>
+    <Modal title="Nueva solicitud de salida de material" size="lg" onClose={onClose} footer={footer}>
       <form id="salida-mat-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -127,7 +129,7 @@ export function SalidaMaterialForm({
             <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong></small>
           </div>
           <div className="form-row">
-            <label>Cantidad</label>
+            <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
             <input className="input mono" type="number" min={1} max={stock || undefined} step="any" value={cantidad} onChange={(e) => onCantidadChange(e.target.value)} required />
             {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>}
           </div>

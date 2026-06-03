@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Compra Directa · Comprobante PDF
+   Golden Touch · Compra Directa · Comprobante PDF
    Se descarga SOLO al hacer clic (regla del sistema).
    ============================================================ */
 import type { CompraDirecta } from './compras.repository';
@@ -20,7 +20,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Comprobante de Compra Directa', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`MGG · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
+  doc.text(`Golden Touch · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
 
   const cant = Number(compra.cantidad) || 0;

@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Inventario · Export de productos por almacén
+   Golden Touch · Inventario · Export de productos por almacén
    Descarga (solo a pedido del usuario) los productos de un
    almacén en Excel y PDF. El `stock`/`precio` de cada fila ya
    vienen con los valores propios del almacén (PMP por almacén).
@@ -45,7 +45,7 @@ export async function descargarAlmacenExcel(almacen: string, rows: Producto[]): 
   const valorTotal = rows.reduce((a, p) => a + valorDe(p), 0);
 
   const aoa: unknown[][] = [
-    [`INVENTARIO · ALMACÉN ${almacen.toUpperCase()} · MGG`],
+    [`INVENTARIO · ALMACÉN ${almacen.toUpperCase()} · Golden Touch`],
     [`${rows.length} producto(s) · valor total ${money(valorTotal)}`],
     [],
     head,
@@ -85,7 +85,7 @@ export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Pr
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text(`Inventario · Almacén ${almacen}`, tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`MGG · ${dateTime(new Date().toISOString())}`, tx, y + 33);
+  doc.text(`Golden Touch · ${dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
 
   const valorTotal = rows.reduce((a, p) => a + ((p as FilaAlmacen)._valor ?? (Number(p.stock) || 0) * (Number(p.precio) || 0)), 0);

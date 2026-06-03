@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Inventario · Movimientos (kardex)
+   Golden Touch · Inventario · Movimientos (kardex)
    Bitácora vertical de cada producto. Único punto autorizado
    para modificar `productos.stock`.
 
@@ -21,8 +21,8 @@ export const TIPOS_MOVIMIENTO: Record<TipoMovimiento, { label: string; icon: str
   salida:        { label: 'Salida',               icon: '⬆',  color: 'warning' },
   consumo:       { label: 'Consumo en proceso',   icon: '🔥', color: 'warning' },
   transferencia: { label: 'Transferencia',        icon: '↔',  color: 'info' },
-  fundicion:     { label: 'Inicio de fundición',  icon: '🔥', color: 'warning' },
-  fin_fundicion: { label: 'Fin de fundición',     icon: '✓',  color: 'success' },
+  fundicion:     { label: 'Inicio de producción',  icon: '🔥', color: 'warning' },
+  fin_fundicion: { label: 'Fin de producción',     icon: '✓',  color: 'success' },
 };
 
 export interface MovimientoInput {
@@ -183,7 +183,7 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
   // 3er paso: recomputar agregados del producto (stock total + costo global).
   await recomputeProductoAgg(input.producto_id);
 
-  // 4to paso: si el movimiento es de fundición, marcamos el flag en el producto.
+  // 4to paso: si el movimiento es de producción, marcamos el flag en el producto.
   if (input.tipo === 'fundicion' || input.tipo === 'fin_fundicion') {
     const enFundicion = input.tipo === 'fundicion';
     const { error: fErr } = await supabase

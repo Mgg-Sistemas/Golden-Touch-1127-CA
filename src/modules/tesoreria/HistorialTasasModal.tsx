@@ -3,8 +3,9 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { date } from '@/shared/lib/format';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import type { MonedaTasa, TasaCambio, TasaHoy } from '@/shared/lib/types';
+import type { TasaCambio, TasaHoy } from '@/shared/lib/types';
 import { getTasaHoy, listHistorialTasas, refrescarTasa, setTasaManual } from './tasas.repository';
+import { listMonedas } from './monedas';
 
 /** Formatea una tasa (Bs por unidad) con 2 decimales en es-VE. */
 function bs(n: number | null | undefined): string {
@@ -18,13 +19,20 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   onRefreshed?: (t: TasaHoy) => void;
 }) {
   const { isAdmin } = usePermissions();
-  const [filtros, setFiltros] = useState<{ desde: string; hasta: string; moneda: '' | MonedaTasa }>({ desde: '', hasta: '', moneda: '' });
+  const [filtros, setFiltros] = useState<{ desde: string; hasta: string; moneda: string }>({ desde: '', hasta: '', moneda: '' });
   const [filas, setFilas] = useState<TasaCambio[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   // Corrección manual
-  const [mMoneda, setMMoneda] = useState<MonedaTasa>('USD');
+  const [mMoneda, setMMoneda] = useState<string>('USD');
   const [mTasa, setMTasa] = useState('');
+  // Monedas con tasa (todas las del sistema menos Bs, que es la base).
+  const [monedasTasa, setMonedasTasa] = useState<string[]>(['USD', 'EUR', 'USDT', 'COP']);
+  useEffect(() => {
+    listMonedas()
+      .then((ms) => setMonedasTasa(Array.from(new Set(['USD', 'EUR', ...ms])).filter((m) => m !== 'Bs')))
+      .catch(() => { /* base */ });
+  }, []);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -89,9 +97,8 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
           <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div className="form-row" style={{ margin: 0 }}>
               <label>Moneda</label>
-              <select className="select" value={mMoneda} onChange={(e) => setMMoneda(e.target.value as MonedaTasa)}>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
+              <select className="select" value={mMoneda} onChange={(e) => setMMoneda(e.target.value)}>
+                {monedasTasa.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
             <div className="form-row" style={{ margin: 0 }}>
@@ -114,10 +121,9 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
         </div>
         <div className="form-row" style={{ margin: 0 }}>
           <label>Moneda</label>
-          <select className="select" value={filtros.moneda} onChange={(e) => setFiltros((f) => ({ ...f, moneda: e.target.value as '' | MonedaTasa }))}>
+          <select className="select" value={filtros.moneda} onChange={(e) => setFiltros((f) => ({ ...f, moneda: e.target.value }))}>
             <option value="">Todas</option>
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
+            {monedasTasa.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
         {(filtros.desde || filtros.hasta || filtros.moneda) && (

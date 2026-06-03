@@ -25,8 +25,8 @@ const OPCIONES: { value: TipoManual; label: string; sign: 'pos' | 'neg' | 'any' 
   { value: 'salida',        label: 'Salida (resta stock)',                sign: 'neg' },
   { value: 'consumo',       label: 'Consumo en proceso',                  sign: 'neg' },
   { value: 'transferencia', label: 'Transferencia a otro almacén',        sign: 'neg' },
-  { value: 'fundicion',     label: '🔥 Iniciar fundición (marca el producto)', sign: 'zero' },
-  { value: 'fin_fundicion', label: '✓ Fin de fundición (libera el producto)', sign: 'zero' },
+  { value: 'fundicion',     label: '🔥 Iniciar producción (marca el producto)', sign: 'zero' },
+  { value: 'fin_fundicion', label: '✓ Fin de producción (libera el producto)', sign: 'zero' },
   { value: 'ajuste',        label: 'Ajuste manual (cualquier signo)',     sign: 'any' },
 ];
 
@@ -105,11 +105,11 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
       return;
     }
     if (tipo === 'fundicion' && producto.en_fundicion) {
-      setError('El producto ya está marcado como en proceso de fundición.');
+      setError('El producto ya está marcado como en proceso de producción.');
       return;
     }
     if (tipo === 'fin_fundicion' && !producto.en_fundicion) {
-      setError('El producto no está marcado como en proceso de fundición.');
+      setError('El producto no está marcado como en proceso de producción.');
       return;
     }
 

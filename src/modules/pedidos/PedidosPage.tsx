@@ -12,6 +12,7 @@ import type {
   EventoHistorial,
   ItemOrden,
   Orden,
+  PagoMetodo,
   Producto,
   Proveedor,
   Usuario,
@@ -30,14 +31,23 @@ import {
   listProveedoresActivos,
   listProveedores,
   nextCodigo,
-  recibirOrden,
+  recibirOrdenParcial,
+  enviarCreditoARecepcion,
+  listAbonos,
   urlAdjuntoOc,
+  indicarMetodoPago,
+  METODOS_PAGO,
+  labelMetodoPago,
   type PrecioHistorico,
 } from './pedidos.repository';
-import { listOfertasByOrden } from './ofertas.repository';
+import { listOfertasByOrden, labelCondicionPago } from './ofertas.repository';
+import { listCajasActivas } from '@/modules/salidas/cajas.repository';
+import type { AbonoCredito, Caja } from '@/shared/lib/types';
+import { listMonedas } from '@/modules/tesoreria/monedas';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
@@ -48,7 +58,7 @@ import { CompraDirectaView } from './CompraDirectaView';
 import { OcPorLoteView } from './OcPorLoteView';
 
 /* ============================================================
-   MGG · Pedidos / Órdenes · Página principal
+   Golden Touch · Pedidos / Órdenes · Página principal
    Mantiene la lógica de negocio del demo (estados, historial,
    reglas de aprobación) sobre datos persistidos en Supabase.
    ============================================================ */
@@ -59,7 +69,7 @@ type ViewMode = 'kanban' | 'lista';
 type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote';
 
 // Clasificación del pedido (checklist al crear la orden).
-const CLASIFICACION_PEDIDO = ['Producción', 'Bienes', 'Servicios'] as const;
+const CLASIFICACION_PEDIDO = ['Producción', 'Bienes', 'Servicios', 'Papelería'] as const;
 
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
@@ -73,7 +83,10 @@ const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
 const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
   { key: 'aprobada', label: 'Pendiente (cargar ofertas)' },              // OP aprobada → cargar cotizaciones
   { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' }, // oferta elegida → espera aprobación
-  { key: 'oc_aprobada', label: 'Confirmada (por pagar)' },               // aprobada en lote → Tesorería
+  { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
+  { key: 'confirmada_metodo', label: 'Confirmada (indicar método de pago)' }, // gerente confirmó → falta método
+  { key: 'oc_aprobada', label: 'Confirmada pagar' },                     // método indicado → Tesorería
+  { key: 'por_recibir', label: 'Pendiente por recepción' },             // contra entrega / crédito saldado
   { key: 'pagada', label: 'Pagada' },
   { key: 'recibida', label: 'Recibida' },
   { key: 'finalizada', label: 'Finalizada' },
@@ -91,7 +104,13 @@ function eventLabel(ev: string): string {
       desistida_proveedor: 'Proveedor desistió',
       proveedor_cambiado: 'Cambio de proveedor',
       oc_creada: 'OC creada (oferta elegida)',
-      oc_aprobada: 'OC confirmada',
+      confirmada_metodo: 'OC confirmada · indicar método de pago',
+      confirmada_por_recibir: 'OC confirmada · pendiente por recepción',
+      confirmada_cuenta_abierta: 'OC confirmada · crédito (cuenta abierta)',
+      metodo_pago: 'Método de pago indicado · enviada a pagar',
+      oc_aprobada: 'Confirmada pagar',
+      abono: 'Abono registrado (crédito)',
+      credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
       recibida: 'Recepción confirmada',
       finalizada: 'Pedido finalizado',
@@ -107,7 +126,13 @@ function eventClass(ev: string): string {
       desistida_proveedor: 'warn',
       proveedor_cambiado: 'info',
       oc_creada: 'info',
+      confirmada_metodo: 'info',
+      confirmada_por_recibir: 'info',
+      confirmada_cuenta_abierta: 'warn',
+      metodo_pago: 'ok',
       oc_aprobada: 'ok',
+      abono: 'info',
+      credito_saldado: 'ok',
       pagada: 'ok',
       recibida: 'ok',
       finalizada: 'ok',
@@ -121,9 +146,11 @@ type ModalKind =
   | { kind: 'create' }
   | { kind: 'approve'; orden: Orden }
   | { kind: 'confirm-oc'; orden: Orden }
+  | { kind: 'metodo-pago'; orden: Orden }
   | { kind: 'cancel'; orden: Orden }
   | { kind: 'desistir'; orden: Orden }
   | { kind: 'receive'; orden: Orden }
+  | { kind: 'abono'; orden: Orden }
   | { kind: 'finalizar'; orden: Orden }
   | { kind: 'price-history'; sku: string; nombre: string }
   | { kind: 'add-offer'; orden: Orden };
@@ -134,6 +161,7 @@ export function PedidosPage() {
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [proveedoresAll, setProveedoresAll] = useState<Proveedor[]>([]);
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -153,16 +181,18 @@ export function PedidosPage() {
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const [os, pvs, pvsAll, pds] = await Promise.all([
+      const [os, pvs, pvsAll, pds, usrs] = await Promise.all([
         listOrdenes(),
         listProveedoresActivos(),
         listProveedores(),
         listProductosActivos(),
+        listUsuarios().catch(() => [] as Usuario[]),
       ]);
       setOrdenes(os);
       setProveedores(pvs);
       setProveedoresAll(pvsAll);
       setProductos(pds);
+      setUsuarios(usrs);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar pedidos');
     }
@@ -196,9 +226,18 @@ export function PedidosPage() {
     }
   }, [ordenes, searchParams, setSearchParams]);
 
+  // Callback estable para abrir el detalle: evita re-renderizar todas las tarjetas
+  // del kanban en cada render (KanbanCard está memoizado).
+  const openDetail = useCallback((id: string) => setModal({ kind: 'detail', ordenId: id }), []);
+
   const proveedorMap = useMemo(
     () => new Map(proveedoresAll.map((p) => [p.id, p])),
     [proveedoresAll]
+  );
+  // email → "Nombre Apellido" para mostrar personas en vez del correo.
+  const personaMap = useMemo(
+    () => new Map(usuarios.map((u) => [u.email.toLowerCase(), `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email])),
+    [usuarios]
   );
 
   const isAdmin = usuario?.role === 'admin';
@@ -402,7 +441,7 @@ export function PedidosPage() {
           ordenes={filteredOrdenes}
           proveedorMap={proveedorMap}
           cols={kanbanCols}
-          onOpen={(id) => setModal({ kind: 'detail', ordenId: id })}
+          onOpen={openDetail}
         />
       ) : (
         <OrdenesTable
@@ -422,6 +461,7 @@ export function PedidosPage() {
           orden={currentDetail}
           proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
+          personaMap={personaMap}
           isAdmin={isAdmin}
           canManageProcurement={canManageProcurement}
           enOc={scope === 'oc'}
@@ -435,9 +475,19 @@ export function PedidosPage() {
           onClose={() => setModal({ kind: 'none' })}
           onApprove={() => setModal({ kind: 'approve', orden: currentDetail })}
           onConfirmOc={() => setModal({ kind: 'confirm-oc', orden: currentDetail })}
+          onEnviarPagar={() => setModal({ kind: 'metodo-pago', orden: currentDetail })}
           onCancel={() => setModal({ kind: 'cancel', orden: currentDetail })}
           onDesistir={() => setModal({ kind: 'desistir', orden: currentDetail })}
           onReceive={() => setModal({ kind: 'receive', orden: currentDetail })}
+          onAbono={() => setModal({ kind: 'abono', orden: currentDetail })}
+          onEnviarRecepcion={async () => {
+            try {
+              await enviarCreditoARecepcion(currentDetail, usuario?.email ?? user?.email ?? 'sistema');
+              notify(`Crédito pagado · ${currentDetail.oc_codigo ?? currentDetail.codigo} → Pendiente por recepción`, 'success', { link: '#/app/pedidos' });
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar a recepción', 'error'); }
+          }}
           onFinalizar={() => setModal({ kind: 'finalizar', orden: currentDetail })}
           usuarioRole={usuario?.role ?? null}
           onSeePriceHistory={(sku, nombre) =>
@@ -551,7 +601,7 @@ export function PedidosPage() {
           onConfirm={async (almacenDestino) => {
             try {
               await aprobarOcsEnLote([modal.orden], usuario?.email ?? user?.email ?? 'sistema', almacenDestino);
-              notify(`OC confirmada: ${modal.orden.oc_codigo ?? modal.orden.codigo} · destino ${almacenDestino} · pasa a Tesorería`, 'success', { link: '#/app/tesoreria' });
+              notify(`OC confirmada: ${modal.orden.oc_codigo ?? modal.orden.codigo} · destino ${almacenDestino} · falta indicar el método de pago`, 'success', { link: '#/app/pedidos' });
               setModal({ kind: 'none' });
               await refresh();
             } catch (e) {
@@ -561,27 +611,60 @@ export function PedidosPage() {
         />
       )}
 
-      {/* Modal: recibir */}
-      {modal.kind === 'receive' && (
-        <ConfirmDialog
-          title="Marcar como recibida"
-          message={`Confirmar la recepción de ${modal.orden.codigo}. El stock se incrementará en el almacén.`}
-          confirmText="Confirmar recepción"
-          onCancel={() => setModal({ kind: 'none' })}
-          onConfirm={async () => {
+      {/* Modal: indicar método de pago (multipago) → Enviar para Pagar */}
+      {modal.kind === 'metodo-pago' && (
+        <MetodoPagoModal
+          orden={modal.orden}
+          onClose={() => setModal({ kind: 'none' })}
+          onSent={async (metodos) => {
             try {
-              await recibirOrden(
+              await indicarMetodoPago(modal.orden, metodos, usuario?.email ?? user?.email ?? 'sistema');
+              notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} enviada para pagar · disponible en Tesorería`, 'success', { link: '#/app/tesoreria' });
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'Error al enviar para pagar', 'error');
+            }
+          }}
+        />
+      )}
+
+      {/* Modal: recepción (parcial) — confirma cuánto entró por ítem */}
+      {modal.kind === 'receive' && (
+        <RecepcionParcialModal
+          orden={modal.orden}
+          onClose={() => setModal({ kind: 'none' })}
+          onConfirm={async (recepciones, nota, almacenDestino) => {
+            try {
+              await recibirOrdenParcial(
                 modal.orden,
+                recepciones,
+                nota,
                 usuario?.email ?? user?.email ?? 'sistema',
-                usuario?.nombre ?? null
+                usuario?.nombre ?? null,
+                almacenDestino,
               );
-              notify(`Mercancía recibida · ${modal.orden.codigo} · stock actualizado`, 'success', { link: '#/app/inventario' });
+              const esContra = modal.orden.condiciones_pago === 'contra_entrega';
+              notify(
+                esContra
+                  ? `Recepción confirmada · ${modal.orden.codigo} · indicá el método para pagar lo recibido`
+                  : `Mercancía recibida · ${modal.orden.codigo} · stock actualizado`,
+                'success', { link: esContra ? '#/app/pedidos' : '#/app/inventario' },
+              );
               setModal({ kind: 'none' });
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error al recibir', 'error');
             }
           }}
+        />
+      )}
+
+      {/* Modal: registrar abono / ver crédito (cuenta abierta) */}
+      {modal.kind === 'abono' && (
+        <AbonosModal
+          orden={modal.orden}
+          onClose={() => setModal({ kind: 'none' })}
         />
       )}
 
@@ -836,6 +919,310 @@ function FinalizarPedidoModal({
 }
 
 /* ─────────────────────────────────────────────
+   Modal: indicar método de pago (multipago) y enviar a pagar
+   ───────────────────────────────────────────── */
+function MetodoPagoModal({
+  orden,
+  onClose,
+  onSent,
+}: {
+  orden: Orden;
+  onClose: () => void;
+  onSent: (metodos: PagoMetodo[]) => Promise<void> | void;
+}) {
+  const [monedas, setMonedas] = useState<string[]>(['Bs', 'USD', 'USDT', 'COP']);
+  const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: 'USD', monto: 0 }]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Contra entrega: ya se recibió y verificó; se confirma la Nota de entrega antes de pagar.
+  const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
+  const [notaEntrega, setNotaEntrega] = useState(false);
+
+  useEffect(() => { listMonedas().then(setMonedas).catch(() => { /* base */ }); }, []);
+
+  function setLeg(i: number, patch: Partial<PagoMetodo>) {
+    setLegs((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  }
+  function addLeg() { setLegs((ls) => [...ls, { metodo: 'transferencia', moneda: 'Bs', monto: 0 }]); }
+  function removeLeg(i: number) { setLegs((ls) => ls.filter((_, k) => k !== i)); }
+
+  // El monto lo define Tesorería al pagar; acá solo se eligen método(s) y moneda(s).
+  const validos = legs.filter((l) => l.metodo && l.moneda);
+
+  async function handleSend() {
+    setError(null);
+    if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
+    if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+    setSaving(true);
+    try { await onSent(validos); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
+  }
+
+  return (
+    <Modal
+      title={`Método de pago · OC ${orden.oc_codigo ?? orden.codigo}`}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleSend} disabled={saving}>
+            {saving ? 'Enviando…' : '💳 Enviar para Pagar'}
+          </button>
+        </>
+      }
+    >
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        Indicá <strong>con qué método(s) y moneda(s)</strong> se va a pagar la OC ({orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null
+          ? <>recibido <strong>{money(orden.recibido_total)}</strong></>
+          : <>total <strong>{money(orden.total)}</strong></>}). Podés combinar
+        varios (<strong>multipago</strong>). El <strong>monto lo define Tesorería</strong> al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
+      </p>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr><th>Método</th><th>Moneda</th><th></th></tr></thead>
+          <tbody>
+            {legs.map((l, i) => (
+              <tr key={i}>
+                <td>
+                  <select className="select" value={l.metodo} onChange={(e) => setLeg(i, { metodo: e.target.value })}>
+                    {METODOS_PAGO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </td>
+                <td>
+                  <select className="select" value={l.moneda} onChange={(e) => setLeg(i, { moneda: e.target.value })}>
+                    {monedas.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </td>
+                <td>{legs.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLeg(i)}>✕</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={addLeg}>+ Agregar método (multipago)</button>
+      {esContraEntrega && (
+        <label className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', marginTop: '.6rem', padding: '.55rem .7rem', cursor: 'pointer', borderColor: notaEntrega ? 'var(--success)' : 'var(--warning)' }}>
+          <input type="checkbox" checked={notaEntrega} onChange={(e) => setNotaEntrega(e.target.checked)} style={{ marginTop: '.2rem' }} />
+          <span style={{ fontSize: '.86rem' }}>
+            <strong>Nota de entrega</strong> — Confirmo que la mercancía se <strong>recibió y verificó</strong> contra lo solicitado. Recién entonces se paga (contra entrega).
+          </span>
+        </label>
+      )}
+      <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
+        Si el método es <strong>en efectivo</strong> (divisas o Bs), en Tesorería <strong>no se exigirá comprobante</strong>.
+      </small>
+    </Modal>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Recepción parcial: confirma cuánto entró por ítem (≤ pedido) + nota
+   ───────────────────────────────────────────── */
+function RecepcionParcialModal({
+  orden,
+  onClose,
+  onConfirm,
+}: {
+  orden: Orden;
+  onClose: () => void;
+  onConfirm: (recepciones: { sku: string; cantidad_recibida: number }[], nota: string | null, almacenDestino: string) => Promise<void> | void;
+}) {
+  const [recs, setRecs] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    orden.items.forEach((it) => { m[it.sku] = String(it.cantidad); });
+    return m;
+  });
+  const [nota, setNota] = useState('');
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [almacen, setAlmacen] = useState<string>(orden.almacen_destino ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listAlmacenes().then((as) => {
+      setAlmacenes(as);
+      // Si la OC ya traía un destino, se respeta; si no, se preselecciona el primero.
+      setAlmacen((prev) => prev || orden.almacen_destino || as[0]?.nombre || '');
+    }).catch(() => setAlmacenes([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function setRec(sku: string, cantPedida: number, v: string) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > cantPedida) { setRecs((r) => ({ ...r, [sku]: String(cantPedida) })); return; }
+    setRecs((r) => ({ ...r, [sku]: v }));
+  }
+
+  const recibidoTotal = orden.items.reduce((a, it) => a + (Number(recs[it.sku]) || 0) * Number(it.precio), 0);
+  const hayDiferencia = orden.items.some((it) => (Number(recs[it.sku]) || 0) < Number(it.cantidad));
+
+  async function handleConfirm() {
+    setError(null);
+    const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
+    if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
+    if (!almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
+    if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
+    setSaving(true);
+    try { await onConfirm(recepciones, nota.trim() || null, almacen.trim()); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo confirmar'); setSaving(false); }
+  }
+
+  return (
+    <Modal
+      title={`Confirmar recepción · ${orden.oc_codigo ?? orden.codigo}`}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleConfirm} disabled={saving}>
+            {saving ? 'Confirmando…' : '📦 Confirmar recepción'}
+          </button>
+        </>
+      }
+    >
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        Confirmá cuánto entró realmente al almacén por ítem. Solo lo recibido se suma al inventario.
+        Si llegó menos de lo pedido, dejá una <strong>nota</strong>; la orden cierra sin saldo pendiente.
+      </p>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr><th>SKU</th><th>Producto</th><th style={{ textAlign: 'right' }}>Pedido</th><th style={{ textAlign: 'right' }}>Recibido</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
+          <tbody>
+            {orden.items.map((it) => {
+              const rec = Number(recs[it.sku]) || 0;
+              const falta = rec < Number(it.cantidad);
+              return (
+                <tr key={it.sku}>
+                  <td className="mono">{it.sku}</td>
+                  <td>{it.nombre}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <input className="input mono" type="number" min={0} max={it.cantidad} step="any"
+                      value={recs[it.sku]} onChange={(e) => setRec(it.sku, Number(it.cantidad), e.target.value)}
+                      style={{ width: 90, textAlign: 'right', borderColor: falta ? 'var(--warning)' : undefined }} />
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{money(rec * Number(it.precio))}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Total recibido</td><td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(recibidoTotal)}</td></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div className="form-row" style={{ marginTop: '.5rem' }}>
+        <label>Almacén destino *</label>
+        <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
+          <option value="">— elegí el almacén —</option>
+          {almacenes.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+        </select>
+        <small className="muted">La mercancía entra a este almacén y queda en la trazabilidad final.</small>
+      </div>
+
+      <div className="form-row" style={{ marginTop: '.5rem' }}>
+        <label>Nota de recepción {hayDiferencia && <span style={{ color: 'var(--warning)' }}>(obligatoria · llegó menos de lo pedido)</span>}</label>
+        <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
+          placeholder="Diferencias, faltantes, observaciones de la recepción…" />
+      </div>
+      {orden.condiciones_pago === 'contra_entrega' && (
+        <small className="muted" style={{ display: 'block' }}>
+          Contra entrega: luego se indicará el método para pagar <strong>{money(recibidoTotal)}</strong> (lo recibido) en Tesorería.
+        </small>
+      )}
+    </Modal>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Abonos de crédito: traza + nuevo abono (egreso real de caja)
+   ───────────────────────────────────────────── */
+function AbonosModal({
+  orden,
+  onClose,
+}: {
+  orden: Orden;
+  onClose: () => void;
+}) {
+  const [abonos, setAbonos] = useState<AbonoCredito[]>([]);
+  const [cajas, setCajas] = useState<Caja[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [ab, cj] = await Promise.all([
+        listAbonos(orden.id),
+        listCajasActivas().catch(() => [] as Caja[]),
+      ]);
+      setAbonos(ab); setCajas(cj);
+    } finally { setLoading(false); }
+  }, [orden.id]);
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  const abonado = Number(orden.abonado_total) || abonos.reduce((a, b) => a + Number(b.monto), 0);
+  const saldo = Math.round((Number(orden.total) - abonado) * 100) / 100;
+
+  return (
+    <Modal title={`Crédito · OC ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.6rem', marginBottom: '.75rem' }}>
+        <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{money(orden.total)}</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>ABONADO</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(abonado)}</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>SALDO</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{money(saldo)}</div>
+        </div>
+      </div>
+
+      {/* Los abonos se registran en Tesorería; acá es solo consulta. */}
+      <div className="card" style={{ padding: '.65rem .8rem', marginBottom: '.75rem', borderColor: saldo <= 0 ? 'var(--success)' : 'var(--brand, #ff8a00)' }}>
+        <small style={{ fontSize: '.84rem' }}>
+          {saldo <= 0
+            ? <>✅ <strong>Crédito pagado en su totalidad.</strong> Desde el detalle de la orden podés enviarla a <strong>Pendiente por recepción</strong> o finalizarla si ya llegó.</>
+            : <>💳 Los <strong>abonos se registran en Tesorería</strong> → <strong>Cuentas por pagar (créditos)</strong>. Acá ves el historial.</>}
+        </small>
+      </div>
+
+      {/* Traza de abonos */}
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.82rem' }}>
+          <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Monto</th><th>Caja</th><th style={{ textAlign: 'right' }}>Saldo</th><th>Nota</th></tr></thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5} className="muted">Cargando…</td></tr>
+            ) : !abonos.length ? (
+              <tr><td colSpan={5}><EmptyState message="Sin abonos todavía." icon="💵" /></td></tr>
+            ) : abonos.map((b) => (
+              <tr key={b.id}>
+                <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(b.at)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{money(Number(b.monto))} {b.moneda}</td>
+                <td>{cajas.find((c) => c.id === b.caja_id)?.nombre ?? '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{b.saldo_restante != null ? money(Number(b.saldo_restante)) : '—'}</td>
+                <td className="muted" style={{ fontSize: '.78rem' }}>{b.nota || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+}
+
+/* ─────────────────────────────────────────────
    Sub-componente: tabla (vista Lista)
    ───────────────────────────────────────────── */
 interface OrdenesTableProps {
@@ -946,7 +1333,7 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen }: KanbanBoardProps) 
                     key={o.id}
                     orden={o}
                     proveedor={o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null}
-                    onOpen={() => onOpen(o.id)}
+                    onOpen={onOpen}
                   />
                 ))
               )}
@@ -965,17 +1352,20 @@ const KanbanCard = memo(function KanbanCard({
 }: {
   orden: Orden;
   proveedor: Proveedor | null;
-  onOpen: () => void;
+  onOpen: (id: string) => void;
 }) {
   const changes = (orden.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
+  // Crédito pagado en su totalidad (cuenta abierta saldada) → tarjeta resaltada.
+  const creditoPagado = orden.estado === 'cuenta_abierta' && (Number(orden.abonado_total) || 0) >= Number(orden.total) - 0.01;
   return (
     <div
       className="kanban-card"
       tabIndex={0}
-      onClick={onOpen}
+      onClick={() => onOpen(orden.id)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onOpen();
+        if (e.key === 'Enter') onOpen(orden.id);
       }}
+      style={creditoPagado ? { borderColor: 'var(--success)', boxShadow: '0 0 0 1px var(--success)' } : undefined}
     >
       <div className="code">{orden.codigo}</div>
       <div className="prov">
@@ -984,6 +1374,11 @@ const KanbanCard = memo(function KanbanCard({
       </div>
       <div className="meta">
         <span>{orden.items.length} ítem{orden.items.length !== 1 ? 's' : ''}</span>
+        {creditoPagado && (
+          <span className="badge success" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}>
+            ✓ Pagado · {orden.recibida_en ? 'finalizar' : 'a recepción'}
+          </span>
+        )}
         {changes > 0 && (
           <span className="badge warning" style={{ fontSize: '.65rem', padding: '.05rem .35rem' }}>
             ↻ {changes}
@@ -1009,6 +1404,7 @@ interface OrdenDetailModalProps {
   orden: Orden;
   proveedor: Proveedor | null;
   proveedorMap: Map<string, Proveedor>;
+  personaMap: Map<string, string>;
   isAdmin: boolean;
   canManageProcurement: boolean;
   /** true cuando se abre desde la pestaña Órdenes de Compra (allí se gestionan ofertas/proveedor). */
@@ -1017,9 +1413,12 @@ interface OrdenDetailModalProps {
   onClose: () => void;
   onApprove: () => void;
   onConfirmOc: () => void;
+  onEnviarPagar: () => void;
   onCancel: () => void;
   onDesistir: () => void;
   onReceive: () => void;
+  onAbono: () => void;
+  onEnviarRecepcion: () => void;
   onFinalizar: () => void;
   onSeePriceHistory: (sku: string, nombre: string) => void;
   onAddOffer: () => void;
@@ -1031,6 +1430,7 @@ function OrdenDetailModal({
   orden: o,
   proveedor,
   proveedorMap,
+  personaMap,
   isAdmin,
   canManageProcurement,
   enOc,
@@ -1038,9 +1438,12 @@ function OrdenDetailModal({
   onClose,
   onApprove,
   onConfirmOc,
+  onEnviarPagar,
   onCancel,
   onDesistir,
   onReceive,
+  onAbono,
+  onEnviarRecepcion,
   onFinalizar,
   onSeePriceHistory,
   onAddOffer,
@@ -1053,19 +1456,35 @@ function OrdenDetailModal({
   // Órdenes de Compra. La elección de la oferta ganadora sí queda solo para el jefe/admin.
   const canApprove = canManageProcurement && isPendiente;  // Aprobar Orden de Pedido
   const isOcCreada = o.estado === 'oc_creada';      // oferta elegida, sin confirmar
-  const isOcAprobada = o.estado === 'oc_aprobada';  // confirmada en lote → Tesorería
+  const isConfirmadaMetodo = o.estado === 'confirmada_metodo'; // gerente confirmó → falta método de pago
+  const isOcAprobada = o.estado === 'oc_aprobada';  // método indicado → Tesorería
   const isPagada = o.estado === 'pagada';
   const isOcEmitida = o.estado === 'oc_emitida';    // legado
   const isRecibida = o.estado === 'recibida';
+  const isPorRecibir = o.estado === 'por_recibir';      // contra entrega / crédito saldado
+  const isCuentaAbierta = o.estado === 'cuenta_abierta'; // a crédito, abonos abiertos
+  const esContraEntrega = o.condiciones_pago === 'contra_entrega';
+  // Contra entrega: tras recibir falta indicar método para pagar lo recibido.
+  const contraEntregaPorPagar = isRecibida && esContraEntrega && !(o.metodo_pago && o.metodo_pago.length);
+  // Contra entrega: ya pagó (tras recibir) → se puede finalizar.
+  const contraEntregaFinalizar = isPagada && esContraEntrega && !!o.recibida_en;
   const canCancel = ['pendiente', 'aprobada'].includes(o.estado);
 
-  const puedeTrazabilidad = ['recibida', 'finalizada'].includes(o.estado);
+  const puedeTrazabilidad = ['recibida', 'finalizada', 'pagada'].includes(o.estado);
   const isFinalizada = o.estado === 'finalizada';
   // Las ofertas (añadir proveedor) se gestionan SOLO desde la pestaña Órdenes de Compra.
-  const mostrarOfertas = enOc && ['aprobada', 'desistida_proveedor', 'oc_creada', 'oc_aprobada', 'pagada'].includes(o.estado);
+  const mostrarOfertas = enOc && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada'].includes(o.estado);
 
-  const canFinalizarOrden = isRecibida && (isAdmin || usuarioRole === 'analista');
-  const canCerrarSolicitudObrero = isRecibida && usuarioRole === 'obrero';
+  // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
+  const creditoSaldadoDet = isCuentaAbierta && (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
+  // Crédito saldado y ya recibido (entró antes de pagar) → se puede finalizar.
+  const creditoFinalizable = creditoSaldadoDet && !!o.recibida_en;
+
+  // Anticipado/contado/crédito finalizan desde 'recibida'. Contra entrega recibe
+  // ANTES de pagar, así que NO finaliza en 'recibida' (debe pagar primero) sino en 'pagada'.
+  const finalizableRecibida = isRecibida && !esContraEntrega;
+  const canFinalizarOrden = (finalizableRecibida || contraEntregaFinalizar || creditoFinalizable) && (isAdmin || usuarioRole === 'analista');
+  const canCerrarSolicitudObrero = finalizableRecibida && usuarioRole === 'obrero';
 
   const [enviarOpen, setEnviarOpen] = useState(false);
 
@@ -1126,9 +1545,53 @@ function OrdenDetailModal({
           ✔ Aprobar OC
         </button>
       )}
-      {/* OC confirmada: el pago se hace en Tesorería → Órdenes pendientes por pagar. */}
+      {/* Confirmada por el gerente: falta indicar el método de pago y enviar a pagar. */}
+      {isConfirmadaMetodo && canManageProcurement && (
+        <>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería">
+            💳 Indicar método de pago / Enviar para Pagar
+          </button>
+        </>
+      )}
+      {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar. */}
       {isOcAprobada && (
         <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+      )}
+      {/* Crédito · cuenta abierta. Los abonos se registran en TESORERÍA; acá el
+          analista hace seguimiento y mueve la orden según corresponda. */}
+      {isCuentaAbierta && canManageProcurement && (
+        <>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={onAbono} title="Ver la cuenta del crédito y el historial de abonos">
+            📋 Ver crédito / historial
+          </button>
+          {/* La mercancía llegó antes de terminar de pagar. */}
+          {!o.recibida_en && !creditoSaldadoDet && (
+            <button className="btn btn-ghost" onClick={onReceive} title="La mercancía llegó: recibir en inventario aunque el crédito siga pendiente">
+              📦 Recibir (crédito pendiente)
+            </button>
+          )}
+          {/* Pagado en su totalidad y aún sin recibir → a Pendiente por recepción. */}
+          {creditoSaldadoDet && !o.recibida_en && (
+            <button className="btn btn-primary" onClick={onEnviarRecepcion} title="Crédito pagado: enviar a Pendiente por recepción">
+              📦 Enviar a Pendiente por recepción
+            </button>
+          )}
+        </>
+      )}
+      {/* Pendiente por recepción (contra entrega / crédito saldado): confirmar lo recibido. */}
+      {isPorRecibir && canManageProcurement && (
+        <>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-primary" onClick={onReceive}>📦 Confirmar recepción</button>
+        </>
+      )}
+      {/* Contra entrega ya recibida: indicar método para pagar SOLO lo recibido. */}
+      {contraEntregaPorPagar && canManageProcurement && (
+        <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería (paga lo recibido)">
+          💳 Indicar método de pago (pagar lo recibido)
+        </button>
       )}
       {/* Comprobante de pago cargado en Tesorería (disponible desde que la OC está pagada). */}
       {o.factura_path && (
@@ -1136,12 +1599,17 @@ function OrdenDetailModal({
           ↓ Comprobante de pago
         </button>
       )}
-      {/* OC pagada: ya se puede recibir la mercancía. */}
-      {isPagada && canManageProcurement && (
+      {/* OC pagada y aún no recibida (anticipado/contado): ya se puede recibir.
+          En contra entrega la recepción ocurrió ANTES del pago, así que no se repite. */}
+      {isPagada && !o.recibida_en && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
           <button className="btn btn-primary" onClick={onReceive}>Marcar recibida</button>
         </>
+      )}
+      {/* Contra entrega pagada (ya recibida): solo queda el PDF; finaliza con el botón de abajo. */}
+      {isPagada && o.recibida_en && canManageProcurement && (
+        <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
       )}
       {isOcEmitida && canManageProcurement && (
         <>
@@ -1178,7 +1646,12 @@ function OrdenDetailModal({
       </div>
       <div className="detail-row">
         <div className="k">Estado</div>
-        <div className="v"><StatusBadge estado={o.estado} /></div>
+        <div className="v">
+          <StatusBadge estado={o.estado} />
+          {isCuentaAbierta && o.recibida_en && (
+            <span className="badge warning" style={{ marginLeft: '.4rem' }}>📦 Recibido · pendiente por pagar</span>
+          )}
+        </div>
       </div>
       <div className="detail-row">
         <div className="k">Proveedor actual</div>
@@ -1190,7 +1663,7 @@ function OrdenDetailModal({
       <div className="detail-row">
         <div className="k">Solicitante</div>
         <div className="v">
-          {o.solicitante ?? '—'} <span className="muted">({o.solicitante_email})</span>
+          {o.solicitante ?? persona(o.solicitante_email, personaMap)} <span className="muted">({o.solicitante_email})</span>
         </div>
       </div>
       <div className="detail-row">
@@ -1201,7 +1674,7 @@ function OrdenDetailModal({
         <div className="detail-row">
           <div className="k">Aprobada</div>
           <div className="v">
-            {dateTime(o.aprobada_en)} <span className="muted">por {o.aprobada_por ?? '—'}</span>
+            {dateTime(o.aprobada_en)} <span className="muted">por {persona(o.aprobada_por, personaMap)}</span>
           </div>
         </div>
       )}
@@ -1220,19 +1693,69 @@ function OrdenDetailModal({
       {o.oc_creada_en && (
         <div className="detail-row">
           <div className="k">OC creada</div>
-          <div className="v">{dateTime(o.oc_creada_en)} <span className="muted">por {o.oc_creada_por ?? '—'}</span></div>
+          <div className="v">{dateTime(o.oc_creada_en)} <span className="muted">por {persona(o.oc_creada_por, personaMap)}</span></div>
         </div>
       )}
       {o.oc_aprobada_en && (
         <div className="detail-row">
           <div className="k">OC confirmada</div>
-          <div className="v">{dateTime(o.oc_aprobada_en)} <span className="muted">por {o.oc_aprobada_por ?? '—'}</span></div>
+          <div className="v">{dateTime(o.oc_aprobada_en)} <span className="muted">por {persona(o.oc_aprobada_por, personaMap)}</span></div>
+        </div>
+      )}
+      {o.oc_codigo && (
+        <div className="detail-row">
+          <div className="k">Condición de pago</div>
+          <div className="v">
+            <span className="badge" style={{ background: 'var(--primary-2)', color: '#fff', fontWeight: 600 }}>
+              {o.condiciones_pago ? labelCondicionPago(o.condiciones_pago) : 'Contado / anticipado'}
+            </span>
+          </div>
+        </div>
+      )}
+      {o.metodo_pago && o.metodo_pago.length > 0 && (
+        <div className="detail-row">
+          <div className="k">Método de pago</div>
+          <div className="v">
+            {o.metodo_pago.map((m, i) => (
+              <div key={i} className="mono" style={{ fontSize: '.86rem' }}>
+                {labelMetodoPago(m.metodo)} · {m.monto > 0 ? `${money(m.monto)} ${m.moneda}` : m.moneda}
+              </div>
+            ))}
+            {o.metodo_pago_en && <span className="muted" style={{ fontSize: '.74rem' }}>indicado {dateTime(o.metodo_pago_en)} por {persona(o.metodo_pago_por, personaMap)}</span>}
+          </div>
+        </div>
+      )}
+      {o.abonado_total != null && o.abonado_total > 0 && (
+        <div className="detail-row">
+          <div className="k">Abonado (crédito)</div>
+          <div className="v mono">{money(o.abonado_total)} <span className="muted">de {money(o.total)}</span></div>
+        </div>
+      )}
+      {o.recibida_en && (
+        <div className="detail-row">
+          <div className="k">Recepción</div>
+          <div className="v">
+            {dateTime(o.recibida_en)} <span className="muted">por {persona(o.recibida_por, personaMap)}</span>
+            {o.recibido_total != null && <div className="mono" style={{ fontSize: '.84rem' }}>Total recibido: {money(o.recibido_total)}{o.recibido_total < o.total && <span className="muted"> · de {money(o.total)}</span>}</div>}
+          </div>
+        </div>
+      )}
+      {o.almacen_destino && (
+        <div className="detail-row">
+          <div className="k">Almacén destino</div>
+          <div className="v">📦 {o.almacen_destino}</div>
+        </div>
+      )}
+      {o.nota_recepcion && (
+        <div className="detail-row">
+          <div className="k">Nota de recepción</div>
+          <div className="v">{o.nota_recepcion}</div>
         </div>
       )}
       {o.pagada_en && (
         <div className="detail-row">
           <div className="k">Pagada</div>
-          <div className="v">{dateTime(o.pagada_en)} <span className="muted">por {o.pagada_por ?? '—'}</span></div>
+          <div className="v">{dateTime(o.pagada_en)} <span className="muted">por {persona(o.pagada_por, personaMap)}</span></div>
         </div>
       )}
       {o.notas && (
@@ -1297,7 +1820,7 @@ function OrdenDetailModal({
       </table>
 
       <h4 style={{ marginTop: '1.25rem' }}>Historial</h4>
-      <Timeline historial={o.historial ?? []} proveedorMap={proveedorMap} />
+      <Timeline historial={o.historial ?? []} proveedorMap={proveedorMap} personaMap={personaMap} />
     </Modal>
     {enviarOpen && (
       <EnviarPorCorreoModal
@@ -1420,12 +1943,20 @@ function EnviarPorCorreoModal({
   );
 }
 
+/** Muestra el nombre de la persona a partir de su email; si no está, el propio email. */
+function persona(email: string | null | undefined, map: Map<string, string>): string {
+  if (!email) return '—';
+  return map.get(email.toLowerCase()) ?? email;
+}
+
 function Timeline({
   historial,
   proveedorMap,
+  personaMap,
 }: {
   historial: EventoHistorial[];
   proveedorMap: Map<string, Proveedor>;
+  personaMap: Map<string, string>;
 }) {
   if (!historial.length) return <p className="muted">Sin eventos registrados.</p>;
   // Mostrar en orden cronológico inverso (más reciente arriba).
@@ -1459,7 +1990,7 @@ function Timeline({
                   📄 Documentos: {h.documentos.join(' · ')}
                 </div>
               )}
-              <div className="tl-meta">{dateTime(h.at)} · {h.actor}</div>
+              <div className="tl-meta">{dateTime(h.at)} · {persona(h.actor, personaMap)}</div>
             </div>
           </div>
         );
@@ -1486,6 +2017,8 @@ function CrearOrdenModal({
   onCreated,
 }: CrearOrdenModalProps) {
   const [items, setItems] = useState<ItemOrden[]>([]);
+  // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
+  const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
   const [notas, setNotas] = useState('');
   const [clasificacion, setClasificacion] = useState<Set<string>>(new Set());
   function toggleClasif(c: string) {
@@ -1555,6 +2088,8 @@ function CrearOrdenModal({
   function addItem() {
     const p = allProductos.find((x) => x.id === prodSelectId);
     if (!p) return;
+    // El número manda tras (re)agregar: olvidamos el texto crudo de esa cantidad.
+    setCantEdit((m) => { const n = { ...m }; delete n[p.id]; return n; });
     setItems((prev) => {
       const ex = prev.find((i) => i.productoId === p.id);
       if (ex) {
@@ -1658,12 +2193,21 @@ function CrearOrdenModal({
               <input
                 className="input mono"
                 type="number"
-                min={1}
-                step={1}
-                value={it.cantidad}
-                onChange={(e) =>
-                  updateItem(idx, { cantidad: Math.max(1, Number(e.target.value) || 1) })
-                }
+                min={0}
+                step="any"
+                value={cantEdit[it.sku] ?? String(it.cantidad)}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setCantEdit((m) => ({ ...m, [it.sku]: raw }));
+                  const n = Number(raw.replace(',', '.'));
+                  if (raw !== '' && Number.isFinite(n) && n > 0) updateItem(idx, { cantidad: n });
+                }}
+                onBlur={() => {
+                  const n = Number((cantEdit[it.sku] ?? String(it.cantidad)).replace(',', '.'));
+                  const val = Number.isFinite(n) && n > 0 ? n : 1;
+                  updateItem(idx, { cantidad: val });
+                  setCantEdit((m) => ({ ...m, [it.sku]: String(val) }));
+                }}
               />
               <button
                 type="button"

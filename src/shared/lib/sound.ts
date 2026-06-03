@@ -1,5 +1,5 @@
 /**
- * MGG · Notification sound (Web Audio API, sin archivos externos).
+ * Golden Touch · Notification sound (Web Audio API, sin archivos externos).
  * - Sonido base: doble-beep (~360 ms) volumen medio.
  * - Modo patrón: doble-beep cada 1.5 s durante N segundos (configurable).
  * Respeta preferencias de Ajustes vía localStorage.

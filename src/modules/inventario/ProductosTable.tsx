@@ -66,8 +66,8 @@ export const ProductosTable = memo(function ProductosTable({ rows, onView, onEdi
                   <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
                     <span>{p.nombre}</span>
                     {p.en_fundicion && (
-                      <span className="badge warning" title="Hay un proceso de fundición activo para este producto">
-                        🔥 EN PROCESO DE FUNDICIÓN
+                      <span className="badge warning" title="Hay un proceso de producción activo para este producto">
+                        🔥 EN PROCESO DE PRODUCCIÓN
                       </span>
                     )}
                   </div>

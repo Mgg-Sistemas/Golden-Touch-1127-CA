@@ -3,7 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
-import { trasladoMaterial } from './salidas.repository';
+import { crearSolicitudSalida } from './salidas.repository';
 
 export function TrasladoMaterialForm({
   productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
@@ -57,17 +57,18 @@ export function TrasladoMaterialForm({
     if (cantNum > stock) { setError(`No hay stock suficiente en ${origen}. Disponible: ${num(stock)}.`); return; }
     setSaving(true);
     try {
-      await trasladoMaterial({
-        productoId, almacenOrigen: origen, almacenDestino: destino, cantidad: cantNum,
-        motivo: motivo.trim() || null, precioUnit: precioNum || null,
-        notaEntrega: notaOn ? (notaTexto.trim() || null) : null,
-        fechaEntrega: fechaEntrega || null, actor, actorName,
+      await crearSolicitudSalida({
+        scope: 'traslado', tipo: 'material',
+        productoId, productoNombre: producto?.nombre ?? null, almacenOrigen: origen, almacenDestino: destino,
+        cantidad: cantNum, motivo: motivo.trim() || null, precioUnit: precioNum || null,
+        notaEntrega: notaOn ? (notaTexto.trim() || null) : null, fechaEntrega: fechaEntrega || null,
+        solicitante: actorName || actor, actor, actorName,
       });
-      notify(`Traslado registrado: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} · ${origen} → ${destino}`, 'success', { link: '#/app/inventario' });
+      notify(`Solicitud de traslado creada: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} · ${origen} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar el traslado.');
+      setError(err instanceof Error ? err.message : 'No se pudo crear la solicitud.');
     } finally {
       setSaving(false);
     }
@@ -77,13 +78,13 @@ export function TrasladoMaterialForm({
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="traslado-mat-form" className="btn btn-primary" disabled={saving || excede || cantNum <= 0 || stock <= 0}>
-        {saving ? 'Trasladando…' : 'Registrar traslado'}
+        {saving ? 'Creando…' : 'Crear solicitud'}
       </button>
     </>
   );
 
   return (
-    <Modal title="Nuevo traslado de material" size="lg" onClose={onClose} footer={footer}>
+    <Modal title="Nueva solicitud de traslado de material" size="lg" onClose={onClose} footer={footer}>
       <form id="traslado-mat-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -113,7 +114,7 @@ export function TrasladoMaterialForm({
 
         <div className="form-grid">
           <div className="form-row">
-            <label>Cantidad</label>
+            <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
             <input className="input mono" type="number" min={1} max={stock || undefined} step="any" value={cantidad} onChange={(e) => onCantidadChange(e.target.value)} required />
             {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>}
           </div>

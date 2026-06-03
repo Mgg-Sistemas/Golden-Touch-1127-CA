@@ -1,13 +1,13 @@
 let cachedDataUrl: string | null = null;
 
 /**
- * Devuelve el logo de MGG como data URL (JPEG con fondo blanco) para
- * embeberlo en PDFs generados con jsPDF. Cachea el resultado para no refetchar.
- * El fondo oscuro original del JPEG se reemplaza por blanco vía color-key.
+ * Devuelve el logo (GOLDEN TOUCH) como data URL (JPEG) para embeberlo en PDFs
+ * generados con jsPDF. Cachea el resultado para no refetchar. Se dibuja sobre
+ * fondo blanco para aplanar cualquier transparencia.
  */
 export async function loadLogoDataUrl(): Promise<string> {
   if (cachedDataUrl) return cachedDataUrl;
-  const url = `${import.meta.env.BASE_URL}image.jpeg`;
+  const url = `${import.meta.env.BASE_URL}LOGO.jpg`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`No se pudo cargar el logo (${resp.status})`);
   const blob = await resp.blob();
@@ -27,16 +27,6 @@ export async function loadLogoDataUrl(): Promise<string> {
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imgData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i], g = data[i + 1], b = data[i + 2];
-      if (r < 55 && g < 55 && b < 55) {
-        data[i] = 255; data[i + 1] = 255; data[i + 2] = 255;
-      }
-    }
-    ctx.putImageData(imgData, 0, 0);
 
     cachedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
     return cachedDataUrl;

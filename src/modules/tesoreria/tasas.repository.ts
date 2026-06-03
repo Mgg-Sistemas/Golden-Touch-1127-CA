@@ -1,12 +1,12 @@
 /* ============================================================
-   MGG · Tesorería · Tasas de cambio (BCV)
+   Golden Touch · Tesorería · Tasas de cambio (BCV)
    Tasa oficial del BCV para USD y EUR. La trae una Edge Function
    (`tasa-bcv`) desde una API pública y la cachea por día en `config`
    + historial en `tasa_cambio`. El euro es solo referencial (no hay
    caja en euros). Conversión con la fórmula del BCV, 2 decimales.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { MonedaTasa, TasaCambio, TasaHoy } from '@/shared/lib/types';
+import type { MonedaTasa, TasaCambio, TasaHoy, TasaSnapshot } from '@/shared/lib/types';
 
 const CONFIG_KEY = 'tesoreria.tasa_hoy';
 
@@ -89,8 +89,9 @@ async function ultimaConocida(): Promise<TasaHoy> {
   };
 }
 
-/** Corrección / carga manual de la tasa de una moneda (admin). */
-export async function setTasaManual(input: { moneda: MonedaTasa; tasa: number; fecha?: string }): Promise<void> {
+/** Corrección / carga manual de la tasa de una moneda (admin). Acepta cualquier
+ *  moneda registrada (USD/EUR/USDT/COP o personalizada). */
+export async function setTasaManual(input: { moneda: string; tasa: number; fecha?: string }): Promise<void> {
   const tasa = round2(Number(input.tasa) || 0);
   if (tasa <= 0) throw new Error('La tasa debe ser mayor que 0.');
   const fecha = input.fecha || hoyVE();
@@ -113,10 +114,14 @@ export async function setTasaManual(input: { moneda: MonedaTasa; tasa: number; f
       { onConflict: 'key' },
     );
   }
+
+  // USDT/COP cargadas a mano también alimentan el gráfico (serie histórica).
+  const par = input.moneda === 'USDT' ? 'USDT_VES' : input.moneda === 'COP' ? 'COP_USD' : null;
+  if (par) await supabase.from('tasa_snapshot').insert({ par, tasa, fuente: 'manual' });
 }
 
 /** Historial de tasas filtrable por rango de fecha y moneda. */
-export async function listHistorialTasas(filtros: { desde?: string; hasta?: string; moneda?: MonedaTasa } = {}): Promise<TasaCambio[]> {
+export async function listHistorialTasas(filtros: { desde?: string; hasta?: string; moneda?: string } = {}): Promise<TasaCambio[]> {
   let q = supabase.from('tasa_cambio').select('*').order('fecha', { ascending: false }).order('moneda', { ascending: true });
   if (filtros.desde) q = q.gte('fecha', filtros.desde);
   if (filtros.hasta) q = q.lte('fecha', filtros.hasta);
@@ -124,4 +129,110 @@ export async function listHistorialTasas(filtros: { desde?: string; hasta?: stri
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as TasaCambio[];
+}
+
+/* ───────────── Tasas de mercado (USDT/VES Binance, COP/USD) ───────────── */
+
+/** Tasas vigentes para el módulo multimoneda. */
+export interface TasasMercado {
+  bcvUsd: number | null;    // Bs por 1 USD (BCV)
+  usdtVes: number | null;   // Bs por 1 USDT (Binance P2P)
+  copUsd: number | null;    // COP por 1 USD
+  fecha: string | null;
+}
+
+/** Última tasa conocida de una moneda en `tasa_cambio` (cualquier fuente). */
+async function ultimaTasaMoneda(moneda: MonedaTasa): Promise<{ tasa: number; fecha: string } | null> {
+  const { data } = await supabase
+    .from('tasa_cambio')
+    .select('tasa, fecha')
+    .eq('moneda', moneda)
+    .order('fecha', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return { tasa: Number(data.tasa), fecha: data.fecha as string };
+}
+
+/** Las 3 tasas de referencia del P2P de Binance (Bs por 1 USDT). */
+export interface Binance3 {
+  buy: number | null;       // COMPRA (lo que cobran al vender USDT)
+  sell: number | null;      // VENTA (lo que pagan por USDT)
+  promedio: number | null;  // punto medio
+  at: string | null;
+}
+
+/** Fuerza la actualización (Edge Function Binance P2P) y devuelve las 3 tasas. */
+export async function refrescarBinanceP2P(): Promise<Binance3> {
+  const { data, error } = await supabase.functions.invoke<
+    { ok: true; promedio: number; buy: number | null; sell: number | null; at: string } | { error: string }
+  >('tasa-binance-p2p', { body: {} });
+  if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa Binance');
+  if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  return { buy: data.buy ?? null, sell: data.sell ?? null, promedio: data.promedio ?? null, at: data.at };
+}
+
+/** Últimas 3 tasas Binance guardadas (compra/venta/promedio). */
+export async function getBinance3(): Promise<Binance3> {
+  const { data } = await supabase
+    .from('tasa_snapshot')
+    .select('par, tasa, at')
+    .in('par', ['USDT_VES', 'USDT_VES_BUY', 'USDT_VES_SELL'])
+    .order('at', { ascending: false })
+    .limit(30);
+  const rows = (data ?? []) as Array<{ par: string; tasa: number; at: string }>;
+  const ultima = (par: string): number | null => {
+    const r = rows.find((x) => x.par === par);
+    return r ? Number(r.tasa) : null;
+  };
+  return { buy: ultima('USDT_VES_BUY'), sell: ultima('USDT_VES_SELL'), promedio: ultima('USDT_VES'), at: rows[0]?.at ?? null };
+}
+
+/** Fuerza la actualización de la tasa COP/USD (Edge Function). */
+export async function refrescarCop(): Promise<number> {
+  const { data, error } = await supabase.functions.invoke<
+    { ok: true; cop_usd: number } | { error: string }
+  >('tasa-cop', { body: {} });
+  if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa COP');
+  if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  return data.cop_usd;
+}
+
+/**
+ * Tasas de mercado para conversor/caja: BCV (USD), USDT/VES y COP/USD.
+ * Lee lo último de BD; si USDT no está cargado hoy, intenta el Edge Function.
+ */
+export async function getTasasMercado(): Promise<TasasMercado> {
+  const [bcv, usdt, cop] = await Promise.all([
+    getTasaHoy().catch(() => ({ usd: null, eur: null, fecha: null } as TasaHoy)),
+    ultimaTasaMoneda('USDT'),
+    ultimaTasaMoneda('COP'),
+  ]);
+  let usdtVes = usdt?.tasa ?? null;
+  if (usdtVes == null) {
+    try { usdtVes = (await refrescarBinanceP2P()).promedio; } catch { /* sin función desplegada */ }
+  }
+  let copUsd = cop?.tasa ?? null;
+  if (copUsd == null) {
+    try { copUsd = await refrescarCop(); } catch { /* sin función desplegada */ }
+  }
+  return {
+    bcvUsd: bcv.usd,
+    usdtVes,
+    copUsd,
+    fecha: bcv.fecha ?? usdt?.fecha ?? cop?.fecha ?? null,
+  };
+}
+
+/** Serie histórica de un par para el gráfico (más reciente primero). */
+export async function listSnapshots(
+  filtros: { par: string; desde?: string; hasta?: string; limit?: number } ,
+): Promise<TasaSnapshot[]> {
+  let q = supabase.from('tasa_snapshot').select('*').eq('par', filtros.par).order('at', { ascending: false });
+  if (filtros.desde) q = q.gte('at', filtros.desde);
+  if (filtros.hasta) q = q.lte('at', filtros.hasta);
+  q = q.limit(filtros.limit ?? 200);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as TasaSnapshot[];
 }

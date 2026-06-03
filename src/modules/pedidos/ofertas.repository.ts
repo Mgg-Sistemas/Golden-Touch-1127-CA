@@ -16,11 +16,22 @@ export interface CrearOfertaInput {
   items: ItemOrden[];
   precio_total: number;
   fecha_entrega_prometida?: string | null;
-  condiciones_pago?: string | null;
+  condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
   registrada_por_email: string;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+}
+
+/** Etiquetas legibles de las condiciones de pago. */
+export const CONDICIONES_PAGO: { value: string; label: string }[] = [
+  { value: 'contado', label: 'Pago de Contado' },
+  { value: 'contra_entrega', label: 'Pago Contra Entrega' },
+  { value: 'anticipado', label: 'Pago Anticipado' },
+  { value: 'credito', label: 'Pago a Crédito' },
+];
+export function labelCondicionPago(v?: string | null): string {
+  return CONDICIONES_PAGO.find((c) => c.value === v)?.label ?? '—';
 }
 
 /** Sube la cotización (PDF o imagen) al bucket `ofertas-pdf` y retorna su path. */

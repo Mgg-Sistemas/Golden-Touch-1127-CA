@@ -131,7 +131,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   const emisorLines = [
-    'Mineral Group Guayana C.A.',
+    'Golden Touch 1127 C.A.',
     'Sistema de Gestión de Inventarios',
   ];
   const provLines = [
@@ -328,7 +328,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.line(MARGIN, pageH - 80, MARGIN + 200, pageH - 80);
   doc.line(PAGE_W - MARGIN - 200, pageH - 80, PAGE_W - MARGIN, pageH - 80);
   doc.setFontSize(9);
-  doc.text('Firma autorizada · MGG', MARGIN, pageH - 66);
+  doc.text('Firma autorizada · Golden Touch', MARGIN, pageH - 66);
   doc.text('Recibido por proveedor', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
   doc.setFontSize(8);
   doc.setTextColor(120);

@@ -4,7 +4,17 @@
  */
 export type Role = string;
 export type EstadoGenerico = 'activo' | 'inactivo';
-export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'desistida_proveedor' | 'reasignada';
+export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta';
+
+/** Condiciones de pago de una oferta. */
+export type CondicionPago = 'contra_entrega' | 'anticipado' | 'credito';
+
+/** Una pata del pago de una OC (puede haber varias = multipago). */
+export interface PagoMetodo {
+  metodo: string;   // 'efectivo' | 'divisas_efectivo' | 'transferencia' | 'pago_movil' | 'binance_usdt' | 'zelle' | 'otro'
+  moneda: string;   // Bs, USD, USDT, COP, …
+  monto: number;
+}
 export type EstadoFactura = 'pendiente' | 'pagada' | 'anulada';
 export type TipoMovimiento = 'creacion' | 'entrada' | 'salida' | 'consumo' | 'transferencia' | 'ajuste' | 'fundicion' | 'fin_fundicion';
 export type NotifKind = 'info' | 'success' | 'warning' | 'error';
@@ -35,7 +45,7 @@ export interface Almacen {
   updated_at?: string | null;
 }
 
-/** Horno de fundición/producción. Se administra como las categorías:
+/** Horno de producción/producción. Se administra como las categorías:
  *  alta, renombrado e inhabilitación (con motivo). */
 export interface Horno {
   id: string;
@@ -48,11 +58,57 @@ export interface Horno {
   updated_at?: string | null;
 }
 
-/** Moneda de la tesorería. */
+/** Moneda de la tesorería (legacy, caja de una sola moneda). */
 export type Moneda = 'USD' | 'Bs';
 
-/** Moneda con tasa de cambio referenciada al BCV. */
-export type MonedaTasa = 'USD' | 'EUR';
+/** Monedas de la caja multimoneda. */
+export type MonedaCaja = 'Bs' | 'USD' | 'USDT' | 'COP';
+
+/** Cuentas dentro de una caja (Bs se divide en jurídica/personal). */
+export type CuentaCaja = 'general' | 'juridica' | 'personal';
+
+/** Moneda con tasa de cambio referenciada (BCV/Binance/TRM). */
+export type MonedaTasa = 'USD' | 'EUR' | 'USDT' | 'COP';
+
+/** Saldo de una caja por (cuenta, moneda) con su tasa promedio ponderada.
+ *  `moneda` es texto libre: además de las base (Bs/USD/USDT/COP) admite
+ *  monedas registradas por el usuario. */
+export interface CajaSaldo {
+  id: string;
+  caja_id: string;
+  cuenta: CuentaCaja;
+  moneda: string;
+  saldo: number;
+  /** Costo promedio ponderado en Bs por 1 unidad de la moneda (null/1 para Bs). */
+  tasa_prom?: number | null;
+  updated_at?: string | null;
+  /** Solo en consultas con join. */
+  caja?: { nombre: string } | null;
+}
+
+/** Lote de ingreso de divisa (trazabilidad de a qué tasa entró cada parte). */
+export interface CajaLote {
+  id: string;
+  caja_id: string;
+  cuenta: CuentaCaja;
+  moneda: string;
+  monto: number;
+  tasa_bs?: number | null;   // Bs por 1 unidad al comprar
+  origen?: string | null;
+  motivo?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+/** Punto de la serie histórica de tasas (para el gráfico). */
+export interface TasaSnapshot {
+  id: string;
+  par: string;       // 'USDT_VES','USD_VES','COP_USD'
+  tasa: number;
+  fuente: string;
+  at: string;
+}
 
 /** Fila del historial de tasas de cambio (BCV). */
 export interface TasaCambio {
@@ -116,6 +172,9 @@ export interface MovimientoCaja {
   beneficiario?: string | null;
   beneficiario_id?: string | null;
   ref_orden_id?: string | null;
+  /** Multimoneda: cuenta (Bs jurídica/personal) y tasa aplicada (Bs por unidad). */
+  cuenta?: string | null;
+  tasa_bs?: number | null;
   actor: string;
   actor_name?: string | null;
   at: string;
@@ -200,6 +259,54 @@ export interface SolicitudCombustible {
   finalizada_por?: string | null;
   finalizada_en?: string | null;
   mov_id?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+/* ───────────── Solicitudes de salida/traslado (con aprobación) ───────────── */
+
+export type EstadoSolicitudSalida = 'por_aprobar' | 'aprobada' | 'ejecutada' | 'cancelada';
+export type ScopeSalida = 'salida' | 'traslado';
+export type TipoSalida = 'material' | 'dinero';
+
+/**
+ * Solicitud unificada de salida/traslado (material o dinero) con flujo de
+ * aprobación: el obrero la crea (por_aprobar); admin/analista la aprueba y la
+ * ejecuta (recién ahí se descuenta el stock / sale el dinero).
+ */
+export interface SolicitudSalida {
+  id: string;
+  codigo: string;
+  scope: ScopeSalida;
+  tipo: TipoSalida;
+  estado: EstadoSolicitudSalida;
+  // material
+  producto_id?: string | null;
+  producto_nombre?: string | null;
+  almacen_origen?: string | null;
+  almacen_destino?: string | null;
+  cantidad?: number | null;
+  precio_unit?: number | null;
+  fecha_entrega?: string | null;
+  nota_entrega?: string | null;
+  // dinero
+  caja_id?: string | null;
+  caja_destino_id?: string | null;
+  monto?: number | null;
+  moneda?: Moneda | null;
+  cuenta?: string | null;
+  // comunes
+  solicitante: string;
+  destino?: string | null;
+  motivo?: string | null;
+  historial: EventoHistorial[];
+  aprobada_por?: string | null;
+  aprobada_en?: string | null;
+  ejecutada_por?: string | null;
+  ejecutada_en?: string | null;
+  mov_id?: string | null;
+  mov_ref?: string | null;
   actor?: string | null;
   actor_name?: string | null;
   created_at: string;
@@ -295,6 +402,8 @@ export interface ItemOrden {
   cantidad: number;
   precio: number;
   productoId?: string;
+  /** Cantidad realmente recibida (recepción parcial). Si falta = aún no recibido. */
+  cantidad_recibida?: number;
 }
 
 export interface EventoHistorial {
@@ -333,6 +442,12 @@ export interface Orden {
   oc_aprobada_en?: string | null;
   /** Almacén destino de la mercancía (se elige al confirmar la OC). */
   almacen_destino?: string | null;
+  /** Condiciones de pago (copiadas de la oferta elegida). */
+  condiciones_pago?: string | null;
+  /** Método(s) de pago indicados antes de enviar a pagar (multipago). */
+  metodo_pago?: PagoMetodo[] | null;
+  metodo_pago_por?: string | null;
+  metodo_pago_en?: string | null;
   /** Pago de la OC desde Tesorería. */
   pagada_por?: string | null;
   pagada_en?: string | null;
@@ -342,6 +457,13 @@ export interface Orden {
   factura_nombre?: string | null;
   retencion_path?: string | null;
   retencion_nombre?: string | null;
+  /** Recepción (parcial): total realmente recibido + nota de diferencias. */
+  recibido_total?: number | null;
+  nota_recepcion?: string | null;
+  recibida_por?: string | null;
+  recibida_en?: string | null;
+  /** Compras a crédito: total abonado acumulado. */
+  abonado_total?: number | null;
   finalizada_por?: string | null;
   finalizada_en?: string | null;
   rechazada_por?: string | null;
@@ -349,6 +471,23 @@ export interface Orden {
   motivo_rechazo?: string | null;
   created_at: string;
   updated_at?: string | null;
+}
+
+/** Abono de una compra a crédito (egreso real de caja). */
+export interface AbonoCredito {
+  id: string;
+  orden_id: string;
+  monto: number;
+  moneda: string;
+  caja_id?: string | null;
+  caja_mov_id?: string | null;
+  saldo_restante?: number | null;
+  actor: string;
+  actor_name?: string | null;
+  nota?: string | null;
+  comprobante_path?: string | null;
+  comprobante_nombre?: string | null;
+  at: string;
 }
 
 export interface Factura {

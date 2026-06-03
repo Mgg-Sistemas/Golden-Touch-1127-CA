@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Compra Directa (Supabase)
+   Golden Touch · Compra Directa (Supabase)
    Compras sin proveedor con VARIOS materiales + cantidad (sin
    precios al crear). NO lleva aprobación. Flujo: EN PROCESO → FINALIZADA.
    Al completar se adjunta la factura, se colocan los precios por material

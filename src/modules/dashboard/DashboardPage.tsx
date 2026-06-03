@@ -32,8 +32,8 @@ const MOV_LABEL: Record<TipoMovimiento, string> = {
   consumo: 'Consumo',
   transferencia: 'Transferencia',
   ajuste: 'Ajuste',
-  fundicion: 'Fundición',
-  fin_fundicion: 'Fin de fundición',
+  fundicion: 'Producción',
+  fin_fundicion: 'Fin de producción',
 };
 
 export function DashboardPage() {
@@ -86,7 +86,7 @@ export function DashboardPage() {
       <div className="page-head">
         <div>
           <h1>Dashboard</h1>
-          <p className="muted">Resumen operativo del sistema MGG al {date(new Date().toISOString())}.</p>
+          <p className="muted">Resumen operativo del sistema Golden Touch al {date(new Date().toISOString())}.</p>
         </div>
       </div>
 

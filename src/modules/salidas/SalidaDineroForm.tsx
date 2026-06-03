@@ -3,8 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import type { Caja } from '@/shared/lib/types';
-import { salidaDinero } from './cajas.repository';
-import { descargarSalidaDineroPdf } from './salidaPdf';
+import { crearSolicitudSalida } from './salidas.repository';
 import { DestinoSelect } from './DestinoSelect';
 
 export function SalidaDineroForm({
@@ -40,13 +39,16 @@ export function SalidaDineroForm({
     if (!destino.trim()) { setError('Indicá a quién va dirigido el dinero.'); return; }
     setSaving(true);
     try {
-      const mov = await salidaDinero({ cajaId, destino: destino.trim(), motivo: motivo.trim(), monto: montoNum, actor, actorName });
-      notify(`Salida de dinero: ${money(montoNum)} ${caja?.moneda} → ${destino} · queda pendiente de mineral`, 'success', { link: '#/app/salidas' });
+      await crearSolicitudSalida({
+        scope: 'salida', tipo: 'dinero',
+        cajaId, monto: montoNum, moneda: caja?.moneda ?? null, destino: destino.trim(),
+        motivo: motivo.trim() || null, solicitante: actorName || actor, actor, actorName,
+      });
+      notify(`Solicitud de salida de dinero creada: ${money(montoNum)} ${caja?.moneda} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
-      try { await descargarSalidaDineroPdf({ ...mov, caja: caja ? { nombre: caja.nombre, moneda: caja.moneda } : null }); } catch { /* PDF opcional */ }
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar la salida de dinero.');
+      setError(err instanceof Error ? err.message : 'No se pudo crear la solicitud.');
     } finally {
       setSaving(false);
     }
@@ -56,13 +58,13 @@ export function SalidaDineroForm({
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="salida-dinero-form" className="btn btn-primary" disabled={saving}>
-        {saving ? 'Registrando…' : 'Registrar salida + PDF'}
+        {saving ? 'Creando…' : 'Crear solicitud'}
       </button>
     </>
   );
 
   return (
-    <Modal title="Nueva salida de dinero" size="lg" onClose={onClose} footer={footer}>
+    <Modal title="Nueva solicitud de salida de dinero" size="lg" onClose={onClose} footer={footer}>
       <form id="salida-dinero-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -86,7 +88,7 @@ export function SalidaDineroForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Monto ({caja?.moneda ?? '—'})</label>
-            <input className="input mono" type="number" min={0} step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} required />
+            <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} required />
           </div>
           <div className="form-row">
             <label>Saldo resultante</label>

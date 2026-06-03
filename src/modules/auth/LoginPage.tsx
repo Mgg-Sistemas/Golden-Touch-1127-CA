@@ -53,25 +53,20 @@ export function LoginPage() {
           }}
         >
           <div className="brand" style={{ flexDirection: 'column', alignItems: 'center', gap: '.75rem' }}>
-            <img src="/image.jpeg" alt="MGG" style={{ width: 72, height: 72 }} />
+            <img src="/LOGO.jpg" alt="Golden Touch" style={{ width: 72, height: 72 }} />
             <div className="brand-text" style={{ alignItems: 'center' }}>
-              <strong>MGG</strong>
-              <small>Mineral Group Guayana</small>
+              <strong>Golden Touch</strong>
+              <small>1127 C.A.</small>
             </div>
           </div>
 
           <p className="quote" style={{ maxWidth: 480 }}>
-            <strong>Mineral Group Guayana C.A.</strong>
-            <br />
-            <span className="grad">Empresa líder en la comercialización y exportación de minerales.</span>
-            <br />
-            <br />
             Bienvenido al Sistema de Gestión de la Empresa.
           </p>
         </div>
 
         <div className="footnote">
-          <span>© Mineral Group Guayana C.A.</span>
+          <span>© Golden Touch 1127 C.A.</span>
           <span>v0.3.0</span>
         </div>
       </aside>
@@ -81,7 +76,7 @@ export function LoginPage() {
           <Link to="/" className="back-link">← Volver al inicio</Link>
 
           <h1>Iniciar sesión</h1>
-          <p className="sub">Ingresa con tu cuenta corporativa MGG.</p>
+          <p className="sub">Ingresa con tu cuenta corporativa Golden Touch.</p>
 
           {!isSupabaseConfigured && (
             <div className="badge warning" style={{ marginBottom: '1rem', display: 'block', padding: '.6rem .8rem' }}>

@@ -1,4 +1,4 @@
-// MGG · Edge Function: enviar-produccion (Brevo Transactional Email API)
+// Golden Touch · Edge Function: enviar-produccion (Brevo Transactional Email API)
 // Espejo de `enviar-trazabilidad` pero para reportes de producción.
 // Recibe { produccion_id, pdf_base64, to_email? }. Si no se pasa `to_email`,
 // envía a todos los usuarios admin/jefe.
@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
 
   const brevoKey = Deno.env.get('BREVO_API_KEY');
   const fromEmail = Deno.env.get('BREVO_FROM_EMAIL');
-  const fromName = Deno.env.get('BREVO_FROM_NAME') ?? 'MGG Inventario';
+  const fromName = Deno.env.get('BREVO_FROM_NAME') ?? 'Golden Touch Inventario';
   if (!brevoKey || !fromEmail) return json({ error: 'Faltan secrets Brevo' }, 500);
 
   const supabase = createClient(supabaseUrl, serviceKey);
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
         <tr><td style="padding:6px 12px;background:#f5f5f5"><strong>Posible ganancia</strong></td><td style="padding:6px 12px">${prod.ganancia != null ? money(prod.ganancia) : '—'}</td></tr>
       </table>
       <p style="font-size:14px">Adjunto el PDF con el detalle del proceso y los materiales utilizados.</p>
-      <p style="color:#888;font-size:12px;margin-top:32px;border-top:1px solid #ddd;padding-top:12px">Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios</p>
+      <p style="color:#888;font-size:12px;margin-top:32px;border-top:1px solid #ddd;padding-top:12px">Golden Touch 1127 C.A. · Sistema de Gestión de Inventarios</p>
     </div>`;
 
   const body = {

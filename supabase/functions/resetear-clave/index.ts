@@ -1,4 +1,4 @@
-// MGG · Edge Function: resetear-clave
+// Golden Touch · Edge Function: resetear-clave
 // Solo admin. Resetea la clave del usuario objetivo a '123456' y marca
 // must_change_password=true para forzar cambio en el próximo login.
 

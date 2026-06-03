@@ -119,7 +119,7 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
           </select>
         </div>
         <div className="form-row">
-          <label>Receta de fundición</label>
+          <label>Receta de producción</label>
           <select
             className="select"
             value={f.receta ?? ''}
@@ -128,7 +128,7 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
             <option value="">Todos</option>
             <option value="con_receta">Con receta (cualquiera)</option>
             <option value="sin_receta">Sin receta</option>
-            <option value="en_proceso">En proceso de fundición</option>
+            <option value="en_proceso">En proceso de producción</option>
             {RECETAS_FUNDICION.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>

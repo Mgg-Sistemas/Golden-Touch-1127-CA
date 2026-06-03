@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios — React + Tailwind + Supabase",
+  "description": "Golden Touch 1127 C.A. · Sistema de Gestión de Inventarios — React + Tailwind + Supabase",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

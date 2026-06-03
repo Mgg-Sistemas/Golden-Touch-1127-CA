@@ -78,6 +78,9 @@
 .hero-visual img {
   position: relative;
   width: 80%; max-width: 360px;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  object-fit: cover;
   filter: drop-shadow(0 30px 60px rgba(255,138,0,0.35));
   animation: floaty 6s ease-in-out infinite;
 }

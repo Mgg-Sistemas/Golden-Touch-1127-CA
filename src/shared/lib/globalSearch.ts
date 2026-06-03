@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Búsqueda global del sistema
+   Golden Touch · Búsqueda global del sistema
    Busca en productos, proveedores y órdenes; devuelve una lista
    unificada con la ruta (vista + detalle) de cada resultado.
    ============================================================ */

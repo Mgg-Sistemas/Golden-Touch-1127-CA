@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Inventario · Almacenes (Supabase)
+   Golden Touch · Inventario · Almacenes (Supabase)
    Los almacenes son entidades reales en `almacenes`.
    `productos.almacen` referencia el NOMBRE del almacén (texto),
    por retrocompatibilidad con datos legados ('General', etc.).

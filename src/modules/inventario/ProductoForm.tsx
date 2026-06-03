@@ -149,7 +149,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       return;
     }
     if (form.esReceta && !form.receta_fundicion) {
-      setError('Seleccioná la receta de fundición o cambiá la respuesta a "No".');
+      setError('Seleccioná la receta de producción o cambiá la respuesta a "No".');
       return;
     }
     const restockRaw = form.restock_pct.trim();
@@ -299,7 +299,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
         </div>
 
         <div className="form-row">
-          <label>¿Este producto forma parte de una receta de fundición?</label>
+          <label>¿Este producto forma parte de una receta de producción?</label>
           <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem' }}>
             <button
               type="button"

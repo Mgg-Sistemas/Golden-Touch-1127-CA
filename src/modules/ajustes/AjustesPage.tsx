@@ -140,7 +140,7 @@ export function AjustesPage() {
               }}
             >
               <img
-                src="/image.jpeg"
+                src="/LOGO.jpg"
                 alt="Avatar"
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />

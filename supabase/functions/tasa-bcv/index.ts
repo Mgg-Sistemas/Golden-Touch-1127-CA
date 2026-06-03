@@ -1,4 +1,4 @@
-// MGG · Edge Function: tasa-bcv
+// Golden Touch · Edge Function: tasa-bcv
 // Trae la tasa oficial del BCV (USD y EUR) desde una API pública y la guarda
 // en `tasa_cambio` (historial) + `config` (snapshot del día). Cache diario:
 // si ya existe la del día y no se fuerza, la devuelve sin volver a consultar.

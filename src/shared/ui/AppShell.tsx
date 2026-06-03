@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -8,6 +8,7 @@ import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { toast } from '@/shared/ui/Toast';
 import { descargarManualUsuario, type CapturasManual } from '@/shared/lib/manualUsuarioPdf';
+import { descargarRespaldoSql, chequearRespaldoAutomatico, puedeRespaldar } from '@/shared/lib/backup';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
@@ -42,6 +43,8 @@ export function AppShell() {
   const manualSistemaUrl = `${import.meta.env.BASE_URL}manual-sistema.html`;
   const [notifOpen, setNotifOpen] = useState(false);
   const [descargandoManual, setDescargandoManual] = useState(false);
+  const [descargandoBackup, setDescargandoBackup] = useState(false);
+  const mostrarRespaldo = puedeRespaldar(role);
   const [unread, setUnread] = useState(0);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -143,15 +146,41 @@ export function AppShell() {
     }
   }
 
+  // Descarga manual del respaldo .sql de la base de datos.
+  async function handleRespaldo() {
+    if (descargandoBackup) return;
+    setDescargandoBackup(true);
+    try {
+      await descargarRespaldoSql(user?.email ?? 'sistema', false);
+      toast('Respaldo de datos descargado (.sql)', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el respaldo', 'error');
+    } finally {
+      setDescargandoBackup(false);
+    }
+  }
+
+  // Respaldo AUTOMÁTICO cada 30 días: al entrar un admin/analista, si toca,
+  // descarga el .sql y registra la fecha. Corre una sola vez por sesión.
+  const backupAutoCorrido = useRef(false);
+  useEffect(() => {
+    if (backupAutoCorrido.current) return;
+    if (!puedeRespaldar(role)) return;
+    backupAutoCorrido.current = true;
+    chequearRespaldoAutomatico(role, user?.email ?? 'sistema')
+      .then((corrio) => { if (corrio) toast('Respaldo automático (cada 30 días) descargado', 'info'); })
+      .catch(() => { /* silencioso: el respaldo manual sigue disponible */ });
+  }, [role, user?.email]);
+
   return (
     <div className={`app${collapsed ? ' sidebar-collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <NavLink to="/app" className="brand">
-            <img src="/image.jpeg" alt="MGG" />
+            <img src="/LOGO.jpg" alt="Golden Touch" />
             <div className="brand-text">
-              <strong>MGG</strong>
-              <small>Inventarios</small>
+              <strong>Golden Touch</strong>
+              <small>BIENVENIDO</small>
             </div>
           </NavLink>
         </div>
@@ -191,6 +220,17 @@ export function AppShell() {
           >
             <span className="icn">📘</span> <span>Menú del Sistema</span>
           </a>
+          {mostrarRespaldo && (
+            <a
+              href="#"
+              onClick={(e) => { e.preventDefault(); void handleRespaldo(); }}
+              title="Descargar el respaldo de la base de datos (.sql)"
+              style={descargandoBackup ? { opacity: 0.6, pointerEvents: 'none' } : undefined}
+            >
+              <span className="icn">💾</span>{' '}
+              <span>{descargandoBackup ? 'Generando…' : 'Respaldo de Data'}</span>
+            </a>
+          )}
           {MOSTRAR_MANUAL && (
             <a
               href="#"
@@ -207,13 +247,14 @@ export function AppShell() {
         <div className="sidebar-section">Próximamente</div>
         <nav className="nav">
           <NavItem to="#" icon="↗" label="Ventas" disabled />
+          <NavItem to="#" icon="🧮" label="Centro de Costos" disabled />
         </nav>
 
         <div className="sidebar-footer">
           <div className="user-chip">
             <div className="avatar" style={{ overflow: 'hidden', background: '#fff', padding: 0 }}>
               <img
-                src="/image.jpeg"
+                src="/LOGO.jpg"
                 alt="Avatar"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
               />
@@ -241,7 +282,7 @@ export function AppShell() {
           >
             ☰
           </button>
-          <span>MGG · <strong>Sistema</strong></span>
+          <span>Golden Touch · <strong>Sistema</strong></span>
         </div>
         <div className="top-actions">
           <TasaChip />

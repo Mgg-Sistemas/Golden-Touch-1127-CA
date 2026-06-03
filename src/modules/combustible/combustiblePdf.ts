@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Combustible · Reporte PDF de solicitud de salida.
+   Golden Touch · Combustible · Reporte PDF de solicitud de salida.
    Se descarga / envía SOLO al hacer clic (regla del sistema).
    ============================================================ */
 import type { SolicitudCombustible } from '@/shared/lib/types';
@@ -27,7 +27,7 @@ async function construir(s: SolicitudCombustible) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
   doc.text('Solicitud de Salida de Combustible', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`${s.codigo} · Mineral Group Guayana C.A.`, tx, y + 36);
+  doc.text(`${s.codigo} · Golden Touch 1127 C.A.`, tx, y + 36);
   doc.text(`Generado ${fmt.dateTime(new Date().toISOString())}`, tx, y + 50);
   y += 70;
 

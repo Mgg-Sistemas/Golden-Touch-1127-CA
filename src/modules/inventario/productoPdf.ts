@@ -58,7 +58,7 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
   doc.text('Trazabilidad de producto', TEXT_X, y + 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(`Mineral Group Guayana C.A. · Generado ${dateTime(new Date().toISOString())}`, TEXT_X, y + 36);
+  doc.text(`Golden Touch 1127 C.A. · Generado ${dateTime(new Date().toISOString())}`, TEXT_X, y + 36);
   y += Math.max(LOGO_SIZE, 36) + 10;
 
   doc.setDrawColor(255, 138, 0);
@@ -80,8 +80,8 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
     ['Unidad', producto.unidad],
     ['Almacén', producto.almacen],
     ['Estado', producto.estado],
-    ['Receta de fundición', producto.receta_fundicion ?? '—'],
-    ['En proceso de fundición', producto.en_fundicion ? 'Sí' : 'No'],
+    ['Receta de producción', producto.receta_fundicion ?? '—'],
+    ['En proceso de producción', producto.en_fundicion ? 'Sí' : 'No'],
     ['Stock actual', num(producto.stock)],
     ['Stock mínimo', num(producto.stock_min)],
     ['Costo inicial', costoInicial != null ? money(costoInicial) : '—'],

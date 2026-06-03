@@ -1,4 +1,4 @@
-// MGG · Edge Function: enviar-trazabilidad (Brevo Transactional Email API)
+// Golden Touch · Edge Function: enviar-trazabilidad (Brevo Transactional Email API)
 // El puerto 587 (SMTP) no está disponible desde Supabase Edge Functions —
 // el runtime solo permite HTTP/HTTPS de salida. Usamos la API REST de Brevo,
 // que es el mismo servicio y respeta el mismo remitente verificado.
@@ -9,7 +9,7 @@
 // Secrets requeridos en Supabase:
 //   BREVO_API_KEY        (API key de https://app.brevo.com/settings/keys/api)
 //   BREVO_FROM_EMAIL     (remitente verificado en Brevo)
-//   BREVO_FROM_NAME      (nombre del remitente, ej: "MGG Inventario")
+//   BREVO_FROM_NAME      (nombre del remitente, ej: "Golden Touch Inventario")
 
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
 
   const brevoKey = Deno.env.get('BREVO_API_KEY');
   const fromEmail = Deno.env.get('BREVO_FROM_EMAIL');
-  const fromName = Deno.env.get('BREVO_FROM_NAME') ?? 'MGG Inventario';
+  const fromName = Deno.env.get('BREVO_FROM_NAME') ?? 'Golden Touch Inventario';
   if (!brevoKey || !fromEmail) {
     return json({ error: 'Faltan secrets Brevo (BREVO_API_KEY y/o BREVO_FROM_EMAIL)' }, 500);
   }
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
         El PDF adjunto incluye: solicitud, ítems, ofertas de proveedores, orden de compra final y recepción de mercancía.
       </p>
       <p style="color:#888;font-size:12px;margin-top:32px;border-top:1px solid #ddd;padding-top:12px">
-        Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios · Generado automáticamente
+        Golden Touch 1127 C.A. · Sistema de Gestión de Inventarios · Generado automáticamente
       </p>
     </div>
   `;

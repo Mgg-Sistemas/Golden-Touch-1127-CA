@@ -1,5 +1,5 @@
 -- =============================================================
--- MGG-Inventario · Schema completo (FASE 0: portado del demo)
+-- Golden Touch-Inventario · Schema completo (FASE 0: portado del demo)
 -- Ejecutar en: Supabase Dashboard -> SQL Editor -> New query
 -- Idempotente: puedes correrlo varias veces sin romper datos.
 -- =============================================================
@@ -49,9 +49,6 @@ create table if not exists public.usuarios (
   updated_at   timestamptz
 );
 
--- Campo heredado usado por directorio_usuarios() y el front (PersonaDirectorio).
-alter table public.usuarios add column if not exists apellido text;
-
 -- Trigger: al registrar usuario en auth, crear fila en public.usuarios
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -72,22 +69,6 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
-
--- Helpers de rol (definidos temprano: los usan las policies RLS de abajo)
-create or replace function public.is_admin()
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role = 'admin');
-$$;
-
-create or replace function public.is_staff()
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista'));
-$$;
-
-create or replace function public.is_operativo()
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista','obrero'));
-$$;
 
 -- ─────────────────────────────────────────────────────────────
 -- 3. proveedores
@@ -192,17 +173,7 @@ alter table public.productos add column if not exists precio_venta   numeric;
 alter table public.productos add column if not exists es_receta      boolean not null default false;
 alter table public.productos add column if not exists es_producible  boolean not null default false;
 -- Los productos con receta de fundición ya son insumos de producción.
--- Backfill heredado: solo aplica si existe la columna legada `receta_fundicion`
--- (en bases nuevas la columna no existe; se omite sin romper el esquema).
-do $$
-begin
-  if exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'productos' and column_name = 'receta_fundicion'
-  ) then
-    update public.productos set es_receta = true where receta_fundicion is not null and es_receta = false;
-  end if;
-end$$;
+update public.productos set es_receta = true where receta_fundicion is not null and es_receta = false;
 
 -- ─────────────────────────────────────────────────────────────
 -- 5.3 producción: órdenes de producción + materiales consumidos.
@@ -390,6 +361,40 @@ create table if not exists public.combustible_solicitudes (
   created_at         timestamptz not null default now()
 );
 
+-- Solicitudes de salida/traslado (material y dinero) con flujo de aprobación.
+-- El obrero crea (por_aprobar); admin/analista aprueba y ejecuta (gate en el front).
+-- Al ejecutar se realiza el movimiento real (movimientos / movimientos_caja) y se guarda mov_id.
+create table if not exists public.solicitudes_salida (
+  id              uuid primary key default gen_random_uuid(),
+  codigo          text not null,                  -- SAL-AAAA-NNNN / TRA-AAAA-NNNN
+  scope           text not null check (scope in ('salida','traslado')),
+  tipo            text not null check (tipo in ('material','dinero')),
+  estado          text not null default 'por_aprobar' check (estado in ('por_aprobar','aprobada','ejecutada','cancelada')),
+  -- material
+  producto_id     uuid references public.productos(id) on delete set null,
+  producto_nombre text, almacen_origen text, almacen_destino text,
+  cantidad        numeric check (cantidad is null or cantidad > 0),
+  precio_unit     numeric, fecha_entrega date, nota_entrega text,
+  -- dinero
+  caja_id         uuid references public.cajas(id) on delete set null,
+  caja_destino_id uuid references public.cajas(id) on delete set null,
+  monto           numeric check (monto is null or monto > 0), moneda text, cuenta text,
+  -- comunes
+  solicitante     text not null, destino text, motivo text,
+  historial       jsonb not null default '[]'::jsonb,
+  aprobada_por    text, aprobada_en   timestamptz,
+  ejecutada_por   text, ejecutada_en  timestamptz,
+  mov_id          uuid, mov_ref text,
+  actor           text, actor_name text,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_sol_salida_estado on public.solicitudes_salida(estado);
+create index if not exists idx_sol_salida_scope_tipo on public.solicitudes_salida(scope, tipo);
+-- RLS: lectura auth; escritura is_operativo() (el gate "obrero no aprueba" vive en el front).
+alter table public.solicitudes_salida enable row level security;
+create policy "sol_salida read auth"      on public.solicitudes_salida for select using (auth.role() = 'authenticated');
+create policy "sol_salida write operativo" on public.solicitudes_salida for all using (public.is_operativo()) with check (public.is_operativo());
+
 -- ─────────────────────────────────────────────────────────────
 -- 6. ordenes (de compra / pedido)
 -- ─────────────────────────────────────────────────────────────
@@ -473,7 +478,7 @@ create table if not exists public.config (
 create table if not exists public.tasa_cambio (
   id         uuid primary key default gen_random_uuid(),
   fecha      date not null,
-  moneda     text not null check (moneda in ('USD','EUR')),
+  moneda     text not null check (moneda in ('USD','EUR','USDT','COP')),
   tasa       numeric not null check (tasa > 0),
   fuente     text not null default 'bcv',
   created_by text,
@@ -484,6 +489,62 @@ create index if not exists tasa_cambio_fecha_idx on public.tasa_cambio (fecha de
 alter table public.tasa_cambio enable row level security;
 create policy tasa_cambio_read on public.tasa_cambio for select to authenticated using (true);
 create policy tasa_cambio_write on public.tasa_cambio for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- ─────────────────────────────────────────────────────────────
+-- 8.1 Tesorería multimoneda (Fase 0) — cajas con varias monedas,
+--     cuentas (jurídica/personal en Bs), promedio ponderado de tasa
+--     (como el PMP del inventario) y serie histórica de tasas.
+-- ─────────────────────────────────────────────────────────────
+-- Serie de tasas (varias por día) para el gráfico día a día.
+create table if not exists public.tasa_snapshot (
+  id     uuid primary key default gen_random_uuid(),
+  par    text not null,                          -- 'USDT_VES','USD_VES','COP_USD', etc.
+  tasa   numeric not null,
+  fuente text not null default 'binance_p2p',    -- 'binance_p2p','bcv','trm','er_api','manual'
+  at     timestamptz not null default now()
+);
+create index if not exists idx_tasa_snapshot_par_at on public.tasa_snapshot(par, at desc);
+alter table public.tasa_snapshot enable row level security;
+create policy "tasa_snapshot read auth" on public.tasa_snapshot for select using (auth.role()='authenticated');
+create policy "tasa_snapshot write operativo" on public.tasa_snapshot for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Saldo por (caja, cuenta, moneda) + tasa promedio ponderada en Bs por unidad.
+create table if not exists public.caja_saldos (
+  id         uuid primary key default gen_random_uuid(),
+  caja_id    uuid not null references public.cajas(id) on delete cascade,
+  cuenta     text not null default 'general',    -- Bs: 'juridica'|'personal'; otras: 'general'
+  moneda     text not null check (moneda in ('Bs','USD','USDT','COP')),
+  saldo      numeric not null default 0,
+  tasa_prom  numeric,                             -- Bs por 1 unidad (null/1 para Bs)
+  updated_at timestamptz not null default now(),
+  unique (caja_id, cuenta, moneda)
+);
+alter table public.caja_saldos enable row level security;
+create policy "caja_saldos read auth" on public.caja_saldos for select using (auth.role()='authenticated');
+create policy "caja_saldos write operativo" on public.caja_saldos for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Trazabilidad: cada ingreso de divisa con la tasa a la que se compró.
+create table if not exists public.caja_lotes (
+  id         uuid primary key default gen_random_uuid(),
+  caja_id    uuid not null references public.cajas(id) on delete cascade,
+  cuenta     text not null default 'general',
+  moneda     text not null check (moneda in ('Bs','USD','USDT','COP')),
+  monto      numeric not null,
+  tasa_bs    numeric,                             -- Bs por 1 unidad al comprar
+  origen     text,
+  motivo     text,
+  actor      text,
+  actor_name text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_caja_lotes_caja on public.caja_lotes(caja_id, moneda, cuenta);
+alter table public.caja_lotes enable row level security;
+create policy "caja_lotes read auth" on public.caja_lotes for select using (auth.role()='authenticated');
+create policy "caja_lotes write operativo" on public.caja_lotes for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- movimientos_caja: cuenta + tasa aplicada (multipago y trazabilidad).
+alter table public.movimientos_caja add column if not exists cuenta  text;
+alter table public.movimientos_caja add column if not exists tasa_bs numeric;
 
 -- ─────────────────────────────────────────────────────────────
 -- 9.0 Ofertas de proveedores + evaluaciones de recepción (Sourcing)
@@ -614,6 +675,19 @@ alter type public.estado_orden add value if not exists 'oc_emitida';
 alter type public.estado_orden add value if not exists 'oc_creada';
 alter type public.estado_orden add value if not exists 'oc_aprobada';
 alter type public.estado_orden add value if not exists 'pagada';
+-- Fase 4: el gerente confirma → 'confirmada_metodo' (indicar método de pago);
+-- al indicar el método (multipago) y "Enviar para Pagar" → 'oc_aprobada' (Confirmada pagar).
+alter type public.estado_orden add value if not exists 'confirmada_metodo';
+alter table public.ordenes add column if not exists condiciones_pago text;   -- copiado de la oferta
+alter table public.ordenes add column if not exists metodo_pago     jsonb;   -- [{metodo,moneda,monto}] multipago
+alter table public.ordenes add column if not exists metodo_pago_por text;
+alter table public.ordenes add column if not exists metodo_pago_en  timestamptz;
+alter table public.ofertas_proveedor add column if not exists condiciones_pago text; -- contra_entrega|anticipado|credito
+-- Monedas dinámicas (registro tipo taxonomía, scope 'tesoreria.moneda'):
+-- se liberan los CHECK de moneda para admitir cualquier código registrado.
+alter table public.caja_saldos drop constraint if exists caja_saldos_moneda_check;
+alter table public.caja_lotes  drop constraint if exists caja_lotes_moneda_check;
+alter table public.tasa_cambio drop constraint if exists tasa_cambio_moneda_check;
 alter type public.estado_orden add value if not exists 'finalizada';
 alter table public.ordenes add column if not exists oc_codigo       text;
 alter table public.ordenes add column if not exists oc_emitida_por  text;
@@ -635,6 +709,36 @@ alter table public.ordenes add column if not exists retencion_nombre text;
 -- Storage: bucket privado `compras-oc` para la factura adjunta al pago de la OC
 -- (políticas: lectura/escritura para usuarios autenticados, espejo de `compras-directas`).
 -- movimientos_caja: categoría 'pago_oc' (ref_orden_id) casa el pago con la orden.
+
+-- Flujo de compras por condición de pago (contra_entrega / anticipado / credito):
+--  · contra_entrega → 'por_recibir' (recibe primero, paga lo recibido)
+--  · credito        → 'cuenta_abierta' (abonos hasta saldar) → 'por_recibir'
+--  · anticipado/null → flujo actual (confirmada_metodo → oc_aprobada → pagada → recibida).
+alter type public.estado_orden add value if not exists 'por_recibir';
+alter type public.estado_orden add value if not exists 'cuenta_abierta';
+-- Recepción parcial: items[].cantidad_recibida (jsonb) + nota y total recibido.
+alter table public.ordenes add column if not exists nota_recepcion text;
+alter table public.ordenes add column if not exists recibido_total numeric;  -- Σ cantidad_recibida×precio
+alter table public.ordenes add column if not exists recibida_por   text;
+alter table public.ordenes add column if not exists recibida_en    timestamptz;
+alter table public.ordenes add column if not exists abonado_total  numeric default 0;  -- caché Σ abonos (crédito)
+
+-- Abonos de compras a crédito (cada abono es un egreso real de caja vía pagarOrden).
+create table if not exists public.abonos_credito (
+  id          uuid primary key default gen_random_uuid(),
+  orden_id    uuid not null references public.ordenes(id) on delete cascade,
+  monto       numeric not null check (monto > 0),
+  moneda      text not null default 'USD',
+  caja_id     uuid references public.cajas(id) on delete set null,
+  caja_mov_id uuid references public.movimientos_caja(id) on delete set null,
+  saldo_restante numeric,            -- total - Σabonos tras este abono
+  actor       text not null, actor_name text, nota text,
+  at          timestamptz not null default now()
+);
+create index if not exists idx_abonos_orden on public.abonos_credito(orden_id, at);
+alter table public.abonos_credito enable row level security;
+create policy "abonos read auth"  on public.abonos_credito for select using (auth.role() = 'authenticated');
+create policy "abonos write staff" on public.abonos_credito for all using (public.is_staff()) with check (public.is_staff());
 
 -- Storage: bucket privado `ofertas-pdf` para las cotizaciones (PDF) de los proveedores.
 -- El analista carga las ofertas, así que la escritura es para STAFF (admin + analista),
@@ -690,7 +794,11 @@ alter table public.existencias    enable row level security;
 alter table public.produccion     enable row level security;
 alter table public.produccion_materiales enable row level security;
 
--- (is_admin() se define más arriba, junto al trigger de auth, para que las policies lo puedan usar)
+-- Helper: ¿el usuario actual es admin?
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.usuarios where id = auth.uid() and role = 'admin');
+$$;
 
 -- usuarios
 drop policy if exists "usuarios self read" on public.usuarios;
@@ -713,7 +821,21 @@ begin
   end loop;
 end$$;
 
--- (is_staff() e is_operativo() se definen más arriba, junto a is_admin(), para que las policies los usen)
+-- Helper: ¿el usuario actual es "staff" de operaciones? (admin o analista).
+-- El analista maneja el ciclo de compras: cargar ofertas, emitir OC, recibir
+-- mercancía (movimientos + actualización de stock) y evaluar la recepción.
+create or replace function public.is_staff()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista'));
+$$;
+
+-- Helper: ¿el usuario es "operativo"? (admin, analista u obrero). Estos roles
+-- trabajan inventario y producción (movimientos, existencias, stock, órdenes de
+-- producción y sus materiales).
+create or replace function public.is_operativo()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista','obrero'));
+$$;
 
 -- Directorio mínimo de usuarios activos (id, nombre, apellido, cargo) legible por
 -- cualquier autenticado. La tabla usuarios tiene RLS de "solo tu fila"; esta
@@ -802,5 +924,56 @@ create policy "notif delete admin" on public.notificaciones for delete using (pu
 -- (Correr después de crear el usuario en Authentication → Users)
 -- ─────────────────────────────────────────────────────────────
 update public.usuarios
-   set role = 'admin', nombre = 'Administrador MGG'
+   set role = 'admin', nombre = 'Administrador Golden Touch'
  where email = 'admin@gmail.com';
+
+-- ─────────────────────────────────────────────────────────────
+-- 13. Respaldo de datos (.sql)
+-- Función SECURITY DEFINER que recorre todas las tablas BASE de `public`
+-- y devuelve un script SQL con los INSERT (ON CONFLICT DO NOTHING).
+-- Valida por dentro que el solicitante sea admin o analista (auth.uid()).
+-- El front la invoca con supabase.rpc('dump_database_sql') para:
+--   · Respaldo MANUAL: botón "Respaldo de Data" en el menú lateral.
+--   · Respaldo AUTOMÁTICO: cada 30 días al entrar un admin/analista
+--     (la fecha del último respaldo se guarda en config key 'backup.ultimo').
+-- ─────────────────────────────────────────────────────────────
+create or replace function public.dump_database_sql()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $func$
+declare
+  t record; r jsonb; k text; v jsonb; cols text; vals text; out text := '';
+begin
+  if not exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista')) then
+    raise exception 'Solo un administrador o analista puede generar el respaldo de datos.';
+  end if;
+  out := '-- Golden Touch-Inventario · Respaldo de DATOS · ' || now()::text || chr(10)
+       || '-- Restaurar sobre el esquema base (supabase/schema.sql).' || chr(10) || chr(10);
+  for t in
+    select table_name from information_schema.tables
+    where table_schema = 'public' and table_type = 'BASE TABLE'
+    order by table_name
+  loop
+    out := out || '-- ===== ' || t.table_name || ' =====' || chr(10);
+    for r in execute format('select to_jsonb(x) from public.%I x', t.table_name) loop
+      cols := ''; vals := '';
+      for k, v in select key, value from jsonb_each(r) loop
+        if cols <> '' then cols := cols || ', '; vals := vals || ', '; end if;
+        cols := cols || quote_ident(k);
+        if v is null or jsonb_typeof(v) = 'null' then vals := vals || 'NULL';
+        elsif jsonb_typeof(v) = 'number'  then vals := vals || (v #>> '{}');
+        elsif jsonb_typeof(v) = 'boolean' then vals := vals || (v #>> '{}');
+        elsif jsonb_typeof(v) in ('object','array') then vals := vals || quote_literal(v::text) || '::jsonb';
+        else vals := vals || quote_literal(v #>> '{}'); end if;
+      end loop;
+      out := out || format('INSERT INTO public.%I (%s) VALUES (%s) ON CONFLICT DO NOTHING;', t.table_name, cols, vals) || chr(10);
+    end loop;
+    out := out || chr(10);
+  end loop;
+  return out;
+end;
+$func$;
+revoke all on function public.dump_database_sql() from public, anon;
+grant execute on function public.dump_database_sql() to authenticated;

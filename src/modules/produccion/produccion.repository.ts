@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Producción · Repository (Supabase)
+   Golden Touch · Producción · Repository (Supabase)
    Órdenes de producción. Al CREAR se consumen los insumos
    (salida por almacén); al FINALIZAR el producto terminado
    entra al inventario con su costo de producción (PMP).

@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Compras · "OC por lote" (checklist de aprobación)
+   Golden Touch · Compras · "OC por lote" (checklist de aprobación)
    Relación de Órdenes de Compra CREADAS (oferta elegida, sin
    confirmar). Se imprime/envía por correo para aprobación final y
    se aprueban EN LOTE (oc_creada → oc_aprobada). Luego pasan a
