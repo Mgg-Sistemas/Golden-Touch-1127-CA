@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Vite
+*.local
+
+# Coverage
+coverage/
+
+# Documentation interna (NUNCA commitear)
+docs/
+
+# Claude
+.claude/
+
+# Supabase CLI (estado local)
+supabase/.temp/
+supabase/.branches/

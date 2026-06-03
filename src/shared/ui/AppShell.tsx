@@ -1,0 +1,331 @@
+import { useEffect, useState, type ReactNode } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { signOut, useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
+import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
+import { GlobalSearch } from '@/shared/ui/GlobalSearch';
+import { TasaChip } from '@/modules/tesoreria/TasaChip';
+import { toast } from '@/shared/ui/Toast';
+import { descargarManualUsuario, type CapturasManual } from '@/shared/lib/manualUsuarioPdf';
+import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
+import { initSound } from '@/shared/lib/sound';
+import { onNotifRefresh } from '@/shared/lib/notify';
+
+const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
+
+/** Vistas que se capturan en vivo para ilustrar el manual (key → ruta → permiso). */
+const CAPTURA_RUTAS: Array<{ key: string; ruta: string; permiso: ModuleKey }> = [
+  { key: 'dashboard', ruta: '/app/dashboard', permiso: 'dashboard' },
+  { key: 'pedidos', ruta: '/app/pedidos', permiso: 'pedidos' },
+  { key: 'proveedores', ruta: '/app/proveedores', permiso: 'proveedores' },
+  { key: 'inventario', ruta: '/app/inventario', permiso: 'inventario' },
+  { key: 'produccion', ruta: '/app/produccion', permiso: 'produccion' },
+  { key: 'salidas', ruta: '/app/salidas', permiso: 'salidas' },
+  { key: 'usuarios', ruta: '/app/usuarios', permiso: 'usuarios' },
+  { key: 'ajustes', ruta: '/app/ajustes', permiso: 'ajustes' },
+];
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export function AppShell() {
+  const { user } = useSession();
+  const { can, role } = usePermissions();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('tesoreria');
+  // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
+  // sección Sistema siempre se muestra.
+  const showSistema = true;
+  // Manual de Sistema (PDF con capturas): oculto por ahora (se retomará más adelante).
+  const MOSTRAR_MANUAL = false;
+  const manualSistemaUrl = `${import.meta.env.BASE_URL}manual-sistema.html`;
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [descargandoManual, setDescargandoManual] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem(SIDEBAR_KEY) === '1';
+  });
+
+  function toggleSidebar() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0'); } catch { /* quota */ }
+      return next;
+    });
+  }
+
+  async function refreshUnread() {
+    try {
+      setUnread(await unreadCount());
+    } catch {
+      setUnread(0);
+    }
+  }
+
+  // Al montar (con sesión activa): pintamos primero el contador (rápido) y
+  // disparamos el scan de stock en segundo plano (no bloquea el render).
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void refreshUnread();
+    scanStockAndNotify()
+      .then(() => { if (!cancelled) void refreshUnread(); })
+      .catch(() => {/* RLS u offline: el contador inicial sigue válido */});
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // Inicializa el contexto de audio (se "desbloquea" en el primer click/tecla).
+  useEffect(() => { initSound(); }, []);
+
+  // Cuando cualquier `notify()` persista en BD, refresca el contador de la campana.
+  useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), []);
+
+  async function handleLogout() {
+    await signOut();
+    navigate('/login');
+  }
+
+  function handleOpenNotif() {
+    setNotifOpen(true);
+  }
+
+  function handleAllRead() {
+    setUnread(0);
+  }
+
+  // Genera el manual capturando en vivo (html2canvas) cada vista a la que el
+  // usuario tiene acceso, luego arma el PDF con esas capturas embebidas.
+  async function handleManual() {
+    if (descargandoManual) return;
+    setDescargandoManual(true);
+    const rutaOriginal = location.pathname;
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const objetivos = CAPTURA_RUTAS.filter((r) => can(r.permiso));
+      const capturas: CapturasManual = {};
+      const fondo = getComputedStyle(document.body).backgroundColor || '#0b0f17';
+
+      for (const obj of objetivos) {
+        navigate(obj.ruta);
+        await sleep(1600); // dar tiempo a renderizar y cargar datos de Supabase
+        const main = document.querySelector('main') as HTMLElement | null;
+        if (!main) continue;
+        main.scrollTop = 0;
+        await sleep(120);
+        try {
+          const canvas = await html2canvas(main, {
+            backgroundColor: fondo,
+            scale: Math.min(1.5, window.devicePixelRatio || 1),
+            useCORS: true,
+            logging: false,
+            width: main.clientWidth,
+            height: main.clientHeight,
+            windowWidth: main.clientWidth,
+            windowHeight: main.clientHeight,
+          });
+          capturas[obj.key] = {
+            dataUrl: canvas.toDataURL('image/jpeg', 0.85),
+            w: canvas.width,
+            h: canvas.height,
+          };
+        } catch { /* si una captura falla, el manual igual se genera con texto */ }
+      }
+
+      navigate(rutaOriginal);
+      await sleep(150);
+      await descargarManualUsuario(capturas);
+    } catch {
+      toast('No se pudo generar el manual de usuario', 'error');
+    } finally {
+      setDescargandoManual(false);
+    }
+  }
+
+  return (
+    <div className={`app${collapsed ? ' sidebar-collapsed' : ''}`}>
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <NavLink to="/app" className="brand">
+            <img src="/image.jpeg" alt="MGG" />
+            <div className="brand-text">
+              <strong>MGG</strong>
+              <small>Inventarios</small>
+            </div>
+          </NavLink>
+        </div>
+
+        {showOperacion && <div className="sidebar-section">Operación</div>}
+        <nav className="nav">
+          {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
+          {can('pedidos') && <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />}
+          {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
+          {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario" />}
+          {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Producción" />}
+          {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
+          {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
+          {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
+        </nav>
+
+        {showSistema && <div className="sidebar-section">Sistema</div>}
+        <nav className="nav">
+          {can('usuarios') && (
+            <NavItem
+              to="/app/usuarios"
+              icon={
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 21a8 8 0 0 1 16 0v1H4z" />
+                </svg>
+              }
+              label="Usuarios"
+            />
+          )}
+          {can('ajustes') && <NavItem to="/app/ajustes" icon="⚙" label="Ajustes" />}
+          <a
+            href={manualSistemaUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Abrir el manual del sistema"
+          >
+            <span className="icn">📘</span> <span>Menú del Sistema</span>
+          </a>
+          {MOSTRAR_MANUAL && (
+            <a
+              href="#"
+              onClick={(e) => { e.preventDefault(); void handleManual(); }}
+              title="Descargar el manual de usuario en PDF"
+              style={descargandoManual ? { opacity: 0.6, pointerEvents: 'none' } : undefined}
+            >
+              <span className="icn">📘</span>{' '}
+              <span>{descargandoManual ? 'Generando…' : 'Manual de Sistema'}</span>
+            </a>
+          )}
+        </nav>
+
+        <div className="sidebar-section">Próximamente</div>
+        <nav className="nav">
+          <NavItem to="#" icon="↗" label="Ventas" disabled />
+        </nav>
+
+        <div className="sidebar-footer">
+          <div className="user-chip">
+            <div className="avatar" style={{ overflow: 'hidden', background: '#fff', padding: 0 }}>
+              <img
+                src="/image.jpeg"
+                alt="Avatar"
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              />
+            </div>
+            <div className="info">
+              <div className="name">{user?.email ?? '—'}</div>
+              <div className="role">{role ?? 'Sesión activa'}</div>
+            </div>
+            <button onClick={handleLogout} className="btn btn-icon btn-ghost" title="Cerrar sesión">
+              ⎋
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <header className="topbar">
+        <div className="crumb" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="btn btn-icon btn-ghost"
+            title={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
+            aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
+            style={{ fontSize: '1.1rem', lineHeight: 1 }}
+          >
+            ☰
+          </button>
+          <span>MGG · <strong>Sistema</strong></span>
+        </div>
+        <div className="top-actions">
+          <TasaChip />
+          <GlobalSearch />
+          <button
+            type="button"
+            className="notif-btn"
+            onClick={handleOpenNotif}
+            title="Notificaciones"
+            style={{
+              position: 'relative',
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              color: 'var(--text)',
+              padding: '.45rem .65rem',
+              borderRadius: 'var(--r-md)',
+              cursor: 'pointer',
+              fontSize: '1.05rem',
+              lineHeight: 1,
+            }}
+          >
+            ◔
+            {unread > 0 && (
+              <span
+                aria-label={`${unread} sin leer`}
+                style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  background: 'var(--danger)',
+                  color: '#fff',
+                  borderRadius: '999px',
+                  minWidth: 18,
+                  height: 18,
+                  fontSize: '.65rem',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 5px',
+                  boxShadow: '0 0 0 2px var(--bg-1)',
+                }}
+              >
+                {unread > 9 ? '9+' : unread}
+              </span>
+            )}
+          </button>
+        </div>
+      </header>
+
+      <main style={{ gridArea: 'main', padding: '1.5rem 2rem', overflowY: 'auto' }}>
+        <Outlet />
+      </main>
+
+      <NotificacionesPanel
+        open={notifOpen}
+        onClose={() => { setNotifOpen(false); void refreshUnread(); }}
+        onAllRead={handleAllRead}
+      />
+    </div>
+  );
+}
+
+function NavItem({
+  to,
+  icon,
+  label,
+  disabled,
+}: {
+  to: string;
+  icon: ReactNode;
+  label: string;
+  disabled?: boolean;
+}) {
+  if (disabled) {
+    return (
+      <a href="#" onClick={(e) => e.preventDefault()} style={{ opacity: 0.4, cursor: 'not-allowed' }}>
+        <span className="icn">{icon}</span> <span>{label}</span>
+      </a>
+    );
+  }
+  return (
+    <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end>
+      <span className="icn">{icon}</span> <span>{label}</span>
+    </NavLink>
+  );
+}

@@ -1,0 +1,723 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { money, num } from '@/shared/lib/format';
+import { toast } from '@/shared/ui/Toast';
+import { notify } from '@/shared/lib/notify';
+import { ConfirmDialog } from '@/shared/ui/Modal';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import type { Almacen, Existencia, Orden, Producto } from '@/shared/lib/types';
+import {
+  contarProductosPorCategoria,
+  createProducto,
+  eliminarCategoria,
+  findBySku,
+  getCategorias,
+  listProductos,
+  listRecepcionesPendientes,
+  renombrarCategoria,
+  setEstadoProducto,
+  updateProducto,
+  type ProductoInput,
+} from './inventario.repository';
+import { contarProduccionEnProceso } from '@/modules/produccion/produccion.repository';
+import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
+import {
+  registrarMovimiento,
+  transferir,
+  type MovimientoInput,
+} from './movimientos.repository';
+import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
+import { ProductosTable } from './ProductosTable';
+import { ProductoForm } from './ProductoForm';
+import { ProductoDetail } from './ProductoDetail';
+import { MovimientoForm } from './MovimientoForm';
+import { AlertasStock } from './AlertasStock';
+import { RecepcionesPendientes } from './RecepcionesPendientes';
+import { ExportInventarioModal } from './ExportInventarioModal';
+import { ImportarExcelModal } from './ImportarExcelModal';
+import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
+import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
+import { AlmacenesView, type AlmacenLayout } from './AlmacenesView';
+import { AlmacenKanban } from './AlmacenKanban';
+import { descargarAlmacenExcel, descargarAlmacenPdf } from './almacenExport';
+import { AlmacenForm } from './AlmacenForm';
+import {
+  listAlmacenes,
+  listExistencias,
+  agruparValores,
+  movStatsDeAlmacen,
+  consumoDeAlmacen,
+  crearAlmacen,
+  actualizarAlmacen,
+  eliminarAlmacen,
+  type AlmacenInput,
+  type AlmacenValor,
+  type ConsumoProducto,
+} from './almacenes.repository';
+
+interface UiState extends FilterValues {
+  view: 'productos' | 'recepciones' | 'almacenes';
+  almacenLayout: AlmacenLayout;
+}
+
+const INITIAL_UI: UiState = {
+  view: 'productos',
+  almacenLayout: 'kanban',
+  filterText: '',
+  filterCat: '',
+  filterClass: '',
+  filterStock: '',
+  filterEstado: 'activo',
+  filterFundicion: '',
+};
+
+/** Predicado de filtros compartido por inventario general y el detalle de almacén. */
+function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
+  const q = ui.filterText.trim().toLowerCase();
+  if (ui.filterEstado && p.estado !== ui.filterEstado) return false;
+  if (ui.filterCat && p.categoria !== ui.filterCat) return false;
+  if (ui.filterClass && p._klass !== ui.filterClass) return false;
+  if (ui.filterFundicion === 'si' && !p.receta_fundicion) return false;
+  if (ui.filterFundicion === 'no' && p.receta_fundicion) return false;
+  if (ui.filterFundicion === 'en_proceso' && !p.en_fundicion) return false;
+  if (ui.filterStock === 'critico' && !p._critical) return false;
+  if (ui.filterStock === 'restock' && !(p._needsRestock && !p._critical)) return false;
+  if (ui.filterStock === 'ok' && p._needsRestock) return false;
+  if (ui.filterStock === 'sin_mov' && (p.stock ?? 0) > 0) return false;
+  if (q && !(p.sku.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q))) return false;
+  return true;
+}
+
+type ModalState =
+  | { kind: 'none' }
+  | { kind: 'crear' }
+  | { kind: 'editar'; producto: Producto }
+  | { kind: 'detalle'; producto: Producto }
+  | { kind: 'movimiento'; producto: Producto }
+  | { kind: 'confirmToggle'; producto: Producto }
+  | { kind: 'export' }
+  | { kind: 'import'; analisis: AnalisisImport }
+  | { kind: 'almacenCrear' }
+  | { kind: 'almacenEditar'; almacen: Almacen }
+  | { kind: 'almacenEliminar'; almacen: Almacen };
+
+export function InventarioPage() {
+  const { user } = useSession();
+  const { can, appUser } = usePermissions();
+  const canWrite = can('inventario', 'escritura');
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [recepciones, setRecepciones] = useState<Orden[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [existencias, setExistencias] = useState<Existencia[]>([]);
+  const [almacenSel, setAlmacenSel] = useState<string | null>(null);
+  const [movStats, setMovStats] = useState<Map<string, { entradas: number; salidas: number }>>(new Map());
+  const [consumo, setConsumo] = useState<Map<string, ConsumoProducto>>(new Map());
+  const [detalleLayout, setDetalleLayout] = useState<'kanban' | 'lista'>('lista');
+  const [enProduccion, setEnProduccion] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [ui, setUi] = useState<UiState>(INITIAL_UI);
+  const [modal, setModal] = useState<ModalState>({ kind: 'none' });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
+  const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!gestionCatsOpen) return;
+    contarProductosPorCategoria().then(setConteoCats).catch(() => setConteoCats({}));
+  }, [gestionCatsOpen, productos]);
+
+  async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const analisis = await analizarExcel(file);
+      setModal({ kind: 'import', analisis });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo leer el archivo', 'error');
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function reload() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [prods, ords, alms, exs, nEnProduccion] = await Promise.all([
+        listProductos(),
+        listRecepcionesPendientes().catch(() => [] as Orden[]),
+        listAlmacenes().catch(() => [] as Almacen[]),
+        listExistencias().catch(() => [] as Existencia[]),
+        contarProduccionEnProceso().catch(() => 0),
+      ]);
+      setProductos(prods);
+      setRecepciones(ords);
+      setAlmacenes(alms);
+      setExistencias(exs);
+      setEnProduccion(nEnProduccion);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo cargar el inventario.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    reload();
+    // Carga única al montar. La recarga se dispara tras cada mutación exitosa.
+  }, []);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get('detalle');
+    if (!id || !productos.length) return;
+    const p = productos.find((x) => x.id === id);
+    if (p) {
+      setModal({ kind: 'detalle', producto: p });
+      const next = new URLSearchParams(searchParams);
+      next.delete('detalle');
+      setSearchParams(next, { replace: true });
+    }
+  }, [productos, searchParams, setSearchParams]);
+
+  const decorated = useMemo<ProductoDecorado[]>(
+    () => decorate(productos, DEFAULT_POLICY),
+    [productos],
+  );
+
+  const filtered = useMemo<ProductoDecorado[]>(
+    () => decorated.filter((p) => coincideFiltros(p, ui)),
+    [decorated, ui],
+  );
+
+  // Valor por almacén (desde existencias: stock × costo propio del almacén).
+  const valoresAlm = useMemo<Record<string, AlmacenValor>>(() => agruparValores(existencias), [existencias]);
+
+  // Existencias agrupadas por producto (para pasarlas al formulario de movimiento).
+  const existMap = useMemo(() => {
+    const m = new Map<string, Existencia[]>();
+    existencias.forEach((e) => {
+      const arr = m.get(e.producto_id) ?? [];
+      arr.push(e);
+      m.set(e.producto_id, arr);
+    });
+    return m;
+  }, [existencias]);
+
+  // Detalle de almacén: "productos virtuales" = producto con el stock y costo
+  // (PMP) propios del almacén seleccionado, decorados y filtrados como inventario.
+  const almacenRows = useMemo<ProductoDecorado[]>(() => {
+    if (!almacenSel) return [];
+    const prodMap = new Map(productos.map((p) => [p.id, p]));
+    const virtuales = existencias
+      .filter((e) => e.almacen === almacenSel)
+      .map((e) => {
+        const p = prodMap.get(e.producto_id);
+        return p ? ({ ...p, stock: e.stock, precio: e.costo_promedio, almacen: almacenSel } as Producto) : null;
+      })
+      .filter((p): p is Producto => p !== null);
+    return decorate(virtuales, DEFAULT_POLICY).filter((p) => coincideFiltros(p, ui));
+  }, [almacenSel, existencias, productos, ui]);
+
+  // Al entrar al detalle de un almacén, cargamos entradas/salidas y consumo de ESE almacén.
+  useEffect(() => {
+    if (!almacenSel) { setMovStats(new Map()); setConsumo(new Map()); return; }
+    let cancelled = false;
+    // Ambas consultas son independientes: en paralelo para abrir el detalle más rápido.
+    Promise.all([
+      movStatsDeAlmacen(almacenSel).catch(() => new Map()),
+      consumoDeAlmacen(almacenSel).catch(() => new Map()),
+    ]).then(([m, c]) => {
+      if (cancelled) return;
+      setMovStats(m);
+      setConsumo(c);
+    });
+    return () => { cancelled = true; };
+  }, [almacenSel, existencias]);
+
+  const [categorias, setCategorias] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    getCategorias(productos)
+      .then((cs) => { if (!cancelled) setCategorias(cs); })
+      .catch(() => { /* defaults via repo */ });
+    return () => { cancelled = true; };
+  }, [productos]);
+
+  const kpis = useMemo(() => {
+    const activos = decorated.filter((p) => p.estado === 'activo');
+    const valorTotal = activos.reduce((a, p) => a + p._valor, 0);
+    const stockTotal = activos.reduce((a, p) => a + (p.stock ?? 0), 0);
+    const promedio = activos.length ? stockTotal / activos.length : 0;
+    const criticos = activos.filter((p) => p._critical).length;
+    const enFundicion = activos.filter((p) => p.en_fundicion).length;
+    return {
+      total: activos.length,
+      valor: valorTotal,
+      promedio,
+      criticos,
+      enFundicion,
+    };
+  }, [decorated]);
+
+  const productoActor = appUser?.email ?? user?.email ?? 'sistema';
+  const actorName = appUser?.nombre ?? null;
+
+  // ─── handlers ───
+  const openVer = useCallback((id: string) => {
+    setProductos((curr) => {
+      const p = curr.find((x) => x.id === id);
+      if (p) setModal({ kind: 'detalle', producto: p });
+      return curr;
+    });
+  }, []);
+
+  const openEditar = useCallback((id: string) => {
+    setProductos((curr) => {
+      const p = curr.find((x) => x.id === id);
+      if (p) setModal({ kind: 'editar', producto: p });
+      return curr;
+    });
+  }, []);
+
+  const openMovimiento = useCallback((id: string) => {
+    setProductos((curr) => {
+      const p = curr.find((x) => x.id === id);
+      if (p) setModal({ kind: 'movimiento', producto: p });
+      return curr;
+    });
+  }, []);
+
+  const askToggleEstado = useCallback((id: string) => {
+    setProductos((curr) => {
+      const p = curr.find((x) => x.id === id);
+      if (p) setModal({ kind: 'confirmToggle', producto: p });
+      return curr;
+    });
+  }, []);
+
+  async function handleCreateOrUpdate(data: ProductoInput) {
+    if (modal.kind === 'crear') {
+      const dup = await findBySku(data.sku);
+      if (dup) throw new Error('Ya existe un producto con ese SKU.');
+      const stockInicial = data.stock;
+      const created = await createProducto({ ...data, stock: 0 });
+      if (stockInicial > 0) {
+        await registrarMovimiento({
+          producto_id: created.id,
+          tipo: 'creacion',
+          delta: stockInicial,
+          almacen: data.almacen,
+          actor: productoActor,
+          actor_name: actorName,
+          detalle: `Stock inicial al dar de alta el producto · almacén ${data.almacen}`,
+          // Costo inicial: fija la línea base del PMP del almacén y queda en la traza.
+          precio_unitario: data.precio,
+        });
+      }
+      notify(`Producto creado: ${data.sku} · ${data.nombre}`, 'success', { link: '#/app/inventario' });
+      await reload();
+      return;
+    }
+    if (modal.kind === 'editar') {
+      const previo = modal.producto;
+      const dup = await findBySku(data.sku);
+      if (dup && dup.id !== previo.id) throw new Error('Ya existe otro producto con ese SKU.');
+      // El stock es por almacén (existencias); no se edita desde aquí.
+      // Se ajusta vía "Movimiento" (entrada/salida/ajuste) en cada almacén.
+      const rest: Partial<ProductoInput> = { ...data };
+      delete (rest as Partial<ProductoInput>).stock;
+      await updateProducto(previo.id, rest);
+      notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: '#/app/inventario' });
+      await reload();
+    }
+  }
+
+  async function handleRegistrarMovimiento(input: MovimientoInput, transfer?: { almacenDestino: string }) {
+    if (transfer) {
+      await transferir({
+        producto_id: input.producto_id,
+        almacenOrigen: input.almacen || 'General',
+        almacenDestino: transfer.almacenDestino,
+        cantidad: Math.abs(input.delta),
+        actor: input.actor,
+        actor_name: input.actor_name,
+        detalle: input.detalle,
+      });
+      notify(`Transferencia: ${input.almacen} → ${transfer.almacenDestino}`, 'success', { link: '#/app/inventario' });
+    } else {
+      await registrarMovimiento(input);
+      notify(`Movimiento de inventario registrado (${input.tipo})`, 'success', { link: '#/app/inventario' });
+    }
+    await reload();
+  }
+
+  async function handleToggleEstado(p: Producto) {
+    const nuevo = p.estado === 'activo' ? 'inactivo' : 'activo';
+    try {
+      await setEstadoProducto(p.id, nuevo);
+      notify(`Producto ${nuevo === 'activo' ? 'activado' : 'desactivado'}: ${p.sku}`, 'success', { link: '#/app/inventario' });
+      await reload();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo cambiar el estado', 'error');
+    } finally {
+      setModal({ kind: 'none' });
+    }
+  }
+
+  // ─── almacenes ───
+  function setFilter2(key: keyof FilterValues, value: string) {
+    setUi((prev) => ({ ...prev, [key]: value }) as UiState);
+  }
+
+  async function handleCrearAlmacen(data: AlmacenInput) {
+    await crearAlmacen(data, productoActor);
+    notify(`Almacén creado: ${data.nombre}`, 'success', { link: '#/app/inventario' });
+    await reload();
+  }
+
+  async function handleEditarAlmacen(id: string, data: AlmacenInput) {
+    await actualizarAlmacen(id, data);
+    notify(`Almacén actualizado: ${data.nombre}`, 'success', { link: '#/app/inventario' });
+    await reload();
+  }
+
+  async function handleEliminarAlmacen(a: Almacen) {
+    try {
+      await eliminarAlmacen(a.id, a.nombre);
+      notify(`Almacén eliminado: ${a.nombre}`, 'success', { link: '#/app/inventario' });
+      if (almacenSel === a.nombre) setAlmacenSel(null);
+      await reload();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo eliminar el almacén', 'error');
+    } finally {
+      setModal({ kind: 'none' });
+    }
+  }
+
+  // ─── render ───
+  return (
+    <div>
+      <div className="page-head">
+        <div>
+          <h1>Inventario</h1>
+          <p>
+            Catálogo de productos. <span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
+          </p>
+        </div>
+        <div className="actions">
+          <button
+            className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}
+          >
+            Inventario general
+          </button>
+          <button
+            className={`btn ${ui.view === 'almacenes' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => { setAlmacenSel(null); setUi((prev) => ({ ...prev, view: 'almacenes' })); }}
+          >
+            ▣ Almacenes
+          </button>
+          <button
+            className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setUi((prev) => ({ ...prev, view: 'recepciones' }))}
+          >
+            Recepciones {recepciones.length > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepciones.length}</span>}
+          </button>
+          {canWrite && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => setGestionCatsOpen(true)}
+              title="Renombrar / depurar categorías de inventario"
+            >
+              ⚙ Categorías
+            </button>
+          )}
+          <button
+            className="btn btn-ghost"
+            onClick={() => { void descargarPlantillaExcel(); }}
+            title="Descargar plantilla de carga masiva"
+          >
+            ↓ Plantilla
+          </button>
+          {canWrite && (
+            <>
+              <button
+                className="btn btn-ghost"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                title="Importar productos desde un Excel"
+              >
+                {importing ? 'Importando…' : '↑ Importar Excel'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                style={{ display: 'none' }}
+                onChange={handleFileImport}
+              />
+            </>
+          )}
+          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
+            ↓ Exportar
+          </button>
+          {canWrite && (
+            <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ kind: 'crear' })}>
+              + Nuevo producto
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '1rem' }}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      {/* KPIs y alertas: solo en inventario general / recepciones, no en almacenes */}
+      {ui.view !== 'almacenes' && (
+      <>
+      <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
+        <div className="kpi">
+          <div className="icon">⬢</div>
+          <div className="label">Productos activos</div>
+          <div className="value">{num(kpis.total)}</div>
+          <div className="delta">SKUs en catálogo</div>
+        </div>
+        <div className="kpi">
+          <div className="icon">$</div>
+          <div className="label">Valor del inventario</div>
+          <div className="value">{money(kpis.valor)}</div>
+          <div className="delta">stock × precio</div>
+        </div>
+        <div className="kpi">
+          <div className="icon">⚠</div>
+          <div className="label">En estado crítico</div>
+          <div className="value">{num(kpis.criticos)}</div>
+          <div className={kpis.criticos > 0 ? 'delta down' : 'delta'}>
+            {kpis.criticos > 0 ? 'requieren atención' : 'todo en orden'}
+          </div>
+        </div>
+        <a
+          className="kpi"
+          href="#/app/produccion"
+          style={{ cursor: 'pointer', textDecoration: 'none', color: 'inherit' }}
+          title="Ver órdenes de producción en curso"
+        >
+          <div className="icon">🔥</div>
+          <div className="label">En producción</div>
+          <div className="value">{num(enProduccion)}</div>
+          <div className={enProduccion > 0 ? 'delta down' : 'delta'}>
+            {enProduccion > 0 ? `${num(enProduccion)} en curso` : 'ninguno en proceso'}
+          </div>
+        </a>
+      </div>
+
+      <AlertasStock productos={decorated} onVerProducto={openVer} />
+      </>
+      )}
+
+      {ui.view === 'recepciones' ? (
+        <RecepcionesPendientes ordenes={recepciones} />
+      ) : ui.view === 'almacenes' ? (
+        almacenSel ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
+              <button className="btn btn-ghost" onClick={() => setAlmacenSel(null)}>← Volver a almacenes</button>
+              <h2 style={{ margin: 0 }}>▣ {almacenSel}</h2>
+              <span className="muted mono">{money(valoresAlm[almacenSel]?.valor ?? 0)} · {num(almacenRows.length)} producto(s)</span>
+              <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
+                <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}
+                  onClick={() => descargarAlmacenExcel(almacenSel, almacenRows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
+                <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}
+                  onClick={() => descargarAlmacenPdf(almacenSel, almacenRows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+              </div>
+            </div>
+            <div className="view-toggle" role="tablist" aria-label="Vista del almacén" style={{ marginBottom: '.75rem', marginLeft: 0 }}>
+              <button className={detalleLayout === 'kanban' ? 'active' : ''} onClick={() => setDetalleLayout('kanban')}>▦ Kanban</button>
+              <button className={detalleLayout === 'lista' ? 'active' : ''} onClick={() => setDetalleLayout('lista')}>☰ Lista</button>
+            </div>
+            <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} />
+            {loading ? (
+              <EmptyState message="Cargando productos…" icon="◔" />
+            ) : detalleLayout === 'kanban' ? (
+              <AlmacenKanban rows={almacenRows} consumo={consumo} onView={openVer} />
+            ) : (
+              <ProductosTable
+                rows={almacenRows}
+                onView={openVer}
+                onEdit={openEditar}
+                onMovimiento={openMovimiento}
+                onToggleEstado={askToggleEstado}
+                canWrite={canWrite}
+                movStats={movStats}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
+              <div className="view-toggle" role="tablist" aria-label="Vista de almacenes" style={{ marginLeft: 0 }}>
+                <button
+                  className={ui.almacenLayout === 'kanban' ? 'active' : ''}
+                  onClick={() => setUi((prev) => ({ ...prev, almacenLayout: 'kanban' }))}
+                >
+                  ▦ Kanban
+                </button>
+                <button
+                  className={ui.almacenLayout === 'lista' ? 'active' : ''}
+                  onClick={() => setUi((prev) => ({ ...prev, almacenLayout: 'lista' }))}
+                >
+                  ☰ Lista
+                </button>
+              </div>
+              {canWrite && (
+                <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setModal({ kind: 'almacenCrear' })}>
+                  + Agregar almacén
+                </button>
+              )}
+            </div>
+            {loading ? (
+              <EmptyState message="Cargando almacenes…" icon="◔" />
+            ) : (
+              <AlmacenesView
+                almacenes={almacenes}
+                valores={valoresAlm}
+                layout={ui.almacenLayout}
+                canWrite={canWrite}
+                onSelect={setAlmacenSel}
+                onEditar={(a) => setModal({ kind: 'almacenEditar', almacen: a })}
+                onEliminar={(a) => setModal({ kind: 'almacenEliminar', almacen: a })}
+              />
+            )}
+          </>
+        )
+      ) : (
+        <>
+          <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} />
+          {loading ? (
+            <EmptyState message="Cargando productos…" icon="◔" />
+          ) : (
+            <ProductosTable
+              rows={filtered}
+              onView={openVer}
+              onEdit={openEditar}
+              onMovimiento={openMovimiento}
+              onToggleEstado={askToggleEstado}
+              canWrite={canWrite}
+            />
+          )}
+        </>
+      )}
+
+      {/* Modales */}
+      {modal.kind === 'crear' && (
+        <ProductoForm
+          producto={null}
+          productos={productos}
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={handleCreateOrUpdate}
+        />
+      )}
+      {modal.kind === 'editar' && (
+        <ProductoForm
+          producto={modal.producto}
+          productos={productos}
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={handleCreateOrUpdate}
+        />
+      )}
+      {modal.kind === 'detalle' && (
+        <ProductoDetail
+          producto={modal.producto}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+      {modal.kind === 'movimiento' && (
+        <MovimientoForm
+          producto={modal.producto}
+          existencias={existMap.get(modal.producto.id) ?? []}
+          almacenesList={almacenes.map((a) => a.nombre)}
+          fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
+          actorEmail={productoActor}
+          actorName={actorName}
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={handleRegistrarMovimiento}
+        />
+      )}
+      {modal.kind === 'confirmToggle' && (
+        <ConfirmDialog
+          title={modal.producto.estado === 'activo' ? 'Desactivar producto' : 'Activar producto'}
+          message={`¿Confirmas ${modal.producto.estado === 'activo' ? 'desactivar' : 'activar'} "${modal.producto.nombre}" (${modal.producto.sku})?`}
+          confirmText={modal.producto.estado === 'activo' ? 'Desactivar' : 'Activar'}
+          danger={modal.producto.estado === 'activo'}
+          onCancel={() => setModal({ kind: 'none' })}
+          onConfirm={() => handleToggleEstado(modal.producto)}
+        />
+      )}
+      {modal.kind === 'export' && (
+        <ExportInventarioModal
+          productos={productos}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+      {modal.kind === 'import' && (
+        <ImportarExcelModal
+          analisis={modal.analisis}
+          onClose={() => setModal({ kind: 'none' })}
+          onImportado={() => { void reload(); }}
+        />
+      )}
+      {modal.kind === 'almacenCrear' && (
+        <AlmacenForm
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={handleCrearAlmacen}
+        />
+      )}
+      {modal.kind === 'almacenEditar' && (
+        <AlmacenForm
+          almacen={modal.almacen}
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={(data) => handleEditarAlmacen(modal.almacen.id, data)}
+        />
+      )}
+      {modal.kind === 'almacenEliminar' && (
+        <ConfirmDialog
+          title="Eliminar almacén"
+          message={`¿Eliminar el almacén "${modal.almacen.nombre}"? Solo se puede si no tiene productos asignados.`}
+          confirmText="Eliminar"
+          danger
+          onCancel={() => setModal({ kind: 'none' })}
+          onConfirm={() => handleEliminarAlmacen(modal.almacen)}
+        />
+      )}
+
+      {gestionCatsOpen && (
+        <GestionarCategoriasModal
+          titulo="Categorías de inventario"
+          categorias={categorias}
+          conteoUso={conteoCats}
+          entidadLabel="producto"
+          onRenombrar={(o, n) => renombrarCategoria(o, n, productoActor)}
+          onEliminar={(n) => eliminarCategoria(n)}
+          onCambioAplicado={async () => {
+            await reload();
+            const cs = await getCategorias(productos);
+            setCategorias(cs);
+            const c = await contarProductosPorCategoria();
+            setConteoCats(c);
+          }}
+          onClose={() => setGestionCatsOpen(false)}
+        />
+      )}
+    </div>
+  );
+}

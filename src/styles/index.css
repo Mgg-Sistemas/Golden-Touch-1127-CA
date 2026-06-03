@@ -1,0 +1,13 @@
+/* Orden: theme (variables + base) → shell → login → landing → tailwind utilities */
+@import './theme.css';
+@import './app-shell.css';
+@import './login.css';
+@import './landing.css';
+
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}

@@ -1,0 +1,96 @@
+# Deploy a un Droplet de DigitalOcean via SSH.
+#
+# Este workflow se SALTA automaticamente mientras no esten configurados los
+# secrets del Droplet. Cuando MGG provea las credenciales del servidor, agregar
+# en Settings -> Secrets and variables -> Actions:
+#
+#   DROPLET_HOST          IP o dominio del Droplet (ej: 167.99.123.45)
+#   DROPLET_USER          Usuario SSH (ej: deploy o root)
+#   DROPLET_SSH_KEY       Clave privada SSH (contenido completo del archivo .pem o id_ed25519)
+#   DROPLET_PORT          (opcional) Puerto SSH. Default 22.
+#   DROPLET_TARGET_DIR    Ruta absoluta donde sirve nginx (ej: /var/www/mgg-inventario)
+#
+# Y opcionalmente:
+#   VITE_SUPABASE_URL
+#   VITE_SUPABASE_ANON_KEY
+#
+# Cuando esos secrets existan, este workflow desplegara automaticamente
+# en cada push a main.
+
+name: Deploy to DigitalOcean Droplet
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: droplet
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          HAS_HOST: ${{ secrets.DROPLET_HOST != '' }}
+          HAS_KEY: ${{ secrets.DROPLET_SSH_KEY != '' }}
+        run: |
+          if [ "$HAS_HOST" = "true" ] && [ "$HAS_KEY" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Secrets del Droplet detectados, se procedera con el deploy."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Droplet no configurado todavia (faltan secrets DROPLET_HOST / DROPLET_SSH_KEY). Se omite el deploy."
+          fi
+
+  deploy:
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build project (base '/')
+        env:
+          VITE_BASE_PATH: /
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      - name: Copy dist to Droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          port: ${{ secrets.DROPLET_PORT || 22 }}
+          source: "dist/*"
+          target: ${{ secrets.DROPLET_TARGET_DIR }}
+          strip_components: 1
+
+      - name: Reload nginx (opcional)
+        uses: appleboy/ssh-action@v1.0.3
+        continue-on-error: true
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          port: ${{ secrets.DROPLET_PORT || 22 }}
+          script: sudo systemctl reload nginx || true

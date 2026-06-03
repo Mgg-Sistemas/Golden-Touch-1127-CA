@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="es-VE">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Manual de Usuario — Sistema de Gestión MGG</title>
+<link rel="icon" href="image.jpeg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<style>
+  /* Paleta y tokens del sistema MGG (src/styles/theme.css) */
+  :root {
+    --bg-0: #07080b;
+    --bg-1: #0d1014;
+    --bg-2: #131820;
+    --surface: #161c25;
+    --surface-2: #1e2733;
+    --surface-3: #28323f;
+    --border: #232c39;
+    --border-strong: #2f3a4a;
+
+    --text: #e7ecf3;
+    --text-muted: #9aa6b5;
+    --text-dim: #6a7585;
+
+    --primary: #ff8a00;
+    --primary-2: #ffa733;
+    --primary-3: #ffd07a;
+    --gold: #ffd54a;
+
+    --success: #29c081;
+    --warning: #f5b133;
+    --danger: #ef4f5e;
+    --info: #4aa8ff;
+
+    --grad-primary: linear-gradient(135deg, #ff8a00 0%, #ffd54a 100%);
+    --grad-primary-soft: linear-gradient(135deg, rgba(255,138,0,0.18) 0%, rgba(255,213,74,0.10) 100%);
+    --grad-surface: linear-gradient(180deg, #1a2230 0%, #131820 100%);
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 8px 24px rgba(0,0,0,0.45);
+    --shadow-lg: 0 18px 50px rgba(0,0,0,0.55);
+    --glow-primary: 0 0 24px rgba(255,138,0,0.35);
+
+    --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+    --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(255,138,0,0.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(255,213,74,0.06), transparent 60%),
+      var(--bg-0);
+  }
+
+  a { color: var(--primary-2); text-decoration: none; }
+  a:hover { color: var(--gold); }
+  ::selection { background: rgba(255,138,0,0.35); color: #fff; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+  h1, h2, h3 { margin: 0 0 .5rem; font-weight: 600; letter-spacing: -0.01em; }
+  p { margin: 0 0 .75rem; color: var(--text-muted); }
+
+  .wrap { max-width: 920px; margin: 0 auto; padding: 2.25rem 1.25rem 4rem; }
+
+  /* Portada con el logo real de la empresa */
+  header.cover {
+    position: relative; overflow: hidden;
+    background: var(--grad-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-xl);
+    padding: 2.4rem 2rem 2rem;
+    text-align: center;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow-lg);
+  }
+  header.cover::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% -20%, rgba(255,138,0,0.22), transparent 55%);
+    pointer-events: none;
+  }
+  .brand-logo {
+    position: relative;
+    width: 88px; height: 88px; border-radius: 20px;
+    margin: 0 auto .95rem;
+    background: #fff; overflow: hidden;
+    box-shadow: var(--glow-primary), var(--shadow-md);
+  }
+  .brand-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  header.cover .eyebrow {
+    font-size: .74rem; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--primary-3); font-weight: 700; position: relative;
+  }
+  header.cover h1 {
+    margin: .35rem 0 .25rem; font-size: 2.1rem; position: relative;
+    background: var(--grad-primary); -webkit-background-clip: text;
+    background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  header.cover .empresa { color: var(--text-muted); font-size: 1rem; position: relative; }
+
+  .bienvenida {
+    background: var(--grad-primary-soft);
+    border: 1px solid rgba(255,138,0,0.4);
+    border-radius: var(--r-lg);
+    padding: 1rem 1.25rem;
+    color: var(--primary-3);
+    text-align: center;
+    margin: 1.25rem 0;
+    font-size: 1.05rem; font-style: italic;
+    box-shadow: 0 0 0 3px rgba(255,138,0,0.06);
+  }
+
+  .intro { color: var(--text-muted); }
+
+  .nota {
+    font-size: .88rem; color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--primary);
+    padding: .65rem .9rem;
+    background: var(--bg-1);
+    border-radius: 0 var(--r-md) var(--r-md) 0;
+    margin: 1rem 0 2rem;
+  }
+
+  nav.toc {
+    background: var(--grad-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 1.1rem 1.35rem;
+    margin: 1.5rem 0;
+    box-shadow: var(--shadow-sm);
+  }
+  nav.toc .card-title {
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-muted); margin-bottom: .8rem; font-weight: 700;
+  }
+  nav.toc ol { margin: 0; padding-left: 1.2rem; columns: 2; column-gap: 2rem; }
+  nav.toc li { margin: .25rem 0; }
+  nav.toc li::marker { color: var(--primary); font-weight: 700; }
+  nav.toc a { color: var(--text); }
+  nav.toc a:hover { color: var(--primary-2); }
+
+  section.modulo {
+    background: var(--grad-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 1.2rem 1.5rem 1.4rem;
+    margin: 1rem 0;
+    box-shadow: var(--shadow-sm);
+  }
+  section.modulo:hover { border-color: var(--border-strong); }
+  section.modulo h2 {
+    display: flex; align-items: center; gap: .55rem;
+    font-size: 1.3rem; margin: 0 0 .55rem;
+    padding-left: .7rem;
+    border-left: 4px solid var(--primary);
+  }
+  section.modulo h3 { color: var(--primary-2); font-size: 1rem; margin: 1rem 0 .25rem; }
+
+  ul { margin: .4rem 0; padding-left: 1.25rem; }
+  li { margin: .3rem 0; color: var(--text); }
+  li::marker { color: var(--primary); }
+  strong { color: var(--text); }
+  em { color: var(--text-muted); }
+
+  code, .sku {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: .05rem .4rem;
+    font-family: var(--font-mono);
+    font-size: .85em;
+    color: var(--primary-3);
+  }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: .3rem;
+    padding: .2rem .6rem; border-radius: 999px;
+    font-size: .72rem; font-weight: 600;
+    background: rgba(255,138,0,0.15); color: var(--primary-3);
+    border: 1px solid rgba(255,138,0,0.4);
+    vertical-align: middle; margin-left: .4rem;
+  }
+
+  footer {
+    text-align: center; color: var(--text-dim); font-size: .82rem;
+    margin-top: 2rem; padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 640px) { nav.toc ol { columns: 1; } }
+  @media print {
+    body { background: #fff; color: #111; }
+    header.cover, nav.toc, section.modulo { box-shadow: none; break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="cover">
+    <div class="brand-logo"><img src="image.jpeg" alt="Logo Mineral Group Guayana" /></div>
+    <div class="eyebrow">Manual de Usuario</div>
+    <h1>Sistema de Gestión</h1>
+    <div class="empresa">Mineral Group Guayana C.A.</div>
+  </header>
+
+  <div class="bienvenida">
+    Bienvenido al manual de usuario del sistema de gestión de la empresa Mineral Group Guayana.
+  </div>
+
+  <p class="intro">
+    Este documento explica, pantalla por pantalla, cómo usar el sistema de manera sencilla.
+    Cada usuario ve solo los módulos que su rol tiene habilitados, por lo que es posible que
+    algunas pantallas no aparezcan en tu menú.
+  </p>
+
+  <nav class="toc">
+    <div class="card-title">Contenido</div>
+    <ol>
+      <li><a href="#s1">Inicio de sesión</a></li>
+      <li><a href="#s2">Cómo está organizado</a></li>
+      <li><a href="#s3">Dashboard</a></li>
+      <li><a href="#s4">Inventario</a></li>
+      <li><a href="#s5">Pedidos / Compras</a></li>
+      <li><a href="#s6">Proveedores</a></li>
+      <li><a href="#s7">Producción</a></li>
+      <li><a href="#s8">Salidas / Traslados</a></li>
+      <li><a href="#scomb">Combustible</a></li>
+      <li><a href="#s9">Usuarios</a></li>
+      <li><a href="#s10">Ajustes</a></li>
+    </ol>
+  </nav>
+
+  <section class="modulo" id="s1">
+    <h2>🔐 1. Inicio de sesión</h2>
+    <p>Es la primera pantalla al abrir el sistema. Sirve para identificarte y proteger la información: solo personas autorizadas pueden entrar.</p>
+    <ul>
+      <li>Escribe tu <strong>correo</strong> y <strong>contraseña</strong> y presiona <strong>Ingresar</strong>.</li>
+      <li>Si los datos son correctos, entras al tablero principal (Dashboard).</li>
+      <li>Cada usuario ve únicamente los módulos que su rol permite.</li>
+      <li>Para salir de forma segura usa el botón <strong>⎋</strong> (abajo a la izquierda).</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s2">
+    <h2>🧭 2. Cómo está organizado el sistema</h2>
+    <p>Todas las pantallas comparten la misma estructura.</p>
+    <ul>
+      <li><strong>Menú lateral (izquierda):</strong> índice del sistema, dividido en <strong>Operación</strong> (trabajo diario) y <strong>Sistema</strong> (configuración).</li>
+      <li>Puedes <strong>ocultar/mostrar</strong> el menú con el botón <strong>☰</strong> de la barra superior.</li>
+      <li><strong>Barra superior:</strong> buscador general + campana de notificaciones.</li>
+      <li><strong>Buscador general:</strong> escribe cualquier producto, proveedor u orden; al hacer clic en un resultado te lleva directo a su detalle.</li>
+      <li><strong>Campana (◔):</strong> avisa, por ejemplo, cuando un producto está por agotarse. El número rojo indica avisos sin leer.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s3">
+    <h2>▦ 3. Dashboard (Tablero principal)</h2>
+    <p>Resumen general de la empresa. De un vistazo muestra el estado del inventario y la actividad reciente.</p>
+    <ul>
+      <li>Tarjetas con indicadores clave: valor del inventario, cantidad de productos, alertas de stock bajo, etc.</li>
+      <li>Gráficos de evolución y composición del inventario.</li>
+      <li>Lista de <strong>Movimientos recientes</strong>: últimas entradas, salidas y ajustes. Al hacer clic en uno se abre el detalle del producto.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s4">
+    <h2>⬢ 4. Inventario</h2>
+    <p>El corazón del sistema: todos los materiales y productos con su stock, costo y ubicación.</p>
+    <ul>
+      <li>Listado con <strong>SKU</strong> (código), nombre, categoría, stock y estado.</li>
+      <li><strong>Nuevo producto:</strong> el <strong>SKU se genera solo</strong> y de forma correlativa según la categoría (ej. <span class="sku">LUB-001</span>, <span class="sku">LUB-002</span>). No hace falta inventarlo a mano.</li>
+      <li>Cada producto guarda su <strong>stock por almacén</strong> y su <strong>costo promedio ponderado (PMP)</strong>, que se actualiza con cada entrada/compra.</li>
+      <li><strong>Movimientos:</strong> entradas, salidas, transferencias y ajustes; el sistema lleva el historial completo (kardex) de cada producto.</li>
+      <li><strong>Detalle del producto:</strong> ficha completa + todos sus movimientos (incluye <strong>a quién se entregó</strong> cada salida y la fecha de entrega); se descarga la trazabilidad en PDF.</li>
+      <li><strong>Alertas de stock:</strong> marca en rojo los productos por debajo del mínimo.</li>
+      <li><strong>Almacenes:</strong> se ven en <strong>lista</strong> o en <strong>tarjetas (kanban)</strong> con totales de productos, productos usados y consumo diario.</li>
+      <li><strong>Exportar/Importar:</strong> productos de cada almacén en <strong>Excel</strong> o <strong>PDF</strong>, e importación masiva desde Excel.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s5">
+    <h2>✉ 5. Pedidos / Compras</h2>
+    <p>Gestiona el ciclo de compra y deja registro ordenado (trazabilidad) de cada paso. Tiene cuatro pestañas: <strong>Órdenes de Pedido</strong>, <strong>Órdenes de Compra</strong>, <strong>OC por lote</strong> (checklist) y <strong>Compra Directa</strong>.</p>
+    <h3>Flujo de compra (paso a paso)</h3>
+    <ol>
+      <li><strong>Orden de Pedido (OP):</strong> solicitud interna; al crearla se indica su <strong>clasificación</strong> (Producción, Bienes o Servicios). En el detalle de la OP solo hay dos acciones: <strong>Aprobar Orden de Pedido</strong> o <strong>Rechazar Orden de Pedido</strong>, y se puede descargar el <strong>PDF de la OP</strong>.</li>
+      <li><strong>Al aprobar la OP</strong> aparece en <strong>Órdenes de Compra</strong> como pendiente (columna "Pendiente · cargar ofertas").</li>
+      <li><strong>Cotizaciones:</strong> en esa etapa se cargan las ofertas de proveedores (<strong>mínimo 2, máximo 4</strong>) y el jefe <strong>elige la ganadora</strong>. Al elegirla se crea la <strong>Orden de Compra</strong> (estado <span class="badge">OC creada</span>, sin confirmar) con su <strong>código OC</strong> y el proveedor casado.</li>
+      <li><strong>Checklist (OC por lote):</strong> la pestaña <strong>OC por lote</strong> lista las OC por confirmar. Se seleccionan con casillas y se <strong>aprueban en lote</strong> (<span class="badge">OC confirmada</span>); también se puede <strong>imprimir el PDF</strong> o <strong>enviar por correo</strong> solo las seleccionadas para la aprobación final.</li>
+      <li><strong>Confirmación con destino:</strong> al confirmar una OC de forma individual (botón <strong>✔ Aprobar OC</strong>) se abre un modal que <strong>desglosa los almacenes existentes</strong> y exige elegir <strong>a qué almacén se dirige la mercancía</strong>. Ahí entrará el stock cuando se reciba.</li>
+      <li><strong>Pago (Tesorería):</strong> las OC confirmadas pasan a <strong>Tesorería → Órdenes pendientes por pagar</strong>. El analista abre la orden (con todo el detalle y fechas, de la OP a la confirmación), <strong>elige la caja</strong>, <strong>adjunta la factura en PDF</strong> y registra el pago. El monto se descuenta de la caja y queda en el <strong>registro de movimientos</strong> (estado <span class="badge">Pagada</span>).</li>
+      <li><strong>Recepción:</strong> una vez pagada, al llegar la mercadería se marca <strong>Recibida</strong> y el inventario se actualiza con su costo (PMP).</li>
+      <li><strong>Finalización:</strong> al finalizar se abre un modal que pide <strong>evaluar la recepción</strong>: <strong>calidad</strong> (1-5), <strong>puntualidad</strong> (en fecha / adelantado / atrasado, con días) y un <strong>comentario opcional</strong>. La orden se cierra como <strong>Finalizada</strong>. La trazabilidad se descarga en PDF o se envía por correo; el PDF muestra el <strong>código de la Orden de Compra</strong>, el <strong>almacén destino</strong> y la <strong>evaluación</strong> (calidad, puntualidad y comentario).</li>
+    </ol>
+    <p class="nota">Si un proveedor <strong>desiste</strong>, se registra fecha, hora y motivo y la orden queda abierta para re-elegir oferta.</p>
+    <h3>🛒 Compra Directa (compras sin proveedor)</h3>
+    <p>La compra directa <strong>no pasa por aprobación</strong>: se registra el gasto en Tesorería y entra al inventario.</p>
+    <ul>
+      <li><strong>Crear:</strong> agrega <strong>uno o varios materiales</strong> (del inventario o nuevos, que se dan de alta solos: stock 0, sin precio, SKU automático) + <strong>almacén destino</strong> + <strong>cantidad</strong>. En este paso <strong>no se cargan precios</strong>.</li>
+      <li><strong>Vista kanban y lista</strong> con dos estados: <span class="badge">En proceso</span> y <span class="badge">Finalizada</span>.</li>
+      <li><strong>Cargar factura y precios:</strong> desde "En proceso" se <strong>adjunta la factura</strong>, se colocan los <strong>precios por material</strong> y se elige la <strong>caja</strong> de la que sale el dinero. Al completar: el gasto se <strong>descuenta de la caja</strong> (registro de movimientos de Tesorería) y cada material <strong>entra al inventario como ENTRADA</strong> (costo = gasto ÷ cantidad, que recalcula el PMP).</li>
+      <li>Cada compra muestra <strong>quién la generó</strong>, la <strong>fecha de creación</strong> y la <strong>fecha de compra</strong>; su detalle se descarga en <strong>PDF</strong>.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s6">
+    <h2>⚒ 6. Proveedores</h2>
+    <p>Directorio de proveedores y herramienta para comparar ofertas y elegir la mejor de forma objetiva.</p>
+    <ul>
+      <li>Registro de cada proveedor con sus datos de contacto.</li>
+      <li><strong>Comparación de ofertas:</strong> ayuda a elegir la mejor combinando criterios (precio, tiempo de entrega, condiciones, etc.).</li>
+      <li>Detalle de cada proveedor con su historial.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s7">
+    <h2>🔥 7. Producción</h2>
+    <p>Fabricación/fundición de productos a partir de materiales del inventario, usando <strong>recetas</strong>.</p>
+    <ul>
+      <li><strong>Recetas:</strong> definen los materiales que consume cada producto; al producir, se descuentan del inventario.</li>
+      <li><strong>Vista kanban:</strong> producciones en proceso y últimas finalizadas.</li>
+      <li>Cada producción registra el <strong>horno</strong> utilizado y la cantidad producida.</li>
+      <li>Descarga de la receta/producción en <strong>Excel</strong> (encabezado naranja característico).</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s8">
+    <h2>↘ 8. Salidas / Traslados</h2>
+    <p>Controla la salida de cosas de la empresa y los movimientos internos. Interruptor superior <strong>Salidas / Traslados</strong> y sub-interruptor <strong>Material / Dinero</strong>.</p>
+    <ul>
+      <li><strong>Salida de material:</strong> despacha un producto desde un almacén a un destino. No permite sacar más de lo disponible y descuenta el inventario. El <strong>precio unitario</strong> se trae del inventario y <strong>no se modifica</strong> en la salida.</li>
+      <li><strong>Traslado de material:</strong> mueve productos entre almacenes conservando el costo (PMP).</li>
+      <li><strong>"A quién va dirigido":</strong> interruptor <strong>Almacén</strong> (almacenes registrados + Consumo Interno) o <strong>Persona</strong> (usuarios: nombre, apellido y cargo).</li>
+      <li><strong>Fecha de entrega:</strong> se indica la fecha en que se entregó al destino; aparece en el detalle, en el <strong>PDF</strong> del comprobante y en el <strong>correo</strong>.</li>
+      <li><strong>Enviar por correo:</strong> desde el detalle se adjunta el comprobante en PDF a uno o varios correos.</li>
+      <li><strong>Salida de dinero:</strong> adelanto que sale de una caja (USD o Bs) y queda <span class="badge">Pendiente</span>; luego se <strong>concilia</strong> con la recepción del mineral equivalente, que ingresa al inventario.</li>
+      <li><strong>Traslado de dinero:</strong> entre cajas de la misma moneda.</li>
+      <li><strong>Cajas:</strong> crear, renombrar, habilitar/deshabilitar y ajustar saldo.</li>
+      <li>Los <strong>PDF</strong> se generan solo al hacer clic en el botón.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="scomb">
+    <h2>⛽ 9. Combustible</h2>
+    <p>Inventario de combustible por tipo y solicitudes de salida con aprobación. Flujo: <strong>Por aprobar → Aprobada → Finalizada</strong>.</p>
+    <ul>
+      <li><strong>Vinculado al inventario:</strong> cada combustible se <strong>registra primero en el inventario</strong> (queda como un producto de categoría <em>Combustible</em>, en litros) marcando el <strong>almacén</strong> donde estará; de ahí se vincula al módulo de Combustible. Sus movimientos quedan trazados también en Inventario.</li>
+      <li><strong>Inventario en tarjetas:</strong> por cada tipo (Diésel, Gasolina…) se muestra cuántos <strong>litros</strong> hay, el <strong>costo por litro</strong> y el <strong>valor total</strong>; más una tarjeta de TOTAL GENERAL.</li>
+      <li><strong>Registrar ingreso:</strong> cargás <strong>litros + costo por litro</strong> y el <strong>almacén destino</strong>; entra como <strong>ENTRADA</strong> al inventario de ese almacén y se recalcula el costo promedio (PMP).</li>
+      <li><strong>Solicitud de salida:</strong> indicás <strong>quién la solicita</strong>, <strong>de qué almacén sale</strong>, <strong>a dónde va</strong> el combustible y el <strong>total de litros</strong>.</li>
+      <li><strong>Aprobación y estados:</strong> <span class="badge">Por aprobar</span> → <span class="badge">Aprobada</span> → <span class="badge">Finalizada</span>. Al <strong>finalizar</strong> se registra una <strong>SALIDA</strong> del inventario en el almacén de origen y se descuentan los litros (valida el stock de ese almacén).</li>
+      <li><strong>Alertas, PDF y correo:</strong> el sistema avisa en cada paso; cada solicitud se descarga en <strong>PDF</strong> y se envía por <strong>correo</strong>.</li>
+      <li>Vista <strong>kanban y lista</strong> de las solicitudes.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="steso">
+    <h2>🏦 9b. Tesorería</h2>
+    <p>Maneja el flujo de dinero de la empresa sobre las mismas <strong>cajas</strong> de Salidas (una sola fuente).</p>
+    <ul>
+      <li><strong>Tasa del día (BCV):</strong> en la barra superior se muestra la <strong>tasa USD y EUR del día</strong> con su fecha. El botón <strong>Historial Tasas</strong> permite consultarlas filtrando por fecha y moneda (y corregirlas manualmente si hace falta).</li>
+      <li><strong>Conversor $ ⇄ Bs:</strong> el botón <strong>Conversor</strong> abre una calculadora para convertir de <strong>$ a Bs</strong> o de <strong>Bs a $</strong> usando la tasa del BCV del día (editable para corrección manual). Aplica las fórmulas <em>Bs = monto × tasa</em> y <em>$ = Bs ÷ tasa</em>, redondeando a 2 decimales.</li>
+      <li><strong>Disponibilidad financiera:</strong> tarjetas con el disponible en <strong>USD</strong>, su <strong>equivalente en Bs</strong> (× tasa), el disponible en <strong>Bs</strong> y el <strong>total general en Bs</strong> (2 decimales en cada cálculo).</li>
+      <li><strong>Órdenes pendientes por pagar:</strong> lista las Órdenes de Compra <strong>confirmadas</strong>. Al abrir una (<strong>Ver / Pagar</strong>) se ve todo el detalle y fechas (de la OP a la confirmación) y la <strong>conversión del total $ ⇄ Bs</strong> con la tasa BCV del día (editable). Con <strong>PAGAR ORDEN</strong> se elige la caja: si es en <strong>Bs</strong>, el monto se <strong>autocompleta convertido</strong> con la tasa; si es en <strong>$</strong>, queda en dólares. Se <strong>adjunta el comprobante (PDF o imagen)</strong> y se registra el pago (se descuenta de la caja y queda en el registro de movimientos).</li>
+      <li><strong>Ingreso de dinero:</strong> el botón <strong>+ Ingreso</strong> (o el formulario "Ingresar dinero" dentro del detalle de una caja) <strong>suma</strong> el monto al saldo. Ej.: caja con 100 + ingreso de 100 = <strong>200</strong>. Distinto de <strong>Ajustar saldo</strong>, que <strong>fija</strong> el saldo a un valor de conciliación (no lo suma).</li>
+      <li><strong>Gasto:</strong> egreso simple etiquetado por la moneda de la caja.</li>
+      <li><strong>Traspaso de dinero:</strong> entre cajas de la misma moneda.</li>
+      <li><strong>Pago a personal:</strong> multipagos a las personas del sistema desde una caja.</li>
+      <li><strong>Registro de movimientos:</strong> todas las entradas y salidas con su saldo, <strong>filtrable por rango de fechas</strong>, moneda y tipo de movimiento.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s9">
+    <h2>👤 10. Usuarios</h2>
+    <p>Administra las personas que usan el sistema y qué puede hacer cada una. <em>(Perfiles administradores.)</em></p>
+    <ul>
+      <li>Alta y edición de usuarios con nombre, cargo y departamento.</li>
+      <li><strong>Roles y permisos:</strong> define, por rol, a qué módulos entra cada persona y si puede solo ver o también modificar. Los cambios en la matriz <strong>se guardan automáticamente</strong>. Los roles nuevos aparecen al instante en el selector de "Crear usuario".</li>
+      <li>Cambio de clave de los usuarios.</li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="s10">
+    <h2>⚙ 11. Ajustes</h2>
+    <p>Tu espacio personal de configuración.</p>
+    <ul>
+      <li><strong>Perfil:</strong> revisa y actualiza tus datos.</li>
+      <li><strong>Preferencias:</strong> opciones de tu cuenta.</li>
+      <li><strong>Cambiar contraseña</strong> de forma segura.</li>
+    </ul>
+  </section>
+
+  <section class="modulo">
+    <h2>💡 Consejos rápidos</h2>
+    <ul>
+      <li>Si no ves un módulo en el menú, es porque tu rol no tiene permiso; pídeselo a un administrador.</li>
+      <li>Usa el <strong>buscador</strong> de la barra superior para llegar rápido a cualquier producto, proveedor u orden.</li>
+      <li>Revisa la <strong>campana</strong> de notificaciones: avisa cuando un material está por agotarse.</li>
+      <li>Los reportes en <strong>PDF/Excel</strong> y los <strong>correos</strong> siempre se generan/envían con un botón; nada automático.</li>
+      <li>Ante cualquier duda, cierra sesión con <strong>⎋</strong> y vuelve a ingresar; tus datos quedan guardados.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Documento interno de Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios.
+  </footer>
+
+</div>
+</body>
+</html>
