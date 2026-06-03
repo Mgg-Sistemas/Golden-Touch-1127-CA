@@ -49,6 +49,9 @@ create table if not exists public.usuarios (
   updated_at   timestamptz
 );
 
+-- Campo heredado usado por directorio_usuarios() y el front (PersonaDirectorio).
+alter table public.usuarios add column if not exists apellido text;
+
 -- Trigger: al registrar usuario en auth, crear fila en public.usuarios
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -69,6 +72,22 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Helpers de rol (definidos temprano: los usan las policies RLS de abajo)
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.usuarios where id = auth.uid() and role = 'admin');
+$$;
+
+create or replace function public.is_staff()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista'));
+$$;
+
+create or replace function public.is_operativo()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista','obrero'));
+$$;
 
 -- ─────────────────────────────────────────────────────────────
 -- 3. proveedores
@@ -173,7 +192,17 @@ alter table public.productos add column if not exists precio_venta   numeric;
 alter table public.productos add column if not exists es_receta      boolean not null default false;
 alter table public.productos add column if not exists es_producible  boolean not null default false;
 -- Los productos con receta de fundición ya son insumos de producción.
-update public.productos set es_receta = true where receta_fundicion is not null and es_receta = false;
+-- Backfill heredado: solo aplica si existe la columna legada `receta_fundicion`
+-- (en bases nuevas la columna no existe; se omite sin romper el esquema).
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'productos' and column_name = 'receta_fundicion'
+  ) then
+    update public.productos set es_receta = true where receta_fundicion is not null and es_receta = false;
+  end if;
+end$$;
 
 -- ─────────────────────────────────────────────────────────────
 -- 5.3 producción: órdenes de producción + materiales consumidos.
@@ -661,11 +690,7 @@ alter table public.existencias    enable row level security;
 alter table public.produccion     enable row level security;
 alter table public.produccion_materiales enable row level security;
 
--- Helper: ¿el usuario actual es admin?
-create or replace function public.is_admin()
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role = 'admin');
-$$;
+-- (is_admin() se define más arriba, junto al trigger de auth, para que las policies lo puedan usar)
 
 -- usuarios
 drop policy if exists "usuarios self read" on public.usuarios;
@@ -688,21 +713,7 @@ begin
   end loop;
 end$$;
 
--- Helper: ¿el usuario actual es "staff" de operaciones? (admin o analista).
--- El analista maneja el ciclo de compras: cargar ofertas, emitir OC, recibir
--- mercancía (movimientos + actualización de stock) y evaluar la recepción.
-create or replace function public.is_staff()
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista'));
-$$;
-
--- Helper: ¿el usuario es "operativo"? (admin, analista u obrero). Estos roles
--- trabajan inventario y producción (movimientos, existencias, stock, órdenes de
--- producción y sus materiales).
-create or replace function public.is_operativo()
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista','obrero'));
-$$;
+-- (is_staff() e is_operativo() se definen más arriba, junto a is_admin(), para que las policies los usen)
 
 -- Directorio mínimo de usuarios activos (id, nombre, apellido, cargo) legible por
 -- cualquier autenticado. La tabla usuarios tiene RLS de "solo tu fila"; esta
