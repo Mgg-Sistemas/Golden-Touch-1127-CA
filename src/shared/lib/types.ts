@@ -273,6 +273,79 @@ export interface MovimientoCombustible {
   at: string;
 }
 
+/* ───────────── Combustible · Tanques (réplica del Excel) ───────────── */
+
+export type TipoCatalogoCombustible = 'equipo' | 'autorizado' | 'ubicacion';
+
+export interface CatalogoCombustible {
+  id: string;
+  tipo: TipoCatalogoCombustible;
+  valor: string;
+  activo: boolean;
+  orden: number;
+  created_at: string;
+}
+
+export interface TanqueCombustible {
+  id: string;
+  nombre: string;
+  capacidad_litros: number;
+  saldo_litros: number;
+  saldo_usd: number;
+  tasa_usd_litro: number;
+  ubicacion?: string | null;
+  estado: 'activo' | 'inactivo';
+  orden: number;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export type TipoMovTanque = 'entrada' | 'uso' | 'traslado';
+
+export interface MovimientoTanque {
+  id: string;
+  tanque_id: string;
+  fecha: string;
+  hora?: string | null;
+  tipo: TipoMovTanque;
+  equipo?: string | null;
+  autorizado_por?: string | null;
+  ubicacion?: string | null;
+  observacion?: string | null;
+  litros: number;
+  tanque_destino_id?: string | null;
+  contador_global_ini?: number | null;
+  contador_global_fin?: number | null;
+  contador_global_dif?: number | null;
+  horometro_ini?: number | null;
+  horometro_fin?: number | null;
+  horas_utilizadas?: number | null;
+  tasa_usd_litro: number;
+  monto_usd?: number | null;
+  orden: number;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  /** Saldos corridos (litros y USD), calculados al listar. */
+  saldo_litros?: number;
+  saldo_usd?: number;
+}
+
+export interface ConciliacionCombustible {
+  id: string;
+  tanque_id: string;
+  periodo?: string | null;
+  fecha: string;
+  saldo_libros: number;
+  saldo_reportado_mina: number;
+  diferencia?: number | null;
+  notas?: string | null;
+  created_by?: string | null;
+  created_at: string;
+}
+
 export type EstadoSolicitudCombustible = 'por_aprobar' | 'aprobada' | 'finalizada' | 'cancelada';
 
 /** Solicitud de salida de combustible (flujo por aprobar → aprobada → finalizada). */

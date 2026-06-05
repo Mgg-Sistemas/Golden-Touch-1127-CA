@@ -193,9 +193,9 @@ export function AppShell() {
       <aside className="sidebar">
         <div className="sidebar-brand">
           <NavLink to="/app" className="brand">
-            <img src="/image.jpeg" alt="MGG" />
+            <img src="/LOGO.jpg" alt="Golden Touch" />
             <div className="brand-text">
-              <strong>MGG</strong>
+              <strong>Golden Touch</strong>
               <small>BIENVENIDO</small>
             </div>
           </NavLink>
@@ -265,16 +265,13 @@ export function AppShell() {
         <nav className="nav">
           <NavItem to="#" icon="↗" label="Ventas" disabled />
           <NavItem to="#" icon="🚜" label="Control de Maquinaria" disabled />
-          <NavItem to="#" icon="🏭" label="C. Acopio LA ESPERANZA" disabled />
-          <NavItem to="#" icon="🏭" label="C. Acopio LOS PIJIGUAOS" disabled />
-          <NavItem to="#" icon="🏭" label="C. Acopio LA ESMERALDA" disabled />
         </nav>
 
         <div className="sidebar-footer">
           <div className="user-chip">
             <div className="avatar" style={{ overflow: 'hidden', background: '#fff', padding: 0 }}>
               <img
-                src="/image.jpeg"
+                src="/LOGO.jpg"
                 alt="Avatar"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
               />

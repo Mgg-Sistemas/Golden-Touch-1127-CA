@@ -148,6 +148,21 @@ const SECCIONES: Seccion[] = [
     ],
   },
   {
+    icono: '⛽',
+    titulo: 'Combustible',
+    captura: 'combustible',
+    intro:
+      'Tiene dos secciones (selector arriba): Tanques (control de diésel por tanque, réplica del Excel, con carga directa) y Solicitudes de salida (flujo con aprobación).',
+    puntos: [
+      'Tanques — Reporte por tanque: una tarjeta por tanque muestra los litros disponibles, una barra contra la capacidad, la tasa (USD/L) y el resumen de entradas/uso/traslados; arriba, el total disponible entre todos.',
+      'Tanques — Tipos de movimiento: Entrada (entra combustible a un costo por litro y recalcula la tasa promedio ponderado), Uso (un equipo consume y descuenta al costo promedio) y Traslado (sale a otra mina o a otro tanque; si es a otro tanque, se acredita allí al costo del origen).',
+      'Tanques — Libro mayor: cada fila guarda fecha, hora, equipo, autorizado por, ubicación, observación, los litros y el saldo corrido en litros y USD; opcionalmente el horómetro del equipo (HI/HF) y el contador del surtidor.',
+      'Tanques — Catálogos: los desplegables de Equipos, Autorizados y Ubicaciones se gestionan desde el botón Catálogos (vienen precargados desde la planilla).',
+      'Tanques — Conciliación: compara el saldo de nuestros libros contra el reportado por la mina y guarda la diferencia por período. También hay gráfica de consumo por equipo.',
+      'Solicitudes de salida: flujo Por aprobar → Aprobada → Finalizada. Se registra el ingreso (litros + costo, recalcula PMP) y la salida sale del inventario del almacén de origen al finalizar. Cada solicitud se descarga en PDF y se envía por correo.',
+    ],
+  },
+  {
     icono: '📦',
     titulo: 'Centro de Acopio PERAMANAL',
     captura: 'acopio',

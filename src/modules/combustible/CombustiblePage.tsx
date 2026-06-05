@@ -26,6 +26,7 @@ import {
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { descargarSolicitudCombustiblePdf } from './combustiblePdf';
 import { enviarCombustibleAMultiples } from './enviarCombustible';
+import { TanquesView } from './TanquesView';
 
 type Vista = 'kanban' | 'lista';
 const COLS: { key: SolicitudCombustible['estado']; label: string }[] = [
@@ -51,6 +52,7 @@ export function CombustiblePage() {
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
+  const [seccion, setSeccion] = useState<'tanques' | 'solicitudes'>('tanques');
   const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo'>('none');
   const [detalle, setDetalle] = useState<SolicitudCombustible | null>(null);
 
@@ -91,19 +93,32 @@ export function CombustiblePage() {
       <div className="page-head">
         <div>
           <h1>⛽ Combustible</h1>
-          <p className="muted">Inventario de combustible y solicitudes de salida. Flujo: Por aprobar → Aprobada → Finalizada (descuenta litros).</p>
+          <p className="muted">Control de diésel por tanque (libro mayor estilo Excel) y solicitudes de salida.</p>
         </div>
-        <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" onClick={() => setModal('consumo')} title="Gráfica de consumo de combustible por tipo">📊 Consumo</button>
-          {canWrite && (
-            <>
-              <button className="btn btn-ghost" onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
-              <button className="btn btn-ghost" onClick={() => setModal('ingreso')} disabled={!activos.length}>⬇ Registrar ingreso</button>
-              <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length}>+ Nueva solicitud de salida</button>
-            </>
-          )}
-        </div>
+        {seccion === 'solicitudes' && (
+          <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={() => setModal('consumo')} title="Gráfica de consumo de combustible por tipo">📊 Consumo</button>
+            {canWrite && (
+              <>
+                <button className="btn btn-ghost" onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
+                <button className="btn btn-ghost" onClick={() => setModal('ingreso')} disabled={!activos.length}>⬇ Registrar ingreso</button>
+                <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length}>+ Nueva solicitud de salida</button>
+              </>
+            )}
+          </div>
+        )}
       </div>
+
+      <div className="view-toggle" role="tablist" aria-label="Sección" style={{ marginBottom: '1rem' }}>
+        <button className={seccion === 'tanques' ? 'active' : ''} onClick={() => setSeccion('tanques')}>🛢 Tanques</button>
+        <button className={seccion === 'solicitudes' ? 'active' : ''} onClick={() => setSeccion('solicitudes')}>📋 Solicitudes de salida</button>
+      </div>
+
+      {seccion === 'tanques' && <TanquesView />}
+
+      {seccion === 'solicitudes' && (
+      <>
+      {/* contenido de solicitudes */}
 
       {/* Tarjetas de inventario */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
@@ -216,6 +231,8 @@ export function CombustiblePage() {
       {detalle && (
         <DetalleModal solicitud={detalle} canWrite={canWrite} actor={actor}
           onClose={() => setDetalle(null)} onChanged={async () => { await reload(); setDetalle(null); }} />
+      )}
+      </>
       )}
     </div>
   );

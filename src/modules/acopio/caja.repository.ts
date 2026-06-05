@@ -7,7 +7,7 @@
    · Los saldos corrientes (K y M del Excel) se calculan acá al listar.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { CajaCierre, CajaMovimiento, CajaResumen, ClasificacionAcopio, CostoClase, GrupoClasificacion } from '@/shared/lib/types';
+import type { CajaCierre, CajaMovimiento, CajaResumen, ClasificacionAcopio, CostoClase, GrupoClasificacion, TransferenciaInter } from '@/shared/lib/types';
 
 export const GRUPOS: { key: GrupoClasificacion; label: string; color: string }[] = [
   { key: 'movimientos_caja', label: 'Movimientos de Caja', color: '#3b82f6' },
@@ -192,6 +192,54 @@ export async function crearCaja(input: { numero: string; nombre?: string | null;
     .single();
   if (error) throw error;
   return data as CajaCierre;
+}
+
+/**
+ * Acepta una transferencia ENTRANTE del otro sistema acreditándola en una caja
+ * de Acopio: registra un movimiento (usd_entregado ↑ saldo, clasificado en
+ * "Movimientos de Caja"), marca la transferencia como recibida y avisa al
+ * origen (ACK). El id global de la transferencia evita doble acreditación.
+ */
+export async function aceptarEntradaEnCajaAcopio(input: {
+  row: TransferenciaInter;
+  cajaId: string;              // acopio_cajas.id (caja de Acopio que recibe)
+  cajaNombre?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const { row, cajaId } = input;
+  if (row.estado !== 'por_confirmar') throw new Error('Esta transferencia ya fue procesada.');
+  if (!cajaId) throw new Error('Elegí la caja que recibe el dinero.');
+  const legs = (row.legs ?? []).filter((l) => Number(l.monto) > 0);
+  if (!legs.length) throw new Error('La transferencia no tiene montos.');
+  const montoUsd = legs.reduce((a, l) => a + num(l.monto), 0);
+  const detalleMonedas = legs.map((l) => `${l.moneda} ${num(l.monto)}`).join(' · ');
+
+  // 1) Entra a la caja como movimiento (sube el saldo USD), grupo Movimientos de Caja.
+  await crearMovimientoCaja({
+    fecha: new Date().toISOString().slice(0, 10),
+    descripcion: `Entrada desde ${row.empresa_origen}${row.motivo ? ' · ' + row.motivo : ''} (${detalleMonedas})`,
+    usd_entregado: montoUsd,
+    clasif_grupo: 'movimientos_caja',
+    caja_id: cajaId,
+  }, input.actor, input.actorName ?? null);
+
+  // 2) Marca la transferencia como recibida (la caja destino va en destino_caja_*).
+  const { error } = await supabase.from('transferencias_inter').update({
+    estado: 'recibida',
+    destino_caja_id: cajaId,
+    destino_caja_nombre: input.cajaNombre ?? null,
+    caja_nombre: input.cajaNombre ?? null,
+    confirmada_at: new Date().toISOString(),
+  }).eq('id', row.id);
+  if (error) throw error;
+
+  // 3) ACK al origen (best-effort: si falla, el origen reconcilia luego).
+  if (row.callback_base) {
+    await supabase.functions.invoke('transfer-enviar', {
+      body: { tipo: 'ack', transf_id: row.transf_id, callback_base: row.callback_base },
+    }).catch(() => { /* el ACK no bloquea */ });
+  }
 }
 
 /** Cierra una caja: fija fecha de cierre, saldo final y estado. */

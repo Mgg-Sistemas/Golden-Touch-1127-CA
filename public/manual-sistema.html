@@ -393,15 +393,33 @@
 
   <section class="modulo" id="scomb">
     <h2>⛽ 10. Combustible</h2>
-    <p>Inventario de combustible por tipo y solicitudes de salida con aprobación. Flujo: <strong>Por aprobar → Aprobada → Finalizada</strong>.</p>
+    <p>El módulo tiene dos secciones (selector arriba): <strong>🛢 Tanques</strong> (control de diésel por tanque, réplica del Excel) y <strong>📋 Solicitudes de salida</strong> (flujo con aprobación).</p>
+
+    <h3>🛢 Tanques — control de diésel (estilo Excel)</h3>
+    <p>Libro mayor de combustible por tanque, con <strong>carga directa</strong> (sin paso de aprobación), como en la planilla de control.</p>
     <ul>
-      <li><strong>Vinculado al inventario:</strong> cada combustible se <strong>registra primero en el inventario</strong> (queda como un producto de categoría <em>Combustible</em>, en litros) marcando el <strong>almacén</strong> donde estará; de ahí se vincula al módulo de Combustible. Sus movimientos quedan trazados también en Inventario.</li>
-      <li><strong>Inventario en tarjetas:</strong> por cada tipo (Diésel, Gasolina…) se muestra cuántos <strong>litros</strong> hay, el <strong>costo por litro</strong> y el <strong>valor total</strong>; más una tarjeta de TOTAL GENERAL.</li>
-      <li><strong>Registrar ingreso:</strong> cargás <strong>litros + costo por litro</strong> y el <strong>almacén destino</strong>; entra como <strong>ENTRADA</strong> al inventario de ese almacén y se recalcula el costo promedio (PMP).</li>
-      <li><strong>Solicitud de salida:</strong> indicás <strong>quién la solicita</strong>, <strong>de qué almacén sale</strong>, <strong>a dónde va</strong> el combustible y el <strong>total de litros</strong>.</li>
-      <li><strong>Aprobación y estados:</strong> <span class="badge">Por aprobar</span> → <span class="badge">Aprobada</span> → <span class="badge">Finalizada</span>. Al <strong>finalizar</strong> se registra una <strong>SALIDA</strong> del inventario en el almacén de origen y se descuentan los litros (valida el stock de ese almacén).</li>
-      <li><strong>Alertas, PDF y correo:</strong> el sistema avisa en cada paso; cada solicitud se descarga en <strong>PDF</strong> y se envía por <strong>correo</strong>.</li>
-      <li>Vista <strong>kanban y lista</strong> de las solicitudes.</li>
+      <li><strong>Reporte por tanque:</strong> una tarjeta por tanque muestra los <strong>litros disponibles</strong>, una barra contra la <strong>capacidad</strong>, la <strong>tasa</strong> (USD/L) y el resumen de entradas/uso/traslados. Arriba se ve el <strong>total disponible</strong> entre todos los tanques.</li>
+      <li><strong>Tres tipos de movimiento:</strong>
+        <ul>
+          <li><span class="badge">⬇ Entrada</span> — entra combustible al tanque a un <strong>costo por litro</strong>; recalcula la <strong>tasa promedio ponderado</strong> (PMP) del tanque.</li>
+          <li><span class="badge">⛽ Uso</span> — un <strong>equipo</strong> consume combustible; descuenta litros al costo promedio.</li>
+          <li><span class="badge">↔ Traslado</span> — sale combustible a otra mina o a <strong>otro tanque</strong> (si elegís tanque destino, se acredita allí al costo del origen).</li>
+        </ul>
+      </li>
+      <li><strong>Libro mayor:</strong> cada fila registra <strong>fecha, hora, equipo, autorizado por, ubicación, observación</strong>, los litros del movimiento y el <strong>saldo corrido</strong> en <strong>litros y USD</strong>. Opcionalmente el <strong>horómetro</strong> del equipo (HI/HF → horas) y el <strong>contador del surtidor</strong> (inicial/final).</li>
+      <li><strong>Catálogos:</strong> los desplegables de <strong>Equipos</strong>, <strong>Autorizados</strong> y <strong>Ubicaciones</strong> se gestionan desde el botón <em>🗂 Catálogos</em> (vienen precargados desde la planilla).</li>
+      <li><strong>Conciliación:</strong> compara el <strong>saldo de nuestros libros</strong> contra el <strong>saldo reportado por la mina</strong> y guarda la <strong>diferencia</strong> por período.</li>
+      <li><strong>Consumo por equipo:</strong> gráfica de litros (y USD) consumidos por equipo en un rango de fechas.</li>
+    </ul>
+
+    <h3>📋 Solicitudes de salida (con aprobación)</h3>
+    <p>Flujo: <strong>Por aprobar → Aprobada → Finalizada</strong>.</p>
+    <ul>
+      <li><strong>Vinculado al inventario:</strong> cada combustible se <strong>registra primero en el inventario</strong> (producto de categoría <em>Combustible</em>, en litros) marcando el <strong>almacén</strong>; de ahí se vincula al módulo. Sus movimientos quedan trazados también en Inventario.</li>
+      <li><strong>Registrar ingreso:</strong> cargás <strong>litros + costo por litro</strong> y el <strong>almacén destino</strong>; entra como <strong>ENTRADA</strong> y recalcula el costo promedio (PMP).</li>
+      <li><strong>Solicitud de salida:</strong> indicás <strong>quién la solicita</strong>, <strong>de qué almacén sale</strong>, <strong>a dónde va</strong> y el <strong>total de litros</strong>.</li>
+      <li><strong>Aprobación y estados:</strong> <span class="badge">Por aprobar</span> → <span class="badge">Aprobada</span> → <span class="badge">Finalizada</span>. Al <strong>finalizar</strong> se registra una <strong>SALIDA</strong> del inventario en el almacén de origen (valida el stock).</li>
+      <li><strong>Alertas, PDF y correo:</strong> el sistema avisa en cada paso; cada solicitud se descarga en <strong>PDF</strong> y se envía por <strong>correo</strong>. Vista <strong>kanban y lista</strong>.</li>
     </ul>
   </section>
 

@@ -28,9 +28,8 @@ import { CuadreView } from './CuadreView';
 import { HojasExcelView } from './HojasExcelView';
 import { DineroPorEntrar } from './DineroPorEntrar';
 import { listEntrantesPorConfirmar } from '@/modules/tesoreria/transferenciasInter.repository';
-import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { descargarRecepcionPdf } from './acopioPdf';
-import type { Caja, CajaCierre, CostoClase, Cuadre, TransferenciaInter } from '@/shared/lib/types';
+import type { CajaCierre, CostoClase, Cuadre, TransferenciaInter } from '@/shared/lib/types';
 
 const ESTADO_LABEL: Record<string, string> = {
   abierta: '● Abierta', cerrada: '✔ Cerrada', anulada: '✖ Anulada',
@@ -54,16 +53,15 @@ export function AcopioPage() {
   const [cajas, setCajas] = useState<CajaCierre[]>([]);
   const [costoClases, setCostoClases] = useState<CostoClase[]>([]);
   const [entrantes, setEntrantes] = useState<TransferenciaInter[]>([]);
-  const [cajasTeso, setCajasTeso] = useState<Caja[]>([]);
   const [loading, setLoading] = useState(true);
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
   const [nuevo, setNuevo] = useState(false);
   const [vista, setVista] = useState<'recepciones' | 'caja' | 'cuadre' | 'hojas'>('recepciones');
 
   const reload = useCallback(async () => {
-    const [rs, ps, alms, cms, cls, cqs, cjs, ccl, ent, ctz] = await Promise.all([
+    const [rs, ps, alms, cms, cls, cqs, cjs, ccl, ent] = await Promise.all([
       listRecepciones(), listProductos(), getNombresAlmacenes(), listCajaMovimientos(), listClasificaciones(), listCuadres(), listCajas(), listCostoClases(),
-      listEntrantesPorConfirmar().catch(() => []), listCajasActivas().catch(() => []),
+      listEntrantesPorConfirmar().catch(() => []),
     ]);
     setRecepciones(rs);
     setProductos(ps);
@@ -74,7 +72,6 @@ export function AcopioPage() {
     setCajas(cjs);
     setCostoClases(ccl);
     setEntrantes(ent);
-    setCajasTeso(ctz);
   }, []);
 
   useEffect(() => {
@@ -112,7 +109,7 @@ export function AcopioPage() {
       </div>
 
       {/* Dinero que llega desde el otro sistema (puente inter-sistema) */}
-      <DineroPorEntrar entrantes={entrantes} cajas={cajasTeso} actor={actor} actorName={actorName} onReload={reload} />
+      <DineroPorEntrar entrantes={entrantes} cajas={cajas} actor={actor} actorName={actorName} onReload={reload} />
 
       {/* Tarjeta protagonista: TASA ACTUAL DEL MATERIAL (varía con los gastos) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>

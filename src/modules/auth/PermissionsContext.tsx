@@ -65,7 +65,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       }
       if (cancelled) return;
       // Si la matriz aún no tiene fila para el rol, usamos los defaults (mismos que el panel).
-      setPermisos(stored ? normalizeRolePermisos(stored) : defaultsFor(r));
+      setPermisos(stored ? normalizeRolePermisos(stored, r) : defaultsFor(r));
       setLoading(false);
     })();
     return () => {

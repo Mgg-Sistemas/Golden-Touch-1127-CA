@@ -71,10 +71,17 @@ export function defaultsFor(role: RoleKey): RolePermisos {
   return all;
 }
 
-/** Rellena los módulos faltantes de una fila parcial con `emptyPermission`. */
-export function normalizeRolePermisos(stored: Partial<RolePermisos>): RolePermisos {
+/**
+ * Rellena los módulos faltantes de una fila parcial. Si se pasa `role`, los
+ * módulos que la matriz guardada aún no tiene (p. ej. módulos nuevos creados
+ * después de guardar la matriz) caen al default del rol —así no quedan
+ * invisibles— sin pisar los que el admin sí configuró explícitamente.
+ */
+export function normalizeRolePermisos(stored: Partial<RolePermisos>, role?: RoleKey): RolePermisos {
+  const base = role ? defaultsFor(role) : null;
   return MODULES.reduce<RolePermisos>((acc, m) => {
-    acc[m.key] = { ...emptyPermission, ...stored[m.key] };
+    const fallback = base ? base[m.key] : emptyPermission;
+    acc[m.key] = stored[m.key] ? { ...emptyPermission, ...stored[m.key] } : { ...fallback };
     return acc;
   }, {} as RolePermisos);
 }

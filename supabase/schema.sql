@@ -361,6 +361,82 @@ create table if not exists public.combustible_solicitudes (
   created_at         timestamptz not null default now()
 );
 
+-- ── Combustible · TANQUES (réplica del Excel "Control de combustible Diesel") ──
+-- Libro mayor de diésel por tanque (carga directa: entrada/uso/traslado), con
+-- tasa promedio ponderado (PMP), doble medidor y conciliación libro vs mina.
+create table if not exists public.combustible_catalogos (
+  id         uuid primary key default gen_random_uuid(),
+  tipo       text not null check (tipo in ('equipo','autorizado','ubicacion')),
+  valor      text not null,
+  activo     boolean not null default true,
+  orden      int not null default 999,
+  created_at timestamptz not null default now(),
+  unique (tipo, valor)
+);
+create table if not exists public.combustible_tanques (
+  id               uuid primary key default gen_random_uuid(),
+  nombre           text not null,
+  capacidad_litros numeric not null default 0,
+  saldo_litros     numeric not null default 0,
+  saldo_usd        numeric not null default 0,
+  tasa_usd_litro   numeric not null default 0,
+  ubicacion        text,
+  estado           text not null default 'activo' check (estado in ('activo','inactivo')),
+  orden            int not null default 999,
+  created_by       text,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz
+);
+create table if not exists public.combustible_tanque_movimientos (
+  id                  uuid primary key default gen_random_uuid(),
+  tanque_id           uuid not null references public.combustible_tanques(id) on delete cascade,
+  fecha               date not null,
+  hora                text,
+  tipo                text not null check (tipo in ('entrada','uso','traslado')),
+  equipo              text, autorizado_por text, ubicacion text, observacion text,
+  litros              numeric not null default 0,
+  tanque_destino_id   uuid references public.combustible_tanques(id) on delete set null,
+  contador_global_ini numeric, contador_global_fin numeric,
+  contador_global_dif numeric generated always as (coalesce(contador_global_fin,0) - coalesce(contador_global_ini,0)) stored,
+  horometro_ini       numeric, horometro_fin numeric,
+  horas_utilizadas    numeric generated always as (coalesce(horometro_fin,0) - coalesce(horometro_ini,0)) stored,
+  tasa_usd_litro      numeric not null default 0,
+  monto_usd           numeric generated always as (litros * tasa_usd_litro) stored,
+  orden               int not null default 0,
+  created_by          text, actor_name text,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz
+);
+create index if not exists idx_comb_tanque_mov on public.combustible_tanque_movimientos(tanque_id, fecha, orden, created_at);
+create table if not exists public.combustible_conciliaciones (
+  id                   uuid primary key default gen_random_uuid(),
+  tanque_id            uuid not null references public.combustible_tanques(id) on delete cascade,
+  periodo              text,
+  fecha                date not null default current_date,
+  saldo_libros         numeric not null default 0,
+  saldo_reportado_mina numeric not null default 0,
+  diferencia           numeric generated always as (saldo_libros - saldo_reportado_mina) stored,
+  notas                text,
+  created_by           text,
+  created_at           timestamptz not null default now()
+);
+do $$
+declare t text;
+begin
+  foreach t in array array['combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones']
+  loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "%s read auth" on public.%I', t, t);
+    execute format('drop policy if exists "%s write op" on public.%I', t, t);
+    execute format('create policy "%s read auth" on public.%I for select using (auth.role()=''authenticated'')', t, t);
+    begin
+      execute format('create policy "%s write op" on public.%I for all using (public.is_operativo()) with check (public.is_operativo())', t, t);
+    exception when others then
+      execute format('create policy "%s write op" on public.%I for all using (auth.role()=''authenticated'') with check (auth.role()=''authenticated'')', t, t);
+    end;
+  end loop;
+end $$;
+
 -- Solicitudes de salida/traslado (material y dinero) con flujo de aprobación.
 -- El obrero crea (por_aprobar); admin/analista aprueba y ejecuta (gate en el front).
 -- Al ejecutar se realiza el movimiento real (movimientos / movimientos_caja) y se guarda mov_id.
@@ -1344,6 +1420,10 @@ create table if not exists public.transferencias_inter (
   empresa_destino  text not null,
   caja_id       uuid references public.cajas(id) on delete set null,
   caja_nombre   text,
+  -- Destino cuando el dinero entrante se acredita a una caja de ACOPIO
+  -- (acopio_cajas). Sin FK a propósito: caja_id ya referencia cajas (Tesorería).
+  destino_caja_id     uuid,
+  destino_caja_nombre text,
   legs          jsonb not null default '[]'::jsonb,
   resumen       text,
   motivo        text,
@@ -1355,6 +1435,9 @@ create table if not exists public.transferencias_inter (
   confirmada_at timestamptz
 );
 create index if not exists idx_transf_inter_dir_estado on public.transferencias_inter(direccion, estado);
+-- Idempotente para bases que ya tenían la tabla sin estas columnas.
+alter table public.transferencias_inter add column if not exists destino_caja_id     uuid;
+alter table public.transferencias_inter add column if not exists destino_caja_nombre text;
 alter table public.transferencias_inter enable row level security;
 drop policy if exists "transf read auth"  on public.transferencias_inter;
 drop policy if exists "transf write auth" on public.transferencias_inter;
@@ -1391,7 +1474,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

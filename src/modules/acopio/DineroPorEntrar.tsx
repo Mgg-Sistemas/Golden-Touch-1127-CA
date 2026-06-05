@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money } from '@/shared/lib/format';
-import type { Caja, TransferenciaInter } from '@/shared/lib/types';
-import { confirmarTransferenciaEntrante } from '@/modules/tesoreria/transferenciasInter.repository';
+import type { CajaCierre, TransferenciaInter } from '@/shared/lib/types';
+import { aceptarEntradaEnCajaAcopio } from './caja.repository';
 
 /** Suma los legs por moneda y arma un texto "USD 1.000,00 · Bs 5.000,00". */
 function resumenLegs(t: TransferenciaInter): string {
@@ -14,12 +14,12 @@ function resumenLegs(t: TransferenciaInter): string {
 /**
  * Tarjeta-banner "DINERO POR ENTRAR": dinero que llega desde el otro sistema
  * (transferencias inter-sistema entrantes pendientes de confirmar). Al hacer
- * clic muestra el monto, el ID global (transf_id) para casar en el otro
- * sistema, y el botón ACEPTAR ENTRADA.
+ * clic muestra el monto y el botón ACEPTAR ENTRADA, que acredita el dinero en
+ * la caja de Acopio (abierta) que se elija.
  */
 export function DineroPorEntrar({ entrantes, cajas, actor, actorName, onReload }: {
   entrantes: TransferenciaInter[];
-  cajas: Caja[];
+  cajas: CajaCierre[];
   actor: string;
   actorName: string | null;
   onReload: () => Promise<void>;
@@ -67,29 +67,26 @@ export function DineroPorEntrar({ entrantes, cajas, actor, actorName, onReload }
 
 function DineroModal({ entrantes, cajas, actor, actorName, onClose, onReload }: {
   entrantes: TransferenciaInter[];
-  cajas: Caja[];
+  cajas: CajaCierre[];
   actor: string;
   actorName: string | null;
   onClose: () => void;
   onReload: () => Promise<void>;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
-  // Caja destino elegida por transferencia (mientras se define a dónde va el dinero).
+  // Caja de Acopio que recibe el dinero, elegida por transferencia.
   const [cajaSel, setCajaSel] = useState<Record<string, string>>({});
-  const cajasActivas = useMemo(() => cajas.filter((c) => c.estado === 'activo'), [cajas]);
-
-  async function copiar(id: string) {
-    try { await navigator.clipboard.writeText(id); toast('ID copiado', 'success'); }
-    catch { toast(id, 'info'); }
-  }
+  // Solo cajas de Acopio ABIERTAS pueden recibir el dinero entrante.
+  const cajasAbiertas = useMemo(() => cajas.filter((c) => c.estado === 'abierta'), [cajas]);
 
   async function aceptar(t: TransferenciaInter) {
-    const cajaId = t.caja_id || cajaSel[t.id];
+    const cajaId = cajaSel[t.id];
     if (!cajaId) { toast('Elegí la caja que recibe el dinero', 'error'); return; }
+    const caja = cajas.find((c) => c.id === cajaId);
     setBusyId(t.id);
     try {
-      await confirmarTransferenciaEntrante({ row: t, cajaId, actor, actorName });
-      toast('Entrada aceptada · dinero acreditado', 'success');
+      await aceptarEntradaEnCajaAcopio({ row: t, cajaId, cajaNombre: caja?.nombre || caja?.numero || null, actor, actorName });
+      toast('Entrada aceptada · dinero acreditado en la caja', 'success');
       await onReload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo aceptar', 'error'); setBusyId(null); }
   }
@@ -111,27 +108,20 @@ function DineroModal({ entrantes, cajas, actor, actorName, onClose, onReload }: 
                 </div>
               </div>
 
-              {/* ID global para casar en el otro sistema */}
-              <div style={{ marginTop: '.6rem', padding: '.5rem .6rem', background: 'var(--surface-2)', borderRadius: 8 }}>
-                <div className="muted" style={{ fontSize: '.72rem' }}>ID para casar en el otro sistema (transf_id)</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                  <code style={{ fontSize: '.82rem', wordBreak: 'break-all' }}>{t.transf_id}</code>
-                  <button className="btn btn-sm btn-ghost" onClick={() => copiar(t.transf_id)} title="Copiar ID">⧉ Copiar</button>
-                </div>
-              </div>
-
-              {/* Destino (a definir) + Aceptar */}
+              {/* Caja de Acopio que recibe + Aceptar */}
               <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', marginTop: '.6rem', flexWrap: 'wrap' }}>
-                {!t.caja_id && (
-                  <div className="form-row" style={{ margin: 0, flex: 1, minWidth: 200 }}>
-                    <label style={{ fontSize: '.74rem' }}>Caja que recibe el dinero</label>
+                <div className="form-row" style={{ margin: 0, flex: 1, minWidth: 200 }}>
+                  <label style={{ fontSize: '.74rem' }}>Caja que recibe el dinero</label>
+                  {cajasAbiertas.length ? (
                     <select className="select" value={cajaSel[t.id] ?? ''} onChange={(e) => setCajaSel((p) => ({ ...p, [t.id]: e.target.value }))}>
                       <option value="">— elegí la caja —</option>
-                      {cajasActivas.map((c) => <option key={c.id} value={c.id}>{c.nombre} ({c.moneda})</option>)}
+                      {cajasAbiertas.map((c) => <option key={c.id} value={c.id}>{c.nombre || c.numero}</option>)}
                     </select>
-                  </div>
-                )}
-                <button className="btn btn-primary" onClick={() => aceptar(t)} disabled={busyId === t.id}>
+                  ) : (
+                    <div className="muted" style={{ fontSize: '.76rem' }}>No hay cajas de Acopio abiertas. Abrí una en la pestaña Caja Peramanal.</div>
+                  )}
+                </div>
+                <button className="btn btn-primary" onClick={() => aceptar(t)} disabled={busyId === t.id || !cajasAbiertas.length}>
                   {busyId === t.id ? 'Aceptando…' : '✓ ACEPTAR ENTRADA'}
                 </button>
               </div>
