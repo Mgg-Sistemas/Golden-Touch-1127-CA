@@ -11,13 +11,14 @@ interface AlmacenesViewProps {
   layout: AlmacenLayout;
   canWrite?: boolean;
   onSelect: (nombre: string) => void;
+  onConsumo: (nombre: string) => void;
   onEditar: (a: Almacen) => void;
   onEliminar: (a: Almacen) => void;
 }
 
 const EMPTY_VALOR: AlmacenValor = { valor: 0, items: 0, unidades: 0 };
 
-export function AlmacenesView({ almacenes, valores, layout, canWrite = true, onSelect, onEditar, onEliminar }: AlmacenesViewProps) {
+export function AlmacenesView({ almacenes, valores, layout, canWrite = true, onSelect, onConsumo, onEditar, onEliminar }: AlmacenesViewProps) {
   if (!almacenes.length) {
     return (
       <div className="card">
@@ -52,6 +53,7 @@ export function AlmacenesView({ almacenes, valores, layout, canWrite = true, onS
                   <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)', fontWeight: 600 }}>{money(v.valor)}</td>
                   <td className="actions" onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => onSelect(a.nombre)} title="Ver detalle">Ver</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => onConsumo(a.nombre)} title="Gráfica de consumo por producto">📊 Consumo</button>
                     {canWrite && (
                       <>
                         <button className="btn btn-sm btn-ghost" onClick={() => onEditar(a)}>Editar</button>
@@ -92,12 +94,15 @@ export function AlmacenesView({ almacenes, valores, layout, canWrite = true, onS
                 <div style={{ fontWeight: 700, fontSize: '1.02rem' }}>▣ {a.nombre}</div>
                 <div className="muted" style={{ fontSize: '.75rem' }}>{a.ubicacion || 'Sin ubicación'}</div>
               </div>
-              {canWrite && (
-                <div className="actions" onClick={(e) => e.stopPropagation()}>
-                  <button className="btn btn-sm btn-ghost" onClick={() => onEditar(a)} title="Editar">✎</button>
-                  <button className="btn btn-sm btn-danger" onClick={() => onEliminar(a)} title="Eliminar">✕</button>
-                </div>
-              )}
+              <div className="actions" onClick={(e) => e.stopPropagation()}>
+                <button className="btn btn-sm btn-ghost" onClick={() => onConsumo(a.nombre)} title="Gráfica de consumo por producto">📊</button>
+                {canWrite && (
+                  <>
+                    <button className="btn btn-sm btn-ghost" onClick={() => onEditar(a)} title="Editar">✎</button>
+                    <button className="btn btn-sm btn-danger" onClick={() => onEliminar(a)} title="Eliminar">✕</button>
+                  </>
+                )}
+              </div>
             </div>
 
             <div style={{ marginTop: '.75rem' }}>

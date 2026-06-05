@@ -944,7 +944,7 @@ security definer
 set search_path = public
 as $func$
 declare
-  t record; r jsonb; k text; v jsonb; cols text; vals text; out text := '';
+  t record; r jsonb; k text; v jsonb; cols text; vals text; out text := ''; gencols text[];
 begin
   if not exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista')) then
     raise exception 'Solo un administrador o analista puede generar el respaldo de datos.';
@@ -956,10 +956,17 @@ begin
     where table_schema = 'public' and table_type = 'BASE TABLE'
     order by table_name
   loop
+    -- Columnas GENERADAS (GENERATED ALWAYS): se excluyen del INSERT porque no
+    -- admiten valor explícito al restaurar.
+    select coalesce(array_agg(column_name), '{}')
+      into gencols
+      from information_schema.columns
+     where table_schema = 'public' and table_name = t.table_name and is_generated = 'ALWAYS';
     out := out || '-- ===== ' || t.table_name || ' =====' || chr(10);
     for r in execute format('select to_jsonb(x) from public.%I x', t.table_name) loop
       cols := ''; vals := '';
       for k, v in select key, value from jsonb_each(r) loop
+        if k = any(gencols) then continue; end if;
         if cols <> '' then cols := cols || ', '; vals := vals || ', '; end if;
         cols := cols || quote_ident(k);
         if v is null or jsonb_typeof(v) = 'null' then vals := vals || 'NULL';
@@ -977,3 +984,415 @@ end;
 $func$;
 revoke all on function public.dump_database_sql() from public, anon;
 grant execute on function public.dump_database_sql() to authenticated;
+
+-- ─────────────────────────────────────────────────────────────
+-- 14. Centro de Acopio PERAMANAL · Control de recepción de mineral
+-- Maestro (acopio_recepciones) + detalle (acopio_recepcion_lotes).
+-- Réplica del formato Excel "CONTROL DE RECEPCIÓN POR CENTRO DE ACOPIO":
+-- los 3 cálculos (peso bruto, diferencia bruto-neto, diferencia neto-
+-- recepcionado) viven como columnas GENERADAS en la base. Al CERRAR una
+-- recepción se suma el mineral al inventario (producto/almacén elegido)
+-- vía el kardex; al ANULAR se revierte.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_recepciones (
+  id               uuid primary key default gen_random_uuid(),
+  numero           text not null unique,                 -- correlativo REC-AAAA-NNNN
+  fecha            date not null default current_date,
+  centro_acopio    text,
+  aliado           text,
+  -- Stock: el mineral recibido se suma a este producto/almacén del inventario.
+  producto_id      uuid references public.productos(id),
+  almacen          text,
+  entregado_nombre text, entregado_ci text,
+  recibido_nombre  text, recibido_ci  text,
+  observaciones    text,
+  estado           text not null default 'abierta'
+                     check (estado in ('abierta','cerrada','anulada')),
+  mov_id           uuid,
+  mov_producto_id  uuid,
+  mov_almacen      text,
+  mov_cantidad     numeric,
+  cerrada_por      text, cerrada_en  timestamptz,
+  anulada_por      text, anulada_en  timestamptz,
+  created_by       text,
+  actor_name       text,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+create table if not exists public.acopio_recepcion_lotes (
+  id                   uuid primary key default gen_random_uuid(),
+  recepcion_id         uuid not null references public.acopio_recepciones(id) on delete cascade,
+  orden                int  not null default 0,
+  nro_lote             text,
+  cantidad_bolsas      numeric not null default 0,
+  peso_bolsa_kg        numeric not null default 0,
+  peso_bruto_total     numeric generated always as
+                         (coalesce(cantidad_bolsas,0) * coalesce(peso_bolsa_kg,0)) stored,
+  peso_neto_kg         numeric not null default 0,
+  dif_bruto_neto       numeric generated always as
+                         (coalesce(cantidad_bolsas,0) * coalesce(peso_bolsa_kg,0) - coalesce(peso_neto_kg,0)) stored,
+  precinto_inicio      text,
+  peso_recepcionado_kg numeric not null default 0,
+  dif_neto_recepcionado numeric generated always as
+                         (coalesce(peso_neto_kg,0) - coalesce(peso_recepcionado_kg,0)) stored,
+  precinto_final       text,
+  -- 🧮 Verf. = IF(precinto_inicio = precinto_final, 'V', 'F') del Excel:
+  -- el sello (precinto) de inicio debe coincidir con el de fin → no manipulado.
+  verificado           boolean generated always as
+                         (precinto_inicio is not distinct from precinto_final) stored,
+  created_at           timestamptz not null default now()
+);
+create index if not exists idx_acopio_lotes_recepcion on public.acopio_recepcion_lotes(recepcion_id);
+
+alter table public.acopio_recepciones     enable row level security;
+alter table public.acopio_recepcion_lotes enable row level security;
+do $$
+declare t text;
+begin
+  for t in select unnest(array['acopio_recepciones','acopio_recepcion_lotes']) loop
+    execute format('drop policy if exists "%I read auth" on public.%I', t, t);
+    execute format('create policy "%I read auth" on public.%I for select using (auth.role() = ''authenticated'')', t, t);
+    execute format('drop policy if exists "%I write auth" on public.%I', t, t);
+    execute format('create policy "%I write auth" on public.%I for all using (auth.role() = ''authenticated'') with check (auth.role() = ''authenticated'')', t, t);
+  end loop;
+end$$;
+
+-- Realtime
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_recepciones') then
+    alter publication supabase_realtime add table public.acopio_recepciones;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_recepcion_lotes') then
+    alter publication supabase_realtime add table public.acopio_recepcion_lotes;
+  end if;
+end$$;
+
+-- ─────────────────────────────────────────────────────────────
+-- 15. Centro de Acopio · CAJA PERAMANAL
+-- Libro de caja (réplica de la hoja "CAJA PERAMANAL - GOLDEN TOUCH").
+-- Cada movimiento se clasifica en uno de los 5 grupos de la hoja
+-- CLASIFICACIONES. La TASA del material se deriva en el front:
+--   tasa = (Σ facturados + Σ gastos + Σ nominas) / Σ kg_cerrados
+-- Los saldos corrientes (K/M del Excel) también se calculan en el front.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_clasificaciones (
+  id     uuid primary key default gen_random_uuid(),
+  grupo  text not null check (grupo in ('contratos','gastos_caja','movimientos_caja','nomina','traslado')),
+  valor  text not null,
+  orden  int  not null default 0,
+  activo boolean not null default true,
+  unique (grupo, valor)
+);
+create table if not exists public.acopio_caja_movimientos (
+  id              uuid primary key default gen_random_uuid(),
+  fecha           date not null default current_date,
+  descripcion     text,
+  usd_entregado   numeric not null default 0,   -- D · entrada de caja
+  kg_cerrados     numeric not null default 0,   -- E · Kg de casiterita cerrados
+  facturados      numeric not null default 0,   -- G · $Usd facturados
+  gastos          numeric not null default 0,   -- H · Gastos GT
+  nominas         numeric not null default 0,   -- I · Nóminas GT
+  traslado        numeric not null default 0,   -- J · Traslado de caja
+  kg_recibidos    numeric not null default 0,   -- L · Kg recibidos por MGG
+  clasif_grupo    text check (clasif_grupo in ('contratos','gastos_caja','movimientos_caja','nomina','traslado')),
+  clasif_valor    text,
+  orden           int not null default 0,
+  created_by      text,
+  actor_name      text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create index if not exists idx_acopio_caja_fecha on public.acopio_caja_movimientos(fecha, orden, created_at);
+
+alter table public.acopio_clasificaciones  enable row level security;
+alter table public.acopio_caja_movimientos enable row level security;
+do $$
+declare t text;
+begin
+  for t in select unnest(array['acopio_clasificaciones','acopio_caja_movimientos']) loop
+    execute format('drop policy if exists "%I read auth" on public.%I', t, t);
+    execute format('create policy "%I read auth" on public.%I for select using (auth.role() = ''authenticated'')', t, t);
+    execute format('drop policy if exists "%I write auth" on public.%I', t, t);
+    execute format('create policy "%I write auth" on public.%I for all using (auth.role() = ''authenticated'') with check (auth.role() = ''authenticated'')', t, t);
+  end loop;
+end$$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_caja_movimientos') then
+    alter publication supabase_realtime add table public.acopio_caja_movimientos;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_clasificaciones') then
+    alter publication supabase_realtime add table public.acopio_clasificaciones;
+  end if;
+end$$;
+
+-- Seed de las 5 clasificaciones (hoja CLASIFICACIONES del Excel).
+insert into public.acopio_clasificaciones (grupo, valor, orden) values
+  ('contratos','1. CASITERITA - MINERO - MOTOR',1),
+  ('contratos','2. COMPRA CASITERITA - MINEROS',2),
+  ('contratos','3. PRODUCCION - GT',3),
+  ('contratos','3. PRODUCCION MINERO GT',4),
+  ('contratos','3. PRODUCCION MINERO 134 GT',5),
+  ('contratos','3. COMPRA CASITERITA',6),
+  ('contratos','4. CASITERITA POR INSUMOS',7),
+  ('contratos','5. COMPRAS EXTERNAS MINERAL',8),
+  ('contratos','6. MATERIAL ROCA BULLA',9),
+  ('gastos_caja','GASOLINA',1),
+  ('gastos_caja','GASOIL',2),
+  ('gastos_caja','VALES',3),
+  ('gastos_caja','COMIDA - MERCADO - REFRIGERIOS',4),
+  ('gastos_caja','NÓMINA GENERAL',5),
+  ('gastos_caja','UTILIDAD COMERCIALIZADORES',6),
+  ('gastos_caja','PAGO OBREROS',7),
+  ('gastos_caja','PAGO AYUDANTE',8),
+  ('gastos_caja','PAGO COCINERA',9),
+  ('gastos_caja','SERVICIOS DE INTERNET - STARLINK',10),
+  ('gastos_caja','VIÁTICOS: HOSPEDAJE - COMIDA - GASTOS VARIOS',11),
+  ('gastos_caja','PAGO DE CALETEROS - SUBIDAS DE MATERIAL - LOGISTICA CAMPAMENTOS',12),
+  ('gastos_caja','APOYOS - DONACIONES - COLABORACIONES',13),
+  ('gastos_caja','AGUA POTABLE',14),
+  ('gastos_caja','MATERIALES - INSUMOS VARIOS',15),
+  ('gastos_caja','RECARGA DE BOMBONAS',16),
+  ('gastos_caja','MOTO: REPUESTOS - REPARACIONES - SERVICIOS MOTOS',17),
+  ('gastos_caja','MAQUINARIA PESADA: REPUESTOS - REPARACIONES - SERVICIOS',18),
+  ('gastos_caja','MAQUINARIA LIVIANA: REPUESTOS - REPARACIONES - SERVICIOS',19),
+  ('gastos_caja','VEHICULO: REPUESTOS - REPARACIONES - SERVICIOS',20),
+  ('gastos_caja','CENTRO DE ACOPIO: REPARACIONES - DOCUMENTACIÓN',21),
+  ('gastos_caja','EFECTIVO',22),
+  ('movimientos_caja','1. ENTRADA DE CAJA',1),
+  ('movimientos_caja','2. CAJA MULTIMONEDAS MGG / CAJA PERAMANAL',2),
+  ('movimientos_caja','4. SALIDA DE CAJA GT PERAMANAL',3),
+  ('nomina','PAGO TROPA RONDÓN',1),
+  ('nomina','NÓMINA GT',2),
+  ('traslado','CAJA JHENCHIN',1),
+  ('traslado','CAJA ENDER MEJIA',2),
+  ('traslado','CAJA JUAN BODEGA',3)
+on conflict (grupo, valor) do nothing;
+
+-- ─────────────────────────────────────────────────────────────
+-- 16. Centro de Acopio · Hojas del Excel (snapshot fiel de referencia)
+-- Cada hoja del libro original se guarda como grilla (array de filas;
+-- cada celda: {v texto, c color fondo, t color texto, b negrita, cs/rs
+-- colspan/rowspan, x cubierta por merge}). Se renderiza como tabla fiel
+-- y luego cada hoja relevante se "depura" hacia un módulo interactivo.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_hojas_excel (
+  id         uuid primary key default gen_random_uuid(),
+  nombre     text not null unique,
+  orden      int  not null default 0,
+  cols       int  not null default 0,
+  datos      jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.acopio_hojas_excel enable row level security;
+drop policy if exists "acopio_hojas_excel read auth" on public.acopio_hojas_excel;
+create policy "acopio_hojas_excel read auth" on public.acopio_hojas_excel for select using (auth.role() = 'authenticated');
+drop policy if exists "acopio_hojas_excel write auth" on public.acopio_hojas_excel;
+create policy "acopio_hojas_excel write auth" on public.acopio_hojas_excel for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_hojas_excel') then
+    alter publication supabase_realtime add table public.acopio_hojas_excel;
+  end if;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────
+-- 17. Centro de Acopio · CUADRE DE CAJA (EFECTIVO)
+-- Optimiza la hoja "Recepcion Caja GT Peramanal" (cuadre Sr. Cheli):
+-- entrada de efectivo con conteo de billetes (verificación),
+-- movimientos categorizados y control de vales/deudas pendientes.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_cuadres (
+  id             uuid primary key default gen_random_uuid(),
+  numero         text not null unique,
+  fecha          date not null default current_date,
+  fuente         text,
+  responsable    text,
+  monto_recibido numeric not null default 0,
+  billetes       jsonb not null default '[]'::jsonb,   -- [{denom, cantidad}]
+  verificado     boolean not null default false,
+  observaciones  text,
+  estado         text not null default 'abierto' check (estado in ('abierto','cerrado')),
+  cerrado_por    text, cerrado_en timestamptz,
+  created_by     text, actor_name text,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create table if not exists public.acopio_cuadre_movimientos (
+  id           uuid primary key default gen_random_uuid(),
+  cuadre_id    uuid not null references public.acopio_cuadres(id) on delete cascade,
+  fecha        date,
+  tipo         text not null default 'salida' check (tipo in ('entrada','salida')),
+  categoria    text,   -- nomina | adelanto_vale | compra_casiterita | compra_comida | refuerzo | traslado | otro
+  descripcion  text,
+  beneficiario text,
+  monto        numeric not null default 0,
+  monto_bs     numeric not null default 0,
+  es_vale      boolean not null default false,
+  pagado       boolean not null default true,
+  nota         text,
+  orden        int not null default 0,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_acopio_cuadre_mov on public.acopio_cuadre_movimientos(cuadre_id, orden, created_at);
+
+alter table public.acopio_cuadres            enable row level security;
+alter table public.acopio_cuadre_movimientos enable row level security;
+do $$
+declare t text;
+begin
+  for t in select unnest(array['acopio_cuadres','acopio_cuadre_movimientos']) loop
+    execute format('drop policy if exists "%I read auth" on public.%I', t, t);
+    execute format('create policy "%I read auth" on public.%I for select using (auth.role() = ''authenticated'')', t, t);
+    execute format('drop policy if exists "%I write auth" on public.%I', t, t);
+    execute format('create policy "%I write auth" on public.%I for all using (auth.role() = ''authenticated'') with check (auth.role() = ''authenticated'')', t, t);
+  end loop;
+end$$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_cuadres') then
+    alter publication supabase_realtime add table public.acopio_cuadres;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_cuadre_movimientos') then
+    alter publication supabase_realtime add table public.acopio_cuadre_movimientos;
+  end if;
+end$$;
+
+-- ─────────────────────────────────────────────────────────────
+-- 18. Centro de Acopio · Cierres de Caja + Costos (2 niveles)
+-- La Caja Peramanal pasa a tener períodos (cierres) con número,
+-- rango de fechas y recepción; el RESUMEN del cierre se calcula en
+-- el front (días, total gastado, % por categoría, tasa promedio).
+-- Cada gasto puede llevar una clasificación de costo en 2 niveles
+-- (Clasificación → Sub-clasificación) para el análisis de costos.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_costo_clases (
+  id               uuid primary key default gen_random_uuid(),
+  clasificacion    text not null,
+  subclasificacion text not null,
+  orden            int  not null default 0,
+  activo           boolean not null default true,
+  unique (clasificacion, subclasificacion)
+);
+create table if not exists public.acopio_cajas (
+  id            uuid primary key default gen_random_uuid(),
+  numero        text not null,
+  nombre        text,
+  recepcion     text,
+  fecha_inicio  date not null default current_date,
+  fecha_fin     date,
+  estado        text not null default 'abierta' check (estado in ('abierta','cerrada')),
+  saldo_final   numeric,
+  cerrada_por   text, cerrada_en timestamptz,
+  created_by    text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+alter table public.acopio_caja_movimientos add column if not exists caja_id uuid references public.acopio_cajas(id) on delete set null;
+alter table public.acopio_caja_movimientos add column if not exists costo_clasificacion text;
+alter table public.acopio_caja_movimientos add column if not exists costo_subclasificacion text;
+create index if not exists idx_acopio_caja_mov_caja on public.acopio_caja_movimientos(caja_id);
+
+insert into public.acopio_costo_clases (clasificacion, subclasificacion, orden) values
+  ('Costos de Extracción y acarreo','Gastos de Nomina',1),
+  ('Costos de Extracción y acarreo','Gastos de Combustible',2),
+  ('Costos de Extracción y acarreo','Repuestos y Suministros de Maquinarias y Equipos',3),
+  ('Costos de Extracción y acarreo','Gasto de Mantenimiento y Reparación de Maquinarias y Equipos',4)
+on conflict (clasificacion, subclasificacion) do nothing;
+
+alter table public.acopio_costo_clases enable row level security;
+alter table public.acopio_cajas        enable row level security;
+do $$
+declare t text;
+begin
+  for t in select unnest(array['acopio_costo_clases','acopio_cajas']) loop
+    execute format('drop policy if exists "%I read auth" on public.%I', t, t);
+    execute format('create policy "%I read auth" on public.%I for select using (auth.role() = ''authenticated'')', t, t);
+    execute format('drop policy if exists "%I write auth" on public.%I', t, t);
+    execute format('create policy "%I write auth" on public.%I for all using (auth.role() = ''authenticated'') with check (auth.role() = ''authenticated'')', t, t);
+  end loop;
+end$$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_cajas') then
+    alter publication supabase_realtime add table public.acopio_cajas;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_costo_clases') then
+    alter publication supabase_realtime add table public.acopio_costo_clases;
+  end if;
+end$$;
+
+-- ═════════════════════════════════════════════════════════════
+-- 19. Integración upstream: puente inter-sistema + retenciones
+-- (cajas externas, transferencias_inter, columnas de retención en ordenes)
+-- ═════════════════════════════════════════════════════════════
+-- ============================================================
+
+-- Cajas: centro de acopio externo + enlace inter-sistema
+alter table public.cajas add column if not exists tipo text;
+alter table public.cajas add column if not exists externo boolean not null default false;
+alter table public.cajas add column if not exists empresa_codigo text;
+
+-- Transferencias inter-sistema (puente entre dos Supabase)
+create table if not exists public.transferencias_inter (
+  id            uuid primary key default gen_random_uuid(),
+  transf_id     uuid not null unique,
+  direccion     text not null check (direccion in ('saliente','entrante')),
+  estado        text not null default 'enviada'
+                  check (estado in ('enviada','por_confirmar','recibida','rechazada','error')),
+  empresa_origen   text not null,
+  empresa_destino  text not null,
+  caja_id       uuid references public.cajas(id) on delete set null,
+  caja_nombre   text,
+  legs          jsonb not null default '[]'::jsonb,
+  resumen       text,
+  motivo        text,
+  callback_base text,
+  mensaje_error text,
+  actor         text,
+  actor_name    text,
+  created_at    timestamptz not null default now(),
+  confirmada_at timestamptz
+);
+create index if not exists idx_transf_inter_dir_estado on public.transferencias_inter(direccion, estado);
+alter table public.transferencias_inter enable row level security;
+drop policy if exists "transf read auth"  on public.transferencias_inter;
+drop policy if exists "transf write auth" on public.transferencias_inter;
+create policy "transf read auth"  on public.transferencias_inter for select using (auth.role()='authenticated');
+create policy "transf write auth" on public.transferencias_inter for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
+
+-- Retenciones fiscales: comprobantes por OC (IVA / ISLR / Municipal) + estado
+alter table public.ordenes add column if not exists retencion_iva_path        text;
+alter table public.ordenes add column if not exists retencion_iva_nombre      text;
+alter table public.ordenes add column if not exists retencion_islr_path       text;
+alter table public.ordenes add column if not exists retencion_islr_nombre     text;
+alter table public.ordenes add column if not exists retencion_municipal_path  text;
+alter table public.ordenes add column if not exists retencion_municipal_nombre text;
+alter table public.ordenes add column if not exists retencion_finalizada      boolean not null default false;
+alter table public.ordenes add column if not exists retencion_finalizada_por  text;
+alter table public.ordenes add column if not exists retencion_finalizada_en   timestamptz;
+alter table public.ordenes add column if not exists comprobante_tipo    text;
+alter table public.ordenes add column if not exists retencion_modo      text;
+alter table public.ordenes add column if not exists retencion_pagada    boolean not null default false;
+alter table public.ordenes add column if not exists retencion_pagada_en timestamptz;
+
+-- almacenes en políticas de escritura operativa
+do $$
+begin
+  drop policy if exists "almacenes write admin"     on public.almacenes;
+  drop policy if exists "almacenes write staff"     on public.almacenes;
+  drop policy if exists "almacenes write operativo" on public.almacenes;
+  create policy "almacenes write operativo" on public.almacenes for all
+    using (public.is_operativo()) with check (public.is_operativo());
+exception when others then null;
+end$$;
+
+-- Realtime: publicar el conjunto operativo + transferencias_inter (idempotente)
+do $$
+declare t text;
+begin
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas']
+  loop
+    if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;

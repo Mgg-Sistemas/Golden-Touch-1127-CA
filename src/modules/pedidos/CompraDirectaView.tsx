@@ -2,16 +2,19 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
-import { dateTime, money, num } from '@/shared/lib/format';
+import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
 import { descargarCompraDirectaPdf } from './compraDirectaPdf';
-import type { Caja, Producto } from '@/shared/lib/types';
+import type { Caja, Producto, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
+import { saldosDeCaja, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
+import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import {
   crearCompraDirecta, finalizarCompraDirecta, listComprasDirectas,
-  urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra,
+  urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
 } from './compras.repository';
 
 type Vista = 'kanban' | 'lista';
@@ -52,6 +55,9 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     reload().catch(() => { /* RLS/red */ }).finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
+
+  // Realtime multiusuario: las compras directas se reflejan al instante.
+  useRealtime(['compras_directas', 'productos'], () => { void reload(); });
 
   const porEstado = useMemo(() => {
     const m: Record<string, CompraDirecta[]> = { en_proceso: [], finalizada: [] };
@@ -309,16 +315,55 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
     [gastos, compra.items],
   );
 
+  // Saldos multimoneda de la caja elegida (para pagar repartiendo por cuenta/moneda).
+  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  const [legMontos, setLegMontos] = useState<Record<string, string>>({});
+  const [tasa, setTasa] = useState<number>(0);
+  const [mercado, setMercado] = useState<TasasMercado | null>(null);
+  useEffect(() => {
+    if (!cajaId) { setSaldosCaja([]); return; }
+    saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
+    setLegMontos({});
+  }, [cajaId]);
+  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
+  useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
+
+  // Caja con varias monedas (Multimoneda) → se paga repartiendo por cuenta.
+  const esMultimoneda = saldosCaja.length >= 2;
+  // El total a pagar está en USD (moneda de la caja Multimoneda). Equivalente en USD de cada pata.
+  function legUsd(monedaLeg: string, n: number): number {
+    if (!n || n <= 0) return 0;
+    if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(n);
+    if (monedaLeg === 'Bs') return tasa > 0 ? round2(n / tasa) : 0;
+    if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
+    return round2(n);
+  }
+  const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
+  const cubreTotalMulti = sumUsdMulti >= total - 0.01;
+  // No se puede pagar más que el total de la compra.
+  const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
+  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
+    let legs: PagoLeg[] | undefined;
+    if (esMultimoneda) {
+      legs = saldosCaja
+        .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 }))
+        .filter((l) => l.monto > 0);
+      if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
+      if (excedeTotalMulti) { setError(`No podés pagar más que el total de la compra. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(total, 'USD')} (te pasaste por ${montoCaja(round2(sumUsdMulti - total), 'USD')}).`); return; }
+      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
+    }
     const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await finalizarCompraDirecta({ compra, items, cajaId, file, actor, actorName });
-      notify(`Compra finalizada · ${montoCaja(total, moneda)} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
+      await finalizarCompraDirecta({ compra, items, cajaId, legs, file, actor, actorName });
+      const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
+      notify(`Compra finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar la compra.'); setSaving(false); }
   }
@@ -326,7 +371,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving}>{saving ? 'Finalizando…' : `Finalizar · ${montoCaja(total, moneda)}`}</button>
+      <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Finalizando…' : excedeTotalMulti ? 'Excede el total' : `Finalizar · ${montoCaja(total, moneda)}`}</button>
     </>
   );
 
@@ -341,7 +386,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
             {!cajas.length && <option value="">— sin cajas —</option>}
             {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(c.saldo, c.moneda)}</option>)}
           </select>
-          <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).</small>
+          <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
         </div>
 
         <div className="table-wrap">
@@ -355,7 +400,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
                   <tr key={i}>
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
-                    <td><input className="input mono" type="number" min={0} step="any" value={gastos[i] ?? ''} onChange={(e) => setGastos((m) => ({ ...m, [i]: e.target.value }))} placeholder="0,00" /></td>
+                    <td><input className="input mono" type="number" min={0} step="any" value={gastos[i] ?? ''} onChange={(e) => setGastos((m) => ({ ...m, [i]: dosDecimales(e.target.value) }))} placeholder="0,00" /></td>
                     <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
                   </tr>
                 );
@@ -364,6 +409,52 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
           </table>
         </div>
         <div className="card" style={{ margin: '.5rem 0' }}>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra a inventario en <strong>{compra.almacen}</strong></div>
+
+        {/* Multipago por cuenta: repartí el total entre las monedas de la caja Multimoneda. */}
+        {esMultimoneda && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead><tr><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar (en su moneda)</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
+                <tbody>
+                  {saldosCaja.map((s) => {
+                    const n = Number(legMontos[s.id]) || 0;
+                    const excede = n > Number(s.saldo);
+                    return (
+                      <tr key={s.id}>
+                        <td><span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(Number(s.saldo), s.moneda)}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <input className="input mono" type="number" min={0} max={Number(s.saldo)} step="any"
+                            value={legMontos[s.id] ?? ''} placeholder="0,00"
+                            onChange={(e) => setLegMontos((m) => ({ ...m, [s.id]: dosDecimales(e.target.value) }))}
+                            style={{ width: 130, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{n > 0 ? montoCaja(legUsd(s.moneda, n), 'USD') : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
+                      {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(total, 'USD')}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
+              {excedeTotalMulti
+                ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{montoCaja(round2(sumUsdMulti - total), 'USD')}</strong>. No podés pagar más que el total de la compra ({montoCaja(total, 'USD')}).</span>
+                : cubreTotalMulti
+                ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
+                : <>Faltan <strong>{montoCaja(round2(total - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV del día{tasa > 0 ? ` (${tasa.toLocaleString('es-VE')})` : ''}.</>}
+            </small>
+          </div>
+        )}
 
         <div className="form-row">
           <label>Adjuntar comprobante de la compra · PDF o imagen (opcional)</label>

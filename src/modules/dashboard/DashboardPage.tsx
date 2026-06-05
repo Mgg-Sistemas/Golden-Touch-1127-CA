@@ -1,5 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num, relTime } from '@/shared/lib/format';
@@ -56,30 +57,26 @@ export function DashboardPage() {
     }
   }
 
-  useEffect(() => {
-    let cancelled = false;
+  const reload = useCallback(() => {
     setLoading(true);
     setError(null);
-
-    loadDashboardData()
+    return loadDashboardData()
       .then((data) => {
-        if (cancelled) return;
         setKpis(data.kpis);
         setCriticos(data.criticos);
         setMovimientos(data.movimientos);
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Error al cargar el dashboard');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => { void reload(); }, [reload]);
+  // Tiempo real: el dashboard se actualiza cuando cambian inventario/movimientos/órdenes/producción.
+  useRealtime(['movimientos', 'productos', 'ordenes', 'produccion', 'existencias'], reload);
 
   return (
     <div>

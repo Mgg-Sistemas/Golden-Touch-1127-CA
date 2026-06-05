@@ -5,6 +5,7 @@ import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { dateTime, money } from '@/shared/lib/format';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
 import { listOrdenes, listProveedoresActivos } from './pedidos.repository';
+import { MaterialesDemandaModal } from './MaterialesDemandaModal';
 
 type FechaCampo = 'created_at' | 'aprobada_en' | 'oc_emitida_en' | 'finalizada_en';
 
@@ -39,6 +40,7 @@ export function HistoricoPage() {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [sortDesc, setSortDesc] = useState(true);
+  const [demandaOpen, setDemandaOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +128,7 @@ export function HistoricoPage() {
           </p>
         </div>
         <div className="actions">
+          <button type="button" className="btn btn-primary" onClick={() => setDemandaOpen(true)}>📊 Materiales con más demanda</button>
           <Link to="/app/pedidos" className="btn btn-ghost">← Volver a Pedidos</Link>
         </div>
       </div>
@@ -271,6 +274,10 @@ export function HistoricoPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {demandaOpen && (
+        <MaterialesDemandaModal ordenes={ordenes} onClose={() => setDemandaOpen(false)} />
       )}
     </div>
   );

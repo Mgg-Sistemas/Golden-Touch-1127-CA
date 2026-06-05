@@ -11,7 +11,11 @@ import { supabase } from '@/shared/lib/supabase';
 import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { registrarGasto } from '@/modules/tesoreria/tesoreria.repository';
-import type { Producto } from '@/shared/lib/types';
+import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import type { Producto, CuentaCaja } from '@/shared/lib/types';
+
+/** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
+export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
 
 const BUCKET = 'compras-directas';
 
@@ -165,6 +169,9 @@ export interface FinalizarCompraInput {
   items: CompraDirectaItem[];
   /** Caja de Tesorería de la que sale el dinero. */
   cajaId: string;
+  /** Si la caja es Multimoneda: cuánto sale de cada moneda/cuenta (en su moneda).
+   *  Cuando viene, el egreso descuenta cada saldo real (no la caja legacy). */
+  legs?: PagoLeg[];
   file?: File | null;
   actor: string;
   actorName?: string | null;
@@ -186,11 +193,29 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
   if (total <= 0) throw new Error('Indicá cuánto se gastó.');
 
   // 1) Egreso de la caja (valida saldo) → pasa por Tesorería.
-  const movCaja = await registrarGasto({
-    cajaId: input.cajaId, monto: total,
-    concepto: `Compra directa · ${compra.producto_nombre}`, categoria: 'compra_directa',
-    actor: input.actor, actorName: input.actorName ?? null,
-  });
+  const concepto = `Compra directa · ${compra.producto_nombre}`;
+  const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
+  let movCajaId: string;
+  if (legs.length) {
+    // Caja Multimoneda: descuenta cada moneda/cuenta de su saldo real.
+    let primero: string | null = null;
+    for (const leg of legs) {
+      const r = await egresarDivisa({
+        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        concepto, categoria: 'compra_directa', actor: input.actor, actorName: input.actorName ?? null,
+      });
+      if (!primero) primero = r.id;
+    }
+    if (!primero) throw new Error('Indicá cuánto pagar en al menos una moneda.');
+    movCajaId = primero;
+  } else {
+    const movCaja = await registrarGasto({
+      cajaId: input.cajaId, monto: total,
+      concepto, categoria: 'compra_directa',
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
+    movCajaId = movCaja.id;
+  }
 
   // 2) Adjunto opcional.
   let adjuntoPath: string | null = null;
@@ -220,7 +245,7 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     .from('compras_directas')
     .update({
       estado: 'finalizada', gasto: total, items,
-      caja_id: input.cajaId, caja_mov_id: movCaja.id,
+      caja_id: input.cajaId, caja_mov_id: movCajaId,
       adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre,
       mov_id: primerMov,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),

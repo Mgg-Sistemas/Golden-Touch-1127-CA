@@ -358,6 +358,7 @@ export function ProveedoresPage() {
           entidadLabel="proveedor"
           onRenombrar={(o, n) => renombrarCategoria(o, n, user?.email ?? undefined)}
           onEliminar={(n) => eliminarCategoria(n)}
+          onAgregar={(n) => addCategoria(n, user?.email ?? undefined)}
           onCambioAplicado={async () => {
             await refresh();
             const cs = await getCategorias(proveedores);

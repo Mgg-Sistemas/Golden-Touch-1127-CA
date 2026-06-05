@@ -11,6 +11,29 @@ export async function listLatest(limit = 50): Promise<Notificacion[]> {
   return (data ?? []) as Notificacion[];
 }
 
+/**
+ * Conserva solo las `keep` notificaciones más nuevas y borra las viejas.
+ * Encuentra el `at` de la fila #keep y borra todo lo más viejo que eso.
+ * El DELETE es admin-only por RLS: para no-admin no borra nada (sin error).
+ * Devuelve cuántas se borraron.
+ */
+export async function pruneOld(keep = 10): Promise<number> {
+  const { data: cut, error: selErr } = await supabase
+    .from('notificaciones')
+    .select('at')
+    .order('at', { ascending: false })
+    .range(keep - 1, keep - 1)
+    .maybeSingle();
+  if (selErr) throw selErr;
+  if (!cut?.at) return 0; // hay <= keep notificaciones: nada que borrar
+  const { error, count } = await supabase
+    .from('notificaciones')
+    .delete({ count: 'exact' })
+    .lt('at', cut.at);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function unreadCount(): Promise<number> {
   const { count, error } = await supabase
     .from('notificaciones')

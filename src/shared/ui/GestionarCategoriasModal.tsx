@@ -15,6 +15,10 @@ interface Props {
   onRenombrar: (oldName: string, newName: string) => Promise<number>;
   /** Eliminar la categoría (sólo si no está en uso). */
   onEliminar?: (nombre: string) => Promise<void>;
+  /** Agregar una categoría nueva al catálogo. Devuelve el nombre creado o null. */
+  onAgregar?: (nombre: string) => Promise<string | null>;
+  /** Término singular del ítem gestionado para los textos ("categoría", "departamento"). */
+  terminoSingular?: string;
   /** Refresca el dataset padre tras cambios. */
   onCambioAplicado: () => Promise<void> | void;
   onClose: () => void;
@@ -27,6 +31,8 @@ export function GestionarCategoriasModal({
   entidadLabel,
   onRenombrar,
   onEliminar,
+  onAgregar,
+  terminoSingular = 'categoría',
   onCambioAplicado,
   onClose,
 }: Props) {
@@ -36,6 +42,8 @@ export function GestionarCategoriasModal({
   const [guardando, setGuardando] = useState(false);
   const [aEliminar, setAEliminar] = useState<string | null>(null);
   const [versionLocal, setVersionLocal] = useState(0);
+  const [nuevo, setNuevo] = useState('');
+  const [agregando, setAgregando] = useState(false);
 
   const ordenadas = useMemo(() => {
     const q = filtro.trim().toLowerCase();
@@ -81,6 +89,31 @@ export function GestionarCategoriasModal({
     }
   }
 
+  async function aplicarAgregar() {
+    if (!onAgregar) return;
+    const clean = nuevo.trim();
+    if (!clean) {
+      toast(`Escribí el nombre de la ${terminoSingular}`, 'error');
+      return;
+    }
+    if (categorias.some((c) => c.toLowerCase() === clean.toLowerCase())) {
+      toast(`La ${terminoSingular} "${clean}" ya existe`, 'warning');
+      return;
+    }
+    setAgregando(true);
+    try {
+      await onAgregar(clean);
+      notify(`${terminoSingular[0].toUpperCase()}${terminoSingular.slice(1)} "${clean}" agregada`, 'success', { link: '#' });
+      setNuevo('');
+      setVersionLocal((v) => v + 1);
+      await onCambioAplicado();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error');
+    } finally {
+      setAgregando(false);
+    }
+  }
+
   async function aplicarEliminar() {
     if (!aEliminar || !onEliminar) return;
     setGuardando(true);
@@ -102,13 +135,35 @@ export function GestionarCategoriasModal({
       size="lg"
       onClose={onClose}
       footer={
-        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+        <button
+          className="btn btn-primary"
+          onClick={onClose}
+          style={{ textTransform: 'uppercase', textAlign: 'center', justifyContent: 'center', width: '100%' }}
+        >
+          Cerrar
+        </button>
       }
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Corregí errores de tipeo. El cambio se aplica en cascada: todos los {entidadLabel}s
+        Agregá nuevas o corregí errores de tipeo. El renombrado se aplica en cascada: todos los {entidadLabel}s
         que usaban el nombre viejo quedan con el nuevo automáticamente.
       </p>
+
+      {onAgregar && (
+        <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.6rem' }}>
+          <input
+            className="input"
+            placeholder={`Nueva ${terminoSingular}…`}
+            value={nuevo}
+            onChange={(e) => setNuevo(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void aplicarAgregar(); }}
+            style={{ flex: 1 }}
+          />
+          <button className="btn btn-primary" disabled={agregando || !nuevo.trim()} onClick={() => void aplicarAgregar()}>
+            {agregando ? 'Agregando…' : '+ Agregar'}
+          </button>
+        </div>
+      )}
 
       <input
         className="search"

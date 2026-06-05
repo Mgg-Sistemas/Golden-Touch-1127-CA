@@ -56,6 +56,7 @@ const SECCIONES: Seccion[] = [
       'Barra superior: contiene el buscador general y la campana de notificaciones.',
       'Buscador general: escribí cualquier producto, proveedor u orden y el sistema lo encuentra en todo el sistema; al hacer clic en un resultado te lleva directo a su detalle.',
       'Campana de notificaciones (◔): te avisa, por ejemplo, cuando un producto está por agotarse. El número rojo indica cuántos avisos sin leer tenés.',
+      'Tiempo real: el sistema es multiusuario y se actualiza solo. Lo que registra un usuario (una entrada, una orden, un movimiento de caja, etc.) aparece automáticamente en la pantalla de los demás, sin necesidad de recargar.',
     ],
   },
   {
@@ -144,6 +145,26 @@ const SECCIONES: Seccion[] = [
       'Traslado de dinero: mueve saldo entre cajas de la misma moneda.',
       'Cajas: se administran desde el botón de cajas (crear, renombrar, habilitar/deshabilitar y ajustar saldo).',
       'Cada salida queda en un historial; al hacer clic se ve su detalle, con opción de PDF y trazabilidad. El PDF se genera solo cuando lo pedís con el botón.',
+    ],
+  },
+  {
+    icono: '📦',
+    titulo: 'Centro de Acopio PERAMANAL',
+    captura: 'acopio',
+    intro:
+      'Registra la recepción de mineral en el centro de acopio, replicando el formato de "Control de Recepción de Mineral por Centro de Acopio". Cada recepción tiene un encabezado (fecha, centro, aliado) y una tabla de lotes; al cerrarla, el mineral recibido suma stock al inventario.',
+    puntos: [
+      'Numeración automática: cada recepción recibe un número correlativo (REC-AÑO-0001).',
+      'Tabla de lotes: por cada lote se registran bolsas, peso por bolsa, peso neto, precintos y peso recepcionado. El Peso Bruto y las dos Diferencias se calculan solos.',
+      'Estados: una recepción nace como borrador (Abierta) y se puede editar; al "Cerrar y sumar stock" se suma el mineral al producto y almacén elegidos y queda bloqueada.',
+      'Anular: si una recepción cerrada se anula, el sistema revierte automáticamente el stock que había sumado.',
+      'Se puede descargar la recepción en PDF con el formato del formato original (incluye las firmas de Conforme Entregado y Conforme Recibido).',
+      'Caja Peramanal: un libro de caja donde se registran entradas, gastos, nóminas, traslados y los Kg cerrados de casiterita; cada movimiento se clasifica en uno de los 5 grupos (Contratos, Gastos Caja, Movimientos de Caja, Nómina, Traslado), cada uno con su color.',
+      'Tasa actual del material: una tarjeta en la vista inicial muestra el precio por Kg = (Facturado + Gastos + Nóminas) ÷ Kg cerrados. Por eso, cada gasto que se carga en la caja hace variar la tasa.',
+      'Cierres de caja: la caja se maneja por períodos (cada "cierre" tiene número, rango de fechas y recepción asociada). Al cerrar, se calcula el resumen del cierre: días transcurridos, total gastado, distribución del gasto por categoría y tasa promedio.',
+      'Clasificación de costos (2 niveles): cada gasto puede etiquetarse con una Clasificación y una Sub-clasificación (ej. "Costos de Extracción y acarreo" → "Gastos de Combustible") para el análisis de costos del cierre.',
+      'Cuadre Efectivo: cuadre de caja en efectivo (lo que entrega el proveedor de caja). Se cuenta el efectivo por billetes para verificarlo, se cargan las salidas categorizadas (nómina, compras, adelantos), se lleva el saldo corriente y se controlan los vales/deudas pendientes.',
+      'Procesos: las demás hojas del Excel (resúmenes, registros de cuadrillas, mesa seca, consumo de martillos) se muestran como vistas del sistema y se van convirtiendo en módulos interactivos.',
     ],
   },
   {

@@ -222,6 +222,46 @@ export async function listMovimientosCombustible(combustibleId: string): Promise
   return (data ?? []) as MovimientoCombustible[];
 }
 
+/** Una fila de consumo de combustible (litros + $). */
+export interface ConsumoCombustibleItem {
+  id: string;
+  nombre: string;
+  cantidad: number;   // litros consumidos en el período
+  valor: number;      // equivalente en $ (litros × costo por litro)
+}
+
+/**
+ * Consumo de combustible POR TIPO en un rango de fechas (salidas). El valor en $
+ * usa el costo por litro registrado en cada salida.
+ */
+export async function consumoCombustiblePeriodo(desde: Date, hasta: Date): Promise<ConsumoCombustibleItem[]> {
+  const { data, error } = await supabase
+    .from('combustible_movimientos')
+    .select('combustible_id, litros, costo_litro, at, combustible:combustibles(nombre)')
+    .eq('tipo', 'salida')
+    .gte('at', desde.toISOString())
+    .lte('at', hasta.toISOString());
+  if (error) throw error;
+
+  const acc = new Map<string, ConsumoCombustibleItem>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const cid = row.combustible_id as string;
+    const litros = Math.abs(Number(row.litros) || 0);
+    if (litros <= 0) continue;
+    const comb = (row.combustible ?? {}) as { nombre?: string };
+    const costo = Number(row.costo_litro) || 0;
+    const cur = acc.get(cid) ?? { id: cid, nombre: comb.nombre ?? '—', cantidad: 0, valor: 0 };
+    cur.cantidad += litros;
+    cur.valor += litros * costo;
+    acc.set(cid, cur);
+  }
+  return Array.from(acc.values()).map((x) => ({
+    ...x,
+    cantidad: Math.round(x.cantidad * 100) / 100,
+    valor: Math.round(x.valor * 100) / 100,
+  }));
+}
+
 /* ───────────── Solicitudes de salida ───────────── */
 
 function appendHistorial(s: Pick<SolicitudCombustible, 'historial'>, evento: string, actor: string, meta: Record<string, unknown> = {}): EventoHistorial[] {

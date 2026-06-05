@@ -14,6 +14,7 @@ export interface PagoMetodo {
   metodo: string;   // 'efectivo' | 'divisas_efectivo' | 'transferencia' | 'pago_movil' | 'binance_usdt' | 'zelle' | 'otro'
   moneda: string;   // Bs, USD, USDT, COP, …
   monto: number;
+  datos?: Record<string, string>; // datos de pago del proveedor (pago móvil / transferencia / zelle / binance)
 }
 export type EstadoFactura = 'pendiente' | 'pagada' | 'anulada';
 export type TipoMovimiento = 'creacion' | 'entrada' | 'salida' | 'consumo' | 'transferencia' | 'ajuste' | 'fundicion' | 'fin_fundicion';
@@ -135,9 +136,43 @@ export interface Caja {
   moneda: Moneda;
   saldo: number;
   estado: EstadoGenerico;
+  tipo?: string;   // 'caja' (normal) | 'centro_acopio'
+  /** El centro de acopio vive en otra Supabase (otro sistema): el traslado se replica vía puente. */
+  externo?: boolean;
+  /** Identificador acordado entre ambos sistemas (ej. 'peramanal'). */
+  empresa_codigo?: string | null;
   created_at: string;
   created_by?: string | null;
   updated_at?: string | null;
+}
+
+/* ───────── Transferencias inter-sistema (puente entre dos Supabase) ───────── */
+export type DireccionTransfer = 'saliente' | 'entrante';
+export type EstadoTransfer = 'enviada' | 'por_confirmar' | 'recibida' | 'rechazada' | 'error';
+
+/** Una pata por moneda de la transferencia (igual que un leg de traslado). */
+export interface TransferLeg { cuenta: CuentaCaja; moneda: string; monto: number; tasa_bs?: number | null; }
+
+/** Transferencia de dinero entre dos sistemas independientes (cada uno su Supabase).
+ *  `transf_id` es el id GLOBAL compartido por ambos lados (idempotencia). */
+export interface TransferenciaInter {
+  id: string;
+  transf_id: string;
+  direccion: DireccionTransfer;
+  estado: EstadoTransfer;
+  empresa_origen: string;
+  empresa_destino: string;
+  caja_id?: string | null;
+  caja_nombre?: string | null;
+  legs: TransferLeg[];
+  resumen?: string | null;
+  motivo?: string | null;
+  callback_base?: string | null;
+  mensaje_error?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  confirmada_at?: string | null;
 }
 
 export type TipoMovimientoCaja = 'ingreso' | 'salida' | 'traslado_salida' | 'traslado_entrada' | 'ajuste';
@@ -262,6 +297,221 @@ export interface SolicitudCombustible {
   actor?: string | null;
   actor_name?: string | null;
   created_at: string;
+}
+
+/* ───────────── Centro de Acopio PERAMANAL ───────────── */
+
+export type EstadoRecepcionAcopio = 'abierta' | 'cerrada' | 'anulada';
+
+/** Un renglón de lote dentro de una recepción. Los campos `*_calc`/diferencias
+ *  son columnas GENERADAS en la base (no se envían al guardar). */
+export interface RecepcionAcopioLote {
+  id: string;
+  recepcion_id: string;
+  orden: number;
+  nro_lote?: string | null;
+  cantidad_bolsas: number;
+  peso_bolsa_kg: number;
+  /** 🧮 generado: cantidad_bolsas × peso_bolsa_kg */
+  peso_bruto_total: number;
+  peso_neto_kg: number;
+  /** 🧮 generado: peso_bruto_total − peso_neto_kg */
+  dif_bruto_neto: number;
+  precinto_inicio?: string | null;
+  peso_recepcionado_kg: number;
+  /** 🧮 generado: peso_neto_kg − peso_recepcionado_kg */
+  dif_neto_recepcionado: number;
+  precinto_final?: string | null;
+  verificado: boolean;
+  created_at?: string;
+}
+
+/** Recepción de mineral por centro de acopio (maestro). Al cerrar suma stock. */
+export interface RecepcionAcopio {
+  id: string;
+  numero: string;
+  fecha: string;
+  centro_acopio?: string | null;
+  aliado?: string | null;
+  /** Producto del inventario al que se suma el mineral recibido al cerrar. */
+  producto_id?: string | null;
+  /** Almacén destino del stock al cerrar. */
+  almacen?: string | null;
+  entregado_nombre?: string | null;
+  entregado_ci?: string | null;
+  recibido_nombre?: string | null;
+  recibido_ci?: string | null;
+  observaciones?: string | null;
+  estado: EstadoRecepcionAcopio;
+  /** Traza del movimiento de inventario generado al cerrar (para revertir al anular). */
+  mov_id?: string | null;
+  mov_producto_id?: string | null;
+  mov_almacen?: string | null;
+  mov_cantidad?: number | null;
+  cerrada_por?: string | null;
+  cerrada_en?: string | null;
+  anulada_por?: string | null;
+  anulada_en?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  /** Lotes embebidos (cuando se cargan juntos). */
+  lotes?: RecepcionAcopioLote[];
+}
+
+/* ───────────── Caja Peramanal (Centro de Acopio) ───────────── */
+
+/** Los 5 grupos de clasificación de la hoja CLASIFICACIONES del Excel. */
+export type GrupoClasificacion = 'contratos' | 'gastos_caja' | 'movimientos_caja' | 'nomina' | 'traslado';
+
+export interface ClasificacionAcopio {
+  id: string;
+  grupo: GrupoClasificacion;
+  valor: string;
+  orden: number;
+  activo: boolean;
+}
+
+/** Un movimiento del libro de caja (réplica de una fila de "CAJA PERAMANAL"). */
+export interface CajaMovimiento {
+  id: string;
+  fecha: string;
+  descripcion?: string | null;
+  usd_entregado: number;   // D · entrada de caja
+  kg_cerrados: number;     // E · Kg de casiterita cerrados
+  facturados: number;      // G · $Usd facturados
+  gastos: number;          // H · Gastos GT
+  nominas: number;         // I · Nóminas GT
+  traslado: number;        // J · Traslado de caja
+  kg_recibidos: number;    // L · Kg recibidos por MGG
+  clasif_grupo?: GrupoClasificacion | null;
+  clasif_valor?: string | null;
+  /** Clasificación de costo en 2 niveles (análisis de costos del cierre). */
+  costo_clasificacion?: string | null;
+  costo_subclasificacion?: string | null;
+  /** Caja/cierre al que pertenece el movimiento. */
+  caja_id?: string | null;
+  orden: number;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  /** Saldos corrientes calculados en el front (K y M del Excel). */
+  saldo_usd?: number;
+  saldo_kg?: number;
+}
+
+/** Taxonomía de costos en 2 niveles (Clasificación → Sub-clasificación). */
+export interface CostoClase {
+  id: string;
+  clasificacion: string;
+  subclasificacion: string;
+  orden: number;
+  activo: boolean;
+}
+
+/** Una caja / cierre de la Caja Peramanal (período con número y recepción). */
+export interface CajaCierre {
+  id: string;
+  numero: string;
+  nombre?: string | null;
+  recepcion?: string | null;
+  fecha_inicio: string;
+  fecha_fin?: string | null;
+  estado: 'abierta' | 'cerrada';
+  saldo_final?: number | null;
+  cerrada_por?: string | null;
+  cerrada_en?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+/** Agregados de la caja (cabecera del Excel: D3,E3,F3,G3,H3,I3,J3,K3,M3). */
+export interface CajaResumen {
+  usdEntregado: number;   // D3
+  kgCerrados: number;     // E3
+  facturados: number;     // G3
+  gastos: number;         // H3
+  nominas: number;        // I3
+  traslado: number;       // J3
+  saldoUsd: number;       // K3 = D - G - H - I - J
+  kgRecibidos: number;    // L3
+  saldoKg: number;        // M3 = E - L
+  /** Tasa del material = (facturados + gastos + nominas) / kgCerrados (F3). */
+  tasa: number;
+}
+
+/* ───────────── Cuadre de Caja (Efectivo) · Centro de Acopio ───────────── */
+
+export type TipoMovCuadre = 'entrada' | 'salida';
+export type CategoriaCuadre = 'nomina' | 'adelanto_vale' | 'compra_casiterita' | 'compra_comida' | 'refuerzo' | 'traslado' | 'otro';
+
+/** Conteo físico de billetes (denominación × cantidad). */
+export interface ConteoBillete {
+  denom: number;
+  cantidad: number;
+}
+
+export interface CuadreMovimiento {
+  id: string;
+  cuadre_id: string;
+  fecha?: string | null;
+  tipo: TipoMovCuadre;
+  categoria?: CategoriaCuadre | null;
+  descripcion?: string | null;
+  beneficiario?: string | null;
+  monto: number;
+  monto_bs: number;
+  es_vale: boolean;
+  pagado: boolean;
+  nota?: string | null;
+  orden: number;
+  created_at?: string;
+  /** Saldo corriente tras este movimiento (calculado en el front). */
+  saldo?: number;
+}
+
+export interface Cuadre {
+  id: string;
+  numero: string;
+  fecha: string;
+  fuente?: string | null;
+  responsable?: string | null;
+  monto_recibido: number;
+  billetes: ConteoBillete[];
+  verificado: boolean;
+  observaciones?: string | null;
+  estado: 'abierto' | 'cerrado';
+  cerrado_por?: string | null;
+  cerrado_en?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  movimientos?: CuadreMovimiento[];
+}
+
+/** Una celda de una hoja del Excel montada como grilla fiel. */
+export interface CeldaExcel {
+  v?: string;   // texto mostrado
+  c?: string;   // color de fondo (#hex)
+  t?: string;   // color de texto (#hex)
+  b?: 1;        // negrita
+  cs?: number;  // colspan
+  rs?: number;  // rowspan
+  x?: 1;        // cubierta por un merge (no se renderiza)
+}
+
+/** Una hoja del libro Excel, como snapshot de referencia. */
+export interface HojaExcel {
+  id: string;
+  nombre: string;
+  orden: number;
+  cols: number;
+  datos: CeldaExcel[][];
+  updated_at?: string | null;
 }
 
 /* ───────────── Solicitudes de salida/traslado (con aprobación) ───────────── */
@@ -457,6 +707,20 @@ export interface Orden {
   factura_nombre?: string | null;
   retencion_path?: string | null;
   retencion_nombre?: string | null;
+  /** Retenciones fiscales (módulo Retenciones): comprobantes por tipo + estado. */
+  comprobante_tipo?: 'nota_entrega' | 'factura' | null;
+  retencion_modo?: 'se_paga_despues' | 'completo_reembolso' | null;
+  retencion_iva_path?: string | null;
+  retencion_iva_nombre?: string | null;
+  retencion_islr_path?: string | null;
+  retencion_islr_nombre?: string | null;
+  retencion_municipal_path?: string | null;
+  retencion_municipal_nombre?: string | null;
+  retencion_finalizada?: boolean | null;
+  retencion_finalizada_por?: string | null;
+  retencion_finalizada_en?: string | null;
+  retencion_pagada?: boolean | null;
+  retencion_pagada_en?: string | null;
   /** Recepción (parcial): total realmente recibido + nota de diferencias. */
   recibido_total?: number | null;
   nota_recepcion?: string | null;

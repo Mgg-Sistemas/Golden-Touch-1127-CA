@@ -4,6 +4,7 @@ import { Modal as ModalUI } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num, dateTime } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
   Almacen, Caja, Existencia, Movimiento, MovimientoCaja, Producto,
@@ -60,7 +61,8 @@ export function SalidasPage() {
   const actorName = appUser?.nombre ?? null;
 
   const [scope, setScope] = useState<Scope>('salidas');
-  const [tipo, setTipo] = useState<Tipo>('material');
+  // El dinero se maneja directo desde Tesorería; Salidas solo opera material.
+  const tipo: Tipo = 'material';
   const [vista, setVista] = useState<Vista>('kanban');
   const [modal, setModal] = useState<Modal>({ kind: 'none' });
   const [loading, setLoading] = useState(true);
@@ -97,6 +99,9 @@ export function SalidasPage() {
       setLoading(false);
     }
   }, []);
+
+  // Realtime multiusuario: stock, cajas y solicitudes se reflejan al instante.
+  useRealtime(['movimientos', 'movimientos_caja', 'cajas', 'productos'], () => { void reload(); });
   useEffect(() => { void reload(); }, [reload]);
 
   const almacenesActivos = useMemo(
@@ -131,39 +136,15 @@ export function SalidasPage() {
           <p className="muted">Toda salida o traslado (material o dinero) se crea como <strong>solicitud</strong>: el obrero la registra, el analista o el admin la aprueba, y al ejecutar se descuenta el stock o sale el dinero.</p>
         </div>
         <div className="actions">
-          {tipo === 'dinero' && canWrite && (
-            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'cajas' })}>🏦 Cajas</button>
-          )}
           {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
         </div>
       </div>
 
-      {/* Switch principal: Salidas / Traslados */}
-      <div className="view-toggle" role="tablist" aria-label="Tipo de operación" style={{ marginBottom: '.75rem' }}>
+      {/* Switch principal: Salidas / Traslados (solo material; el dinero va por Tesorería) */}
+      <div className="view-toggle" role="tablist" aria-label="Tipo de operación" style={{ marginBottom: '1rem' }}>
         <button className={scope === 'salidas' ? 'active' : ''} onClick={() => setScope('salidas')}>↘ Salidas</button>
         <button className={scope === 'traslados' ? 'active' : ''} onClick={() => setScope('traslados')}>↔ Traslados</button>
       </div>
-
-      {/* Sub-switch: Material / Dinero */}
-      <div className="view-toggle" role="tablist" aria-label="Material o dinero" style={{ marginBottom: '1rem' }}>
-        <button className={tipo === 'material' ? 'active' : ''} onClick={() => setTipo('material')}>📦 Material</button>
-        <button className={tipo === 'dinero' ? 'active' : ''} onClick={() => setTipo('dinero')}>💵 Dinero</button>
-      </div>
-
-      {/* Tarjetas de saldo por caja (solo dinero) */}
-      {tipo === 'dinero' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '.75rem', marginBottom: '1rem' }}>
-          {cajas.filter((c) => c.estado === 'activo').map((c) => (
-            <div key={c.id} className="card" style={{ margin: 0, padding: '.8rem 1rem' }}>
-              <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>{c.nombre} · {c.moneda}</div>
-              <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(Number(c.saldo) || 0)}</div>
-            </div>
-          ))}
-          {!cajas.some((c) => c.estado === 'activo') && (
-            <div className="muted" style={{ fontSize: '.85rem' }}>No hay cajas activas. {canWrite && 'Creá una con 🏦 Cajas.'}</div>
-          )}
-        </div>
-      )}
 
       {/* Vista: Kanban (trámite) / Lista (historial de movimientos ejecutados) */}
       <div className="view-toggle" role="tablist" aria-label="Kanban o lista" style={{ marginBottom: '1rem' }}>

@@ -246,6 +246,7 @@
       <li><a href="#s8">Salidas / Traslados</a></li>
       <li><a href="#steso">Tesorería</a></li>
       <li><a href="#scomb">Combustible</a></li>
+      <li><a href="#sacopio">Centro de Acopio PERAMANAL</a></li>
       <li><a href="#s9">Usuarios</a></li>
       <li><a href="#s10">Ajustes</a></li>
       <li><a href="#srespaldo">Respaldo de Data</a></li>
@@ -272,6 +273,7 @@
       <li><strong>Barra superior:</strong> buscador general + campana de notificaciones.</li>
       <li><strong>Buscador general:</strong> escribe cualquier producto, proveedor u orden; al hacer clic en un resultado te lleva directo a su detalle.</li>
       <li><strong>Campana (◔):</strong> avisa, por ejemplo, cuando un producto está por agotarse. El número rojo indica avisos sin leer.</li>
+      <li><strong>Tiempo real:</strong> el sistema es multiusuario y se actualiza solo. Lo que registra un usuario (entrada, orden, movimiento de caja, etc.) aparece automáticamente en la pantalla de los demás, sin recargar.</li>
     </ul>
   </section>
 
@@ -403,8 +405,27 @@
     </ul>
   </section>
 
+  <section class="modulo" id="sacopio">
+    <h2>📦 11. Centro de Acopio PERAMANAL</h2>
+    <p>Registra la <strong>recepción de mineral</strong> en el centro de acopio, replicando el formato de <em>"Control de Recepción de Mineral por Centro de Acopio"</em>. Cada recepción tiene un <strong>encabezado</strong> (fecha, centro, aliado) y una <strong>tabla de lotes</strong>.</p>
+    <ul>
+      <li><strong>Numeración automática:</strong> cada recepción recibe un número correlativo (<span class="badge">REC-AÑO-0001</span>).</li>
+      <li><strong>Tabla de lotes:</strong> por cada lote se registran <strong>bolsas</strong>, <strong>peso por bolsa</strong>, <strong>peso neto</strong>, <strong>precintos</strong> y <strong>peso recepcionado</strong>. El <strong>Peso Bruto</strong> (bolsas × peso/bolsa) y las dos <strong>Diferencias</strong> (Bruto−Neto y Neto−Recepcionado) se <strong>calculan solos</strong>.</li>
+      <li><strong>Suma stock automáticamente:</strong> al <strong>"Cerrar y sumar stock"</strong>, el mineral recibido entra como <strong>ENTRADA</strong> al inventario en el <strong>producto</strong> (mineral) y <strong>almacén</strong> elegidos.</li>
+      <li><strong>Estados:</strong> <span class="badge">Abierta</span> (borrador editable) → <span class="badge">Cerrada</span> (suma stock y se bloquea). Una recepción cerrada se puede <span class="badge">Anular</span>, y el sistema <strong>revierte automáticamente el stock</strong> que había sumado.</li>
+      <li><strong>PDF:</strong> cada recepción se descarga con el <strong>formato del documento original</strong>, incluyendo las firmas de <em>Conforme Entregado</em> y <em>Conforme Recibido</em>.</li>
+      <li><strong>Caja Peramanal:</strong> libro de caja con entradas, <strong>gastos</strong>, <strong>nóminas</strong>, traslados y <strong>Kg cerrados</strong>. Cada movimiento se <strong>clasifica</strong> en uno de los 5 grupos (Contratos, Gastos Caja, Movimientos de Caja, Nómina, Traslado), cada uno con su <strong>color</strong>. Muestra los saldos corrientes en $ y en Kg.</li>
+      <li><strong>Tasa actual del material:</strong> tarjeta en la vista inicial con el precio por Kg = <strong>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</strong>. Cada gasto cargado en la caja <strong>hace variar la tasa</strong>.</li>
+      <li><strong>Cierres de caja:</strong> la caja se maneja por <strong>períodos</strong> (cada <em>cierre</em> tiene número, rango de fechas y recepción). Al cerrar se calcula el <strong>resumen</strong>: días transcurridos, total gastado, <strong>distribución del gasto por categoría</strong> y tasa promedio.</li>
+      <li><strong>Clasificación de costos (2 niveles):</strong> cada gasto puede etiquetarse con una <strong>Clasificación</strong> y <strong>Sub-clasificación</strong> (ej. <em>Costos de Extracción y acarreo → Gastos de Combustible</em>) para el análisis de costos del cierre.</li>
+      <li><strong>Cuadre Efectivo:</strong> cuadre de caja en efectivo. Se <strong>cuenta el efectivo por billetes</strong> para verificarlo, se cargan las <strong>salidas categorizadas</strong> (nómina, compras, adelantos), se lleva el <strong>saldo corriente</strong> y se controlan los <strong>vales/deudas pendientes</strong>.</li>
+      <li><strong>Procesos:</strong> las demás hojas del Excel (resúmenes, registros de cuadrillas, mesa seca, consumo de martillos) se muestran como <strong>vistas del sistema</strong> y se van convirtiendo en módulos interactivos.</li>
+      <li><strong>Tiempo real:</strong> lo que registra un usuario se refleja a los demás sin recargar.</li>
+    </ul>
+  </section>
+
   <section class="modulo" id="s9">
-    <h2>👤 11. Usuarios</h2>
+    <h2>👤 12. Usuarios</h2>
     <p>Administra las personas que usan el sistema y qué puede hacer cada una. <em>(Perfiles administradores.)</em></p>
     <ul>
       <li>Alta y edición de usuarios con nombre, cargo y departamento.</li>
@@ -414,7 +435,7 @@
   </section>
 
   <section class="modulo" id="s10">
-    <h2>⚙ 12. Ajustes</h2>
+    <h2>⚙ 13. Ajustes</h2>
     <p>Tu espacio personal de configuración.</p>
     <ul>
       <li><strong>Perfil:</strong> revisa y actualiza tus datos.</li>

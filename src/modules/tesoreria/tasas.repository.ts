@@ -45,7 +45,26 @@ async function leerSnapshot(): Promise<TasaHoy | null> {
  * traerla (cache on-demand: el primer acceso del día la actualiza). Si la
  * API falla, cae a la última tasa conocida para no romper el navbar.
  */
+/* ── Cache TTL en memoria para lecturas repetidas (tasa del día / mercado) ──
+   Estas dos se piden en casi todos los modales de Tesorería/Compras (conversor,
+   pagar, traslado, detalle de caja, compra directa…). Como las tasas cambian
+   ~2×/día, un cache corto evita decenas de lecturas/Edge calls al abrir cada
+   modal. Los botones "↻ Actualizar" lo invalidan con bustTasasCache(). */
+const TASAS_TTL_MS = 60_000;
+let _tasaHoyCache: { at: number; val: TasaHoy } | null = null;
+let _mercadoCache: { at: number; val: TasasMercado } | null = null;
+
+/** Invalida el cache en memoria de tasas (lo llaman las funciones de refresco). */
+export function bustTasasCache(): void { _tasaHoyCache = null; _mercadoCache = null; }
+
 export async function getTasaHoy(): Promise<TasaHoy> {
+  if (_tasaHoyCache && Date.now() - _tasaHoyCache.at < TASAS_TTL_MS) return _tasaHoyCache.val;
+  const val = await _resolverTasaHoy();
+  _tasaHoyCache = { at: Date.now(), val };
+  return val;
+}
+
+async function _resolverTasaHoy(): Promise<TasaHoy> {
   const hoy = hoyVE();
   const snap = await leerSnapshot();
   if (snap && snap.fecha === hoy && snap.usd != null) return snap;
@@ -69,6 +88,7 @@ export async function refrescarTasa(): Promise<TasaHoy> {
   >('tasa-bcv', { body: { force: true } });
   if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa');
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  bustTasasCache();
   return { usd: data.usd, eur: data.eur ?? null, fecha: data.fecha };
 }
 
@@ -169,6 +189,7 @@ export async function refrescarBinanceP2P(): Promise<Binance3> {
   >('tasa-binance-p2p', { body: {} });
   if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa Binance');
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  bustTasasCache();
   return { buy: data.buy ?? null, sell: data.sell ?? null, promedio: data.promedio ?? null, at: data.at };
 }
 
@@ -195,6 +216,7 @@ export async function refrescarCop(): Promise<number> {
   >('tasa-cop', { body: {} });
   if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa COP');
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  bustTasasCache();
   return data.cop_usd;
 }
 
@@ -203,6 +225,13 @@ export async function refrescarCop(): Promise<number> {
  * Lee lo último de BD; si USDT no está cargado hoy, intenta el Edge Function.
  */
 export async function getTasasMercado(): Promise<TasasMercado> {
+  if (_mercadoCache && Date.now() - _mercadoCache.at < TASAS_TTL_MS) return _mercadoCache.val;
+  const val = await _resolverTasasMercado();
+  _mercadoCache = { at: Date.now(), val };
+  return val;
+}
+
+async function _resolverTasasMercado(): Promise<TasasMercado> {
   const [bcv, usdt, cop] = await Promise.all([
     getTasaHoy().catch(() => ({ usd: null, eur: null, fecha: null } as TasaHoy)),
     ultimaTasaMoneda('USDT'),
@@ -222,6 +251,151 @@ export async function getTasasMercado(): Promise<TasasMercado> {
     copUsd,
     fecha: bcv.fecha ?? usdt?.fecha ?? cop?.fecha ?? null,
   };
+}
+
+/* ───────────── Cripto (CoinGecko, CORS público — se trae en el cliente) ───────────── */
+
+export interface CriptoTasa {
+  key: string;      // par snapshot (BTC_USD…)
+  label: string;    // "Bitcoin (BTC)"
+  usd: number | null;
+  at: string | null;
+}
+
+const CRIPTO_DEF: Array<{ id: string; key: string; label: string }> = [
+  { id: 'bitcoin', key: 'BTC_USD', label: 'Bitcoin (BTC)' },
+  { id: 'ethereum', key: 'ETH_USD', label: 'Ethereum (ETH)' },
+  { id: 'solana', key: 'SOL_USD', label: 'Solana (SOL)' },
+  { id: 'binancecoin', key: 'BNB_USD', label: 'BNB (BNB)' },
+];
+
+/** Lectura rápida de cripto desde los últimos snapshots (sin red), en paralelo.
+ *  Para la carga inicial: el cron y CoinGecko mantienen la serie al día. */
+export async function getCriptoCache(): Promise<CriptoTasa[]> {
+  const lasts = await Promise.all(CRIPTO_DEF.map((c) => ultimoSnapshot(c.key)));
+  return CRIPTO_DEF.map((c, i) => ({ key: c.key, label: c.label, usd: lasts[i]?.tasa ?? null, at: lasts[i]?.at ?? null }));
+}
+
+/** Precios cripto en USD desde CoinGecko (CORS habilitado). Guarda snapshot
+ *  para el historial, como máximo una vez por hora para no saturar la serie. */
+export async function getCripto(): Promise<CriptoTasa[]> {
+  const ids = CRIPTO_DEF.map((c) => c.id).join(',');
+  let precios: Record<string, { usd?: number }> = {};
+  try {
+    const resp = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`, {
+      headers: { accept: 'application/json' },
+    });
+    if (resp.ok) precios = await resp.json();
+  } catch { /* sin conexión: caemos a último snapshot */ }
+
+  const out: CriptoTasa[] = [];
+  const aGuardar: Array<{ par: string; tasa: number; fuente: string }> = [];
+  for (const c of CRIPTO_DEF) {
+    const usd = Number(precios?.[c.id]?.usd);
+    if (Number.isFinite(usd) && usd > 0) {
+      out.push({ key: c.key, label: c.label, usd: round2(usd), at: null });
+      aGuardar.push({ par: c.key, tasa: round2(usd), fuente: 'coingecko' });
+    } else {
+      const last = await ultimoSnapshot(c.key);
+      out.push({ key: c.key, label: c.label, usd: last?.tasa ?? null, at: last?.at ?? null });
+    }
+  }
+  if (aGuardar.length) await guardarSnapshotsThrottled(aGuardar, 'BTC_USD', 60);
+  return out;
+}
+
+/** Fuerza la actualización de metales (Edge Function tasa-metales). */
+export async function refrescarMetales(): Promise<void> {
+  const { error } = await supabase.functions.invoke('tasa-metales', { body: {} });
+  if (error) throw new Error(error.message ?? 'No se pudo actualizar metales');
+}
+
+/* ───────────── Metales (requiere fuente con API key vía Edge Function tasa-metales) ───────────── */
+
+export interface MetalTasa {
+  key: string;      // par snapshot (METAL_ESTANO…)
+  label: string;
+  usd: number | null;
+  unidad: string;
+  at: string | null;
+  manual?: boolean; // true = no lo trae la API (se carga a mano), p. ej. estaño
+}
+
+/** Guarda manualmente el precio (USD) de un metal (admin). Alimenta la tarjeta y el historial. */
+export async function setMetalManual(key: string, usd: number): Promise<void> {
+  const v = round2(Number(usd) || 0);
+  if (v <= 0) throw new Error('El precio debe ser mayor que 0.');
+  await supabase.from('tasa_snapshot').insert({ par: key, tasa: v, fuente: 'manual' });
+}
+
+// Fuente: commoditypriceapi.com (incluye estaño/TIN). Unidades según la API.
+const METAL_DEF: Array<{ key: string; label: string; unidad: string; manual?: boolean }> = [
+  { key: 'METAL_ESTANO', label: 'Estaño', unidad: 'Tonelada' },
+  { key: 'METAL_COBRE', label: 'Cobre', unidad: 'Libra' },
+  { key: 'METAL_ALUMINIO', label: 'Aluminio', unidad: 'Tonelada' },
+  { key: 'METAL_NIQUEL', label: 'Níquel', unidad: 'Tonelada' },
+  { key: 'METAL_ZINC', label: 'Zinc', unidad: 'Tonelada' },
+  { key: 'METAL_PLOMO', label: 'Plomo', unidad: 'Tonelada' },
+  { key: 'METAL_ORO', label: 'Oro', unidad: 'Onza' },
+  { key: 'METAL_PLATA', label: 'Plata', unidad: 'Onza' },
+];
+
+/** Precios de metales (USD) desde el último snapshot guardado por la Edge
+ *  Function `tasa-metales`. Si no hay key configurada, devuelven null. */
+export async function getMetales(): Promise<MetalTasa[]> {
+  // Lecturas en paralelo (antes eran 8 consultas en serie).
+  const lasts = await Promise.all(METAL_DEF.map((m) => ultimoSnapshot(m.key)));
+  return METAL_DEF.map((m, i) => ({
+    key: m.key, label: m.label, unidad: m.unidad,
+    usd: lasts[i]?.tasa ?? null, at: lasts[i]?.at ?? null, manual: m.manual,
+  }));
+}
+
+/* ───────────── Auto-refresco "2× al día" del lado del cliente (respaldo del cron) ───────────── */
+
+/** Último snapshot de un par. */
+async function ultimoSnapshot(par: string): Promise<{ tasa: number; at: string } | null> {
+  const { data } = await supabase
+    .from('tasa_snapshot')
+    .select('tasa, at')
+    .eq('par', par)
+    .order('at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return { tasa: Number(data.tasa), at: data.at as string };
+}
+
+/** Inserta snapshots solo si el par "ancla" no se guardó en los últimos `minutos`. */
+async function guardarSnapshotsThrottled(
+  snaps: Array<{ par: string; tasa: number; fuente: string }>,
+  parAncla: string,
+  minutos: number,
+): Promise<void> {
+  const last = await ultimoSnapshot(parAncla);
+  if (last) {
+    const edadMin = (Date.now() - new Date(last.at).getTime()) / 60000;
+    if (edadMin < minutos) return;
+  }
+  await supabase.from('tasa_snapshot').insert(snaps).select('id').then(() => {}, () => {});
+}
+
+/**
+ * Refresco "perezoso" de respaldo: si la última tasa de mercado tiene más de
+ * `horas` (por defecto 11), dispara los Edge Functions de BCV/Binance/COP. El
+ * cron del servidor (8:00 y 16:00) es la vía principal; esto cubre cuando el
+ * cron no está activo y alguien abre Tesorería.
+ */
+export async function refrescarTasasSiVencido(horas = 11): Promise<void> {
+  const anclas = ['USDT_VES', 'COP_USD'];
+  let masReciente = 0;
+  for (const par of anclas) {
+    const s = await ultimoSnapshot(par);
+    if (s) masReciente = Math.max(masReciente, new Date(s.at).getTime());
+  }
+  const venc = masReciente === 0 || (Date.now() - masReciente) / 3600000 >= horas;
+  if (!venc) return;
+  await Promise.allSettled([refrescarTasa(), refrescarBinanceP2P(), refrescarCop()]);
 }
 
 /** Serie histórica de un par para el gráfico (más reciente primero). */

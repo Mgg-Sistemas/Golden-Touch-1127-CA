@@ -165,6 +165,65 @@ export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: st
   return mov as { id: string };
 }
 
+export interface TrasladoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
+
+/**
+ * Traslada dinero de una caja a otra (p. ej. a un Centro de Acopio) por moneda:
+ * descuenta cada (cuenta, moneda) del origen y la suma al destino recalculando
+ * su tasa promedio ponderada. Registra ambos lados en el libro (traslado_salida /
+ * traslado_entrada) con el motivo. El motivo es OBLIGATORIO.
+ */
+export async function trasladoEntreCajasMulti(input: {
+  origenId: string; destinoId: string; legs: TrasladoLeg[]; motivo: string;
+  origenNombre?: string; destinoNombre?: string; actor: string; actorName?: string | null;
+}): Promise<void> {
+  if (!input.origenId || !input.destinoId) throw new Error('Elegí caja origen y destino.');
+  if (input.origenId === input.destinoId) throw new Error('El origen y el destino no pueden ser la misma caja.');
+  if (!input.motivo?.trim()) throw new Error('El motivo es obligatorio.');
+  const legs = (input.legs ?? []).map((l) => ({ ...l, monto: round2(l.monto) })).filter((l) => l.monto > 0);
+  if (!legs.length) throw new Error('Indicá al menos un monto a trasladar.');
+  const motivo = input.motivo.trim();
+  const now = new Date().toISOString();
+
+  for (const leg of legs) {
+    // ── Origen: validar fondos y descontar ──
+    const { data: orig } = await supabase.from(SALDOS).select('id, saldo, tasa_prom')
+      .eq('caja_id', input.origenId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
+    const saldoAntesO = Number(orig?.saldo) || 0;
+    if (leg.monto > saldoAntesO)
+      throw new Error(`Saldo insuficiente en ${leg.moneda}${leg.cuenta !== 'general' ? ` (${leg.cuenta})` : ''}. Disponible: ${saldoAntesO}.`);
+    const tasaOrigen = leg.moneda === 'Bs' ? 1 : (Number(orig?.tasa_prom) || 0);
+    const saldoDespuesO = round2(saldoAntesO - leg.monto);
+    await supabase.from(SALDOS).update({ saldo: saldoDespuesO, updated_at: now })
+      .eq('caja_id', input.origenId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda);
+    await supabase.from('movimientos_caja').insert({
+      caja_id: input.origenId, tipo: 'traslado_salida', monto: leg.monto, moneda: leg.moneda, cuenta: leg.cuenta,
+      tasa_bs: leg.moneda === 'Bs' ? null : (tasaOrigen || null), saldo_antes: saldoAntesO, saldo_despues: saldoDespuesO,
+      motivo: `Traslado a ${input.destinoNombre ?? 'Centro de Acopio'} · ${motivo}`, categoria: 'traslado',
+      actor: input.actor, actor_name: input.actorName ?? null,
+    });
+
+    // ── Destino: sumar y recalcular promedio ponderado ──
+    const { data: dest } = await supabase.from(SALDOS).select('id, saldo, tasa_prom')
+      .eq('caja_id', input.destinoId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
+    const saldoAntesD = Number(dest?.saldo) || 0;
+    const tasaDest = Number(dest?.tasa_prom) || 0;
+    const saldoDespuesD = round2(saldoAntesD + leg.monto);
+    const nuevaTasa = leg.moneda === 'Bs' ? 1
+      : (saldoDespuesD > 0 ? round4((saldoAntesD * tasaDest + leg.monto * tasaOrigen) / saldoDespuesD) : tasaOrigen);
+    await supabase.from(SALDOS).upsert(
+      { caja_id: input.destinoId, cuenta: leg.cuenta, moneda: leg.moneda, saldo: saldoDespuesD, tasa_prom: nuevaTasa, updated_at: now },
+      { onConflict: 'caja_id,cuenta,moneda' },
+    );
+    await supabase.from('movimientos_caja').insert({
+      caja_id: input.destinoId, tipo: 'traslado_entrada', monto: leg.monto, moneda: leg.moneda, cuenta: leg.cuenta,
+      tasa_bs: leg.moneda === 'Bs' ? null : (nuevaTasa || null), saldo_antes: saldoAntesD, saldo_despues: saldoDespuesD,
+      motivo: `Traslado desde ${input.origenNombre ?? 'caja'} · ${motivo}`, categoria: 'traslado',
+      actor: input.actor, actor_name: input.actorName ?? null,
+    });
+  }
+}
+
 /** Ajusta (fija) el saldo y/o la tasa promedio de una (caja, cuenta, moneda). */
 export async function ajustarSaldoDivisa(input: {
   cajaId: string; cuenta: CuentaCaja; moneda: string; saldo: number; tasaProm?: number | null;

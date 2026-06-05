@@ -315,8 +315,10 @@ export function UsuariosPage() {
           categorias={departamentos}
           conteoUso={conteoDeptos}
           entidadLabel="usuario"
+          terminoSingular="departamento"
           onRenombrar={(o, n) => renombrarDepartamento(o, n, user?.email)}
           onEliminar={(n) => eliminarDepartamento(n)}
+          onAgregar={(n) => addDepartamento(n, user?.email)}
           onCambioAplicado={refresh}
           onClose={() => setGestionDeptosOpen(false)}
         />

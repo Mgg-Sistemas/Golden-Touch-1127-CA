@@ -9,7 +9,9 @@ export type ModuleKey =
   | 'produccion'
   | 'salidas'
   | 'combustible'
+  | 'acopio'
   | 'tesoreria'
+  | 'retenciones'
   | 'usuarios'
   | 'ajustes';
 
@@ -31,7 +33,9 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'produccion',  label: 'Producción' },
   { key: 'salidas',     label: 'Salidas / Traslados' },
   { key: 'combustible', label: 'Combustible' },
+  { key: 'acopio',      label: 'Centro de Acopio PERAMANAL' },
   { key: 'tesoreria',   label: 'Tesorería' },
+  { key: 'retenciones', label: 'Retenciones' },
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
 ];
@@ -48,16 +52,18 @@ export function defaultsFor(role: RoleKey): RolePermisos {
   if (role === 'admin') {
     MODULES.forEach((m) => (all[m.key] = { lectura: true, escritura: true, full: true }));
   } else if (role === 'analista') {
-    (['dashboard', 'pedidos', 'proveedores', 'inventario', 'produccion', 'salidas', 'combustible', 'ajustes'] as ModuleKey[]).forEach((k) => {
+    (['dashboard', 'pedidos', 'proveedores', 'inventario', 'produccion', 'salidas', 'combustible', 'acopio', 'ajustes'] as ModuleKey[]).forEach((k) => {
       all[k] = { lectura: true, escritura: true, full: false };
     });
     all.usuarios = { lectura: true, escritura: false, full: false };
     all.tesoreria = { lectura: true, escritura: false, full: false };
+    all.retenciones = { lectura: true, escritura: true, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };
     all.pedidos    = { lectura: true, escritura: true, full: false };
     all.inventario = { lectura: true, escritura: true, full: false };
     all.produccion = { lectura: true, escritura: true, full: false };
+    all.acopio     = { lectura: true, escritura: true, full: false };
     all.ajustes    = { lectura: true, escritura: false, full: false };
   } else {
     all.dashboard = { lectura: true, escritura: false, full: false };

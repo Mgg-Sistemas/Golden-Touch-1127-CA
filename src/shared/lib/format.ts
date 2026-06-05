@@ -8,6 +8,20 @@ export function num(n: number | null | undefined): string {
   return Number(n).toLocaleString('es-VE');
 }
 
+/**
+ * Limita el texto de un input de dinero a 2 decimales (sin redondear el tecleo):
+ * deja solo dígitos, un separador decimal y como máximo 2 cifras después.
+ * Pensado para usarse en onChange de los campos de ingreso de dinero.
+ */
+export function dosDecimales(valor: string): string {
+  if (valor == null) return '';
+  let v = String(valor).replace(/[^\d.,]/g, '');         // solo números y separadores
+  v = v.replace(/,/g, '.');                               // unificar a punto
+  const i = v.indexOf('.');
+  if (i >= 0) v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '').slice(0, 2);
+  return v;
+}
+
 const TZ = 'America/Caracas';
 
 export function date(iso: string | null | undefined): string {

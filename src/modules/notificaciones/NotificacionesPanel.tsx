@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { relTime } from '@/shared/lib/format';
-import { listLatest, markAllRead } from './notif.repository';
+import { listLatest, markAllRead, pruneOld } from './notif.repository';
 import type { Notificacion } from '@/shared/lib/types';
 
 interface Props {
@@ -27,10 +27,13 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    listLatest(50)
+    // Mostramos solo las 10 más recientes y, en segundo plano, borramos las viejas
+    // (DELETE es admin-only: si no sos admin simplemente no borra nada).
+    listLatest(10)
       .then((data) => { if (!cancelled) setItems(data); })
       .catch(() => { if (!cancelled) setItems([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    pruneOld(10).catch(() => { /* sin permiso (no-admin) o sin red: se ignora */ });
     return () => { cancelled = true; };
   }, [open]);
 

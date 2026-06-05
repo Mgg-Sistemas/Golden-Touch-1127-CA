@@ -6,7 +6,7 @@
    disponibilidad financiera (USD + equivalente Bs) y retenciones.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Caja, Moneda, MovimientoCaja, Retencion, TipoRetencion } from '@/shared/lib/types';
+import type { Caja, MovimientoCaja, Retencion, TipoRetencion } from '@/shared/lib/types';
 import { getTasaHoy, round2 } from './tasas.repository';
 
 const TABLE = 'cajas';
@@ -14,7 +14,7 @@ const LIBRO = 'movimientos_caja';
 
 // Reutilizamos la infraestructura de cajas ya existente del módulo Salidas.
 export {
-  listCajas, listCajasActivas, crearCaja, renombrarCaja,
+  listCajas, listCajasActivas, listCentrosAcopio, crearCaja, renombrarCaja,
   deshabilitarCaja, habilitarCaja, ajustarSaldo, ingresarDinero, trasladoDinero, listMovimientosCaja,
 } from '@/modules/salidas/cajas.repository';
 
@@ -145,7 +145,7 @@ export async function disponibilidadFinanciera(): Promise<Disponibilidad> {
 /* ───────────── Libro mayor (entradas/salidas con filtros) ───────────── */
 
 export async function listLibroMayor(filtros: {
-  cajaId?: string; moneda?: Moneda; tipo?: string; desde?: string; hasta?: string;
+  cajaId?: string; moneda?: string; tipo?: string; desde?: string; hasta?: string;
 } = {}): Promise<MovimientoCaja[]> {
   let q = supabase.from(LIBRO).select('*, caja:cajas!movimientos_caja_caja_id_fkey(nombre, moneda)').order('at', { ascending: false });
   if (filtros.cajaId) q = q.eq('caja_id', filtros.cajaId);

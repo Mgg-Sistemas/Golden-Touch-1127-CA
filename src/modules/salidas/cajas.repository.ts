@@ -23,7 +23,15 @@ export async function listCajas(): Promise<Caja[]> {
 }
 
 export async function listCajasActivas(): Promise<Caja[]> {
-  const { data, error } = await supabase.from(TABLE).select('*').eq('estado', 'activo').order('nombre', { ascending: true });
+  // Excluye los centros de acopio (son destino de traslado, no cajas para pagar/ingresar).
+  const { data, error } = await supabase.from(TABLE).select('*').eq('estado', 'activo').neq('tipo', 'centro_acopio').order('nombre', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Caja[];
+}
+
+/** Centros de acopio activos (manejan saldo propio; destino del traslado de dinero). */
+export async function listCentrosAcopio(): Promise<Caja[]> {
+  const { data, error } = await supabase.from(TABLE).select('*').eq('estado', 'activo').eq('tipo', 'centro_acopio').order('nombre', { ascending: true });
   if (error) throw error;
   return (data ?? []) as Caja[];
 }

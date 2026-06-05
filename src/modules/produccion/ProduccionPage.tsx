@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -65,6 +66,7 @@ export function ProduccionPage() {
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
+  useRealtime(['produccion', 'produccion_materiales', 'productos', 'hornos', 'existencias'], reload);
 
   // Filtros (solo aplican a la vista Lista).
   const filtradas = useMemo(() => {

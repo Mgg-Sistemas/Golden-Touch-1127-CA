@@ -181,3 +181,51 @@ export async function consumoDeAlmacen(almacen: string): Promise<Map<string, Con
   });
   return out;
 }
+
+/** Una fila de consumo por producto en un almacén (cantidad + $). */
+export interface ConsumoItemAlmacen {
+  producto_id: string;
+  sku: string;
+  nombre: string;
+  unidad: string;
+  cantidad: number;   // total consumido en el período
+  valor: number;      // equivalente en $ (cantidad × costo)
+}
+
+/**
+ * Consumo POR PRODUCTO de un almacén en un rango de fechas. Cuenta las salidas
+ * y los consumos de producción (tipos 'salida' y 'consumo'). El valor en $ usa el
+ * costo promedio guardado en el movimiento; si falta, el PMP del producto.
+ */
+export async function consumoPorProductoEnAlmacen(
+  almacen: string, desde: Date, hasta: Date,
+): Promise<ConsumoItemAlmacen[]> {
+  const { data, error } = await supabase
+    .from('movimientos')
+    .select('producto_id, delta, costo_promedio, at, producto:productos(sku, nombre, unidad, precio_promedio, precio)')
+    .eq('almacen', almacen)
+    .in('tipo', ['salida', 'consumo'])
+    .gte('at', desde.toISOString())
+    .lte('at', hasta.toISOString());
+  if (error) throw error;
+
+  const acc = new Map<string, ConsumoItemAlmacen>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const pid = row.producto_id as string;
+    const cant = Math.abs(Number(row.delta) || 0);
+    if (cant <= 0) continue;
+    const prod = (row.producto ?? {}) as { sku?: string; nombre?: string; unidad?: string; precio_promedio?: number; precio?: number };
+    const costo = Number(row.costo_promedio) || Number(prod.precio_promedio) || Number(prod.precio) || 0;
+    const cur = acc.get(pid) ?? {
+      producto_id: pid, sku: prod.sku ?? '—', nombre: prod.nombre ?? '—', unidad: prod.unidad ?? 'und', cantidad: 0, valor: 0,
+    };
+    cur.cantidad += cant;
+    cur.valor += cant * costo;
+    acc.set(pid, cur);
+  }
+  return Array.from(acc.values()).map((x) => ({
+    ...x,
+    cantidad: Math.round(x.cantidad * 100) / 100,
+    valor: Math.round(x.valor * 100) / 100,
+  }));
+}

@@ -4,6 +4,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
@@ -20,7 +21,9 @@ import {
   aprobarSolicitudCombustible,
   finalizarSolicitudCombustible,
   cancelarSolicitudCombustible,
+  consumoCombustiblePeriodo,
 } from './combustible.repository';
+import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { descargarSolicitudCombustiblePdf } from './combustiblePdf';
 import { enviarCombustibleAMultiples } from './enviarCombustible';
 
@@ -48,7 +51,7 @@ export function CombustiblePage() {
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
-  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar'>('none');
+  const [modal, setModal] = useState<'none' | 'solicitud' | 'ingreso' | 'gestionar' | 'consumo'>('none');
   const [detalle, setDetalle] = useState<SolicitudCombustible | null>(null);
 
   const reload = useCallback(async () => {
@@ -70,6 +73,9 @@ export function CombustiblePage() {
     return () => { cancel = true; };
   }, [reload]);
 
+  // Realtime multiusuario: las solicitudes de combustible se reflejan al instante.
+  useRealtime(['combustible_solicitudes'], () => { void reload(); });
+
   const activos = useMemo(() => combustibles.filter((c) => c.estado === 'activo'), [combustibles]);
   const valorTotal = useMemo(() => combustibles.reduce((a, c) => a + (Number(c.litros) || 0) * (Number(c.costo_litro) || 0), 0), [combustibles]);
   const litrosTotal = useMemo(() => combustibles.reduce((a, c) => a + (Number(c.litros) || 0), 0), [combustibles]);
@@ -87,13 +93,16 @@ export function CombustiblePage() {
           <h1>⛽ Combustible</h1>
           <p className="muted">Inventario de combustible y solicitudes de salida. Flujo: Por aprobar → Aprobada → Finalizada (descuenta litros).</p>
         </div>
-        {canWrite && (
-          <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            <button className="btn btn-ghost" onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
-            <button className="btn btn-ghost" onClick={() => setModal('ingreso')} disabled={!activos.length}>⬇ Registrar ingreso</button>
-            <button className="btn btn-primary" onClick={() => setModal('solicitud')} disabled={!activos.length}>+ Nueva solicitud de salida</button>
-          </div>
-        )}
+        <div className="actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={() => setModal('consumo')} title="Gráfica de consumo de combustible por tipo">📊 Consumo</button>
+          {canWrite && (
+            <>
+              <button className="btn btn-ghost" onClick={() => setModal('gestionar')}>⛽ Combustibles</button>
+              <button className="btn btn-ghost" onClick={() => setModal('ingreso')} disabled={!activos.length}>⬇ Registrar ingreso</button>
+              <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length}>+ Nueva solicitud de salida</button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Tarjetas de inventario */}
@@ -192,6 +201,17 @@ export function CombustiblePage() {
       {modal === 'gestionar' && (
         <GestionarModal combustibles={combustibles} almacenes={almacenes} actor={actor}
           onClose={() => setModal('none')} onChanged={reload} />
+      )}
+      {modal === 'consumo' && (
+        <ConsumoChartModal
+          title="Consumo de combustible"
+          subtitle="Litros consumidos por tipo de combustible (salidas). El valor en $ usa el costo por litro de cada salida."
+          cargar={async (desde, hasta) => {
+            const items = await consumoCombustiblePeriodo(desde, hasta);
+            return items.map((x) => ({ id: x.id, label: x.nombre, unidad: 'Lt', cantidad: x.cantidad, valor: x.valor }));
+          }}
+          onClose={() => setModal('none')}
+        />
       )}
       {detalle && (
         <DetalleModal solicitud={detalle} canWrite={canWrite} actor={actor}

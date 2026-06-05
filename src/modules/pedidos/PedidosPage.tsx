@@ -6,6 +6,7 @@ import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, relTime } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import type {
   EstadoOrden,
@@ -44,6 +45,8 @@ import { listOfertasByOrden, labelCondicionPago } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listMonedas } from '@/modules/tesoreria/monedas';
+import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
+import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
@@ -197,6 +200,9 @@ export function PedidosPage() {
       setError(e instanceof Error ? e.message : 'Error al cargar pedidos');
     }
   }, []);
+
+  // Realtime multiusuario: las órdenes/compras se reflejan al instante entre usuarios.
+  useRealtime(['ordenes', 'productos'], () => { void refresh(); });
 
   useEffect(() => {
     let cancelled = false;
@@ -616,10 +622,11 @@ export function PedidosPage() {
         <MetodoPagoModal
           orden={modal.orden}
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos) => {
+          onSent={async (metodos, soporte) => {
             try {
-              await indicarMetodoPago(modal.orden, metodos, usuario?.email ?? user?.email ?? 'sistema');
-              notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} enviada para pagar · disponible en Tesorería`, 'success', { link: '#/app/tesoreria' });
+              await indicarMetodoPago(modal.orden, metodos, usuario?.email ?? user?.email ?? 'sistema', soporte);
+              const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
+              notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
               setModal({ kind: 'none' });
               await refresh();
             } catch (e) {
@@ -839,11 +846,36 @@ function FinalizarPedidoModal({
   onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string }) => Promise<void>;
 }) {
   const [calidad, setCalidad] = useState(5);
-  const [puntualidad, setPuntualidad] = useState<'en_fecha' | 'adelantado' | 'atrasado'>('en_fecha');
+  const [puntualidad, setPuntualidad] = useState<'por_fecha' | 'en_fecha' | 'adelantado' | 'atrasado'>('por_fecha');
   const [dias, setDias] = useState('1');
   const [comentario, setComentario] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fecha prometida (de la oferta elegida) vs fecha de recibido → calcula los días.
+  const hoyISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
+  const [fechaPrometida, setFechaPrometida] = useState('');
+  const [fechaRecibido, setFechaRecibido] = useState(hoyISO);
+  useEffect(() => {
+    listOfertasByOrden(orden.id)
+      .then((ofs) => {
+        // La oferta elegida es la que casó con el proveedor de la orden (aceptada).
+        const elegida = ofs.find((o) => o.estado === 'aceptada' && o.proveedor_id === orden.proveedor_id)
+          ?? ofs.find((o) => o.proveedor_id === orden.proveedor_id)
+          ?? ofs.find((o) => o.fecha_entrega_prometida);
+        if (elegida?.fecha_entrega_prometida) setFechaPrometida(elegida.fecha_entrega_prometida.slice(0, 10));
+      })
+      .catch(() => { /* sin oferta: el usuario coloca la fecha prometida a mano */ });
+  }, [orden.id, orden.proveedor_id]);
+
+  // Días (firmado): + adelantado (recibido antes de lo prometido), − atrasado.
+  const diasPorFecha = (() => {
+    if (!fechaPrometida || !fechaRecibido) return null;
+    const p = new Date(`${fechaPrometida}T00:00:00`).getTime();
+    const r = new Date(`${fechaRecibido}T00:00:00`).getTime();
+    if (isNaN(p) || isNaN(r)) return null;
+    return Math.round((p - r) / 86_400_000);
+  })();
 
   const CALIDAD_LABEL: Record<number, string> = {
     5: '5 · Excelente', 4: '4 · Buena', 3: '3 · Aceptable', 2: '2 · Deficiente', 1: '1 · Muy mala',
@@ -851,8 +883,14 @@ function FinalizarPedidoModal({
 
   async function handle() {
     setError(null);
-    const d = Math.max(0, Math.floor(Number(dias) || 0));
-    const puntualidadDias = puntualidad === 'en_fecha' ? 0 : puntualidad === 'adelantado' ? d : -d;
+    let puntualidadDias: number;
+    if (puntualidad === 'por_fecha') {
+      if (diasPorFecha == null) { setError('Indicá la fecha prometida y la de recibido.'); return; }
+      puntualidadDias = diasPorFecha;
+    } else {
+      const d = Math.max(0, Math.floor(Number(dias) || 0));
+      puntualidadDias = puntualidad === 'en_fecha' ? 0 : puntualidad === 'adelantado' ? d : -d;
+    }
     setSaving(true);
     try {
       await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim() });
@@ -895,18 +933,46 @@ function FinalizarPedidoModal({
         <div className="form-row">
           <label>Puntualidad *</label>
           <select className="select" value={puntualidad} onChange={(e) => setPuntualidad(e.target.value as typeof puntualidad)}>
+            <option value="por_fecha">Por fecha prometida</option>
             <option value="en_fecha">En la fecha prometida</option>
             <option value="adelantado">Adelantado</option>
             <option value="atrasado">Atrasado</option>
           </select>
         </div>
-        {puntualidad !== 'en_fecha' && (
+        {(puntualidad === 'adelantado' || puntualidad === 'atrasado') && (
           <div className="form-row">
             <label>Días {puntualidad === 'adelantado' ? 'de adelanto' : 'de atraso'}</label>
             <input className="input mono" type="number" min={0} step={1} value={dias} onChange={(e) => setDias(e.target.value)} />
           </div>
         )}
       </div>
+
+      {/* Por fecha prometida: fecha de la oferta vs. fecha de recibido → calcula los días */}
+      {puntualidad === 'por_fecha' && (
+        <>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Fecha prometida (de la oferta)</label>
+              <input className="input" type="date" value={fechaPrometida} onChange={(e) => setFechaPrometida(e.target.value)} />
+              <small className="muted">{fechaPrometida ? 'Tomada de la oferta del proveedor; podés ajustarla.' : 'La oferta no tiene fecha prometida: colocala acá.'}</small>
+            </div>
+            <div className="form-row">
+              <label>Fecha de recibido</label>
+              <input className="input" type="date" value={fechaRecibido} onChange={(e) => setFechaRecibido(e.target.value)} />
+              <small className="muted">Por defecto, hoy.</small>
+            </div>
+          </div>
+          {diasPorFecha != null && (
+            <div className="card" style={{ margin: '.1rem 0 .6rem' }}>
+              {diasPorFecha === 0
+                ? <>✓ Recibido <strong>en la fecha prometida</strong>.</>
+                : diasPorFecha > 0
+                  ? <>✓ Recibido <strong>{diasPorFecha} día(s) antes</strong> de lo prometido (adelantado).</>
+                  : <>⚠ Recibido <strong>{Math.abs(diasPorFecha)} día(s) después</strong> de lo prometido (atrasado).</>}
+            </div>
+          )}
+        </>
+      )}
 
       <div className="form-row">
         <label>Comentario adicional (opcional)</label>
@@ -928,22 +994,35 @@ function MetodoPagoModal({
 }: {
   orden: Orden;
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[]) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }) => Promise<void> | void;
 }) {
   const [monedas, setMonedas] = useState<string[]>(['Bs', 'USD', 'USDT', 'COP']);
   const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: 'USD', monto: 0 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Datos de pago del proveedor ya guardados (para precargar por método).
+  const [datosGuardados, setDatosGuardados] = useState<Record<string, DatosPago>>({});
   // Contra entrega: ya se recibió y verificó; se confirma la Nota de entrega antes de pagar.
   const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
   const [notaEntrega, setNotaEntrega] = useState(false);
+  // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
+  const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
+  const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
 
   useEffect(() => { listMonedas().then(setMonedas).catch(() => { /* base */ }); }, []);
+  useEffect(() => {
+    if (!orden.proveedor_id) return;
+    listDatosPago(orden.proveedor_id).then(setDatosGuardados).catch(() => { /* sin datos previos */ });
+  }, [orden.proveedor_id]);
 
   function setLeg(i: number, patch: Partial<PagoMetodo>) {
     setLegs((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   }
-  function addLeg() { setLegs((ls) => [...ls, { metodo: 'transferencia', moneda: 'Bs', monto: 0 }]); }
+  // Al cambiar de método, precarga los datos guardados del proveedor para ese método.
+  function cambiarMetodo(i: number, metodo: string) {
+    setLeg(i, { metodo, datos: requiereDatos(metodo) ? (datosGuardados[metodo] ?? {}) : undefined });
+  }
+  function addLeg() { setLegs((ls) => [...ls, { metodo: 'transferencia', moneda: 'Bs', monto: 0, datos: datosGuardados['transferencia'] ?? {} }]); }
   function removeLeg(i: number) { setLegs((ls) => ls.filter((_, k) => k !== i)); }
 
   // El monto lo define Tesorería al pagar; acá solo se eligen método(s) y moneda(s).
@@ -953,8 +1032,15 @@ function MetodoPagoModal({
     setError(null);
     if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
     if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+    // Validar datos del proveedor en los métodos que los requieren.
+    for (const l of validos) {
+      if (requiereDatos(l.metodo)) {
+        const err = validarDatosPago(l.metodo, l.datos ?? {});
+        if (err) { setError(`${METODOS_PAGO.find((m) => m.value === l.metodo)?.label}: ${err}`); return; }
+      }
+    }
     setSaving(true);
-    try { await onSent(validos); }
+    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -980,34 +1066,69 @@ function MetodoPagoModal({
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-      <div className="table-wrap">
-        <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>Método</th><th>Moneda</th><th></th></tr></thead>
-          <tbody>
-            {legs.map((l, i) => (
-              <tr key={i}>
-                <td>
-                  <select className="select" value={l.metodo} onChange={(e) => setLeg(i, { metodo: e.target.value })}>
-                    {METODOS_PAGO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
-                </td>
-                <td>
-                  <select className="select" value={l.moneda} onChange={(e) => setLeg(i, { moneda: e.target.value })}>
-                    {monedas.map((m) => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                </td>
-                <td>{legs.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLeg(i)}>✕</button>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Soporte: Nota de entrega (directo a Tesorería) vs Factura (pasa por Retenciones) */}
+      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
+        <div className="card-title" style={{ marginBottom: '.45rem' }}>Tipo de soporte</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.5rem' }}>
+          <label className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', margin: 0, padding: '.55rem .7rem', cursor: 'pointer', borderColor: comprobanteTipo === 'nota_entrega' ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+            <input type="radio" name="comprobante" checked={comprobanteTipo === 'nota_entrega'} onChange={() => setComprobanteTipo('nota_entrega')} style={{ marginTop: '.2rem' }} />
+            <span style={{ fontSize: '.86rem' }}><strong>Nota de entrega</strong></span>
+          </label>
+          <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.55rem .7rem', cursor: 'pointer', borderColor: comprobanteTipo === 'factura' ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+            <input type="radio" name="comprobante" checked={comprobanteTipo === 'factura'} onChange={() => setComprobanteTipo('factura')} style={{ marginTop: '.2rem' }} />
+            <span style={{ fontSize: '.86rem' }}><strong>Factura</strong></span>
+          </label>
+        </div>
+        {comprobanteTipo === 'factura' && (
+          <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
+            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención</div>
+            <div style={{ display: 'grid', gap: '.35rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
+                <input type="radio" name="ret-modo" checked={retencionModo === 'se_paga_despues'} onChange={() => setRetencionModo('se_paga_despues')} />
+                Se paga después
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
+                <input type="radio" name="ret-modo" checked={retencionModo === 'completo_reembolso'} onChange={() => setRetencionModo('completo_reembolso')} />
+                Se paga completo y luego se reembolsa
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gap: '.6rem' }}>
+        {legs.map((l, i) => (
+          <div key={i} className="card" style={{ margin: 0, padding: '.7rem' }}>
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ margin: 0, flex: '1 1 180px' }}>
+                <label>Método</label>
+                <select className="select" value={l.metodo} onChange={(e) => cambiarMetodo(i, e.target.value)}>
+                  {METODOS_PAGO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div className="form-row" style={{ margin: 0, flex: '0 0 120px' }}>
+                <label>Moneda</label>
+                <select className="select" value={l.moneda} onChange={(e) => setLeg(i, { moneda: e.target.value })}>
+                  {monedas.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              {legs.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLeg(i)}>✕ Quitar</button>}
+            </div>
+            {requiereDatos(l.metodo) && (
+              <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
+                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Datos del proveedor para pagarle (se guardan para próximas compras)</div>
+                <DatosPagoFields metodo={l.metodo} value={l.datos ?? {}} onChange={(d) => setLeg(i, { datos: d })} />
+              </div>
+            )}
+          </div>
+        ))}
       </div>
       <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={addLeg}>+ Agregar método (multipago)</button>
       {esContraEntrega && (
         <label className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', marginTop: '.6rem', padding: '.55rem .7rem', cursor: 'pointer', borderColor: notaEntrega ? 'var(--success)' : 'var(--warning)' }}>
           <input type="checkbox" checked={notaEntrega} onChange={(e) => setNotaEntrega(e.target.checked)} style={{ marginTop: '.2rem' }} />
           <span style={{ fontSize: '.86rem' }}>
-            <strong>Nota de entrega</strong> — Confirmo que la mercancía se <strong>recibió y verificó</strong> contra lo solicitado. Recién entonces se paga (contra entrega).
+            <strong>Confirmo que la mercancía se recibió y verificó contra lo solicitado. Recién entonces se paga (contra entrega).</strong>
           </span>
         </label>
       )}

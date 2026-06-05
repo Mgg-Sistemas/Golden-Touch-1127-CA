@@ -8,7 +8,8 @@ import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { toast } from '@/shared/ui/Toast';
 import { descargarManualUsuario, type CapturasManual } from '@/shared/lib/manualUsuarioPdf';
-import { descargarRespaldoSql, chequearRespaldoAutomatico, puedeRespaldar } from '@/shared/lib/backup';
+import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
+import { Modal } from '@/shared/ui/Modal';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
@@ -34,7 +35,7 @@ export function AppShell() {
   const { can, role } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('tesoreria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('tesoreria');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -146,15 +147,30 @@ export function AppShell() {
     }
   }
 
-  // Descarga manual del respaldo .sql de la base de datos.
-  async function handleRespaldo() {
+  // Respaldo manual: al hacer clic se elige Descargar o Enviar por correo.
+  const [respaldoOpen, setRespaldoOpen] = useState(false);
+  async function handleRespaldoDescargar() {
     if (descargandoBackup) return;
     setDescargandoBackup(true);
     try {
       await descargarRespaldoSql(user?.email ?? 'sistema', false);
       toast('Respaldo de datos descargado (.sql)', 'success');
+      setRespaldoOpen(false);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el respaldo', 'error');
+    } finally {
+      setDescargandoBackup(false);
+    }
+  }
+  async function handleRespaldoCorreo() {
+    if (descargandoBackup) return;
+    setDescargandoBackup(true);
+    try {
+      const { destinatarios } = await enviarRespaldoPorCorreo(user?.email ?? 'sistema', false);
+      toast(`Respaldo enviado por correo a ${destinatarios.join(', ')}`, 'success');
+      setRespaldoOpen(false);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo enviar el respaldo', 'error');
     } finally {
       setDescargandoBackup(false);
     }
@@ -168,7 +184,7 @@ export function AppShell() {
     if (!puedeRespaldar(role)) return;
     backupAutoCorrido.current = true;
     chequearRespaldoAutomatico(role, user?.email ?? 'sistema')
-      .then((corrio) => { if (corrio) toast('Respaldo automático (cada 30 días) descargado', 'info'); })
+      .then((corrio) => { if (corrio) toast(`Respaldo automático (cada 30 días) enviado por correo a ${BACKUP_EMAIL}`, 'info'); })
       .catch(() => { /* silencioso: el respaldo manual sigue disponible */ });
   }, [role, user?.email]);
 
@@ -177,9 +193,9 @@ export function AppShell() {
       <aside className="sidebar">
         <div className="sidebar-brand">
           <NavLink to="/app" className="brand">
-            <img src="/LOGO.jpg" alt="Golden Touch" />
+            <img src="/image.jpeg" alt="MGG" />
             <div className="brand-text">
-              <strong>Golden Touch</strong>
+              <strong>MGG</strong>
               <small>BIENVENIDO</small>
             </div>
           </NavLink>
@@ -194,7 +210,9 @@ export function AppShell() {
           {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Producción" />}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
+          {can('acopio') && <NavItem to="/app/acopio" icon="📦" label="Centro de Acopio PERAMANAL" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
+          {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
         </nav>
 
         {showSistema && <div className="sidebar-section">Sistema</div>}
@@ -223,12 +241,11 @@ export function AppShell() {
           {mostrarRespaldo && (
             <a
               href="#"
-              onClick={(e) => { e.preventDefault(); void handleRespaldo(); }}
-              title="Descargar el respaldo de la base de datos (.sql)"
-              style={descargandoBackup ? { opacity: 0.6, pointerEvents: 'none' } : undefined}
+              onClick={(e) => { e.preventDefault(); setRespaldoOpen(true); }}
+              title="Respaldo de la base de datos (.sql): descargar o enviar por correo"
             >
               <span className="icn">💾</span>{' '}
-              <span>{descargandoBackup ? 'Generando…' : 'Respaldo de Data'}</span>
+              <span>Respaldo de Data</span>
             </a>
           )}
           {MOSTRAR_MANUAL && (
@@ -247,14 +264,17 @@ export function AppShell() {
         <div className="sidebar-section">Próximamente</div>
         <nav className="nav">
           <NavItem to="#" icon="↗" label="Ventas" disabled />
-          <NavItem to="#" icon="🧮" label="Centro de Costos" disabled />
+          <NavItem to="#" icon="🚜" label="Control de Maquinaria" disabled />
+          <NavItem to="#" icon="🏭" label="C. Acopio LA ESPERANZA" disabled />
+          <NavItem to="#" icon="🏭" label="C. Acopio LOS PIJIGUAOS" disabled />
+          <NavItem to="#" icon="🏭" label="C. Acopio LA ESMERALDA" disabled />
         </nav>
 
         <div className="sidebar-footer">
           <div className="user-chip">
             <div className="avatar" style={{ overflow: 'hidden', background: '#fff', padding: 0 }}>
               <img
-                src="/LOGO.jpg"
+                src="/image.jpeg"
                 alt="Avatar"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
               />
@@ -342,6 +362,25 @@ export function AppShell() {
         onClose={() => { setNotifOpen(false); void refreshUnread(); }}
         onAllRead={handleAllRead}
       />
+
+      {respaldoOpen && (
+        <Modal
+          title="Respaldo de la base de datos"
+          size="md"
+          onClose={() => { if (!descargandoBackup) setRespaldoOpen(false); }}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setRespaldoOpen(false)} disabled={descargandoBackup}>Cancelar</button>
+              <button className="btn btn-ghost" onClick={() => void handleRespaldoDescargar()} disabled={descargandoBackup}>↓ Descargar</button>
+              <button className="btn btn-primary" onClick={() => void handleRespaldoCorreo()} disabled={descargandoBackup}>✉ Enviar por correo</button>
+            </>
+          }
+        >
+          <p className="muted" style={{ margin: 0, fontSize: '.9rem' }}>
+            {descargandoBackup ? 'Generando el respaldo…' : <>¿Cómo querés el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>.</>}
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }
