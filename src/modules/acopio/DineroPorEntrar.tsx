@@ -32,20 +32,25 @@ export function DineroPorEntrar({ entrantes, cajas, actor, actorName, onReload }
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="card"
+        className={`card${count ? ' alert-pulse' : ''}`}
         style={{
           width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: '1rem',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem',
           borderColor: count ? 'var(--success)' : 'var(--border)',
-          background: count ? 'linear-gradient(135deg, rgba(34,197,94,.12), var(--surface))' : 'var(--surface)',
+          borderWidth: count ? 2 : 1,
+          background: count ? 'linear-gradient(135deg, rgba(34,197,94,.18), var(--surface))' : 'var(--surface)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '.7rem' }}>
-          <span style={{ fontSize: '1.5rem' }}>💸</span>
+          <span style={{ fontSize: '1.5rem' }}>{count ? '🔔' : '💸'}</span>
           <div>
-            <div style={{ fontWeight: 700, letterSpacing: '.02em' }}>DINERO POR ENTRAR</div>
+            <div style={{ fontWeight: 700, letterSpacing: '.02em', color: count ? 'var(--success)' : undefined }}>
+              {count ? '¡DINERO POR ENTRAR!' : 'DINERO POR ENTRAR'}
+            </div>
             <div className="muted" style={{ fontSize: '.78rem' }}>
-              {count ? `${count} transferencia${count > 1 ? 's' : ''} desde otro sistema · clic para ver` : 'Sin transferencias pendientes'}
+              {count
+                ? `${count} transferencia${count > 1 ? 's' : ''} desde otro sistema · clic para revisar y ACEPTAR`
+                : 'Sin transferencias pendientes'}
             </div>
           </div>
         </div>
