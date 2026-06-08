@@ -27,6 +27,10 @@ coverage/
 # Documentation interna (NUNCA commitear)
 docs/
 
+# Guías HTML de uso/ejemplo (locales, no commitear)
+ejemplo-registro-acopio.html
+guia-caja-peramanal.html
+
 # Claude
 .claude/
 

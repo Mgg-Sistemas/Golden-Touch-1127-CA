@@ -3,6 +3,17 @@ export function money(n: number | null | undefined): string {
   return '$ ' + Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * Redondea un monto en $ hacia arriba al siguiente múltiplo de 5, pensado para el
+ * pago en efectivo (billetes físicos). Ej.: 233,33 → 235 · 231 → 235 · 236 → 240.
+ * Devuelve 0 para valores no positivos.
+ */
+export function redondearArriba5(n: number | null | undefined): number {
+  const x = Number(n) || 0;
+  if (x <= 0) return 0;
+  return Math.ceil((x - 1e-9) / 5) * 5;
+}
+
 export function num(n: number | null | undefined): string {
   if (n == null || isNaN(n as number)) return '—';
   return Number(n).toLocaleString('es-VE');

@@ -63,9 +63,16 @@ serve(async (req) => {
   if (!email || !/\S+@\S+\.\S+/.test(email))
     return json({ error: 'Email inválido' }, 400);
   if (!nombre || !nombre.trim()) return json({ error: 'Nombre requerido' }, 400);
-  const VALID_ROLES = ['admin', 'analista', 'obrero', 'supervisor', 'jefe', 'contabilidad', 'gerencia'];
-  if (!role || !VALID_ROLES.includes(role))
-    return json({ error: 'Rol inválido' }, 400);
+  // Los roles son dinámicos (tabla custom_roles): validamos contra ella en vez
+  // de una lista fija, así los roles creados por el admin (p. ej. "Analista de
+  // Centro de Acopio") también son válidos.
+  if (!role || !role.trim()) return json({ error: 'Rol requerido' }, 400);
+  const { data: roleRow } = await admin
+    .from('custom_roles')
+    .select('key')
+    .eq('key', role)
+    .maybeSingle();
+  if (!roleRow) return json({ error: `Rol inválido: ${role}` }, 400);
 
   // 3) Crear auth user
   const { data: created, error: createErr } = await admin.auth.admin.createUser({

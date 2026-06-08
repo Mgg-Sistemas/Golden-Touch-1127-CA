@@ -6,11 +6,12 @@
    disponibilidad financiera (USD + equivalente Bs) y retenciones.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Caja, MovimientoCaja, Retencion, TipoRetencion } from '@/shared/lib/types';
+import type { Caja, MovimientoCaja, Retencion, TipoRetencion, CuentaCaja } from '@/shared/lib/types';
 import { getTasaHoy, round2 } from './tasas.repository';
 
 const TABLE = 'cajas';
 const LIBRO = 'movimientos_caja';
+const SALDOS = 'caja_saldos';
 
 // Reutilizamos la infraestructura de cajas ya existente del módulo Salidas.
 export {
@@ -29,26 +30,42 @@ async function getCaja(id: string): Promise<Caja> {
 
 export async function registrarGasto(input: {
   cajaId: string; monto: number; concepto: string; categoria?: string;
+  cuenta?: CuentaCaja | null; moneda?: string | null;
   actor: string; actorName?: string | null;
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   if (!input.concepto.trim()) throw new Error('Indicá el concepto del gasto.');
   const caja = await getCaja(input.cajaId);
-  const saldoAntes = Number(caja.saldo) || 0;
-  if (monto > saldoAntes) throw new Error(`Saldo insuficiente en ${caja.nombre}. Disponible: ${saldoAntes} ${caja.moneda}.`);
+
+  // Si la caja maneja saldos multimoneda (caja_saldos), se descuenta del saldo
+  // elegido (cuenta+moneda); si no, del saldo legado de la caja.
+  const monedaPago = (input.moneda ?? caja.moneda) as string;
+  const cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
+  const { data: saldoRow } = await supabase.from(SALDOS)
+    .select('id, saldo').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
+  const usaSaldos = !!saldoRow;
+  const saldoAntes = usaSaldos ? (Number(saldoRow!.saldo) || 0) : (Number(caja.saldo) || 0);
+  if (monto > saldoAntes)
+    throw new Error(`Saldo insuficiente en ${caja.nombre}${cuentaSel !== 'general' ? ` (${cuentaSel})` : ''}. Disponible: ${saldoAntes} ${monedaPago}.`);
   const saldoDespues = round2(saldoAntes - monto);
 
   const { data, error } = await supabase.from(LIBRO).insert({
-    caja_id: input.cajaId, tipo: 'salida', monto, moneda: caja.moneda,
+    caja_id: input.cajaId, tipo: 'salida', monto, moneda: monedaPago,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto.trim(), categoria: input.categoria ?? 'gasto',
+    cuenta: usaSaldos ? cuentaSel : null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) throw error;
 
-  const { error: uErr } = await supabase.from(TABLE).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
-  if (uErr) throw uErr;
+  if (usaSaldos) {
+    const { error: uErr } = await supabase.from(SALDOS).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', saldoRow!.id);
+    if (uErr) throw uErr;
+  } else {
+    const { error: uErr } = await supabase.from(TABLE).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
+    if (uErr) throw uErr;
+  }
   return data as MovimientoCaja;
 }
 

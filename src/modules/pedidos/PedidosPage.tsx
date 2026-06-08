@@ -44,7 +44,6 @@ import {
 import { listOfertasByOrden, labelCondicionPago } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
-import { listMonedas } from '@/modules/tesoreria/monedas';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
@@ -987,6 +986,13 @@ function FinalizarPedidoModal({
 /* ─────────────────────────────────────────────
    Modal: indicar método de pago (multipago) y enviar a pagar
    ───────────────────────────────────────────── */
+/** Moneda implícita según el método de pago (ya no se elige a mano). */
+function monedaPorMetodo(metodo: string): string {
+  if (metodo === 'efectivo_bs' || metodo === 'transferencia' || metodo === 'pago_movil') return 'Bs';
+  if (metodo === 'binance_usdt') return 'USDT';
+  return 'USD'; // divisas_efectivo, zelle, otro
+}
+
 function MetodoPagoModal({
   orden,
   onClose,
@@ -996,8 +1002,7 @@ function MetodoPagoModal({
   onClose: () => void;
   onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }) => Promise<void> | void;
 }) {
-  const [monedas, setMonedas] = useState<string[]>(['Bs', 'USD', 'USDT', 'COP']);
-  const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: 'USD', monto: 0 }]);
+  const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Datos de pago del proveedor ya guardados (para precargar por método).
@@ -1009,7 +1014,6 @@ function MetodoPagoModal({
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
 
-  useEffect(() => { listMonedas().then(setMonedas).catch(() => { /* base */ }); }, []);
   useEffect(() => {
     if (!orden.proveedor_id) return;
     listDatosPago(orden.proveedor_id).then(setDatosGuardados).catch(() => { /* sin datos previos */ });
@@ -1020,9 +1024,9 @@ function MetodoPagoModal({
   }
   // Al cambiar de método, precarga los datos guardados del proveedor para ese método.
   function cambiarMetodo(i: number, metodo: string) {
-    setLeg(i, { metodo, datos: requiereDatos(metodo) ? (datosGuardados[metodo] ?? {}) : undefined });
+    setLeg(i, { metodo, moneda: monedaPorMetodo(metodo), datos: requiereDatos(metodo) ? (datosGuardados[metodo] ?? {}) : undefined });
   }
-  function addLeg() { setLegs((ls) => [...ls, { metodo: 'transferencia', moneda: 'Bs', monto: 0, datos: datosGuardados['transferencia'] ?? {} }]); }
+  function addLeg() { setLegs((ls) => [...ls, { metodo: 'transferencia', moneda: monedaPorMetodo('transferencia'), monto: 0, datos: datosGuardados['transferencia'] ?? {} }]); }
   function removeLeg(i: number) { setLegs((ls) => ls.filter((_, k) => k !== i)); }
 
   // El monto lo define Tesorería al pagar; acá solo se eligen método(s) y moneda(s).
@@ -1059,7 +1063,7 @@ function MetodoPagoModal({
       }
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
-        Indicá <strong>con qué método(s) y moneda(s)</strong> se va a pagar la OC ({orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null
+        Indicá <strong>con qué método(s)</strong> se va a pagar la OC ({orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null
           ? <>recibido <strong>{money(orden.recibido_total)}</strong></>
           : <>total <strong>{money(orden.total)}</strong></>}). Podés combinar
         varios (<strong>multipago</strong>). El <strong>monto lo define Tesorería</strong> al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
@@ -1100,16 +1104,10 @@ function MetodoPagoModal({
         {legs.map((l, i) => (
           <div key={i} className="card" style={{ margin: 0, padding: '.7rem' }}>
             <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div className="form-row" style={{ margin: 0, flex: '1 1 180px' }}>
+              <div className="form-row" style={{ margin: 0, flex: '1 1 220px' }}>
                 <label>Método</label>
                 <select className="select" value={l.metodo} onChange={(e) => cambiarMetodo(i, e.target.value)}>
                   {METODOS_PAGO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </div>
-              <div className="form-row" style={{ margin: 0, flex: '0 0 120px' }}>
-                <label>Moneda</label>
-                <select className="select" value={l.moneda} onChange={(e) => setLeg(i, { moneda: e.target.value })}>
-                  {monedas.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
               {legs.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLeg(i)}>✕ Quitar</button>}

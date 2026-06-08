@@ -334,7 +334,7 @@ export function AgregarOfertaModal({
       </div>
 
       <div className="form-row">
-        <label>Cotización del proveedor · PDF o imagen (opcional)</label>
+        <label>Cargue la cotización del proveedor (opcional)</label>
         <input type="file" className="input" accept="application/pdf,image/*" onChange={handleFileChange} />
         {pdfFile && (
           <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
@@ -342,7 +342,7 @@ export function AgregarOfertaModal({
           </div>
         )}
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-          Solo PDF · máximo 10 MB. El jefe podrá descargarlo para validar la oferta antes de aprobar.
+          PDF o imagen · máximo 10 MB. El jefe podrá descargarlo para validar la oferta antes de aprobar.
         </div>
       </div>
     </Modal>

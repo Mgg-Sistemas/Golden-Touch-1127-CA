@@ -21,6 +21,10 @@ export default defineConfig(({ command }) => ({
         // Vendors estables en chunks separados: se cachean entre deploys y
         // se descargan en paralelo, en vez de re-bajar ~400kB ante cada cambio.
         manualChunks(id) {
+          // El helper de precarga de Vite (__vitePreload) lo usa el entry; si cae
+          // en el chunk 'pdf', el entry lo importa estático y precarga ~200kB de
+          // jsPDF en el arranque. Lo fijamos en 'react' (siempre presente).
+          if (id.includes('preload-helper') || id.includes('modulepreload')) return 'react';
           if (!id.includes('node_modules')) return;
           if (id.includes('@supabase')) return 'supabase';
           if (id.includes('react-router') || id.includes('/history/')) return 'router';

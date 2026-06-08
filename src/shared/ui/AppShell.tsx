@@ -7,7 +7,7 @@ import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPane
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { toast } from '@/shared/ui/Toast';
-import { descargarManualUsuario, type CapturasManual } from '@/shared/lib/manualUsuarioPdf';
+import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
 import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
 import { Modal } from '@/shared/ui/Modal';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
@@ -59,6 +59,16 @@ export function AppShell() {
       return next;
     });
   }
+
+  // En móvil (≤768px) el sidebar es un drawer deslizable; en desktop, colapsa a íconos.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  function handleMenuBtn() {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) setDrawerOpen((o) => !o);
+    else toggleSidebar();
+  }
+  const closeDrawer = () => setDrawerOpen(false);
+  // Cierra el drawer al cambiar de ruta (navegar desde el menú en móvil).
+  useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
   async function refreshUnread() {
     try {
@@ -139,6 +149,8 @@ export function AppShell() {
 
       navigate(rutaOriginal);
       await sleep(150);
+      // Import dinámico: la generación del manual (jsPDF) no debe pesar en el arranque.
+      const { descargarManualUsuario } = await import('@/shared/lib/manualUsuarioPdf');
       await descargarManualUsuario(capturas);
     } catch {
       toast('No se pudo generar el manual de usuario', 'error');
@@ -189,7 +201,8 @@ export function AppShell() {
   }, [role, user?.email]);
 
   return (
-    <div className={`app${collapsed ? ' sidebar-collapsed' : ''}`}>
+    <div className={`app${collapsed ? ' sidebar-collapsed' : ''}${drawerOpen ? ' drawer-open' : ''}`}>
+      <div className="sidebar-overlay" onClick={closeDrawer} aria-hidden="true" />
       <aside className="sidebar">
         <div className="sidebar-brand">
           <NavLink to="/app" className="brand">
@@ -213,6 +226,7 @@ export function AppShell() {
           {can('acopio') && <NavItem to="/app/acopio" icon="📦" label="Centro de Acopio PERAMANAL" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
+          {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
         </nav>
 
         {showSistema && <div className="sidebar-section">Sistema</div>}
@@ -291,7 +305,7 @@ export function AppShell() {
         <div className="crumb" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
           <button
             type="button"
-            onClick={toggleSidebar}
+            onClick={handleMenuBtn}
             className="btn btn-icon btn-ghost"
             title={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
             aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
@@ -350,7 +364,7 @@ export function AppShell() {
         </div>
       </header>
 
-      <main style={{ gridArea: 'main', padding: '1.5rem 2rem', overflowY: 'auto' }}>
+      <main className="main">
         <Outlet />
       </main>
 

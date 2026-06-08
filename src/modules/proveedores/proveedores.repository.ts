@@ -102,6 +102,12 @@ export async function getById(id: string): Promise<Proveedor | null> {
   return (data as Proveedor | null) ?? null;
 }
 
+/** Traduce el error de RIF duplicado (constraint único) a un mensaje claro. */
+function traducirError(error: { code?: string; message?: string } | null): Error {
+  if (error?.code === '23505') return new Error('Ya existe un proveedor con ese RIF.');
+  return new Error(error?.message || 'No se pudo guardar el proveedor.');
+}
+
 export async function insert(payload: ProveedorInput): Promise<Proveedor> {
   const { data, error } = await supabase
     .from('proveedores')
@@ -109,7 +115,7 @@ export async function insert(payload: ProveedorInput): Promise<Proveedor> {
     .select('*')
     .single();
 
-  if (error) throw error;
+  if (error) throw traducirError(error);
   return data as Proveedor;
 }
 
@@ -121,7 +127,7 @@ export async function update(id: string, patch: ProveedorPatch): Promise<Proveed
     .select('*')
     .single();
 
-  if (error) throw error;
+  if (error) throw traducirError(error);
   return data as Proveedor;
 }
 

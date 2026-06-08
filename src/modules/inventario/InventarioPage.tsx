@@ -4,7 +4,7 @@ import { money, num } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { ConfirmDialog } from '@/shared/ui/Modal';
+import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -589,7 +589,7 @@ export function InventarioPage() {
                 </button>
               </div>
               {canWrite && (
-                <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setModal({ kind: 'almacenCrear' })}>
+                <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '.7rem 1.3rem', fontSize: '1.02rem', fontWeight: 700 }} onClick={() => setModal({ kind: 'almacenCrear' })}>
                   + Agregar almacén
                 </button>
               )}
@@ -711,11 +711,8 @@ export function InventarioPage() {
         />
       )}
       {modal.kind === 'almacenEliminar' && (
-        <ConfirmDialog
-          title="Eliminar almacén"
-          message={`¿Eliminar el almacén "${modal.almacen.nombre}"? Solo se puede si no tiene productos asignados.`}
-          confirmText="Eliminar"
-          danger
+        <EliminarAlmacenDialog
+          almacen={modal.almacen}
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={() => handleEliminarAlmacen(modal.almacen)}
         />
@@ -741,5 +738,54 @@ export function InventarioPage() {
         />
       )}
     </div>
+  );
+}
+
+/* ───────── Eliminar almacén: confirmación escribiendo el nombre ───────── */
+const DIACRITICOS = /[̀-ͯ]/g; // marcas diacríticas combinantes
+function normalizarTexto(s: string): string {
+  return (s || '').normalize('NFD').replace(DIACRITICOS, '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+/** Palabra a escribir para confirmar: el nombre sin el prefijo genérico
+ *  (ej. "Almacén de Víveres" → "Víveres"; si no hay prefijo, el nombre completo). */
+function palabraClaveAlmacen(nombre: string): string {
+  const m = (nombre || '').trim().match(/^(?:almac[eé]n|dep[oó]sito|bodega)\s+(?:de\s+)?(.+)$/i);
+  return (m ? m[1] : nombre || '').trim();
+}
+
+function EliminarAlmacenDialog({ almacen, onCancel, onConfirm }: {
+  almacen: Almacen; onCancel: () => void; onConfirm: () => void;
+}) {
+  const clave = palabraClaveAlmacen(almacen.nombre);
+  const [texto, setTexto] = useState('');
+  const ok = texto.trim() !== '' && normalizarTexto(texto) === normalizarTexto(clave);
+  return (
+    <Modal title="Eliminar almacén" size="md" onClose={onCancel} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
+        <button className="btn btn-danger" disabled={!ok} onClick={() => { if (ok) onConfirm(); }}>
+          Eliminar definitivamente
+        </button>
+      </>
+    }>
+      <p style={{ marginTop: 0 }}>
+        ¿Seguro que deseas borrar el almacén <strong>«{almacen.nombre}»</strong>? Solo se puede si no tiene
+        productos asignados. <strong>Esta acción no se puede deshacer.</strong>
+      </p>
+      <div className="form-row">
+        <label>Para confirmar, escribí <strong>{clave}</strong></label>
+        <input
+          className="input"
+          autoFocus
+          value={texto}
+          placeholder={clave}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(); }}
+        />
+        {texto.trim() !== '' && !ok && (
+          <small className="muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
+        )}
+      </div>
+    </Modal>
   );
 }

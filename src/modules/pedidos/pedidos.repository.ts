@@ -528,15 +528,28 @@ export interface PagarOcInput {
   factura?: File | null;
   retencion?: File | null;
   motivoPago?: string | null;
+  seriales?: string[] | null;   // seriales de billetes (USD físico)
   actorEmail: string;
   actorName?: string | null;
 }
 
+/** Normaliza la lista de seriales: recorta, descarta vacíos y duplicados. */
+function limpiarSeriales(seriales?: string[] | null): string[] {
+  const out: string[] = [];
+  for (const s of seriales ?? []) {
+    const v = String(s ?? '').trim();
+    if (v && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
 /** Concepto del egreso de una OC: incluye el motivo de la OP y el del pago. */
-function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string): string {
+function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, seriales?: string[] | null): string {
+  const ser = limpiarSeriales(seriales);
   const extra = [
     o.notas?.trim() ? `motivo OP: ${o.notas.trim()}` : '',
     motivoPago?.trim() ? `pago: ${motivoPago.trim()}` : '',
+    ser.length ? `billetes: ${ser.join(', ')}` : '',
   ].filter(Boolean).join(' · ');
   return `Pago OC ${o.oc_codigo ?? o.codigo}${extra ? ` · ${extra}` : ''}${sufijo ? ` · ${sufijo}` : ''}`;
 }
@@ -553,11 +566,12 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
   const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
   if (monto <= 0) throw new Error('Indicá el monto a pagar.');
+  const seriales = limpiarSeriales(input.seriales);
 
   // 1) Egreso en Tesorería (valida saldo) casado con la orden → aparece en Libro Mayor.
   const mov = await pagarOrden({
     cajaId: input.cajaId, ordenId: o.id, monto,
-    concepto: conceptoPagoOc(o, input.motivoPago),
+    concepto: conceptoPagoOc(o, input.motivoPago, undefined, seriales),
     actor: input.actorEmail, actorName: input.actorName ?? null,
   });
 
@@ -576,9 +590,10 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     caja_mov_id: mov.id,
     factura_path: facturaPath, factura_nombre: facturaNombre,
     retencion_path: retencionPath, retencion_nombre: retencionNombre,
+    ...(seriales.length ? { seriales_billetes: seriales } : {}),
     // Si la OC es por Factura, al pagar se marca automáticamente en Retenciones.
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
-    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto }),
+    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...(seriales.length ? { seriales } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -597,6 +612,7 @@ export interface PagarOcMultiInput {
   legs: PagarOcMultiLeg[];
   factura?: File | null;
   motivoPago?: string | null;
+  seriales?: string[] | null;   // seriales de billetes (pata USD físico)
   actorEmail: string;
   actorName?: string | null;
 }
@@ -614,13 +630,16 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
   if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
   const legs = (input.legs ?? []).filter((l) => l.moneda && (Number(l.monto) || 0) > 0);
   if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');
+  const seriales = limpiarSeriales(input.seriales);
 
-  // Un egreso por moneda (cada uno valida el saldo de su cuenta).
+  // Un egreso por moneda (cada uno valida el saldo de su cuenta). Los seriales de
+  // billetes solo aplican a la pata en USD físico.
   const movIds: string[] = [];
   for (const leg of legs) {
+    const serLeg = leg.moneda === 'USD' ? seriales : null;
     const mov = await egresarDivisa({
       cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
-      concepto: conceptoPagoOc(o, input.motivoPago, leg.moneda), categoria: 'pago_oc', refOrdenId: o.id,
+      concepto: conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg), categoria: 'pago_oc', refOrdenId: o.id,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
     movIds.push(mov.id);
@@ -636,10 +655,12 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     caja_id: input.cajaId,
     caja_mov_id: movIds[0] ?? null,
     factura_path: facturaPath, factura_nombre: facturaNombre,
+    ...(seriales.length ? { seriales_billetes: seriales } : {}),
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
     historial: appendHistorial(o, 'pagada', input.actorEmail, {
       oc_codigo: o.oc_codigo,
       multipago: legs.map((l) => ({ moneda: l.moneda, cuenta: l.cuenta, monto: l.monto })),
+      ...(seriales.length ? { seriales } : {}),
     }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();

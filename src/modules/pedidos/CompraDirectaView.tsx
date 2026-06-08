@@ -344,6 +344,11 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
   const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
   const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
 
+  // Conversión del total a Bs con la tasa BCV (editable), para cualquier caja.
+  // El total se expresa en la moneda de la caja; lo llevamos a USD y a Bs.
+  const totalUsd = moneda === 'Bs' ? (tasa > 0 ? round2(total / tasa) : 0) : total;
+  const totalBs = moneda === 'Bs' ? total : (tasa > 0 ? round2(total * tasa) : 0);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
@@ -410,6 +415,26 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
         </div>
         <div className="card" style={{ margin: '.5rem 0' }}>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra a inventario en <strong>{compra.almacen}</strong></div>
 
+        {/* Conversión del total a Bs con la tasa BCV (editable) — para cualquier caja. */}
+        {cajaId && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Total en USD</div>
+              <strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda !== 'Bs' ? montoCaja(totalUsd, 'USD') : '—'}</strong>
+            </div>
+            <div className="muted" style={{ fontSize: '1.1rem' }}>⇄</div>
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs (BCV)</div>
+              <strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda === 'Bs' ? montoCaja(totalBs, 'Bs') : '—'}</strong>
+            </div>
+            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 150, margin: 0 }}>
+              <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs por $)</label>
+              <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
+                onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" />
+            </div>
+          </div>
+        )}
+
         {/* Multipago por cuenta: repartí el total entre las monedas de la caja Multimoneda. */}
         {esMultimoneda && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
@@ -451,7 +476,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
                 ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{montoCaja(round2(sumUsdMulti - total), 'USD')}</strong>. No podés pagar más que el total de la compra ({montoCaja(total, 'USD')}).</span>
                 : cubreTotalMulti
                 ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
-                : <>Faltan <strong>{montoCaja(round2(total - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV del día{tasa > 0 ? ` (${tasa.toLocaleString('es-VE')})` : ''}.</>}
+                : <>Faltan <strong>{montoCaja(round2(total - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
             </small>
           </div>
         )}

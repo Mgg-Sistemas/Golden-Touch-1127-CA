@@ -4,6 +4,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { date, money } from '@/shared/lib/format';
 import { listOcPorLote, nextCodigoChecklist, type OcLoteRow } from './ocLote.repository';
 import { aprobarOcsEnLote } from './pedidos.repository';
@@ -13,6 +14,7 @@ import { enviarChecklistAMultiples } from './enviarChecklist';
 /** Checklist "OC por lote": relación de OC por confirmar. Aprobar en lote + PDF/correo. */
 export function OcPorLoteView() {
   const { user } = useSession();
+  const { isAdmin } = usePermissions(); // Solo el administrador aprueba OC.
   const [rows, setRows] = useState<OcLoteRow[]>([]);
   const [incluirPagadas, setIncluirPagadas] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -59,6 +61,7 @@ export function OcPorLoteView() {
   // Aprobar en lote: solo las seleccionadas que estén "por confirmar" (oc_creada).
   const porConfirmar = (list: OcLoteRow[]) => seleccionadas(list).filter((r) => r.orden.estado === 'oc_creada');
   async function aprobar() {
+    if (!isAdmin) { toast('Solo el administrador puede aprobar las órdenes de compra.', 'error'); return; }
     const elegidas = porConfirmar(rows);
     if (!elegidas.length) { toast('No hay órdenes por confirmar seleccionadas', 'error'); return; }
     setAprobando(true);
@@ -76,7 +79,9 @@ export function OcPorLoteView() {
     <div>
       <div className="filterbar" style={{ justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmAprob(true); }}>✔ Aprobar en lote ({porConfirmar(rows).length})</button>
+          {isAdmin && (
+            <button className="btn btn-primary" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmAprob(true); }}>✔ Aprobar en lote ({porConfirmar(rows).length})</button>
+          )}
           <button className="btn btn-ghost" onClick={pdf}>↓ PDF ({sel.size})</button>
           <button className="btn btn-ghost" onClick={() => { if (!sel.size) { toast('Seleccioná al menos una orden', 'error'); return; } setCorreoOpen(true); }}>✉ Enviar por correo</button>
           <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem' }}>

@@ -384,6 +384,25 @@ interface FormModalProps {
   onSubmit: (payload: ProveedorInput) => void | Promise<void>;
 }
 
+// Prefijos de RIF válidos en Venezuela (SENIAT).
+const PREFIJOS_RIF: { letra: string; desc: string }[] = [
+  { letra: 'J', desc: 'Jurídico (empresa)' },
+  { letra: 'V', desc: 'Venezolano (natural)' },
+  { letra: 'E', desc: 'Extranjero' },
+  { letra: 'P', desc: 'Pasaporte' },
+  { letra: 'G', desc: 'Gubernamental' },
+  { letra: 'C', desc: 'Consejo comunal' },
+];
+const LETRAS_RIF = PREFIJOS_RIF.map((p) => p.letra);
+
+/** Separa un RIF guardado ("J-40778442") en su letra y su número. */
+function partirRif(rif: string): { letra: string; numero: string } {
+  const limpio = (rif ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const letra = LETRAS_RIF.includes(limpio[0]) ? limpio[0] : 'J';
+  const numero = limpio.replace(/^[A-Z]/, '').slice(0, 10);
+  return { letra, numero };
+}
+
 function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }: FormModalProps) {
   const [form, setForm] = useState<ProveedorInput>(() => {
     if (!initial) return { ...EMPTY_FORM };
@@ -411,6 +430,9 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
   function update<K extends keyof ProveedorInput>(key: K, value: ProveedorInput[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
+
+  // RIF dividido en letra (combo) + número, derivado del valor guardado.
+  const rifPartes = partirRif(form.rif);
 
   function toggleCategoria(cat: string, checked: boolean) {
     setForm((prev) => {
@@ -446,17 +468,18 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       toast('El correo no tiene un formato válido', 'error');
       return;
     }
+    const { letra, numero } = partirRif(form.rif);
     const payload: ProveedorInput = {
       ...form,
-      rif: form.rif.trim().toUpperCase(),
+      rif: numero ? `${letra}-${numero}` : '',
       razon_social: form.razon_social.trim().toUpperCase(),
       contacto: null,
       telefono: form.telefono?.trim() || null,
       email: emailClean || null,
       direccion: form.direccion?.trim().toUpperCase() || null,
     };
-    if (!payload.rif || !payload.razon_social) {
-      toast('RIF y razón social son obligatorios', 'error');
+    if (!numero || !payload.razon_social) {
+      toast('RIF (con número) y razón social son obligatorios', 'error');
       return;
     }
     void onSubmit(payload);
@@ -482,14 +505,28 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
         <div className="form-grid">
           <div className="form-row">
             <label>RIF</label>
-            <input
-              className="input mono"
-              value={form.rif}
-              onChange={(e) => update('rif', e.target.value.toUpperCase().slice(0, 10))}
-              placeholder="J-XXXXXXXX"
-              maxLength={10}
-              required
-            />
+            <div style={{ display: 'flex', gap: '.4rem' }}>
+              <select
+                className="select"
+                value={rifPartes.letra}
+                onChange={(e) => update('rif', `${e.target.value}-${rifPartes.numero}`)}
+                style={{ width: 'auto', flex: '0 0 auto' }}
+                aria-label="Tipo de RIF"
+              >
+                {PREFIJOS_RIF.map((p) => (
+                  <option key={p.letra} value={p.letra}>{p.letra} · {p.desc}</option>
+                ))}
+              </select>
+              <input
+                className="input mono"
+                value={rifPartes.numero}
+                onChange={(e) => update('rif', `${rifPartes.letra}-${e.target.value.replace(/\D/g, '').slice(0, 10)}`)}
+                placeholder="40778442"
+                inputMode="numeric"
+                style={{ flex: 1 }}
+                required
+              />
+            </div>
           </div>
           <div className="form-row">
             <label>Estado</label>

@@ -207,6 +207,8 @@ export interface MovimientoCaja {
   beneficiario?: string | null;
   beneficiario_id?: string | null;
   ref_orden_id?: string | null;
+  /** Enlace al renglón de nómina pagado (categoría 'pago_nomina'). */
+  ref_nomina_renglon_id?: string | null;
   /** Multimoneda: cuenta (Bs jurídica/personal) y tasa aplicada (Bs por unidad). */
   cuenta?: string | null;
   tasa_bs?: number | null;
@@ -801,6 +803,8 @@ export interface Orden {
   recibida_en?: string | null;
   /** Compras a crédito: total abonado acumulado. */
   abonado_total?: number | null;
+  /** Seriales de los billetes entregados al pagar la OC en USD físico (efectivo). */
+  seriales_billetes?: string[] | null;
   finalizada_por?: string | null;
   finalizada_en?: string | null;
   rechazada_por?: string | null;
@@ -825,6 +829,113 @@ export interface AbonoCredito {
   comprobante_path?: string | null;
   comprobante_nombre?: string | null;
   at: string;
+}
+
+/** Personal de nómina (no necesariamente usuario del sistema). */
+export interface Personal {
+  id: string;
+  nombre: string;
+  apellido: string;
+  cedula?: string | null;
+  cargo?: string | null;
+  departamento?: string | null;
+  sueldo_base: number;          // sueldo MENSUAL (USD)
+  activo: boolean;
+  fecha_ingreso?: string | null;
+  datos_pago?: Record<string, unknown> | null;
+  created_at: string;
+  created_by?: string | null;
+}
+
+/** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar. */
+export interface AnticipoPrestamo {
+  id: string;
+  personal_id: string;
+  tipo: 'anticipo' | 'prestamo';
+  monto_total: number;
+  saldo: number;
+  cuota_sugerida?: number | null;
+  estado: 'activo' | 'saldado';
+  motivo?: string | null;
+  creado_por?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+/** Período de nómina (una por quincena), cargado desde RRHH. */
+export interface NominaPeriodo {
+  id: string;
+  codigo: string;
+  tipo: string;
+  periodo_desde?: string | null;
+  periodo_hasta?: string | null;
+  dias_base: number;
+  tasa_bcv?: number | null;
+  estado: 'cargada' | 'en_pago' | 'pagada';
+  total_usd: number;
+  notas?: string | null;
+  creada_por?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
+/** Una deducción concreta aplicada a un renglón (referencia al anticipo/préstamo). */
+export interface DeduccionRef {
+  id: string;                   // id del anticipo_prestamo
+  tipo: 'anticipo' | 'prestamo';
+  monto: number;
+}
+
+/** Renglón de nómina = pago individual de una persona (su histórico quincenal). */
+export interface NominaRenglon {
+  id: string;
+  periodo_id: string;
+  personal_id?: string | null;
+  nombre: string;
+  cargo?: string | null;
+  departamento?: string | null;
+  sueldo_base_mensual: number;
+  dias_trabajados: number;
+  salario_bruto: number;
+  asignaciones: number;
+  deduc_anticipos: number;
+  deduc_prestamos: number;
+  deduc_ivss: number;
+  deduc_faov: number;
+  deducciones: DeduccionRef[];
+  neto_usd: number;
+  estado: 'por_pagar' | 'pagada';
+  pagada_por?: string | null;
+  pagada_en?: string | null;
+  caja_id?: string | null;
+  caja_mov_id?: string | null;
+  monto_pagado?: number | null;
+  moneda_pago?: string | null;
+  tasa_pago?: number | null;
+  seriales_billetes?: string[] | null;
+  comprobante_path?: string | null;
+  comprobante_nombre?: string | null;
+  created_at: string;
+  /** Solo en consultas con join: el período al que pertenece. */
+  periodo?: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv'> | null;
+}
+
+/** Evento administrativo de RRHH (Fase 3): vacaciones, permisos, utilidades, notas. */
+export interface RrhhEvento {
+  id: string;
+  personal_id: string;
+  tipo: 'vacacion' | 'permiso' | 'utilidad' | 'nota';
+  fecha_desde?: string | null;
+  fecha_hasta?: string | null;
+  dias?: number | null;
+  monto?: number | null;
+  descripcion?: string | null;
+  estado: string;
+  procesada?: boolean;
+  nomina_renglon_id?: string | null;
+  creado_por?: string | null;
+  actor_name?: string | null;
+  created_at: string;
 }
 
 export interface Factura {

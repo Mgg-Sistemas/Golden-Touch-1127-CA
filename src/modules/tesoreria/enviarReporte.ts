@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { obtenerReporteBase64, type ReporteMeta } from './reportePdf';
-import type { MovimientoCaja } from '@/shared/lib/types';
+import { obtenerMovimientoDetalleBase64 } from './movimientoDetallePdf';
+import type { MovimientoCaja, Orden } from '@/shared/lib/types';
 
 const FUNCTION_SLUG = 'enviar-reporte';
 
@@ -25,6 +26,34 @@ export async function enviarReportePorCorreo(
       nombre_archivo: nombre,
       asunto: meta.titulo + (meta.subtitulo ? ` · ${meta.subtitulo}` : ''),
       mensaje: meta.subtitulo ?? '',
+      to_emails: lista,
+    },
+  });
+  if (error) throw new Error(error.message ?? 'No se pudo enviar el correo');
+  if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  return { destinatarios: data.destinatarios };
+}
+
+/**
+ * Envía por correo el PDF del detalle de UN movimiento (con orden pagada,
+ * seriales y comprobante si aplica) vía la misma Edge Function `enviar-reporte`.
+ */
+export async function enviarMovimientoDetallePorCorreo(
+  mov: MovimientoCaja,
+  orden: Orden | null,
+  destinos?: string[] | string,
+): Promise<{ destinatarios: string[] }> {
+  const { base64, nombre } = await obtenerMovimientoDetalleBase64(mov, orden);
+  const lista = Array.isArray(destinos) ? destinos : destinos ? [destinos] : [];
+  const ref = orden?.oc_codigo || orden?.codigo || mov.id.slice(0, 8);
+  const { data, error } = await supabase.functions.invoke<
+    { ok: true; destinatarios: string[] } | { error: string }
+  >(FUNCTION_SLUG, {
+    body: {
+      pdf_base64: base64,
+      nombre_archivo: nombre,
+      asunto: `Detalle de movimiento · ${ref}`,
+      mensaje: `Detalle del movimiento de ${mov.caja?.nombre ?? 'caja'}.`,
       to_emails: lista,
     },
   });

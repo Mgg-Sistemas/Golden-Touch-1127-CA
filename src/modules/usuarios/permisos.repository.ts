@@ -12,6 +12,7 @@ export type ModuleKey =
   | 'acopio'
   | 'tesoreria'
   | 'retenciones'
+  | 'rrhh'
   | 'usuarios'
   | 'ajustes';
 
@@ -36,6 +37,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'acopio',      label: 'Centro de Acopio PERAMANAL' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'retenciones', label: 'Retenciones' },
+  { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
 ];
@@ -58,6 +60,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.usuarios = { lectura: true, escritura: false, full: false };
     all.tesoreria = { lectura: true, escritura: false, full: false };
     all.retenciones = { lectura: true, escritura: true, full: false };
+    all.rrhh = { lectura: true, escritura: true, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };
     all.pedidos    = { lectura: true, escritura: true, full: false };

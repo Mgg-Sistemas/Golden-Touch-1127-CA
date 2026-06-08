@@ -151,7 +151,12 @@
   grid-area: main;
   padding: 1.5rem 2rem 3rem;
   overflow-y: auto;
+  overflow-x: hidden;       /* el scroll horizontal vive dentro de .table-wrap */
+  min-width: 0;             /* permite que la columna 1fr encoja (no desborda) */
 }
+
+/* Overlay del drawer móvil (oculto en desktop). */
+.sidebar-overlay { display: none; }
 
 .page-head {
   display: flex; justify-content: space-between; align-items: flex-end;
@@ -616,18 +621,58 @@ tr.row-selectable:active { transform: scale(0.998); }
 }
 
 /* ============================================================
-   Responsive · Mobile (≤ 768px) — sidebar colapsa a íconos,
+   Responsive · Mobile (≤ 768px) — el sidebar pasa a DRAWER
+   deslizable (off-canvas), el layout es de una sola columna,
    topbar oculta búsqueda, kanban scrolleable, tablas con scroll
    ============================================================ */
 @media (max-width: 768px) {
-  :root { --sidebar-w: 64px; --topbar-h: 56px; }
-  .sidebar-brand .brand-text, .sidebar-section, .nav a span:not(.icn):not(.badge),
-  .user-chip .info { display: none; }
-  .nav a { justify-content: center; padding: .65rem; }
+  :root { --topbar-h: 56px; }
+
+  /* Layout de una sola columna: el sidebar sale del flujo (drawer). */
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: var(--topbar-h) 1fr;
+    grid-template-areas: "topbar" "main";
+  }
+
+  /* Sidebar como panel deslizable sobre el contenido. */
+  .sidebar {
+    position: fixed; top: 0; left: 0; z-index: 60;
+    width: 270px; max-width: 84vw; height: 100vh;
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+    box-shadow: var(--shadow-lg);
+  }
+  .app.drawer-open .sidebar { transform: translateX(0); }
+
+  /* Velo oscuro detrás del drawer abierto. */
+  .sidebar-overlay {
+    display: block;
+    position: fixed; inset: 0; z-index: 55;
+    background: rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none;
+    transition: opacity .22s ease;
+  }
+  .app.drawer-open .sidebar-overlay { opacity: 1; pointer-events: auto; }
+
+  /* En el drawer SIEMPRE se ven los textos completos (no riel de íconos),
+     aunque venga `collapsed` desde el uso en desktop. */
+  .sidebar-brand .brand-text, .sidebar-section,
+  .nav a span:not(.icn), .user-chip .info,
+  .app.sidebar-collapsed .sidebar-brand .brand-text,
+  .app.sidebar-collapsed .sidebar-section,
+  .app.sidebar-collapsed .nav a > span:not(.icn),
+  .app.sidebar-collapsed .nav a .badge,
+  .app.sidebar-collapsed .user-chip .info { display: revert; }
+  .nav a,
+  .app.sidebar-collapsed .nav a { justify-content: flex-start; padding: .65rem .85rem; }
+  .app.sidebar-collapsed .user-chip { justify-content: flex-start; padding: .6rem; }
+
   .search-box { display: none; }
   .main { padding: 1rem; }
   .topbar { padding: 0 1rem; }
   .topbar .crumb { font-size: .8rem; }
+  .top-actions { gap: .4rem; min-width: 0; }
 
   .page-head h1 { font-size: 1.2rem; }
   .page-head p { font-size: .8rem; }

@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { dateTime, date as fmtDate, dosDecimales } from '@/shared/lib/format';
+import { dateTime, date as fmtDate, dosDecimales, redondearArriba5 } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { GestionarCajasModal } from '@/modules/salidas/GestionarCajasModal';
-import { listDirectorioUsuarios, type PersonaDirectorio } from '@/modules/salidas/salidas.repository';
-import type { Caja, MovimientoCaja } from '@/shared/lib/types';
+import {
+  listRenglonesPorPagar, countRenglonesPorPagar, pagarRenglon, getRenglonById, urlComprobanteNomina, labelMotivoNomina,
+} from '@/modules/rrhh/nomina.repository';
+import type { NominaRenglon } from '@/shared/lib/types';
+import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
@@ -24,18 +27,20 @@ import type { MonedaCaja, CuentaCaja, CajaSaldo, CajaLote } from '@/shared/lib/t
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import {
   listCajasActivas, listCentrosAcopio,
-  registrarGasto, pagarPersonal, disponibilidadFinanciera, listLibroMayor,
+  registrarGasto, disponibilidadFinanciera, listLibroMayor,
   type Disponibilidad,
 } from './tesoreria.repository';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMulti, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg,
+  getOrdenById, urlAdjuntoOc,
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo } from '@/modules/retenciones/retenciones.repository';
 import { descargarReportePdf, type ReporteMeta } from './reportePdf';
-import { enviarReportePorCorreo } from './enviarReporte';
+import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
+import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo } from './enviarReporte';
 import type { AbonoCredito } from '@/shared/lib/types';
 import { descargarOrdenCompraPdf } from '@/modules/pedidos/ordenCompraPdf';
 import { listOfertasByOrden, getPdfOfertaSignedUrl } from '@/modules/pedidos/ofertas.repository';
@@ -46,13 +51,18 @@ const TIPO_MOV_LABEL: Record<string, string> = {
   traslado_entrada: '↔ Traslado (entra)', ajuste: '⚙ Ajuste',
 };
 const CAT_LABEL: Record<string, string> = {
-  gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra',
+  gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
 };
 
 /** Formatea un monto con el símbolo de su moneda (2 decimales). */
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
+}
+
+/** Normaliza texto para buscar: minúsculas y sin acentos (búsqueda tolerante). */
+function normalizarBusqueda(s: string | null | undefined): string {
+  return (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 }
 
 export function TesoreriaPage() {
@@ -71,8 +81,10 @@ export function TesoreriaPage() {
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
+  const [nominaCount, setNominaCount] = useState(0);
   const [vista, setVista] = useState<'tesoreria' | 'tasas' | 'movimientos'>('tesoreria');
   const [correoMovOpen, setCorreoMovOpen] = useState(false);
+  const [movSel, setMovSel] = useState<MovimientoCaja | null>(null);
 
   // Filtros del registro de movimientos
   const [fMoneda, setFMoneda] = useState<string>('');
@@ -81,11 +93,12 @@ export function TesoreriaPage() {
   const [fTipo, setFTipo] = useState('');
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
+  const [fBuscar, setFBuscar] = useState('');
 
   const [transfers, setTransfers] = useState<TransferenciaInter[]>([]);
 
   const reload = useCallback(async () => {
-    const [d, cs, sal, mov, pp, cr, tr] = await Promise.all([
+    const [d, cs, sal, mov, pp, cr, tr, nc] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
@@ -93,13 +106,14 @@ export function TesoreriaPage() {
       listOrdenesPorPagar().catch(() => [] as OrdenPorPagar[]),
       listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
       listTransferenciasInter().catch(() => [] as TransferenciaInter[]),
+      countRenglonesPorPagar().catch(() => 0),
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length); setTransfers(tr);
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length); setTransfers(tr); setNominaCount(nc);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
-  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes'], () => { void reload(); });
+  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones'], () => { void reload(); });
 
   useEffect(() => {
     setLoading(true);
@@ -115,12 +129,30 @@ export function TesoreriaPage() {
 
   const cerrarYRecargar = async () => { setModal('none'); await reload(); };
 
+  // Búsqueda general (client-side) sobre los movimientos ya cargados: caja,
+  // concepto, beneficiario, motivo, moneda, monto, saldo y fecha. Cada palabra
+  // tecleada debe aparecer en algún campo (búsqueda tipo "todas las palabras").
+  const libroView = useMemo(() => {
+    const q = normalizarBusqueda(fBuscar);
+    if (!q) return libro;
+    const palabras = q.split(/\s+/).filter(Boolean);
+    return libro.filter((m) => {
+      const heno = normalizarBusqueda([
+        m.caja?.nombre, TIPO_MOV_LABEL[m.tipo] ?? m.tipo, CAT_LABEL[m.categoria ?? ''] ?? m.categoria,
+        m.beneficiario, m.motivo, m.destino, m.cuenta, m.moneda,
+        monto(m.monto, m.moneda), monto(m.saldo_despues, m.moneda), dateTime(m.at),
+      ].filter(Boolean).join(' '));
+      return palabras.every((p) => heno.includes(p));
+    });
+  }, [libro, fBuscar]);
+
   // Metadatos del reporte PDF/correo del registro de movimientos (según filtros).
   const reporteMeta = () => ({
     titulo: 'REPORTE DE MOVIMIENTOS',
     subtitulo: [
       fDesde && `Desde ${fDesde}`, fHasta && `Hasta ${fHasta}`,
       fMoneda && `Moneda ${fMoneda}`, fTipo && `Tipo ${fTipo}`,
+      fBuscar.trim() && `Búsqueda "${fBuscar.trim()}"`,
     ].filter(Boolean).join(' · ') || 'Todos los movimientos',
   });
 
@@ -162,9 +194,11 @@ export function TesoreriaPage() {
                 <button className="btn btn-primary" onClick={() => setModal('creditos')}>
                   💳 CUENTAS POR PAGAR (CRÉDITOS){creditosCount ? ` (${creditosCount})` : ''}
                 </button>
+                <button className={nominaCount > 0 ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModal('pago')}>
+                  {nominaCount > 0 ? `💸 PAGAR NÓMINA (${nominaCount})` : '👥 Pago a personal'}
+                </button>
                 <button className="btn btn-ghost" onClick={() => setModal('gasto')}>− Gasto</button>
                 <button className="btn btn-ghost" onClick={() => setModal('traslado')}>↔ Traspaso de dinero</button>
-                <button className="btn btn-ghost" onClick={() => setModal('pago')}>👥 Pago a personal</button>
                 <button className="btn btn-ghost" onClick={() => setModal('cajas')}>🏦 Cajas</button>
               </>
             )}
@@ -210,6 +244,15 @@ export function TesoreriaPage() {
             <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
               <span>Registro de movimientos</span>
               <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ position: 'relative' }}>
+                  <input className="input" type="search" value={fBuscar} onChange={(e) => setFBuscar(e.target.value)}
+                    placeholder="🔍 Buscar (caja, concepto, monto…)" style={{ width: 240, paddingRight: fBuscar ? '1.6rem' : undefined }} />
+                  {fBuscar && (
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFBuscar('')}
+                      title="Limpiar búsqueda"
+                      style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>
+                  )}
+                </div>
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
                   Desde <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} />
                 </label>
@@ -228,19 +271,24 @@ export function TesoreriaPage() {
                 </select>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
-              <button className="btn btn-sm btn-ghost" disabled={!libro.length} onClick={async () => {
-                try { await descargarReportePdf(libro, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.5rem', alignItems: 'center' }}>
+              <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={async () => {
+                try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
-              <button className="btn btn-sm btn-ghost" disabled={!libro.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
+              <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
+              {fBuscar.trim() && (
+                <span className="muted" style={{ fontSize: '.8rem' }}>
+                  {libroView.length} de {libro.length} {libro.length === 1 ? 'movimiento' : 'movimientos'}
+                </span>
+              )}
             </div>
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.85rem' }}>
-                <thead><tr><th>Fecha</th><th>Caja</th><th>Movimiento</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>Saldo</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Caja</th><th>Movimiento</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'center' }}>Detalle</th></tr></thead>
                 <tbody>
-                  {loading && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-                  {!loading && !libro.length && <tr><td colSpan={6}><EmptyState message="Sin movimientos" /></td></tr>}
-                  {!loading && libro.map((m) => {
+                  {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+                  {!loading && !libroView.length && <tr><td colSpan={7}><EmptyState message={fBuscar.trim() ? `Sin resultados para "${fBuscar.trim()}"` : 'Sin movimientos'} /></td></tr>}
+                  {!loading && libroView.map((m) => {
                     const egreso = m.tipo === 'salida' || m.tipo === 'traslado_salida'
                   || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
                     const concepto = [CAT_LABEL[m.categoria ?? ''] , m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
@@ -252,6 +300,9 @@ export function TesoreriaPage() {
                         <td>{concepto}</td>
                         <td className="mono" style={{ textAlign: 'right', color: egreso ? 'var(--danger)' : 'var(--success)' }}>{egreso ? '−' : '+'}{monto(m.monto, m.moneda)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{monto(m.saldo_despues, m.moneda)}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button className="btn btn-sm btn-ghost" onClick={() => setMovSel(m)}>🔍 Detalles</button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -262,10 +313,11 @@ export function TesoreriaPage() {
       </>
       )}
 
-      {correoMovOpen && <EnviarReporteModal movs={libro} meta={reporteMeta()} defaultEmail={actor} onClose={() => setCorreoMovOpen(false)} />}
+      {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={actor} onClose={() => setMovSel(null)} />}
+      {correoMovOpen && <EnviarReporteModal movs={libroView} meta={reporteMeta()} defaultEmail={actor} onClose={() => setCorreoMovOpen(false)} />}
       {modal === 'gasto' && <GastoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
       {modal === 'traslado' && <TrasladoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
-      {modal === 'pago' && <PagoPersonalModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
+      {modal === 'pago' && <NominaPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'cajas' && <GestionarCajasModal actor={actor} actorName={actorName} onClose={() => setModal('none')} onCambioAplicado={reload} />}
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
       {modal === 'conversor' && <ConversorModal onClose={() => setModal('none')} />}
@@ -274,6 +326,255 @@ export function TesoreriaPage() {
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {cajaSel && <CajaDetalleModal caja={cajaSel} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCajaSel(null)} onChanged={async () => { await reload(); }} />}
     </div>
+  );
+}
+
+/* ───────────── Detalle de un movimiento del registro ───────────── */
+
+function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: MovimientoCaja; defaultEmail: string; onClose: () => void }) {
+  const egreso = mov.tipo === 'salida' || mov.tipo === 'traslado_salida'
+    || (mov.tipo === 'ajuste' && Number(mov.saldo_despues) < Number(mov.saldo_antes));
+  const [orden, setOrden] = useState<Orden | null>(null);
+  const [cargandoOrden, setCargandoOrden] = useState(false);
+  const [renglon, setRenglon] = useState<NominaRenglon | null>(null);
+  const [cargandoReng, setCargandoReng] = useState(false);
+  const [abriendo, setAbriendo] = useState(false);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [correoOpen, setCorreoOpen] = useState(false);
+
+  // Si el movimiento es un pago de compra (pago_oc), traemos la OC para mostrar
+  // seriales de billetes, comprobante y datos de la orden pagada.
+  useEffect(() => {
+    if (!mov.ref_orden_id) { setOrden(null); return; }
+    setCargandoOrden(true);
+    getOrdenById(mov.ref_orden_id)
+      .then((o) => setOrden(o))
+      .catch(() => setOrden(null))
+      .finally(() => setCargandoOrden(false));
+  }, [mov.ref_orden_id]);
+
+  // Si es un pago de nómina, traemos el renglón (persona, período, seriales, comprobante).
+  useEffect(() => {
+    if (!mov.ref_nomina_renglon_id) { setRenglon(null); return; }
+    setCargandoReng(true);
+    getRenglonById(mov.ref_nomina_renglon_id)
+      .then((r) => setRenglon(r))
+      .catch(() => setRenglon(null))
+      .finally(() => setCargandoReng(false));
+  }, [mov.ref_nomina_renglon_id]);
+
+  async function verComprobante(path: string) {
+    setAbriendo(true);
+    try {
+      const url = await urlAdjuntoOc(path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch { toast('No se pudo abrir el comprobante', 'error'); }
+    finally { setAbriendo(false); }
+  }
+  async function verComprobanteNomina(path: string) {
+    setAbriendo(true);
+    try {
+      const url = await urlComprobanteNomina(path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch { toast('No se pudo abrir el comprobante', 'error'); }
+    finally { setAbriendo(false); }
+  }
+
+  const seriales = orden?.seriales_billetes ?? [];
+  const serialesNomina = renglon?.seriales_billetes ?? [];
+
+  async function descargarPdf() {
+    setGenerandoPdf(true);
+    try { await descargarMovimientoDetallePdf(mov, orden); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    finally { setGenerandoPdf(false); }
+  }
+
+  return (
+    <Modal title="Detalle del movimiento" size="lg" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
+          {generandoPdf ? 'Generando…' : '↓ PDF'}
+        </button>
+        <button className="btn btn-ghost" onClick={() => setCorreoOpen(true)} disabled={cargandoOrden}>✉ Enviar por correo</button>
+        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      </>
+    }>
+      {/* Datos generales del movimiento */}
+      <div className="card" style={{ marginBottom: '.75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.4rem' }}>Movimiento</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
+          <div><span className="muted">Fecha:</span> <strong>{dateTime(mov.at)}</strong></div>
+          <div><span className="muted">Caja:</span> <strong>{mov.caja?.nombre ?? '—'}</strong></div>
+          <div><span className="muted">Tipo:</span> <strong>{TIPO_MOV_LABEL[mov.tipo] ?? mov.tipo}</strong></div>
+          <div><span className="muted">Categoría:</span> <strong>{CAT_LABEL[mov.categoria ?? ''] ?? (mov.categoria || '—')}</strong></div>
+          <div><span className="muted">Monto:</span> <strong className="mono" style={{ color: egreso ? 'var(--danger)' : 'var(--success)' }}>{egreso ? '−' : '+'}{monto(mov.monto, mov.moneda)}</strong></div>
+          {mov.cuenta && <div><span className="muted">Cuenta:</span> <strong>{mov.cuenta}</strong></div>}
+          {mov.tasa_bs != null && mov.tasa_bs > 0 && <div><span className="muted">Tasa aplicada:</span> <strong className="mono">{monto(mov.tasa_bs, 'Bs')} / $</strong></div>}
+          <div><span className="muted">Saldo antes:</span> <strong className="mono">{monto(mov.saldo_antes, mov.moneda)}</strong></div>
+          <div><span className="muted">Saldo después:</span> <strong className="mono">{monto(mov.saldo_despues, mov.moneda)}</strong></div>
+          {mov.beneficiario && <div><span className="muted">Beneficiario:</span> <strong>{mov.beneficiario}</strong></div>}
+          {mov.destino && <div><span className="muted">Destino:</span> <strong>{mov.destino}</strong></div>}
+          <div><span className="muted">Registrado por:</span> <strong>{mov.actor_name || mov.actor}</strong></div>
+        </div>
+        {mov.motivo && (
+          <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
+            <span className="muted">Concepto / motivo:</span> {mov.motivo}
+          </div>
+        )}
+      </div>
+
+      {/* Orden pagada (si el movimiento es un pago de compra) */}
+      {mov.ref_orden_id && (
+        <div className="card" style={{ marginBottom: '.75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>Orden pagada</div>
+          {cargandoOrden && <div className="muted" style={{ fontSize: '.84rem' }}>Cargando la orden…</div>}
+          {!cargandoOrden && !orden && <div className="muted" style={{ fontSize: '.84rem' }}>No se pudo cargar la orden vinculada.</div>}
+          {!cargandoOrden && orden && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
+                <div><span className="muted">OP:</span> <strong className="mono">{orden.codigo}</strong></div>
+                <div><span className="muted">N°ODC:</span> <strong className="mono">{orden.oc_codigo ?? '—'}</strong></div>
+                <div><span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, 'USD')}</strong></div>
+                {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), 'USD')}</strong></div>}
+                <div><span className="muted">Solicitante:</span> <strong>{orden.solicitante || orden.solicitante_email}</strong></div>
+                {orden.condiciones_pago && <div><span className="muted">Condición:</span> <strong>{labelCondicionPago(orden.condiciones_pago)}</strong></div>}
+                {orden.pagada_en && <div><span className="muted">Pagada:</span> <strong>{dateTime(orden.pagada_en)}</strong></div>}
+              </div>
+
+              {/* Seriales de billetes entregados */}
+              <div style={{ marginTop: '.6rem' }}>
+                <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.25rem' }}>Seriales de los billetes entregados</div>
+                {seriales.length ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+                    {seriales.map((s, i) => (
+                      <span key={s} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', background: 'var(--bg-1)' }}>
+                        <span className="muted">{i + 1}.</span><span className="mono">{s}</span>
+                      </span>
+                    ))}
+                    <span className="muted" style={{ alignSelf: 'center', fontSize: '.8rem' }}>{seriales.length} billete(s)</span>
+                  </div>
+                ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se registraron seriales en este pago.</span>}
+              </div>
+
+              {/* Comprobante de pago (si se subió) */}
+              <div style={{ marginTop: '.6rem' }}>
+                <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.25rem' }}>Comprobante de pago</div>
+                {orden.factura_path ? (
+                  <button className="btn btn-sm btn-ghost" disabled={abriendo} onClick={() => verComprobante(orden.factura_path!)}>
+                    {abriendo ? 'Abriendo…' : `📎 Ver comprobante${orden.factura_nombre ? ` · ${orden.factura_nombre}` : ''}`}
+                  </button>
+                ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se subió comprobante (pago en efectivo, opcional).</span>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Nómina pagada (si el movimiento es un pago de nómina) */}
+      {mov.ref_nomina_renglon_id && (
+        <div className="card" style={{ marginBottom: '.75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>Nómina pagada</div>
+          {cargandoReng && <div className="muted" style={{ fontSize: '.84rem' }}>Cargando el renglón…</div>}
+          {!cargandoReng && !renglon && <div className="muted" style={{ fontSize: '.84rem' }}>No se pudo cargar el renglón vinculado.</div>}
+          {!cargandoReng && renglon && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
+                <div><span className="muted">Trabajador:</span> <strong>{renglon.nombre}</strong></div>
+                <div><span className="muted">Nómina:</span> <strong className="mono">{renglon.periodo?.codigo ?? '—'}</strong></div>
+                <div><span className="muted">Motivo:</span> <strong>{labelMotivoNomina(renglon.periodo?.tipo)}</strong></div>
+                <div><span className="muted">Departamento:</span> {renglon.departamento || '—'}</div>
+                <div><span className="muted">Días:</span> <strong>{renglon.dias_trabajados}</strong></div>
+                <div><span className="muted">Bruto:</span> <strong className="mono">{monto(renglon.salario_bruto, 'USD')}</strong></div>
+                <div><span className="muted">Deducciones:</span> <strong className="mono">{monto(round2((Number(renglon.deduc_anticipos) || 0) + (Number(renglon.deduc_prestamos) || 0)), 'USD')}</strong></div>
+                <div><span className="muted">Neto:</span> <strong className="mono" style={{ color: 'var(--success)' }}>{monto(renglon.neto_usd, 'USD')}</strong></div>
+                {renglon.tasa_pago != null && renglon.tasa_pago > 0 && <div><span className="muted">Tasa aplicada:</span> <strong className="mono">{monto(renglon.tasa_pago, 'Bs')} / $</strong></div>}
+              </div>
+
+              <div style={{ marginTop: '.6rem' }}>
+                <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.25rem' }}>Seriales de los billetes entregados</div>
+                {serialesNomina.length ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+                    {serialesNomina.map((s, i) => (
+                      <span key={s} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', background: 'var(--bg-1)' }}>
+                        <span className="muted">{i + 1}.</span><span className="mono">{s}</span>
+                      </span>
+                    ))}
+                    <span className="muted" style={{ alignSelf: 'center', fontSize: '.8rem' }}>{serialesNomina.length} billete(s)</span>
+                  </div>
+                ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se registraron seriales en este pago.</span>}
+              </div>
+
+              <div style={{ marginTop: '.6rem' }}>
+                <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.25rem' }}>Comprobante de pago</div>
+                {renglon.comprobante_path ? (
+                  <button className="btn btn-sm btn-ghost" disabled={abriendo} onClick={() => verComprobanteNomina(renglon.comprobante_path!)}>
+                    {abriendo ? 'Abriendo…' : `📎 Ver comprobante${renglon.comprobante_nombre ? ` · ${renglon.comprobante_nombre}` : ''}`}
+                  </button>
+                ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se subió comprobante (opcional).</span>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {correoOpen && (
+        <DetalleCorreoModal mov={mov} orden={orden} defaultEmail={defaultEmail} onClose={() => setCorreoOpen(false)} />
+      )}
+    </Modal>
+  );
+}
+
+/** Envío por correo del detalle de un movimiento (mismo patrón que el reporte). */
+function DetalleCorreoModal({ mov, orden, defaultEmail, onClose }: {
+  mov: MovimientoCaja; orden: Orden | null; defaultEmail: string; onClose: () => void;
+}) {
+  const [incluirPropio, setIncluirPropio] = useState(true);
+  const [extra, setExtra] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const propio = defaultEmail.trim().toLowerCase();
+  const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  async function handleEnviar() {
+    const lista: string[] = [];
+    if (incluirPropio && propio) lista.push(propio);
+    const extraClean = extra.trim().toLowerCase();
+    if (extraClean) {
+      if (!emailRx.test(extraClean)) { toast('El correo adicional no es válido', 'error'); return; }
+      lista.push(extraClean);
+    }
+    setEnviando(true);
+    try {
+      const r = await enviarMovimientoDetallePorCorreo(mov, orden, lista);
+      notify(`Detalle enviado a ${r.destinatarios.join(', ')}`, 'success', { link: '#/app/tesoreria' });
+      onClose();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar', 'error'); }
+    finally { setEnviando(false); }
+  }
+
+  return (
+    <Modal title="Enviar detalle por correo" size="md" onClose={() => !enviando && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={enviando}>Cancelar</button>
+        <button className="btn btn-primary" onClick={handleEnviar} disabled={enviando}>{enviando ? 'Enviando…' : '📧 Enviar'}</button>
+      </>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        Se enviará el <strong>PDF del detalle</strong>{orden ? ' (con la orden pagada, seriales y comprobante)' : ''} a los destinatarios seleccionados.
+      </p>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', padding: '.7rem .85rem', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: incluirPropio ? 'rgba(255,138,0,0.06)' : 'transparent', cursor: propio ? 'pointer' : 'not-allowed', marginBottom: '.6rem' }}>
+        <input type="checkbox" checked={incluirPropio} disabled={!propio} onChange={(e) => setIncluirPropio(e.target.checked)} />
+        <div>
+          <div style={{ fontWeight: 600 }}>Tu correo</div>
+          <div className="mono" style={{ fontSize: '.82rem' }}>{propio || '—'}</div>
+        </div>
+      </label>
+      <div className="form-row" style={{ marginTop: '.4rem' }}>
+        <label>Correo adicional (opcional)</label>
+        <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
+        <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
+      </div>
+    </Modal>
   );
 }
 
@@ -385,19 +686,53 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
             <tbody>
               {loading && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
               {!loading && !saldos.length && <tr><td colSpan={6}><EmptyState message="Sin saldos · ingresá dinero abajo" /></td></tr>}
-              {!loading && saldos.map((s) => (
-                <tr key={s.id}>
-                  <td>{s.cuenta === 'general' ? '—' : s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}</td>
-                  <td><span className="badge">{s.moneda}</span></td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{monto(s.saldo, s.moneda)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{s.moneda === 'Bs' ? (mercado?.bcvUsd ? `BCV ${Number(mercado.bcvUsd).toLocaleString('es-VE', { maximumFractionDigits: 4 })}` : '—') : (s.tasa_prom != null ? Number(s.tasa_prom).toLocaleString('es-VE', { maximumFractionDigits: 4 }) : '—')}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>
-                    {monto(equivBs(s), 'Bs')}
-                    {s.moneda === 'Bs' && mercado?.bcvUsd ? <div className="muted" style={{ fontSize: '.7rem' }}>≈ {monto(Number(s.saldo) / mercado.bcvUsd, 'USD')} a BCV</div> : null}
-                  </td>
-                  <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => verLotes(s)}>Trazabilidad</button></td>
-                </tr>
-              ))}
+              {!loading && saldos.map((s) => {
+                const bcv = mercado?.bcvUsd ?? null;
+                const prom = s.tasa_prom != null ? Number(s.tasa_prom) : null;
+                const saldoN = Number(s.saldo) || 0;
+                const mostrarBcvRow = s.moneda !== 'Bs' && bcv != null && prom != null && prom > 0;
+                const equivProm = prom != null ? saldoN * prom : 0;
+                const equivBcv = bcv != null ? saldoN * bcv : 0;
+                // Margen de ahorro: cuánto menos vale en Bs a tasa BCV respecto a la tasa promedio de compra.
+                const margen = mostrarBcvRow && prom && bcv != null ? ((prom - bcv) / prom) * 100 : null;
+                return (
+                  <Fragment key={s.id}>
+                    <tr>
+                      <td>{s.cuenta === 'general' ? '—' : s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}</td>
+                      <td><span className="badge">{s.moneda}</span></td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{monto(s.saldo, s.moneda)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{s.moneda === 'Bs' ? (mercado?.bcvUsd ? `BCV ${Number(mercado.bcvUsd).toLocaleString('es-VE', { maximumFractionDigits: 4 })}` : '—') : (prom != null ? Number(prom).toLocaleString('es-VE', { maximumFractionDigits: 4 }) : '—')}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>
+                        {monto(equivBs(s), 'Bs')}
+                        {s.moneda === 'Bs' && mercado?.bcvUsd ? <div className="muted" style={{ fontSize: '.7rem' }}>≈ {monto(Number(s.saldo) / mercado.bcvUsd, 'USD')} a BCV</div> : null}
+                      </td>
+                      <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => verLotes(s)}>Trazabilidad</button></td>
+                    </tr>
+                    {mostrarBcvRow && (
+                      <tr style={{ background: 'var(--bg-1)' }}>
+                        <td></td>
+                        <td className="muted" style={{ fontSize: '.72rem' }}>≡ a BCV</td>
+                        <td className="mono muted" style={{ textAlign: 'right', fontSize: '.78rem' }}>—</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>BCV {Number(bcv).toLocaleString('es-VE', { maximumFractionDigits: 4 })}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>
+                          {monto(equivBcv, 'Bs')}
+                          <div className="muted" style={{ fontSize: '.7rem' }}>a tasa prom. {monto(equivProm, 'Bs')}</div>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {margen != null && (
+                            <div style={{ lineHeight: 1.15 }}>
+                              <div className="muted" style={{ fontSize: '.6rem', letterSpacing: '.02em' }}>MARGEN AHORRO</div>
+                              <strong className="mono" style={{ color: '#16c784', fontWeight: 800, fontSize: '.98rem' }} title="Ahorro pagando a tasa BCV respecto a la tasa promedio de compra de este saldo">
+                                {margen.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %
+                              </strong>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -455,6 +790,20 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                   </tr>
                 ))}
               </tbody>
+              {lotes.length > 0 && (() => {
+                const tot = lotes.reduce((a, l) => a + (Number(l.monto) || 0), 0);
+                const prom = tot > 0 ? lotes.reduce((a, l) => a + (Number(l.monto) || 0) * (Number(l.tasa_bs) || 0), 0) / tot : 0;
+                return (
+                  <tfoot>
+                    <tr>
+                      <td style={{ fontWeight: 700 }}>Total</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(tot, lotesDe.moneda)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#16c784' }} title="Promedio ponderado por monto de los lotes">{prom.toLocaleString('es-VE', { maximumFractionDigits: 4 })}</td>
+                      <td colSpan={2} className="muted" style={{ fontSize: '.72rem' }}>Promedio ponderado de las tasas de ingreso</td>
+                    </tr>
+                  </tfoot>
+                );
+              })()}
             </table>
           </div>
         </div>
@@ -517,10 +866,34 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
               <input className="input" value={origen} onChange={(e) => setOrigen(e.target.value)} placeholder="Binance, efectivo, transferencia…" />
             </div>
           </div>
+          {moneda !== 'Bs' && (Number(montoStr) || 0) > 0 && (Number(tasaStr) || 0) > 0 && (() => {
+            const saldoActual = saldos.find((s) => s.moneda === moneda && s.cuenta === cuenta);
+            const sa = Number(saldoActual?.saldo) || 0;
+            const tp = Number(saldoActual?.tasa_prom) || 0;
+            const mn = Number(montoStr) || 0;
+            const tn = Number(tasaStr) || 0;
+            const nuevoSaldo = sa + mn;
+            const nuevoProm = nuevoSaldo > 0 ? (sa * tp + mn * tn) / nuevoSaldo : tn;
+            const f4 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 4 });
+            return (
+              <div className="card" style={{ marginTop: '.5rem', padding: '.55rem .7rem', background: 'var(--bg-1)' }}>
+                <div style={{ fontSize: '.83rem' }}>
+                  Entran <strong className="mono">{monto(mn, moneda)}</strong> a tasa <strong className="mono">{f4(tn)}</strong> Bs.
+                  {sa > 0 ? (
+                    <> Ya tenías <strong className="mono">{monto(sa, moneda)}</strong> a prom. <strong className="mono">{f4(tp)}</strong> → quedan{' '}
+                      <strong className="mono">{monto(nuevoSaldo, moneda)}</strong> a <strong>promedio ponderado</strong>{' '}
+                      <strong className="mono" style={{ color: '#16c784', fontWeight: 800 }}>{f4(nuevoProm)}</strong> Bs.</>
+                  ) : (
+                    <> Es el primer lote → promedio <strong className="mono" style={{ color: '#16c784', fontWeight: 800 }}>{f4(tn)}</strong> Bs.</>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ textAlign: 'right', marginTop: '.5rem' }}>
             <button type="submit" className="btn btn-success" disabled={saving}>{saving ? 'Ingresando…' : '+ Ingresar'}</button>
           </div>
-          <small className="muted">El Bs se maneja en dos cuentas: <strong>jurídica</strong> y <strong>personal</strong>. Las divisas guardan su tasa de compra para el promedio ponderado.</small>
+          <small className="muted">El Bs se maneja en dos cuentas: <strong>jurídica</strong> y <strong>personal</strong>. Las divisas guardan su tasa de compra; cada ingreso es un <strong>lote</strong> con su tasa, y el saldo muestra el <strong>promedio ponderado</strong> (ver Trazabilidad).</small>
         </form>
       )}
 
@@ -577,13 +950,34 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
 
+  // Saldos reales de la caja (multimoneda: cada cuenta/moneda con su saldo).
+  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  const [saldoSelId, setSaldoSelId] = useState('');
+  useEffect(() => {
+    if (!cajaId) { setSaldosCaja([]); setSaldoSelId(''); return; }
+    saldosDeCaja(cajaId).then((rows) => {
+      const conSaldo = rows.filter((r) => Number(r.saldo) > 0);
+      setSaldosCaja(conSaldo);
+      setSaldoSelId(conSaldo[0]?.id ?? '');
+    }).catch(() => { setSaldosCaja([]); setSaldoSelId(''); });
+  }, [cajaId]);
+
+  const esMulti = saldosCaja.length > 0;
+  const selSaldo = saldosCaja.find((s) => s.id === saldoSelId) ?? null;
+  const monedaPago = esMulti ? (selSaldo?.moneda ?? caja?.moneda ?? 'Bs') : (caja?.moneda ?? 'Bs');
+  const cuentaPago = esMulti ? (selSaldo?.cuenta ?? 'general') : null;
+  const disponible = esMulti ? (Number(selSaldo?.saldo) || 0) : (Number(caja?.saldo) || 0);
+
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja.'); return; }
+    if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) se paga.'); return; }
+    const m = Number(montoStr) || 0;
+    if (m > disponible + 0.01) { setError(`Saldo insuficiente. Disponible: ${monto(disponible, monedaPago)}.`); return; }
     setSaving(true);
     try {
-      await registrarGasto({ cajaId, monto: Number(montoStr) || 0, concepto, actor, actorName });
-      notify(`Gasto registrado: ${monto(Number(montoStr) || 0, caja?.moneda ?? 'Bs')}`, 'success', { link: '#/app/tesoreria' });
+      await registrarGasto({ cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago, actor, actorName });
+      notify(`Gasto registrado: ${monto(m, monedaPago)}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); setSaving(false); }
   }
@@ -597,21 +991,34 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
         <div className="form-grid">
           <div className="form-row">
-            <label>Caja (moneda)</label>
+            <label>Caja</label>
             <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
               {!cajas.length && <option value="">— sin cajas —</option>}
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {monto(c.saldo, c.moneda)}</option>)}
+              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
           </div>
+          {esMulti && (
+            <div className="form-row">
+              <label>Saldo (moneda / cuenta)</label>
+              <select className="select" value={saldoSelId} onChange={(e) => setSaldoSelId(e.target.value)}>
+                {saldosCaja.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.moneda}{s.cuenta !== 'general' ? ` · ${s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}` : ''} · {monto(Number(s.saldo), s.moneda)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="form-row">
-            <label>Monto</label>
+            <label>Monto ({monedaPago})</label>
             <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required />
+            <small className="muted">Disponible: <strong className="mono">{monto(disponible, monedaPago)}</strong></small>
           </div>
         </div>
         <div className="form-row">
           <label>Concepto</label>
           <input className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
-          <small className="muted">El gasto queda etiquetado por la moneda de la caja y aparece en el registro de movimientos.</small>
+          <small className="muted">El gasto queda etiquetado por la moneda elegida y aparece en el registro de movimientos.</small>
         </div>
       </form>
     </Modal>
@@ -751,7 +1158,12 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
   const entrantes = transfers.filter((t) => t.direccion === 'entrante' && t.estado === 'por_confirmar');
   const salientes = transfers.filter((t) => t.direccion === 'saliente');
   const salientesVivas = salientes.filter((t) => t.estado !== 'recibida');
-  const recibidas = salientes.length - salientesVivas.length;
+  const salientesRecibidas = salientes.filter((t) => t.estado === 'recibida');
+  const recibidas = salientesRecibidas.length;
+  // Nombre real del destino (caja externa) en vez de "el otro sistema".
+  const destinosRecibidos = Array.from(
+    new Set(salientesRecibidas.map((t) => t.caja_nombre || t.empresa_destino)),
+  ).join(' · ');
   if (!entrantes.length && !salientes.length) return null;
 
   async function confirmar(t: TransferenciaInter) {
@@ -838,7 +1250,7 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
 
       {recibidas > 0 && (
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.5rem' }}>
-          {recibidas} saliente(s) ya confirmada(s) por el otro sistema.
+          {recibidas === 1 ? 'Confirmado' : `${recibidas} confirmadas`} por {destinosRecibidos}.
         </div>
       )}
     </div>
@@ -898,70 +1310,242 @@ function EnviarReporteModal({ movs, meta, defaultEmail, onClose }: {
   );
 }
 
-function PagoPersonalModal({ cajas, actor, actorName, onClose, onSaved }: {
-  cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+/* ───────── Pagar nómina: cola de renglones cargados por RRHH ───────── */
+function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
+  cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
 }) {
+  const [rows, setRows] = useState<NominaRenglon[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pagar, setPagar] = useState<NominaRenglon | null>(null);
+
+  const recargar = useCallback(async () => {
+    setLoading(true);
+    try { setRows(await listRenglonesPorPagar()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar la nómina', 'error'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void recargar(); }, [recargar]);
+  useRealtime(['nomina_renglones'], () => { void recargar(); });
+
+  const total = useMemo(() => round2(rows.reduce((a, r) => a + (Number(r.neto_usd) || 0), 0)), [rows]);
+
+  return (
+    <Modal title="Pagar nómina" size="xl" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      <div className="muted" style={{ marginBottom: '.6rem', fontSize: '.86rem' }}>
+        Renglones cargados desde <strong>RRHH</strong>. Tesorería paga uno a uno (efectivo USD con seriales, o Bs a tasa BCV) y adjunta el comprobante (opcional).
+        {rows.length > 0 && <> · {rows.length} pendiente(s) · Total <strong className="mono">{monto(total, 'USD')}</strong></>}
+      </div>
+      <div className="table-wrap" style={{ maxHeight: 440, overflowY: 'auto' }}>
+        <table className="table" style={{ fontSize: '.84rem' }}>
+          <thead><tr><th>Trabajador</th><th>Nómina</th><th>Motivo</th><th>Departamento</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'center' }}>Acción</th></tr></thead>
+          <tbody>
+            {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={7}><EmptyState message="No hay nómina pendiente por pagar" icon="✅" /></td></tr>}
+            {!loading && rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.nombre}</td>
+                <td className="mono muted">{r.periodo?.codigo ?? '—'}</td>
+                <td><span className="badge" style={{ background: r.periodo?.tipo === 'vacaciones' ? 'var(--danger, #e5484d)' : r.periodo?.tipo === 'liquidacion' ? 'var(--warning, #ffae00)' : 'var(--primary-2, #2b6cb0)', color: '#fff' }}>{labelMotivoNomina(r.periodo?.tipo)}</span></td>
+                <td className="muted">{r.departamento || '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{r.dias_trabajados}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(r.neto_usd, 'USD')}</td>
+                <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-primary" onClick={() => setPagar(r)}>💸 Pagar</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {pagar && (
+        <PagarRenglonModal renglon={pagar} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={() => setPagar(null)}
+          onPaid={async () => { setPagar(null); await recargar(); onPaid(); }} />
+      )}
+    </Modal>
+  );
+}
+
+/* ───────── Pagar un renglón de nómina (mismo motor que el pago de OC) ───────── */
+function PagarRenglonModal({ renglon, cajas, actor, actorName, onClose, onPaid }: {
+  renglon: NominaRenglon; cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
+}) {
+  const neto = round2(Number(renglon.neto_usd) || 0);
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
-  const [concepto, setConcepto] = useState('');
-  const [personas, setPersonas] = useState<PersonaDirectorio[]>([]);
-  const [montos, setMontos] = useState<Record<string, string>>({});
+  const caja = cajas.find((c) => c.id === cajaId) ?? null;
+  // Saldos reales de la caja (caja multimoneda: cada cuenta/moneda con su saldo).
+  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  const [saldoSelId, setSaldoSelId] = useState('');
+  const [tasa, setTasa] = useState(0);
+  const [tasaFecha, setTasaFecha] = useState<string | null>(null);
+  const [montoStr, setMontoStr] = useState(String(neto));
+  const [factura, setFactura] = useState<File | null>(null);
+  const [seriales, setSeriales] = useState<string[]>([]);
+  const [serialInput, setSerialInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const caja = cajas.find((c) => c.id === cajaId) ?? null;
 
-  useEffect(() => { listDirectorioUsuarios().then(setPersonas).catch(() => setPersonas([])); }, []);
+  useEffect(() => {
+    getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); }).catch(() => {});
+  }, []);
 
-  const seleccion = personas
-    .map((p) => ({ p, monto: Number(montos[p.id]) || 0 }))
-    .filter((x) => x.monto > 0);
-  const total = useMemo(() => Math.round(seleccion.reduce((a, x) => a + x.monto, 0) * 100) / 100, [seleccion]);
+  // Carga los saldos de la caja elegida. Prefiere USD como saldo por defecto.
+  useEffect(() => {
+    if (!cajaId) { setSaldosCaja([]); setSaldoSelId(''); return; }
+    saldosDeCaja(cajaId).then((rows) => {
+      const conSaldo = rows.filter((r) => Number(r.saldo) > 0);
+      setSaldosCaja(conSaldo);
+      const pref = conSaldo.find((r) => r.moneda === 'USD') ?? conSaldo[0];
+      setSaldoSelId(pref?.id ?? '');
+    }).catch(() => { setSaldosCaja([]); setSaldoSelId(''); });
+  }, [cajaId]);
+
+  // Si la caja maneja saldos multimoneda, se paga desde el saldo elegido;
+  // si no (caja legada), desde el saldo simple de la caja.
+  const esMulti = saldosCaja.length > 0;
+  const selSaldo = saldosCaja.find((s) => s.id === saldoSelId) ?? null;
+  const moneda = esMulti ? (selSaldo?.moneda ?? 'USD') : (caja?.moneda ?? 'USD');
+  const cuentaPago = esMulti ? (selSaldo?.cuenta ?? 'general') : null;
+  const disponible = esMulti ? (Number(selSaldo?.saldo) || 0) : (Number(caja?.saldo) || 0);
+
+  // Autocompleta el monto según la moneda elegida (USD/USDT directo, Bs a tasa BCV).
+  useEffect(() => {
+    if (moneda === 'Bs') setMontoStr(tasa > 0 ? String(aBs(neto, tasa)) : '');
+    else setMontoStr(String(neto));
+  }, [moneda, tasa, neto]);
+
+  const pagaUsdEfectivo = moneda === 'USD';
+  function agregarSerial() {
+    const v = serialInput.trim();
+    if (!v) return;
+    if (!seriales.includes(v)) setSeriales((xs) => [...xs, v]);
+    setSerialInput('');
+  }
+  function quitarSerial(s: string) { setSeriales((xs) => xs.filter((x) => x !== s)); }
+
+  const deducTotal = round2((Number(renglon.deduc_anticipos) || 0) + (Number(renglon.deduc_prestamos) || 0));
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja.'); return; }
-    if (!seleccion.length) { setError('Indicá el monto de al menos una persona.'); return; }
+    if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
+    if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) de la caja se paga.'); return; }
+    const m = round2(Number(montoStr) || 0);
+    if (m <= 0) { setError('Indicá el monto a pagar.'); return; }
+    if (m > disponible + 0.01) { setError(`Saldo insuficiente. Disponible: ${monto(disponible, moneda)}.`); return; }
     setSaving(true);
     try {
-      await pagarPersonal({
-        cajaId, concepto,
-        pagos: seleccion.map((x) => ({ usuarioId: x.p.id, nombre: `${x.p.nombre} ${x.p.apellido}`.trim(), monto: x.monto })),
-        actor, actorName,
+      await pagarRenglon({
+        renglon, cajaId, monto: m,
+        cuenta: cuentaPago, moneda,
+        tasa: moneda === 'Bs' ? tasa : null,
+        seriales: pagaUsdEfectivo ? seriales : null,
+        comprobante: factura,
+        actorEmail: actor, actorName,
       });
-      notify(`Pago a personal: ${monto(total, caja?.moneda ?? 'Bs')} · ${seleccion.length} persona(s)`, 'success', { link: '#/app/tesoreria' });
-      onSaved();
+      notify(`Nómina pagada · ${renglon.nombre} · ${monto(m, moneda)}`, 'success', { link: '#/app/tesoreria' });
+      onPaid();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar.'); setSaving(false); }
   }
 
   return (
-    <Modal title="Pago a personal (multipagos)" size="lg" onClose={onClose} footer={
-      <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="teso-pago" className="btn btn-primary" disabled={saving}>{saving ? 'Pagando…' : `Pagar ${monto(total, caja?.moneda ?? 'Bs')}`}</button></>
+    <Modal title={`Pagar nómina · ${renglon.nombre}`} size="lg" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button type="submit" form="pagar-nomina" className="btn btn-primary" disabled={saving}>{saving ? 'Pagando…' : `PAGAR · ${monto(Number(montoStr) || 0, moneda)}`}</button>
+      </>
     }>
-      <form id="teso-pago" onSubmit={submit}>
+      <form id="pagar-nomina" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        <div className="card" style={{ marginBottom: '.75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle del renglón</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.3rem .9rem', fontSize: '.84rem' }}>
+            <div><span className="muted">Nómina:</span> <strong className="mono">{renglon.periodo?.codigo ?? '—'}</strong></div>
+            <div><span className="muted">Departamento:</span> {renglon.departamento || '—'}</div>
+            <div><span className="muted">Días:</span> <strong>{renglon.dias_trabajados}</strong></div>
+            <div><span className="muted">Bruto:</span> <strong className="mono">{monto(renglon.salario_bruto, 'USD')}</strong></div>
+            <div><span className="muted">Deducciones:</span> <strong className="mono">{monto(deducTotal, 'USD')}</strong></div>
+            <div><span className="muted">Neto a pagar:</span> <strong className="mono" style={{ color: 'var(--success)' }}>{monto(neto, 'USD')}</strong></div>
+          </div>
+        </div>
+
+        {/* Conversión USD ⇄ Bs (tasa BCV editable). */}
+        <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+          <div className="card-title" style={{ marginBottom: '.5rem' }}>Conversión</div>
+          <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Neto en USD</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{monto(neto, 'USD')}</strong></div>
+            <div className="muted" style={{ fontSize: '1.2rem' }}>⇄</div>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{tasa > 0 ? monto(aBs(neto, tasa), 'Bs') : '—'}</strong></div>
+            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 150 }}>
+              <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$){tasaFecha ? ` · ${fmtDate(tasaFecha)}` : ''}</label>
+              <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" />
+            </div>
+          </div>
+        </div>
+
         <div className="form-grid">
           <div className="form-row">
-            <label>Caja (moneda)</label>
-            <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {monto(c.saldo, c.moneda)}</option>)}
+            <label>Caja (de dónde sale el dinero)</label>
+            <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required>
+              {!cajas.length && <option value="">— sin cajas —</option>}
+              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
           </div>
-          <div className="form-row"><label>Concepto</label><input className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="Quincena, bono, etc." /></div>
+          {esMulti && (
+            <div className="form-row">
+              <label>Saldo de la caja (moneda / cuenta)</label>
+              <select className="select" value={saldoSelId} onChange={(e) => setSaldoSelId(e.target.value)} required>
+                {saldosCaja.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.moneda}{s.cuenta !== 'general' ? ` · ${s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}` : ''} · {monto(Number(s.saldo), s.moneda)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="form-row">
+            <label>Monto a pagar ({moneda})</label>
+            <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required />
+            <small className="muted">Disponible: <strong className="mono">{monto(disponible, moneda)}</strong></small>
+            {moneda === 'Bs' && <small className="muted">Se autocompletó con la tasa BCV; podés ajustarlo.</small>}
+            {pagaUsdEfectivo && redondearArriba5(Number(montoStr) || 0) > (Number(montoStr) || 0) && (
+              <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                💵 El monto tiene decimales. En efectivo se sugiere <strong className="mono">{monto(redondearArriba5(Number(montoStr) || 0), 'USD')}</strong> (redondeado al múltiplo de $5).
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMontoStr(String(redondearArriba5(Number(montoStr) || 0)))}>Redondear a {monto(redondearArriba5(Number(montoStr) || 0), 'USD')}</button>
+              </small>
+            )}
+          </div>
         </div>
-        <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
-          <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Persona</th><th>Cargo</th><th style={{ width: 160 }}>Monto a pagar</th></tr></thead>
-            <tbody>
-              {!personas.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin personal registrado.</td></tr>}
-              {personas.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.nombre} {p.apellido}</td>
-                  <td className="muted">{p.cargo}</td>
-                  <td><input className="input mono" type="number" min={0} step="any" value={montos[p.id] ?? ''} onChange={(e) => setMontos((m) => ({ ...m, [p.id]: dosDecimales(e.target.value) }))} placeholder="0,00" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+        {/* Seriales de billetes (solo al pagar USD físico). */}
+        {pagaUsdEfectivo && (
+          <div className="card" style={{ margin: '.75rem 0', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>Seriales de los billetes entregados <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></div>
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ flex: 1, minWidth: 200, marginBottom: 0 }}>
+                <label style={{ fontSize: '.72rem' }}>Serial del billete</label>
+                <input className="input mono" value={serialInput} onChange={(e) => setSerialInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarSerial(); } }} placeholder="Ej.: AB 1234567 C" />
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={agregarSerial}>+ Agregar</button>
+            </div>
+            {seriales.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', marginTop: '.5rem' }}>
+                {seriales.map((s, i) => (
+                  <span key={s} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', background: 'var(--bg-1)' }}>
+                    <span className="muted">{i + 1}.</span><span className="mono">{s}</span>
+                    <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .25rem', lineHeight: 1 }} title="Quitar" onClick={() => quitarSerial(s)}>✕</button>
+                  </span>
+                ))}
+                <span className="muted" style={{ alignSelf: 'center', fontSize: '.8rem' }}>{seriales.length} billete(s)</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="form-row">
+          <label>Comprobante de pago (PDF o imagen) <span className="muted">(opcional)</span></label>
+          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} />
+          {factura && <small className="muted">{factura.name}</small>}
         </div>
       </form>
     </Modal>
@@ -1449,6 +2033,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [montoStr, setMontoStr] = useState(String(baseUsd));
   const [factura, setFactura] = useState<File | null>(null);
   const [motivoPago, setMotivoPago] = useState('');
+  // Seriales de billetes entregados (solo cuando se paga con USD físico).
+  const [seriales, setSeriales] = useState<string[]>([]);
+  const [serialInput, setSerialInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
@@ -1464,8 +2051,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     setLegMontos({});
   }, [cajaId]);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
-  // Caja con varias monedas (Multimoneda) → se paga repartiendo por cuenta.
-  const esMultimoneda = saldosCaja.length >= 2;
+  // Si la caja maneja saldos por cuenta/moneda (caja_saldos), se paga eligiendo
+  // de qué cuentas sale el dinero — aunque tenga una sola moneda con saldo.
+  const esMultimoneda = saldosCaja.length >= 1;
   // Si el método de pago es en efectivo (divisas/Bs), no se exige comprobante.
   const comprobanteOpcional = pagoSinComprobante(o.metodo_pago);
 
@@ -1503,6 +2091,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
     return round2(n); // moneda desconocida: se asume paridad con el dólar
   }
+  // Inverso de legUsd: cuánto representa, en la moneda de la cuenta, un monto en USD.
+  function montoDesdeUsd(monedaLeg: string, usd: number): number {
+    if (!usd || usd <= 0) return 0;
+    if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(usd);
+    if (monedaLeg === 'Bs') return tasa > 0 ? round2(usd * tasa) : 0;
+    if (monedaLeg === 'COP') return mercado?.copUsd ? round2(usd * mercado.copUsd) : 0;
+    return round2(usd);
+  }
   const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
   const cubreTotalMulti = sumUsdMulti >= totalUsd - 0.01;
   // No se puede pagar más que el total de la OC (ni en multipago ni en pago simple).
@@ -1510,6 +2106,47 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const montoUsdSimple = moneda === 'Bs' ? (tasa > 0 ? round2(montoNum / tasa) : 0) : round2(montoNum);
   const excedeTotalSimple = !esMultimoneda && montoUsdSimple > totalUsd + 0.01;
   const excedeTotal = esMultimoneda ? excedeTotalMulti : excedeTotalSimple;
+
+  // Al elegir una caja multimoneda, prellenar cuánto sale de cada cuenta para
+  // cubrir el total automáticamente (de mayor a menor saldo en USD), así el
+  // usuario ve de una vez lo que debe pagar sin teclear el monto en Bs a mano.
+  // Solo prellena cuando aún no se cargó nada (no pisa lo que el usuario edite).
+  const saldosKey = saldosCaja.map((s) => s.id).join('|');
+  useEffect(() => {
+    if (!saldosCaja.length || totalUsd <= 0) return;
+    // Si hay cuentas en Bs/COP, esperar a tener la tasa para poder convertir.
+    if (saldosCaja.some((s) => s.moneda === 'Bs') && !(tasa > 0)) return;
+    if (saldosCaja.some((s) => s.moneda === 'COP') && !mercado?.copUsd) return;
+    let restante = totalUsd;
+    const next: Record<string, string> = {};
+    const ordenadas = [...saldosCaja].sort((a, b) => legUsd(b.moneda, Number(b.saldo)) - legUsd(a.moneda, Number(a.saldo)));
+    for (const s of ordenadas) {
+      if (restante <= 0.01) break;
+      const dispUsd = legUsd(s.moneda, Number(s.saldo));
+      const usaUsd = Math.min(restante, dispUsd);
+      next[s.id] = dosDecimales(String(montoDesdeUsd(s.moneda, usaUsd)));
+      restante = round2(restante - usaUsd);
+    }
+    setLegMontos(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saldosKey, tasa, mercado, totalUsd]);
+
+  // ¿El pago entrega USD físico (efectivo)? Solo entonces se piden los seriales de
+  // los billetes. Simple: caja en USD. Multimoneda: pata USD con monto cargado.
+  const pagaUsdEfectivo = esMultimoneda
+    ? saldosCaja.some((s) => s.moneda === 'USD' && (Number(legMontos[s.id]) || 0) > 0)
+    : moneda === 'USD' && montoNum > 0;
+
+  function agregarSerial() {
+    const v = serialInput.trim();
+    if (!v) return;
+    if (seriales.includes(v)) { setSerialInput(''); return; }
+    setSeriales((xs) => [...xs, v]);
+    setSerialInput('');
+  }
+  function quitarSerial(s: string) {
+    setSeriales((xs) => xs.filter((x) => x !== s));
+  }
 
   // Archivos cargados durante la OC: cotizaciones (PDF) de las ofertas.
   const [adjuntos, setAdjuntos] = useState<OfertaProveedor[]>([]);
@@ -1545,7 +2182,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); setSaving(false); return; }
         if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, actorEmail: actor, actorName });
+        await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName });
         notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(sumUsdMulti, 'USD')}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
@@ -1553,7 +2190,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       if (excedeTotalSimple) { setError(`No podés pagar más que el total de la OC (${monto(totalUsd, 'USD')}). El monto ingresado equivale a ${monto(montoUsdSimple, 'USD')}.`); setSaving(false); return; }
       await pagarOrdenCompra({
         orden: o, cajaId, monto: Number(montoStr) || 0,
-        factura, motivoPago: motivoPago || null, actorEmail: actor, actorName,
+        factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName,
       });
       notify(`OC ${o.oc_codigo ?? o.codigo} pagada · ${monto(Number(montoStr) || 0, moneda)}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
@@ -1707,9 +2344,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <label>Caja (de dónde sale el dinero)</label>
             <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required>
               {!cajas.length && <option value="">— sin cajas —</option>}
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {monto(c.saldo, c.moneda)}</option>)}
+              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
-            <small className="muted">Se descuenta de esta caja y queda registrado en el registro de movimientos (pago de compra).</small>
+            <small className="muted">Se descuenta de esta caja y queda registrado en el registro de movimientos (pago de compra).{esMultimoneda ? ' Abajo elegís de qué cuentas (con saldo) sale el dinero.' : ''}</small>
           </div>
           {!esMultimoneda && (
             <div className="form-row">
@@ -1778,6 +2415,41 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             </small>
           </div>
         )}
+        {/* Seriales de los billetes entregados (solo al pagar con USD físico). */}
+        {pagaUsdEfectivo && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>
+              Seriales de los billetes entregados <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span>
+            </div>
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ flex: 1, minWidth: 200, marginBottom: 0 }}>
+                <label style={{ fontSize: '.72rem' }}>Serial del billete</label>
+                <input className="input mono" value={serialInput}
+                  onChange={(e) => setSerialInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarSerial(); } }}
+                  placeholder="Ej.: AB 1234567 C" />
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={agregarSerial}>+ Agregar</button>
+            </div>
+            {seriales.length > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', marginTop: '.5rem' }}>
+                {seriales.map((s, i) => (
+                  <span key={s} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', background: 'var(--bg-1)' }}>
+                    <span className="muted">{i + 1}.</span><span className="mono">{s}</span>
+                    <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .25rem', lineHeight: 1 }}
+                      title="Quitar" onClick={() => quitarSerial(s)}>✕</button>
+                  </span>
+                ))}
+                <span className="muted" style={{ alignSelf: 'center', fontSize: '.8rem' }}>{seriales.length} billete(s)</span>
+              </div>
+            ) : (
+              <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
+                Agregá un serial por billete. Quedan registrados con el pago.
+              </small>
+            )}
+          </div>
+        )}
+
         <div className="form-grid">
           <div className="form-row">
             <label>Comprobante (PDF o imagen) {comprobanteOpcional ? '(opcional)' : '*'}</label>

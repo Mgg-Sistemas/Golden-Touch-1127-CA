@@ -4,7 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/jpeg" href="/LOGO.jpg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <meta name="theme-color" content="#0d1014" />
+    <!-- Fuentes: preconnect + carga no bloqueante (no frena el primer render;
+         con display=swap el texto se ve de inmediato con la fuente del sistema). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    </noscript>
     <title>Golden Touch · Sistema de Inventarios</title>
   </head>
   <body>

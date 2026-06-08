@@ -65,7 +65,12 @@ async function construirDoc(movs: MovimientoCaja[], meta: ReporteMeta) {
 
   const filas = movs.map((m) => {
     const egreso = m.tipo === 'salida' || m.tipo === 'traslado_salida';
-    const concepto = [CAT_LABEL[m.categoria ?? ''], m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
+    // En traslados, "destino" es la caja contraparte: a dónde fue (sale) o de
+    // dónde vino (entra) el dinero. Lo mostramos para ver la caja involucrada.
+    const destinoLabel = m.destino
+      ? (m.tipo === 'traslado_salida' ? `→ ${m.destino}` : m.tipo === 'traslado_entrada' ? `← ${m.destino}` : m.destino)
+      : null;
+    const concepto = [CAT_LABEL[m.categoria ?? ''], m.beneficiario, m.motivo, destinoLabel].filter(Boolean).join(' · ') || '—';
     return [
       dateTime(m.at),
       m.caja?.nombre ?? '—',

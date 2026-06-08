@@ -51,6 +51,11 @@ export async function markAllRead(): Promise<void> {
   if (error) throw error;
 }
 
+/** Marca una notificación puntual como leída (best-effort). */
+export async function markRead(id: string): Promise<void> {
+  await supabase.from('notificaciones').update({ read: true }).eq('id', id);
+}
+
 export interface PushArgs {
   destino?: string;
   kind?: NotifKind;

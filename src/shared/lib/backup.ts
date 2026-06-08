@@ -11,8 +11,32 @@ const CONFIG_KEY = 'backup.ultimo';
 const DIAS = 30;
 const MS_30D = DIAS * 24 * 60 * 60 * 1000;
 
-/** Correo destino del respaldo (automático y opción "Enviar por correo"). */
-export const BACKUP_EMAIL = 'mineralgroupsistemas@gmail.com';
+/** Correos destino del respaldo (automático y opción "Enviar por correo"). */
+export const BACKUP_EMAILS = ['mineralgroupsistemas@gmail.com', 'sistemas@mineralgroupguayana.com'];
+/** Compat: texto para mostrar a quién se envía (lista separada por coma). */
+export const BACKUP_EMAIL = BACKUP_EMAILS.join(', ');
+
+/** Fecha/hora legible de Venezuela (para el encabezado y el mensaje del correo). */
+function ahoraVE(): string {
+  return new Date().toLocaleString('es-VE', {
+    timeZone: 'America/Caracas',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
+/** Encabezado del .sql: deja registrado quién hizo el respaldo y cuándo. */
+function encabezadoRespaldo(actorEmail: string, automatico: boolean): string {
+  return [
+    '-- ============================================================',
+    '-- MGG · Respaldo de base de datos',
+    `-- Tipo:          ${automatico ? 'AUTOMÁTICO (cada 30 días)' : 'MANUAL'}`,
+    `-- Generado por:  ${actorEmail || 'sistema'}`,
+    `-- Fecha y hora:  ${ahoraVE()} (America/Caracas)`,
+    '-- ============================================================',
+    '', '',
+  ].join('\n');
+}
 
 /** Roles autorizados a respaldar (el filtro fino se ajustará luego). */
 export function puedeRespaldar(role?: string | null): boolean {
@@ -49,9 +73,9 @@ function descargarTexto(texto: string, nombre: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Genera y descarga el respaldo .sql. Registra la fecha en `config`. */
+/** Genera y descarga el respaldo .sql (con encabezado de autor/fecha). Registra la fecha. */
 export async function descargarRespaldoSql(actorEmail: string, automatico = false): Promise<void> {
-  const sql = await generarRespaldoSql();
+  const sql = encabezadoRespaldo(actorEmail, automatico) + await generarRespaldoSql();
   const fecha = new Date().toISOString().slice(0, 10);
   descargarTexto(sql, `mgg-respaldo${automatico ? '-auto' : ''}-${fecha}.sql`);
   await registrarUltimoRespaldo(actorEmail, automatico);
@@ -69,11 +93,14 @@ function toBase64Utf8(s: string): string {
 export async function enviarRespaldoPorCorreo(
   actorEmail: string,
   automatico = false,
-  toEmail: string = BACKUP_EMAIL,
+  toEmails: string[] = BACKUP_EMAILS,
 ): Promise<{ destinatarios: string[] }> {
-  const sql = await generarRespaldoSql();
+  const cuando = ahoraVE();
+  const sql = encabezadoRespaldo(actorEmail, automatico) + await generarRespaldoSql();
   const fecha = new Date().toISOString().slice(0, 10);
-  const nombre = `mgg-respaldo${automatico ? '-auto' : ''}-${fecha}.sql`;
+  // Brevo no admite adjuntos `.sql`; se envía como `.sql.txt` (mismo contenido,
+  // extensión aceptada). La descarga manual sí mantiene `.sql`.
+  const nombre = `mgg-respaldo${automatico ? '-auto' : ''}-${fecha}.sql.txt`;
   const { data, error } = await supabase.functions.invoke<
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
@@ -81,14 +108,14 @@ export async function enviarRespaldoPorCorreo(
       pdf_base64: toBase64Utf8(sql),
       nombre_archivo: nombre,
       asunto: `Respaldo de base de datos · Golden Touch · ${fecha}`,
-      mensaje: automatico ? 'Respaldo automático (cada 30 días).' : 'Respaldo de la base de datos solicitado desde el sistema.',
-      to_emails: [toEmail],
+      mensaje: `${automatico ? 'Respaldo automático (cada 30 días)' : 'Respaldo manual'} · Generado por ${actorEmail || 'sistema'} · ${cuando} (America/Caracas).`,
+      to_emails: toEmails,
     },
   });
   if (error) throw new Error(error.message ?? 'No se pudo enviar el respaldo por correo.');
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida del envío.');
   await registrarUltimoRespaldo(actorEmail, automatico);
-  return { destinatarios: data.destinatarios ?? [toEmail] };
+  return { destinatarios: data.destinatarios ?? toEmails };
 }
 
 /** Fecha del último respaldo (o null si nunca se hizo). */

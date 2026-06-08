@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { relTime } from '@/shared/lib/format';
-import { listLatest, markAllRead, pruneOld } from './notif.repository';
+import { listLatest, markAllRead, markRead, pruneOld } from './notif.repository';
 import type { Notificacion } from '@/shared/lib/types';
 
 interface Props {
@@ -22,6 +23,20 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
   const [items, setItems] = useState<Notificacion[]>([]);
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
+  const navigate = useNavigate();
+
+  // Al hacer click en una notificación: la marca leída, va a su módulo/detalle y cierra.
+  function abrir(n: Notificacion) {
+    if (!n.read) {
+      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      void markRead(n.id);
+    }
+    if (n.link) {
+      const destino = n.link.startsWith('#') ? n.link.slice(1) : n.link;
+      navigate(destino);
+    }
+    onClose();
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -75,15 +90,22 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
             <div
               key={n.id}
               className="feed-item"
+              onClick={() => abrir(n)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter') abrir(n); }}
+              title={n.link ? 'Ir al detalle' : undefined}
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'auto 1fr',
+                gridTemplateColumns: 'auto 1fr auto',
+                alignItems: 'center',
                 gap: '.75rem',
                 padding: '.65rem .8rem',
                 background: n.read ? 'var(--bg-1)' : 'var(--surface-2)',
                 border: `1px solid ${n.read ? 'var(--border)' : 'var(--border-strong)'}`,
                 borderLeft: `3px solid ${kindColor(n.kind)}`,
                 borderRadius: 'var(--r-md)',
+                cursor: 'pointer',
               }}
             >
               <div className="pin" style={{ fontSize: '1.1rem' }}>{KIND_ICON[n.kind] ?? '◔'}</div>
@@ -92,6 +114,7 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
                 {n.message && <div className="meta muted" style={{ fontSize: '.82rem', marginTop: '.15rem' }}>{n.message}</div>}
                 <div className="meta dim" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>{relTime(n.at)}</div>
               </div>
+              {n.link && <span className="muted" aria-hidden="true" style={{ fontSize: '1.1rem' }}>›</span>}
             </div>
           ))}
         </div>

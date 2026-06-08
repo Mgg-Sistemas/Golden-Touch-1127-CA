@@ -6,6 +6,7 @@ export type Scope =
   | 'inventario.unidad'
   | 'proveedor.categoria'
   | 'usuario.departamento'
+  | 'usuario.cargo'
   | 'tesoreria.moneda';
 
 const cache = new Map<Scope, Promise<string[]>>();
@@ -91,11 +92,17 @@ export async function renameTaxonomia(
 }
 
 export async function deleteTaxonomia(scope: Scope, valor: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('taxonomias')
     .delete()
     .eq('scope', scope)
-    .eq('valor', valor.trim());
+    .eq('valor', valor.trim())
+    .select('id');
   if (error) throw error;
   cache.delete(scope);
+  // Si no se borró ninguna fila (RLS sin permiso, valor con espacios, ya no existía),
+  // no fingimos éxito: avisamos para que el usuario no crea que se eliminó.
+  if (!data || data.length === 0) {
+    throw new Error('No se pudo eliminar: sin permiso o el valor ya no existía.');
+  }
 }

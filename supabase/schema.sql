@@ -547,6 +547,32 @@ create table if not exists public.config (
 );
 
 -- ─────────────────────────────────────────────────────────────
+-- 8.b taxonomias — catálogos compartidos (categorías, unidades,
+--     departamentos, monedas) por `scope`. Alimentan los selects
+--     de Inventario/Proveedores/Usuarios además de los valores ya
+--     presentes en cada tabla. Únicos por (scope, valor).
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.taxonomias (
+  id         uuid primary key default gen_random_uuid(),
+  scope      text not null,
+  valor      text not null,
+  created_at timestamptz not null default now(),
+  created_by text,
+  constraint taxonomias_scope_valor_unique unique (scope, valor)
+);
+alter table public.taxonomias enable row level security;
+-- Lectura/alta abiertas (catálogo); borrar/renombrar requiere sesión.
+-- (El gate de quién administra el catálogo vive en el front.)
+drop policy if exists "taxonomias_read_all"    on public.taxonomias;
+drop policy if exists "taxonomias_write_all"   on public.taxonomias;
+drop policy if exists "taxonomias_delete_auth" on public.taxonomias;
+drop policy if exists "taxonomias_update_auth" on public.taxonomias;
+create policy "taxonomias_read_all"    on public.taxonomias for select using (true);
+create policy "taxonomias_write_all"   on public.taxonomias for insert with check (true);
+create policy "taxonomias_delete_auth" on public.taxonomias for delete using (auth.role() = 'authenticated');
+create policy "taxonomias_update_auth" on public.taxonomias for update using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+-- ─────────────────────────────────────────────────────────────
 -- 9.b tasa_cambio (Tesorería · historial de tasas BCV USD/EUR)
 --     La Edge Function `tasa-bcv` la actualiza a diario; snapshot
 --     del día en config (key 'tesoreria.tasa_hoy').
@@ -798,6 +824,8 @@ alter table public.ordenes add column if not exists recibido_total numeric;  -- 
 alter table public.ordenes add column if not exists recibida_por   text;
 alter table public.ordenes add column if not exists recibida_en    timestamptz;
 alter table public.ordenes add column if not exists abonado_total  numeric default 0;  -- caché Σ abonos (crédito)
+-- Seriales de los billetes entregados cuando se paga una OC en USD físico (efectivo).
+alter table public.ordenes add column if not exists seriales_billetes text[];
 
 -- Abonos de compras a crédito (cada abono es un egreso real de caja vía pagarOrden).
 create table if not exists public.abonos_credito (
@@ -815,6 +843,138 @@ create index if not exists idx_abonos_orden on public.abonos_credito(orden_id, a
 alter table public.abonos_credito enable row level security;
 create policy "abonos read auth"  on public.abonos_credito for select using (auth.role() = 'authenticated');
 create policy "abonos write staff" on public.abonos_credito for all using (public.is_staff()) with check (public.is_staff());
+
+-- Personal (nómina): TODO el personal a pagar, tengan o no usuario del sistema.
+-- "Usuarios" = los del login; "Personal" engloba a todos para la nómina. Se
+-- administra y se paga desde Tesorería → Pago a personal.
+create table if not exists public.personal (
+  id           uuid primary key default gen_random_uuid(),
+  nombre       text not null,
+  apellido     text not null default '',
+  cedula       text,
+  cargo        text,
+  departamento text,
+  sueldo_base  numeric not null default 0,
+  activo       boolean not null default true,
+  created_at   timestamptz not null default now(),
+  created_by   text
+);
+-- Campos extra para el módulo RRHH (Fase 3 administrativo). Fase 1 conserva su estructura.
+alter table public.personal add column if not exists fecha_ingreso date;
+alter table public.personal add column if not exists datos_pago jsonb;
+create index if not exists idx_personal_activo on public.personal(activo);
+alter table public.personal enable row level security;
+create policy "personal read auth"  on public.personal for select using (auth.role() = 'authenticated');
+create policy "personal write staff" on public.personal for all using (public.is_staff()) with check (public.is_staff());
+
+-- ─────────────────────────────────────────────────────────────
+-- RRHH / Nómina
+-- RRHH carga la nómina (quincenal, en USD con referencia a tasa BCV) y Tesorería
+-- paga renglón por renglón (egreso real de caja, con seriales/comprobante como en OC).
+-- ─────────────────────────────────────────────────────────────
+
+-- Movimiento de caja: enlace al renglón de nómina pagado (como ref_orden_id para OC).
+alter table public.movimientos_caja add column if not exists ref_nomina_renglon_id uuid;
+
+-- Anticipos y préstamos: deducción con saldo (se descuenta por cuotas en la nómina).
+create table if not exists public.anticipos_prestamos (
+  id           uuid primary key default gen_random_uuid(),
+  personal_id  uuid not null references public.personal(id) on delete cascade,
+  tipo         text not null check (tipo in ('anticipo','prestamo')),
+  monto_total  numeric not null check (monto_total > 0),
+  saldo        numeric not null,            -- pendiente por descontar
+  cuota_sugerida numeric,
+  estado       text not null default 'activo' check (estado in ('activo','saldado')),
+  motivo       text,
+  creado_por   text, actor_name text,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_anticipos_personal on public.anticipos_prestamos(personal_id, estado);
+alter table public.anticipos_prestamos enable row level security;
+create policy "anticipos read auth"  on public.anticipos_prestamos for select using (auth.role() = 'authenticated');
+create policy "anticipos write staff" on public.anticipos_prestamos for all using (public.is_staff()) with check (public.is_staff());
+
+-- Nómina: período (una por quincena) cargado desde RRHH.
+create table if not exists public.nomina_periodos (
+  id            uuid primary key default gen_random_uuid(),
+  codigo        text not null,              -- NOM-AAAA-NNNN
+  tipo          text not null default 'quincena',
+  periodo_desde date, periodo_hasta date,
+  dias_base     int not null default 15,
+  tasa_bcv      numeric,                    -- tasa BCV del día de carga (referencia)
+  estado        text not null default 'cargada' check (estado in ('cargada','en_pago','pagada')),
+  total_usd     numeric not null default 0,
+  notas         text,
+  creada_por    text, actor_name text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_nomina_periodos_estado on public.nomina_periodos(estado, created_at desc);
+alter table public.nomina_periodos enable row level security;
+create policy "nomina_per read auth"  on public.nomina_periodos for select using (auth.role() = 'authenticated');
+create policy "nomina_per write staff" on public.nomina_periodos for all using (public.is_staff()) with check (public.is_staff());
+
+-- Renglón de nómina = pago individual de cada persona (su histórico quincenal).
+-- Cálculo: salario_bruto = sueldo_base_mensual/30 × dias_trabajados;
+-- neto_usd = salario_bruto + asignaciones(bonos) − (anticipos + préstamos + ivss + faov).
+-- IVSS/FAOV/bonos quedan montados (campos) pero hoy en 0 (deshabilitados en la UI).
+create table if not exists public.nomina_renglones (
+  id            uuid primary key default gen_random_uuid(),
+  periodo_id    uuid not null references public.nomina_periodos(id) on delete cascade,
+  personal_id   uuid references public.personal(id) on delete set null,
+  nombre        text not null,
+  cargo         text, departamento text,
+  sueldo_base_mensual numeric not null default 0,
+  dias_trabajados numeric not null default 15,
+  salario_bruto numeric not null default 0,
+  asignaciones  numeric not null default 0,   -- bonos (futuro)
+  deduc_anticipos numeric not null default 0,
+  deduc_prestamos numeric not null default 0,
+  deduc_ivss    numeric not null default 0,    -- futuro
+  deduc_faov    numeric not null default 0,    -- futuro
+  deducciones   jsonb not null default '[]'::jsonb,  -- [{id,tipo,monto}] origen de cada deducción
+  neto_usd      numeric not null default 0,
+  estado        text not null default 'por_pagar' check (estado in ('por_pagar','pagada')),
+  pagada_por    text, pagada_en timestamptz,
+  caja_id       uuid references public.cajas(id) on delete set null,
+  caja_mov_id   uuid references public.movimientos_caja(id) on delete set null,
+  monto_pagado  numeric, moneda_pago text, tasa_pago numeric,
+  seriales_billetes text[],
+  comprobante_path text, comprobante_nombre text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_nom_reng_periodo  on public.nomina_renglones(periodo_id);
+create index if not exists idx_nom_reng_estado   on public.nomina_renglones(estado);
+create index if not exists idx_nom_reng_personal on public.nomina_renglones(personal_id, created_at desc);
+alter table public.nomina_renglones enable row level security;
+create policy "nomina_ren read auth"  on public.nomina_renglones for select using (auth.role() = 'authenticated');
+create policy "nomina_ren write staff" on public.nomina_renglones for all using (public.is_staff()) with check (public.is_staff());
+
+-- Fase 3 administrativo: vacaciones, permisos, utilidades/aguinaldos, notas/historial laboral.
+create table if not exists public.rrhh_eventos (
+  id           uuid primary key default gen_random_uuid(),
+  personal_id  uuid not null references public.personal(id) on delete cascade,
+  tipo         text not null check (tipo in ('vacacion','permiso','utilidad','nota')),
+  fecha_desde  date, fecha_hasta date,
+  dias         numeric,
+  monto        numeric,
+  descripcion  text,
+  estado       text not null default 'registrado',
+  procesada    boolean not null default false,   -- vacación ya enviada a Tesorería (pago)
+  nomina_renglon_id uuid,                         -- renglón generado al procesar la vacación
+  creado_por   text, actor_name text,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_rrhh_eventos_personal on public.rrhh_eventos(personal_id, tipo, created_at desc);
+alter table public.rrhh_eventos enable row level security;
+create policy "rrhh_ev read auth"  on public.rrhh_eventos for select using (auth.role() = 'authenticated');
+create policy "rrhh_ev write staff" on public.rrhh_eventos for all using (public.is_staff()) with check (public.is_staff());
+
+-- Storage: bucket privado `nomina-comprobantes` para los comprobantes de pago de nómina.
+insert into storage.buckets (id, name, public) values ('nomina-comprobantes','nomina-comprobantes', false) on conflict (id) do nothing;
+create policy "nomina read auth"   on storage.objects for select to authenticated using (bucket_id = 'nomina-comprobantes');
+create policy "nomina write staff"  on storage.objects for insert to authenticated with check (bucket_id = 'nomina-comprobantes' and public.is_staff());
+create policy "nomina update staff" on storage.objects for update to authenticated using (bucket_id = 'nomina-comprobantes' and public.is_staff());
+create policy "nomina delete staff" on storage.objects for delete to authenticated using (bucket_id = 'nomina-comprobantes' and public.is_staff());
 
 -- Storage: bucket privado `ofertas-pdf` para las cotizaciones (PDF) de los proveedores.
 -- El analista carga las ofertas, así que la escritura es para STAFF (admin + analista),
@@ -1474,7 +1634,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

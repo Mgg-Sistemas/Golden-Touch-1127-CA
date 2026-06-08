@@ -133,7 +133,7 @@ export function SalidasPage() {
       <div className="page-head">
         <div>
           <h1>Salidas / Traslados</h1>
-          <p className="muted">Toda salida o traslado (material o dinero) se crea como <strong>solicitud</strong>: el obrero la registra, el analista o el admin la aprueba, y al ejecutar se descuenta el stock o sale el dinero.</p>
+          <p className="muted">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, el analista o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
         </div>
         <div className="actions">
           {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}

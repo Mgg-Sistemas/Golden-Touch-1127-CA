@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
@@ -46,6 +47,18 @@ export function UsuariosPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
+  // Pre-carga el filtro si se llega desde la búsqueda global (?buscar=…).
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const b = searchParams.get('buscar');
+    if (b) {
+      setFilterText(b);
+      const next = new URLSearchParams(searchParams);
+      next.delete('buscar');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [filterRol, setFilterRol] = useState<string>('');
   const [filterEstado, setFilterEstado] = useState<'activo' | 'inactivo' | ''>('');
   const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
