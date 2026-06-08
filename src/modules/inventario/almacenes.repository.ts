@@ -12,6 +12,18 @@ const TABLE = 'almacenes';
 export interface AlmacenInput {
   nombre: string;
   ubicacion?: string | null;
+  /** Sede física que agrupa la vista (Matanzas, Los Pinos…). */
+  sede?: string | null;
+  /** Almacén padre (subalmacén). null = almacén principal. */
+  parent_id?: string | null;
+}
+
+/** Sedes existentes (para poblar el selector del formulario). */
+export async function listSedes(): Promise<string[]> {
+  const { data } = await supabase.from(TABLE).select('sede');
+  const set = new Set<string>();
+  (data ?? []).forEach((r) => { const s = (r as { sede?: string | null }).sede?.trim(); if (s) set.add(s); });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
 }
 
 export interface AlmacenValor {
@@ -41,12 +53,55 @@ export async function getNombresAlmacenes(fromProductos: Producto[] = []): Promi
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
 }
 
+/** ¿Existe ya un almacén con ese nombre exacto? (la columna nombre es única). */
+async function nombreOcupado(nombre: string, exceptoId?: string): Promise<boolean> {
+  let q = supabase.from(TABLE).select('id').eq('nombre', nombre);
+  if (exceptoId) q = q.neq('id', exceptoId);
+  const { data } = await q.limit(1);
+  return (data ?? []).length > 0;
+}
+
+/**
+ * El stock se indexa por NOMBRE de almacén, así que el nombre guardado debe ser
+ * único. Para que los SUBALMACENES puedan "repetir" nombre (ej. cada sede con su
+ * "Víveres y Art. Limpieza"), si el nombre ya está ocupado le añadimos la sede
+ * (el padre) como sufijo — invisible en la vista (ver nombreCortoAlmacen).
+ */
+async function nombreUnicoSubalmacen(base: string, parentNombre: string, exceptoId?: string): Promise<string> {
+  if (!(await nombreOcupado(base, exceptoId))) return base;
+  const conSede = `${base} · ${parentNombre}`;
+  if (!(await nombreOcupado(conSede, exceptoId))) return conSede;
+  let i = 2;
+  while (await nombreOcupado(`${conSede} (${i})`, exceptoId)) i++;
+  return `${conSede} (${i})`;
+}
+
+/** Nombre visible de un subalmacén: oculta el sufijo " · <padre>" que agregamos
+ *  para mantener único el nombre guardado (ver nombreUnicoSubalmacen). */
+export function nombreCortoAlmacen(a: Almacen, todos: Almacen[]): string {
+  if (!a.parent_id) return a.nombre;
+  const padre = todos.find((x) => x.id === a.parent_id);
+  const sufijo = padre ? ` · ${padre.nombre}` : '';
+  return sufijo && a.nombre.endsWith(sufijo) ? a.nombre.slice(0, -sufijo.length) : a.nombre;
+}
+
 export async function crearAlmacen(input: AlmacenInput, actorEmail?: string): Promise<Almacen> {
-  const nombre = input.nombre.trim();
+  let nombre = input.nombre.trim();
   if (!nombre) throw new Error('El nombre del almacén es obligatorio');
+  const parentId = input.parent_id ?? null;
+  // El subalmacén hereda la sede de su padre; el principal usa la indicada.
+  let sede = input.sede?.trim() || null;
+  if (parentId) {
+    const { data: padre } = await supabase.from(TABLE).select('nombre, sede').eq('id', parentId).single();
+    const p = padre as { nombre?: string; sede?: string | null } | null;
+    nombre = await nombreUnicoSubalmacen(nombre, p?.nombre ?? 'sede');
+    sede = p?.sede ?? sede;
+  }
   const payload = {
     nombre,
     ubicacion: input.ubicacion?.trim() || null,
+    sede,
+    parent_id: parentId,
     created_by: actorEmail ?? null,
   };
   const { data, error } = await supabase.from(TABLE).insert(payload).select('*').single();
@@ -65,6 +120,8 @@ export async function actualizarAlmacen(id: string, patch: Partial<AlmacenInput>
     payload.nombre = nombre;
   }
   if (patch.ubicacion !== undefined) payload.ubicacion = patch.ubicacion?.trim() || null;
+  if (patch.sede !== undefined) payload.sede = patch.sede?.trim() || null;
+  if (patch.parent_id !== undefined) payload.parent_id = patch.parent_id ?? null;
   const { data, error } = await supabase.from(TABLE).update(payload).eq('id', id).select('*').single();
   if (error) {
     if ((error as { code?: string }).code === '23505') throw new Error('Ya existe un almacén con ese nombre');
@@ -83,6 +140,12 @@ export async function eliminarAlmacen(id: string, nombre: string): Promise<void>
   if (cErr) throw cErr;
   if ((data ?? []).length > 0) {
     throw new Error(`No se puede eliminar: hay ${(data ?? []).length} producto(s) con stock en este almacén`);
+  }
+  // Bloquea si tiene subalmacenes: primero hay que moverlos o eliminarlos.
+  const { data: hijos, error: hErr } = await supabase.from(TABLE).select('id').eq('parent_id', id);
+  if (hErr) throw hErr;
+  if ((hijos ?? []).length > 0) {
+    throw new Error(`No se puede eliminar: este almacén tiene ${(hijos ?? []).length} subalmacén(es). Eliminá o reasigná los subalmacenes primero.`);
   }
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;

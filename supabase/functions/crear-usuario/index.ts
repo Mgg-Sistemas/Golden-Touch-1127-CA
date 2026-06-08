@@ -74,7 +74,18 @@ serve(async (req) => {
     .maybeSingle();
   if (!roleRow) return json({ error: `Rol inválido: ${role}` }, 400);
 
-  // 3) Crear auth user
+  // 3) ¿El correo ya está registrado? (mensaje claro en vez del genérico de Auth)
+  const emailNorm = email.trim().toLowerCase();
+  const { data: yaUsuario } = await admin
+    .from('usuarios')
+    .select('id')
+    .ilike('email', emailNorm)
+    .maybeSingle();
+  if (yaUsuario) {
+    return json({ error: `Ese correo ya está registrado para otro usuario: ${emailNorm}` }, 409);
+  }
+
+  // 4) Crear auth user
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email,
     password: DEFAULT_PASSWORD,
@@ -82,10 +93,15 @@ serve(async (req) => {
     user_metadata: { nombre, apellido, ci },
   });
   if (createErr || !created.user) {
-    return json({ error: createErr?.message ?? 'No se pudo crear el usuario' }, 400);
+    const m = (createErr?.message ?? '').toLowerCase();
+    const dup = m.includes('already') || m.includes('registered') || m.includes('exists');
+    return json(
+      { error: dup ? `Ese correo ya está registrado: ${emailNorm}` : (createErr?.message ?? 'No se pudo crear el usuario') },
+      dup ? 409 : 400,
+    );
   }
 
-  // 4) Insertar/upsert en public.usuarios
+  // 5) Insertar/upsert en public.usuarios
   const { error: upErr } = await admin.from('usuarios').upsert(
     {
       id: created.user.id,

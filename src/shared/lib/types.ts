@@ -40,6 +40,10 @@ export interface Almacen {
   id: string;
   nombre: string;
   ubicacion?: string | null;
+  /** Sede física (Matanzas, Los Pinos…) que agrupa la vista de almacenes. */
+  sede?: string | null;
+  /** Subalmacén: id del almacén padre. null/ausente = almacén principal. */
+  parent_id?: string | null;
   estado: EstadoGenerico;
   created_at: string;
   created_by?: string | null;
@@ -288,10 +292,22 @@ export interface CatalogoCombustible {
   created_at: string;
 }
 
+export type TipoTanque = 'cilindrico_horizontal' | 'rectangular';
+
 export interface TanqueCombustible {
   id: string;
   nombre: string;
+  /** Geometría para la cubicación automática (altura cm → litros). */
+  tipo: TipoTanque;
+  es_movil: boolean;
+  radio_m?: number | null;   // cilíndrico horizontal
+  largo_m?: number | null;   // rectangular / largo del cilindro
+  ancho_m?: number | null;   // rectangular
+  alto_m?: number | null;    // rectangular (altura total)
+  /** Capacidad rotulada (tope operativo manual). */
   capacidad_litros: number;
+  /** Capacidad calculada por fórmula a la altura total. */
+  capacidad_calculada_litros?: number | null;
   saldo_litros: number;
   saldo_usd: number;
   tasa_usd_litro: number;
@@ -303,7 +319,7 @@ export interface TanqueCombustible {
   updated_at?: string | null;
 }
 
-export type TipoMovTanque = 'entrada' | 'uso' | 'traslado';
+export type TipoMovTanque = 'entrada' | 'uso' | 'traslado' | 'retorno';
 
 export interface MovimientoTanque {
   id: string;
@@ -342,6 +358,23 @@ export interface ConciliacionCombustible {
   fecha: string;
   saldo_libros: number;
   saldo_reportado_mina: number;
+  diferencia?: number | null;
+  /** Conciliación vs medición física (cubicación). */
+  saldo_cubicacion?: number | null;
+  dif_cubicacion?: number | null;
+  notas?: string | null;
+  created_by?: string | null;
+  created_at: string;
+}
+
+/** Lectura física de cubicación (altura→litros) guardada, con diferencia vs libros. */
+export interface CubicacionCombustible {
+  id: string;
+  tanque_id: string;
+  fecha: string;
+  altura_cm: number;
+  litros_cubicacion: number;
+  saldo_libros: number;
   diferencia?: number | null;
   notas?: string | null;
   created_by?: string | null;
@@ -655,10 +688,13 @@ export interface Proveedor {
   email?: string | null;
   direccion?: string | null;
   categorias: string[];
+  origen: OrigenProveedor;
   estado: EstadoGenerico;
   created_at: string;
   updated_at?: string | null;
 }
+
+export type OrigenProveedor = 'nacional' | 'internacional';
 
 export type RecetaFundicion = 'RECETA 1' | 'RECETA 2' | 'RECETA 3';
 export const RECETAS_FUNDICION: RecetaFundicion[] = ['RECETA 1', 'RECETA 2', 'RECETA 3'];

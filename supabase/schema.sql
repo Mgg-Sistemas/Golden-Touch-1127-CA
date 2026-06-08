@@ -82,6 +82,7 @@ create table if not exists public.proveedores (
   email         text,
   direccion     text,
   categorias    text[] not null default '{}',
+  origen        text not null default 'nacional' check (origen in ('nacional','internacional')),
   estado        estado_generico not null default 'activo',
   created_at    timestamptz not null default now(),
   updated_at    timestamptz
@@ -143,11 +144,16 @@ create table if not exists public.almacenes (
   id          uuid primary key default gen_random_uuid(),
   nombre      text not null unique,
   ubicacion   text,
+  -- Sede física a la que pertenece (Matanzas, Los Pinos…). Agrupa la vista.
+  sede        text,
+  -- Subalmacén: un almacén dentro de otro. null = almacén principal.
+  parent_id   uuid references public.almacenes(id) on delete set null,
   estado      estado_generico not null default 'activo',
   created_at  timestamptz not null default now(),
   created_by  text,
   updated_at  timestamptz
 );
+create index if not exists idx_almacenes_parent on public.almacenes(parent_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- 5.2 existencias: stock y costo (PMP) por (producto, almacen).
@@ -376,7 +382,13 @@ create table if not exists public.combustible_catalogos (
 create table if not exists public.combustible_tanques (
   id               uuid primary key default gen_random_uuid(),
   nombre           text not null,
-  capacidad_litros numeric not null default 0,
+  -- Tipo + dimensiones para la cubicación automática (altura cm → litros).
+  tipo             text not null default 'rectangular' check (tipo in ('cilindrico_horizontal','rectangular')),
+  es_movil         boolean not null default false,        -- camión de lubricación, etc.
+  radio_m          numeric,                                -- cilíndrico horizontal
+  largo_m          numeric, ancho_m numeric, alto_m numeric, -- rectangular (alto = altura total)
+  capacidad_litros numeric not null default 0,             -- ROTULADA (tope operativo manual)
+  capacidad_calculada_litros numeric,                      -- por fórmula a altura total
   saldo_litros     numeric not null default 0,
   saldo_usd        numeric not null default 0,
   tasa_usd_litro   numeric not null default 0,
@@ -392,7 +404,7 @@ create table if not exists public.combustible_tanque_movimientos (
   tanque_id           uuid not null references public.combustible_tanques(id) on delete cascade,
   fecha               date not null,
   hora                text,
-  tipo                text not null check (tipo in ('entrada','uso','traslado')),
+  tipo                text not null check (tipo in ('entrada','uso','traslado','retorno')),
   equipo              text, autorizado_por text, ubicacion text, observacion text,
   litros              numeric not null default 0,
   tanque_destino_id   uuid references public.combustible_tanques(id) on delete set null,
@@ -416,14 +428,30 @@ create table if not exists public.combustible_conciliaciones (
   saldo_libros         numeric not null default 0,
   saldo_reportado_mina numeric not null default 0,
   diferencia           numeric generated always as (saldo_libros - saldo_reportado_mina) stored,
+  saldo_cubicacion     numeric,
+  dif_cubicacion       numeric generated always as (saldo_libros - saldo_cubicacion) stored,
   notas                text,
   created_by           text,
   created_at           timestamptz not null default now()
 );
+-- Cubicaciones: lecturas físicas (altura→litros) guardadas, con diferencia vs libros.
+create table if not exists public.combustible_cubicaciones (
+  id                uuid primary key default gen_random_uuid(),
+  tanque_id         uuid not null references public.combustible_tanques(id) on delete cascade,
+  fecha             date not null default current_date,
+  altura_cm         numeric not null,
+  litros_cubicacion numeric not null,
+  saldo_libros      numeric not null default 0,
+  diferencia        numeric generated always as (saldo_libros - litros_cubicacion) stored,
+  notas             text,
+  created_by        text,
+  created_at        timestamptz not null default now()
+);
+create index if not exists idx_comb_cubic on public.combustible_cubicaciones(tanque_id, fecha desc, created_at desc);
 do $$
 declare t text;
 begin
-  foreach t in array array['combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones']
+  foreach t in array array['combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones']
   loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "%s read auth" on public.%I', t, t);
@@ -1634,7 +1662,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

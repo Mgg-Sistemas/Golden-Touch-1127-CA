@@ -3,7 +3,8 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
-import type { ItemOrden, Orden, Proveedor } from '@/shared/lib/types';
+import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
+import type { ItemOrden, Orden, OrigenProveedor, Proveedor } from '@/shared/lib/types';
 import { crearOferta, subirPdfOferta, CONDICIONES_PAGO } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
@@ -50,6 +51,8 @@ export function AgregarOfertaModal({
   const [provTelefono, setProvTelefono] = useState('');
   const [provEmail, setProvEmail] = useState('');
   const [provDireccion, setProvDireccion] = useState('');
+  const [provOrigen, setProvOrigen] = useState<OrigenProveedor>('nacional');
+  const rifPartes = partirRif(provRif);
 
   // Calificación histórica de los proveedores (se guarda al finalizar cada pedido).
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
@@ -103,8 +106,8 @@ export function AgregarOfertaModal({
       // 1) Resolver proveedor (existente o crear uno nuevo)
       let provId = proveedorId;
       if (nuevoProveedor) {
-        if (!provRazon.trim() || !provRif.trim()) {
-          toast('Razón social y RIF son obligatorios para el nuevo proveedor', 'error');
+        if (!provRazon.trim() || !rifPartes.numero) {
+          toast('Razón social y RIF (con número) son obligatorios para el nuevo proveedor', 'error');
           setSubmitting(false);
           return;
         }
@@ -116,12 +119,13 @@ export function AgregarOfertaModal({
         }
         const creado = await crearProveedor({
           razon_social: provRazon.trim().toUpperCase(),
-          rif: provRif.trim().toUpperCase(),
+          rif: `${rifPartes.letra}-${rifPartes.numero}`,
           contacto: null,
           telefono: provTelefono.trim() || null,
           email: emailClean || null,
           direccion: provDireccion.trim().toUpperCase() || null,
           categorias: [],
+          origen: provOrigen,
           estado: 'activo',
         });
         provId = creado.id;
@@ -200,13 +204,27 @@ export function AgregarOfertaModal({
             </div>
             <div className="form-row">
               <label>RIF *</label>
-              <input
-                className="input mono"
-                value={provRif}
-                onChange={(e) => setProvRif(e.target.value.toUpperCase().slice(0, 10))}
-                placeholder="J-12345678"
-                maxLength={10}
-              />
+              <div style={{ display: 'flex', gap: '.4rem' }}>
+                <select
+                  className="select"
+                  value={rifPartes.letra}
+                  onChange={(e) => setProvRif(`${e.target.value}-${rifPartes.numero}`)}
+                  style={{ width: 'auto', flex: '0 0 auto' }}
+                  aria-label="Tipo de RIF"
+                >
+                  {PREFIJOS_RIF.map((p) => (
+                    <option key={p.letra} value={p.letra}>{p.letra} · {p.desc}</option>
+                  ))}
+                </select>
+                <input
+                  className="input mono"
+                  value={rifPartes.numero}
+                  onChange={(e) => setProvRif(`${rifPartes.letra}-${e.target.value.replace(/\D/g, '').slice(0, 10)}`)}
+                  placeholder="40778442"
+                  inputMode="numeric"
+                  style={{ flex: 1 }}
+                />
+              </div>
             </div>
           </div>
           <div className="form-grid">
@@ -235,6 +253,32 @@ export function AgregarOfertaModal({
           <div className="form-row">
             <label>Dirección</label>
             <input className="input" value={provDireccion} onChange={(e) => setProvDireccion(e.target.value.toUpperCase())} />
+          </div>
+          <div className="form-row">
+            <label>Origen</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+              {([
+                { val: 'nacional', txt: '🇻🇪 Nacional' },
+                { val: 'internacional', txt: '🌎 Internacional' },
+              ] as const).map((o) => {
+                const checked = provOrigen === o.val;
+                return (
+                  <label
+                    key={o.val}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '.3rem',
+                      padding: '.35rem .65rem',
+                      background: checked ? 'var(--brand-soft, rgba(255,138,0,.12))' : 'var(--bg-1)',
+                      border: `1px solid ${checked ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
+                      borderRadius: 6, cursor: 'pointer',
+                    }}
+                  >
+                    <input type="checkbox" checked={checked} onChange={() => setProvOrigen(o.val)} />
+                    <span style={{ fontSize: '.82rem' }}>{o.txt}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
         </div>
       ) : (

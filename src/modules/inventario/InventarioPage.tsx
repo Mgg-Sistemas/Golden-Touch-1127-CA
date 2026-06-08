@@ -41,7 +41,7 @@ import { ExportInventarioModal } from './ExportInventarioModal';
 import { ImportarExcelModal } from './ImportarExcelModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
-import { AlmacenesView, type AlmacenLayout } from './AlmacenesView';
+import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { AlmacenKanban } from './AlmacenKanban';
 import { descargarAlmacenExcel, descargarAlmacenPdf } from './almacenExport';
@@ -56,6 +56,7 @@ import {
   crearAlmacen,
   actualizarAlmacen,
   eliminarAlmacen,
+  nombreCortoAlmacen,
   type AlmacenInput,
   type AlmacenValor,
   type ConsumoProducto,
@@ -103,7 +104,7 @@ type ModalState =
   | { kind: 'confirmToggle'; producto: Producto }
   | { kind: 'export' }
   | { kind: 'import'; analisis: AnalisisImport }
-  | { kind: 'almacenCrear' }
+  | { kind: 'almacenCrear'; parentId?: string | null; sede?: string | null }
   | { kind: 'almacenEditar'; almacen: Almacen }
   | { kind: 'almacenEliminar'; almacen: Almacen };
 
@@ -116,6 +117,9 @@ export function InventarioPage() {
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenSel, setAlmacenSel] = useState<string | null>(null);
+  const [sedeSel, setSedeSel] = useState<string | null>(null);
+  // Almacén padre cuyo nivel de subalmacenes estamos viendo (drill-down dentro de la sede).
+  const [almacenNavId, setAlmacenNavId] = useState<string | null>(null);
   const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
   const [movStats, setMovStats] = useState<Map<string, { entradas: number; salidas: number }>>(new Map());
   const [consumo, setConsumo] = useState<Map<string, ConsumoProducto>>(new Map());
@@ -136,7 +140,7 @@ export function InventarioPage() {
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
-  useRealtime(['productos', 'movimientos'], () => { void reload(); });
+  useRealtime(['productos', 'movimientos', 'almacenes'], () => { void reload(); });
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -571,10 +575,48 @@ export function InventarioPage() {
               />
             )}
           </>
-        ) : (
+        ) : !sedeSel ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
-              <div className="view-toggle" role="tablist" aria-label="Vista de almacenes" style={{ marginLeft: 0 }}>
+              <h2 style={{ margin: 0 }}>📍 Sedes</h2>
+              <span className="muted" style={{ fontSize: '.85rem' }}>Elegí una sede para ver sus almacenes.</span>
+              {canWrite && (
+                <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '.7rem 1.3rem', fontSize: '1.02rem', fontWeight: 700 }} onClick={() => setModal({ kind: 'almacenCrear' })}>
+                  + Agregar almacén
+                </button>
+              )}
+            </div>
+            {loading ? (
+              <EmptyState message="Cargando almacenes…" icon="◔" />
+            ) : (
+              <SedesView almacenes={almacenes} valores={valoresAlm} onSelectSede={(s) => { setSedeSel(s); setAlmacenNavId(null); }} />
+            )}
+          </>
+        ) : (() => {
+          const sedeAlmacenes = almacenes.filter((a) => (a.sede?.trim() || 'Sin sede') === sedeSel);
+          // Si la sede tiene un único almacén padre (ej. "Los Pinos"), se salta ese
+          // nivel redundante y se muestran directo sus subalmacenes.
+          const roots = raices(sedeAlmacenes);
+          const autoPadre = !almacenNavId && roots.length === 1 && hijosDe(roots[0].id, sedeAlmacenes).length > 0 ? roots[0] : null;
+          const nivelParentId = almacenNavId ?? (autoPadre ? autoPadre.id : null);
+          const padre = almacenNavId ? almacenes.find((a) => a.id === almacenNavId) ?? null : null;
+          // Contenedor donde se agregaría: el padre que estamos viendo (manual o auto).
+          const contenedor = padre ?? autoPadre;
+          return (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
+              {padre ? (
+                <>
+                  <button className="btn btn-ghost" onClick={() => setAlmacenNavId(null)}>← Volver a {sedeSel}</button>
+                  <h2 style={{ margin: 0 }}>▣ {nombreCortoAlmacen(padre, almacenes)}</h2>
+                </>
+              ) : (
+                <>
+                  <button className="btn btn-ghost" onClick={() => setSedeSel(null)}>← Volver a sedes</button>
+                  <h2 style={{ margin: 0 }}>📍 {sedeSel}</h2>
+                </>
+              )}
+              <div className="view-toggle" role="tablist" aria-label="Vista de almacenes" style={{ marginLeft: '.5rem' }}>
                 <button
                   className={ui.almacenLayout === 'kanban' ? 'active' : ''}
                   onClick={() => setUi((prev) => ({ ...prev, almacenLayout: 'kanban' }))}
@@ -589,8 +631,9 @@ export function InventarioPage() {
                 </button>
               </div>
               {canWrite && (
-                <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '.7rem 1.3rem', fontSize: '1.02rem', fontWeight: 700 }} onClick={() => setModal({ kind: 'almacenCrear' })}>
-                  + Agregar almacén
+                <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '.7rem 1.3rem', fontSize: '1.02rem', fontWeight: 700 }}
+                  onClick={() => setModal(contenedor ? { kind: 'almacenCrear', parentId: contenedor.id } : { kind: 'almacenCrear', sede: sedeSel })}>
+                  {contenedor ? '+ Agregar subalmacén' : '+ Agregar almacén'}
                 </button>
               )}
             </div>
@@ -598,14 +641,17 @@ export function InventarioPage() {
               <EmptyState message="Cargando almacenes…" icon="◔" />
             ) : (
               <AlmacenesView
-                almacenes={almacenes}
+                almacenes={sedeAlmacenes}
                 valores={valoresAlm}
                 layout={ui.almacenLayout}
                 canWrite={canWrite}
+                parentId={nivelParentId}
                 onSelect={setAlmacenSel}
+                onDrill={(a) => setAlmacenNavId(a.id)}
                 onConsumo={setConsumoAlmacen}
                 onEditar={(a) => setModal({ kind: 'almacenEditar', almacen: a })}
                 onEliminar={(a) => setModal({ kind: 'almacenEliminar', almacen: a })}
+                onAgregarSub={(a) => setModal({ kind: 'almacenCrear', parentId: a.id })}
               />
             )}
             {consumoAlmacen && (
@@ -620,7 +666,8 @@ export function InventarioPage() {
               />
             )}
           </>
-        )
+          );
+        })()
       ) : (
         <>
           <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} />
@@ -699,6 +746,9 @@ export function InventarioPage() {
       )}
       {modal.kind === 'almacenCrear' && (
         <AlmacenForm
+          almacenes={almacenes}
+          parentPreset={modal.parentId ?? null}
+          sedePreset={modal.sede ?? null}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={handleCrearAlmacen}
         />
@@ -706,6 +756,7 @@ export function InventarioPage() {
       {modal.kind === 'almacenEditar' && (
         <AlmacenForm
           almacen={modal.almacen}
+          almacenes={almacenes}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={(data) => handleEditarAlmacen(modal.almacen.id, data)}
         />

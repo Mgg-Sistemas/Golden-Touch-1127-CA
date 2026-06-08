@@ -11,15 +11,61 @@ import { supabase } from '@/shared/lib/supabase';
 import type {
   CatalogoCombustible,
   ConciliacionCombustible,
+  CubicacionCombustible,
   MovimientoTanque,
   TanqueCombustible,
   TipoCatalogoCombustible,
   TipoMovTanque,
+  TipoTanque,
 } from '@/shared/lib/types';
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const round = (v: number, d = 4) => Math.round(v * 10 ** d) / 10 ** d;
 const hoy = () => new Date().toISOString().slice(0, 10);
+
+/* ───────────── Cubicación (altura cm → litros) ─────────────
+   Fórmulas reales del Excel «CUBICACIÓN TANQUES»:
+     · Cilíndrico horizontal: θ = 2·acos((R−h)/R);
+       área = ½·R²·(θ − sen θ);  litros = área · largo · 1000
+     · Rectangular:           litros = largo · ancho · h · 1000
+   (h en metros = altura_cm / 100). */
+export interface GeometriaTanque {
+  tipo: TipoTanque;
+  radio_m?: number | null;
+  largo_m?: number | null;
+  ancho_m?: number | null;
+  alto_m?: number | null;
+}
+
+/** Convierte una altura de líquido (en cm) a litros según la geometría del tanque. */
+export function cubicarLitros(g: GeometriaTanque, alturaCm: number): number {
+  const h = Math.max(0, num(alturaCm) / 100); // a metros
+  if (g.tipo === 'cilindrico_horizontal') {
+    const R = num(g.radio_m);
+    const L = num(g.largo_m);
+    if (R <= 0 || L <= 0) return 0;
+    const hh = Math.min(h, 2 * R); // no pasa del diámetro
+    const theta = 2 * Math.acos(Math.min(1, Math.max(-1, (R - hh) / R)));
+    const area = 0.5 * R * R * (theta - Math.sin(theta));
+    return round(area * L * 1000, 2);
+  }
+  // rectangular
+  const L = num(g.largo_m);
+  const A = num(g.ancho_m);
+  const alto = num(g.alto_m);
+  if (L <= 0 || A <= 0) return 0;
+  const hh = alto > 0 ? Math.min(h, alto) : h;
+  return round(L * A * hh * 1000, 2);
+}
+
+/** Capacidad calculada por fórmula al llenar el tanque a su altura total. */
+export function capacidadCalculada(g: GeometriaTanque): number {
+  if (g.tipo === 'cilindrico_horizontal') {
+    const R = num(g.radio_m);
+    return cubicarLitros(g, R * 2 * 100); // altura total = diámetro (en cm)
+  }
+  return cubicarLitros(g, num(g.alto_m) * 100);
+}
 
 /* ───────────── Catálogos ───────────── */
 
@@ -66,23 +112,49 @@ export async function listTanques(): Promise<TanqueCombustible[]> {
   return (data ?? []) as TanqueCombustible[];
 }
 
-export async function crearTanque(input: {
+export interface TanqueInput {
   nombre: string;
-  capacidadLitros?: number;
+  tipo?: TipoTanque;
+  esMovil?: boolean;
+  radioM?: number | null;
+  largoM?: number | null;
+  anchoM?: number | null;
+  altoM?: number | null;
+  capacidadLitros?: number;   // rotulada
   saldoLitros?: number;
   tasaUsdLitro?: number;
   ubicacion?: string | null;
-  actor: string;
-}): Promise<TanqueCombustible> {
+}
+
+/** Geometría a partir del input del formulario (para cubicar/capacidad). */
+function geomDeInput(input: TanqueInput): GeometriaTanque {
+  return {
+    tipo: input.tipo ?? 'rectangular',
+    radio_m: input.radioM ?? null,
+    largo_m: input.largoM ?? null,
+    ancho_m: input.anchoM ?? null,
+    alto_m: input.altoM ?? null,
+  };
+}
+
+export async function crearTanque(input: TanqueInput & { actor: string }): Promise<TanqueCombustible> {
   const nombre = input.nombre.trim();
   if (!nombre) throw new Error('Indicá el nombre del tanque.');
   const saldoLitros = Math.max(0, num(input.saldoLitros));
   const tasa = Math.max(0, num(input.tasaUsdLitro));
+  const geom = geomDeInput(input);
   const { data, error } = await supabase
     .from('combustible_tanques')
     .insert({
       nombre,
+      tipo: geom.tipo,
+      es_movil: !!input.esMovil,
+      radio_m: input.radioM ?? null,
+      largo_m: input.largoM ?? null,
+      ancho_m: input.anchoM ?? null,
+      alto_m: input.altoM ?? null,
       capacidad_litros: Math.max(0, num(input.capacidadLitros)),
+      capacidad_calculada_litros: capacidadCalculada(geom) || null,
       saldo_litros: saldoLitros,
       saldo_usd: round(saldoLitros * tasa, 2),
       tasa_usd_litro: tasa,
@@ -93,6 +165,30 @@ export async function crearTanque(input: {
     .single();
   if (error) throw error;
   return data as TanqueCombustible;
+}
+
+/** Edita nombre, geometría y capacidad rotulada de un tanque (recalcula la calculada). */
+export async function actualizarTanque(id: string, input: TanqueInput): Promise<void> {
+  const nombre = input.nombre.trim();
+  if (!nombre) throw new Error('El nombre no puede estar vacío.');
+  const geom = geomDeInput(input);
+  const { error } = await supabase
+    .from('combustible_tanques')
+    .update({
+      nombre,
+      tipo: geom.tipo,
+      es_movil: !!input.esMovil,
+      radio_m: input.radioM ?? null,
+      largo_m: input.largoM ?? null,
+      ancho_m: input.anchoM ?? null,
+      alto_m: input.altoM ?? null,
+      capacidad_litros: Math.max(0, num(input.capacidadLitros)),
+      capacidad_calculada_litros: capacidadCalculada(geom) || null,
+      ubicacion: input.ubicacion?.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 export async function renombrarTanque(id: string, nombre: string): Promise<void> {
@@ -137,7 +233,7 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   let saldoU = 0;
   return (data ?? []).map((row) => {
     const m = row as MovimientoTanque;
-    if (m.tipo === 'entrada') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
+    if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
     return { ...m, saldo_litros: round(saldoL, 2), saldo_usd: round(saldoU, 2) };
   });
@@ -233,6 +329,32 @@ export async function registrarUso(input: {
   await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
 }
 
+/** RETORNO: combustible que VUELVE al tanque (entra al saldo a la tasa vigente,
+ *  sin costo nuevo). No recalcula la tasa PMP. */
+export async function registrarRetorno(input: {
+  tanqueId: string;
+  litros: number;
+  campos?: MovimientoTanqueCampos;
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const litros = num(input.litros);
+  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  const t = await getTanque(input.tanqueId);
+  const tasa = num(t.tasa_usd_litro);
+
+  await insertarMovimiento({
+    ...campos(input.campos ?? {}),
+    tanque_id: input.tanqueId,
+    tipo: 'retorno',
+    litros,
+    tasa_usd_litro: round(tasa, 4),
+    created_by: input.actor,
+    actor_name: input.actorName ?? null,
+  });
+  await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) + litros, num(t.saldo_usd) + litros * tasa, tasa);
+}
+
 /**
  * TRASLADO: sale combustible del tanque origen. Si `tanqueDestinoId` está
  * presente, también ENTRA al tanque destino (al costo/tasa del origen).
@@ -283,7 +405,7 @@ export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<v
   const monto = num(mov.monto_usd);
   let saldoL = num(t.saldo_litros);
   let saldoU = num(t.saldo_usd);
-  if (mov.tipo === 'entrada') { saldoL -= litros; saldoU -= monto; }
+  if (mov.tipo === 'entrada' || mov.tipo === 'retorno') { saldoL -= litros; saldoU -= monto; }
   else { saldoL += litros; saldoU += monto; }
   const tasa = saldoL > 0 ? saldoU / saldoL : num(t.tasa_usd_litro);
   const { error } = await supabase.from('combustible_tanque_movimientos').delete().eq('id', mov.id);
@@ -311,7 +433,7 @@ export async function reporteGlobal(): Promise<ReporteTanque[]> {
   const agg = new Map<string, { entradas: number; uso: number; traslados: number }>();
   for (const row of (data ?? []) as Array<{ tanque_id: string; tipo: TipoMovTanque; litros: number }>) {
     const a = agg.get(row.tanque_id) ?? { entradas: 0, uso: 0, traslados: 0 };
-    if (row.tipo === 'entrada') a.entradas += num(row.litros);
+    if (row.tipo === 'entrada' || row.tipo === 'retorno') a.entradas += num(row.litros);
     else if (row.tipo === 'uso') a.uso += num(row.litros);
     else a.traslados += num(row.litros);
     agg.set(row.tanque_id, a);
@@ -337,6 +459,7 @@ export async function crearConciliacion(input: {
   periodo?: string | null;
   saldoLibros: number;
   saldoReportadoMina: number;
+  saldoCubicacion?: number | null;
   notas?: string | null;
   actor: string;
 }): Promise<ConciliacionCombustible> {
@@ -347,6 +470,7 @@ export async function crearConciliacion(input: {
       periodo: input.periodo?.trim() || null,
       saldo_libros: num(input.saldoLibros),
       saldo_reportado_mina: num(input.saldoReportadoMina),
+      saldo_cubicacion: input.saldoCubicacion == null ? null : num(input.saldoCubicacion),
       notas: input.notas?.trim() || null,
       created_by: input.actor,
     })
@@ -356,7 +480,52 @@ export async function crearConciliacion(input: {
   return data as ConciliacionCombustible;
 }
 
-/* ───────────── Consumo por equipo (gráfica) ───────────── */
+/* ───────────── Cubicaciones (lecturas físicas guardadas) ───────────── */
+
+export async function listCubicaciones(tanqueId?: string): Promise<CubicacionCombustible[]> {
+  let q = supabase.from('combustible_cubicaciones').select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false });
+  if (tanqueId) q = q.eq('tanque_id', tanqueId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as CubicacionCombustible[];
+}
+
+/** Guarda una medición física: convierte la altura a litros con la geometría del
+ *  tanque y deja registrada la diferencia contra el saldo por libros del momento. */
+export async function crearCubicacion(input: {
+  tanqueId: string;
+  alturaCm: number;
+  fecha?: string;
+  notas?: string | null;
+  actor: string;
+}): Promise<CubicacionCombustible> {
+  const altura = num(input.alturaCm);
+  if (altura < 0) throw new Error('La altura no puede ser negativa.');
+  const t = await getTanque(input.tanqueId);
+  const litros = cubicarLitros(t, altura);
+  const { data, error } = await supabase
+    .from('combustible_cubicaciones')
+    .insert({
+      tanque_id: input.tanqueId,
+      fecha: input.fecha || hoy(),
+      altura_cm: altura,
+      litros_cubicacion: litros,
+      saldo_libros: num(t.saldo_litros),
+      notas: input.notas?.trim() || null,
+      created_by: input.actor,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as CubicacionCombustible;
+}
+
+export async function eliminarCubicacion(id: string): Promise<void> {
+  const { error } = await supabase.from('combustible_cubicaciones').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ───────────── Consumo por equipo / mina / mes (gráficas) ───────────── */
 
 export interface ConsumoEquipoItem {
   id: string;
@@ -365,26 +534,42 @@ export interface ConsumoEquipoItem {
   valor: number;
 }
 
-/** Uso de combustible por EQUIPO en un rango de fechas (litros + USD al costo). */
-export async function consumoPorEquipo(desde: Date, hasta: Date): Promise<ConsumoEquipoItem[]> {
+export type AgrupacionConsumo = 'equipo' | 'mina' | 'mes';
+
+const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+/** Uso de combustible agrupado por equipo, mina (ubicación) o mes, en un rango de
+ *  fechas (litros + USD al costo). Solo cuenta movimientos de tipo 'uso'. */
+export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsumo = 'equipo'): Promise<ConsumoEquipoItem[]> {
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('equipo, litros, monto_usd, fecha, tipo')
+    .select('equipo, ubicacion, litros, monto_usd, fecha, tipo')
     .eq('tipo', 'uso')
     .gte('fecha', desde.toISOString().slice(0, 10))
     .lte('fecha', hasta.toISOString().slice(0, 10));
   if (error) throw error;
   const acc = new Map<string, ConsumoEquipoItem>();
   for (const row of (data ?? []) as Array<Record<string, unknown>>) {
-    const nombre = (row.equipo as string)?.trim() || '— sin equipo —';
     const litros = num(row.litros);
     if (litros <= 0) continue;
-    const cur = acc.get(nombre) ?? { id: nombre, nombre, cantidad: 0, valor: 0 };
+    let clave: string;
+    if (por === 'mina') clave = (row.ubicacion as string)?.trim() || '— sin mina —';
+    else if (por === 'mes') {
+      const f = String(row.fecha ?? '');
+      const [y, m] = f.split('-');
+      clave = m ? `${MESES_ES[(Number(m) - 1 + 12) % 12]} ${y}` : '— sin fecha —';
+    } else clave = (row.equipo as string)?.trim() || '— sin equipo —';
+    const cur = acc.get(clave) ?? { id: clave, nombre: clave, cantidad: 0, valor: 0 };
     cur.cantidad += litros;
     cur.valor += num(row.monto_usd);
-    acc.set(nombre, cur);
+    acc.set(clave, cur);
   }
-  return Array.from(acc.values())
-    .map((x) => ({ ...x, cantidad: round(x.cantidad, 2), valor: round(x.valor, 2) }))
-    .sort((a, b) => b.cantidad - a.cantidad);
+  const arr = Array.from(acc.values()).map((x) => ({ ...x, cantidad: round(x.cantidad, 2), valor: round(x.valor, 2) }));
+  // Por mes: orden cronológico; el resto, por mayor consumo.
+  return por === 'mes' ? arr : arr.sort((a, b) => b.cantidad - a.cantidad);
+}
+
+/** Compat: consumo por equipo (usa consumoUso). */
+export function consumoPorEquipo(desde: Date, hasta: Date): Promise<ConsumoEquipoItem[]> {
+  return consumoUso(desde, hasta, 'equipo');
 }

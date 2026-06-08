@@ -6,6 +6,7 @@ import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
+import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { EstadoGenerico, Orden, Proveedor } from '@/shared/lib/types';
 import {
@@ -35,6 +36,7 @@ const EMPTY_FORM: ProveedorInput = {
   email: '',
   direccion: '',
   categorias: [],
+  origen: 'nacional',
   estado: 'activo',
 };
 
@@ -384,25 +386,6 @@ interface FormModalProps {
   onSubmit: (payload: ProveedorInput) => void | Promise<void>;
 }
 
-// Prefijos de RIF válidos en Venezuela (SENIAT).
-const PREFIJOS_RIF: { letra: string; desc: string }[] = [
-  { letra: 'J', desc: 'Jurídico (empresa)' },
-  { letra: 'V', desc: 'Venezolano (natural)' },
-  { letra: 'E', desc: 'Extranjero' },
-  { letra: 'P', desc: 'Pasaporte' },
-  { letra: 'G', desc: 'Gubernamental' },
-  { letra: 'C', desc: 'Consejo comunal' },
-];
-const LETRAS_RIF = PREFIJOS_RIF.map((p) => p.letra);
-
-/** Separa un RIF guardado ("J-40778442") en su letra y su número. */
-function partirRif(rif: string): { letra: string; numero: string } {
-  const limpio = (rif ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const letra = LETRAS_RIF.includes(limpio[0]) ? limpio[0] : 'J';
-  const numero = limpio.replace(/^[A-Z]/, '').slice(0, 10);
-  return { letra, numero };
-}
-
 function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }: FormModalProps) {
   const [form, setForm] = useState<ProveedorInput>(() => {
     if (!initial) return { ...EMPTY_FORM };
@@ -414,6 +397,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       email: initial.email ?? '',
       direccion: initial.direccion ?? '',
       categorias: [...(initial.categorias ?? [])],
+      origen: initial.origen ?? 'nacional',
       estado: initial.estado,
     };
   });
@@ -585,6 +569,33 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
         </div>
 
         <div className="form-row">
+          <label>Origen</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+            {([
+              { val: 'nacional', txt: '🇻🇪 Nacional' },
+              { val: 'internacional', txt: '🌎 Internacional' },
+            ] as const).map((o) => {
+              const checked = form.origen === o.val;
+              return (
+                <label
+                  key={o.val}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '.3rem',
+                    padding: '.35rem .65rem',
+                    background: checked ? 'var(--brand-soft, rgba(255,138,0,.12))' : 'var(--bg-1)',
+                    border: `1px solid ${checked ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
+                    borderRadius: 6, cursor: 'pointer',
+                  }}
+                >
+                  <input type="checkbox" checked={checked} onChange={() => update('origen', o.val)} />
+                  <span style={{ fontSize: '.82rem' }}>{o.txt}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="form-row">
           <label>Categorías que ofrece</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
             {categorias.map((c) => {
@@ -696,6 +707,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Teléfono" value={proveedor.telefono || '—'} />
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
+        <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
         <DetailRow
           label="Categorías"
           value={

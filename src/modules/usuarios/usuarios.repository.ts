@@ -121,12 +121,30 @@ export async function eliminarDepartamento(nombre: string): Promise<void> {
   await deleteTaxonomia('usuario.departamento', nombre);
 }
 
+/**
+ * Cuando una Edge Function responde con un status != 2xx, supabase-js entrega un
+ * FunctionsHttpError cuyo `message` es siempre el texto genérico
+ * «Edge Function returned a non-2xx status code». El mensaje real (p. ej. «Ese
+ * correo ya está registrado») viaja en el cuerpo de la respuesta, accesible vía
+ * `error.context`. Esta función lo extrae para mostrarlo al usuario.
+ */
+async function mensajeErrorFuncion(error: unknown, fallback: string): Promise<string> {
+  const ctx = (error as { context?: unknown } | null)?.context;
+  if (ctx && typeof (ctx as Response).json === 'function') {
+    try {
+      const body = await (ctx as Response).json();
+      if (body && typeof body.error === 'string' && body.error.trim()) return body.error;
+    } catch { /* el cuerpo no era JSON */ }
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 /** Llama a la Edge Function crear-usuario (clave por defecto: 123456). */
 export async function crearUsuario(input: CrearUsuarioInput): Promise<{ id: string }> {
   const { data, error } = await supabase.functions.invoke<
     { ok: true; id: string; email: string } | { error: string }
   >('crear-usuario', { body: input });
-  if (error) throw new Error(error.message ?? 'Error al crear usuario');
+  if (error) throw new Error(await mensajeErrorFuncion(error, 'Error al crear usuario'));
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
   return { id: data.id };
 }
@@ -158,7 +176,7 @@ export async function resetearClave(userId: string): Promise<void> {
   const { data, error } = await supabase.functions.invoke<
     { ok: true } | { error: string }
   >('resetear-clave', { body: { user_id: userId } });
-  if (error) throw new Error(error.message ?? 'Error al resetear');
+  if (error) throw new Error(await mensajeErrorFuncion(error, 'Error al resetear'));
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
 }
 
