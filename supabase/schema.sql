@@ -448,10 +448,24 @@ create table if not exists public.combustible_cubicaciones (
   created_at        timestamptz not null default now()
 );
 create index if not exists idx_comb_cubic on public.combustible_cubicaciones(tanque_id, fecha desc, created_at desc);
+-- Medidores por equipo (horómetro / contador del surtidor), independiente del consumo.
+create table if not exists public.combustible_medidores (
+  id              uuid primary key default gen_random_uuid(),
+  equipo          text not null,
+  fecha           date not null default current_date,
+  horometro_ini   numeric, horometro_fin numeric,
+  horas           numeric generated always as (coalesce(horometro_fin,0) - coalesce(horometro_ini,0)) stored,
+  contador_ini    numeric, contador_fin numeric,
+  contador_dif    numeric generated always as (coalesce(contador_fin,0) - coalesce(contador_ini,0)) stored,
+  observacion     text,
+  created_by      text, actor_name text,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_comb_medidores on public.combustible_medidores(equipo, fecha desc, created_at desc);
 do $$
 declare t text;
 begin
-  foreach t in array array['combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones']
+  foreach t in array array['combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores']
   loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "%s read auth" on public.%I', t, t);
@@ -1662,7 +1676,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

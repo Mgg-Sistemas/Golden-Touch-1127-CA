@@ -19,11 +19,14 @@ import type {
 } from '@/shared/lib/types';
 import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
-  registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, eliminarMovimientoTanque,
+  registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
   crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, type ReporteTanque,
 } from './tanques.repository';
+import { descargarMovimientosTanquePdf } from './tanquePdf';
+import { descargarMovimientosTanqueExcel } from './tanqueExcel';
+import { MedidoresModal } from './MedidoresModal';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -37,6 +40,7 @@ const TIPO_MOV_LABEL: Record<TipoMovTanque, string> = {
   uso: '⛽ Uso (consumo de equipo)',
   traslado: '↔ Traslado (a otra mina/tanque)',
   retorno: '↩ Retorno (vuelve al tanque)',
+  merma: '🔻 Merma del tanque (pérdida)',
 };
 
 export function TanquesView() {
@@ -53,7 +57,7 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'medidores'>('none');
   const [editTanque, setEditTanque] = useState<TanqueCombustible | null>(null);
   // Filtros del libro mayor (registro de movimientos del tanque seleccionado).
   const [fTexto, setFTexto] = useState('');
@@ -136,6 +140,7 @@ export function TanquesView() {
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setModal('medidores')} title="Horómetros / contadores por equipo">🕒 Medidores</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!sel}>⚖ Conciliación</button>}
@@ -190,11 +195,17 @@ export function TanquesView() {
           {/* Filtros del libro mayor: búsqueda libre + todos los campos (estilo Tesorería) */}
           {!!movs.length && (
             <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
-              <span>Registro de movimientos</span>
+              <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                Registro de movimientos
+                <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar PDF del registro (con el filtro aplicado)"
+                  onClick={() => sel && void descargarMovimientosTanquePdf(sel, movsFiltrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+                <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar Excel del registro (con el filtro aplicado)"
+                  onClick={() => sel && void descargarMovimientosTanqueExcel(sel, movsFiltrados).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
+              </span>
               <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ position: 'relative' }}>
                   <input className="input" type="search" value={fTexto} onChange={(e) => setFTexto(e.target.value)}
-                    placeholder="🔍 Buscar (equipo, autorizado, ubicación…)" style={{ width: 260, paddingRight: fTexto ? '1.6rem' : undefined }} />
+                    placeholder="🔍 Buscar (equipo, autorizado, destino…)" style={{ width: 260, paddingRight: fTexto ? '1.6rem' : undefined }} />
                   {fTexto && (
                     <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFTexto('')} title="Limpiar búsqueda"
                       style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>
@@ -206,6 +217,7 @@ export function TanquesView() {
                   <option value="uso">⛽ Uso</option>
                   <option value="traslado">↔ Traslado</option>
                   <option value="retorno">↩ Retorno</option>
+                  <option value="merma">🔻 Merma</option>
                 </select>
                 <select className="select" value={fEquipo} onChange={(e) => setFEquipo(e.target.value)} style={{ width: 'auto' }}>
                   <option value="">Todo equipo</option>
@@ -216,7 +228,7 @@ export function TanquesView() {
                   {opcs.autorizados.map((v) => <option key={v} value={v}>{v}</option>)}
                 </select>
                 <select className="select" value={fUbicacion} onChange={(e) => setFUbicacion(e.target.value)} style={{ width: 'auto' }}>
-                  <option value="">Toda ubicación</option>
+                  <option value="">Todo destino</option>
                   {opcs.ubicaciones.map((v) => <option key={v} value={v}>{v}</option>)}
                 </select>
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
@@ -238,15 +250,15 @@ export function TanquesView() {
               <table className="table" style={{ fontSize: '.8rem' }}>
                 <thead>
                   <tr>
-                    <th>Fecha</th><th>Equipo</th><th>Autorizado</th><th>Ubicación</th><th>Observación</th>
+                    <th>Fecha</th><th>Equipo</th><th>Autorizado</th><th>Destino</th><th>Observación</th>
                     <th>HI</th><th>HF</th><th>Hrs</th>
-                    <th>Entrada</th><th>Uso</th><th>Traslado</th><th>Retorno</th><th>Saldo L</th>
+                    <th>Entrada</th><th>Uso</th><th>Traslado</th><th>Retorno</th><th>Merma</th><th>Saldo L</th>
                     <th>Tasa</th><th>$ Mov.</th><th>Saldo $</th>{canWrite && <th></th>}
                   </tr>
                 </thead>
                 <tbody>
                   {!movsFiltrados.length && (
-                    <tr><td colSpan={canWrite ? 17 : 16} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                    <tr><td colSpan={canWrite ? 18 : 17} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
                   )}
                   {movsFiltrados.map((m) => (
                     <tr key={m.id}>
@@ -262,6 +274,7 @@ export function TanquesView() {
                       <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'uso' ? num(m.litros) : ''}</td>
                       <td className="mono" style={{ color: 'var(--warning)' }}>{m.tipo === 'traslado' ? num(m.litros) : ''}</td>
                       <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{m.tipo === 'retorno' ? num(m.litros) : ''}</td>
+                      <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'merma' ? num(m.litros) : ''}</td>
                       <td className="mono"><strong>{num(m.saldo_litros)}</strong></td>
                       <td className="mono muted">{money(m.tasa_usd_litro)}</td>
                       <td className="mono">{money(m.monto_usd)}</td>
@@ -293,6 +306,9 @@ export function TanquesView() {
       )}
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
+      )}
+      {modal === 'medidores' && (
+        <MedidoresModal catalogos={catalogos} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setModal('none')} />
       )}
       {modal === 'consumo' && (
         <ConsumoChartModal
@@ -332,10 +348,6 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const [litros, setLitros] = useState('');
   const [costo, setCosto] = useState('');
   const [destinoId, setDestinoId] = useState('');
-  const [hi, setHi] = useState('');
-  const [hf, setHf] = useState('');
-  const [cgi, setCgi] = useState('');
-  const [cgf, setCgf] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -347,16 +359,13 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     const litrosNum = Number(litros) || 0;
     if (litrosNum <= 0) { setError('Indicá los litros.'); return; }
     if (tipo === 'traslado' && destinoId && destinoId === tanqueId) { setError('El tanque destino debe ser distinto.'); return; }
-    const campos = {
-      fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
-      horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
-      contadorGlobalIni: cgi === '' ? null : Number(cgi), contadorGlobalFin: cgf === '' ? null : Number(cgf),
-    };
+    const campos = { fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion };
     setSaving(true);
     try {
       if (tipo === 'entrada') await registrarEntrada({ tanqueId, litros: litrosNum, costoLitro: Number(costo) || 0, campos, actor, actorName });
       else if (tipo === 'uso') await registrarUso({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else if (tipo === 'retorno') await registrarRetorno({ tanqueId, litros: litrosNum, campos, actor, actorName });
+      else if (tipo === 'merma') await registrarMerma({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else await registrarTraslado({ tanqueId, litros: litrosNum, tanqueDestinoId: destinoId || null, campos, actor, actorName });
       toast('Movimiento registrado', 'success');
       onSaved();
@@ -388,6 +397,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
               <option value="uso">{TIPO_MOV_LABEL.uso}</option>
               <option value="traslado">{TIPO_MOV_LABEL.traslado}</option>
               <option value="retorno">{TIPO_MOV_LABEL.retorno}</option>
+              <option value="merma">{TIPO_MOV_LABEL.merma}</option>
             </select>
           </div>
         </div>
@@ -421,32 +431,29 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
         <div className="form-grid">
           <div className="form-row">
             <label>Equipo</label>
-            <input className="input" list="cat-equipos" value={equipo} onChange={(e) => setEquipo(e.target.value)} placeholder="Elegí o escribí…" />
-            <datalist id="cat-equipos">{opts('equipo').map((c) => <option key={c.id} value={c.valor} />)}</datalist>
+            <select className="select" value={equipo} onChange={(e) => setEquipo(e.target.value)}>
+              <option value="">— elegí el equipo —</option>
+              {opts('equipo').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
+            </select>
           </div>
           <div className="form-row">
             <label>Autorizado por</label>
-            <input className="input" list="cat-aut" value={autorizado} onChange={(e) => setAutorizado(e.target.value)} placeholder="Elegí o escribí…" />
-            <datalist id="cat-aut">{opts('autorizado').map((c) => <option key={c.id} value={c.valor} />)}</datalist>
+            <select className="select" value={autorizado} onChange={(e) => setAutorizado(e.target.value)}>
+              <option value="">— elegí quién autorizó —</option>
+              {opts('autorizado').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
+            </select>
           </div>
         </div>
         <div className="form-row">
-          <label>Ubicación</label>
-          <input className="input" list="cat-ubic" value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} placeholder="Elegí o escribí…" />
-          <datalist id="cat-ubic">{opts('ubicacion').map((c) => <option key={c.id} value={c.valor} />)}</datalist>
+          <label>Destino</label>
+          <select className="select" value={ubicacion} onChange={(e) => setUbicacion(e.target.value)}>
+            <option value="">— elegí el destino —</option>
+            {opts('ubicacion').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
+          </select>
+          <small className="muted">¿Falta un destino? Agregalo en 🗂 Catálogos → Ubicaciones.</small>
         </div>
         <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" /></div>
-        <details style={{ marginTop: '.4rem' }}>
-          <summary className="muted" style={{ cursor: 'pointer', fontSize: '.82rem' }}>Medidores (opcional): horómetro del equipo y contador del surtidor</summary>
-          <div className="form-grid" style={{ marginTop: '.5rem' }}>
-            <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} /></div>
-            <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" value={hf} onChange={(e) => setHf(e.target.value)} /></div>
-          </div>
-          <div className="form-grid">
-            <div className="form-row"><label>Contador global inicial</label><input className="input mono" type="number" step="any" value={cgi} onChange={(e) => setCgi(e.target.value)} /></div>
-            <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" value={cgf} onChange={(e) => setCgf(e.target.value)} /></div>
-          </div>
-        </details>
+        <small className="muted">Los horómetros y contadores se registran ahora en <strong>🕒 Medidores</strong> (por equipo).</small>
       </form>
     </Modal>
   );

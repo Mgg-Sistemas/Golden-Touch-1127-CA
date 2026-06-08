@@ -319,7 +319,7 @@ export interface TanqueCombustible {
   updated_at?: string | null;
 }
 
-export type TipoMovTanque = 'entrada' | 'uso' | 'traslado' | 'retorno';
+export type TipoMovTanque = 'entrada' | 'uso' | 'traslado' | 'retorno' | 'merma';
 
 export interface MovimientoTanque {
   id: string;
@@ -364,6 +364,23 @@ export interface ConciliacionCombustible {
   dif_cubicacion?: number | null;
   notas?: string | null;
   created_by?: string | null;
+  created_at: string;
+}
+
+/** Lectura de medidores de un equipo (horómetro + contador del surtidor). */
+export interface MedidorCombustible {
+  id: string;
+  equipo: string;
+  fecha: string;
+  horometro_ini?: number | null;
+  horometro_fin?: number | null;
+  horas?: number | null;
+  contador_ini?: number | null;
+  contador_fin?: number | null;
+  contador_dif?: number | null;
+  observacion?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
   created_at: string;
 }
 

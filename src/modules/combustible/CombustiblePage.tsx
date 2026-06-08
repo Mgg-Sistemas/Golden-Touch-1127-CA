@@ -12,7 +12,6 @@ export function CombustiblePage() {
       <div className="page-head">
         <div>
           <h1>⛽ Combustible</h1>
-          <p className="muted">Control de diésel por tanque (libro mayor estilo Excel).</p>
         </div>
       </div>
 

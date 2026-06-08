@@ -12,6 +12,7 @@ import type {
   CatalogoCombustible,
   ConciliacionCombustible,
   CubicacionCombustible,
+  MedidorCombustible,
   MovimientoTanque,
   TanqueCombustible,
   TipoCatalogoCombustible,
@@ -329,6 +330,32 @@ export async function registrarUso(input: {
   await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
 }
 
+/** MERMA: pérdida del tanque (evaporación, fuga, descuadre). Descuenta litros
+ *  al costo (tasa) vigente, igual que un uso pero clasificado como merma. */
+export async function registrarMerma(input: {
+  tanqueId: string;
+  litros: number;
+  campos?: MovimientoTanqueCampos;
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const litros = num(input.litros);
+  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  const t = await getTanque(input.tanqueId);
+  const tasa = num(t.tasa_usd_litro);
+
+  await insertarMovimiento({
+    ...campos(input.campos ?? {}),
+    tanque_id: input.tanqueId,
+    tipo: 'merma',
+    litros,
+    tasa_usd_litro: round(tasa, 4),
+    created_by: input.actor,
+    actor_name: input.actorName ?? null,
+  });
+  await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
+}
+
 /** RETORNO: combustible que VUELVE al tanque (entra al saldo a la tasa vigente,
  *  sin costo nuevo). No recalcula la tasa PMP. */
 export async function registrarRetorno(input: {
@@ -434,7 +461,7 @@ export async function reporteGlobal(): Promise<ReporteTanque[]> {
   for (const row of (data ?? []) as Array<{ tanque_id: string; tipo: TipoMovTanque; litros: number }>) {
     const a = agg.get(row.tanque_id) ?? { entradas: 0, uso: 0, traslados: 0 };
     if (row.tipo === 'entrada' || row.tipo === 'retorno') a.entradas += num(row.litros);
-    else if (row.tipo === 'uso') a.uso += num(row.litros);
+    else if (row.tipo === 'uso' || row.tipo === 'merma') a.uso += num(row.litros); // merma = salida/pérdida
     else a.traslados += num(row.litros);
     agg.set(row.tanque_id, a);
   }
@@ -572,4 +599,71 @@ export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsum
 /** Compat: consumo por equipo (usa consumoUso). */
 export function consumoPorEquipo(desde: Date, hasta: Date): Promise<ConsumoEquipoItem[]> {
   return consumoUso(desde, hasta, 'equipo');
+}
+
+/* ───────────── Medidores por equipo (horómetro / contador) ───────────── */
+
+export async function listMedidores(): Promise<MedidorCombustible[]> {
+  const { data, error } = await supabase
+    .from('combustible_medidores')
+    .select('*')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as MedidorCombustible[];
+}
+
+/** Último horómetro FINAL registrado para un equipo (para autocargar el HI siguiente). */
+export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
+  const e = equipo.trim();
+  if (!e) return null;
+  const { data, error } = await supabase
+    .from('combustible_medidores')
+    .select('horometro_fin, fecha, created_at')
+    .eq('equipo', e)
+    .not('horometro_fin', 'is', null)
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  const v = (data as { horometro_fin?: number | null } | null)?.horometro_fin;
+  return v == null ? null : num(v);
+}
+
+export async function crearMedidor(input: {
+  equipo: string;
+  fecha?: string;
+  horometroIni?: number | null;
+  horometroFin?: number | null;
+  contadorIni?: number | null;
+  contadorFin?: number | null;
+  observacion?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<MedidorCombustible> {
+  const equipo = input.equipo.trim();
+  if (!equipo) throw new Error('Elegí el equipo.');
+  const { data, error } = await supabase
+    .from('combustible_medidores')
+    .insert({
+      equipo,
+      fecha: input.fecha || hoy(),
+      horometro_ini: input.horometroIni ?? null,
+      horometro_fin: input.horometroFin ?? null,
+      contador_ini: input.contadorIni ?? null,
+      contador_fin: input.contadorFin ?? null,
+      observacion: input.observacion?.trim() || null,
+      created_by: input.actor,
+      actor_name: input.actorName ?? null,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as MedidorCombustible;
+}
+
+export async function eliminarMedidor(id: string): Promise<void> {
+  const { error } = await supabase.from('combustible_medidores').delete().eq('id', id);
+  if (error) throw error;
 }
