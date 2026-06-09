@@ -31,9 +31,10 @@ Deno.serve(async (req) => {
   const selfUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const callbackBase = (payload.callback_base as string) || (selfUrl ? `${selfUrl}/functions/v1` : '');
 
-  // Resolver destino según el tipo.
+  // Resolver destino según el tipo. Los ACK (dinero o combustible) vuelven al
+  // origen por callback_base; lo demás va al destino configurado (INTER_DESTINO_URL).
   let target: string;
-  if (payload.tipo === 'ack') {
+  if (payload.tipo === 'ack' || payload.tipo === 'combustible-ack') {
     const cb = payload.callback_base as string | undefined;
     if (!cb) return json({ entregada: false, error: 'callback_base faltante para el ACK.' });
     target = `${cb.replace(/\/+$/, '')}/transfer-recibir`;

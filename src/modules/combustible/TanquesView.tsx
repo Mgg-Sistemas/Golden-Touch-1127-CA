@@ -20,6 +20,7 @@ import type {
 import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
+  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL,
   crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, type ReporteTanque,
@@ -383,6 +384,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
       else if (tipo === 'uso') await registrarUso({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else if (tipo === 'retorno') await registrarRetorno({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else if (tipo === 'merma') await registrarMerma({ tanqueId, litros: litrosNum, campos, actor, actorName });
+      else if (destinoId === DESTINO_MGG) await registrarTrasladoMGG({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else await registrarTraslado({ tanqueId, litros: litrosNum, tanqueDestinoId: destinoId || null, campos, actor, actorName });
       toast('Movimiento registrado', 'success');
       onSaved();
@@ -439,9 +441,10 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
               <label>Tanque destino (opcional)</label>
               <select className="select" value={destinoId} onChange={(e) => setDestinoId(e.target.value)}>
                 <option value="">— otra mina / externo —</option>
+                <option value={DESTINO_MGG}>🌐 {DESTINO_MGG_LABEL} (otro sistema)</option>
                 {tanques.filter((t) => t.id !== tanqueId).map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
               </select>
-              <small className="muted">Si es a otro tanque, se acredita allí al costo del origen.</small>
+              <small className="muted">Si es a otro tanque, se acredita allí al costo del origen. <strong>{DESTINO_MGG_LABEL}</strong> envía el combustible al otro sistema (MGG lo confirma y entra a su TANQUE MGG).</small>
             </div>
           )}
         </div>

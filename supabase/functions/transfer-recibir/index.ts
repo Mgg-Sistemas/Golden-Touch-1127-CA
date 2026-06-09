@@ -41,6 +41,41 @@ Deno.serve(async (req) => {
   const transfId = payload.transf_id as string | undefined;
   if (!transfId) return json({ error: 'transf_id requerido' }, 400);
 
+  // ── COMBUSTIBLE · ACK: el otro sistema confirmó nuestra transferencia de litros ──
+  if (payload.tipo === 'combustible-ack') {
+    const { error } = await supabase.from('combustible_transferencias')
+      .update({ estado: 'recibida', confirmada_at: new Date().toISOString() })
+      .eq('transf_id', transfId).eq('direccion', 'saliente');
+    if (error) return json({ error: error.message }, 500);
+    return json({ ok: true, ack: true, combustible: true });
+  }
+
+  // ── COMBUSTIBLE · entrante: guardar pendiente (NO acredita el tanque: eso lo
+  //    hace el operador al confirmar). Idempotente por transf_id. ──
+  if (payload.tipo === 'combustible') {
+    const { data: ya } = await supabase.from('combustible_transferencias')
+      .select('id, estado').eq('transf_id', transfId).maybeSingle();
+    if (ya) return json({ ok: true, dedup: true, estado: (ya as { estado: string }).estado });
+    const { error } = await supabase.from('combustible_transferencias').insert({
+      transf_id: transfId, direccion: 'entrante', estado: 'por_confirmar',
+      empresa_origen: payload.empresa_origen ?? 'desconocido',
+      empresa_destino: payload.empresa_destino ?? 'desconocido',
+      tanque_origen_nombre: payload.tanque_origen_nombre ?? null,
+      tanque_destino_nombre: payload.tanque_destino_nombre ?? 'TANQUE MGG',
+      litros: payload.litros ?? 0,
+      costo_litro: payload.costo_litro ?? null,
+      combustible: payload.combustible ?? null,
+      resumen: payload.resumen ?? null, motivo: payload.motivo ?? null,
+      callback_base: payload.callback_base ?? null,
+      actor: payload.actor ?? null, actor_name: payload.actor_name ?? null,
+    });
+    if (error) {
+      if ((error as { code?: string }).code === '23505') return json({ ok: true, dedup: true });
+      return json({ error: error.message }, 500);
+    }
+    return json({ ok: true, combustible: true });
+  }
+
   // ── ACK: el otro sistema confirmó nuestra saliente ──
   if (payload.tipo === 'ack') {
     const { error } = await supabase.from('transferencias_inter')
