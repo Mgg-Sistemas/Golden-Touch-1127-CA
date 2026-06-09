@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import type { CatalogoCombustible, MedidorCombustible } from '@/shared/lib/types';
 import { listMedidores, ultimoHorometroEquipo, crearMedidor, eliminarMedidor } from './tanques.repository';
 import { descargarMedidoresPdf } from './medidoresPdf';
@@ -107,24 +108,36 @@ export function MedidoresModal({ catalogos, canWrite, actor, actorName, defaultE
 
   return (
     <Modal title="Medidores por equipo" size="xl" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      {/* Acciones + filtros */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+      {/* Registro de medidores — barra de filtros estilo Tesorería */}
+      <div className="card" style={{ marginBottom: '.6rem' }}>
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+          <span>Registro de medidores</span>
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ position: 'relative' }}>
+              <input className="input" type="search" value={fTexto} onChange={(e) => setFTexto(e.target.value)}
+                placeholder="🔍 Buscar (equipo, observación…)" style={{ width: 240, paddingRight: fTexto ? '1.6rem' : undefined }} />
+              {fTexto && (
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFTexto('')} title="Limpiar búsqueda"
+                  style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>
+              )}
+            </div>
+            <SearchSelect value={fEquipo} onChange={setFEquipo} placeholder="🔍 Equipo…" style={{ width: 200 }}
+              options={[{ value: '', label: 'Todo equipo' }, ...equiposEnLista.map((e) => ({ value: e, label: e }))]} />
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+              Desde <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} />
+            </label>
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+              Hasta <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
+            </label>
+            {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={() => { setFTexto(''); setFEquipo(''); setFDesde(''); setFHasta(''); }}>✕ Limpiar</button>}
+            <span className="muted" style={{ fontSize: '.8rem' }}>{filtrados.length}/{rows.length}</span>
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
           {canWrite && <button className="btn btn-primary btn-sm" onClick={() => { setAgregando((a) => !a); limpiarAlta(); }}>{agregando ? '✕ Cancelar' : '+ Agregar medidor'}</button>}
           <button className="btn btn-ghost btn-sm" disabled={!filtrados.length} onClick={() => void descargarMedidoresPdf(filtrados, { filtro: filtroTxt() }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
           <button className="btn btn-ghost btn-sm" disabled={!filtrados.length} onClick={() => void descargarMedidoresExcel(filtrados).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
           <button className="btn btn-ghost btn-sm" disabled={!filtrados.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
-        </div>
-        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <input className="input" type="search" value={fTexto} onChange={(e) => setFTexto(e.target.value)} placeholder="🔍 Buscar (equipo, observación…)" style={{ width: 220 }} />
-          <select className="select" value={fEquipo} onChange={(e) => setFEquipo(e.target.value)} style={{ width: 'auto' }}>
-            <option value="">Todo equipo</option>
-            {equiposEnLista.map((e) => <option key={e} value={e}>{e}</option>)}
-          </select>
-          <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>Desde <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} /></label>
-          <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>Hasta <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} /></label>
-          {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={() => { setFTexto(''); setFEquipo(''); setFDesde(''); setFHasta(''); }}>✕ Limpiar</button>}
-          <span className="muted" style={{ fontSize: '.8rem' }}>{filtrados.length}/{rows.length}</span>
         </div>
       </div>
 
@@ -134,10 +147,8 @@ export function MedidoresModal({ catalogos, canWrite, actor, actorName, defaultE
           <div className="form-grid">
             <div className="form-row">
               <label>Equipo</label>
-              <select className="select" value={equipo} onChange={(e) => setEquipo(e.target.value)}>
-                <option value="">— elegí el equipo —</option>
-                {equiposCat.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-              </select>
+              <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…"
+                options={[{ value: '', label: '— elegí el equipo —' }, ...equiposCat.map((c) => ({ value: c.valor, label: c.valor }))]} />
             </div>
             <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
           </div>

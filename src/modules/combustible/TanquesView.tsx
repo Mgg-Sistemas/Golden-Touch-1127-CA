@@ -4,6 +4,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
@@ -225,18 +226,12 @@ export function TanquesView() {
                   <option value="retorno">↩ Retorno</option>
                   <option value="merma">🔻 Merma</option>
                 </select>
-                <select className="select" value={fEquipo} onChange={(e) => setFEquipo(e.target.value)} style={{ width: 'auto' }}>
-                  <option value="">Todo equipo</option>
-                  {opcs.equipos.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
-                <select className="select" value={fAutorizado} onChange={(e) => setFAutorizado(e.target.value)} style={{ width: 'auto' }}>
-                  <option value="">Todo autorizado</option>
-                  {opcs.autorizados.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
-                <select className="select" value={fUbicacion} onChange={(e) => setFUbicacion(e.target.value)} style={{ width: 'auto' }}>
-                  <option value="">Todo destino</option>
-                  {opcs.ubicaciones.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
+                <SearchSelect value={fEquipo} onChange={setFEquipo} placeholder="🔍 Equipo…" style={{ width: 180 }}
+                  options={[{ value: '', label: 'Todo equipo' }, ...opcs.equipos.map((v) => ({ value: v, label: v }))]} />
+                <SearchSelect value={fAutorizado} onChange={setFAutorizado} placeholder="🔍 Autorizado…" style={{ width: 180 }}
+                  options={[{ value: '', label: 'Todo autorizado' }, ...opcs.autorizados.map((v) => ({ value: v, label: v }))]} />
+                <SearchSelect value={fUbicacion} onChange={setFUbicacion} placeholder="🔍 Destino…" style={{ width: 180 }}
+                  options={[{ value: '', label: 'Todo destino' }, ...opcs.ubicaciones.map((v) => ({ value: v, label: v }))]} />
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
                   Desde <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} />
                 </label>
@@ -405,9 +400,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
         <div className="form-grid">
           <div className="form-row">
             <label>Tanque</label>
-            <select className="select" value={tanqueId} onChange={(e) => setTanqueId(e.target.value)}>
-              {tanques.map((t) => <option key={t.id} value={t.id}>{t.nombre} · {num(t.saldo_litros)} L</option>)}
-            </select>
+            <SearchSelect value={tanqueId} onChange={setTanqueId} placeholder="Buscar tanque…"
+              options={tanques.map((t) => ({ value: t.id, label: `${t.nombre} · ${num(t.saldo_litros)} L` }))} />
           </div>
           <div className="form-row">
             <label>Tipo de movimiento</label>
@@ -439,11 +433,12 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           {tipo === 'traslado' && (
             <div className="form-row">
               <label>Tanque destino (opcional)</label>
-              <select className="select" value={destinoId} onChange={(e) => setDestinoId(e.target.value)}>
-                <option value="">— otra mina / externo —</option>
-                <option value={DESTINO_MGG}>🌐 {DESTINO_MGG_LABEL} (otro sistema)</option>
-                {tanques.filter((t) => t.id !== tanqueId).map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
-              </select>
+              <SearchSelect value={destinoId} onChange={setDestinoId} placeholder="🔍 Buscar destino…"
+                options={[
+                  { value: '', label: '— otra mina / externo —' },
+                  { value: DESTINO_MGG, label: `🌐 ${DESTINO_MGG_LABEL} (otro sistema)` },
+                  ...tanques.filter((t) => t.id !== tanqueId).map((t) => ({ value: t.id, label: t.nombre })),
+                ]} />
               <small className="muted">Si es a otro tanque, se acredita allí al costo del origen. <strong>{DESTINO_MGG_LABEL}</strong> envía el combustible al otro sistema (MGG lo confirma y entra a su TANQUE MGG).</small>
             </div>
           )}
@@ -451,25 +446,19 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
         <div className="form-grid">
           <div className="form-row">
             <label>Equipo</label>
-            <select className="select" value={equipo} onChange={(e) => setEquipo(e.target.value)}>
-              <option value="">— elegí el equipo —</option>
-              {opts('equipo').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-            </select>
+            <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…"
+              options={[{ value: '', label: '— elegí el equipo —' }, ...opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))]} />
           </div>
           <div className="form-row">
             <label>Autorizado por</label>
-            <select className="select" value={autorizado} onChange={(e) => setAutorizado(e.target.value)}>
-              <option value="">— elegí quién autorizó —</option>
-              {opts('autorizado').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-            </select>
+            <SearchSelect value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscar autorizado…"
+              options={[{ value: '', label: '— elegí quién autorizó —' }, ...opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))]} />
           </div>
         </div>
         <div className="form-row">
           <label>Destino</label>
-          <select className="select" value={ubicacion} onChange={(e) => setUbicacion(e.target.value)}>
-            <option value="">— elegí el destino —</option>
-            {opts('ubicacion').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-          </select>
+          <SearchSelect value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscar destino…"
+            options={[{ value: '', label: '— elegí el destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
           <small className="muted">¿Falta un destino? Agregalo en 🗂 Catálogos → Ubicaciones.</small>
         </div>
         <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" /></div>
