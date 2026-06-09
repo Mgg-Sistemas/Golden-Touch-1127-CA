@@ -3,7 +3,9 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? (process.env.VITE_BASE_PATH ?? '/proyecto/') : '/',
+  // Servir desde la raíz del dominio (Droplet/Nginx). Si algún despliegue necesitara
+  // un subpath, se pasa VITE_BASE_PATH (ej. '/proyecto/') al hacer el build.
+  base: command === 'build' ? (process.env.VITE_BASE_PATH ?? '/') : '/',
   plugins: [react()],
   resolve: {
     alias: {
