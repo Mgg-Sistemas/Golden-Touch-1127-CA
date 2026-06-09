@@ -1,0 +1,3 @@
+# Los scripts de shell SIEMPRE con LF, aunque se editen en Windows
+# (si no, el shebang #!/usr/bin/env bash se rompe en Linux/el Droplet).
+*.sh text eol=lf
