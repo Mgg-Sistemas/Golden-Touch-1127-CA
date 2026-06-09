@@ -29,6 +29,9 @@ import {
 import { descargarMovimientosTanquePdf } from './tanquePdf';
 import { descargarMovimientosTanqueExcel } from './tanqueExcel';
 import { enviarMovimientosTanquePorCorreo } from './enviarTanque';
+import { descargarConciliacionesPdf, type ConciliacionRow } from './conciliacionPdf';
+import { descargarConciliacionesExcel } from './conciliacionExcel';
+import { enviarConciliacionesPorCorreo } from './enviarConciliacion';
 import { MedidoresModal } from './MedidoresModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 
@@ -303,7 +306,7 @@ export function TanquesView() {
         <CatalogosModal catalogos={catalogos} onClose={() => setModal('none')} onChanged={reloadTanques} />
       )}
       {modal === 'conciliacion' && (
-        <ConciliacionModal tanques={tanques} actor={actor} onClose={() => setModal('none')} />
+        <ConciliacionModal tanques={tanques} actor={actor} defaultEmail={user?.email ?? ''} onClose={() => setModal('none')} />
       )}
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
@@ -647,7 +650,7 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
 
 /* ───────────── Modal: conciliación ───────────── */
 
-function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombustible[]; actor: string; onClose: () => void }) {
+function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques: TanqueCombustible[]; actor: string; defaultEmail: string; onClose: () => void }) {
   // Semana actual (lunes a domingo) por defecto.
   const semanaActual = () => {
     const d = new Date(); const dow = d.getDay();
@@ -663,6 +666,12 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
   const [notas, setNotas] = useState('');
   const [busy, setBusy] = useState(false);
   const [historial, setHistorial] = useState<ConciliacionCombustible[]>([]);
+  // Filtros del historial de conciliaciones (estilo Tesorería).
+  const [hTexto, setHTexto] = useState('');
+  const [hTanque, setHTanque] = useState('');
+  const [hDesde, setHDesde] = useState('');
+  const [hHasta, setHHasta] = useState('');
+  const [correoOpen, setCorreoOpen] = useState(false);
 
   const nombreTanque = (id: string) => tanques.find((t) => t.id === id)?.nombre ?? '—';
   const cargarHistorial = useCallback(() => { listConciliaciones().then(setHistorial).catch(() => {}); }, []);
@@ -702,6 +711,33 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
       libreta: resumenes.reduce((a, r) => a + (Number(libreta[r.tanqueId]) || 0), 0),
     };
   }, [resumenes, libreta]);
+
+  // Historial enriquecido con el nombre del tanque + aplicando filtros.
+  const historialFiltrado = useMemo<ConciliacionRow[]>(() => {
+    const q = hTexto.trim().toLowerCase();
+    return historial
+      .map((c) => ({ ...c, tanqueNombre: nombreTanque(c.tanque_id) }))
+      .filter((c) => {
+        if (hTanque && c.tanque_id !== hTanque) return false;
+        if (hDesde && (c.fecha ?? '') < hDesde) return false;
+        if (hHasta && (c.fecha ?? '') > hHasta) return false;
+        if (q) {
+          const hay = [c.periodo, c.tanqueNombre, c.fecha, c.notas, num(c.saldo_libros), num(c.saldo_reportado_mina), num(c.diferencia)]
+            .map((x) => (x ?? '').toString().toLowerCase()).join(' ');
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historial, hTexto, hTanque, hDesde, hHasta, tanques]);
+
+  const totHist = useMemo(() => ({
+    libros: historialFiltrado.reduce((a, c) => a + (Number(c.saldo_libros) || 0), 0),
+    libreta: historialFiltrado.reduce((a, c) => a + (Number(c.saldo_reportado_mina) || 0), 0),
+  }), [historialFiltrado]);
+
+  const hayFiltroHist = !!(hTexto || hTanque || hDesde || hHasta);
+  function limpiarHist() { setHTexto(''); setHTanque(''); setHDesde(''); setHHasta(''); }
 
   async function guardar() {
     if (!resumenes.length) { toast('Semana sin datos', 'error'); return; }
@@ -798,15 +834,51 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
         <p className="muted" style={{ fontSize: '.76rem' }}>El saldo en libros se calcula con todos los movimientos de cada tanque en la semana (saldo inicial + entradas + retornos − usos − traslados − mermas). La diferencia contra el <strong>saldo según la mina (libreta)</strong> es el faltante/merma a vigilar.</p>
       </div>
 
+      {/* Historial de conciliaciones: filtros + reportes (estilo Tesorería) */}
+      {!!historial.length && (
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+          <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            Conciliaciones registradas
+            <button className="btn btn-sm btn-ghost" disabled={!historialFiltrado.length} title="Descargar PDF (con el filtro aplicado)"
+              onClick={() => void descargarConciliacionesPdf(historialFiltrado, { filtro: hayFiltroHist ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+            <button className="btn btn-sm btn-ghost" disabled={!historialFiltrado.length} title="Descargar Excel (con el filtro aplicado)"
+              onClick={() => void descargarConciliacionesExcel(historialFiltrado).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
+            <button className="btn btn-sm btn-ghost" disabled={!historialFiltrado.length} title="Enviar por correo (con el filtro aplicado)"
+              onClick={() => setCorreoOpen(true)}>✉ Correo</button>
+          </span>
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ position: 'relative' }}>
+              <input className="input" type="search" value={hTexto} onChange={(e) => setHTexto(e.target.value)}
+                placeholder="🔍 Buscar (semana, tanque, notas…)" style={{ width: 240, paddingRight: hTexto ? '1.6rem' : undefined }} />
+              {hTexto && (
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setHTexto('')} title="Limpiar búsqueda"
+                  style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>
+              )}
+            </div>
+            <SearchSelect value={hTanque} onChange={setHTanque} placeholder="🔍 Tanque…" style={{ width: 180 }}
+              options={[{ value: '', label: 'Todo tanque' }, ...tanques.map((t) => ({ value: t.id, label: t.nombre }))]} />
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+              Desde <input className="input" type="date" value={hDesde} onChange={(e) => setHDesde(e.target.value)} style={{ width: 'auto' }} />
+            </label>
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+              Hasta <input className="input" type="date" value={hHasta} onChange={(e) => setHHasta(e.target.value)} style={{ width: 'auto' }} />
+            </label>
+            {hayFiltroHist && <button className="btn btn-sm btn-ghost" onClick={limpiarHist}>✕ Limpiar</button>}
+            <span className="muted" style={{ fontSize: '.8rem' }}>{historialFiltrado.length}/{historial.length}</span>
+          </div>
+        </div>
+      )}
+
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead><tr><th>Semana</th><th>Tanque</th><th>Registrada</th><th>Libros</th><th>Libreta (mina)</th><th>Dif.</th><th>Notas</th></tr></thead>
           <tbody>
             {!historial.length && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Sin conciliaciones.</td></tr>}
-            {historial.map((c) => (
+            {!!historial.length && !historialFiltrado.length && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Ninguna conciliación coincide con el filtro.</td></tr>}
+            {historialFiltrado.map((c) => (
               <tr key={c.id}>
                 <td className="mono">{c.periodo || '—'}</td>
-                <td>{nombreTanque(c.tanque_id)}</td>
+                <td>{c.tanqueNombre}</td>
                 <td className="mono">{c.fecha}</td>
                 <td className="mono">{num(c.saldo_libros)}</td>
                 <td className="mono">{num(c.saldo_reportado_mina)}</td>
@@ -815,8 +887,31 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
               </tr>
             ))}
           </tbody>
+          {historialFiltrado.length > 0 && (
+            <tfoot>
+              <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+                <td colSpan={3}>TOTALES</td>
+                <td className="mono">{num(totHist.libros)}</td>
+                <td className="mono">{num(totHist.libreta)}</td>
+                <td></td><td></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
+
+      {correoOpen && (
+        <CorreoReporteModal
+          titulo="Enviar conciliaciones"
+          descripcion={`Se enviará el PDF de las conciliaciones (${historialFiltrado.length} registro(s)${hayFiltroHist ? ', con el filtro aplicado' : ''}).`}
+          defaultEmail={defaultEmail}
+          onEnviar={async (emails) => {
+            const { destinatarios } = await enviarConciliacionesPorCorreo(historialFiltrado, emails, { filtro: hayFiltroHist ? 'filtrado' : undefined });
+            return destinatarios;
+          }}
+          onClose={() => setCorreoOpen(false)}
+        />
+      )}
     </Modal>
   );
 }
