@@ -48,7 +48,8 @@ import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo } from '@/modules/retenciones/retenciones.repository';
 import { descargarReportePdf, type ReporteMeta } from './reportePdf';
 import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
-import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo } from './enviarReporte';
+import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
+import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo } from './enviarReporte';
 import type { AbonoCredito } from '@/shared/lib/types';
 import { descargarOrdenCompraPdf } from '@/modules/pedidos/ordenCompraPdf';
 import { listOfertasByOrden, getPdfOfertaSignedUrl } from '@/modules/pedidos/ofertas.repository';
@@ -106,22 +107,24 @@ export function TesoreriaPage() {
   const [transfers, setTransfers] = useState<TransferenciaInter[]>([]);
 
   const reload = useCallback(async () => {
-    const [d, cs, sal, mov, pp, cr, tr, nc] = await Promise.all([
+    const [d, cs, sal, mov, pp, cr, cxp, tr, nc] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
       listLibroMayor({ moneda: fMoneda || undefined, tipo: fTipo || undefined, desde: fDesde || undefined, hasta: fHasta || undefined }),
       listOrdenesPorPagar().catch(() => [] as OrdenPorPagar[]),
       listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
+      listCuentasPorPagar(true).catch(() => [] as CuentaPorPagar[]),
       listTransferenciasInter().catch(() => [] as TransferenciaInter[]),
       countRenglonesPorPagar().catch(() => 0),
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length); setTransfers(tr); setNominaCount(nc);
+    // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
-  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones'], () => { void reload(); });
+  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos'], () => { void reload(); });
 
   useEffect(() => {
     setLoading(true);
@@ -199,8 +202,19 @@ export function TesoreriaPage() {
                 <button className="btn btn-primary" onClick={() => setModal('porpagar')}>
                   🧾 ÓRDENES PENDIENTES POR PAGAR{porPagarCount ? ` (${porPagarCount})` : ''}
                 </button>
-                <button className="btn btn-primary" onClick={() => setModal('creditos')}>
-                  💳 CUENTAS POR PAGAR (CRÉDITOS){creditosCount ? ` (${creditosCount})` : ''}
+                <button className="btn btn-primary" onClick={() => setModal('creditos')} title={`${creditosCount} cuenta(s) por pagar pendiente(s)`}>
+                  💳 CUENTAS POR PAGAR (CRÉDITOS)
+                  <span
+                    className="mono"
+                    style={{
+                      marginLeft: '.5rem', padding: '.05rem .5rem', borderRadius: '999px',
+                      fontWeight: 800, fontSize: '.85rem',
+                      background: creditosCount > 0 ? 'var(--danger, #e5484d)' : 'rgba(0,0,0,.25)',
+                      color: '#fff', minWidth: '1.4rem', display: 'inline-block', textAlign: 'center',
+                    }}
+                  >
+                    {creditosCount}
+                  </span>
                 </button>
                 <button className={nominaCount > 0 ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModal('pago')}>
                   {nominaCount > 0 ? `💸 PAGAR NÓMINA (${nominaCount})` : '👥 Pago a personal'}
@@ -602,17 +616,21 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
   const [nuevaMonedaOpen, setNuevaMonedaOpen] = useState(false);
   const [nuevaMoneda, setNuevaMoneda] = useState('');
 
-  // Form de ingreso
-  const [moneda, setMoneda] = useState<string>('Bs');
-  const [cuenta, setCuenta] = useState<CuentaCaja>('juridica');
+  // Form de ingreso. Arranca en la moneda propia de la caja (USDT→USDT con tasa
+  // Binance, Bs→Bs), pero se puede ingresar cualquier moneda (igual que Multimoneda).
+  const [moneda, setMoneda] = useState<string>(caja.moneda || 'Bs');
+  const [cuenta, setCuenta] = useState<CuentaCaja>(caja.moneda === 'Bs' ? 'juridica' : 'general');
   const [montoStr, setMontoStr] = useState('');
   const [tasaStr, setTasaStr] = useState('');
   const [origen, setOrigen] = useState('');
   // El origen del ingreso manual identifica de quién entra el dinero: cliente o proveedor.
   const [origenTipo, setOrigenTipo] = useState<'cliente' | 'proveedor' | ''>('');
-  // Contrapartes guardadas (para reutilizar nombres en el campo origen).
+  // Contrapartes guardadas (para buscar/reutilizar nombres en el campo origen).
   const [contrapartes, setContrapartes] = useState<Contraparte[]>([]);
-  useEffect(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
+  const reloadContrapartes = useCallback(() => {
+    listContrapartes().then(setContrapartes).catch(() => setContrapartes([]));
+  }, []);
+  useEffect(() => { reloadContrapartes(); }, [reloadContrapartes]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
@@ -683,6 +701,15 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
         tipo: origenTipo, contraparte: origen.trim(), monto: montoNum, moneda, cuenta,
         cajaId: caja.id, nota: `Ingreso ${moneda} en ${caja.nombre}`, actor, actorName,
       });
+      // Si el cliente/proveedor es nuevo, se guarda en el directorio para próximos
+      // pagos (queda disponible en la búsqueda y en "Clientes / Proveedores").
+      const yaGuardado = contrapartes.some(
+        (c) => c.tipo === origenTipo && c.nombre.trim().toUpperCase() === origen.trim().toUpperCase(),
+      );
+      if (!yaGuardado) {
+        try { await crearContraparte({ tipo: origenTipo, nombre: origen.trim() }); reloadContrapartes(); }
+        catch { /* duplicado u otra causa: no bloquea el ingreso */ }
+      }
       const etiqueta = moneda === 'Bs' ? `Bs · ${cuenta}` : moneda;
       notify(`Ingreso ${etiqueta} · ${monto(montoNum, moneda)} · ${origenStr} · genera cuenta por pagar`, 'success', { link: '#/app/tesoreria' });
       setMontoStr(''); setTasaStr(''); setOrigen(''); setOrigenTipo('');
@@ -904,22 +931,31 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                   );
                 })}
               </div>
-              {origenTipo && (
+              {origenTipo && (() => {
+                const guardados = contrapartes.filter((c) => c.tipo === origenTipo);
+                const existe = guardados.some((c) => c.nombre.trim().toUpperCase() === origen.trim().toUpperCase());
+                return (
                 <>
                   <input
                     className="input"
                     list="origen-contrapartes"
                     value={origen}
                     onChange={(e) => setOrigen(e.target.value)}
-                    placeholder={origenTipo === 'proveedor' ? 'Razón social del proveedor' : 'Nombre del cliente'}
+                    placeholder={origenTipo === 'proveedor' ? 'Buscar o agregar razón social del proveedor…' : 'Buscar o agregar nombre del cliente…'}
                     autoFocus
                   />
                   <datalist id="origen-contrapartes">
-                    {contrapartes.filter((c) => c.tipo === origenTipo).map((c) => <option key={c.id} value={c.nombre} />)}
+                    {guardados.map((c) => <option key={c.id} value={c.nombre} />)}
                   </datalist>
-                  <small className="muted">Elegí uno guardado o escribí uno nuevo. Gestionalos en “👥 Clientes / Proveedores”.</small>
+                  <small className="muted">
+                    Buscá en los {guardados.length} {origenTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribí uno nuevo.{' '}
+                    {origen.trim() && !existe
+                      ? <strong style={{ color: 'var(--primary-3, #ff8a00)' }}>Nuevo → se guardará para próximos pagos.</strong>
+                      : 'Se gestionan en “👥 Clientes / Proveedores”.'}
+                  </small>
                 </>
-              )}
+                );
+              })()}
             </div>
           </div>
           {moneda !== 'Bs' && (Number(montoStr) || 0) > 0 && (Number(tasaStr) || 0) > 0 && (() => {
@@ -2228,6 +2264,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [correoCuentaOpen, setCorreoCuentaOpen] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -2244,16 +2281,24 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   }, [selId]);
 
   const sel = lista.find((c) => c.id === selId) ?? null;
-  // Saldos de la caja elegida en la MISMA moneda de la cuenta por pagar.
+  // Saldos completos de la caja elegida (para mostrar dónde hay dinero disponible).
+  const [cajaSaldosSel, setCajaSaldosSel] = useState<CajaSaldo[]>([]);
   useEffect(() => {
-    if (!cajaId || !sel) { setCuentaCaja(''); return; }
+    if (!cajaId || !sel) { setCuentaCaja(''); setCajaSaldosSel([]); return; }
     saldosDeCaja(cajaId)
       .then((rows) => {
+        setCajaSaldosSel(rows);
+        // El egreso sale en la MISMA moneda de la cuenta por pagar.
         const mismos = rows.filter((r) => r.moneda === sel.moneda && Number(r.saldo) > 0);
-        setCuentaCaja(mismos[0]?.cuenta ?? '');
+        setCuentaCaja((prev) => (prev && mismos.some((r) => r.cuenta === prev)) ? prev : (mismos[0]?.cuenta ?? ''));
       })
-      .catch(() => setCuentaCaja(''));
+      .catch(() => { setCajaSaldosSel([]); setCuentaCaja(''); });
   }, [cajaId, sel]);
+  // Cuentas de esta caja que tienen saldo en la moneda de la cuenta por pagar.
+  const cuentasMoneda = sel ? cajaSaldosSel.filter((r) => r.moneda === sel.moneda && Number(r.saldo) > 0) : [];
+  // Todo lo disponible en la caja (cualquier moneda) para ver dónde hay dinero.
+  const dispCaja = cajaSaldosSel.filter((r) => Number(r.saldo) > 0);
+  const saldoCuentaSel = cuentasMoneda.find((r) => r.cuenta === cuentaCaja) ?? null;
 
   const saldo = sel ? round2(Number(sel.monto) - (Number(sel.abonado) || 0)) : 0;
 
@@ -2324,7 +2369,20 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                 <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
                   {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
-                <small className="muted">{cuentaCaja ? `Cuenta ${cuentaCaja} · ${sel.moneda}` : `Sin saldo en ${sel.moneda}`}</small>
+                {/* De qué cuenta/moneda sale el dinero (el abono es en la moneda de la cuenta por pagar). */}
+                {cuentasMoneda.length > 1 ? (
+                  <select className="select" style={{ marginTop: '.35rem' }} value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value)}>
+                    {cuentasMoneda.map((r) => (
+                      <option key={r.cuenta} value={r.cuenta}>
+                        Sale de {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : 'Personal'} · {monto(Number(r.saldo), r.moneda)} disp.
+                      </option>
+                    ))}
+                  </select>
+                ) : saldoCuentaSel ? (
+                  <small className="muted">Sale en <strong>{sel.moneda}</strong> de la cuenta <strong>{cuentaCaja === 'general' ? 'general' : cuentaCaja === 'juridica' ? 'Jurídica' : 'Personal'}</strong> · disponible <strong className="mono">{monto(Number(saldoCuentaSel.saldo), sel.moneda)}</strong></small>
+                ) : (
+                  <small style={{ color: 'var(--danger)' }}>⚠ Esta caja no tiene saldo en {sel.moneda}. Elegí otra caja.</small>
+                )}
               </div>
               <div className="form-row">
                 <label>Monto a abonar ({sel.moneda})</label>
@@ -2332,11 +2390,55 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                 <small className="muted">Saldo pendiente: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
               </div>
             </div>
+
+            {/* Dónde hay dinero disponible en la caja elegida (todas las monedas). */}
+            <div className="card" style={{ margin: '.25rem 0 .1rem', padding: '.5rem .7rem', background: 'rgba(255,255,255,.02)' }}>
+              <div className="muted" style={{ fontSize: '.7rem', marginBottom: '.3rem' }}>DINERO DISPONIBLE EN ESTA CAJA</div>
+              {!dispCaja.length ? (
+                <small className="muted">Sin saldo en ninguna moneda.</small>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+                  {dispCaja.map((r) => {
+                    const esLaQueSale = r.moneda === sel.moneda && r.cuenta === cuentaCaja;
+                    return (
+                      <span key={`${r.cuenta}-${r.moneda}`} className="mono" style={{
+                        padding: '.15rem .55rem', borderRadius: '999px', fontSize: '.8rem',
+                        border: `1px solid ${esLaQueSale ? 'var(--primary, #ff8a00)' : 'var(--border)'}`,
+                        background: esLaQueSale ? 'rgba(255,138,0,.12)' : 'transparent',
+                        fontWeight: esLaQueSale ? 700 : 500,
+                      }}>
+                        {monto(Number(r.saldo), r.moneda)} {r.moneda}{r.cuenta === 'general' ? '' : r.cuenta === 'juridica' ? ' · Jurídica' : ' · Personal'}{esLaQueSale ? ' ←' : ''}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <div className="form-row">
               <label>Nota (opcional)</label>
               <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
             </div>
             <button className="btn btn-primary btn-sm" onClick={abonar} disabled={saving || saldo <= 0}>{saving ? 'Registrando…' : 'Registrar abono'}</button>
+          </div>
+
+          {/* Reportes de la cuenta por pagar: PDF y correo (mismo formato que los demás reportes). */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
+            <strong style={{ fontSize: '.84rem' }}>Historial de abonos</strong>
+            <div style={{ display: 'flex', gap: '.4rem' }}>
+              <button
+                className="btn btn-sm btn-ghost"
+                title="Descargar el reporte de esta cuenta por pagar en PDF"
+                onClick={async () => {
+                  try { await descargarCuentaPorPagarPdf(sel, abonos); }
+                  catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+                }}
+              >↓ PDF</button>
+              <button
+                className="btn btn-sm btn-ghost"
+                title="Enviar el reporte por correo"
+                onClick={() => setCorreoCuentaOpen(true)}
+              >📧 Correo</button>
+            </div>
           </div>
 
           <div className="table-wrap">
@@ -2355,9 +2457,66 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
               </tbody>
             </table>
           </div>
+
+          {correoCuentaOpen && (
+            <EnviarCuentaPorPagarModal cuenta={sel} abonos={abonos} defaultEmail={actor} onClose={() => setCorreoCuentaOpen(false)} />
+          )}
         </>
       )}
     </>
+  );
+}
+
+/* ───────── Enviar por correo el reporte de una cuenta por pagar ───────── */
+function EnviarCuentaPorPagarModal({ cuenta, abonos, defaultEmail, onClose }: {
+  cuenta: CuentaPorPagar; abonos: AbonoCxP[]; defaultEmail: string; onClose: () => void;
+}) {
+  const [incluirPropio, setIncluirPropio] = useState(true);
+  const [extra, setExtra] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const propio = defaultEmail.trim().toLowerCase();
+  const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  async function handleEnviar() {
+    const lista: string[] = [];
+    if (incluirPropio && propio) lista.push(propio);
+    const extraClean = extra.trim().toLowerCase();
+    if (extraClean) {
+      if (!emailRx.test(extraClean)) { toast('El correo adicional no es válido', 'error'); return; }
+      lista.push(extraClean);
+    }
+    setEnviando(true);
+    try {
+      const r = await enviarCuentaPorPagarPorCorreo(cuenta, abonos, lista);
+      notify(`Reporte enviado a ${r.destinatarios.join(', ')}`, 'success', { link: '#/app/tesoreria' });
+      onClose();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar', 'error'); }
+    finally { setEnviando(false); }
+  }
+
+  return (
+    <Modal title={`Enviar cuenta por pagar · ${cuenta.contraparte}`} size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={enviando}>Cancelar</button>
+        <button className="btn btn-primary" onClick={handleEnviar} disabled={enviando}>{enviando ? 'Enviando…' : '📧 Enviar'}</button>
+      </>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        Se enviará el PDF de la cuenta por pagar de <strong>{cuenta.contraparte}</strong> (con su historial de abonos) a los destinatarios seleccionados.
+      </p>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', padding: '.7rem .85rem', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: incluirPropio ? 'rgba(255,138,0,0.06)' : 'transparent', cursor: propio ? 'pointer' : 'not-allowed', marginBottom: '.6rem' }}>
+        <input type="checkbox" checked={incluirPropio} disabled={!propio} onChange={(e) => setIncluirPropio(e.target.checked)} />
+        <div>
+          <div style={{ fontWeight: 600 }}>Tu correo</div>
+          <div className="mono" style={{ fontSize: '.82rem' }}>{propio || '—'}</div>
+        </div>
+      </label>
+      <div className="form-row" style={{ marginTop: '.4rem' }}>
+        <label>Correo adicional (opcional)</label>
+        <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
+        <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
+      </div>
+    </Modal>
   );
 }
 

@@ -780,6 +780,8 @@ export interface ItemOrden {
   cantidad: number;
   precio: number;
   productoId?: string;
+  /** Unidad de medida del producto (KG, L, und…), traída del inventario. */
+  unidad?: string;
   /** Si se compra este ítem. La OP guarda todos; solo los marcados se cotizan/compran. Falta = true. */
   comprar?: boolean;
   /** Finalidad de la compra de este producto en concreto (para qué se pide). */

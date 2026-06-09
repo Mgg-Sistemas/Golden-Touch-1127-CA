@@ -5,7 +5,7 @@
    con la recepción de mineral equivalente (entra al inventario).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Caja, MovimientoCaja, Moneda } from '@/shared/lib/types';
+import type { Caja, MovimientoCaja, Moneda, MonedaCaja } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { createProducto, findBySku } from '@/modules/inventario/inventario.repository';
 
@@ -36,7 +36,7 @@ export async function listCentrosAcopio(): Promise<Caja[]> {
   return (data ?? []) as Caja[];
 }
 
-export async function crearCaja(input: { nombre: string; moneda: Moneda; saldoInicial?: number }, actorEmail?: string): Promise<Caja> {
+export async function crearCaja(input: { nombre: string; moneda: Moneda | MonedaCaja; saldoInicial?: number }, actorEmail?: string): Promise<Caja> {
   const nombre = input.nombre.trim();
   if (!nombre) throw new Error('El nombre de la caja es obligatorio');
   const saldo = round2(Number(input.saldoInicial) || 0);

@@ -245,7 +245,7 @@ create index if not exists idx_prodmat_prod on public.produccion_materiales(prod
 create table if not exists public.cajas (
   id          uuid primary key default gen_random_uuid(),
   nombre      text not null,
-  moneda      text not null check (moneda in ('USD','Bs')),
+  moneda      text not null check (moneda in ('USD','Bs','USDT','COP')),
   saldo       numeric not null default 0,
   estado      estado_generico not null default 'activo',
   created_at  timestamptz not null default now(),

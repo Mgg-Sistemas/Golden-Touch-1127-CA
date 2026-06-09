@@ -1,6 +1,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import { obtenerReporteBase64, type ReporteMeta } from './reportePdf';
 import { obtenerMovimientoDetalleBase64 } from './movimientoDetallePdf';
+import { obtenerCuentaPorPagarBase64 } from './cuentaPorPagarPdf';
+import type { CuentaPorPagar, AbonoCxP } from './cuentasPorPagar.repository';
 import type { MovimientoCaja, Orden } from '@/shared/lib/types';
 
 const FUNCTION_SLUG = 'enviar-reporte';
@@ -26,6 +28,34 @@ export async function enviarReportePorCorreo(
       nombre_archivo: nombre,
       asunto: meta.titulo + (meta.subtitulo ? ` · ${meta.subtitulo}` : ''),
       mensaje: meta.subtitulo ?? '',
+      to_emails: lista,
+    },
+  });
+  if (error) throw new Error(error.message ?? 'No se pudo enviar el correo');
+  if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  return { destinatarios: data.destinatarios };
+}
+
+/**
+ * Envía por correo el PDF de una cuenta por pagar (crédito) con su historial de
+ * abonos, vía la misma Edge Function `enviar-reporte` (mismo formato/remitente).
+ */
+export async function enviarCuentaPorPagarPorCorreo(
+  cuenta: CuentaPorPagar,
+  abonos: AbonoCxP[],
+  destinos?: string[] | string,
+): Promise<{ destinatarios: string[] }> {
+  const { base64, nombre } = await obtenerCuentaPorPagarBase64(cuenta, abonos);
+  const lista = Array.isArray(destinos) ? destinos : destinos ? [destinos] : [];
+  const tipoLabel = cuenta.tipo === 'proveedor' ? 'Proveedor' : 'Cliente';
+  const { data, error } = await supabase.functions.invoke<
+    { ok: true; destinatarios: string[] } | { error: string }
+  >(FUNCTION_SLUG, {
+    body: {
+      pdf_base64: base64,
+      nombre_archivo: nombre,
+      asunto: `Cuenta por pagar · ${tipoLabel}: ${cuenta.contraparte}`,
+      mensaje: `Reporte de la cuenta por pagar de ${cuenta.contraparte} con su historial de abonos.`,
       to_emails: lista,
     },
   });

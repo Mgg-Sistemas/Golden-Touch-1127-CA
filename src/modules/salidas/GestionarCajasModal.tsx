@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
-import type { Caja, Moneda } from '@/shared/lib/types';
+import type { Caja, MonedaCaja, CajaSaldo } from '@/shared/lib/types';
 import {
   listCajas, crearCaja, renombrarCaja, deshabilitarCaja, habilitarCaja, ajustarSaldo,
 } from './cajas.repository';
+import { ingresarDivisa, listSaldos } from '@/modules/tesoreria/cajaSaldos.repository';
+import { getTasasMercado } from '@/modules/tesoreria/tasas.repository';
+
+/** Monedas que se manejan como divisa con tasa (Bs por unidad). USDT usa la tasa Binance. */
+const ES_DIVISA = (m: string) => m === 'USDT';
 
 /** Administra las cajas de la tesorería: alta (con moneda + saldo inicial),
  *  renombrar, deshabilitar/reactivar y ajustar saldo. */
@@ -19,12 +24,16 @@ export function GestionarCajasModal({
   onCambioAplicado?: () => void;
 }) {
   const [cajas, setCajas] = useState<Caja[]>([]);
+  const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const [nombre, setNombre] = useState('');
-  const [moneda, setMoneda] = useState<Moneda>('USD');
+  const [moneda, setMoneda] = useState<MonedaCaja>('USD');
   const [saldoIni, setSaldoIni] = useState('0');
+  // Tasa Binance (Bs por 1 USDT) para cajas USDT: sugerida del mercado, editable.
+  const [tasaUsdt, setTasaUsdt] = useState('');
+  const [tasaBinance, setTasaBinance] = useState<number | null>(null);
 
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
@@ -34,20 +43,56 @@ export function GestionarCajasModal({
 
   async function recargar() {
     setLoading(true);
-    try { setCajas(await listCajas()); }
+    try {
+      const [cs, sal] = await Promise.all([listCajas(), listSaldos().catch(() => [] as CajaSaldo[])]);
+      setCajas(cs);
+      setSaldos(sal);
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las cajas', 'error'); }
     finally { setLoading(false); }
   }
   useEffect(() => { void recargar(); }, []);
   function cambio() { onCambioAplicado?.(); }
 
+  // Tasa Binance del día (Bs por 1 USDT): se sugiere al crear una caja USDT.
+  useEffect(() => {
+    getTasasMercado().then((m) => setTasaBinance(m.usdtVes ?? null)).catch(() => setTasaBinance(null));
+  }, []);
+  useEffect(() => {
+    if (ES_DIVISA(moneda) && tasaBinance != null && !tasaUsdt) setTasaUsdt(String(tasaBinance));
+  }, [moneda, tasaBinance, tasaUsdt]);
+
+  // Saldo multimoneda (caja_saldos) por caja: para USDT el saldo real vive acá.
+  const saldoMultiPorCaja = useMemo(() => {
+    const m = new Map<string, { saldo: number; tasaProm: number | null; moneda: string }>();
+    for (const s of saldos) {
+      if (s.moneda === 'Bs') continue; // las cajas de divisa que nos importan acá son USDT/USD
+      const cur = m.get(s.caja_id);
+      const saldo = (cur?.saldo ?? 0) + (Number(s.saldo) || 0);
+      m.set(s.caja_id, { saldo, tasaProm: s.tasa_prom != null ? Number(s.tasa_prom) : (cur?.tasaProm ?? null), moneda: s.moneda });
+    }
+    return m;
+  }, [saldos]);
+
   async function agregar() {
     if (!nombre.trim()) { toast('Escribí el nombre de la caja', 'error'); return; }
+    const saldoInicial = Number(saldoIni) || 0;
+    const esUsdt = ES_DIVISA(moneda);
+    const tasa = Number(tasaUsdt) || 0;
+    if (esUsdt && saldoInicial > 0 && tasa <= 0) { toast('Indicá la tasa Binance (Bs por USDT) del saldo inicial.', 'error'); return; }
     setBusy(true);
     try {
-      await crearCaja({ nombre, moneda, saldoInicial: Number(saldoIni) || 0 }, actor);
-      notify(`Caja "${nombre.trim()}" creada`, 'success');
-      setNombre(''); setSaldoIni('0');
+      // USDT es multimoneda: la caja nace sin saldo legacy y el saldo entra como
+      // divisa (caja_saldos) con su tasa Binance → registra lote + tasa promedio.
+      const caja = await crearCaja({ nombre, moneda, saldoInicial: esUsdt ? 0 : saldoInicial }, actor);
+      if (esUsdt && saldoInicial > 0) {
+        await ingresarDivisa({
+          cajaId: caja.id, cuenta: 'general', moneda: 'USDT', monto: saldoInicial, tasaBs: tasa,
+          origen: 'Saldo inicial', motivo: 'Saldo inicial de la caja', actor, actorName,
+        });
+      }
+      notify(`Caja "${nombre.trim()}" creada${esUsdt ? ' · USDT' : ''}`, 'success');
+      setNombre(''); setSaldoIni('0'); setTasaUsdt(esUsdt && tasaBinance != null ? String(tasaBinance) : '');
       await recargar(); cambio();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear', 'error'); }
     finally { setBusy(false); }
@@ -103,19 +148,33 @@ export function GestionarCajasModal({
         </div>
         <div className="form-row">
           <label>Moneda</label>
-          <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value as Moneda)}>
+          <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value as MonedaCaja)}>
             <option value="USD">USD ($)</option>
             <option value="Bs">Bolívares (Bs)</option>
+            <option value="USDT">USDT</option>
           </select>
         </div>
         <div className="form-row">
           <label>Saldo inicial</label>
           <input className="input mono" type="number" min={0} step="0.01" value={saldoIni} onChange={(e) => setSaldoIni(e.target.value)} />
         </div>
+        {ES_DIVISA(moneda) ? (
+          <div className="form-row">
+            <label>Tasa Binance (Bs por USDT)</label>
+            <input className="input mono" type="number" min={0} step="0.0001" value={tasaUsdt} onChange={(e) => setTasaUsdt(e.target.value)} placeholder={tasaBinance != null ? String(tasaBinance) : 'Bs por 1 USDT'} />
+            <small className="muted">{tasaBinance != null ? `Sugerida (Binance hoy): ${tasaBinance.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs` : 'Sin tasa Binance cargada'}</small>
+          </div>
+        ) : <div className="form-row" />}
         <div className="form-row" style={{ alignSelf: 'end' }}>
           <button className="btn btn-primary" onClick={agregar} disabled={busy}>+ Crear caja</button>
         </div>
       </div>
+      {ES_DIVISA(moneda) && (
+        <p className="muted" style={{ marginTop: '-.4rem', marginBottom: '.85rem', fontSize: '.8rem' }}>
+          La caja USDT registra en cada ingreso la <strong>tasa Binance</strong> con la que entró el dinero,
+          y muestra el <strong>promedio ponderado</strong> de todas las entradas.
+        </p>
+      )}
 
       {loading ? (
         <div className="muted" style={{ padding: '1rem' }}>Cargando cajas…</div>
@@ -130,6 +189,9 @@ export function GestionarCajasModal({
               {cajas.map((c) => {
                 const enEd = editId === c.id;
                 const activo = c.estado === 'activo';
+                const esUsdt = (c.moneda as string) === 'USDT';
+                const multi = saldoMultiPorCaja.get(c.id);
+                const saldoShow = esUsdt ? (multi?.saldo ?? 0) : (Number(c.saldo) || 0);
                 return (
                   <tr key={c.id}>
                     <td>{enEd ? (
@@ -137,7 +199,12 @@ export function GestionarCajasModal({
                         onKeyDown={(e) => { if (e.key === 'Enter') void guardarRename(); if (e.key === 'Escape') setEditId(null); }} />
                     ) : <strong>{c.nombre}</strong>}</td>
                     <td><span className="badge">{c.moneda}</span></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(Number(c.saldo) || 0)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      {esUsdt ? `${saldoShow.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT` : money(saldoShow)}
+                      {esUsdt && multi?.tasaProm != null && multi.tasaProm > 0 && (
+                        <div className="muted" style={{ fontSize: '.7rem' }}>tasa prom: {multi.tasaProm.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs</div>
+                      )}
+                    </td>
                     <td><span className={`badge ${activo ? 'success' : 'warning'}`}>{activo ? 'Activa' : 'Inhabilitada'}</span></td>
                     <td className="actions">
                       {enEd ? (
@@ -159,7 +226,7 @@ export function GestionarCajasModal({
             </tbody>
             {cajas.length > 0 && (
               <tfoot>
-                {(['USD', 'Bs'] as Moneda[]).map((m) => {
+                {(['USD', 'Bs'] as MonedaCaja[]).map((m) => {
                   const total = cajas.filter((c) => c.moneda === m).reduce((a, c) => a + (Number(c.saldo) || 0), 0);
                   if (!cajas.some((c) => c.moneda === m)) return null;
                   return (
@@ -170,6 +237,28 @@ export function GestionarCajasModal({
                     </tr>
                   );
                 })}
+                {cajas.some((c) => (c.moneda as string) === 'USDT') && (() => {
+                  // Total USDT (de caja_saldos) y tasa promedio ponderada entre todas las cajas USDT.
+                  const usdtCajas = cajas.filter((c) => (c.moneda as string) === 'USDT');
+                  let totalUsdt = 0, sumaBs = 0;
+                  for (const c of usdtCajas) {
+                    const mu = saldoMultiPorCaja.get(c.id);
+                    const sal = mu?.saldo ?? 0;
+                    totalUsdt += sal;
+                    if (mu?.tasaProm != null) sumaBs += sal * mu.tasaProm;
+                  }
+                  const tasaProm = totalUsdt > 0 ? sumaBs / totalUsdt : 0;
+                  return (
+                    <tr>
+                      <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>
+                        Total registrado (USDT)
+                        {tasaProm > 0 && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>tasa prom. ponderada: {tasaProm.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs</div>}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{totalUsdt.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  );
+                })()}
               </tfoot>
             )}
           </table>

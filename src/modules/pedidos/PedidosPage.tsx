@@ -1962,7 +1962,7 @@ function OrdenDetailModal({
               <td className="mono">{it.sku}</td>
               <td>{it.nombre}</td>
               <td style={{ fontSize: '.84rem' }}>{it.finalidad?.trim() ? it.finalidad : <span className="muted">—</span>}</td>
-              <td className="num">{num(it.cantidad)}</td>
+              <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
               {conPrecio ? (
                 <>
                   <td className="num">{money(it.precio)}</td>
@@ -2259,7 +2259,7 @@ function CrearOrdenModal({
       // Agregar de una vez a la solicitud.
       setItems((prev) => prev.some((i) => i.productoId === creado.id)
         ? prev
-        : [...prev, { productoId: creado.id, sku: creado.sku, nombre: creado.nombre, cantidad: 1, precio: 0, comprar: true }]);
+        : [...prev, { productoId: creado.id, sku: creado.sku, nombre: creado.nombre, cantidad: 1, precio: 0, unidad: creado.unidad, comprar: true }]);
       toast(`Producto "${creado.nombre}" creado en inventario · completá el resto luego`, 'success');
       setNuevoNombre('');
       setNuevoOpen(false);
@@ -2306,7 +2306,7 @@ function CrearOrdenModal({
       // comprar=true por defecto: se puede desmarcar para no comprarlo.
       return [
         ...prev,
-        { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, comprar: true },
+        { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true },
       ];
     });
   }
@@ -2392,7 +2392,7 @@ function CrearOrdenModal({
         <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.3rem' }}>
           Marcá los artículos a comprar e indicá la finalidad de cada uno. Los desmarcados quedan en la solicitud pero no se cotizan.
         </div>
-        <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 90px 40px' }}>
+        <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 130px 40px' }}>
           <div title="Comprar">✓</div>
           <div>Producto</div>
           <div>Cantidad</div>
@@ -2403,7 +2403,7 @@ function CrearOrdenModal({
             const comprar = it.comprar !== false;
             return (
             <div key={`${it.sku}-${idx}`} style={{ opacity: comprar ? 1 : 0.5, marginBottom: '.4rem' }}>
-            <div className="line-picker" style={{ gridTemplateColumns: '34px 2fr 90px 40px', marginBottom: 0 }}>
+            <div className="line-picker" style={{ gridTemplateColumns: '34px 2fr 130px 40px', marginBottom: 0 }}>
               <input
                 type="checkbox"
                 checked={comprar}
@@ -2415,25 +2415,30 @@ function CrearOrdenModal({
                 <div>{it.nombre}</div>
                 <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
               </div>
-              <input
-                className="input mono"
-                type="number"
-                min={0}
-                step="any"
-                value={cantEdit[it.sku] ?? String(it.cantidad)}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setCantEdit((m) => ({ ...m, [it.sku]: raw }));
-                  const n = Number(raw.replace(',', '.'));
-                  if (raw !== '' && Number.isFinite(n) && n > 0) updateItem(idx, { cantidad: n });
-                }}
-                onBlur={() => {
-                  const n = Number((cantEdit[it.sku] ?? String(it.cantidad)).replace(',', '.'));
-                  const val = Number.isFinite(n) && n > 0 ? n : 1;
-                  updateItem(idx, { cantidad: val });
-                  setCantEdit((m) => ({ ...m, [it.sku]: String(val) }));
-                }}
-              />
+              {/* Cantidad + unidad de medida del producto (KG, L, und…). */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
+                <input
+                  className="input mono"
+                  type="number"
+                  min={0}
+                  step="any"
+                  style={{ flex: 1, minWidth: 0 }}
+                  value={cantEdit[it.sku] ?? String(it.cantidad)}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setCantEdit((m) => ({ ...m, [it.sku]: raw }));
+                    const n = Number(raw.replace(',', '.'));
+                    if (raw !== '' && Number.isFinite(n) && n > 0) updateItem(idx, { cantidad: n });
+                  }}
+                  onBlur={() => {
+                    const n = Number((cantEdit[it.sku] ?? String(it.cantidad)).replace(',', '.'));
+                    const val = Number.isFinite(n) && n > 0 ? n : 1;
+                    updateItem(idx, { cantidad: val });
+                    setCantEdit((m) => ({ ...m, [it.sku]: String(val) }));
+                  }}
+                />
+                {it.unidad && <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{it.unidad}</span>}
+              </div>
               <button
                 type="button"
                 className="rm"
