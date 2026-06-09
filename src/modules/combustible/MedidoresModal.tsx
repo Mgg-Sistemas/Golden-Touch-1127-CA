@@ -4,6 +4,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import type { CatalogoCombustible, MedidorCombustible } from '@/shared/lib/types';
 import { listMedidores, ultimoHorometroEquipo, crearMedidor, eliminarMedidor } from './tanques.repository';
 import { descargarMedidoresPdf } from './medidoresPdf';
@@ -15,8 +16,8 @@ import { enviarMedidoresPorCorreo } from './enviarMedidores';
  * independiente del consumo. El HI de un alta autocarga con el último HF del
  * equipo. Lista filtrable con reportes PDF / Excel / correo.
  */
-export function MedidoresModal({ catalogos, canWrite, actor, actorName, onClose }: {
-  catalogos: CatalogoCombustible[]; canWrite: boolean; actor: string; actorName: string | null; onClose: () => void;
+export function MedidoresModal({ catalogos, canWrite, actor, actorName, defaultEmail, onClose }: {
+  catalogos: CatalogoCombustible[]; canWrite: boolean; actor: string; actorName: string | null; defaultEmail: string; onClose: () => void;
 }) {
   const [rows, setRows] = useState<MedidorCombustible[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,8 +38,6 @@ export function MedidoresModal({ catalogos, canWrite, actor, actorName, onClose 
   const [saving, setSaving] = useState(false);
   // Correo
   const [correoOpen, setCorreoOpen] = useState(false);
-  const [emails, setEmails] = useState('');
-  const [enviando, setEnviando] = useState(false);
 
   const equiposCat = catalogos.filter((c) => c.tipo === 'equipo' && c.activo);
 
@@ -103,17 +102,6 @@ export function MedidoresModal({ catalogos, canWrite, actor, actorName, onClose 
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
   const filtroTxt = () => (hayFiltro ? 'filtrado' : undefined);
-  async function enviarCorreo() {
-    const lista = emails.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
-    if (!lista.length) { toast('Indicá al menos un correo', 'error'); return; }
-    setEnviando(true);
-    try {
-      const { destinatarios } = await enviarMedidoresPorCorreo(filtrados, lista, { filtro: filtroTxt() });
-      toast(`Enviado a: ${destinatarios.join(', ')}`, 'success');
-      setCorreoOpen(false); setEmails('');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar', 'error'); }
-    finally { setEnviando(false); }
-  }
 
   const v = (x: number | null | undefined) => (x == null ? '—' : num(x));
 
@@ -199,18 +187,16 @@ export function MedidoresModal({ catalogos, canWrite, actor, actorName, onClose 
       )}
 
       {correoOpen && (
-        <Modal title="Enviar medidores por correo" size="md" onClose={() => !enviando && setCorreoOpen(false)} footer={
-          <>
-            <button className="btn btn-ghost" onClick={() => setCorreoOpen(false)} disabled={enviando}>Cancelar</button>
-            <button className="btn btn-primary" onClick={enviarCorreo} disabled={enviando}>{enviando ? 'Enviando…' : 'Enviar'}</button>
-          </>
-        }>
-          <div className="form-row">
-            <label>Correo(s) destinatario(s)</label>
-            <input className="input" value={emails} onChange={(e) => setEmails(e.target.value)} placeholder="correo@ejemplo.com, otro@ejemplo.com" autoFocus />
-            <small className="muted">Separá varios con coma o espacio. Se adjunta el PDF con {filtrados.length} lectura(s).</small>
-          </div>
-        </Modal>
+        <CorreoReporteModal
+          titulo="Enviar medidores por correo"
+          descripcion={`Se enviará el PDF con ${filtrados.length} lectura(s)${hayFiltro ? ', con el filtro aplicado' : ''}.`}
+          defaultEmail={defaultEmail}
+          onEnviar={async (lista) => {
+            const { destinatarios } = await enviarMedidoresPorCorreo(filtrados, lista, { filtro: filtroTxt() });
+            return destinatarios;
+          }}
+          onClose={() => setCorreoOpen(false)}
+        />
       )}
     </Modal>
   );

@@ -26,7 +26,9 @@ import {
 } from './tanques.repository';
 import { descargarMovimientosTanquePdf } from './tanquePdf';
 import { descargarMovimientosTanqueExcel } from './tanqueExcel';
+import { enviarMovimientosTanquePorCorreo } from './enviarTanque';
 import { MedidoresModal } from './MedidoresModal';
+import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -67,6 +69,7 @@ export function TanquesView() {
   const [fUbicacion, setFUbicacion] = useState('');
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
+  const [correoLibroOpen, setCorreoLibroOpen] = useState(false);
 
   const reloadTanques = useCallback(async () => {
     const [ts, rep, cat] = await Promise.all([listTanques(), reporteGlobal(), listCatalogos()]);
@@ -201,6 +204,8 @@ export function TanquesView() {
                   onClick={() => sel && void descargarMovimientosTanquePdf(sel, movsFiltrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
                 <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar Excel del registro (con el filtro aplicado)"
                   onClick={() => sel && void descargarMovimientosTanqueExcel(sel, movsFiltrados).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
+                <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Enviar el registro por correo (con el filtro aplicado)"
+                  onClick={() => setCorreoLibroOpen(true)}>✉ Correo</button>
               </span>
               <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ position: 'relative' }}>
@@ -308,7 +313,19 @@ export function TanquesView() {
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
       )}
       {modal === 'medidores' && (
-        <MedidoresModal catalogos={catalogos} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setModal('none')} />
+        <MedidoresModal catalogos={catalogos} canWrite={canWrite} actor={actor} actorName={actorName} defaultEmail={user?.email ?? ''} onClose={() => setModal('none')} />
+      )}
+      {correoLibroOpen && sel && (
+        <CorreoReporteModal
+          titulo={`Enviar registro · ${sel.nombre}`}
+          descripcion={`Se enviará el PDF del libro mayor de ${sel.nombre} (${movsFiltrados.length} movimiento(s)${hayFiltro ? ', con el filtro aplicado' : ''}).`}
+          defaultEmail={user?.email ?? ''}
+          onEnviar={async (emails) => {
+            const { destinatarios } = await enviarMovimientosTanquePorCorreo(sel, movsFiltrados, emails, { filtro: hayFiltro ? 'filtrado' : undefined });
+            return destinatarios;
+          }}
+          onClose={() => setCorreoLibroOpen(false)}
+        />
       )}
       {modal === 'consumo' && (
         <ConsumoChartModal

@@ -14,9 +14,12 @@ export interface TanqueReporteMeta {
   filtro?: string;
 }
 
-export async function descargarMovimientosTanquePdf(
+const nombreArchivo = (tanque: TanqueCombustible) =>
+  `combustible-${tanque.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}.pdf`;
+
+async function construirDoc(
   tanque: TanqueCombustible, movs: MovimientoTanque[], meta: TanqueReporteMeta = {},
-): Promise<void> {
+) {
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([
     loadLogoDataUrl().catch(() => null),
     import('jspdf'),
@@ -75,5 +78,20 @@ export async function descargarMovimientosTanquePdf(
     },
   });
 
-  doc.save(`combustible-${tanque.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}.pdf`);
+  return doc;
+}
+
+export async function descargarMovimientosTanquePdf(
+  tanque: TanqueCombustible, movs: MovimientoTanque[], meta: TanqueReporteMeta = {},
+): Promise<void> {
+  const doc = await construirDoc(tanque, movs, meta);
+  doc.save(nombreArchivo(tanque));
+}
+
+export async function obtenerMovimientosTanquePdfBase64(
+  tanque: TanqueCombustible, movs: MovimientoTanque[], meta: TanqueReporteMeta = {},
+): Promise<{ base64: string; nombre: string }> {
+  const doc = await construirDoc(tanque, movs, meta);
+  const base64 = doc.output('datauristring').split(',')[1] ?? '';
+  return { base64, nombre: nombreArchivo(tanque) };
 }
