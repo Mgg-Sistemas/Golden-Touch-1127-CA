@@ -692,6 +692,17 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
     return c === '' || c == null ? null : r.saldoLibros - (Number(c) || 0);
   };
 
+  // Totales por columna (sin la diferencia) + los dos saldos generales de la semana.
+  const tot = useMemo(() => {
+    const s = (f: (r: ResumenTanquePeriodo) => number) => resumenes.reduce((a, r) => a + f(r), 0);
+    return {
+      saldoInicial: s((r) => r.saldoInicial), entradas: s((r) => r.entradas), usos: s((r) => r.usos),
+      traslados: s((r) => r.traslados), retornos: s((r) => r.retornos), mermas: s((r) => r.mermas),
+      saldoLibros: s((r) => r.saldoLibros),
+      libreta: resumenes.reduce((a, r) => a + (Number(libreta[r.tanqueId]) || 0), 0),
+    };
+  }, [resumenes, libreta]);
+
   async function guardar() {
     if (!resumenes.length) { toast('Semana sin datos', 'error'); return; }
     setBusy(true);
@@ -749,8 +760,39 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
                 );
               })}
             </tbody>
+            {!cargando && resumenes.length > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+                  <td>TOTALES</td>
+                  <td className="mono">{num(tot.saldoInicial)}</td>
+                  <td className="mono" style={{ color: 'var(--primary-3)' }}>{num(tot.entradas)}</td>
+                  <td className="mono" style={{ color: 'var(--danger)' }}>{num(tot.usos)}</td>
+                  <td className="mono" style={{ color: 'var(--warning)' }}>{num(tot.traslados)}</td>
+                  <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{num(tot.retornos)}</td>
+                  <td className="mono" style={{ color: 'var(--danger)' }}>{num(tot.mermas)}</td>
+                  <td className="mono">{num(tot.saldoLibros)}</td>
+                  <td className="mono">{num(tot.libreta)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
+
+        {/* Resultado general de la semana (no editable) — como en el Excel de la mina */}
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', margin: '.9rem 0' }}>
+          <div className="card" style={{ flex: 1, minWidth: 220, textAlign: 'center', background: 'rgba(244,179,179,.10)', borderColor: 'rgba(244,179,179,.4)' }}>
+            <div style={{ fontSize: '.78rem', fontWeight: 700, letterSpacing: '.02em' }}>SALDOS DE CONSUMO DIÉSEL · NUESTROS LIBROS</div>
+            <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '.2rem' }}>{num(tot.saldoLibros)} L</div>
+            <div className="muted" style={{ fontSize: '.7rem' }}>resultado de la semana · no editable</div>
+          </div>
+          <div className="card" style={{ flex: 1, minWidth: 220, textAlign: 'center', background: 'rgba(110,160,230,.12)', borderColor: 'rgba(110,160,230,.45)' }}>
+            <div style={{ fontSize: '.78rem', fontWeight: 700, letterSpacing: '.02em' }}>SALDOS REPORTADOS POR LA MINA (LIBRETA)</div>
+            <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '.2rem' }}>{num(tot.libreta)} L</div>
+            <div className="muted" style={{ fontSize: '.7rem' }}>según libreta · no editable</div>
+          </div>
+        </div>
+
         <div className="form-row" style={{ marginTop: '.6rem' }}><label>Notas de la semana</label><input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} /></div>
         <button className="btn btn-primary btn-sm" onClick={guardar} disabled={busy || !resumenes.length}>Guardar conciliación de la semana</button>
         <p className="muted" style={{ fontSize: '.76rem' }}>El saldo en libros se calcula con todos los movimientos de cada tanque en la semana (saldo inicial + entradas + retornos − usos − traslados − mermas). La diferencia contra el <strong>saldo según la mina (libreta)</strong> es el faltante/merma a vigilar.</p>
