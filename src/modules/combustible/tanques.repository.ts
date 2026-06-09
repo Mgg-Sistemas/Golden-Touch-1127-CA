@@ -568,6 +568,57 @@ export async function listConciliaciones(tanqueId?: string): Promise<Conciliacio
   return (data ?? []) as ConciliacionCombustible[];
 }
 
+/** Resumen de un tanque en un rango (semana) calculado desde sus movimientos. */
+export interface ResumenTanquePeriodo {
+  tanqueId: string;
+  tanqueNombre: string;
+  saldoActual: number;      // saldo vigente del tanque (libro)
+  saldoInicial: number;     // saldo en libros al iniciar la semana
+  entradas: number;
+  usos: number;
+  traslados: number;
+  retornos: number;
+  mermas: number;
+  saldoLibros: number;      // cierre = inicial + entradas + retornos − usos − traslados − mermas
+  movimientos: number;      // cantidad de movimientos en la semana
+}
+
+/**
+ * Calcula el saldo en libros de TODOS los tanques para un rango de fechas (semana):
+ * saldo inicial del período (arrastre) + lo ocurrido dentro del rango. El saldo
+ * inicial de creación de cada tanque se infiere de su saldo actual menos el neto de
+ * todos sus movimientos (los movimientos son la fuente de verdad). Una sola consulta.
+ * `desde`/`hasta` en 'YYYY-MM-DD' (ambos inclusive).
+ */
+export async function resumenTanquesPeriodo(desde: string, hasta: string): Promise<ResumenTanquePeriodo[]> {
+  const tanques = await listTanques();
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('tipo, litros, fecha, tanque_id');
+  if (error) throw error;
+  const movs = (data ?? []) as { tipo: string; litros: number; fecha: string | null; tanque_id: string }[];
+  const signo = (tipo: string) => (tipo === 'entrada' || tipo === 'retorno' ? 1 : -1);
+
+  return tanques.map((t) => {
+    const mt = movs.filter((m) => m.tanque_id === t.id);
+    const netAll = mt.reduce((a, m) => a + signo(m.tipo) * num(m.litros), 0);
+    const inicialCreacion = num(t.saldo_litros) - netAll;
+    const antes = mt.filter((m) => (m.fecha ?? '') < desde);
+    const enRango = mt.filter((m) => { const f = m.fecha ?? ''; return f >= desde && f <= hasta; });
+    const saldoInicial = inicialCreacion + antes.reduce((a, m) => a + signo(m.tipo) * num(m.litros), 0);
+    const suma = (tipo: string) => enRango.filter((m) => m.tipo === tipo).reduce((a, m) => a + num(m.litros), 0);
+    const entradas = suma('entrada'), usos = suma('uso'), traslados = suma('traslado'), retornos = suma('retorno'), mermas = suma('merma');
+    const saldoLibros = saldoInicial + entradas + retornos - usos - traslados - mermas;
+    return {
+      tanqueId: t.id, tanqueNombre: t.nombre, saldoActual: round(num(t.saldo_litros), 2),
+      saldoInicial: round(saldoInicial, 2),
+      entradas: round(entradas, 2), usos: round(usos, 2), traslados: round(traslados, 2),
+      retornos: round(retornos, 2), mermas: round(mermas, 2),
+      saldoLibros: round(saldoLibros, 2), movimientos: enRango.length,
+    };
+  });
+}
+
 export async function crearConciliacion(input: {
   tanqueId: string;
   periodo?: string | null;

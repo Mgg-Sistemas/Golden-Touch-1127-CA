@@ -24,7 +24,7 @@ import {
   registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL,
   crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
-  consumoUso, type ReporteTanque,
+  consumoUso, resumenTanquesPeriodo, type ReporteTanque, type ResumenTanquePeriodo,
 } from './tanques.repository';
 import { descargarMovimientosTanquePdf } from './tanquePdf';
 import { descargarMovimientosTanqueExcel } from './tanqueExcel';
@@ -148,7 +148,7 @@ export function TanquesView() {
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('medidores')} title="Horómetros / contadores por equipo">🕒 Medidores</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
-          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!sel}>⚖ Conciliación</button>}
+          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => { setEditTanque(null); setModal('tanque'); }}>+ Tanque</button>}
           {canWrite && <button className="btn btn-primary btn-sm" onClick={() => setModal('mov')} disabled={!tanques.length}>+ Nuevo movimiento</button>}
         </div>
@@ -302,8 +302,8 @@ export function TanquesView() {
       {modal === 'catalogos' && (
         <CatalogosModal catalogos={catalogos} onClose={() => setModal('none')} onChanged={reloadTanques} />
       )}
-      {modal === 'conciliacion' && sel && (
-        <ConciliacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} />
+      {modal === 'conciliacion' && (
+        <ConciliacionModal tanques={tanques} actor={actor} onClose={() => setModal('none')} />
       )}
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
@@ -647,65 +647,131 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
 
 /* ───────────── Modal: conciliación ───────────── */
 
-function ConciliacionModal({ tanque, actor, onClose }: { tanque: TanqueCombustible; actor: string; onClose: () => void }) {
-  const [periodo, setPeriodo] = useState('');
-  const [reportado, setReportado] = useState('');
-  const [cubic, setCubic] = useState('');
+function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombustible[]; actor: string; onClose: () => void }) {
+  // Semana actual (lunes a domingo) por defecto.
+  const semanaActual = () => {
+    const d = new Date(); const dow = d.getDay();
+    const mon = new Date(d); mon.setDate(d.getDate() - ((dow + 6) % 7));
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    const f = (x: Date) => x.toISOString().slice(0, 10);
+    return { desde: f(mon), hasta: f(sun) };
+  };
+  const [{ desde, hasta }, setRango] = useState(semanaActual);
+  const [resumenes, setResumenes] = useState<ResumenTanquePeriodo[]>([]);
+  const [cargando, setCargando] = useState(false);
+  const [cubic, setCubic] = useState<Record<string, string>>({});
   const [notas, setNotas] = useState('');
   const [busy, setBusy] = useState(false);
   const [historial, setHistorial] = useState<ConciliacionCombustible[]>([]);
-  const libros = Number(tanque.saldo_litros) || 0;
-  const dif = libros - (Number(reportado) || 0);
-  const difCub = cubic === '' ? null : libros - (Number(cubic) || 0);
 
+  const nombreTanque = (id: string) => tanques.find((t) => t.id === id)?.nombre ?? '—';
+  const cargarHistorial = useCallback(() => { listConciliaciones().then(setHistorial).catch(() => {}); }, []);
+  useEffect(() => { cargarHistorial(); }, [cargarHistorial]);
+
+  // Recalcular al cambiar la semana + prellenar cubicación de cada tanque del rango.
   useEffect(() => {
-    listConciliaciones(tanque.id).then(setHistorial).catch(() => {});
-    // Pre-cargar la última cubicación guardada como referencia.
-    listCubicaciones(tanque.id).then((cs) => { if (cs[0]) setCubic(String(cs[0].litros_cubicacion)); }).catch(() => {});
-  }, [tanque.id]);
+    if (!desde || !hasta || desde > hasta) { setResumenes([]); return; }
+    let cancel = false;
+    setCargando(true);
+    resumenTanquesPeriodo(desde, hasta)
+      .then((r) => { if (!cancel) setResumenes(r); })
+      .catch(() => { if (!cancel) setResumenes([]); })
+      .finally(() => { if (!cancel) setCargando(false); });
+    Promise.all(tanques.map((t) => listCubicaciones(t.id).then((cs) => {
+      const enRango = cs.find((c) => { const f = c.fecha ?? ''; return f >= desde && f <= hasta; });
+      return [t.id, enRango ? String(enRango.litros_cubicacion) : ''] as const;
+    }).catch(() => [t.id, ''] as const))).then((pairs) => { if (!cancel) setCubic(Object.fromEntries(pairs)); });
+    return () => { cancel = true; };
+  }, [desde, hasta, tanques]);
+
+  function moverSemana(dir: number) {
+    const f = (x: Date) => x.toISOString().slice(0, 10);
+    const d = new Date(desde + 'T00:00:00'); d.setDate(d.getDate() + dir * 7);
+    const h = new Date(hasta + 'T00:00:00'); h.setDate(h.getDate() + dir * 7);
+    setRango({ desde: f(d), hasta: f(h) });
+  }
+
+  const difCub = (r: ResumenTanquePeriodo) => {
+    const c = cubic[r.tanqueId];
+    return c === '' || c == null ? null : r.saldoLibros - (Number(c) || 0);
+  };
 
   async function guardar() {
+    if (!resumenes.length) { toast('Semana sin datos', 'error'); return; }
     setBusy(true);
     try {
-      await crearConciliacion({
-        tanqueId: tanque.id, periodo: periodo || null, saldoLibros: libros,
-        saldoReportadoMina: Number(reportado) || 0,
-        saldoCubicacion: cubic === '' ? null : Number(cubic) || 0,
-        notas: notas || null, actor,
-      });
-      toast('Conciliación registrada', 'success');
-      setHistorial(await listConciliaciones(tanque.id));
-      setReportado(''); setNotas(''); setPeriodo('');
+      const periodo = `${desde} a ${hasta}`;
+      for (const r of resumenes) {
+        const cub = cubic[r.tanqueId];
+        await crearConciliacion({
+          tanqueId: r.tanqueId, periodo, saldoLibros: r.saldoLibros, saldoReportadoMina: 0,
+          saldoCubicacion: cub === '' || cub == null ? null : Number(cub) || 0,
+          notas: notas || null, actor,
+        });
+      }
+      toast('Conciliación semanal registrada', 'success');
+      cargarHistorial(); setNotas('');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
     finally { setBusy(false); }
   }
 
   return (
-    <Modal title={`Conciliación · ${tanque.nombre}`} size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+    <Modal title="Conciliación semanal · Tanques" size="xl" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <div className="form-grid">
-          <div className="form-row"><label>Período</label><input className="input" value={periodo} onChange={(e) => setPeriodo(e.target.value)} placeholder="Abril 2026" /></div>
-          <div className="form-row"><label>Saldo en nuestros libros (L)</label><input className="input mono" value={num(libros)} readOnly /></div>
-          <div className="form-row"><label>Saldo reportado por la mina (L)</label><input className="input mono" type="number" step="any" value={reportado} onChange={(e) => setReportado(e.target.value)} /></div>
-          <div className="form-row"><label>Dif. vs mina (L)</label><input className="input mono" value={num(dif)} readOnly style={{ color: Math.abs(dif) > 0 ? 'var(--warning)' : 'var(--primary-3)' }} /></div>
-          <div className="form-row"><label>Saldo por cubicación (L)</label><input className="input mono" type="number" step="any" value={cubic} onChange={(e) => setCubic(e.target.value)} placeholder="medición física" /></div>
-          <div className="form-row"><label>Dif. vs cubicación (L)</label><input className="input mono" value={difCub == null ? '—' : num(difCub)} readOnly style={{ color: difCub != null && Math.abs(difCub) > 0 ? 'var(--warning)' : 'var(--primary-3)' }} /></div>
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+          <button className="btn btn-sm btn-ghost" onClick={() => moverSemana(-1)}>← Semana ant.</button>
+          <label className="muted" style={{ fontSize: '.8rem' }}>Desde <input className="input" type="date" value={desde} onChange={(e) => setRango((r) => ({ ...r, desde: e.target.value }))} style={{ width: 'auto' }} /></label>
+          <label className="muted" style={{ fontSize: '.8rem' }}>Hasta <input className="input" type="date" value={hasta} onChange={(e) => setRango((r) => ({ ...r, hasta: e.target.value }))} style={{ width: 'auto' }} /></label>
+          <button className="btn btn-sm btn-ghost" onClick={() => moverSemana(1)}>Semana sig. →</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setRango(semanaActual())}>Semana actual</button>
         </div>
-        <div className="form-row"><label>Notas</label><input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} /></div>
-        <button className="btn btn-primary btn-sm" onClick={guardar} disabled={busy}>Guardar conciliación</button>
+
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr>
+              <th>Tanque</th><th>Saldo inicial</th><th>Entradas</th><th>Usos</th><th>Traslados</th><th>Retornos</th><th>Mermas</th><th>Saldo libros</th><th>Cubicación (física)</th><th>Dif.</th>
+            </tr></thead>
+            <tbody>
+              {cargando && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Calculando…</td></tr>}
+              {!cargando && !resumenes.length && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Sin tanques.</td></tr>}
+              {!cargando && resumenes.map((r) => {
+                const d = difCub(r);
+                return (
+                  <tr key={r.tanqueId}>
+                    <td><strong>{r.tanqueNombre}</strong> <span className="muted" style={{ fontSize: '.72rem' }}>· {r.movimientos} mov.</span></td>
+                    <td className="mono">{num(r.saldoInicial)}</td>
+                    <td className="mono" style={{ color: 'var(--primary-3)' }}>{num(r.entradas)}</td>
+                    <td className="mono" style={{ color: 'var(--danger)' }}>{num(r.usos)}</td>
+                    <td className="mono" style={{ color: 'var(--warning)' }}>{num(r.traslados)}</td>
+                    <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{num(r.retornos)}</td>
+                    <td className="mono" style={{ color: 'var(--danger)' }}>{num(r.mermas)}</td>
+                    <td className="mono"><strong>{num(r.saldoLibros)}</strong></td>
+                    <td><input className="input mono" type="number" step="any" value={cubic[r.tanqueId] ?? ''} onChange={(e) => setCubic((c) => ({ ...c, [r.tanqueId]: e.target.value }))} placeholder="varilla" style={{ width: 110 }} /></td>
+                    <td className="mono" style={{ color: d != null && Math.abs(d) > 0.01 ? 'var(--warning)' : 'inherit' }}>{d == null ? '—' : num(d)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="form-row" style={{ marginTop: '.6rem' }}><label>Notas de la semana</label><input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} /></div>
+        <button className="btn btn-primary btn-sm" onClick={guardar} disabled={busy || !resumenes.length}>Guardar conciliación de la semana</button>
+        <p className="muted" style={{ fontSize: '.76rem' }}>El saldo en libros se calcula con todos los movimientos de cada tanque en la semana (saldo inicial + entradas + retornos − usos − traslados − mermas). La diferencia vs cubicación es el faltante/merma a vigilar.</p>
       </div>
+
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
-          <thead><tr><th>Fecha</th><th>Período</th><th>Libros</th><th>Mina</th><th>Dif. mina</th><th>Cubic.</th><th>Dif. cubic.</th><th>Notas</th></tr></thead>
+          <thead><tr><th>Semana</th><th>Tanque</th><th>Registrada</th><th>Libros</th><th>Cubic.</th><th>Dif.</th><th>Notas</th></tr></thead>
           <tbody>
-            {!historial.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Sin conciliaciones.</td></tr>}
+            {!historial.length && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Sin conciliaciones.</td></tr>}
             {historial.map((c) => (
               <tr key={c.id}>
-                <td className="mono">{c.fecha}</td><td>{c.periodo || '—'}</td>
-                <td className="mono">{num(c.saldo_libros)}</td><td className="mono">{num(c.saldo_reportado_mina)}</td>
-                <td className="mono" style={{ color: Math.abs(Number(c.diferencia) || 0) > 0 ? 'var(--warning)' : 'inherit' }}>{num(c.diferencia)}</td>
+                <td className="mono">{c.periodo || '—'}</td>
+                <td>{nombreTanque(c.tanque_id)}</td>
+                <td className="mono">{c.fecha}</td>
+                <td className="mono">{num(c.saldo_libros)}</td>
                 <td className="mono">{c.saldo_cubicacion == null ? '—' : num(c.saldo_cubicacion)}</td>
-                <td className="mono" style={{ color: c.dif_cubicacion != null && Math.abs(Number(c.dif_cubicacion)) > 0 ? 'var(--warning)' : 'inherit' }}>{c.dif_cubicacion == null ? '—' : num(c.dif_cubicacion)}</td>
+                <td className="mono" style={{ color: c.dif_cubicacion != null && Math.abs(Number(c.dif_cubicacion)) > 0.01 ? 'var(--warning)' : 'inherit' }}>{c.dif_cubicacion == null ? '—' : num(c.dif_cubicacion)}</td>
                 <td className="muted">{c.notas || '—'}</td>
               </tr>
             ))}
