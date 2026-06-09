@@ -526,6 +526,8 @@ create table if not exists public.ordenes (
   total              numeric not null default 0,
   estado             estado_orden not null default 'pendiente',
   notas              text,
+  motivo             text,           -- "porqué" de la OP: motivo de la solicitud
+  finalidad          text,           -- "porqué" de la OP: para qué se usará
   clasificacion      text[],
   historial          jsonb not null default '[]',
   aprobada_por       text,
@@ -685,6 +687,63 @@ create index if not exists idx_caja_lotes_caja on public.caja_lotes(caja_id, mon
 alter table public.caja_lotes enable row level security;
 create policy "caja_lotes read auth" on public.caja_lotes for select using (auth.role()='authenticated');
 create policy "caja_lotes write operativo" on public.caja_lotes for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Directorio de contrapartes (clientes / proveedores) para reusar en ingresos
+-- manuales a caja y en cuentas por pagar. El tipo es su categoría.
+create table if not exists public.tesoreria_contrapartes (
+  id         uuid primary key default gen_random_uuid(),
+  tipo       text not null check (tipo in ('cliente','proveedor')),
+  nombre     text not null,
+  rif        text,
+  telefono   text,
+  email      text,
+  nota       text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+alter table public.tesoreria_contrapartes enable row level security;
+create policy "contrapartes read auth" on public.tesoreria_contrapartes for select using (auth.role()='authenticated');
+create policy "contrapartes write operativo" on public.tesoreria_contrapartes for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- Cuentas por pagar manuales: un ingreso manual a caja (cliente/proveedor) genera
+-- una cuenta por pagar por el mismo monto, saldable con abonos (egresos de caja).
+create table if not exists public.cuentas_por_pagar (
+  id          uuid primary key default gen_random_uuid(),
+  tipo        text not null check (tipo in ('cliente','proveedor')),
+  contraparte text not null,
+  monto       numeric not null check (monto > 0),
+  abonado     numeric not null default 0,
+  moneda      text not null,
+  cuenta      text,
+  caja_id     uuid references public.cajas(id) on delete set null,
+  caja_mov_id uuid,
+  estado      text not null default 'abierta' check (estado in ('abierta','saldada')),
+  nota        text,
+  actor       text,
+  actor_name  text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz
+);
+create table if not exists public.cuentas_por_pagar_abonos (
+  id             uuid primary key default gen_random_uuid(),
+  cuenta_id      uuid not null references public.cuentas_por_pagar(id) on delete cascade,
+  monto          numeric not null check (monto > 0),
+  moneda         text not null,
+  caja_id        uuid references public.cajas(id) on delete set null,
+  cuenta         text,
+  caja_mov_id    uuid,
+  saldo_restante numeric,
+  nota           text,
+  actor          text,
+  actor_name     text,
+  at             timestamptz not null default now()
+);
+alter table public.cuentas_por_pagar enable row level security;
+alter table public.cuentas_por_pagar_abonos enable row level security;
+create policy "cxp read auth" on public.cuentas_por_pagar for select using (auth.role()='authenticated');
+create policy "cxp write operativo" on public.cuentas_por_pagar for all using (public.is_operativo()) with check (public.is_operativo());
+create policy "cxpa read auth" on public.cuentas_por_pagar_abonos for select using (auth.role()='authenticated');
+create policy "cxpa write operativo" on public.cuentas_por_pagar_abonos for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- movimientos_caja: cuenta + tasa aplicada (multipago y trazabilidad).
 alter table public.movimientos_caja add column if not exists cuenta  text;
@@ -1099,20 +1158,22 @@ begin
   end loop;
 end$$;
 
--- Helper: ¿el usuario actual es "staff" de operaciones? (admin o analista).
--- El analista maneja el ciclo de compras: cargar ofertas, emitir OC, recibir
--- mercancía (movimientos + actualización de stock) y evaluar la recepción.
+-- Helper: ¿el usuario actual puede escribir? (cualquier usuario registrado).
+-- El control de acceso POR MÓDULO vive en el front (matriz de permisos
+-- `roles_permisos` + custom_roles): la app oculta lo que el rol no puede usar.
+-- RLS es un gate pragmático: distingue "usuario legítimo" de "anónimo". Antes
+-- enumeraba roles fijos ('admin','analista','obrero') y rompía con cada rol
+-- nuevo (analista_tesoreria, jefa_de_rrhh, jefe_de_administracion, etc.), que
+-- quedaban sin poder escribir nada. is_staff e is_operativo son equivalentes:
+-- cualquier usuario en `usuarios`. is_admin() sigue siendo estricto (solo admin).
 create or replace function public.is_staff()
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista'));
+  select exists (select 1 from public.usuarios where id = auth.uid());
 $$;
 
--- Helper: ¿el usuario es "operativo"? (admin, analista u obrero). Estos roles
--- trabajan inventario y producción (movimientos, existencias, stock, órdenes de
--- producción y sus materiales).
 create or replace function public.is_operativo()
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista','obrero'));
+  select exists (select 1 from public.usuarios where id = auth.uid());
 $$;
 
 -- Directorio mínimo de usuarios activos (id, nombre, apellido, cargo) legible por
@@ -1676,7 +1737,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

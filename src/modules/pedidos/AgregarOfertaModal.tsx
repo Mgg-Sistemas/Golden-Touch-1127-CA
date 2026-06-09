@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
@@ -63,7 +64,10 @@ export function AgregarOfertaModal({
   }, [opcionesProveedor]);
   const statSel = !nuevoProveedor ? stats.get(proveedorId) : undefined;
 
-  const [items, setItems] = useState<FormItem[]>(orden.items.map((i) => ({ ...i, precio: 0 })));
+  // Solo se cotizan los ítems marcados "comprar" en la OP (los desmarcados no se compran).
+  const [items, setItems] = useState<FormItem[]>(
+    orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0 })),
+  );
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
   const [condiciones, setCondiciones] = useState('');
   const [notas, setNotas] = useState('');
@@ -286,11 +290,13 @@ export function AgregarOfertaModal({
           <label>Proveedor</label>
           {opcionesProveedor.length ? (
             <>
-              <select className="select" value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>
-                {opcionesProveedor.map((p) => (
-                  <option key={p.id} value={p.id}>{p.razon_social} ({p.rif})</option>
-                ))}
-              </select>
+              <SearchSelect
+                value={proveedorId}
+                onChange={setProveedorId}
+                options={opcionesProveedor.map((p) => ({ value: p.id, label: `${p.razon_social} (${p.rif})` }))}
+                placeholder="Buscar proveedor por nombre o RIF…"
+                emptyText="Ningún proveedor coincide"
+              />
               {statSel && (
                 <div className="card" style={{ marginTop: '.4rem', padding: '.45rem .6rem', background: 'var(--bg-1)', fontSize: '.82rem' }}>
                   {statSel.total_evaluaciones > 0 ? (

@@ -102,17 +102,21 @@ export function UsuariosPage() {
 
   const filtered = useMemo(() => {
     const q = filterText.trim().toLowerCase();
-    return usuarios.filter((u) => {
-      if (filterRol && u.role !== filterRol) return false;
-      if (filterEstado && u.estado !== filterEstado) return false;
-      if (q) {
-        const hay = [u.nombre, u.apellido, u.email, u.ci, u.role]
-          .map((v) => (v ?? '').toString().toLowerCase())
-          .join(' | ');
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
+    const nombreCompleto = (u: Usuario) => `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email || '';
+    return usuarios
+      .filter((u) => {
+        if (filterRol && u.role !== filterRol) return false;
+        if (filterEstado && u.estado !== filterEstado) return false;
+        if (q) {
+          const hay = [u.nombre, u.apellido, u.email, u.ci, u.role]
+            .map((v) => (v ?? '').toString().toLowerCase())
+            .join(' | ');
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      })
+      // Orden alfabético por nombre completo (es-VE).
+      .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b), 'es', { sensitivity: 'base' }));
   }, [usuarios, filterText, filterRol, filterEstado]);
 
   return (

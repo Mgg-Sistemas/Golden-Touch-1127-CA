@@ -3,7 +3,7 @@
    Comprobantes de salida/traslado de material y de salida de
    dinero. Se descargan SOLO al hacer clic (regla del sistema).
    ============================================================ */
-import type { Movimiento, MovimientoCaja } from '@/shared/lib/types';
+import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 
 async function nuevoDoc(titulo: string) {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
@@ -137,4 +137,103 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
     margin: { left: MARGIN, right: MARGIN },
   });
   doc.save(`traslado-dinero-${mov.id.slice(0, 8)}.pdf`);
+}
+
+/* ============================================================
+   ORDEN DE SALIDA (formato formal con firmas, estilo OP/OC)
+   Para salidas y traslados de MATERIAL. Indica el material, el
+   solicitante, el motivo, quién autorizó, y deja las líneas de
+   firma de "Solicitado/Creado por" y "Autorizado por".
+   ============================================================ */
+export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<void> {
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+    import('@/shared/lib/format'),
+    import('@/shared/lib/pdfLogo'),
+  ]);
+  const logo = await loadLogoDataUrl().catch(() => null);
+
+  const esTraslado = sol.scope === 'traslado';
+  const cant = Number(sol.cantidad) || 0;
+  const precio = Number(sol.precio_unit) || 0;
+  const autorizo = sol.ejecutada_por || sol.aprobada_por || null;
+  const creo = sol.actor_name || sol.actor || sol.solicitante;
+
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  const PAGE_W = doc.internal.pageSize.getWidth();
+  const PAGE_H = doc.internal.pageSize.getHeight();
+  const MARGIN = 40;
+  let y = MARGIN;
+
+  // ── Encabezado: logo + título + N° ──
+  const LOGO = 60;
+  const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
+  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* opcional */ } }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
+  doc.text('ORDEN DE SALIDA', TX, y + 20);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+  doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : 'Salida de material'}`, TX, y + 38);
+  doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
+  y += Math.max(LOGO, 42) + 8;
+
+  doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
+  doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+  y += 18;
+  doc.setLineWidth(0.5); doc.setDrawColor(180);
+
+  // ── Emisor ──
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text('EMISOR', MARGIN, y);
+  y += 14;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  doc.text('Mineral Group Guayana C.A.', MARGIN, y);
+  doc.text('Sistema de Gestión de Inventarios', MARGIN, y + 12);
+  y += 30;
+
+  // ── Detalle de la salida ──
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text('DETALLE DE LA SALIDA', MARGIN, y);
+  y += 8;
+  const ficha: Array<[string, string]> = [
+    ['Material a salir', sol.producto_nombre || '—'],
+    ['Cantidad', fmt.num(cant)],
+    [esTraslado ? 'Almacén origen' : 'Almacén de salida', sol.almacen_origen || '—'],
+    [esTraslado ? 'Almacén destino' : 'Dirigido a', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
+    ...(precio ? ([
+      ['Precio unitario', `${fmt.money(precio)} USD`],
+      ['Precio total', `${fmt.money(precio * cant)} USD`],
+    ] as Array<[string, string]>) : []),
+    ['Motivo de la salida', sol.motivo || '—'],
+    ['Solicitado por', sol.solicitante || '—'],
+    ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
+    ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
+    ['Autorizado por', autorizo || '— (pendiente de aprobación) —'],
+    ...(sol.aprobada_en ? [['Aprobada el', fmt.dateTime(sol.aprobada_en)] as [string, string]] : []),
+    ...(sol.ejecutada_en ? [['Ejecutada el', fmt.dateTime(sol.ejecutada_en)] as [string, string]] : []),
+  ];
+  autoTable(doc, {
+    startY: y, body: ficha, theme: 'plain',
+    styles: { fontSize: 10, cellPadding: 3.5 },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 170 }, 1: { cellWidth: 'auto' } },
+    margin: { left: MARGIN, right: MARGIN },
+  });
+
+  // ── Firmas al pie ──
+  const fy = PAGE_H - MARGIN - 50;
+  const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
+  doc.setDrawColor(120); doc.setLineWidth(0.7);
+  doc.line(MARGIN, fy, MARGIN + colW, fy);
+  doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+  doc.text('Solicitado / Creado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
+  doc.text('Autorizado por', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.text(creo || '—', MARGIN + colW / 2, fy + 27, { align: 'center' });
+  doc.text(autorizo || '—', MARGIN + colW + 40 + colW / 2, fy + 27, { align: 'center' });
+
+  doc.setFontSize(8); doc.setTextColor(120);
+  doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
+
+  doc.save(`orden-salida-${sol.codigo}.pdf`);
 }

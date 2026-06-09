@@ -19,7 +19,7 @@ import {
   listSalidasMaterial, listTrasladosMaterial,
   listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cancelarSolicitudSalida,
 } from './salidas.repository';
-import { descargarSalidaDineroPdf, descargarTrasladoDineroPdf } from './salidaPdf';
+import { descargarSalidaDineroPdf, descargarTrasladoDineroPdf, descargarOrdenSalidaPdf } from './salidaPdf';
 import { SalidaMaterialForm } from './SalidaMaterialForm';
 import { TrasladoMaterialForm } from './TrasladoMaterialForm';
 import { SalidaDineroForm } from './SalidaDineroForm';
@@ -396,6 +396,12 @@ function SolicitudDetalleModal({
 
   const footer = (
     <>
+      {sol.tipo === 'material' && (
+        <button className="btn btn-ghost" disabled={busy}
+          onClick={() => { void descargarOrdenSalidaPdf(sol).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>
+          ↓ Orden de salida (PDF)
+        </button>
+      )}
       {puedeAprobar && sol.estado === 'por_aprobar' && (
         <button className="btn btn-primary" disabled={busy}
           onClick={() => run(() => aprobarSolicitudSalida(sol, actor), `Solicitud ${sol.codigo} aprobada`)}>

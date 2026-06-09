@@ -134,10 +134,11 @@ export async function pagarOrden(input: {
 /* ───────────── Disponibilidad financiera ───────────── */
 
 export interface Disponibilidad {
-  usd: number;        // total en cajas USD
+  usd: number;        // total en cajas USD (efectivo dólar)
+  usdt: number;       // total en cajas USDT (cripto-dólar)
   bs: number;         // total en cajas Bs
   tasaUsd: number | null;
-  usdEnBs: number;    // equivalente en Bs de los USD (× tasa)
+  usdEnBs: number;    // equivalente en Bs de TODOS los dólares (USD + USDT) × tasa
   totalBs: number;    // bs + usdEnBs
   fecha: string | null;
 }
@@ -152,11 +153,13 @@ export async function disponibilidadFinanciera(): Promise<Disponibilidad> {
     r.moneda === 'Bs' ? (Number(r.saldo) || 0) : round2((Number(r.saldo) || 0) * (Number(r.tasa_prom) || 0));
   const esDolar = (m: string) => m === 'USD' || m === 'USDT';
   const bs = round2(rows.filter((r) => r.moneda === 'Bs').reduce((a, r) => a + (Number(r.saldo) || 0), 0));
-  const usd = round2(rows.filter((r) => esDolar(r.moneda)).reduce((a, r) => a + (Number(r.saldo) || 0), 0));
+  // USD y USDT se muestran por separado, pero su equivalente en Bs se agrega junto (dólares).
+  const usd = round2(rows.filter((r) => r.moneda === 'USD').reduce((a, r) => a + (Number(r.saldo) || 0), 0));
+  const usdt = round2(rows.filter((r) => r.moneda === 'USDT').reduce((a, r) => a + (Number(r.saldo) || 0), 0));
   const usdEnBs = round2(rows.filter((r) => esDolar(r.moneda)).reduce((a, r) => a + equiv(r), 0));
   const totalBs = round2(rows.reduce((a, r) => a + equiv(r), 0));
   const tasa = await getTasaHoy();
-  return { usd, bs, tasaUsd: tasa.usd, usdEnBs, totalBs, fecha: tasa.fecha };
+  return { usd, usdt, bs, tasaUsd: tasa.usd, usdEnBs, totalBs, fecha: tasa.fecha };
 }
 
 /* ───────────── Libro mayor (entradas/salidas con filtros) ───────────── */

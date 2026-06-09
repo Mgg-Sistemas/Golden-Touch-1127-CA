@@ -103,6 +103,8 @@ export interface CrearOrdenInput {
   proveedor_id: string | null;
   items: ItemOrden[];
   notas?: string | null;
+  motivo?: string | null;
+  finalidad?: string | null;
   clasificacion?: string[] | null;
   solicitante_email: string;
   solicitante: string | null;
@@ -129,10 +131,38 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     total,
     estado: 'pendiente' as EstadoOrden,
     notas: input.notas ?? null,
+    motivo: input.motivo?.trim() || null,
+    finalidad: input.finalidad?.trim() || null,
     clasificacion: input.clasificacion?.length ? input.clasificacion : null,
     historial,
   };
   const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
+/**
+ * Marca/desmarca qué ítems se compran en una OP (etapa sin oferta/precio).
+ * Permite que en una OP con 4 productos se aprueben solo algunos: los marcados
+ * (`comprar !== false`) son los que luego se cotizan/compran.
+ */
+export async function actualizarComprarItems(
+  o: Orden,
+  comprarPorSku: Record<string, boolean>,
+  actorEmail: string,
+): Promise<Orden> {
+  if (Number(o.total) > 0) throw new Error('La OP ya tiene oferta con precio: no se pueden cambiar los ítems a comprar.');
+  const items = o.items.map((it) =>
+    Object.prototype.hasOwnProperty.call(comprarPorSku, it.sku)
+      ? { ...it, comprar: comprarPorSku[it.sku] }
+      : it,
+  );
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update({ items, historial: appendHistorial(o, 'items_actualizados', actorEmail) })
+    .eq('id', o.id)
+    .select('*')
+    .single();
   if (error) throw error;
   return data as Orden;
 }

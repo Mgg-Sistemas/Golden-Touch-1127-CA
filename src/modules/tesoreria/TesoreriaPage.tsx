@@ -31,6 +31,14 @@ import {
   type Disponibilidad,
 } from './tesoreria.repository';
 import {
+  listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
+  type Contraparte, type TipoContraparte,
+} from './contrapartes.repository';
+import {
+  crearCuentaPorPagar, listCuentasPorPagar, listAbonosCuenta, registrarAbonoCuenta,
+  type CuentaPorPagar, type AbonoCxP,
+} from './cuentasPorPagar.repository';
+import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMulti, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg,
   getOrdenById, urlAdjuntoOc,
@@ -77,7 +85,7 @@ export function TesoreriaPage() {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'conversor' | 'grafico'>('none');
+  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'conversor' | 'grafico' | 'contrapartes'>('none');
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
@@ -180,9 +188,9 @@ export function TesoreriaPage() {
           {/* Disponibilidad financiera */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
             <DispCard titulo="Disponible en USD" valor={monto(disp?.usd ?? 0, 'USD')} />
-            <DispCard titulo="Equivalente en Bs" valor={monto(disp?.usdEnBs ?? 0, 'Bs')} nota={disp?.tasaUsd != null ? `× tasa ${monto(disp.tasaUsd, 'Bs')}` : 'sin tasa del día'} />
-            <DispCard titulo="Disponible en Bs" valor={monto(disp?.bs ?? 0, 'Bs')} />
-            <DispCard titulo="Total general (Bs)" valor={monto(disp?.totalBs ?? 0, 'Bs')} destacado />
+            <DispCard titulo="Disponible en USDT" valor={monto(disp?.usdt ?? 0, 'USDT')} />
+            <DispCard titulo="Equivalente en Bs" valor={monto(disp?.usdEnBs ?? 0, 'Bs')} nota={disp?.tasaUsd != null ? `USD + USDT × tasa ${monto(disp.tasaUsd, 'Bs')}` : 'sin tasa del día'} />
+            <DispCard titulo="Total en Bs" valor={monto(disp?.bs ?? 0, 'Bs')} nota="solo lo ingresado en la cuenta Bs" destacado />
           </div>
 
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
@@ -200,6 +208,7 @@ export function TesoreriaPage() {
                 <button className="btn btn-ghost" onClick={() => setModal('gasto')}>− Gasto</button>
                 <button className="btn btn-ghost" onClick={() => setModal('traslado')}>↔ Traspaso de dinero</button>
                 <button className="btn btn-ghost" onClick={() => setModal('cajas')}>🏦 Cajas</button>
+                <button className="btn btn-ghost" onClick={() => setModal('contrapartes')}>👥 Clientes / Proveedores</button>
               </>
             )}
             <button className="btn btn-ghost" onClick={() => setModal('conversor')}>💱 Conversor</button>
@@ -324,6 +333,7 @@ export function TesoreriaPage() {
       {modal === 'grafico' && <GraficoTasasModal onClose={() => setModal('none')} />}
       {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
+      {modal === 'contrapartes' && <ContrapartesModal onClose={() => setModal('none')} />}
       {cajaSel && <CajaDetalleModal caja={cajaSel} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCajaSel(null)} onChanged={async () => { await reload(); }} />}
     </div>
   );
@@ -598,6 +608,11 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
   const [montoStr, setMontoStr] = useState('');
   const [tasaStr, setTasaStr] = useState('');
   const [origen, setOrigen] = useState('');
+  // El origen del ingreso manual identifica de quién entra el dinero: cliente o proveedor.
+  const [origenTipo, setOrigenTipo] = useState<'cliente' | 'proveedor' | ''>('');
+  // Contrapartes guardadas (para reutilizar nombres en el campo origen).
+  const [contrapartes, setContrapartes] = useState<Contraparte[]>([]);
+  useEffect(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
@@ -651,16 +666,26 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
     e.preventDefault(); setError(null);
     if ((Number(montoStr) || 0) <= 0) { setError('El monto debe ser mayor que 0.'); return; }
     if (moneda !== 'Bs' && (Number(tasaStr) || 0) <= 0) { setError('Indicá la tasa de compra (Bs por unidad).'); return; }
+    if (!origenTipo) { setError('Indicá si el origen es Cliente o Proveedor.'); return; }
+    if (!origen.trim()) { setError(origenTipo === 'proveedor' ? 'Indicá la razón social del proveedor.' : 'Indicá el nombre del cliente.'); return; }
     setSaving(true);
     try {
+      const origenStr = `${origenTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${origen.trim()}`;
+      const montoNum = Number(montoStr) || 0;
       await ingresarDivisa({
-        cajaId: caja.id, cuenta, moneda, monto: Number(montoStr) || 0,
+        cajaId: caja.id, cuenta, moneda, monto: montoNum,
         tasaBs: moneda === 'Bs' ? 1 : Number(tasaStr) || 0,
-        origen: origen.trim() || null, actor, actorName,
+        origen: origenStr, actor, actorName,
+      });
+      // El ingreso manual genera una cuenta por pagar (por el mismo monto) que se
+      // salda con abonos. Aplica a cliente y proveedor.
+      await crearCuentaPorPagar({
+        tipo: origenTipo, contraparte: origen.trim(), monto: montoNum, moneda, cuenta,
+        cajaId: caja.id, nota: `Ingreso ${moneda} en ${caja.nombre}`, actor, actorName,
       });
       const etiqueta = moneda === 'Bs' ? `Bs · ${cuenta}` : moneda;
-      notify(`Ingreso ${etiqueta} · ${monto(Number(montoStr) || 0, moneda)}`, 'success', { link: '#/app/tesoreria' });
-      setMontoStr(''); setTasaStr(''); setOrigen('');
+      notify(`Ingreso ${etiqueta} · ${monto(montoNum, moneda)} · ${origenStr} · genera cuenta por pagar`, 'success', { link: '#/app/tesoreria' });
+      setMontoStr(''); setTasaStr(''); setOrigen(''); setOrigenTipo('');
       await reload(); await onChanged();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo ingresar.'); }
     finally { setSaving(false); }
@@ -862,8 +887,39 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
               </div>
             )}
             <div className="form-row">
-              <label>Origen (opcional)</label>
-              <input className="input" value={origen} onChange={(e) => setOrigen(e.target.value)} placeholder="Binance, efectivo, transferencia…" />
+              <label>Origen del dinero</label>
+              <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem' }}>
+                {(['cliente', 'proveedor'] as const).map((t) => {
+                  const sel = origenTipo === t;
+                  return (
+                    <label key={t} style={{
+                      display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer',
+                      padding: '.4rem .7rem', borderRadius: 'var(--r-md)',
+                      border: `1px solid ${sel ? 'var(--primary)' : 'var(--border)'}`,
+                      background: sel ? 'rgba(255,138,0,0.10)' : 'transparent', flex: 1, justifyContent: 'center',
+                    }}>
+                      <input type="radio" name="origen-tipo" checked={sel} onChange={() => { setOrigenTipo(t); setOrigen(''); }} />
+                      <span style={{ fontWeight: 600 }}>{t === 'cliente' ? '👤 Cliente' : '🏭 Proveedor'}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              {origenTipo && (
+                <>
+                  <input
+                    className="input"
+                    list="origen-contrapartes"
+                    value={origen}
+                    onChange={(e) => setOrigen(e.target.value)}
+                    placeholder={origenTipo === 'proveedor' ? 'Razón social del proveedor' : 'Nombre del cliente'}
+                    autoFocus
+                  />
+                  <datalist id="origen-contrapartes">
+                    {contrapartes.filter((c) => c.tipo === origenTipo).map((c) => <option key={c.id} value={c.nombre} />)}
+                  </datalist>
+                  <small className="muted">Elegí uno guardado o escribí uno nuevo. Gestionalos en “👥 Clientes / Proveedores”.</small>
+                </>
+              )}
             </div>
           </div>
           {moneda !== 'Bs' && (Number(montoStr) || 0) > 0 && (Number(tasaStr) || 0) > 0 && (() => {
@@ -935,6 +991,132 @@ function DispCard({ titulo, valor, nota, destacado }: { titulo: string; valor: s
       <strong className="mono" style={{ fontSize: '1.25rem' }}>{valor}</strong>
       {nota && <div className="muted" style={{ fontSize: '.68rem', marginTop: '.2rem' }}>{nota}</div>}
     </div>
+  );
+}
+
+/* ───────────── Directorio de clientes / proveedores ───────────── */
+const VACIA = { tipo: 'proveedor' as TipoContraparte, nombre: '', rif: '', telefono: '', email: '', nota: '' };
+function ContrapartesModal({ onClose }: { onClose: () => void }) {
+  const [lista, setLista] = useState<Contraparte[]>([]);
+  const [filtro, setFiltro] = useState<'todos' | TipoContraparte>('todos');
+  const [form, setForm] = useState({ ...VACIA });
+  const [editId, setEditId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const recargar = useCallback(async () => {
+    try { setLista(await listContrapartes()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
+  }, []);
+  useEffect(() => { void recargar(); }, [recargar]);
+
+  function nuevo() { setEditId(null); setForm({ ...VACIA }); setError(null); }
+  function editar(c: Contraparte) {
+    setEditId(c.id);
+    setForm({ tipo: c.tipo, nombre: c.nombre, rif: c.rif ?? '', telefono: c.telefono ?? '', email: c.email ?? '', nota: c.nota ?? '' });
+    setError(null);
+  }
+
+  async function guardar() {
+    if (!form.nombre.trim()) { setError(form.tipo === 'proveedor' ? 'Indicá la razón social.' : 'Indicá el nombre del cliente.'); return; }
+    setBusy(true); setError(null);
+    try {
+      if (editId) await actualizarContraparte(editId, form);
+      else await crearContraparte(form);
+      toast(editId ? 'Actualizado' : 'Registrado', 'success');
+      nuevo();
+      await recargar();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); }
+    finally { setBusy(false); }
+  }
+
+  async function borrar(c: Contraparte) {
+    if (!window.confirm(`¿Eliminar a "${c.nombre}"?`)) return;
+    try { await eliminarContraparte(c.id); if (editId === c.id) nuevo(); await recargar(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
+
+  const visibles = lista.filter((c) => filtro === 'todos' || c.tipo === filtro);
+
+  return (
+    <Modal title="Clientes / Proveedores" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      {/* Alta / edición */}
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div className="card-title"><span>{editId ? 'Editar' : 'Nuevo'} registro</span></div>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', margin: '0 0 .6rem' }}><strong>Error:</strong> {error}</div>}
+        <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.5rem' }}>
+          {(['cliente', 'proveedor'] as const).map((t) => {
+            const sel = form.tipo === t;
+            return (
+              <label key={t} style={{
+                display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', flex: 1, justifyContent: 'center',
+                padding: '.4rem .7rem', borderRadius: 'var(--r-md)',
+                border: `1px solid ${sel ? 'var(--primary)' : 'var(--border)'}`,
+                background: sel ? 'rgba(255,138,0,0.10)' : 'transparent',
+              }}>
+                <input type="radio" name="cp-tipo" checked={sel} onChange={() => setForm((f) => ({ ...f, tipo: t }))} />
+                <span style={{ fontWeight: 600 }}>{t === 'cliente' ? '👤 Cliente' : '🏭 Proveedor'}</span>
+              </label>
+            );
+          })}
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>{form.tipo === 'proveedor' ? 'Razón social' : 'Nombre del cliente'}</label>
+            <input className="input" value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} />
+          </div>
+          <div className="form-row">
+            <label>RIF / C.I. (opcional)</label>
+            <input className="input" value={form.rif} onChange={(e) => setForm((f) => ({ ...f, rif: e.target.value }))} />
+          </div>
+          <div className="form-row">
+            <label>Teléfono (opcional)</label>
+            <input className="input" value={form.telefono} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} />
+          </div>
+          <div className="form-row">
+            <label>Correo (opcional)</label>
+            <input className="input" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+          </div>
+        </div>
+        <div className="form-row">
+          <label>Nota (opcional)</label>
+          <input className="input" value={form.nota} onChange={(e) => setForm((f) => ({ ...f, nota: e.target.value }))} />
+        </div>
+        <div className="actions" style={{ marginTop: '.5rem' }}>
+          <button className="btn btn-primary btn-sm" onClick={guardar} disabled={busy}>{busy ? 'Guardando…' : (editId ? 'Guardar cambios' : '+ Registrar')}</button>
+          {editId && <button className="btn btn-ghost btn-sm" onClick={nuevo} disabled={busy}>Cancelar edición</button>}
+        </div>
+      </div>
+
+      {/* Listado */}
+      <div className="filterbar" style={{ justifyContent: 'flex-start', gap: '.4rem', marginBottom: '.5rem' }}>
+        {(['todos', 'cliente', 'proveedor'] as const).map((t) => (
+          <button key={t} className={`btn btn-sm ${filtro === t ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFiltro(t)}>
+            {t === 'todos' ? 'Todos' : t === 'cliente' ? 'Clientes' : 'Proveedores'}
+          </button>
+        ))}
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead><tr><th>Categoría</th><th>Nombre / Razón social</th><th>RIF / C.I.</th><th>Contacto</th><th></th></tr></thead>
+          <tbody>
+            {!visibles.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin registros.</td></tr>}
+            {visibles.map((c) => (
+              <tr key={c.id}>
+                <td><span className="badge">{c.tipo === 'cliente' ? '👤 Cliente' : '🏭 Proveedor'}</span></td>
+                <td>{c.nombre}</td>
+                <td className="mono">{c.rif || '—'}</td>
+                <td className="muted" style={{ fontSize: '.82rem' }}>{[c.telefono, c.email].filter(Boolean).join(' · ') || '—'}</td>
+                <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => editar(c)}>✎</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => borrar(c)}>🗑</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
   );
 }
 
@@ -1809,6 +1991,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
 function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onChanged: () => void | Promise<void>;
 }) {
+  const [vista, setVista] = useState<'oc' | 'manual'>('oc');
   const [ordenes, setOrdenes] = useState<OrdenPorPagar[]>([]);
   const [selId, setSelId] = useState<string>('');
   const [abonos, setAbonos] = useState<AbonoCredito[]>([]);
@@ -1889,6 +2072,14 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   return (
     <Modal title="Cuentas por pagar (créditos)" size="xl" onClose={() => !saving && onClose()}
       footer={<button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}>
+      <div className="view-toggle" role="tablist" style={{ marginBottom: '.8rem' }}>
+        <button className={vista === 'oc' ? 'active' : ''} onClick={() => setVista('oc')}>🧾 Compras a crédito</button>
+        <button className={vista === 'manual' ? 'active' : ''} onClick={() => setVista('manual')}>👥 Cliente / Proveedor</button>
+      </div>
+
+      {vista === 'manual' && <CuentasPorPagarManualPanel cajas={cajas} actor={actor} actorName={actorName} onChanged={onChanged} />}
+
+      {vista === 'oc' && (<>
       {loading && <p className="muted">Cargando…</p>}
       {!loading && !ordenes.length && <p className="muted" style={{ textAlign: 'center' }}>No hay compras a crédito con cuenta abierta. 🎉</p>}
       {!loading && ordenes.length > 0 && (
@@ -2018,7 +2209,155 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
           )}
         </>
       )}
+      </>)}
     </Modal>
+  );
+}
+
+/* ───────────── Panel: cuentas por pagar manuales (cliente/proveedor) ───────────── */
+function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
+  cajas: Caja[]; actor: string; actorName: string | null; onChanged: () => void | Promise<void>;
+}) {
+  const [lista, setLista] = useState<CuentaPorPagar[]>([]);
+  const [selId, setSelId] = useState<string>('');
+  const [abonos, setAbonos] = useState<AbonoCxP[]>([]);
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [cuentaCaja, setCuentaCaja] = useState<string>('');
+  const [montoStr, setMontoStr] = useState('');
+  const [nota, setNota] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const cs = await listCuentasPorPagar(true);
+      setLista(cs);
+      setSelId((p) => (p && cs.some((c) => c.id === p)) ? p : (cs[0]?.id ?? ''));
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useEffect(() => {
+    if (!selId) { setAbonos([]); return; }
+    listAbonosCuenta(selId).then(setAbonos).catch(() => setAbonos([]));
+  }, [selId]);
+
+  const sel = lista.find((c) => c.id === selId) ?? null;
+  // Saldos de la caja elegida en la MISMA moneda de la cuenta por pagar.
+  useEffect(() => {
+    if (!cajaId || !sel) { setCuentaCaja(''); return; }
+    saldosDeCaja(cajaId)
+      .then((rows) => {
+        const mismos = rows.filter((r) => r.moneda === sel.moneda && Number(r.saldo) > 0);
+        setCuentaCaja(mismos[0]?.cuenta ?? '');
+      })
+      .catch(() => setCuentaCaja(''));
+  }, [cajaId, sel]);
+
+  const saldo = sel ? round2(Number(sel.monto) - (Number(sel.abonado) || 0)) : 0;
+
+  async function abonar() {
+    setError(null);
+    if (!sel) return;
+    const m = Number(montoStr) || 0;
+    if (m <= 0) { setError('Indicá el monto a abonar.'); return; }
+    if (!cajaId) { setError('Elegí la caja del egreso.'); return; }
+    if (!cuentaCaja) { setError(`La caja no tiene saldo en ${sel.moneda}.`); return; }
+    setSaving(true);
+    try {
+      const r = await registrarAbonoCuenta({
+        cuenta: sel, cajaId, cuentaCaja: cuentaCaja as CuentaCaja, monto: m,
+        nota: nota.trim() || null, actor, actorName,
+      });
+      notify(r.cuenta.estado === 'saldada'
+        ? `Cuenta por pagar saldada · ${sel.contraparte}`
+        : `Abono ${monto(m, sel.moneda)} · ${sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
+      setMontoStr(''); setNota('');
+      await cargar(); await onChanged();
+      if (r.cuenta.estado !== 'saldada') await listAbonosCuenta(sel.id).then(setAbonos);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el abono'); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return <p className="muted">Cargando…</p>;
+  if (!lista.length) return <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar de clientes/proveedores. 🎉</p>;
+
+  return (
+    <>
+      <div className="form-row" style={{ marginBottom: '.6rem' }}>
+        <label>Cuenta por pagar ({lista.length})</label>
+        <select className="select" value={selId} onChange={(e) => setSelId(e.target.value)}>
+          {lista.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.tipo === 'proveedor' ? '🏭' : '👤'} {c.contraparte} · saldo {monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {sel && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.6rem', marginBottom: '.75rem' }}>
+            <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+              <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
+              <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{monto(Number(sel.monto), sel.moneda)}</div>
+            </div>
+            <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+              <div className="muted" style={{ fontSize: '.7rem' }}>ABONADO</div>
+              <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{monto(Number(sel.abonado) || 0, sel.moneda)}</div>
+            </div>
+            <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+              <div className="muted" style={{ fontSize: '.7rem' }}>SALDO</div>
+              <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{monto(saldo, sel.moneda)}</div>
+            </div>
+          </div>
+          <div className="badge" style={{ marginBottom: '.6rem' }}>{sel.tipo === 'proveedor' ? '🏭 Proveedor' : '👤 Cliente'}{sel.nota ? ` · ${sel.nota}` : ''}</div>
+
+          {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+          <div className="card" style={{ marginBottom: '.75rem' }}>
+            <div className="card-title"><span>Registrar abono (egreso de caja · {sel.moneda})</span></div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Caja (egreso)</label>
+                <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
+                  {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+                <small className="muted">{cuentaCaja ? `Cuenta ${cuentaCaja} · ${sel.moneda}` : `Sin saldo en ${sel.moneda}`}</small>
+              </div>
+              <div className="form-row">
+                <label>Monto a abonar ({sel.moneda})</label>
+                <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} />
+                <small className="muted">Saldo pendiente: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
+              </div>
+            </div>
+            <div className="form-row">
+              <label>Nota (opcional)</label>
+              <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
+            </div>
+            <button className="btn btn-primary btn-sm" onClick={abonar} disabled={saving || saldo <= 0}>{saving ? 'Registrando…' : 'Registrar abono'}</button>
+          </div>
+
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono</th><th style={{ textAlign: 'right' }}>Saldo restante</th><th>Nota</th></tr></thead>
+              <tbody>
+                {!abonos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin abonos.</td></tr>}
+                {abonos.map((ab) => (
+                  <tr key={ab.id}>
+                    <td>{dateTime(ab.at)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), ab.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{ab.saldo_restante != null ? monto(Number(ab.saldo_restante), ab.moneda) : '—'}</td>
+                    <td className="muted">{ab.nota || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 
