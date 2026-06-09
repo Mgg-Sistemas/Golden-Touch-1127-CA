@@ -285,7 +285,7 @@ export async function registrarEntrada(input: {
   actorName?: string | null;
 }): Promise<void> {
   const litros = num(input.litros);
-  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const costo = Math.max(0, num(input.costoLitro));
   const t = await getTanque(input.tanqueId);
 
@@ -314,7 +314,7 @@ export async function registrarUso(input: {
   actorName?: string | null;
 }): Promise<void> {
   const litros = num(input.litros);
-  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
@@ -340,7 +340,7 @@ export async function registrarMerma(input: {
   actorName?: string | null;
 }): Promise<void> {
   const litros = num(input.litros);
-  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
@@ -366,7 +366,7 @@ export async function registrarRetorno(input: {
   actorName?: string | null;
 }): Promise<void> {
   const litros = num(input.litros);
-  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
@@ -395,7 +395,7 @@ export async function registrarTraslado(input: {
   actorName?: string | null;
 }): Promise<void> {
   const litros = num(input.litros);
-  if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
+  if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   if (input.tanqueDestinoId && input.tanqueDestinoId === input.tanqueId) throw new Error('El destino debe ser un tanque distinto.');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);

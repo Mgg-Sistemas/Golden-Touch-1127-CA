@@ -374,7 +374,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     e.preventDefault();
     setError(null);
     const litrosNum = Number(litros) || 0;
-    if (litrosNum <= 0) { setError('Indicá los litros.'); return; }
+    if (litros.trim() === '' || litrosNum === 0) { setError('Indicá los litros (se admiten negativos, como en el Excel).'); return; }
     if (tipo === 'traslado' && destinoId && destinoId === tanqueId) { setError('El tanque destino debe ser distinto.'); return; }
     const campos = { fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion };
     setSaving(true);
@@ -425,7 +425,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
         <div className="form-grid">
           <div className="form-row">
             <label>Litros</label>
-            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required />
+            <input className="input mono" type="number" step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required />
           </div>
           {tipo === 'entrada' && (
             <div className="form-row">

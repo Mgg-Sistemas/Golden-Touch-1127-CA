@@ -423,8 +423,9 @@
           <li><span class="badge">⛽ Uso</span> — un <strong>equipo</strong> consume combustible; descuenta litros al costo promedio.</li>
           <li><span class="badge">↔ Traslado</span> — sale combustible a otra mina o a <strong>otro tanque</strong> (si elegís tanque destino, se acredita allí al costo del origen).</li>
           <li><span class="badge">↩ Retorno</span> — combustible que <strong>vuelve</strong> al tanque; suma al saldo a la <strong>tasa vigente</strong> (sin costo nuevo).</li>
-          <li><span class="badge">🔻 Merma del tanque</span> — <strong>pérdida</strong> (evaporación, fuga, descuadre); descuenta litros al costo vigente, clasificada aparte del uso de equipos.</li>
+          <li><span class="badge">🔻 Merma del tanque</span> — <strong>pérdida</strong> (evaporación, fuga, descuadre); descuenta litros al costo vigente, clasificada aparte del uso de equipos. Puede <strong>llevar el tanque a 0</strong>.</li>
         </ul>
+        <p class="muted"><strong>Negativos como en el Excel:</strong> el campo de litros admite <strong>valores negativos</strong> (para correcciones/cuadres); solo se rechaza el 0. El saldo del tanque puede llegar a <strong>0</strong>.</p>
       </li>
       <li><strong>🕒 Medidores (por equipo):</strong> registro independiente de <strong>horómetros</strong> del equipo y <strong>contadores del surtidor</strong>. Al agregar una lectura, el <strong>horómetro inicial autocarga</strong> con el último final de ese equipo. Lista <strong>filtrable</strong> (equipo, fechas, búsqueda) con reportes en <strong>PDF, Excel y por correo</strong>.</li>
       <li><strong>📐 Cubicación automática:</strong> con el botón <em>📐 Cubicación</em> medís la <strong>altura del líquido en cm</strong> (la varilla) y el sistema calcula los <strong>litros</strong> con la fórmula del tipo de tanque (segmento circular para cilíndricos; largo×ancho×alto para rectangulares). Cada medición se <strong>guarda con su fecha</strong> y muestra la <strong>diferencia contra el saldo por libros</strong> (la merma/faltante a vigilar).</li>
