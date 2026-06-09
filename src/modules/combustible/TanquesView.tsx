@@ -659,7 +659,7 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
   const [{ desde, hasta }, setRango] = useState(semanaActual);
   const [resumenes, setResumenes] = useState<ResumenTanquePeriodo[]>([]);
   const [cargando, setCargando] = useState(false);
-  const [cubic, setCubic] = useState<Record<string, string>>({});
+  const [libreta, setLibreta] = useState<Record<string, string>>({});
   const [notas, setNotas] = useState('');
   const [busy, setBusy] = useState(false);
   const [historial, setHistorial] = useState<ConciliacionCombustible[]>([]);
@@ -668,7 +668,7 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
   const cargarHistorial = useCallback(() => { listConciliaciones().then(setHistorial).catch(() => {}); }, []);
   useEffect(() => { cargarHistorial(); }, [cargarHistorial]);
 
-  // Recalcular al cambiar la semana + prellenar cubicación de cada tanque del rango.
+  // Recalcular al cambiar la semana (el saldo según la mina se carga a mano).
   useEffect(() => {
     if (!desde || !hasta || desde > hasta) { setResumenes([]); return; }
     let cancel = false;
@@ -677,12 +677,8 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
       .then((r) => { if (!cancel) setResumenes(r); })
       .catch(() => { if (!cancel) setResumenes([]); })
       .finally(() => { if (!cancel) setCargando(false); });
-    Promise.all(tanques.map((t) => listCubicaciones(t.id).then((cs) => {
-      const enRango = cs.find((c) => { const f = c.fecha ?? ''; return f >= desde && f <= hasta; });
-      return [t.id, enRango ? String(enRango.litros_cubicacion) : ''] as const;
-    }).catch(() => [t.id, ''] as const))).then((pairs) => { if (!cancel) setCubic(Object.fromEntries(pairs)); });
     return () => { cancel = true; };
-  }, [desde, hasta, tanques]);
+  }, [desde, hasta]);
 
   function moverSemana(dir: number) {
     const f = (x: Date) => x.toISOString().slice(0, 10);
@@ -691,8 +687,8 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
     setRango({ desde: f(d), hasta: f(h) });
   }
 
-  const difCub = (r: ResumenTanquePeriodo) => {
-    const c = cubic[r.tanqueId];
+  const difLibreta = (r: ResumenTanquePeriodo) => {
+    const c = libreta[r.tanqueId];
     return c === '' || c == null ? null : r.saldoLibros - (Number(c) || 0);
   };
 
@@ -702,10 +698,11 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
     try {
       const periodo = `${desde} a ${hasta}`;
       for (const r of resumenes) {
-        const cub = cubic[r.tanqueId];
+        const lib = libreta[r.tanqueId];
         await crearConciliacion({
-          tanqueId: r.tanqueId, periodo, saldoLibros: r.saldoLibros, saldoReportadoMina: 0,
-          saldoCubicacion: cub === '' || cub == null ? null : Number(cub) || 0,
+          tanqueId: r.tanqueId, periodo, saldoLibros: r.saldoLibros,
+          saldoReportadoMina: lib === '' || lib == null ? 0 : Number(lib) || 0,
+          saldoCubicacion: null,
           notas: notas || null, actor,
         });
       }
@@ -729,13 +726,13 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.82rem' }}>
             <thead><tr>
-              <th>Tanque</th><th>Saldo inicial</th><th>Entradas</th><th>Usos</th><th>Traslados</th><th>Retornos</th><th>Mermas</th><th>Saldo libros</th><th>Cubicación (física)</th><th>Dif.</th>
+              <th>Tanque</th><th>Saldo inicial</th><th>Entradas</th><th>Usos</th><th>Traslados</th><th>Retornos</th><th>Mermas</th><th>Saldo libros</th><th>Saldo según la mina (Libreta)</th><th>Dif.</th>
             </tr></thead>
             <tbody>
               {cargando && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Calculando…</td></tr>}
               {!cargando && !resumenes.length && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Sin tanques.</td></tr>}
               {!cargando && resumenes.map((r) => {
-                const d = difCub(r);
+                const d = difLibreta(r);
                 return (
                   <tr key={r.tanqueId}>
                     <td><strong>{r.tanqueNombre}</strong> <span className="muted" style={{ fontSize: '.72rem' }}>· {r.movimientos} mov.</span></td>
@@ -746,7 +743,7 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
                     <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{num(r.retornos)}</td>
                     <td className="mono" style={{ color: 'var(--danger)' }}>{num(r.mermas)}</td>
                     <td className="mono"><strong>{num(r.saldoLibros)}</strong></td>
-                    <td><input className="input mono" type="number" step="any" value={cubic[r.tanqueId] ?? ''} onChange={(e) => setCubic((c) => ({ ...c, [r.tanqueId]: e.target.value }))} placeholder="varilla" style={{ width: 110 }} /></td>
+                    <td><input className="input mono" type="number" step="any" value={libreta[r.tanqueId] ?? ''} onChange={(e) => setLibreta((c) => ({ ...c, [r.tanqueId]: e.target.value }))} placeholder="libreta" style={{ width: 110 }} /></td>
                     <td className="mono" style={{ color: d != null && Math.abs(d) > 0.01 ? 'var(--warning)' : 'inherit' }}>{d == null ? '—' : num(d)}</td>
                   </tr>
                 );
@@ -756,12 +753,12 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
         </div>
         <div className="form-row" style={{ marginTop: '.6rem' }}><label>Notas de la semana</label><input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} /></div>
         <button className="btn btn-primary btn-sm" onClick={guardar} disabled={busy || !resumenes.length}>Guardar conciliación de la semana</button>
-        <p className="muted" style={{ fontSize: '.76rem' }}>El saldo en libros se calcula con todos los movimientos de cada tanque en la semana (saldo inicial + entradas + retornos − usos − traslados − mermas). La diferencia vs cubicación es el faltante/merma a vigilar.</p>
+        <p className="muted" style={{ fontSize: '.76rem' }}>El saldo en libros se calcula con todos los movimientos de cada tanque en la semana (saldo inicial + entradas + retornos − usos − traslados − mermas). La diferencia contra el <strong>saldo según la mina (libreta)</strong> es el faltante/merma a vigilar.</p>
       </div>
 
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
-          <thead><tr><th>Semana</th><th>Tanque</th><th>Registrada</th><th>Libros</th><th>Cubic.</th><th>Dif.</th><th>Notas</th></tr></thead>
+          <thead><tr><th>Semana</th><th>Tanque</th><th>Registrada</th><th>Libros</th><th>Libreta (mina)</th><th>Dif.</th><th>Notas</th></tr></thead>
           <tbody>
             {!historial.length && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Sin conciliaciones.</td></tr>}
             {historial.map((c) => (
@@ -770,8 +767,8 @@ function ConciliacionModal({ tanques, actor, onClose }: { tanques: TanqueCombust
                 <td>{nombreTanque(c.tanque_id)}</td>
                 <td className="mono">{c.fecha}</td>
                 <td className="mono">{num(c.saldo_libros)}</td>
-                <td className="mono">{c.saldo_cubicacion == null ? '—' : num(c.saldo_cubicacion)}</td>
-                <td className="mono" style={{ color: c.dif_cubicacion != null && Math.abs(Number(c.dif_cubicacion)) > 0.01 ? 'var(--warning)' : 'inherit' }}>{c.dif_cubicacion == null ? '—' : num(c.dif_cubicacion)}</td>
+                <td className="mono">{num(c.saldo_reportado_mina)}</td>
+                <td className="mono" style={{ color: Math.abs(Number(c.diferencia) || 0) > 0.01 ? 'var(--warning)' : 'inherit' }}>{num(c.diferencia)}</td>
                 <td className="muted">{c.notas || '—'}</td>
               </tr>
             ))}
