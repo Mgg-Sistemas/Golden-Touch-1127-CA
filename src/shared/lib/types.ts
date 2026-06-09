@@ -321,20 +321,21 @@ export interface TanqueCombustible {
 
 export type TipoMovTanque = 'entrada' | 'uso' | 'traslado' | 'retorno' | 'merma';
 
-/** Transferencia de combustible entre sistemas (puente inter-sistema). */
-export interface CombustibleTransferencia {
+/** Transferencia de combustible entre sistemas (puente inter-sistema · litros).
+ *  Mismo contrato que MGG (tabla transferencias_combustible_inter). */
+export interface TransferenciaCombustibleInter {
   id: string;
   transf_id: string;
   direccion: 'saliente' | 'entrante';
   estado: 'enviada' | 'por_confirmar' | 'recibida' | 'rechazada' | 'error';
   empresa_origen: string;
   empresa_destino: string;
-  tanque_origen_id?: string | null;
-  tanque_origen_nombre?: string | null;
-  tanque_destino_nombre?: string | null;
+  combustible_nombre: string;
   litros: number;
   costo_litro?: number | null;
-  combustible?: string | null;
+  /** Tanque que recibe en el destino (se elige al confirmar la entrante). */
+  tanque_id?: string | null;
+  tanque_nombre?: string | null;
   resumen?: string | null;
   motivo?: string | null;
   callback_base?: string | null;

@@ -11,7 +11,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type {
   CatalogoCombustible,
   ConciliacionCombustible,
-  CombustibleTransferencia,
+  TransferenciaCombustibleInter,
   CubicacionCombustible,
   MedidorCombustible,
   MovimientoTanque,
@@ -450,7 +450,12 @@ export async function registrarTrasladoMGG(input: {
   const transfId = crypto.randomUUID();
   const obsBase = input.campos?.observacion?.trim();
   const observacion = `→ ${DESTINO_MGG_LABEL} (externo)${obsBase ? ' · ' + obsBase : ''}`;
-  const combustibleNombre = (t as { combustible_nombre?: string | null }).combustible_nombre ?? null;
+
+  // Los tanques de GT no se asocian a un combustible (modelo de cubicación). MGG
+  // resuelve el combustible por el combustible_id de SU tanque receptor; el nombre
+  // va como respaldo (DIESEL, único combustible de MGG / TANQUE MGG).
+  const combustibleNombre = 'DIESEL';
+  const resumen = `${num(litros).toLocaleString('es-VE', { maximumFractionDigits: 2 })} L de ${combustibleNombre}`;
 
   // 1. Sale del tanque origen (queda registrado como traslado externo).
   await insertarMovimiento({
@@ -464,28 +469,26 @@ export async function registrarTrasladoMGG(input: {
   });
   await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
 
-  // 2. Registra la transferencia saliente.
-  const { data: row, error: insErr } = await supabase.from('combustible_transferencias').insert({
+  // 2. Registra la transferencia saliente (contrato compartido con MGG).
+  const { data: row, error: insErr } = await supabase.from('transferencias_combustible_inter').insert({
     transf_id: transfId, direccion: 'saliente', estado: 'enviada',
     empresa_origen: EMPRESA, empresa_destino: 'mgg',
-    tanque_origen_id: input.tanqueId, tanque_origen_nombre: t.nombre,
-    tanque_destino_nombre: 'TANQUE MGG',
-    litros, costo_litro: round(tasa, 4), combustible: combustibleNombre,
-    resumen: `${num(litros)} L → MGG (TANQUE MGG)`, motivo: observacion,
+    combustible_nombre: combustibleNombre, litros, costo_litro: round(tasa, 4),
+    tanque_id: input.tanqueId, tanque_nombre: t.nombre,
+    resumen, motivo: observacion,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('id').single();
   if (insErr) throw insErr;
   const rowId = (row as { id: string }).id;
 
-  // 3. Empuja al otro sistema por el puente.
+  // 3. Empuja al otro sistema por el puente (recurso='combustible').
   try {
     const { data: res, error } = await supabase.functions.invoke('transfer-enviar', {
       body: {
-        tipo: 'combustible', transf_id: transfId,
+        tipo: 'transferencia', recurso: 'combustible', transf_id: transfId,
         empresa_origen: EMPRESA, empresa_destino: 'mgg',
-        tanque_origen_nombre: t.nombre, tanque_destino_nombre: 'TANQUE MGG',
-        litros, costo_litro: round(tasa, 4), combustible: combustibleNombre,
-        resumen: `${num(litros)} L desde ${t.nombre}`, motivo: observacion,
+        combustible_nombre: combustibleNombre, litros, costo_litro: round(tasa, 4),
+        resumen, motivo: observacion,
         actor: input.actor, actor_name: input.actorName ?? null,
       },
     });
@@ -493,20 +496,20 @@ export async function registrarTrasladoMGG(input: {
     if (res && (res as { entregada?: boolean }).entregada === false) {
       throw new Error((res as { error?: string }).error || 'El otro sistema no aceptó la transferencia.');
     }
-    await supabase.from('combustible_transferencias')
-      .update({ estado: 'por_confirmar', mensaje_error: null }).eq('id', rowId);
+    await supabase.from('transferencias_combustible_inter')
+      .update({ estado: 'enviada', mensaje_error: null }).eq('id', rowId);
   } catch (e) {
-    await supabase.from('combustible_transferencias')
+    await supabase.from('transferencias_combustible_inter')
       .update({ estado: 'error', mensaje_error: e instanceof Error ? e.message : 'No se pudo entregar' }).eq('id', rowId);
     throw new Error(`El combustible salió del tanque pero no se pudo entregar a MGG (queda para reintentar): ${e instanceof Error ? e.message : ''}`);
   }
 }
 
-/** Lista las transferencias de combustible (este sistema). */
-export async function listCombustibleTransferencias(): Promise<CombustibleTransferencia[]> {
-  const { data, error } = await supabase.from('combustible_transferencias').select('*').order('created_at', { ascending: false });
+/** Lista las transferencias de combustible inter-sistema (este sistema). */
+export async function listTransferenciasCombustible(): Promise<TransferenciaCombustibleInter[]> {
+  const { data, error } = await supabase.from('transferencias_combustible_inter').select('*').order('created_at', { ascending: false });
   if (error) throw error;
-  return (data ?? []) as CombustibleTransferencia[];
+  return (data ?? []) as TransferenciaCombustibleInter[];
 }
 
 export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<void> {

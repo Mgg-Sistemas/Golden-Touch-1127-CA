@@ -463,36 +463,42 @@ create table if not exists public.combustible_medidores (
 );
 create index if not exists idx_comb_medidores on public.combustible_medidores(equipo, fecha desc, created_at desc);
 
--- Transferencias de combustible entre sistemas (puente inter-sistema, como tesorería
--- pero con litros y tanques). Saliente en el origen, entrante en el destino (MGG).
-create table if not exists public.combustible_transferencias (
-  id            uuid primary key default gen_random_uuid(),
-  transf_id     uuid not null unique,
-  direccion     text not null check (direccion in ('saliente','entrante')),
-  estado        text not null default 'enviada'
-                  check (estado in ('enviada','por_confirmar','recibida','rechazada','error')),
-  empresa_origen        text not null,
-  empresa_destino       text not null,
-  tanque_origen_id      uuid,
-  tanque_origen_nombre  text,
-  tanque_destino_nombre text,
-  litros        numeric not null check (litros > 0),
-  costo_litro   numeric,
-  combustible   text,
-  resumen       text,
-  motivo        text,
-  callback_base text,
-  mensaje_error text,
-  actor         text,
-  actor_name    text,
-  created_at    timestamptz not null default now(),
-  confirmada_at timestamptz
+-- Transferencias de combustible entre sistemas (puente inter-sistema · litros).
+-- Mismo contrato/tabla que MGG. Saliente en el origen, entrante en el destino;
+-- al confirmar la entrante, los litros entran a un tanque del destino.
+create table if not exists public.transferencias_combustible_inter (
+  id                 uuid primary key default gen_random_uuid(),
+  transf_id          uuid not null unique,
+  direccion          text not null check (direccion in ('saliente','entrante')),
+  estado             text not null default 'enviada'
+                       check (estado in ('enviada','por_confirmar','recibida','rechazada','error')),
+  empresa_origen     text not null,
+  empresa_destino    text not null,
+  combustible_nombre text not null,
+  litros             numeric not null check (litros > 0),
+  costo_litro        numeric,
+  tanque_id          uuid references public.combustible_tanques(id) on delete set null,
+  tanque_nombre      text,
+  resumen            text,
+  motivo             text,
+  callback_base      text,
+  mensaje_error      text,
+  actor              text,
+  actor_name         text,
+  created_at         timestamptz not null default now(),
+  confirmada_at      timestamptz
 );
+create index if not exists idx_transf_comb_dir_estado on public.transferencias_combustible_inter(direccion, estado);
+alter table public.transferencias_combustible_inter enable row level security;
+drop policy if exists "transf comb read auth"  on public.transferencias_combustible_inter;
+drop policy if exists "transf comb write auth" on public.transferencias_combustible_inter;
+create policy "transf comb read auth"  on public.transferencias_combustible_inter for select using (auth.role()='authenticated');
+create policy "transf comb write auth" on public.transferencias_combustible_inter for all using (auth.role()='authenticated') with check (auth.role()='authenticated');
 
 do $$
 declare t text;
 begin
-  foreach t in array array['combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','combustible_transferencias']
+  foreach t in array array['combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores']
   loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "%s read auth" on public.%I', t, t);
@@ -1764,7 +1770,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','combustible_transferencias','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','transferencias_combustible_inter','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
