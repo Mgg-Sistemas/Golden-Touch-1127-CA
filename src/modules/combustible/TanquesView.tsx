@@ -76,6 +76,7 @@ export function TanquesView() {
   const [fUbicacion, setFUbicacion] = useState('');
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
+  const [ordenDesc, setOrdenDesc] = useState(true); // true = más nuevo→viejo (por fecha y hora)
   const [correoLibroOpen, setCorreoLibroOpen] = useState(false);
 
   const reloadTanques = useCallback(async () => {
@@ -121,9 +122,9 @@ export function TanquesView() {
 
   const movsFiltrados = useMemo(() => {
     const q = fTexto.trim().toLowerCase();
-    // `movs` viene en orden cronológico ascendente (con saldo corrido). Para mostrar
-    // del más nuevo al más viejo (por fecha y hora) invertimos el resultado filtrado.
-    return movs.filter((m) => {
+    // `movs` viene en orden cronológico ascendente por fecha + hora (con saldo corrido).
+    // Según el toggle se muestra del más nuevo al más viejo (descendente) o al revés.
+    const arr = movs.filter((m) => {
       if (fTipo !== 'todos' && m.tipo !== fTipo) return false;
       if (fEquipo && (m.equipo ?? '') !== fEquipo) return false;
       if (fAutorizado && (m.autorizado_por ?? '') !== fAutorizado) return false;
@@ -136,8 +137,9 @@ export function TanquesView() {
         if (!hay.includes(q)) return false;
       }
       return true;
-    }).reverse();
-  }, [movs, fTexto, fTipo, fEquipo, fAutorizado, fUbicacion, fDesde, fHasta]);
+    });
+    return ordenDesc ? arr.slice().reverse() : arr;
+  }, [movs, fTexto, fTipo, fEquipo, fAutorizado, fUbicacion, fDesde, fHasta, ordenDesc]);
 
   const hayFiltro = !!(fTexto || fTipo !== 'todos' || fEquipo || fAutorizado || fUbicacion || fDesde || fHasta);
   function limpiarFiltros() { setFTexto(''); setFTipo('todos'); setFEquipo(''); setFAutorizado(''); setFUbicacion(''); setFDesde(''); setFHasta(''); }
@@ -244,6 +246,9 @@ export function TanquesView() {
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
                   Hasta <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
                 </label>
+                <button className="btn btn-sm btn-ghost" onClick={() => setOrdenDesc((v) => !v)} title="Ordenar por fecha y hora">
+                  Fecha {ordenDesc ? '↓ (nuevo→viejo)' : '↑ (viejo→nuevo)'}
+                </button>
                 {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={limpiarFiltros}>✕ Limpiar</button>}
                 <span className="muted" style={{ fontSize: '.8rem' }}>{movsFiltrados.length}/{movs.length}</span>
               </div>
