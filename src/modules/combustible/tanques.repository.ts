@@ -650,6 +650,39 @@ export async function recomputarTanque(tanqueId: string): Promise<void> {
 
 /** Edita un movimiento. Acepta metadatos + medidores y, opcionalmente, los campos que
  *  afectan el saldo (tipo, litros, tasa). Si se tocan esos, se recalcula el saldo del tanque. */
+/**
+ * Encadena el horómetro: tras editar un movimiento, el HI del SIGUIENTE movimiento
+ * (cronológico) del mismo equipo pasa a ser el HF del editado (el medidor es continuo).
+ * Devuelve true si actualizó algo. Solo afecta el horómetro (no toca saldos).
+ */
+async function sincronizarHorometroSiguiente(movId: string): Promise<boolean> {
+  const { data: cur } = await supabase.from('combustible_tanque_movimientos')
+    .select('id, equipo, horometro_fin').eq('id', movId).maybeSingle();
+  const m = cur as { equipo?: string | null; horometro_fin?: number | null } | null;
+  if (!m || !m.equipo || m.horometro_fin == null) return false;
+
+  // Todos los del mismo equipo (el horómetro es por equipo, puede cruzar tanques).
+  const { data } = await supabase.from('combustible_tanque_movimientos')
+    .select('id, fecha, hora, created_at, horometro_ini').eq('equipo', m.equipo);
+  const rows = ((data ?? []) as Array<{ id: string; fecha: string | null; hora: string | null; created_at: string | null; horometro_ini: number | null }>)
+    .slice()
+    .sort((a, b) => {
+      const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
+      if (f !== 0) return f;
+      const h = horaOrden(a.hora) - horaOrden(b.hora);
+      if (h !== 0) return h;
+      return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+    });
+  const idx = rows.findIndex((r) => r.id === movId);
+  const sig = idx >= 0 ? rows[idx + 1] : null;
+  if (!sig) return false;
+  if (num(sig.horometro_ini) === num(m.horometro_fin)) return false; // ya coincide
+  const { error } = await supabase.from('combustible_tanque_movimientos')
+    .update({ horometro_ini: m.horometro_fin, updated_at: new Date().toISOString() }).eq('id', sig.id);
+  if (error) throw error;
+  return true;
+}
+
 export async function actualizarMovimientoTanque(
   id: string,
   patch: MovimientoTanqueCampos & { tipo?: TipoMovTanque; litros?: number; tasaUsdLitro?: number },
@@ -667,6 +700,8 @@ export async function actualizarMovimientoTanque(
     const tanqueId = (data as { tanque_id: string }).tanque_id;
     await recomputarTanque(tanqueId);
   }
+  // Encadena el horómetro con el siguiente movimiento del equipo (medidor continuo).
+  await sincronizarHorometroSiguiente(id);
 }
 
 export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<void> {
