@@ -49,6 +49,9 @@ export function AcopioPage() {
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
   const [nuevo, setNuevo] = useState(false);
   const [movAcopio, setMovAcopio] = useState(false);
+  const [saldoCasiterita, setSaldoCasiterita] = useState(0);
+  const [tasaMaterial, setTasaMaterial] = useState(0);
+  const onResumenAcopio = useCallback((r: { saldoKg: number; tasa: number }) => { setSaldoCasiterita(r.saldoKg); setTasaMaterial(r.tasa); }, []);
 
   const reload = useCallback(async () => {
     const [rs, ps, alms, cms, cjs, ent] = await Promise.all([
@@ -102,18 +105,18 @@ export function AcopioPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="card" style={{ borderColor: 'var(--primary)', background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
           <div className="card-title"><span>💲 Tasa actual del material</span></div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(caja.tasa)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
+          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(tasaMaterial)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</div>
         </div>
         <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{money(caja.saldoUsd)}</div></div>
-        <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{num(caja.saldoKg)} Kg</div></div>
+        <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: saldoCasiterita < 0 ? 'var(--danger)' : undefined }} className="mono">{num(saldoCasiterita)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
         <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.gastos)}</div></div>
         <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.nominas)}</div></div>
         <div className="card"><div className="card-title"><span>Recepciones</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{resumen.count}</div><div className="muted" style={{ fontSize: '.75rem' }}>{num(resumen.totalRecep)} Kg recep.</div></div>
       </div>
 
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí) */}
-      <MovimientosAcopioView />
+      <MovimientosAcopioView onResumen={onResumenAcopio} />
 
       {movAcopio && (
         <Modal title="Agregar movimiento" size="md" onClose={() => setMovAcopio(false)}

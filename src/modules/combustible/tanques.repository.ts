@@ -247,20 +247,39 @@ async function aplicarSaldoTanque(id: string, saldoLitros: number, saldoUsd: num
 
 /* ───────────── Movimientos (libro mayor) ───────────── */
 
+/** Convierte la hora «8:02:00 AM» a segundos desde medianoche, para ordenar cronológicamente.
+ *  Sin hora → -1 (queda primero en orden ascendente / más viejo). */
+function horaOrden(h: string | null | undefined): number {
+  if (!h) return -1;
+  const m = h.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?$/);
+  if (!m) return -1;
+  let hh = Number(m[1]);
+  const mm = Number(m[2]);
+  const ss = Number(m[3] ?? 0);
+  const ap = (m[4] ?? '').toUpperCase();
+  if (ap === 'PM' && hh < 12) hh += 12;
+  if (ap === 'AM' && hh === 12) hh = 0;
+  return hh * 3600 + mm * 60 + ss;
+}
+
 export async function listMovimientosTanque(tanqueId: string): Promise<MovimientoTanque[]> {
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
     .select('*')
-    .eq('tanque_id', tanqueId)
-    .order('fecha', { ascending: true })
-    .order('orden', { ascending: true })
-    .order('created_at', { ascending: true });
+    .eq('tanque_id', tanqueId);
   if (error) throw error;
+  // Orden cronológico real por fecha + hora (+ created_at de desempate) para el saldo corrido.
+  const rows = ((data ?? []) as MovimientoTanque[]).slice().sort((a, b) => {
+    const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
+    if (f !== 0) return f;
+    const h = horaOrden(a.hora) - horaOrden(b.hora);
+    if (h !== 0) return h;
+    return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+  });
   // Saldos corridos (litros y USD), como en el Excel.
   let saldoL = 0;
   let saldoU = 0;
-  return (data ?? []).map((row) => {
-    const m = row as MovimientoTanque;
+  return rows.map((m) => {
     if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
     return { ...m, saldo_litros: round(saldoL, 2), saldo_usd: round(saldoU, 2) };
