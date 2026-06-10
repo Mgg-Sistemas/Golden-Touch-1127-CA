@@ -121,6 +121,8 @@ export function TanquesView() {
 
   const movsFiltrados = useMemo(() => {
     const q = fTexto.trim().toLowerCase();
+    // `movs` viene en orden cronológico ascendente (con saldo corrido). Para mostrar
+    // del más nuevo al más viejo (por fecha y hora) invertimos el resultado filtrado.
     return movs.filter((m) => {
       if (fTipo !== 'todos' && m.tipo !== fTipo) return false;
       if (fEquipo && (m.equipo ?? '') !== fEquipo) return false;
@@ -134,7 +136,7 @@ export function TanquesView() {
         if (!hay.includes(q)) return false;
       }
       return true;
-    });
+    }).reverse();
   }, [movs, fTexto, fTipo, fEquipo, fAutorizado, fUbicacion, fDesde, fHasta]);
 
   const hayFiltro = !!(fTexto || fTipo !== 'todos' || fEquipo || fAutorizado || fUbicacion || fDesde || fHasta);
