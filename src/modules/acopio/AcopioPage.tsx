@@ -99,6 +99,11 @@ export function AcopioPage() {
           <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(tasaMaterial)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</div>
         </div>
+        <div className="card" style={{ borderColor: 'var(--success)' }}>
+          <div className="card-title"><span>💵 USD entregados</span></div>
+          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }} className="mono">{money(caja.usdEntregado)}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>suma de lo que entra (incluye el dinero recibido del otro sistema)</div>
+        </div>
         <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{money(caja.saldoUsd)}</div></div>
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: saldoCasiterita < 0 ? 'var(--danger)' : undefined }} className="mono">{num(saldoCasiterita)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
         <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.gastos)}</div></div>

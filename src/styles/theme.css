@@ -392,6 +392,32 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
   .alert-pulse, .alert-pulse::after { animation: none; }
 }
 
+/* Variante ámbar (warning) — aviso de mantenimiento / despliegue */
+.alert-pulse-warn {
+  position: relative;
+  animation: alertPulseWarn 1.6s ease-in-out infinite;
+}
+.alert-pulse-warn::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5);
+  animation: alertRingWarn 1.6s ease-out infinite;
+}
+@keyframes alertPulseWarn {
+  0%, 100% { border-color: var(--warning); }
+  50%      { border-color: #fbbf24; }
+}
+@keyframes alertRingWarn {
+  0%   { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); }
+  70%  { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alert-pulse-warn, .alert-pulse-warn::after { animation: none; }
+}
+
 /* Empty state */
 .empty {
   padding: 3rem 1rem; text-align: center; color: var(--text-muted);
