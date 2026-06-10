@@ -540,9 +540,8 @@ export interface ContratoAcopio {
   ton_procesadas: number;
   kg_humedo: number;
   kg_secos: number;
-  /** Kg seco, limpio = Casiterita final obtenida. */
+  /** Kg seco, limpio = Casiterita final obtenida (= Kg seco Limpio Finales). */
   kg_seco_limpio: number;
-  material_mesa_kg: number;
   // Fórmulas automáticas (columnas generadas en la BD).
   tolva?: number | null;
   pct_recuperado_impurezas?: number | null;
@@ -553,6 +552,11 @@ export interface ContratoAcopio {
   estado: EstadoContratoAcopio;
   cerrado_at?: string | null;
   cerrado_por?: string | null;
+  // Enlace con el inventario al cerrar (entrada de casiterita; para revertir al reabrir).
+  mov_id?: string | null;
+  mov_producto_id?: string | null;
+  mov_almacen?: string | null;
+  mov_cantidad?: number | null;
   observaciones?: string | null;
   created_by?: string | null;
   actor_name?: string | null;

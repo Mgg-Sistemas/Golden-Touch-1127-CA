@@ -37,8 +37,8 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   const [kgHum, setKgHum] = useState(contrato?.kg_humedo ? String(contrato.kg_humedo) : '');
   const [kgSec, setKgSec] = useState(contrato?.kg_secos ? String(contrato.kg_secos) : '');
   const [kgLim, setKgLim] = useState(contrato?.kg_seco_limpio ? String(contrato.kg_seco_limpio) : '');
-  const [mesa, setMesa] = useState(contrato?.material_mesa_kg ? String(contrato.material_mesa_kg) : '');
-  const [obs, setObs] = useState(contrato?.observaciones ?? '');
+  // En contratos nuevos la observación arranca con "Material de Mesa:" (como en el Excel).
+  const [obs, setObs] = useState(contrato?.observaciones ?? 'Material de Mesa: ');
   const [busy, setBusy] = useState(false);
 
   const recargar = useCallback(async () => {
@@ -66,7 +66,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
       const input = {
         supervisor, lugarExtraccion: lugar, molino,
         tonProcesadas: Number(ton) || 0, kgHumedo: Number(kgHum) || 0, kgSecos: Number(kgSec) || 0,
-        kgSecoLimpio: Number(kgLim) || 0, materialMesaKg: Number(mesa) || 0, observaciones: obs,
+        kgSecoLimpio: Number(kgLim) || 0, observaciones: obs,
       };
       if (editando) { await actualizarContrato(contrato!.id, input); toast('Contrato actualizado', 'success'); }
       else { const c = await crearContrato({ ...input, actor, actorName }); toast(`Contrato ${c.numero} creado`, 'success'); }
@@ -131,7 +131,12 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
           <div className="form-row"><label>Kg Peso húmedo</label><input className="input mono" type="number" min={0} step="any" value={kgHum} onChange={(e) => setKgHum(e.target.value)} disabled={ro} /></div>
           <div className="form-row"><label>Kg secos</label><input className="input mono" type="number" min={0} step="any" value={kgSec} onChange={(e) => setKgSec(e.target.value)} disabled={ro} /></div>
           <div className="form-row"><label>Kg seco, limpio (Casiterita)</label><input className="input mono" type="number" min={0} step="any" value={kgLim} onChange={(e) => setKgLim(e.target.value)} disabled={ro} /></div>
-          <div className="form-row"><label>Material de mesa (Kg)</label><input className="input mono" type="number" min={0} step="any" value={mesa} onChange={(e) => setMesa(e.target.value)} disabled={ro} /></div>
+          <div className="form-row">
+            <label>Kg seco, Limpio Finales (automático)</label>
+            <input className="input mono" value={num(Number(kgLim) || 0)} readOnly
+              style={{ color: 'var(--primary-3)', fontWeight: 800, borderColor: 'var(--primary)' }} />
+            <small className="muted">Igual a «Kg seco, limpio (Casiterita)». No se modifica.</small>
+          </div>
         </div>
 
         {/* Resultados automáticos (fórmulas del Excel) */}

@@ -1468,8 +1468,13 @@ create table if not exists public.acopio_contratos (
   ton_procesadas   numeric not null default 0,     -- Ton procesadas (material primario)
   kg_humedo        numeric not null default 0,     -- Kg Peso húmedo
   kg_secos         numeric not null default 0,     -- Kg secos
-  kg_seco_limpio   numeric not null default 0,     -- Kg seco, limpio (Casiterita final)
-  material_mesa_kg numeric not null default 0,      -- Material de mesa (KG)
+  kg_seco_limpio   numeric not null default 0,     -- Kg seco, limpio (Casiterita final = Kg seco Limpio Finales)
+  -- Enlace con el inventario: al CERRAR, la casiterita (kg_seco_limpio) entra como
+  -- stock del producto 'Casiterita'. Se guarda la traza para revertir al reabrir.
+  mov_id           uuid,
+  mov_producto_id  uuid,
+  mov_almacen      text,
+  mov_cantidad     numeric,
   -- Fórmulas automáticas (idénticas al Excel; NULLIF evita división por cero):
   tolva                       numeric generated always as (ton_procesadas / 1.2) stored,
   pct_recuperado_impurezas    numeric generated always as (kg_humedo / nullif(ton_procesadas * 1000, 0)) stored,
@@ -1509,6 +1514,11 @@ begin
     alter publication supabase_realtime add table public.acopio_contratos;
   end if;
 end$$;
+
+-- Producto destino de la casiterita de los contratos (al cerrar suma su stock).
+insert into public.productos (sku, nombre, categoria, unidad, almacen, tipo, estado)
+values ('CASITERITA', 'Casiterita', 'Mineral', 'Kg', 'PRODUCCION', 'final', 'activo')
+on conflict (sku) do nothing;
 
 -- ─────────────────────────────────────────────────────────────
 -- 15. Centro de Acopio · CAJA PERAMANAL

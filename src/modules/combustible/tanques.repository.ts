@@ -29,7 +29,7 @@ const hoy = () => new Date().toISOString().slice(0, 10);
 const EMPRESA = (import.meta.env.VITE_EMPRESA_CODIGO as string | undefined)?.trim() || 'mineral-group';
 /** Destino fijo del puente de combustible: el otro sistema (MGG) y su tanque. */
 export const DESTINO_MGG = '__externo_mgg__';
-export const DESTINO_MGG_LABEL = 'MGG - V700L';
+export const DESTINO_MGG_LABEL = 'MGG';
 
 /* ───────────── Cubicación (altura cm → litros) ─────────────
    Fórmulas reales del Excel «CUBICACIÓN TANQUES»:
@@ -108,6 +108,21 @@ export async function setCatalogoActivo(id: string, activo: boolean): Promise<vo
   if (error) throw error;
 }
 
+export async function updateCatalogo(id: string, valor: string): Promise<void> {
+  const v = valor.trim();
+  if (!v) throw new Error('Indicá el valor.');
+  const { error } = await supabase.from('combustible_catalogos').update({ valor: v }).eq('id', id);
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    throw error;
+  }
+}
+
+export async function eliminarCatalogo(id: string): Promise<void> {
+  const { error } = await supabase.from('combustible_catalogos').delete().eq('id', id);
+  if (error) throw error;
+}
+
 /* ───────────── Tanques ───────────── */
 
 export async function listTanques(): Promise<TanqueCombustible[]> {
@@ -180,22 +195,27 @@ export async function actualizarTanque(id: string, input: TanqueInput): Promise<
   const nombre = input.nombre.trim();
   if (!nombre) throw new Error('El nombre no puede estar vacío.');
   const geom = geomDeInput(input);
-  const { error } = await supabase
-    .from('combustible_tanques')
-    .update({
-      nombre,
-      tipo: geom.tipo,
-      es_movil: !!input.esMovil,
-      radio_m: input.radioM ?? null,
-      largo_m: input.largoM ?? null,
-      ancho_m: input.anchoM ?? null,
-      alto_m: input.altoM ?? null,
-      capacidad_litros: Math.max(0, num(input.capacidadLitros)),
-      capacidad_calculada_litros: capacidadCalculada(geom) || null,
-      ubicacion: input.ubicacion?.trim() || null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id);
+  const patch: Record<string, unknown> = {
+    nombre,
+    tipo: geom.tipo,
+    es_movil: !!input.esMovil,
+    radio_m: input.radioM ?? null,
+    largo_m: input.largoM ?? null,
+    ancho_m: input.anchoM ?? null,
+    alto_m: input.altoM ?? null,
+    capacidad_litros: Math.max(0, num(input.capacidadLitros)),
+    capacidad_calculada_litros: capacidadCalculada(geom) || null,
+    ubicacion: input.ubicacion?.trim() || null,
+    updated_at: new Date().toISOString(),
+  };
+  // Tasa USD/L editable: si viene, la guardamos y recalculamos el saldo en $ (saldo L × tasa).
+  if (input.tasaUsdLitro != null) {
+    const tasa = Math.max(0, num(input.tasaUsdLitro));
+    const actual = await getTanque(id);
+    patch.tasa_usd_litro = round(tasa, 4);
+    patch.saldo_usd = round((Number(actual.saldo_litros) || 0) * tasa, 2);
+  }
+  const { error } = await supabase.from('combustible_tanques').update(patch).eq('id', id);
   if (error) throw error;
 }
 

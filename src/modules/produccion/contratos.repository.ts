@@ -4,7 +4,25 @@
    y lugar de extracción tomado de un catálogo editable.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import type { CatalogoAcopio, ContratoAcopio, TipoCatalogoAcopio } from '@/shared/lib/types';
+
+/** Producto del inventario al que entra la casiterita de los contratos (al cerrar). */
+export const CASITERITA_SKU = 'CASITERITA';
+export const CASITERITA_ALMACEN = 'PRODUCCION';
+
+/** Resuelve (creándolo si falta) el producto 'Casiterita' destino del stock. */
+async function casiteritaProductoId(): Promise<string> {
+  const { data } = await supabase.from('productos').select('id').eq('sku', CASITERITA_SKU).maybeSingle();
+  if ((data as { id?: string } | null)?.id) return (data as { id: string }).id;
+  const { data: nuevo, error } = await supabase
+    .from('productos')
+    .insert({ sku: CASITERITA_SKU, nombre: 'Casiterita', categoria: 'Mineral', unidad: 'Kg', almacen: CASITERITA_ALMACEN, tipo: 'final', estado: 'activo' })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return (nuevo as { id: string }).id;
+}
 
 /** Prefijo del correlativo de contratos. */
 export const CONTRATO_PREFIJO = 'Producción GT';
@@ -50,7 +68,6 @@ export interface ContratoInput {
   kgHumedo?: number;
   kgSecos?: number;
   kgSecoLimpio?: number;
-  materialMesaKg?: number;
   observaciones?: string | null;
 }
 
@@ -65,7 +82,6 @@ function payloadContrato(input: ContratoInput): Record<string, unknown> {
     kg_humedo: n(input.kgHumedo),
     kg_secos: n(input.kgSecos),
     kg_seco_limpio: n(input.kgSecoLimpio),
-    material_mesa_kg: n(input.materialMesaKg),
     observaciones: input.observaciones?.trim() || null,
   };
 }
@@ -127,16 +143,78 @@ export async function actualizarContrato(id: string, input: ContratoInput): Prom
   if (error) throw error;
 }
 
-/** Cierra (estado='cerrado') o reabre (estado='activo') un contrato. */
-export async function setEstadoContrato(id: string, estado: 'activo' | 'cerrado', actor: string): Promise<void> {
-  const patch: Record<string, unknown> = { estado };
-  if (estado === 'cerrado') { patch.cerrado_at = new Date().toISOString(); patch.cerrado_por = actor; }
-  else { patch.cerrado_at = null; patch.cerrado_por = null; }
-  const { error } = await supabase.from('acopio_contratos').update(patch).eq('id', id);
-  if (error) throw error;
+type ContratoMov = { numero: string; estado: string; kg_seco_limpio: number | null; mov_id: string | null; mov_producto_id: string | null; mov_almacen: string | null; mov_cantidad: number | null };
+
+/** Revierte del inventario la casiterita que el contrato había sumado (salida). */
+async function revertirEntradaCasiterita(c: ContratoMov, actor: string, actorName: string | null, refTipo: string): Promise<void> {
+  const cant = Number(c.mov_cantidad) || 0;
+  if (c.mov_id && c.mov_producto_id && c.mov_almacen && cant > 0) {
+    await registrarMovimiento({
+      producto_id: c.mov_producto_id, tipo: 'salida', delta: -cant, almacen: c.mov_almacen,
+      actor, actor_name: actorName, ref_tipo: refTipo, ref_id: '', ref_codigo: c.numero,
+      detalle: `Contrato ${c.numero} · revierte Casiterita`,
+    });
+  }
 }
 
-export async function eliminarContrato(id: string): Promise<void> {
+/**
+ * CIERRA el contrato y sincroniza el inventario: la casiterita (kg_seco_limpio)
+ * entra como stock del producto 'Casiterita' en PRODUCCION. Guarda la traza
+ * para poder revertir al reabrir/eliminar. Idempotente (si ya está cerrado, no hace nada).
+ */
+export async function cerrarContrato(id: string, actor: string, actorName?: string | null): Promise<void> {
+  const { data, error } = await supabase
+    .from('acopio_contratos')
+    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad')
+    .eq('id', id).single();
+  if (error) throw error;
+  const c = data as ContratoMov;
+  if (c.estado === 'cerrado') return;
+
+  const cantidad = Number(c.kg_seco_limpio) || 0;
+  let movId: string | null = null, movProductoId: string | null = null, movAlmacen: string | null = null;
+  if (cantidad > 0) {
+    movProductoId = await casiteritaProductoId();
+    movAlmacen = CASITERITA_ALMACEN;
+    const mov = await registrarMovimiento({
+      producto_id: movProductoId, tipo: 'entrada', delta: cantidad, almacen: movAlmacen,
+      actor, actor_name: actorName ?? null,
+      ref_tipo: 'contrato_produccion', ref_id: id, ref_codigo: c.numero,
+      detalle: `Contrato ${c.numero} · Casiterita`,
+    });
+    movId = mov.id;
+  }
+  const { error: uErr } = await supabase.from('acopio_contratos').update({
+    estado: 'cerrado', cerrado_at: new Date().toISOString(), cerrado_por: actor,
+    mov_id: movId, mov_producto_id: movProductoId, mov_almacen: movAlmacen, mov_cantidad: cantidad,
+  }).eq('id', id);
+  if (uErr) throw uErr;
+}
+
+/** REABRE el contrato: revierte la entrada de casiterita del inventario y vuelve a 'activo'. */
+export async function reabrirContrato(id: string, actor: string, actorName?: string | null): Promise<void> {
+  const { data, error } = await supabase
+    .from('acopio_contratos')
+    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad')
+    .eq('id', id).single();
+  if (error) throw error;
+  const c = data as ContratoMov;
+  if (c.estado === 'activo') return;
+  await revertirEntradaCasiterita(c, actor, actorName ?? null, 'contrato_produccion_reapertura');
+  const { error: uErr } = await supabase.from('acopio_contratos').update({
+    estado: 'activo', cerrado_at: null, cerrado_por: null,
+    mov_id: null, mov_producto_id: null, mov_almacen: null, mov_cantidad: null,
+  }).eq('id', id);
+  if (uErr) throw uErr;
+}
+
+export async function eliminarContrato(id: string, actor = 'sistema', actorName: string | null = null): Promise<void> {
+  // Si estaba cerrado, revertimos primero la casiterita que había sumado al inventario.
+  const { data } = await supabase
+    .from('acopio_contratos')
+    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad')
+    .eq('id', id).maybeSingle();
+  if (data) await revertirEntradaCasiterita(data as ContratoMov, actor, actorName, 'contrato_produccion_eliminacion').catch(() => {});
   const { error } = await supabase.from('acopio_contratos').delete().eq('id', id);
   if (error) throw error;
 }
