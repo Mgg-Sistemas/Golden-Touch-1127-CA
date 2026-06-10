@@ -5,8 +5,9 @@ import { date, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import type { ContratoAcopio } from '@/shared/lib/types';
+import type { ContratoAcopio, CajaMovimiento } from '@/shared/lib/types';
 import { listContratos } from '@/modules/produccion/contratos.repository';
+import { listCajaMovimientos } from './caja.repository';
 import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorreo } from './movimientosAcopioReportes';
 
 /**
@@ -36,6 +37,7 @@ interface FilaMov {
 export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: { saldoKg: number; tasa: number }) => void } = {}) {
   const { user } = useSession();
   const [contratos, setContratos] = useState<ContratoAcopio[]>([]);
+  const [cajaMovs, setCajaMovs] = useState<CajaMovimiento[]>([]);
   const [loading, setLoading] = useState(true);
   // Filtros (estilo Tesorería).
   const [fTexto, setFTexto] = useState('');
@@ -44,7 +46,11 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: { saldoKg
   const [ordenDesc, setOrdenDesc] = useState(false); // false = más viejo→nuevo; true = más nuevo→viejo
   const [correoOpen, setCorreoOpen] = useState(false);
 
-  const recargar = useCallback(async () => { setContratos(await listContratos()); }, []);
+  const recargar = useCallback(async () => {
+    const [cs, cms] = await Promise.all([listContratos(), listCajaMovimientos()]);
+    setContratos(cs);
+    setCajaMovs(cms);
+  }, []);
   useEffect(() => {
     let cancel = false;
     setLoading(true);
@@ -52,36 +58,74 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: { saldoKg
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [recargar]);
-  useRealtime(['acopio_contratos'], () => { void recargar(); });
+  useRealtime(['acopio_contratos', 'acopio_caja_movimientos'], () => { void recargar(); });
 
-  // Solo los contratos CERRADOS se reflejan como movimiento, ordenados por fecha (saldo corrido).
+  // El movimiento del Centro de Acopio es la mezcla de DOS fuentes, ordenada por fecha:
+  //   1) Contratos de producción CERRADOS → aportan Kg de casiterita.
+  //   2) Movimientos de caja (acopio_caja_movimientos) → flujo en USD; aquí entra el
+  //      dinero ACEPTADO desde el otro sistema (columna $Usd entregado).
+  // Saldos corridos: Kg = anterior + Kg Cerrados − Kg MGG; USD = anterior + Entregado
+  // − Facturados − Gastos − Nóminas − Traslado.
   const filas = useMemo<FilaMov[]>(() => {
-    const cerrados = contratos
-      .filter((c) => c.estado === 'cerrado')
-      .sort((a, b) => (a.fecha ?? '').localeCompare(b.fecha ?? '') || (a.seq - b.seq));
-    // Saldo corrido: RESULTADO ANTERIOR + Kg Cerrados − Kg Recibidos por MGG = NUEVO RESULTADO.
+    type Evt = { t: 'c'; c: ContratoAcopio } | { t: 'm'; m: CajaMovimiento };
+    const evts: Evt[] = [
+      ...contratos.filter((c) => c.estado === 'cerrado').map((c) => ({ t: 'c' as const, c })),
+      ...cajaMovs.map((m) => ({ t: 'm' as const, m })),
+    ];
+    const fechaDe = (e: Evt) => (e.t === 'c' ? e.c.fecha : e.m.fecha) ?? '';
+    const seqDe = (e: Evt) => (e.t === 'c' ? e.c.seq : 0);
+    evts.sort((a, b) => fechaDe(a).localeCompare(fechaDe(b)) || (seqDe(a) - seqDe(b)));
+
     let saldoKg = 0;
-    return cerrados.map((c) => {
-      const kg = Number(c.kg_seco_limpio) || 0;
-      const mgg = 0; // Kg Recibidos por MGG (aún no conectado) → cuando exista se resta acá.
-      saldoKg = saldoKg + kg - mgg;
+    let saldoUsd = 0;
+    return evts.map((e): FilaMov => {
+      if (e.t === 'c') {
+        const kg = Number(e.c.kg_seco_limpio) || 0;
+        const mgg = 0; // Kg Recibidos por MGG (aún no conectado) → cuando exista se resta acá.
+        saldoKg = saldoKg + kg - mgg;
+        return {
+          id: `c-${e.c.id}`,
+          fecha: e.c.fecha,
+          descripcion: `CONTRATO PRODUCCIÓN GT - #${e.c.seq}`,
+          usdEntregado: null,
+          kgCerrados: kg,
+          precioUsdKg: null,
+          usdFacturados: 0,
+          gastosGt: null,
+          nominasGt: null,
+          trasladoCaja: null,
+          saldoUsd,
+          kgRecibidosMgg: mgg || null,
+          saldoKgCasiterita: saldoKg,
+        };
+      }
+      const m = e.m;
+      const entregado = Number(m.usd_entregado) || 0;
+      const facturados = Number(m.facturados) || 0;
+      const gastos = Number(m.gastos) || 0;
+      const nominas = Number(m.nominas) || 0;
+      const traslado = Number(m.traslado) || 0;
+      const kgc = Number(m.kg_cerrados) || 0;
+      const mgg = Number(m.kg_recibidos) || 0;
+      saldoUsd = saldoUsd + entregado - facturados - gastos - nominas - traslado;
+      saldoKg = saldoKg + kgc - mgg;
       return {
-        id: c.id,
-        fecha: c.fecha,
-        descripcion: `CONTRATO PRODUCCIÓN GT - #${c.seq}`,
-        usdEntregado: null,
-        kgCerrados: kg,
+        id: `m-${m.id}`,
+        fecha: m.fecha,
+        descripcion: m.descripcion || 'Movimiento de caja',
+        usdEntregado: entregado || null,
+        kgCerrados: kgc,
         precioUsdKg: null,
-        usdFacturados: 0,
-        gastosGt: null,
-        nominasGt: null,
-        trasladoCaja: null,
-        saldoUsd: 0,
+        usdFacturados: facturados,
+        gastosGt: gastos || null,
+        nominasGt: nominas || null,
+        trasladoCaja: traslado || null,
+        saldoUsd,
         kgRecibidosMgg: mgg || null,
         saldoKgCasiterita: saldoKg,
       };
     });
-  }, [contratos]);
+  }, [contratos, cajaMovs]);
 
   // Vista filtrada + ordenada por fecha (mantiene el saldo corrido calculado sobre TODOS los movimientos).
   const mostradas = useMemo(() => {
@@ -112,6 +156,7 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: { saldoKg
   useEffect(() => { onResumen?.({ saldoKg: saldoFinal, tasa }); }, [saldoFinal, tasa, onResumen]);
 
   // Totales de la vista (para la fila de totales de la tabla, respeta el filtro).
+  const totUsdEntregadoVista = mostradas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
   const totKgVista = mostradas.reduce((a, f) => a + f.kgCerrados, 0);
   const totMggVista = mostradas.reduce((a, f) => a + (f.kgRecibidosMgg ?? 0), 0);
   // Saldo final del rango filtrado = el del movimiento cronológicamente más nuevo (no depende del orden mostrado).
@@ -197,7 +242,8 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: { saldoKg
             </tbody>
             <tfoot>
               <tr style={{ borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
-                <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Totales</td>
+                <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Totales</td>
+                <td className="mono" style={{ fontWeight: 800, color: 'var(--success, #45c08a)' }}>{totUsdEntregadoVista ? money(totUsdEntregadoVista) : '—'}</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
                 <td colSpan={6}></td>
                 <td className="mono" style={{ fontWeight: 700 }}>{totMggVista ? num(totMggVista) : '—'}</td>
