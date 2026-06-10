@@ -79,6 +79,13 @@ export function TanquesView() {
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
   const [ordenDesc, setOrdenDesc] = useState(true); // true = más nuevo→viejo (por fecha y hora)
+  // Campo por el que se ordena el libro: por fecha/hora (default) o por los contadores
+  // del surtidor (inicial / final) de forma independiente.
+  const [ordenCampo, setOrdenCampo] = useState<'fecha' | 'contIni' | 'contFin'>('fecha');
+  function ordenarPor(campo: 'fecha' | 'contIni' | 'contFin') {
+    if (campo === ordenCampo) setOrdenDesc((d) => !d);
+    else { setOrdenCampo(campo); setOrdenDesc(true); }
+  }
   const [correoLibroOpen, setCorreoLibroOpen] = useState(false);
 
   const reloadTanques = useCallback(async () => {
@@ -140,8 +147,21 @@ export function TanquesView() {
       }
       return true;
     });
-    return ordenDesc ? arr.slice().reverse() : arr;
-  }, [movs, fTexto, fTipo, fEquipo, fAutorizado, fUbicacion, fDesde, fHasta, ordenDesc]);
+    if (ordenCampo === 'fecha') {
+      return ordenDesc ? arr.slice().reverse() : arr;
+    }
+    // Orden por contador del surtidor (inicial o final), independiente de la fecha.
+    // Los movimientos sin contador van al final, en cualquier dirección.
+    return arr.slice().sort((a, b) => {
+      const av = ordenCampo === 'contIni' ? a.contador_global_ini : a.contador_global_fin;
+      const bv = ordenCampo === 'contIni' ? b.contador_global_ini : b.contador_global_fin;
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      const d = Number(av) - Number(bv);
+      return ordenDesc ? -d : d;
+    });
+  }, [movs, fTexto, fTipo, fEquipo, fAutorizado, fUbicacion, fDesde, fHasta, ordenDesc, ordenCampo]);
 
   const hayFiltro = !!(fTexto || fTipo !== 'todos' || fEquipo || fAutorizado || fUbicacion || fDesde || fHasta);
   function limpiarFiltros() { setFTexto(''); setFTipo('todos'); setFEquipo(''); setFAutorizado(''); setFUbicacion(''); setFDesde(''); setFHasta(''); }
@@ -248,8 +268,14 @@ export function TanquesView() {
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
                   Hasta <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
                 </label>
-                <button className="btn btn-sm btn-ghost" onClick={() => setOrdenDesc((v) => !v)} title="Ordenar por fecha y hora">
-                  Fecha {ordenDesc ? '↓ (nuevo→viejo)' : '↑ (viejo→nuevo)'}
+                <button className={`btn btn-sm ${ordenCampo === 'fecha' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('fecha')} title="Ordenar por fecha y hora">
+                  Fecha {ordenCampo === 'fecha' ? (ordenDesc ? '↓ (nuevo→viejo)' : '↑ (viejo→nuevo)') : ''}
+                </button>
+                <button className={`btn btn-sm ${ordenCampo === 'contIni' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('contIni')} title="Ordenar por el contador inicial del surtidor">
+                  Cont. I {ordenCampo === 'contIni' ? (ordenDesc ? '↓' : '↑') : ''}
+                </button>
+                <button className={`btn btn-sm ${ordenCampo === 'contFin' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('contFin')} title="Ordenar por el contador final del surtidor">
+                  Cont. F {ordenCampo === 'contFin' ? (ordenDesc ? '↓' : '↑') : ''}
                 </button>
                 {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={limpiarFiltros}>✕ Limpiar</button>}
                 <span className="muted" style={{ fontSize: '.8rem' }}>{movsFiltrados.length}/{movs.length}</span>
