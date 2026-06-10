@@ -887,15 +887,21 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
   return v == null ? null : num(v);
 }
 
-/** Último CONTADOR global FINAL registrado en GENERAL (sin vincular a un equipo): el
- *  contador del surtidor es único, así que el inicial del próximo movimiento es el
- *  último final cargado en cualquier movimiento. */
-export async function ultimoContadorGlobal(): Promise<number | null> {
+/** Último CONTADOR FINAL registrado para UN TANQUE (su surtidor). El contador no se
+ *  vincula al equipo (eso es el horómetro): el inicial del próximo movimiento de ese
+ *  tanque es su último final cargado. Para un traslado, es el contador del tanque de
+ *  ORIGEN (de donde sale el combustible). Se ordena por created_at (último registrado),
+ *  no por fecha (que puede ser retroactiva). */
+export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
+  if (!tanqueId) return null;
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('contador_global_fin, fecha, created_at')
+    .select('contador_global_fin, created_at')
+    .eq('tanque_id', tanqueId)
     .not('contador_global_fin', 'is', null)
-    .order('fecha', { ascending: false })
+    // Excluimos las ENTRADAS que son reflejo de un traslado (mov_vinculado_id no nulo): su
+    // contador es el del surtidor del tanque de ORIGEN, no el propio de este tanque.
+    .or('tipo.neq.entrada,mov_vinculado_id.is.null')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();

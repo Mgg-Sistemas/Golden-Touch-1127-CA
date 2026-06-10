@@ -21,7 +21,7 @@ import type {
 import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
-  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoContadorGlobal,
+  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoContadorTanque,
   actualizarMovimientoTanque,
   crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
@@ -420,16 +420,19 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     return () => { cancel = true; };
   }, [equipo]);
 
-  // El CONTADOR GLOBAL es del surtidor (general, no del vehículo): autocarga al abrir el
-  // movimiento con el último contador final registrado en general. Si trae dato, se bloquea.
+  // El CONTADOR GLOBAL es por TANQUE: el contador final de un movimiento es el inicial del
+  // siguiente del mismo tanque. Para un movimiento normal trae el último del tanque seleccionado;
+  // para un traslado trae el del tanque ORIGEN (que es justamente el tanque seleccionado), y
+  // ese contador se refleja luego en el tanque destino. Si trae dato, se bloquea.
   useEffect(() => {
+    if (!tanqueId) { setCiAuto(false); return; }
     let cancel = false;
-    ultimoContadorGlobal().then((ult) => {
+    ultimoContadorTanque(tanqueId).then((ult) => {
       if (cancel) return;
-      if (ult != null) { setCi(String(ult)); setCiAuto(true); } else { setCiAuto(false); }
+      if (ult != null) { setCi(String(ult)); setCiAuto(true); } else { setCi(''); setCiAuto(false); }
     }).catch(() => {});
     return () => { cancel = true; };
-  }, []);
+  }, [tanqueId]);
 
   const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
   // Litros usados según el contador del surtidor (final − inicial). No se modifica.
@@ -561,8 +564,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
             <div className="form-row">
               <label>Contador global inicial</label>
               <input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} readOnly={ciAuto}
-                placeholder="auto: último general" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
-              <small className="muted">{ciAuto ? 'Traído del último contador final registrado (general, no se modifica).' : 'Trae el último contador final registrado; si no hay, ingresalo.'}</small>
+                placeholder="auto: último del tanque" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
+              <small className="muted">{ciAuto ? (tipo === 'traslado' ? 'Traído del último contador final del tanque ORIGEN (se reflejará en el destino).' : 'Traído del último contador final de este tanque (no se modifica).') : 'No hay contador previo en este tanque; ingresalo.'}</small>
             </div>
             <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" value={cf} onChange={(e) => setCf(e.target.value)} /></div>
           </div>
