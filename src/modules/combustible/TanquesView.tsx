@@ -23,7 +23,7 @@ import {
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
   registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoContadorTanque,
   actualizarMovimientoTanque,
-  crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
+  crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, resumenTanquesPeriodo, type ReporteTanque, type ResumenTanquePeriodo,
 } from './tanques.repository';
@@ -68,6 +68,8 @@ export function TanquesView() {
   const [detalle, setDetalle] = useState<MovimientoTanque | null>(null);
   const [aBorrar, setABorrar] = useState<MovimientoTanque | null>(null);
   const [editTanque, setEditTanque] = useState<TanqueCombustible | null>(null);
+  const [tanqueABorrar, setTanqueABorrar] = useState<TanqueCombustible | null>(null);
+  const [borrandoTanque, setBorrandoTanque] = useState(false);
   // Filtros del libro mayor (registro de movimientos del tanque seleccionado).
   const [fTexto, setFTexto] = useState('');
   const [fTipo, setFTipo] = useState<'todos' | TipoMovTanque>('todos');
@@ -316,6 +318,7 @@ export function TanquesView() {
       {modal === 'tanque' && (
         <TanqueModal catalogos={catalogos} actor={actor} tanque={editTanque}
           onClose={() => { setModal('none'); setEditTanque(null); }}
+          onRequestDelete={(t) => { setModal('none'); setEditTanque(null); setTanqueABorrar(t); }}
           onSaved={async () => { setModal('none'); setEditTanque(null); await reloadTanques(); }} />
       )}
       {modal === 'catalogos' && (
@@ -345,6 +348,29 @@ export function TanquesView() {
           danger
           onCancel={() => setABorrar(null)}
           onConfirm={() => { const m = aBorrar; setABorrar(null); void borrar(m); }}
+        />
+      )}
+      {tanqueABorrar && (
+        <ConfirmDialog
+          title={`Eliminar ${tanqueABorrar.nombre}`}
+          message={`Vas a borrar el tanque «${tanqueABorrar.nombre}» y TODOS sus movimientos. Esta acción no se puede deshacer. Para confirmar que no es por error, escribí el nombre del tanque tal cual.`}
+          requireText={tanqueABorrar.nombre}
+          confirmText={borrandoTanque ? 'Eliminando…' : 'Eliminar tanque'}
+          danger
+          onCancel={() => { if (!borrandoTanque) setTanqueABorrar(null); }}
+          onConfirm={async () => {
+            const t = tanqueABorrar;
+            setBorrandoTanque(true);
+            try {
+              await eliminarTanque(t.id);
+              toast(`Tanque «${t.nombre}» eliminado`, 'success');
+              setTanqueABorrar(null);
+              if (selId === t.id) setSelId('');
+              await reloadTanques();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : 'No se pudo eliminar el tanque', 'error');
+            } finally { setBorrandoTanque(false); }
+          }}
         />
       )}
       {correoLibroOpen && sel && (
@@ -718,8 +744,9 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
 
 /* ───────────── Modal: nuevo tanque ───────────── */
 
-function TanqueModal({ catalogos, actor, tanque, onClose, onSaved }: {
+function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDelete }: {
   catalogos: CatalogoCombustible[]; actor: string; tanque: TanqueCombustible | null; onClose: () => void; onSaved: () => void;
+  onRequestDelete?: (t: TanqueCombustible) => void;
 }) {
   const editando = !!tanque;
   const [nombre, setNombre] = useState(tanque?.nombre ?? '');
@@ -775,6 +802,10 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved }: {
   }
   const footer = (
     <>
+      {editando && tanque && onRequestDelete && (
+        <button type="button" className="btn btn-danger" style={{ marginRight: 'auto' }} disabled={saving}
+          onClick={() => onRequestDelete(tanque)}>🗑 Eliminar tanque</button>
+      )}
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="tnk-new" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : editando ? 'Guardar cambios' : 'Crear tanque'}</button>
     </>
