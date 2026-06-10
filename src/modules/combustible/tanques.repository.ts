@@ -887,14 +887,13 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
   return v == null ? null : num(v);
 }
 
-/** Último CONTADOR global FINAL registrado para un equipo (autocarga el contador inicial siguiente). */
-export async function ultimoContadorEquipo(equipo: string): Promise<number | null> {
-  const e = equipo.trim();
-  if (!e) return null;
+/** Último CONTADOR global FINAL registrado en GENERAL (sin vincular a un equipo): el
+ *  contador del surtidor es único, así que el inicial del próximo movimiento es el
+ *  último final cargado en cualquier movimiento. */
+export async function ultimoContadorGlobal(): Promise<number | null> {
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
     .select('contador_global_fin, fecha, created_at')
-    .eq('equipo', e)
     .not('contador_global_fin', 'is', null)
     .order('fecha', { ascending: false })
     .order('created_at', { ascending: false })

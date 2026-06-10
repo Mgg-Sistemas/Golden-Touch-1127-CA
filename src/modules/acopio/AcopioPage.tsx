@@ -7,7 +7,7 @@ import { money, num } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { MovimientosAcopioView } from './MovimientosAcopioView';
-import { CategoriasGastosModal } from './CategoriasGastosModal';
+import { CategoriasModal } from './CategoriasModal';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { CajaMovimiento, CajaResumen, Producto, RecepcionAcopio } from '@/shared/lib/types';
@@ -108,7 +108,7 @@ export function AcopioPage() {
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí) */}
       <MovimientosAcopioView onResumen={onResumenAcopio} />
 
-      {categorias && <CategoriasGastosModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
+      {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
       {movAcopio && (
         <Modal title="Agregar movimiento" size="md" onClose={() => setMovAcopio(false)}

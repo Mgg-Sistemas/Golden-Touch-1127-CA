@@ -21,7 +21,7 @@ import type {
 import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
-  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoContadorEquipo,
+  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoContadorGlobal,
   actualizarMovimientoTanque,
   crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
@@ -409,21 +409,27 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
 
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
 
-  // Al elegir un equipo, autocargamos el HI (último horómetro final) y el contador inicial
-  // (último contador global final) registrados para ese equipo. Si traen dato, se bloquean.
+  // El HORÓMETRO inicial sí es del vehículo: autocarga con el último HF de ese equipo.
   useEffect(() => {
-    if (!equipo) { setHiAuto(false); setCiAuto(false); return; }
+    if (!equipo) { setHiAuto(false); return; }
     let cancel = false;
     ultimoHorometroEquipo(equipo).then((ult) => {
       if (cancel) return;
       if (ult != null) { setHi(String(ult)); setHiAuto(true); } else { setHiAuto(false); }
     }).catch(() => {});
-    ultimoContadorEquipo(equipo).then((ult) => {
+    return () => { cancel = true; };
+  }, [equipo]);
+
+  // El CONTADOR GLOBAL es del surtidor (general, no del vehículo): autocarga al abrir el
+  // movimiento con el último contador final registrado en general. Si trae dato, se bloquea.
+  useEffect(() => {
+    let cancel = false;
+    ultimoContadorGlobal().then((ult) => {
       if (cancel) return;
       if (ult != null) { setCi(String(ult)); setCiAuto(true); } else { setCiAuto(false); }
     }).catch(() => {});
     return () => { cancel = true; };
-  }, [equipo]);
+  }, []);
 
   const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
   // Litros usados según el contador del surtidor (final − inicial). No se modifica.
@@ -555,8 +561,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
             <div className="form-row">
               <label>Contador global inicial</label>
               <input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} readOnly={ciAuto}
-                placeholder="auto: último del equipo" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
-              <small className="muted">{ciAuto ? 'Traído del último contador final del equipo (no se modifica).' : 'Trae el último contador final del equipo; si no hay, ingresalo.'}</small>
+                placeholder="auto: último general" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
+              <small className="muted">{ciAuto ? 'Traído del último contador final registrado (general, no se modifica).' : 'Trae el último contador final registrado; si no hay, ingresalo.'}</small>
             </div>
             <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" value={cf} onChange={(e) => setCf(e.target.value)} /></div>
           </div>
