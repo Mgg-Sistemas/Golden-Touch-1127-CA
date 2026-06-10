@@ -1441,6 +1441,76 @@ begin
 end$$;
 
 -- ─────────────────────────────────────────────────────────────
+-- 14b. Centro de Acopio · CONTRATOS de producción + catálogo de lugares
+-- Botón "Crear contrato": correlativo "Producción GT-01", fecha+hora
+-- automáticas y lugar de extracción tomado de un catálogo editable
+-- (alta/edición/borrado), igual que los catálogos de combustible.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.acopio_catalogos (
+  id         uuid primary key default gen_random_uuid(),
+  tipo       text not null check (tipo in ('lugar_extraccion','supervisor')),
+  valor      text not null,
+  activo     boolean not null default true,
+  orden      int not null default 999,
+  created_at timestamptz not null default now(),
+  unique (tipo, valor)
+);
+create table if not exists public.acopio_contratos (
+  id               uuid primary key default gen_random_uuid(),
+  numero           text not null unique,           -- "Producción GT-01"
+  seq              int  not null,                  -- correlativo numérico
+  fecha            date not null default current_date,
+  hora             text,                           -- "8:02:00 AM" (hora Venezuela)
+  supervisor       text,                           -- Supervisor de Producción (obligatorio en UI)
+  lugar_extraccion text,
+  molino           text,                           -- Molino utilizado
+  -- Inputs principales (réplica de la hoja del Excel):
+  ton_procesadas   numeric not null default 0,     -- Ton procesadas (material primario)
+  kg_humedo        numeric not null default 0,     -- Kg Peso húmedo
+  kg_secos         numeric not null default 0,     -- Kg secos
+  kg_seco_limpio   numeric not null default 0,     -- Kg seco, limpio (Casiterita final)
+  material_mesa_kg numeric not null default 0,      -- Material de mesa (KG)
+  -- Fórmulas automáticas (idénticas al Excel; NULLIF evita división por cero):
+  tolva                       numeric generated always as (ton_procesadas / 1.2) stored,
+  pct_recuperado_impurezas    numeric generated always as (kg_humedo / nullif(ton_procesadas * 1000, 0)) stored,
+  pct_humedad                 numeric generated always as (kg_secos / nullif(kg_humedo, 0) - 1) stored,
+  pct_recuperacion_casiterita numeric generated always as (kg_seco_limpio / nullif(ton_procesadas * 1000, 0)) stored,
+  kg_hierro                   numeric generated always as (kg_seco_limpio - kg_secos) stored,
+  pct_hierro                  numeric generated always as ((kg_seco_limpio - kg_secos) / nullif(kg_secos, 0)) stored,
+  estado           text not null default 'activo'
+                     check (estado in ('activo','cerrado')),
+  cerrado_at       timestamptz,
+  cerrado_por      text,
+  observaciones    text,
+  created_by       text,
+  actor_name       text,
+  created_at       timestamptz not null default now()
+);
+create index if not exists idx_acopio_contratos_seq on public.acopio_contratos(seq desc);
+
+alter table public.acopio_catalogos enable row level security;
+alter table public.acopio_contratos enable row level security;
+do $$
+declare t text;
+begin
+  for t in select unnest(array['acopio_catalogos','acopio_contratos']) loop
+    execute format('drop policy if exists "%I read auth" on public.%I', t, t);
+    execute format('create policy "%I read auth" on public.%I for select using (auth.role() = ''authenticated'')', t, t);
+    execute format('drop policy if exists "%I write auth" on public.%I', t, t);
+    execute format('create policy "%I write auth" on public.%I for all using (auth.role() = ''authenticated'') with check (auth.role() = ''authenticated'')', t, t);
+  end loop;
+end$$;
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_catalogos') then
+    alter publication supabase_realtime add table public.acopio_catalogos;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_contratos') then
+    alter publication supabase_realtime add table public.acopio_contratos;
+  end if;
+end$$;
+
+-- ─────────────────────────────────────────────────────────────
 -- 15. Centro de Acopio · CAJA PERAMANAL
 -- Libro de caja (réplica de la hoja "CAJA PERAMANAL - GOLDEN TOUCH").
 -- Cada movimiento se clasifica en uno de los 5 grupos de la hoja

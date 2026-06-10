@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { EmptyState } from '@/shared/ui/EmptyState';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { date, money, num } from '@/shared/lib/format';
+import { money, num } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
-import type { CajaMovimiento, CajaResumen, ClasificacionAcopio, Producto, RecepcionAcopio } from '@/shared/lib/types';
+import type { CajaMovimiento, CajaResumen, Producto, RecepcionAcopio } from '@/shared/lib/types';
 import {
   listRecepciones,
   createRecepcion,
@@ -21,15 +20,11 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajaMovimientos, resumirCaja, listClasificaciones, listCajas, listCostoClases } from './caja.repository';
-import { listCuadres } from './cuadre.repository';
-import { CajaView } from './CajaView';
-import { CuadreView } from './CuadreView';
-import { HojasExcelView } from './HojasExcelView';
+import { listCajaMovimientos, resumirCaja, listCajas } from './caja.repository';
 import { DineroPorEntrar } from './DineroPorEntrar';
 import { listEntrantesPorConfirmar } from '@/modules/tesoreria/transferenciasInter.repository';
 import { descargarRecepcionPdf } from './acopioPdf';
-import type { CajaCierre, CostoClase, Cuadre, TransferenciaInter } from '@/shared/lib/types';
+import type { CajaCierre, TransferenciaInter } from '@/shared/lib/types';
 
 const ESTADO_LABEL: Record<string, string> = {
   abierta: '● Abierta', cerrada: '✔ Cerrada', anulada: '✖ Anulada',
@@ -48,37 +43,27 @@ export function AcopioPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [cajaMovs, setCajaMovs] = useState<CajaMovimiento[]>([]);
-  const [clasificaciones, setClasificaciones] = useState<ClasificacionAcopio[]>([]);
-  const [cuadres, setCuadres] = useState<Cuadre[]>([]);
   const [cajas, setCajas] = useState<CajaCierre[]>([]);
-  const [costoClases, setCostoClases] = useState<CostoClase[]>([]);
   const [entrantes, setEntrantes] = useState<TransferenciaInter[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
   const [nuevo, setNuevo] = useState(false);
-  const [vista, setVista] = useState<'recepciones' | 'caja' | 'cuadre' | 'hojas'>('recepciones');
 
   const reload = useCallback(async () => {
-    const [rs, ps, alms, cms, cls, cqs, cjs, ccl, ent] = await Promise.all([
-      listRecepciones(), listProductos(), getNombresAlmacenes(), listCajaMovimientos(), listClasificaciones(), listCuadres(), listCajas(), listCostoClases(),
+    const [rs, ps, alms, cms, cjs, ent] = await Promise.all([
+      listRecepciones(), listProductos(), getNombresAlmacenes(), listCajaMovimientos(), listCajas(),
       listEntrantesPorConfirmar().catch(() => []),
     ]);
     setRecepciones(rs);
     setProductos(ps);
     setAlmacenes(alms);
     setCajaMovs(cms);
-    setClasificaciones(cls);
-    setCuadres(cqs);
     setCajas(cjs);
-    setCostoClases(ccl);
     setEntrantes(ent);
   }, []);
 
   useEffect(() => {
     let cancel = false;
-    setLoading(true);
-    reload().catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'Error al cargar', 'error'); })
-      .finally(() => { if (!cancel) setLoading(false); });
+    reload().catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'Error al cargar', 'error'); });
     return () => { cancel = true; };
   }, [reload]);
   useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'transferencias_inter', 'cajas', 'productos', 'existencias'], reload);
@@ -101,7 +86,7 @@ export function AcopioPage() {
           <h1>📦 Centro de Acopio PERAMANAL</h1>
           <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
-        {canWrite && vista === 'recepciones' && (
+        {canWrite && (
           <div className="actions">
             <button className="btn btn-primary" onClick={() => setNuevo(true)}>+ Nueva recepción</button>
           </div>
@@ -124,51 +109,6 @@ export function AcopioPage() {
         <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.nominas)}</div></div>
         <div className="card"><div className="card-title"><span>Recepciones</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{resumen.count}</div><div className="muted" style={{ fontSize: '.75rem' }}>{num(resumen.totalRecep)} Kg recep.</div></div>
       </div>
-
-      {/* Toggle de vista */}
-      <div className="filterbar" style={{ justifyContent: 'flex-start' }}>
-        <div className="view-toggle" role="tablist" aria-label="Vista">
-          <button className={vista === 'recepciones' ? 'active' : ''} onClick={() => setVista('recepciones')}>📦 Recepciones</button>
-          <button className={vista === 'caja' ? 'active' : ''} onClick={() => setVista('caja')}>💵 Caja Peramanal</button>
-          <button className={vista === 'cuadre' ? 'active' : ''} onClick={() => setVista('cuadre')}>🧾 Cuadre Efectivo</button>
-          <button className={vista === 'hojas' ? 'active' : ''} onClick={() => setVista('hojas')}>📋 Procesos</button>
-        </div>
-      </div>
-
-      {vista === 'hojas' ? (
-        <HojasExcelView />
-      ) : vista === 'cuadre' ? (
-        <CuadreView cuadres={cuadres} canWrite={canWrite} actor={actor} actorName={actorName} onReload={reload} />
-      ) : vista === 'caja' ? (
-        <CajaView movimientos={cajaMovs} clasificaciones={clasificaciones} cajas={cajas} costoClases={costoClases} canWrite={canWrite} actor={actor} actorName={actorName} onReload={reload} />
-      ) : loading ? (
-        <EmptyState message="Cargando…" icon="◔" />
-      ) : !recepciones.length ? (
-        <EmptyState message="Sin recepciones registradas. Creá la primera con “+ Nueva recepción”." icon="📦" />
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>N°</th><th>Fecha</th><th>Centro</th><th>Aliado</th><th>Lotes</th><th>P. Neto</th><th>Recepcionado</th><th>Estado</th></tr></thead>
-            <tbody>
-              {recepciones.map((r) => {
-                const t = totalesRecepcion(r.lotes ?? []);
-                return (
-                  <tr key={r.id} style={{ cursor: 'pointer', opacity: r.estado === 'anulada' ? 0.55 : 1 }} onClick={() => setEditar(r)}>
-                    <td className="mono">{r.numero}</td>
-                    <td>{date(r.fecha)}</td>
-                    <td>{r.centro_acopio || '—'}</td>
-                    <td>{r.aliado || '—'}</td>
-                    <td className="mono">{(r.lotes ?? []).length}</td>
-                    <td className="mono">{num(t.neto)} Kg</td>
-                    <td className="mono">{num(t.recepcionado)} Kg</td>
-                    <td>{ESTADO_LABEL[r.estado] ?? r.estado}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {(nuevo || editar) && (
         <RecepcionModal

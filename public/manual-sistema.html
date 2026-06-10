@@ -350,12 +350,15 @@
 
   <section class="modulo" id="s7">
     <h2>🔥 7. Producción</h2>
-    <p>Fabricación/producción de productos a partir de materiales del inventario, usando <strong>recetas</strong>.</p>
+    <p>Gestiona los <strong>contratos de producción</strong> (control de material procesado, recuperación de casiterita y subproductos). Mantiene también las <strong>recetas</strong> de productos.</p>
     <ul>
-      <li><strong>Recetas:</strong> definen los materiales que consume cada producto; al producir, se descuentan del inventario.</li>
-      <li><strong>Vista kanban:</strong> fundiciones en proceso y últimas finalizadas.</li>
-      <li>Cada producción registra el <strong>horno</strong> utilizado y la cantidad producida.</li>
-      <li>Descarga de la receta/producción en <strong>Excel</strong> (encabezado naranja característico).</li>
+      <li><strong>Tarjetas de resumen:</strong> arriba se muestran los <strong>contratos de producción activos</strong> y los <strong>KG de Casiterita obtenidos</strong> (total y de los activos).</li>
+      <li><strong>Lista de contratos:</strong> se ve directamente en la página, con <strong>filtros</strong> (búsqueda libre, por supervisor, lugar, estado y rango de fechas) al estilo de Tesorería, y <strong>reportes</strong> <strong>PDF / Excel / Correo</strong> que respetan el filtro aplicado.</li>
+      <li><strong>Crear contrato:</strong> el botón <strong>📜 Crear contrato</strong> abre el formulario con <strong>correlativo automático</strong> (<span class="badge">Producción GT-01</span>, -02, …) y <strong>fecha + hora</strong> automáticas. Datos: <strong>Supervisor de Producción</strong> (obligatorio), <strong>Lugar de extracción</strong>, <strong>Molino utilizado</strong>, y los valores medidos <strong>Ton procesadas</strong>, <strong>Kg húmedo</strong>, <strong>Kg secos</strong>, <strong>Kg seco limpio (Casiterita)</strong> y <strong>Material de mesa</strong>. El <strong>supervisor</strong> y el <strong>lugar</strong> se eligen de una lista; al escribir uno nuevo se <strong>guarda solo</strong> en el catálogo.</li>
+      <li><strong>Catálogo:</strong> el botón <strong>🗂 Catálogo</strong> (junto a Crear contrato) gestiona, en secciones separadas, los <strong>Lugares de extracción</strong> y los <strong>Supervisores</strong>: permite <strong>agregar, editar, activar/desactivar y borrar</strong>.</li>
+      <li><strong>Fórmulas automáticas</strong> (idénticas al control de producción): <strong>Tolva</strong> = Ton ÷ 1,2 · <strong>% recuperado por ton con impurezas</strong> = Kg húmedo ÷ (Ton×1000) · <strong>% humedad</strong> = Kg secos ÷ Kg húmedo − 1 · <strong>% Recuperación Final Casiterita</strong> = Kg seco limpio ÷ (Ton×1000) · <strong>Kg hierro</strong> = Kg seco limpio − Kg secos · <strong>% hierro</strong> = Kg hierro ÷ Kg secos. Se ven en vivo al cargar el contrato.</li>
+      <li><strong>Estado:</strong> cada contrato es <span class="badge success">Activo</span> o <span class="badge">Cerrado</span> (se puede cerrar, reabrir, editar o borrar desde la lista).</li>
+      <li><strong>Recetas:</strong> definen los materiales que consume cada producto; al producir, se descuentan del inventario. Se descargan en <strong>Excel</strong> (encabezado naranja característico).</li>
     </ul>
   </section>
 

@@ -510,6 +510,55 @@ export interface RecepcionAcopio {
   lotes?: RecepcionAcopioLote[];
 }
 
+/* ───────────── Contratos de producción (Centro de Acopio) ───────────── */
+
+export type TipoCatalogoAcopio = 'lugar_extraccion' | 'supervisor';
+
+/** Catálogo editable del acopio (lugares de extracción, etc.). */
+export interface CatalogoAcopio {
+  id: string;
+  tipo: TipoCatalogoAcopio;
+  valor: string;
+  activo: boolean;
+  orden: number;
+  created_at: string;
+}
+
+export type EstadoContratoAcopio = 'activo' | 'cerrado';
+
+/** Contrato de producción correlativo ("Producción GT-01", -02, …). */
+export interface ContratoAcopio {
+  id: string;
+  numero: string;
+  seq: number;
+  fecha: string;
+  hora?: string | null;
+  supervisor?: string | null;
+  lugar_extraccion?: string | null;
+  molino?: string | null;
+  // Inputs principales (réplica del Excel).
+  ton_procesadas: number;
+  kg_humedo: number;
+  kg_secos: number;
+  /** Kg seco, limpio = Casiterita final obtenida. */
+  kg_seco_limpio: number;
+  material_mesa_kg: number;
+  // Fórmulas automáticas (columnas generadas en la BD).
+  tolva?: number | null;
+  pct_recuperado_impurezas?: number | null;
+  pct_humedad?: number | null;
+  pct_recuperacion_casiterita?: number | null;
+  kg_hierro?: number | null;
+  pct_hierro?: number | null;
+  estado: EstadoContratoAcopio;
+  cerrado_at?: string | null;
+  cerrado_por?: string | null;
+  observaciones?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+}
+
 /* ───────────── Caja Peramanal (Centro de Acopio) ───────────── */
 
 /** Los 5 grupos de clasificación de la hoja CLASIFICACIONES del Excel. */
