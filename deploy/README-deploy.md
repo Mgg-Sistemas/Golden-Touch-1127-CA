@@ -18,6 +18,18 @@ chmod +x /var/www/Golden-Touch-1127-CA/deploy/auto-update.sh
 touch /var/log/golden-touch-deploy.log
 ```
 
+## 2b. (Opcional) Aviso de mantenimiento automático
+Para que, **solo cuando hay un despliegue real**, salga el banner "Se está aplicando una
+actualización…" en la app (y se apague al terminar), el script necesita la **service role
+key** de Supabase. Agregala al `.env.local` del server (gitignored, nunca va al bundle):
+```bash
+cd /var/www/Golden-Touch-1127-CA
+echo 'SUPABASE_SERVICE_ROLE_KEY=eyJ...tu_service_role...' >> .env.local
+```
+La sacás del panel de Supabase → Settings → API → `service_role` (secret). Si no la ponés,
+el deploy funciona igual, solo que no muestra el aviso. El banner se enciende antes de
+construir y se apaga al recargar nginx (o si algo falla, vía `trap`).
+
 ## 3. Instalar el cron (cada 3 minutos)
 ```bash
 crontab -e
