@@ -916,12 +916,14 @@ export async function listMedidores(): Promise<MedidorCombustible[]> {
 export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
+  // El HI del próximo movimiento del equipo = HF del ÚLTIMO REGISTRADO de ese equipo
+  // (orden por created_at desc, igual que el contador). No por fecha: así un registro
+  // con fecha más vieja no "pisa" el horómetro vigente.
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('horometro_fin, fecha, created_at')
+    .select('horometro_fin, created_at')
     .eq('equipo', e)
     .not('horometro_fin', 'is', null)
-    .order('fecha', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
