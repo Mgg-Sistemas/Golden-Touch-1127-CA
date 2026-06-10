@@ -32,18 +32,18 @@ export async function descargarContratosExcel(rows: ContratoAcopio[]): Promise<v
 
   const head = ['N° Contrato', 'Fecha', 'Hora', 'Supervisor', 'Lugar', 'Molino', 'Ton procesadas', 'Tolva',
     'Kg húmedo', '% recup. impurezas', 'Kg secos', '% humedad', 'Kg seco limpio', '% Recup. Casiterita',
-    'Kg hierro', '% hierro', 'Material mesa (Kg)', 'Estado', 'Observación'];
+    'Kg hierro', '% hierro', 'Estado', 'Observación'];
 
   const filas = rows.map((c) => [
     c.numero, c.fecha, c.hora || '', c.supervisor || '', c.lugar_extraccion || '', c.molino || '',
     n(c.ton_procesadas), n(c.tolva), n(c.kg_humedo), n(c.pct_recuperado_impurezas), n(c.kg_secos), n(c.pct_humedad),
     n(c.kg_seco_limpio), n(c.pct_recuperacion_casiterita), n(c.kg_hierro), n(c.pct_hierro),
-    n(c.material_mesa_kg), c.estado === 'activo' ? 'Activo' : 'Cerrado', c.observaciones || '',
+    c.estado === 'activo' ? 'Activo' : 'Cerrado', c.observaciones || '',
   ]);
   const totFila = ['', '', '', '', '', 'TOTALES',
     rows.reduce((a, c) => a + n(c.ton_procesadas), 0), '', rows.reduce((a, c) => a + n(c.kg_humedo), 0), '',
     rows.reduce((a, c) => a + n(c.kg_secos), 0), '', rows.reduce((a, c) => a + n(c.kg_seco_limpio), 0), '',
-    rows.reduce((a, c) => a + n(c.kg_hierro), 0), '', rows.reduce((a, c) => a + n(c.material_mesa_kg), 0), '', ''];
+    rows.reduce((a, c) => a + n(c.kg_hierro), 0), '', '', ''];
 
   const aoa: unknown[][] = [
     ['CONTRATOS DE PRODUCCIÓN · Golden Touch'],

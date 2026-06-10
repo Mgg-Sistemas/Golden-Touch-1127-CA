@@ -6,7 +6,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import type { ContratoAcopio, EstadoContratoAcopio } from '@/shared/lib/types';
-import { listContratos, eliminarContrato, setEstadoContrato } from './contratos.repository';
+import { listContratos, eliminarContrato, cerrarContrato, reabrirContrato } from './contratos.repository';
 import { ContratosModal, pct } from './ContratosModal';
 import { descargarContratosPdf } from './contratoPdf';
 import { descargarContratosExcel } from './contratoExcel';
@@ -78,14 +78,24 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
   }, { activos: 0, total: 0, kg: 0, kgActivos: 0 }), [contratos]);
 
   async function borrar(c: ContratoAcopio) {
-    if (!window.confirm(`¿Eliminar el contrato ${c.numero}?`)) return;
-    try { await eliminarContrato(c.id); toast('Contrato eliminado', 'success'); await recargar(); }
+    const aviso = c.estado === 'cerrado' && Number(c.mov_cantidad) > 0
+      ? ` Se revertirán ${num(c.mov_cantidad)} Kg de Casiterita del inventario.` : '';
+    if (!window.confirm(`¿Eliminar el contrato ${c.numero}?${aviso}`)) return;
+    try { await eliminarContrato(c.id, actor, actorName); toast('Contrato eliminado', 'success'); await recargar(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
   async function cambiarEstado(c: ContratoAcopio) {
-    const nuevo: EstadoContratoAcopio = c.estado === 'activo' ? 'cerrado' : 'activo';
-    try { await setEstadoContrato(c.id, nuevo, actor); toast(nuevo === 'cerrado' ? 'Contrato cerrado' : 'Contrato reabierto', 'success'); await recargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar el estado', 'error'); }
+    const kg = Number(c.kg_seco_limpio) || 0;
+    if (c.estado === 'activo') {
+      if (!window.confirm(`¿Cerrar el contrato ${c.numero}?\n\nEntrarán ${num(kg)} Kg de Casiterita al inventario (almacén PRODUCCION).`)) return;
+      try { await cerrarContrato(c.id, actor, actorName); toast(`Contrato cerrado · +${num(kg)} Kg de Casiterita`, 'success'); await recargar(); }
+      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar', 'error'); }
+    } else {
+      const rev = Number(c.mov_cantidad) || 0;
+      if (!window.confirm(`¿Reabrir el contrato ${c.numero}?${rev > 0 ? `\n\nSe revertirán ${num(rev)} Kg de Casiterita del inventario.` : ''}`)) return;
+      try { await reabrirContrato(c.id, actor, actorName); toast('Contrato reabierto', 'success'); await recargar(); }
+      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir', 'error'); }
+    }
   }
 
   return (

@@ -22,7 +22,7 @@ import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
   registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL,
-  crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, crearConciliacion,
+  crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, resumenTanquesPeriodo, type ReporteTanque, type ResumenTanquePeriodo,
 } from './tanques.repository';
@@ -374,7 +374,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     setError(null);
     const litrosNum = Number(litros) || 0;
     if (litros.trim() === '' || litrosNum === 0) { setError('Indicá los litros (se admiten negativos, como en el Excel).'); return; }
-    if (tipo === 'traslado' && destinoId && destinoId === tanqueId) { setError('El tanque destino debe ser distinto.'); return; }
+    if (tipo === 'traslado' && !destinoId) { setError('Indicá el tanque destino del traslado.'); return; }
+    if (tipo === 'traslado' && destinoId === tanqueId) { setError('El tanque destino debe ser distinto.'); return; }
     const campos = { fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion };
     setSaving(true);
     try {
@@ -386,7 +387,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
       else await registrarTraslado({ tanqueId, litros: litrosNum, tanqueDestinoId: destinoId || null, campos, actor, actorName });
       toast('Movimiento registrado', 'success');
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); }
+    } catch (err) { setError((err as { message?: string })?.message || 'No se pudo registrar.'); }
     finally { setSaving(false); }
   }
 
@@ -435,10 +436,10 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           )}
           {tipo === 'traslado' && (
             <div className="form-row">
-              <label>Tanque destino (opcional)</label>
+              <label>Tanque destino *</label>
               <SearchSelect value={destinoId} onChange={setDestinoId} placeholder="🔍 Buscar destino…"
                 options={[
-                  { value: '', label: '— otra mina / externo —' },
+                  { value: '', label: '— elegí el tanque destino —' },
                   { value: DESTINO_MGG, label: `🌐 ${DESTINO_MGG_LABEL} (otro sistema)` },
                   ...tanques.filter((t) => t.id !== tanqueId).map((t) => ({ value: t.id, label: t.nombre })),
                 ]} />
@@ -486,7 +487,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved }: {
   const [alto, setAlto] = useState(tanque?.alto_m != null ? String(tanque.alto_m) : '');
   const [capacidad, setCapacidad] = useState(tanque?.capacidad_litros != null ? String(tanque.capacidad_litros) : '');
   const [saldo, setSaldo] = useState('');
-  const [tasa, setTasa] = useState('');
+  const [tasa, setTasa] = useState(tanque?.tasa_usd_litro != null ? String(tanque.tasa_usd_litro) : '');
   const [ubicacion, setUbicacion] = useState(tanque?.ubicacion ?? '');
   const [saving, setSaving] = useState(false);
 
@@ -518,7 +519,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved }: {
     setSaving(true);
     try {
       if (editando && tanque) {
-        await actualizarTanque(tanque.id, datosGeom());
+        await actualizarTanque(tanque.id, { ...datosGeom(), tasaUsdLitro: tasa === '' ? undefined : Number(tasa) });
         toast('Tanque actualizado', 'success');
       } else {
         await crearTanque({ ...datosGeom(), saldoLitros: Number(saldo) || 0, tasaUsdLitro: Number(tasa) || 0, actor });
@@ -579,10 +580,16 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved }: {
           </div>
         </div>
 
-        {!editando && (
+        {!editando ? (
           <div className="form-grid">
             <div className="form-row"><label>Saldo inicial (L)</label><input className="input mono" type="number" min={0} step="any" value={saldo} onChange={(e) => setSaldo(e.target.value)} /></div>
             <div className="form-row"><label>Tasa inicial (USD/L)</label><input className="input mono" type="number" min={0} step="0.0001" value={tasa} onChange={(e) => setTasa(e.target.value)} /></div>
+          </div>
+        ) : (
+          <div className="form-row">
+            <label>Tasa (USD/L)</label>
+            <input className="input mono" type="number" min={0} step="0.0001" value={tasa} onChange={(e) => setTasa(e.target.value)} />
+            <small className="muted">Modifica la tasa promedio del tanque; recalcula el saldo en $ (saldo L × tasa).</small>
           </div>
         )}
         <div className="form-row">
@@ -603,6 +610,8 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
   const [tab, setTab] = useState<TipoCatalogoCombustible>('equipo');
   const [valor, setValor] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editValor, setEditValor] = useState('');
   const items = useMemo(() => catalogos.filter((c) => c.tipo === tab), [catalogos, tab]);
   const TABS: { key: TipoCatalogoCombustible; label: string }[] = [
     { key: 'equipo', label: 'Equipos' }, { key: 'autorizado', label: 'Autorizados' }, { key: 'ubicacion', label: 'Ubicaciones' },
@@ -615,9 +624,18 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
     finally { setBusy(false); }
   }
+  async function guardarEdicion(id: string) {
+    try { await updateCatalogo(id, editValor); setEditId(null); await onChanged(); toast('Actualizado', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo editar', 'error'); }
+  }
   async function toggle(id: string, activo: boolean) {
     try { await setCatalogoActivo(id, !activo); await onChanged(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+  }
+  async function borrar(id: string) {
+    if (!window.confirm('¿Eliminar este elemento del catálogo?')) return;
+    try { await eliminarCatalogo(id); await onChanged(); toast('Eliminado', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
   return (
@@ -636,9 +654,27 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
             {!items.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin elementos.</td></tr>}
             {items.map((c) => (
               <tr key={c.id} style={{ opacity: c.activo ? 1 : 0.5 }}>
-                <td>{c.valor}</td>
+                <td>
+                  {editId === c.id ? (
+                    <input className="input" value={editValor} autoFocus onChange={(e) => setEditValor(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdicion(c.id); if (e.key === 'Escape') setEditId(null); }} />
+                  ) : c.valor}
+                </td>
                 <td>{c.activo ? '🟢 Activo' : '⚪ Inactivo'}</td>
-                <td><button className="btn btn-sm btn-ghost" onClick={() => toggle(c.id, c.activo)}>{c.activo ? 'Desactivar' : 'Activar'}</button></td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {editId === c.id ? (
+                    <>
+                      <button className="btn btn-sm btn-primary" onClick={() => void guardarEdicion(c.id)}>Guardar</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setEditId(null)}>Cancelar</button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => { setEditId(c.id); setEditValor(c.valor); }}>✎</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => toggle(c.id, c.activo)}>{c.activo ? 'Desactivar' : 'Activar'}</button>
+                      <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void borrar(c.id)}>🗑</button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
