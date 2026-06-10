@@ -586,6 +586,9 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
   const [autorizado, setAutorizado] = useState(mov.autorizado_por ?? '');
   const [ubicacion, setUbicacion] = useState(mov.ubicacion ?? '');
   const [observacion, setObservacion] = useState(mov.observacion ?? '');
+  const [tipo, setTipo] = useState<TipoMovTanque>(mov.tipo);
+  const [litros, setLitros] = useState(s(mov.litros));
+  const [tasa, setTasa] = useState(s(mov.tasa_usd_litro));
   const [hi, setHi] = useState(s(mov.horometro_ini));
   const [hf, setHf] = useState(s(mov.horometro_fin));
   const [ci, setCi] = useState(s(mov.contador_global_ini));
@@ -595,13 +598,16 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
 
   const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
   const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
+  const montoCalc = litros !== '' && tasa !== '' ? Number(litros) * Number(tasa) : null;
 
   async function guardar() {
     setError(null);
+    if (litros === '' || Number(litros) === 0) { setError('Indicá los litros (distinto de 0).'); return; }
     setSaving(true);
     try {
       await actualizarMovimientoTanque(mov.id, {
         fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
+        tipo, litros: Number(litros), tasaUsdLitro: tasa === '' ? 0 : Number(tasa),
         horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
       });
@@ -629,16 +635,32 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
     <Modal title="Detalle del movimiento" size="md" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-      {/* Datos del saldo (no editables: para cambiarlos se borra y se recrea el movimiento) */}
       <Fila k="Tanque" v={tanque?.nombre ?? '—'} />
-      <Fila k="Tipo" v={TIPO_MOV_LABEL[mov.tipo]} />
-      <Fila k="Litros" v={num(mov.litros)} />
-      <Fila k="Tasa $/L" v={money(mov.tasa_usd_litro)} />
-      <Fila k="Monto $" v={money(mov.monto_usd)} />
       <Fila k="Saldo del tanque (L · $)" v={`${num(mov.saldo_litros)} L · ${money(mov.saldo_usd)}`} />
 
-      {/* Datos editables */}
+      {/* Datos editables (TODO). Al cambiar tipo/litros/tasa se recalcula el saldo del tanque. */}
       <div className="card-title" style={{ marginTop: '1rem' }}>✎ Datos editables</div>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Tipo de movimiento</label>
+          <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoMovTanque)} disabled={!canWrite}>
+            <option value="entrada">{TIPO_MOV_LABEL.entrada}</option>
+            <option value="uso">{TIPO_MOV_LABEL.uso}</option>
+            <option value="traslado">{TIPO_MOV_LABEL.traslado}</option>
+            <option value="retorno">{TIPO_MOV_LABEL.retorno}</option>
+            <option value="merma">{TIPO_MOV_LABEL.merma}</option>
+          </select>
+        </div>
+        <div className="form-row"><label>Litros</label><input className="input mono" type="number" step="any" value={litros} onChange={(e) => setLitros(e.target.value)} disabled={!canWrite} /></div>
+      </div>
+      <div className="form-grid">
+        <div className="form-row"><label>Tasa $/L</label><input className="input mono" type="number" step="0.0001" value={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row">
+          <label>Monto $ (= litros × tasa)</label>
+          <input className="input mono" value={montoCalc == null ? '' : money(montoCalc)} readOnly placeholder="se calcula automáticamente"
+            style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
+        </div>
+      </div>
       <div className="form-grid">
         <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite} /></div>
         <div className="form-row"><label>Hora</label><input className="input" value={hora} onChange={(e) => setHora(e.target.value)} disabled={!canWrite} placeholder="8:02:00 AM" /></div>

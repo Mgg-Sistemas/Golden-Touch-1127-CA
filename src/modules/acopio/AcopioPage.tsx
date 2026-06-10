@@ -7,6 +7,7 @@ import { money, num } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { MovimientosAcopioView } from './MovimientosAcopioView';
+import { CategoriasGastosModal } from './CategoriasGastosModal';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { CajaMovimiento, CajaResumen, Producto, RecepcionAcopio } from '@/shared/lib/types';
@@ -46,6 +47,7 @@ export function AcopioPage() {
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
   const [nuevo, setNuevo] = useState(false);
   const [movAcopio, setMovAcopio] = useState(false);
+  const [categorias, setCategorias] = useState(false);
   const [saldoCasiterita, setSaldoCasiterita] = useState(0);
   const [tasaMaterial, setTasaMaterial] = useState(0);
   const onResumenAcopio = useCallback((r: { saldoKg: number; tasa: number }) => { setSaldoCasiterita(r.saldoKg); setTasaMaterial(r.tasa); }, []);
@@ -81,11 +83,10 @@ export function AcopioPage() {
           <h1>📦 Centro de Acopio PERAMANAL</h1>
           <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
-        {canWrite && (
-          <div className="actions">
-            <button className="btn btn-primary" onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>
-          </div>
-        )}
+        <div className="actions">
+          <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
+          {canWrite && <button className="btn btn-primary" onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>}
+        </div>
       </div>
 
       {/* Dinero que llega desde el otro sistema (puente inter-sistema) */}
@@ -106,6 +107,8 @@ export function AcopioPage() {
 
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí) */}
       <MovimientosAcopioView onResumen={onResumenAcopio} />
+
+      {categorias && <CategoriasGastosModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
       {movAcopio && (
         <Modal title="Agregar movimiento" size="md" onClose={() => setMovAcopio(false)}
