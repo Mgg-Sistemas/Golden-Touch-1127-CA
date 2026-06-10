@@ -21,7 +21,8 @@ import type {
 import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
-  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo,
+  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoContadorEquipo,
+  actualizarMovimientoTanque,
   crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, resumenTanquesPeriodo, type ReporteTanque, type ResumenTanquePeriodo,
@@ -256,13 +257,14 @@ export function TanquesView() {
                   <tr>
                     <th>Fecha</th><th>Tanque</th><th>Equipo</th><th>Autorizado</th><th>Destino</th><th>Observación</th>
                     <th>HI</th><th>HF</th><th>Hrs</th>
+                    <th>Cont. ini</th><th>Cont. fin</th><th>Lt usados (cont.)</th>
                     <th>Entrada</th><th>Uso</th><th>Traslado</th><th>Retorno</th><th>Merma</th><th>Saldo L</th>
                     <th>Tasa</th><th>$ Mov.</th><th>Saldo $</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {!movsFiltrados.length && (
-                    <tr><td colSpan={19} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                    <tr><td colSpan={22} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
                   )}
                   {movsFiltrados.map((m) => (
                     <tr key={m.id}>
@@ -275,6 +277,9 @@ export function TanquesView() {
                       <td className="mono muted">{m.horometro_ini != null ? num(m.horometro_ini) : '—'}</td>
                       <td className="mono muted">{m.horometro_fin != null ? num(m.horometro_fin) : '—'}</td>
                       <td className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>
+                      <td className="mono muted">{m.contador_global_ini != null ? num(m.contador_global_ini) : '—'}</td>
+                      <td className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>
+                      <td className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>
                       <td className="mono" style={{ color: 'var(--primary-3)' }}>{m.tipo === 'entrada' ? num(m.litros) : ''}</td>
                       <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'uso' ? num(m.litros) : ''}</td>
                       <td className="mono" style={{ color: 'var(--warning)' }}>{m.tipo === 'traslado' ? num(m.litros) : ''}</td>
@@ -316,7 +321,10 @@ export function TanquesView() {
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
       )}
       {detalle && (
-        <DetalleMovimientoModal mov={detalle} tanque={tanques.find((t) => t.id === detalle.tanque_id) ?? sel} onClose={() => setDetalle(null)} />
+        <DetalleMovimientoModal mov={detalle} tanque={tanques.find((t) => t.id === detalle.tanque_id) ?? sel}
+          catalogos={catalogos} canWrite={canWrite}
+          onClose={() => setDetalle(null)}
+          onSaved={async () => { setDetalle(null); await recargarTodo(); }} />
       )}
       {aBorrar && (
         <ConfirmDialog
@@ -386,20 +394,33 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const [hf, setHf] = useState('');
   const [ci, setCi] = useState('');
   const [cf, setCf] = useState('');
+  // Cuando el HI / contador inicial se traen del último del equipo, quedan BLOQUEADOS (no se modifican).
+  const [hiAuto, setHiAuto] = useState(false);
+  const [ciAuto, setCiAuto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
 
-  // Al elegir un equipo, autocargamos el HI con el último horómetro FINAL registrado para ese equipo.
+  // Al elegir un equipo, autocargamos el HI (último horómetro final) y el contador inicial
+  // (último contador global final) registrados para ese equipo. Si traen dato, se bloquean.
   useEffect(() => {
-    if (!equipo) return;
+    if (!equipo) { setHiAuto(false); setCiAuto(false); return; }
     let cancel = false;
-    ultimoHorometroEquipo(equipo).then((ult) => { if (!cancel && ult != null) setHi(String(ult)); }).catch(() => {});
+    ultimoHorometroEquipo(equipo).then((ult) => {
+      if (cancel) return;
+      if (ult != null) { setHi(String(ult)); setHiAuto(true); } else { setHiAuto(false); }
+    }).catch(() => {});
+    ultimoContadorEquipo(equipo).then((ult) => {
+      if (cancel) return;
+      if (ult != null) { setCi(String(ult)); setCiAuto(true); } else { setCiAuto(false); }
+    }).catch(() => {});
     return () => { cancel = true; };
   }, [equipo]);
 
   const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
+  // Litros usados según el contador del surtidor (final − inicial). No se modifica.
+  const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -509,8 +530,9 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           <div className="form-grid">
             <div className="form-row">
               <label>Horómetro inicial (HI)</label>
-              <input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} placeholder="auto: último del equipo" />
-              <small className="muted">Trae el último horómetro final registrado para el equipo seleccionado.</small>
+              <input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} readOnly={hiAuto}
+                placeholder="auto: último del equipo" style={hiAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
+              <small className="muted">{hiAuto ? 'Traído del último final del equipo (no se modifica).' : 'Trae el último horómetro final del equipo; si no hay, ingresalo.'}</small>
             </div>
             <div className="form-row">
               <label>Horómetro final (HF)</label>
@@ -523,8 +545,18 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
               style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
           </div>
           <div className="form-grid">
-            <div className="form-row"><label>Contador global inicial</label><input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} /></div>
+            <div className="form-row">
+              <label>Contador global inicial</label>
+              <input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} readOnly={ciAuto}
+                placeholder="auto: último del equipo" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
+              <small className="muted">{ciAuto ? 'Traído del último contador final del equipo (no se modifica).' : 'Trae el último contador final del equipo; si no hay, ingresalo.'}</small>
+            </div>
             <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" value={cf} onChange={(e) => setCf(e.target.value)} /></div>
+          </div>
+          <div className="form-row">
+            <label>Litros usados (según contador = final − inicial)</label>
+            <input className="input mono" value={litrosContador == null ? '' : num(litrosContador)} readOnly placeholder="se calcula automáticamente"
+              style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
           </div>
         </div>
       </form>
@@ -532,41 +564,116 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   );
 }
 
-/* ───────────── Modal: ver detalle de un movimiento ───────────── */
+/* ───────────── Modal: ver / editar detalle de un movimiento ───────────── */
 
-function DetalleMovimientoModal({ mov, tanque, onClose }: {
-  mov: MovimientoTanque; tanque: TanqueCombustible | null | undefined; onClose: () => void;
+function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onSaved }: {
+  mov: MovimientoTanque; tanque: TanqueCombustible | null | undefined; catalogos: CatalogoCombustible[];
+  canWrite: boolean; onClose: () => void; onSaved: () => void;
 }) {
-  const hrs = mov.horometro_ini != null && mov.horometro_fin != null ? Number(mov.horometro_fin) - Number(mov.horometro_ini) : null;
-  const contDif = mov.contador_global_ini != null && mov.contador_global_fin != null
-    ? Number(mov.contador_global_fin) - Number(mov.contador_global_ini) : null;
-  const Fila = ({ k, v, hi }: { k: string; v: ReactNode; hi?: boolean }) => (
+  const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
+  const s = (v: number | null | undefined) => (v == null ? '' : String(v));
+
+  const [fecha, setFecha] = useState(mov.fecha);
+  const [hora, setHora] = useState(mov.hora ?? '');
+  const [equipo, setEquipo] = useState(mov.equipo ?? '');
+  const [autorizado, setAutorizado] = useState(mov.autorizado_por ?? '');
+  const [ubicacion, setUbicacion] = useState(mov.ubicacion ?? '');
+  const [observacion, setObservacion] = useState(mov.observacion ?? '');
+  const [hi, setHi] = useState(s(mov.horometro_ini));
+  const [hf, setHf] = useState(s(mov.horometro_fin));
+  const [ci, setCi] = useState(s(mov.contador_global_ini));
+  const [cf, setCf] = useState(s(mov.contador_global_fin));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
+  const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
+
+  async function guardar() {
+    setError(null);
+    setSaving(true);
+    try {
+      await actualizarMovimientoTanque(mov.id, {
+        fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
+        horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
+        contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
+      });
+      toast('Movimiento actualizado', 'success');
+      onSaved();
+    } catch (err) { setError((err as { message?: string })?.message || 'No se pudo guardar.'); }
+    finally { setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+      {canWrite && <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>}
+    </>
+  );
+
+  const Fila = ({ k, v, hi: hl }: { k: string; v: ReactNode; hi?: boolean }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '.35rem 0', borderBottom: '1px solid var(--border, rgba(255,255,255,.08))' }}>
       <span className="muted" style={{ fontSize: '.82rem' }}>{k}</span>
-      <span className="mono" style={hi ? { fontWeight: 700, color: 'var(--warning)' } : undefined}>{v}</span>
+      <span className="mono" style={hl ? { fontWeight: 700, color: 'var(--warning)' } : undefined}>{v}</span>
     </div>
   );
+
   return (
-    <Modal title="Detalle del movimiento" size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+    <Modal title="Detalle del movimiento" size="md" onClose={onClose} footer={footer}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+      {/* Datos del saldo (no editables: para cambiarlos se borra y se recrea el movimiento) */}
       <Fila k="Tanque" v={tanque?.nombre ?? '—'} />
-      <Fila k="Fecha / hora" v={`${mov.fecha}${mov.hora ? ' · ' + mov.hora : ''}`} />
       <Fila k="Tipo" v={TIPO_MOV_LABEL[mov.tipo]} />
-      <Fila k="Equipo" v={mov.equipo || '—'} />
-      <Fila k="Autorizado por" v={mov.autorizado_por || '—'} />
-      <Fila k="Destino" v={mov.ubicacion || '—'} />
       <Fila k="Litros" v={num(mov.litros)} />
       <Fila k="Tasa $/L" v={money(mov.tasa_usd_litro)} />
       <Fila k="Monto $" v={money(mov.monto_usd)} />
       <Fila k="Saldo del tanque (L · $)" v={`${num(mov.saldo_litros)} L · ${money(mov.saldo_usd)}`} />
 
+      {/* Datos editables */}
+      <div className="card-title" style={{ marginTop: '1rem' }}>✎ Datos editables</div>
+      <div className="form-grid">
+        <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Hora</label><input className="input" value={hora} onChange={(e) => setHora(e.target.value)} disabled={!canWrite} placeholder="8:02:00 AM" /></div>
+      </div>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Equipo</label>
+          <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…" disabled={!canWrite}
+            options={[{ value: '', label: '— sin equipo —' }, ...opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))]} />
+        </div>
+        <div className="form-row">
+          <label>Autorizado por</label>
+          <SearchSelect value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscar autorizado…" disabled={!canWrite}
+            options={[{ value: '', label: '— sin autorizado —' }, ...opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))]} />
+        </div>
+      </div>
+      <div className="form-row">
+        <label>Destino</label>
+        <SearchSelect value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscar destino…" disabled={!canWrite}
+          options={[{ value: '', label: '— sin destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
+      </div>
+      <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} disabled={!canWrite} /></div>
+
       <div className="card-title" style={{ marginTop: '1rem' }}>🕒 Medidores</div>
-      <Fila k="Horómetro inicial (HI)" v={mov.horometro_ini != null ? num(mov.horometro_ini) : '—'} />
-      <Fila k="Horómetro final (HF)" v={mov.horometro_fin != null ? num(mov.horometro_fin) : '—'} />
-      <Fila k="Horas utilizadas (HF − HI)" v={hrs != null ? num(hrs) : '—'} hi />
-      <Fila k="Contador global inicial" v={mov.contador_global_ini != null ? num(mov.contador_global_ini) : '—'} />
-      <Fila k="Contador global final" v={mov.contador_global_fin != null ? num(mov.contador_global_fin) : '—'} />
-      <Fila k="Diferencia contador (final − inicial)" v={contDif != null ? num(contDif) : '—'} hi />
-      {mov.observacion ? <Fila k="Observación" v={mov.observacion} /> : null}
+      <div className="form-grid">
+        <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" value={hf} onChange={(e) => setHf(e.target.value)} disabled={!canWrite} /></div>
+      </div>
+      <div className="form-row">
+        <label>Horas utilizadas (HRS = HF − HI)</label>
+        <input className="input mono" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula automáticamente"
+          style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
+      </div>
+      <div className="form-grid">
+        <div className="form-row"><label>Contador global inicial</label><input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" value={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
+      </div>
+      <div className="form-row">
+        <label>Litros usados (según contador = final − inicial)</label>
+        <input className="input mono" value={litrosContador == null ? '' : num(litrosContador)} readOnly placeholder="se calcula automáticamente"
+          style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
+      </div>
     </Modal>
   );
 }
