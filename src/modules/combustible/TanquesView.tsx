@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -21,7 +21,7 @@ import type {
 import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
-  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL,
+  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo,
   crearTanque, actualizarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
   consumoUso, resumenTanquesPeriodo, type ReporteTanque, type ResumenTanquePeriodo,
@@ -32,7 +32,6 @@ import { enviarMovimientosTanquePorCorreo } from './enviarTanque';
 import { descargarConciliacionesPdf, type ConciliacionRow } from './conciliacionPdf';
 import { descargarConciliacionesExcel } from './conciliacionExcel';
 import { enviarConciliacionesPorCorreo } from './enviarConciliacion';
-import { MedidoresModal } from './MedidoresModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
@@ -64,7 +63,9 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'medidores'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion'>('none');
+  const [detalle, setDetalle] = useState<MovimientoTanque | null>(null);
+  const [aBorrar, setABorrar] = useState<MovimientoTanque | null>(null);
   const [editTanque, setEditTanque] = useState<TanqueCombustible | null>(null);
   // Filtros del libro mayor (registro de movimientos del tanque seleccionado).
   const [fTexto, setFTexto] = useState('');
@@ -148,7 +149,6 @@ export function TanquesView() {
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setModal('medidores')} title="Horómetros / contadores por equipo">🕒 Medidores</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
@@ -254,19 +254,20 @@ export function TanquesView() {
               <table className="table" style={{ fontSize: '.8rem' }}>
                 <thead>
                   <tr>
-                    <th>Fecha</th><th>Equipo</th><th>Autorizado</th><th>Destino</th><th>Observación</th>
+                    <th>Fecha</th><th>Tanque</th><th>Equipo</th><th>Autorizado</th><th>Destino</th><th>Observación</th>
                     <th>HI</th><th>HF</th><th>Hrs</th>
                     <th>Entrada</th><th>Uso</th><th>Traslado</th><th>Retorno</th><th>Merma</th><th>Saldo L</th>
-                    <th>Tasa</th><th>$ Mov.</th><th>Saldo $</th>{canWrite && <th></th>}
+                    <th>Tasa</th><th>$ Mov.</th><th>Saldo $</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {!movsFiltrados.length && (
-                    <tr><td colSpan={canWrite ? 18 : 17} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                    <tr><td colSpan={19} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
                   )}
                   {movsFiltrados.map((m) => (
                     <tr key={m.id}>
                       <td className="mono" style={{ whiteSpace: 'nowrap' }}>{m.fecha}{m.hora ? <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div> : null}</td>
+                      <td className="muted">{tanques.find((t) => t.id === m.tanque_id)?.nombre ?? sel?.nombre ?? '—'}</td>
                       <td>{m.equipo || '—'}</td>
                       <td className="muted">{m.autorizado_por || '—'}</td>
                       <td className="muted">{m.ubicacion || '—'}</td>
@@ -283,7 +284,10 @@ export function TanquesView() {
                       <td className="mono muted">{money(m.tasa_usd_litro)}</td>
                       <td className="mono">{money(m.monto_usd)}</td>
                       <td className="mono"><strong>{money(m.saldo_usd)}</strong></td>
-                      {canWrite && <td><button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => void borrar(m)}>🗑</button></td>}
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => setDetalle(m)}>👁 Ver</button>
+                        {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => setABorrar(m)}>🗑</button>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -311,8 +315,22 @@ export function TanquesView() {
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
       )}
-      {modal === 'medidores' && (
-        <MedidoresModal catalogos={catalogos} canWrite={canWrite} actor={actor} actorName={actorName} defaultEmail={user?.email ?? ''} onClose={() => setModal('none')} />
+      {detalle && (
+        <DetalleMovimientoModal mov={detalle} tanque={tanques.find((t) => t.id === detalle.tanque_id) ?? sel} onClose={() => setDetalle(null)} />
+      )}
+      {aBorrar && (
+        <ConfirmDialog
+          title="Eliminar movimiento"
+          message={
+            aBorrar.tipo === 'traslado' && aBorrar.mov_vinculado_id
+              ? 'Este es un traslado entre tanques. Al eliminarlo se revierte el saldo de AMBOS tanques (sale del destino y vuelve al origen). ¿Continuar?'
+              : '¿Eliminar este movimiento? Se revertirá el saldo del tanque.'
+          }
+          confirmText="Eliminar"
+          danger
+          onCancel={() => setABorrar(null)}
+          onConfirm={() => { const m = aBorrar; setABorrar(null); void borrar(m); }}
+        />
       )}
       {correoLibroOpen && sel && (
         <CorreoReporteModal
@@ -341,7 +359,6 @@ export function TanquesView() {
   );
 
   async function borrar(m: MovimientoTanque) {
-    if (!confirm('¿Eliminar este movimiento? Se revertirá el saldo del tanque.')) return;
     try { await eliminarMovimientoTanque(m); await recargarTodo(); toast('Movimiento eliminado', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
@@ -364,10 +381,25 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const [litros, setLitros] = useState('');
   const [costo, setCosto] = useState('');
   const [destinoId, setDestinoId] = useState('');
+  // Medidores del equipo (integrados al movimiento, ya no en un modal aparte).
+  const [hi, setHi] = useState('');
+  const [hf, setHf] = useState('');
+  const [ci, setCi] = useState('');
+  const [cf, setCf] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
+
+  // Al elegir un equipo, autocargamos el HI con el último horómetro FINAL registrado para ese equipo.
+  useEffect(() => {
+    if (!equipo) return;
+    let cancel = false;
+    ultimoHorometroEquipo(equipo).then((ult) => { if (!cancel && ult != null) setHi(String(ult)); }).catch(() => {});
+    return () => { cancel = true; };
+  }, [equipo]);
+
+  const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -376,7 +408,11 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     if (litros.trim() === '' || litrosNum === 0) { setError('Indicá los litros (se admiten negativos, como en el Excel).'); return; }
     if (tipo === 'traslado' && !destinoId) { setError('Indicá el tanque destino del traslado.'); return; }
     if (tipo === 'traslado' && destinoId === tanqueId) { setError('El tanque destino debe ser distinto.'); return; }
-    const campos = { fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion };
+    const campos = {
+      fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
+      horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
+      contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
+    };
     setSaving(true);
     try {
       if (tipo === 'entrada') await registrarEntrada({ tanqueId, litros: litrosNum, costoLitro: Number(costo) || 0, campos, actor, actorName });
@@ -466,8 +502,71 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           <small className="muted">¿Falta un destino? Agregalo en 🗂 Catálogos → Ubicaciones.</small>
         </div>
         <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" /></div>
-        <small className="muted">Los horómetros y contadores se registran ahora en <strong>🕒 Medidores</strong> (por equipo).</small>
+
+        {/* Medidores del equipo — parte del movimiento (no opcional). El HI autocarga con el último HF del equipo. */}
+        <div className="card" style={{ marginTop: '.75rem' }}>
+          <div className="card-title">🕒 Medidores del equipo</div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Horómetro inicial (HI)</label>
+              <input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} placeholder="auto: último del equipo" />
+              <small className="muted">Trae el último horómetro final registrado para el equipo seleccionado.</small>
+            </div>
+            <div className="form-row">
+              <label>Horómetro final (HF)</label>
+              <input className="input mono" type="number" step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
+            </div>
+          </div>
+          <div className="form-row">
+            <label>Horas utilizadas (HRS = HF − HI)</label>
+            <input className="input mono" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula automáticamente"
+              style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
+          </div>
+          <div className="form-grid">
+            <div className="form-row"><label>Contador global inicial</label><input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} /></div>
+            <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" value={cf} onChange={(e) => setCf(e.target.value)} /></div>
+          </div>
+        </div>
       </form>
+    </Modal>
+  );
+}
+
+/* ───────────── Modal: ver detalle de un movimiento ───────────── */
+
+function DetalleMovimientoModal({ mov, tanque, onClose }: {
+  mov: MovimientoTanque; tanque: TanqueCombustible | null | undefined; onClose: () => void;
+}) {
+  const hrs = mov.horometro_ini != null && mov.horometro_fin != null ? Number(mov.horometro_fin) - Number(mov.horometro_ini) : null;
+  const contDif = mov.contador_global_ini != null && mov.contador_global_fin != null
+    ? Number(mov.contador_global_fin) - Number(mov.contador_global_ini) : null;
+  const Fila = ({ k, v, hi }: { k: string; v: ReactNode; hi?: boolean }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '.35rem 0', borderBottom: '1px solid var(--border, rgba(255,255,255,.08))' }}>
+      <span className="muted" style={{ fontSize: '.82rem' }}>{k}</span>
+      <span className="mono" style={hi ? { fontWeight: 700, color: 'var(--warning)' } : undefined}>{v}</span>
+    </div>
+  );
+  return (
+    <Modal title="Detalle del movimiento" size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <Fila k="Tanque" v={tanque?.nombre ?? '—'} />
+      <Fila k="Fecha / hora" v={`${mov.fecha}${mov.hora ? ' · ' + mov.hora : ''}`} />
+      <Fila k="Tipo" v={TIPO_MOV_LABEL[mov.tipo]} />
+      <Fila k="Equipo" v={mov.equipo || '—'} />
+      <Fila k="Autorizado por" v={mov.autorizado_por || '—'} />
+      <Fila k="Destino" v={mov.ubicacion || '—'} />
+      <Fila k="Litros" v={num(mov.litros)} />
+      <Fila k="Tasa $/L" v={money(mov.tasa_usd_litro)} />
+      <Fila k="Monto $" v={money(mov.monto_usd)} />
+      <Fila k="Saldo del tanque (L · $)" v={`${num(mov.saldo_litros)} L · ${money(mov.saldo_usd)}`} />
+
+      <div className="card-title" style={{ marginTop: '1rem' }}>🕒 Medidores</div>
+      <Fila k="Horómetro inicial (HI)" v={mov.horometro_ini != null ? num(mov.horometro_ini) : '—'} />
+      <Fila k="Horómetro final (HF)" v={mov.horometro_fin != null ? num(mov.horometro_fin) : '—'} />
+      <Fila k="Horas utilizadas (HF − HI)" v={hrs != null ? num(hrs) : '—'} hi />
+      <Fila k="Contador global inicial" v={mov.contador_global_ini != null ? num(mov.contador_global_ini) : '—'} />
+      <Fila k="Contador global final" v={mov.contador_global_fin != null ? num(mov.contador_global_fin) : '—'} />
+      <Fila k="Diferencia contador (final − inicial)" v={contDif != null ? num(contDif) : '—'} hi />
+      {mov.observacion ? <Fila k="Observación" v={mov.observacion} /> : null}
     </Modal>
   );
 }

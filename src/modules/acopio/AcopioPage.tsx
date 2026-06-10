@@ -47,6 +47,7 @@ export function AcopioPage() {
   const [entrantes, setEntrantes] = useState<TransferenciaInter[]>([]);
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
   const [nuevo, setNuevo] = useState(false);
+  const [movAcopio, setMovAcopio] = useState(false);
 
   const reload = useCallback(async () => {
     const [rs, ps, alms, cms, cjs, ent] = await Promise.all([
@@ -88,7 +89,7 @@ export function AcopioPage() {
         </div>
         {canWrite && (
           <div className="actions">
-            <button className="btn btn-primary" onClick={() => setNuevo(true)}>+ Nueva recepción</button>
+            <button className="btn btn-primary" onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>
           </div>
         )}
       </div>
@@ -109,6 +110,13 @@ export function AcopioPage() {
         <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.nominas)}</div></div>
         <div className="card"><div className="card-title"><span>Recepciones</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{resumen.count}</div><div className="muted" style={{ fontSize: '.75rem' }}>{num(resumen.totalRecep)} Kg recep.</div></div>
       </div>
+
+      {movAcopio && (
+        <Modal title="Agregar movimiento" size="md" onClose={() => setMovAcopio(false)}
+          footer={<button className="btn btn-ghost" onClick={() => setMovAcopio(false)}>Cerrar</button>}>
+          <p className="muted" style={{ margin: 0 }}>Pendiente de configurar.</p>
+        </Modal>
+      )}
 
       {(nuevo || editar) && (
         <RecepcionModal

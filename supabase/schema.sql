@@ -404,10 +404,13 @@ create table if not exists public.combustible_tanque_movimientos (
   tanque_id           uuid not null references public.combustible_tanques(id) on delete cascade,
   fecha               date not null,
   hora                text,
-  tipo                text not null check (tipo in ('entrada','uso','traslado','retorno')),
+  tipo                text not null check (tipo in ('entrada','uso','traslado','retorno','merma')),
   equipo              text, autorizado_por text, ubicacion text, observacion text,
   litros              numeric not null default 0,
   tanque_destino_id   uuid references public.combustible_tanques(id) on delete set null,
+  -- Par del traslado entre tanques: la ENTRADA del destino y el TRASLADO del origen se
+  -- apuntan mutuamente, para que al borrar uno se revierta también el otro tanque.
+  mov_vinculado_id    uuid references public.combustible_tanque_movimientos(id) on delete set null,
   contador_global_ini numeric, contador_global_fin numeric,
   contador_global_dif numeric generated always as (coalesce(contador_global_fin,0) - coalesce(contador_global_ini,0)) stored,
   horometro_ini       numeric, horometro_fin numeric,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { date, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -176,6 +176,7 @@ export function CatalogoAcopioModal({ canWrite, onClose }: { canWrite: boolean; 
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
+  const [borrarId, setBorrarId] = useState<string | null>(null);
 
   const tabActual = TABS_CAT.find((t) => t.key === tab)!;
   const recargar = useCallback(async () => { setItems(await listCatalogosAcopio()); }, []);
@@ -200,7 +201,6 @@ export function CatalogoAcopioModal({ canWrite, onClose }: { canWrite: boolean; 
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
   async function borrar(id: string) {
-    if (!window.confirm(`¿Eliminar este ${tabActual.singular} del catálogo?`)) return;
     try { await eliminarCatalogoAcopio(id); await recargar(); toast('Eliminado', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
@@ -245,7 +245,7 @@ export function CatalogoAcopioModal({ canWrite, onClose }: { canWrite: boolean; 
                       <>
                         <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => { setEditId(l.id); setEditValor(l.valor); }}>✎</button>
                         <button className="btn btn-sm btn-ghost" onClick={() => void toggle(l.id, l.activo)}>{l.activo ? 'Desactivar' : 'Activar'}</button>
-                        <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void borrar(l.id)}>🗑</button>
+                        <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => setBorrarId(l.id)}>🗑</button>
                       </>
                     )}
                   </td>
@@ -255,6 +255,16 @@ export function CatalogoAcopioModal({ canWrite, onClose }: { canWrite: boolean; 
           </tbody>
         </table>
       </div>
+      {borrarId && (
+        <ConfirmDialog
+          title="Eliminar del catálogo"
+          message={`¿Eliminar este ${tabActual.singular} del catálogo?`}
+          confirmText="Eliminar"
+          danger
+          onCancel={() => setBorrarId(null)}
+          onConfirm={() => { const id = borrarId; setBorrarId(null); void borrar(id); }}
+        />
+      )}
     </Modal>
   );
 }

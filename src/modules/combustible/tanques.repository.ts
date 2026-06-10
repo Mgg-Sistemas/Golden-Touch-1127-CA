@@ -427,7 +427,7 @@ export async function registrarTraslado(input: {
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
-  await insertarMovimiento({
+  const movTraslado = await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'traslado',
@@ -439,16 +439,26 @@ export async function registrarTraslado(input: {
   });
   await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
 
-  // Si el traslado va a otro tanque, lo acreditamos como ENTRADA en el destino.
+  // Si el traslado va a otro tanque, lo acreditamos como ENTRADA en el destino y
+  // vinculamos ambas filas (mov_vinculado_id) para que el borrado revierta los dos tanques.
   if (input.tanqueDestinoId) {
-    await registrarEntrada({
-      tanqueId: input.tanqueDestinoId,
+    const d = await getTanque(input.tanqueDestinoId);
+    const saldoL = num(d.saldo_litros) + litros;
+    const saldoU = num(d.saldo_usd) + litros * tasa;
+    const tasaDest = saldoL > 0 ? saldoU / saldoL : tasa;
+    const movEntrada = await insertarMovimiento({
+      ...campos({ ...input.campos, observacion: `Traslado desde ${t.nombre}${input.campos?.observacion ? ' · ' + input.campos.observacion : ''}` }),
+      tanque_id: input.tanqueDestinoId,
+      tipo: 'entrada',
       litros,
-      costoLitro: tasa,
-      campos: { ...input.campos, observacion: `Traslado desde ${t.nombre}${input.campos?.observacion ? ' · ' + input.campos.observacion : ''}` },
-      actor: input.actor,
-      actorName: input.actorName ?? null,
+      tasa_usd_litro: round(tasa, 4),
+      mov_vinculado_id: movTraslado.id,
+      created_by: input.actor,
+      actor_name: input.actorName ?? null,
     });
+    await aplicarSaldoTanque(input.tanqueDestinoId, saldoL, saldoU, tasaDest);
+    await supabase.from('combustible_tanque_movimientos')
+      .update({ mov_vinculado_id: movEntrada.id }).eq('id', movTraslado.id);
   }
 }
 
@@ -532,19 +542,36 @@ export async function listTransferenciasCombustible(): Promise<TransferenciaComb
   return (data ?? []) as TransferenciaCombustibleInter[];
 }
 
-export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<void> {
-  // Revierte el efecto en el saldo del tanque y borra la fila.
+/** Revierte el efecto de UNA fila en el saldo de su tanque (sin borrarla). */
+async function revertirSaldoMovimiento(mov: { tanque_id: string; tipo: string; litros: number | null; monto_usd?: number | null }): Promise<void> {
   const t = await getTanque(mov.tanque_id);
   const litros = num(mov.litros);
   const monto = num(mov.monto_usd);
   let saldoL = num(t.saldo_litros);
   let saldoU = num(t.saldo_usd);
+  // entrada/retorno SUMARON al tanque → para revertir se restan; el resto (uso/traslado/merma) restaron → se suman.
   if (mov.tipo === 'entrada' || mov.tipo === 'retorno') { saldoL -= litros; saldoU -= monto; }
   else { saldoL += litros; saldoU += monto; }
   const tasa = saldoL > 0 ? saldoU / saldoL : num(t.tasa_usd_litro);
-  const { error } = await supabase.from('combustible_tanque_movimientos').delete().eq('id', mov.id);
-  if (error) throw error;
   await aplicarSaldoTanque(mov.tanque_id, saldoL, saldoU, tasa);
+}
+
+export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<void> {
+  // Si es un traslado entre tanques (o su entrada vinculada), revertimos AMBOS tanques
+  // y borramos las dos filas: el combustible sale del destino y vuelve al tanque origen.
+  let par: MovimientoTanque | null = null;
+  if (mov.mov_vinculado_id) {
+    const { data } = await supabase.from('combustible_tanque_movimientos')
+      .select('*').eq('id', mov.mov_vinculado_id).maybeSingle();
+    par = (data as MovimientoTanque | null) ?? null;
+  }
+
+  await revertirSaldoMovimiento(mov);
+  if (par) await revertirSaldoMovimiento(par);
+
+  const ids = par ? [mov.id, par.id] : [mov.id];
+  const { error } = await supabase.from('combustible_tanque_movimientos').delete().in('id', ids);
+  if (error) throw error;
 }
 
 /* ───────────── Reporte global ───────────── */
@@ -771,12 +798,13 @@ export async function listMedidores(): Promise<MedidorCombustible[]> {
   return (data ?? []) as MedidorCombustible[];
 }
 
-/** Último horómetro FINAL registrado para un equipo (para autocargar el HI siguiente). */
+/** Último horómetro FINAL registrado para un equipo, leído de los MOVIMIENTOS del tanque
+ *  (el medidor ahora se captura en cada movimiento). Sirve para autocargar el HI siguiente. */
 export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
   const { data, error } = await supabase
-    .from('combustible_medidores')
+    .from('combustible_tanque_movimientos')
     .select('horometro_fin, fecha, created_at')
     .eq('equipo', e)
     .not('horometro_fin', 'is', null)

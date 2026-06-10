@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { date, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -21,6 +22,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: 'none' } | { kind: 'crear' } | { kind: 'editar'; c: ContratoAcopio }>({ kind: 'none' });
   const [correoOpen, setCorreoOpen] = useState(false);
+  const [confirmar, setConfirmar] = useState<{ titulo: string; mensaje: string; confirmText: string; danger?: boolean; run: () => Promise<void> } | null>(null);
   // Filtros (estilo Tesorería).
   const [fTexto, setFTexto] = useState('');
   const [fSupervisor, setFSupervisor] = useState('');
@@ -77,24 +79,39 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
     return a;
   }, { activos: 0, total: 0, kg: 0, kgActivos: 0 }), [contratos]);
 
-  async function borrar(c: ContratoAcopio) {
+  function borrar(c: ContratoAcopio) {
     const aviso = c.estado === 'cerrado' && Number(c.mov_cantidad) > 0
       ? ` Se revertirán ${num(c.mov_cantidad)} Kg de Casiterita del inventario.` : '';
-    if (!window.confirm(`¿Eliminar el contrato ${c.numero}?${aviso}`)) return;
-    try { await eliminarContrato(c.id, actor, actorName); toast('Contrato eliminado', 'success'); await recargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    setConfirmar({
+      titulo: 'Eliminar contrato', confirmText: 'Eliminar', danger: true,
+      mensaje: `¿Eliminar el contrato ${c.numero}?${aviso}`,
+      run: async () => {
+        try { await eliminarContrato(c.id, actor, actorName); toast('Contrato eliminado', 'success'); await recargar(); }
+        catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+      },
+    });
   }
-  async function cambiarEstado(c: ContratoAcopio) {
+  function cambiarEstado(c: ContratoAcopio) {
     const kg = Number(c.kg_seco_limpio) || 0;
     if (c.estado === 'activo') {
-      if (!window.confirm(`¿Cerrar el contrato ${c.numero}?\n\nEntrarán ${num(kg)} Kg de Casiterita al inventario (almacén PRODUCCION).`)) return;
-      try { await cerrarContrato(c.id, actor, actorName); toast(`Contrato cerrado · +${num(kg)} Kg de Casiterita`, 'success'); await recargar(); }
-      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar', 'error'); }
+      setConfirmar({
+        titulo: 'Cerrar contrato', confirmText: 'Cerrar contrato',
+        mensaje: `¿Cerrar el contrato ${c.numero}? Entrarán ${num(kg)} Kg de Casiterita al inventario (almacén PRODUCCION).`,
+        run: async () => {
+          try { await cerrarContrato(c.id, actor, actorName); toast(`Contrato cerrado · +${num(kg)} Kg de Casiterita`, 'success'); await recargar(); }
+          catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar', 'error'); }
+        },
+      });
     } else {
       const rev = Number(c.mov_cantidad) || 0;
-      if (!window.confirm(`¿Reabrir el contrato ${c.numero}?${rev > 0 ? `\n\nSe revertirán ${num(rev)} Kg de Casiterita del inventario.` : ''}`)) return;
-      try { await reabrirContrato(c.id, actor, actorName); toast('Contrato reabierto', 'success'); await recargar(); }
-      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir', 'error'); }
+      setConfirmar({
+        titulo: 'Reabrir contrato', confirmText: 'Reabrir', danger: true,
+        mensaje: `¿Reabrir el contrato ${c.numero}?${rev > 0 ? ` Se revertirán ${num(rev)} Kg de Casiterita del inventario.` : ''}`,
+        run: async () => {
+          try { await reabrirContrato(c.id, actor, actorName); toast('Contrato reabierto', 'success'); await recargar(); }
+          catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir', 'error'); }
+        },
+      });
     }
   }
 
@@ -217,6 +234,16 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
             return destinatarios;
           }}
           onClose={() => setCorreoOpen(false)}
+        />
+      )}
+      {confirmar && (
+        <ConfirmDialog
+          title={confirmar.titulo}
+          message={confirmar.mensaje}
+          confirmText={confirmar.confirmText}
+          danger={confirmar.danger}
+          onCancel={() => setConfirmar(null)}
+          onConfirm={() => { const c = confirmar; setConfirmar(null); void c.run(); }}
         />
       )}
     </div>

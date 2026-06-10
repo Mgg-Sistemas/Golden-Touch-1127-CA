@@ -358,6 +358,8 @@ export interface MovimientoTanque {
   observacion?: string | null;
   litros: number;
   tanque_destino_id?: string | null;
+  /** Par del traslado entre tanques (la entrada del destino ↔ el traslado del origen). */
+  mov_vinculado_id?: string | null;
   contador_global_ini?: number | null;
   contador_global_fin?: number | null;
   contador_global_dif?: number | null;
