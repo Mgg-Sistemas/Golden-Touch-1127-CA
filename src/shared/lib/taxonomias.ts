@@ -32,10 +32,20 @@ export async function listTaxonomia(scope: Scope): Promise<string[]> {
   }
 }
 
-/** Inserta un valor nuevo (idempotente vía UNIQUE en BD). Refresca cache. */
+/**
+ * Inserta un valor nuevo. Evita duplicados por mayúsculas/minúsculas: si ya existe
+ * un valor equivalente (p. ej. «kg» vs «Kg»), NO inserta y devuelve el existente
+ * (con su grafía original), para que el catálogo no tenga dobles. Refresca cache.
+ */
 export async function addTaxonomia(scope: Scope, valor: string, actorEmail?: string): Promise<string | null> {
   const clean = valor.trim();
   if (!clean) return null;
+  // Chequeo case-insensitive contra lo que ya hay (lectura fresca, sin cache).
+  try {
+    const existentes = await fetchScope(scope);
+    const igual = existentes.find((v) => v.toLowerCase() === clean.toLowerCase());
+    if (igual) { cache.delete(scope); return igual; }
+  } catch { /* si la lectura falla seguimos al insert (la UNIQUE de BD igual protege) */ }
   const { error } = await supabase.from('taxonomias').insert({
     scope,
     valor: clean,

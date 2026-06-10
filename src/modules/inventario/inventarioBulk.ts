@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
+import { getCategorias, getUnidades } from './inventario.repository';
 
 /* ──────────── Estilos compartidos para los Excel ──────────── */
 const HEADER_STYLE = {
@@ -272,6 +273,24 @@ export interface ImportResult {
 export async function aplicarImportacion(analisis: AnalisisImport): Promise<ImportResult> {
   const result: ImportResult = { insertados: 0, actualizados: 0, errores: [] };
 
+  // Canonicalización de categoría/medida contra el catálogo existente: evita crear
+  // duplicados por mayúsculas/minúsculas (ej. «kg» vs «Kg», «lubricantes» vs
+  // «Lubricantes»). La primera grafía conocida gana — también deduplica dentro del
+  // mismo Excel. Si la lectura falla, seguimos con los valores tal cual (best-effort).
+  const canonCat = new Map<string, string>();
+  const canonUni = new Map<string, string>();
+  try {
+    (await getCategorias()).forEach((c) => canonCat.set(c.toLowerCase(), c));
+    (await getUnidades()).forEach((u) => canonUni.set(u.toLowerCase(), u));
+  } catch { /* sin catálogo: no canonicalizamos */ }
+  const canon = (map: Map<string, string>, raw: string): string => {
+    const v = raw.trim();
+    if (!v) return v;
+    const k = v.toLowerCase();
+    if (!map.has(k)) map.set(k, v);
+    return map.get(k)!;
+  };
+
   // 1) Construir los payloads válidos (las filas con error nunca se importan).
   interface Preparada { fila: number; sku: string; almacen: string; stock: number; precio: number; payload: Record<string, unknown>; }
   const preparadas: Preparada[] = [];
@@ -305,8 +324,8 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
       payload: {
         sku: f.sku,
         nombre: f.nombre,
-        categoria: toStr(r.categoria).toUpperCase() || 'GENERAL',
-        unidad: toStr(r.unidad) || 'und',
+        categoria: canon(canonCat, toStr(r.categoria).toUpperCase() || 'GENERAL'),
+        unidad: canon(canonUni, toStr(r.unidad).trim() || 'und'),
         stock,
         stock_min: stockMin,
         precio,

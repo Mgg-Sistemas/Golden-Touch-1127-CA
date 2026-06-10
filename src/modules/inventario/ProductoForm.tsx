@@ -99,10 +99,20 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   }
 
   async function handleAddCategoria() {
+    const clean = nuevaCat.trim();
+    if (!clean) { toast('Escribe un nombre para la categoría', 'error'); return; }
+    // Sin duplicados por mayúsculas/minúsculas: si ya existe, la seleccionamos.
+    const existente = categorias.find((c) => c.toLowerCase() === clean.toLowerCase());
+    if (existente) {
+      setForm((prev) => ({ ...prev, categoria: existente }));
+      setNuevaCat('');
+      toast(`La categoría "${existente}" ya existe — seleccionada`, 'info');
+      return;
+    }
     try {
-      const added = await addCategoria(nuevaCat);
-      if (!added) { toast('Escribe un nombre para la categoría', 'error'); return; }
-      setCategorias((prev) => (prev.includes(added) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
+      const added = await addCategoria(clean);
+      if (!added) return;
+      setCategorias((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
       setForm((prev) => ({ ...prev, categoria: added }));
       setNuevaCat('');
       toast(`Categoría "${added}" añadida`, 'success');
@@ -112,15 +122,25 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   }
 
   async function handleAddUnidad() {
+    const clean = nuevaUnid.trim();
+    if (!clean) { toast('Escribe un nombre para la unidad', 'error'); return; }
+    // Sin duplicados por mayúsculas/minúsculas (ej. «kg» vs «Kg»): si ya existe, la seleccionamos.
+    const existente = unidades.find((u) => u.toLowerCase() === clean.toLowerCase());
+    if (existente) {
+      setForm((prev) => ({ ...prev, unidad: existente }));
+      setNuevaUnid('');
+      toast(`La medida "${existente}" ya existe — seleccionada`, 'info');
+      return;
+    }
     try {
-      const added = await addUnidad(nuevaUnid);
-      if (!added) { toast('Escribe un nombre para la unidad', 'error'); return; }
-      setUnidades((prev) => (prev.includes(added) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
+      const added = await addUnidad(clean);
+      if (!added) return;
+      setUnidades((prev) => (prev.some((u) => u.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
       setForm((prev) => ({ ...prev, unidad: added }));
       setNuevaUnid('');
-      toast(`Unidad "${added}" añadida`, 'success');
+      toast(`Medida "${added}" añadida`, 'success');
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo añadir la unidad', 'error');
+      toast(e instanceof Error ? e.message : 'No se pudo añadir la medida', 'error');
     }
   }
 

@@ -23,6 +23,7 @@ import {
   type ProveedorInput,
 } from './proveedores.repository';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
+import { SearchMultiSelect } from '@/shared/ui/SearchMultiSelect';
 import { useSession } from '@/modules/auth/authStore';
 
 type EstadoFilter = '' | EstadoGenerico;
@@ -402,7 +403,6 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
     };
   });
   const [categorias, setCategorias] = useState<string[]>([]);
-  const [nuevaCat, setNuevaCat] = useState('');
   useEffect(() => {
     let cancelled = false;
     getCategorias(proveedores)
@@ -417,33 +417,6 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
 
   // RIF dividido en letra (combo) + número, derivado del valor guardado.
   const rifPartes = partirRif(form.rif);
-
-  function toggleCategoria(cat: string, checked: boolean) {
-    setForm((prev) => {
-      const set = new Set(prev.categorias);
-      if (checked) set.add(cat);
-      else set.delete(cat);
-      return { ...prev, categorias: Array.from(set) };
-    });
-  }
-
-  async function handleAddCategoria() {
-    try {
-      const added = await addCategoria(nuevaCat);
-      if (!added) {
-        toast('Escribe un nombre para la categoría', 'error');
-        return;
-      }
-      setCategorias((prev) => (prev.includes(added) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
-      setForm((prev) =>
-        prev.categorias.includes(added) ? prev : { ...prev, categorias: [...prev.categorias, added] },
-      );
-      setNuevaCat('');
-      toast(`Categoría "${added}" añadida`, 'success');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo añadir la categoría', 'error');
-    }
-  }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -597,55 +570,18 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
 
         <div className="form-row">
           <label>Categorías que ofrece</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
-            {categorias.map((c) => {
-              const checked = form.categorias.includes(c);
-              return (
-                <label
-                  key={c}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '.3rem',
-                    padding: '.35rem .65rem',
-                    background: 'var(--bg-1)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => toggleCategoria(c, e.target.checked)}
-                  />
-                  <span style={{ fontSize: '.82rem' }}>{c}</span>
-                </label>
-              );
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem', alignItems: 'center' }}>
-            <input
-              className="input"
-              style={{ maxWidth: 260 }}
-              placeholder="Nueva categoría…"
-              value={nuevaCat}
-              onChange={(e) => setNuevaCat(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddCategoria();
-                }
-              }}
-              maxLength={40}
-            />
-            <button type="button" className="btn btn-sm btn-ghost" onClick={handleAddCategoria}>
-              + Añadir
-            </button>
-            <span className="muted" style={{ fontSize: '.75rem' }}>
-              Queda disponible para futuros proveedores.
-            </span>
-          </div>
+          <SearchMultiSelect
+            options={categorias}
+            selected={form.categorias}
+            onChange={(next) => setForm((prev) => ({ ...prev, categorias: next }))}
+            onCreate={async (name) => {
+              const added = await addCategoria(name);
+              if (added) setCategorias((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
+              return added;
+            }}
+            placeholder="🔍 Buscar categoría o crear una nueva…"
+            hint="No se permiten repetidas (ni por mayúsculas/minúsculas). Las nuevas quedan disponibles para futuros proveedores."
+          />
         </div>
       </form>
     </Modal>
