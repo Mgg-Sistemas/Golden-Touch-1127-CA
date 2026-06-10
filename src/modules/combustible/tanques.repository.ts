@@ -108,13 +108,29 @@ export async function setCatalogoActivo(id: string, activo: boolean): Promise<vo
   if (error) throw error;
 }
 
+/** Columna de los movimientos que corresponde a cada tipo de catálogo (para la cascada al renombrar). */
+const COL_MOV_POR_TIPO: Record<string, string | undefined> = {
+  equipo: 'equipo',
+  autorizado: 'autorizado_por',
+  ubicacion: 'ubicacion',
+};
+
 export async function updateCatalogo(id: string, valor: string): Promise<void> {
   const v = valor.trim();
   if (!v) throw new Error('Indicá el valor.');
+  // Traemos el valor viejo + tipo para propagar el cambio a los movimientos que lo usaban.
+  const { data: prev } = await supabase.from('combustible_catalogos').select('tipo, valor').eq('id', id).maybeSingle();
   const { error } = await supabase.from('combustible_catalogos').update({ valor: v }).eq('id', id);
   if (error) {
     if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
     throw error;
+  }
+  // Cascada: los movimientos guardan el texto (no un FK), así que renombramos también ahí.
+  const p = prev as { tipo?: string; valor?: string } | null;
+  const col = p?.tipo ? COL_MOV_POR_TIPO[p.tipo] : undefined;
+  if (col && p?.valor && p.valor !== v) {
+    const { error: e2 } = await supabase.from('combustible_tanque_movimientos').update({ [col]: v }).eq(col, p.valor);
+    if (e2) throw e2;
   }
 }
 
@@ -575,14 +591,39 @@ async function revertirSaldoMovimiento(mov: { tanque_id: string; tipo: string; l
   await aplicarSaldoTanque(mov.tanque_id, saldoL, saldoU, tasa);
 }
 
-/** Edita los datos de un movimiento que NO afectan el saldo del tanque
- *  (fecha, hora, equipo, autorizado, ubicación, observación y medidores).
- *  Los litros/tipo/tasa no se editan aquí: para cambiarlos se borra y se recrea. */
-export async function actualizarMovimientoTanque(id: string, patch: MovimientoTanqueCampos): Promise<void> {
-  const { error } = await supabase.from('combustible_tanque_movimientos')
-    .update({ ...campos(patch), updated_at: new Date().toISOString() })
-    .eq('id', id);
+/** Recalcula y aplica el saldo (litros, USD, tasa) de un tanque a partir de TODOS sus
+ *  movimientos en orden cronológico (fecha + hora). El saldo del último movimiento es
+ *  el saldo vigente del tanque. Se usa tras editar un movimiento que afecta el balance. */
+export async function recomputarTanque(tanqueId: string): Promise<void> {
+  const movs = await listMovimientosTanque(tanqueId); // ya ordenado por fecha+hora, con saldo corrido
+  const last = movs.length ? movs[movs.length - 1] : null;
+  const saldoL = last ? num(last.saldo_litros) : 0;
+  const saldoU = last ? num(last.saldo_usd) : 0;
+  let tasa: number;
+  if (saldoL > 0) tasa = saldoU / saldoL;
+  else { const t = await getTanque(tanqueId); tasa = num(t.tasa_usd_litro); }
+  await aplicarSaldoTanque(tanqueId, round(saldoL, 2), round(saldoU, 2), tasa);
+}
+
+/** Edita un movimiento. Acepta metadatos + medidores y, opcionalmente, los campos que
+ *  afectan el saldo (tipo, litros, tasa). Si se tocan esos, se recalcula el saldo del tanque. */
+export async function actualizarMovimientoTanque(
+  id: string,
+  patch: MovimientoTanqueCampos & { tipo?: TipoMovTanque; litros?: number; tasaUsdLitro?: number },
+): Promise<void> {
+  const upd: Record<string, unknown> = { ...campos(patch), updated_at: new Date().toISOString() };
+  const afectaSaldo = patch.tipo != null || patch.litros != null || patch.tasaUsdLitro != null;
+  if (patch.tipo != null) upd.tipo = patch.tipo;
+  if (patch.litros != null) upd.litros = num(patch.litros);
+  if (patch.tasaUsdLitro != null) upd.tasa_usd_litro = round(num(patch.tasaUsdLitro), 4);
+
+  const { data, error } = await supabase.from('combustible_tanque_movimientos')
+    .update(upd).eq('id', id).select('tanque_id').single();
   if (error) throw error;
+  if (afectaSaldo) {
+    const tanqueId = (data as { tanque_id: string }).tanque_id;
+    await recomputarTanque(tanqueId);
+  }
 }
 
 export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<void> {
