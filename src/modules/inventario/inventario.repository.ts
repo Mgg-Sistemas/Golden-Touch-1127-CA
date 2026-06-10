@@ -136,14 +136,22 @@ export async function eliminarCategoria(nombre: string): Promise<void> {
 }
 
 export async function getUnidades(fromProductos: Producto[] = []): Promise<string[]> {
-  const set = new Set<string>();
+  // Deduplicamos SIN distinguir mayúsculas/minúsculas (evita el doble «kg»/«Kg»).
+  // La primera grafía que aparece (catálogo > productos) gana como canónica.
+  const porClave = new Map<string, string>();
+  const agregar = (u?: string | null) => {
+    const v = (u ?? '').trim();
+    if (!v) return;
+    const k = v.toLowerCase();
+    if (!porClave.has(k)) porClave.set(k, v);
+  };
   try {
     const extras = await listTaxonomia('inventario.unidad');
-    extras.forEach((u) => set.add(u));
+    extras.forEach(agregar);
   } catch { /* falla silenciosa */ }
-  fromProductos.forEach((p) => p.unidad && set.add(p.unidad));
-  if (set.size === 0) UNIDADES_DEFAULT.forEach((u) => set.add(u));
-  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  fromProductos.forEach((p) => agregar(p.unidad));
+  if (porClave.size === 0) UNIDADES_DEFAULT.forEach(agregar);
+  return Array.from(porClave.values()).sort((a, b) => a.localeCompare(b, 'es'));
 }
 
 export async function addUnidad(nombre: string, actorEmail?: string): Promise<string | null> {
@@ -173,6 +181,28 @@ export async function contarProductosPorCategoria(): Promise<Record<string, numb
     if (c) acc[c] = (acc[c] ?? 0) + 1;
     return acc;
   }, {});
+}
+
+/** Conteo de productos por unidad (para el gestor de Medidas). */
+export async function contarProductosPorUnidad(): Promise<Record<string, number>> {
+  const { data, error } = await supabase.from('productos').select('unidad');
+  if (error) throw error;
+  return (data ?? []).reduce<Record<string, number>>((acc, row) => {
+    const u = (row as { unidad: string }).unidad;
+    if (u) acc[u] = (acc[u] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+/** Elimina una medida del catálogo. SOLO si ningún producto la usa. */
+export async function eliminarUnidad(nombre: string): Promise<void> {
+  const { count, error } = await supabase
+    .from('productos')
+    .select('id', { count: 'exact', head: true })
+    .eq('unidad', nombre);
+  if (error) throw error;
+  if ((count ?? 0) > 0) throw new Error(`No se puede eliminar: ${count} producto(s) usan esta medida`);
+  await deleteTaxonomia('inventario.unidad', nombre);
 }
 
 export async function listProductos(): Promise<Producto[]> {

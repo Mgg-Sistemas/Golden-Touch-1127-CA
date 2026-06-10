@@ -3,21 +3,30 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 
+/** Un catálogo gestionable (una pestaña). */
+export interface CatalogoTab {
+  /** Etiqueta de la pestaña (ej. «Categorías», «Medidas»). */
+  label: string;
+  categorias: string[];
+  conteoUso: Record<string, number>;
+  entidadLabel: string;
+  onRenombrar: (oldName: string, newName: string) => Promise<number>;
+  onEliminar?: (nombre: string) => Promise<void>;
+  onAgregar?: (nombre: string) => Promise<string | null>;
+  terminoSingular?: string;
+}
+
 interface Props {
   titulo: string;
-  /** Categorías actuales (incluye las en uso y las del catálogo). */
-  categorias: string[];
-  /** Conteo de "registros que usan" por categoría (para mostrar). */
-  conteoUso: Record<string, number>;
-  /** Etiqueta singular de los registros usuarios — "producto", "proveedor", etc. */
-  entidadLabel: string;
-  /** Renombrado en BD + cascada en tablas relacionadas. Devuelve cantidad afectada. */
-  onRenombrar: (oldName: string, newName: string) => Promise<number>;
-  /** Eliminar la categoría (sólo si no está en uso). */
+  /** Varios catálogos en pestañas. Si se omite, se usa el modo de un solo catálogo (props sueltas). */
+  tabs?: CatalogoTab[];
+  // ── Modo un solo catálogo (compatibilidad con usos actuales) ──
+  categorias?: string[];
+  conteoUso?: Record<string, number>;
+  entidadLabel?: string;
+  onRenombrar?: (oldName: string, newName: string) => Promise<number>;
   onEliminar?: (nombre: string) => Promise<void>;
-  /** Agregar una categoría nueva al catálogo. Devuelve el nombre creado o null. */
   onAgregar?: (nombre: string) => Promise<string | null>;
-  /** Término singular del ítem gestionado para los textos ("categoría", "departamento"). */
   terminoSingular?: string;
   /** Refresca el dataset padre tras cambios. */
   onCambioAplicado: () => Promise<void> | void;
@@ -26,16 +35,33 @@ interface Props {
 
 export function GestionarCategoriasModal({
   titulo,
+  tabs,
   categorias,
   conteoUso,
   entidadLabel,
   onRenombrar,
   onEliminar,
   onAgregar,
-  terminoSingular = 'categoría',
+  terminoSingular,
   onCambioAplicado,
   onClose,
 }: Props) {
+  // Normalizamos a una lista de pestañas (1 si vino en modo simple).
+  const tabsResueltas: CatalogoTab[] = tabs ?? [{
+    label: '',
+    categorias: categorias ?? [],
+    conteoUso: conteoUso ?? {},
+    entidadLabel: entidadLabel ?? 'registro',
+    onRenombrar: onRenombrar ?? (async () => 0),
+    onEliminar,
+    onAgregar,
+    terminoSingular,
+  }];
+
+  const [tabIdx, setTabIdx] = useState(0);
+  const activa = tabsResueltas[Math.min(tabIdx, tabsResueltas.length - 1)];
+  const termino = activa.terminoSingular ?? 'categoría';
+
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEditado, setValorEditado] = useState('');
   const [filtro, setFiltro] = useState('');
@@ -45,13 +71,16 @@ export function GestionarCategoriasModal({
   const [nuevo, setNuevo] = useState('');
   const [agregando, setAgregando] = useState(false);
 
+  // Al cambiar de pestaña, limpiamos el estado de edición/filtro.
+  useEffect(() => { setEditando(null); setFiltro(''); setNuevo(''); }, [tabIdx]);
+
   const ordenadas = useMemo(() => {
     const q = filtro.trim().toLowerCase();
-    return categorias
+    return activa.categorias
       .filter((c) => !q || c.toLowerCase().includes(q))
       .slice()
       .sort((a, b) => a.localeCompare(b, 'es'));
-  }, [categorias, filtro, versionLocal]);
+  }, [activa.categorias, filtro, versionLocal]);
 
   useEffect(() => {
     if (editando) setValorEditado(editando);
@@ -59,23 +88,22 @@ export function GestionarCategoriasModal({
 
   async function aplicarRename() {
     if (!editando) return;
-    const nuevo = valorEditado.trim();
-    if (!nuevo) {
-      toast('El nombre no puede estar vacío', 'error');
+    const nuevoNombre = valorEditado.trim();
+    if (!nuevoNombre) { toast('El nombre no puede estar vacío', 'error'); return; }
+    if (nuevoNombre === editando) { setEditando(null); return; }
+    // Bloqueo de duplicados sin distinguir mayúsculas/minúsculas (contra OTROS valores).
+    const choca = activa.categorias.some(
+      (c) => c !== editando && c.toLowerCase() === nuevoNombre.toLowerCase(),
+    );
+    if (choca) {
+      toast(`Ya existe "${nuevoNombre}" (sin distinguir mayúsculas). Elegí otro nombre.`, 'error');
       return;
-    }
-    if (nuevo === editando) {
-      setEditando(null);
-      return;
-    }
-    if (categorias.includes(nuevo)) {
-      toast(`Ya existe una categoría llamada "${nuevo}". Las uniones por nombre podrían fusionarse.`, 'warning');
     }
     setGuardando(true);
     try {
-      const n = await onRenombrar(editando, nuevo);
+      const n = await activa.onRenombrar(editando, nuevoNombre);
       notify(
-        `Categoría "${editando}" renombrada a "${nuevo}" · ${n} ${entidadLabel}(s) actualizado(s)`,
+        `"${editando}" renombrado a "${nuevoNombre}" · ${n} ${activa.entidadLabel}(s) actualizado(s)`,
         'success',
         { link: '#' },
       );
@@ -90,20 +118,18 @@ export function GestionarCategoriasModal({
   }
 
   async function aplicarAgregar() {
-    if (!onAgregar) return;
+    if (!activa.onAgregar) return;
     const clean = nuevo.trim();
-    if (!clean) {
-      toast(`Escribí el nombre de la ${terminoSingular}`, 'error');
-      return;
-    }
-    if (categorias.some((c) => c.toLowerCase() === clean.toLowerCase())) {
-      toast(`La ${terminoSingular} "${clean}" ya existe`, 'warning');
+    if (!clean) { toast(`Escribí el nombre de la ${termino}`, 'error'); return; }
+    // Sin duplicados por mayúsculas/minúsculas.
+    if (activa.categorias.some((c) => c.toLowerCase() === clean.toLowerCase())) {
+      toast(`La ${termino} "${clean}" ya existe`, 'warning');
       return;
     }
     setAgregando(true);
     try {
-      await onAgregar(clean);
-      notify(`${terminoSingular[0].toUpperCase()}${terminoSingular.slice(1)} "${clean}" agregada`, 'success', { link: '#' });
+      await activa.onAgregar(clean);
+      notify(`${termino[0].toUpperCase()}${termino.slice(1)} "${clean}" agregada`, 'success', { link: '#' });
       setNuevo('');
       setVersionLocal((v) => v + 1);
       await onCambioAplicado();
@@ -115,11 +141,11 @@ export function GestionarCategoriasModal({
   }
 
   async function aplicarEliminar() {
-    if (!aEliminar || !onEliminar) return;
+    if (!aEliminar || !activa.onEliminar) return;
     setGuardando(true);
     try {
-      await onEliminar(aEliminar);
-      notify(`Categoría "${aEliminar}" eliminada`, 'success', { link: '#' });
+      await activa.onEliminar(aEliminar);
+      notify(`"${aEliminar}" eliminada`, 'success', { link: '#' });
       setAEliminar(null);
       await onCambioAplicado();
     } catch (e) {
@@ -144,16 +170,30 @@ export function GestionarCategoriasModal({
         </button>
       }
     >
+      {tabsResueltas.length > 1 && (
+        <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
+          {tabsResueltas.map((t, i) => (
+            <button
+              key={t.label || i}
+              className={`btn btn-sm ${i === tabIdx ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setTabIdx(i)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Agregá nuevas o corregí errores de tipeo. El renombrado se aplica en cascada: todos los {entidadLabel}s
-        que usaban el nombre viejo quedan con el nuevo automáticamente.
+        Agregá nuevas o corregí errores de tipeo. El renombrado se aplica en cascada: todos los {activa.entidadLabel}s
+        que usaban el nombre viejo quedan con el nuevo automáticamente. No se permiten duplicados (ni por mayúsculas/minúsculas).
       </p>
 
-      {onAgregar && (
+      {activa.onAgregar && (
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.6rem' }}>
           <input
             className="input"
-            placeholder={`Nueva ${terminoSingular}…`}
+            placeholder={`Nueva ${termino}…`}
             value={nuevo}
             onChange={(e) => setNuevo(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void aplicarAgregar(); }}
@@ -167,7 +207,7 @@ export function GestionarCategoriasModal({
 
       <input
         className="search"
-        placeholder="Filtrar categorías…"
+        placeholder={`Buscar ${termino}s…`}
         value={filtro}
         onChange={(e) => setFiltro(e.target.value)}
         style={{ marginBottom: '.5rem' }}
@@ -177,17 +217,17 @@ export function GestionarCategoriasModal({
         <table className="table" style={{ fontSize: '.88rem' }}>
           <thead>
             <tr>
-              <th>Categoría</th>
+              <th>{termino[0].toUpperCase()}{termino.slice(1)}</th>
               <th style={{ width: 130, textAlign: 'right' }}>En uso</th>
               <th style={{ width: 220 }}></th>
             </tr>
           </thead>
           <tbody>
             {ordenadas.length === 0 && (
-              <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin categorías.</td></tr>
+              <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin {termino}s.</td></tr>
             )}
             {ordenadas.map((c) => {
-              const usos = conteoUso[c] ?? 0;
+              const usos = activa.conteoUso[c] ?? 0;
               const enEdicion = editando === c;
               return (
                 <tr key={c}>
@@ -208,7 +248,7 @@ export function GestionarCategoriasModal({
                     )}
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>
-                    {usos > 0 ? `${usos} ${entidadLabel}${usos === 1 ? '' : 's'}` : <span className="muted">—</span>}
+                    {usos > 0 ? `${usos} ${activa.entidadLabel}${usos === 1 ? '' : 's'}` : <span className="muted">—</span>}
                   </td>
                   <td className="actions">
                     {enEdicion ? (
@@ -225,7 +265,7 @@ export function GestionarCategoriasModal({
                         <button className="btn btn-sm btn-ghost" onClick={() => setEditando(c)}>
                           ✎ Editar
                         </button>
-                        {onEliminar && usos === 0 && (
+                        {activa.onEliminar && usos === 0 && (
                           <button className="btn btn-sm btn-danger" onClick={() => setAEliminar(c)}>
                             🗑
                           </button>
@@ -242,7 +282,7 @@ export function GestionarCategoriasModal({
 
       {aEliminar && (
         <ConfirmDialog
-          title="Eliminar categoría"
+          title={`Eliminar ${termino}`}
           message={`Se eliminará "${aEliminar}" del catálogo. Esto no afecta registros existentes (no hay ninguno asignado). ¿Continuar?`}
           confirmText="Eliminar"
           danger

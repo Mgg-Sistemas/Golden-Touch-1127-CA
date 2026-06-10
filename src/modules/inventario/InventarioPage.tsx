@@ -21,6 +21,11 @@ import {
   renombrarCategoria,
   setEstadoProducto,
   updateProducto,
+  getUnidades,
+  addUnidad,
+  renombrarUnidad,
+  eliminarUnidad,
+  contarProductosPorUnidad,
   type ProductoInput,
 } from './inventario.repository';
 import { contarProduccionEnProceso } from '@/modules/produccion/produccion.repository';
@@ -133,10 +138,14 @@ export function InventarioPage() {
   const [importing, setImporting] = useState(false);
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
   const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
+  const [unidades, setUnidades] = useState<string[]>([]);
+  const [conteoUnid, setConteoUnid] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!gestionCatsOpen) return;
     contarProductosPorCategoria().then(setConteoCats).catch(() => setConteoCats({}));
+    contarProductosPorUnidad().then(setConteoUnid).catch(() => setConteoUnid({}));
+    getUnidades(productos).then(setUnidades).catch(() => setUnidades([]));
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
@@ -771,19 +780,36 @@ export function InventarioPage() {
 
       {gestionCatsOpen && (
         <GestionarCategoriasModal
-          titulo="Categorías de inventario"
-          categorias={categorias}
-          conteoUso={conteoCats}
-          entidadLabel="producto"
-          onRenombrar={(o, n) => renombrarCategoria(o, n, productoActor)}
-          onEliminar={(n) => eliminarCategoria(n)}
-          onAgregar={(n) => addCategoria(n, productoActor)}
+          titulo="Categorías y medidas de inventario"
+          tabs={[
+            {
+              label: '🏷 Categorías',
+              categorias,
+              conteoUso: conteoCats,
+              entidadLabel: 'producto',
+              terminoSingular: 'categoría',
+              onRenombrar: (o, n) => renombrarCategoria(o, n, productoActor),
+              onEliminar: (n) => eliminarCategoria(n),
+              onAgregar: (n) => addCategoria(n, productoActor),
+            },
+            {
+              label: '📏 Medidas',
+              categorias: unidades,
+              conteoUso: conteoUnid,
+              entidadLabel: 'producto',
+              terminoSingular: 'medida',
+              onRenombrar: (o, n) => renombrarUnidad(o, n, productoActor),
+              onEliminar: (n) => eliminarUnidad(n),
+              onAgregar: (n) => addUnidad(n, productoActor),
+            },
+          ]}
           onCambioAplicado={async () => {
             await reload();
-            const cs = await getCategorias(productos);
-            setCategorias(cs);
-            const c = await contarProductosPorCategoria();
-            setConteoCats(c);
+            const [cs, c, us, cu] = await Promise.all([
+              getCategorias(productos), contarProductosPorCategoria(),
+              getUnidades(productos), contarProductosPorUnidad(),
+            ]);
+            setCategorias(cs); setConteoCats(c); setUnidades(us); setConteoUnid(cu);
           }}
           onClose={() => setGestionCatsOpen(false)}
         />
