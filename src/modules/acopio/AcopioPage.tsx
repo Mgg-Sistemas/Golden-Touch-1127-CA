@@ -11,13 +11,11 @@ import { listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { CajaMovimiento, CajaResumen, Producto, RecepcionAcopio } from '@/shared/lib/types';
 import {
-  listRecepciones,
   createRecepcion,
   updateRecepcion,
   cerrarRecepcion,
   anularRecepcion,
   deleteRecepcion,
-  totalesRecepcion,
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
@@ -40,7 +38,6 @@ export function AcopioPage() {
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
-  const [recepciones, setRecepciones] = useState<RecepcionAcopio[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [cajaMovs, setCajaMovs] = useState<CajaMovimiento[]>([]);
@@ -54,11 +51,10 @@ export function AcopioPage() {
   const onResumenAcopio = useCallback((r: { saldoKg: number; tasa: number }) => { setSaldoCasiterita(r.saldoKg); setTasaMaterial(r.tasa); }, []);
 
   const reload = useCallback(async () => {
-    const [rs, ps, alms, cms, cjs, ent] = await Promise.all([
-      listRecepciones(), listProductos(), getNombresAlmacenes(), listCajaMovimientos(), listCajas(),
+    const [ps, alms, cms, cjs, ent] = await Promise.all([
+      listProductos(), getNombresAlmacenes(), listCajaMovimientos(), listCajas(),
       listEntrantesPorConfirmar().catch(() => []),
     ]);
-    setRecepciones(rs);
     setProductos(ps);
     setAlmacenes(alms);
     setCajaMovs(cms);
@@ -73,12 +69,6 @@ export function AcopioPage() {
   }, [reload]);
   useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'transferencias_inter', 'cajas', 'productos', 'existencias'], reload);
 
-  const resumen = useMemo(() => {
-    const activas = recepciones.filter((r) => r.estado !== 'anulada');
-    const totalNeto = activas.reduce((a, r) => a + totalesRecepcion(r.lotes ?? []).neto, 0);
-    const totalRecep = activas.reduce((a, r) => a + totalesRecepcion(r.lotes ?? []).recepcionado, 0);
-    return { count: recepciones.length, cerradas: recepciones.filter((r) => r.estado === 'cerrada').length, totalNeto, totalRecep };
-  }, [recepciones]);
   // La tasa de la vista inicial es la del cierre/caja ACTUALMENTE ABIERTO.
   const cajaActual = useMemo(() => cajas.find((c) => c.estado === 'abierta') ?? cajas[0] ?? null, [cajas]);
   const movsActual = useMemo(() => (cajaActual ? cajaMovs.filter((m) => m.caja_id === cajaActual.id) : cajaMovs), [cajaMovs, cajaActual]);
@@ -102,7 +92,7 @@ export function AcopioPage() {
       <DineroPorEntrar entrantes={entrantes} cajas={cajas} actor={actor} actorName={actorName} onReload={reload} />
 
       {/* Tarjeta protagonista: TASA ACTUAL DEL MATERIAL (varía con los gastos) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="card" style={{ borderColor: 'var(--primary)', background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
           <div className="card-title"><span>💲 Tasa actual del material</span></div>
           <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(tasaMaterial)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
@@ -112,7 +102,6 @@ export function AcopioPage() {
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: saldoCasiterita < 0 ? 'var(--danger)' : undefined }} className="mono">{num(saldoCasiterita)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
         <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.gastos)}</div></div>
         <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.nominas)}</div></div>
-        <div className="card"><div className="card-title"><span>Recepciones</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{resumen.count}</div><div className="muted" style={{ fontSize: '.75rem' }}>{num(resumen.totalRecep)} Kg recep.</div></div>
       </div>
 
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí) */}
