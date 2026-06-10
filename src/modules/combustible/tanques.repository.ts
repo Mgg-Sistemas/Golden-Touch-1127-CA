@@ -247,6 +247,49 @@ export async function setEstadoTanque(id: string, estado: 'activo' | 'inactivo')
   if (error) throw error;
 }
 
+/**
+ * Borra un tanque y TODOS sus movimientos (FK en cascada). Antes elimina los movimientos
+ * «contraparte» que viven en otros tanques (reflejos de traslado vinculados por
+ * mov_vinculado_id) y recomputa el saldo de esos tanques para que no queden huérfanos.
+ */
+export async function eliminarTanque(id: string): Promise<void> {
+  if (!id) throw new Error('Tanque no indicado.');
+  // 1. Movimientos de este tanque que tienen contraparte en otro tanque.
+  const { data: propios, error: e1 } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('mov_vinculado_id')
+    .eq('tanque_id', id)
+    .not('mov_vinculado_id', 'is', null);
+  if (e1) throw e1;
+  const idsContraparte = (propios ?? [])
+    .map((m) => (m as { mov_vinculado_id: string | null }).mov_vinculado_id)
+    .filter((v): v is string => !!v);
+
+  // 2. Tanques afectados por esas contrapartes (para recomputarlos luego).
+  const tanquesAfectados = new Set<string>();
+  if (idsContraparte.length) {
+    const { data: contras, error: e2 } = await supabase
+      .from('combustible_tanque_movimientos')
+      .select('tanque_id')
+      .in('id', idsContraparte);
+    if (e2) throw e2;
+    for (const c of contras ?? []) {
+      const tid = (c as { tanque_id: string | null }).tanque_id;
+      if (tid && tid !== id) tanquesAfectados.add(tid);
+    }
+    // 3. Borra las contrapartes en los otros tanques.
+    const { error: e3 } = await supabase.from('combustible_tanque_movimientos').delete().in('id', idsContraparte);
+    if (e3) throw e3;
+  }
+
+  // 4. Borra el tanque (sus propios movimientos caen por la FK en cascada).
+  const { error: e4 } = await supabase.from('combustible_tanques').delete().eq('id', id);
+  if (e4) throw e4;
+
+  // 5. Recomputa el saldo de los tanques que perdieron una entrada reflejada.
+  for (const tid of tanquesAfectados) await recomputarTanque(tid);
+}
+
 async function getTanque(id: string): Promise<TanqueCombustible> {
   const { data, error } = await supabase.from('combustible_tanques').select('*').eq('id', id).single();
   if (error || !data) throw error ?? new Error('Tanque no encontrado.');

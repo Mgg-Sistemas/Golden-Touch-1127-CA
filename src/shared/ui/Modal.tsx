@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 interface ModalProps {
@@ -38,11 +38,17 @@ interface ConfirmDialogProps {
   message: string;
   confirmText?: string;
   danger?: boolean;
+  /** Si se indica, el usuario debe escribir EXACTAMENTE este texto para habilitar el botón. */
+  requireText?: string;
+  /** Etiqueta sobre el input de confirmación (por defecto: «Escribí … para confirmar»). */
+  requireLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Confirmar', danger, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Confirmar', danger, requireText, requireLabel, onConfirm, onCancel }: ConfirmDialogProps) {
+  const [typed, setTyped] = useState('');
+  const matches = requireText == null || typed.trim() === requireText.trim();
   return (
     <Modal
       title={title}
@@ -50,11 +56,27 @@ export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Con
       footer={
         <>
           <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
-          <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={() => { onConfirm(); }}>{confirmText}</button>
+          <button
+            className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
+            disabled={!matches}
+            onClick={() => { if (matches) onConfirm(); }}
+          >{confirmText}</button>
         </>
       }
     >
       <p style={{ margin: 0 }}>{message}</p>
+      {requireText != null && (
+        <div className="form-row" style={{ marginTop: '0.9rem' }}>
+          <label>{requireLabel ?? <>Escribí <strong>{requireText}</strong> para confirmar</>}</label>
+          <input
+            className="input"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder={requireText}
+            autoFocus
+          />
+        </div>
+      )}
     </Modal>
   );
 }
