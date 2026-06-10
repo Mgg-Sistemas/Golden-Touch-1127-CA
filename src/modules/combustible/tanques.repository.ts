@@ -556,6 +556,16 @@ async function revertirSaldoMovimiento(mov: { tanque_id: string; tipo: string; l
   await aplicarSaldoTanque(mov.tanque_id, saldoL, saldoU, tasa);
 }
 
+/** Edita los datos de un movimiento que NO afectan el saldo del tanque
+ *  (fecha, hora, equipo, autorizado, ubicación, observación y medidores).
+ *  Los litros/tipo/tasa no se editan aquí: para cambiarlos se borra y se recrea. */
+export async function actualizarMovimientoTanque(id: string, patch: MovimientoTanqueCampos): Promise<void> {
+  const { error } = await supabase.from('combustible_tanque_movimientos')
+    .update({ ...campos(patch), updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<void> {
   // Si es un traslado entre tanques (o su entrada vinculada), revertimos AMBOS tanques
   // y borramos las dos filas: el combustible sale del destino y vuelve al tanque origen.
@@ -814,6 +824,24 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
     .maybeSingle();
   if (error) throw error;
   const v = (data as { horometro_fin?: number | null } | null)?.horometro_fin;
+  return v == null ? null : num(v);
+}
+
+/** Último CONTADOR global FINAL registrado para un equipo (autocarga el contador inicial siguiente). */
+export async function ultimoContadorEquipo(equipo: string): Promise<number | null> {
+  const e = equipo.trim();
+  if (!e) return null;
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('contador_global_fin, fecha, created_at')
+    .eq('equipo', e)
+    .not('contador_global_fin', 'is', null)
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  const v = (data as { contador_global_fin?: number | null } | null)?.contador_global_fin;
   return v == null ? null : num(v);
 }
 

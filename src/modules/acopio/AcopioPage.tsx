@@ -6,6 +6,7 @@ import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { MovimientosAcopioView } from './MovimientosAcopioView';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { CajaMovimiento, CajaResumen, Producto, RecepcionAcopio } from '@/shared/lib/types';
@@ -110,6 +111,9 @@ export function AcopioPage() {
         <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.nominas)}</div></div>
         <div className="card"><div className="card-title"><span>Recepciones</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{resumen.count}</div><div className="muted" style={{ fontSize: '.75rem' }}>{num(resumen.totalRecep)} Kg recep.</div></div>
       </div>
+
+      {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí) */}
+      <MovimientosAcopioView />
 
       {movAcopio && (
         <Modal title="Agregar movimiento" size="md" onClose={() => setMovAcopio(false)}
