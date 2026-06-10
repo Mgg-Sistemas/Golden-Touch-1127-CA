@@ -24,7 +24,14 @@ export async function listCajas(): Promise<Caja[]> {
 
 export async function listCajasActivas(): Promise<Caja[]> {
   // Excluye los centros de acopio (son destino de traslado, no cajas para pagar/ingresar).
-  const { data, error } = await supabase.from(TABLE).select('*').eq('estado', 'activo').neq('tipo', 'centro_acopio').order('nombre', { ascending: true });
+  // Incluye las de tipo NULL (datos viejos): `.neq` por sí solo descarta los NULL
+  // (NULL <> 'centro_acopio' = NULL), lo que dejaría esas cajas invisibles.
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .eq('estado', 'activo')
+    .or('tipo.is.null,tipo.neq.centro_acopio')
+    .order('nombre', { ascending: true });
   if (error) throw error;
   return (data ?? []) as Caja[];
 }
@@ -42,7 +49,10 @@ export async function crearCaja(input: { nombre: string; moneda: Moneda | Moneda
   const saldo = round2(Number(input.saldoInicial) || 0);
   const { data, error } = await supabase
     .from(TABLE)
-    .insert({ nombre, moneda: input.moneda, saldo, created_by: actorEmail ?? null })
+    // tipo: 'caja' explícito — listCajasActivas filtra con `tipo <> 'centro_acopio'`,
+    // y un tipo NULL no satisface ese filtro (NULL <> 'x' = NULL), por lo que la caja
+    // quedaría invisible en Tesorería. Siempre la marcamos como caja normal.
+    .insert({ nombre, moneda: input.moneda, saldo, tipo: 'caja', created_by: actorEmail ?? null })
     .select('*')
     .single();
   if (error) {

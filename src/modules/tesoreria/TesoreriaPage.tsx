@@ -233,7 +233,6 @@ export function TesoreriaPage() {
           <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             {cajas.map((c) => {
               const sc = saldos.filter((s) => s.caja_id === c.id && (Number(s.saldo) || 0) !== 0);
-              const totalBs = saldos.filter((s) => s.caja_id === c.id).reduce((a, s) => a + equivBs(s), 0);
               return (
                 <button key={c.id} className="card" onClick={() => setCajaSel(c)}
                   style={{ padding: '.6rem .9rem', minWidth: 170, textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--card, transparent)' }}
@@ -248,7 +247,6 @@ export function TesoreriaPage() {
                       ))}
                     </div>
                   ) : <strong className="mono">{monto(0, c.moneda)}</strong>}
-                  <div className="muted" style={{ fontSize: '.66rem' }}>≈ {monto(totalBs, 'Bs')}</div>
                 </button>
               );
             })}
