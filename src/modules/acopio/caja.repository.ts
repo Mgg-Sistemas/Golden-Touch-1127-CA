@@ -119,6 +119,100 @@ export async function listCajaMovimientos(cajaId?: string): Promise<CajaMovimien
   });
 }
 
+/**
+ * TASA actual del material en acopio = (Σ facturados + Σ gastos + Σ nóminas) / Σ kg_cerrados.
+ * Es la que usa la casiterita como costo al cerrarse un contrato desde Producción.
+ */
+export async function tasaActualAcopio(): Promise<number> {
+  const movs = await listCajaMovimientos();
+  const kg = movs.reduce((a, m) => a + num(m.kg_cerrados), 0);
+  if (kg <= 0) return 0;
+  const base = movs.reduce((a, m) => a + num(m.facturados) + num(m.gastos) + num(m.nominas), 0);
+  return base / kg;
+}
+
+/* ───────────── Resumen de caja (réplica de la hoja «RESUMEN CAJA PERAMANAL GT») ───────────── */
+
+export interface CategoriaResumen { valor: string; monto: number; pct: number }
+export interface ResumenCajaAcopio {
+  centro: string;
+  fechaInicio: string | null;     // primera fecha de movimiento
+  fechaActualizacion: string;     // hoy (fecha del sistema)
+  dias: number;                   // días transcurridos desde el inicio
+  movimientos: number;
+  totalEntregado: number;
+  totalFacturado: number;
+  totalGastos: number;
+  totalNominas: number;
+  totalTraslado: number;
+  totalGastado: number;           // gastos + nóminas
+  saldoUsd: number;               // entregado − facturados − gastos − nóminas − traslado
+  pctGastos: number;              // gastos / total gastado
+  pctNomina: number;              // nóminas / total gastado
+  gastosPorCategoria: CategoriaResumen[];
+  nominaPorCategoria: CategoriaResumen[];
+  kgProduccion: number;           // Σ kg_cerrados (casiterita que entra)
+  kgEnviados: number;             // Σ kg_recibidos (enviado a MGG)
+  diferenciaKg: number;           // enviados − producción
+  tasaMaterial: number;           // (facturados + gastos + nóminas) / kg producción
+}
+
+/** Hoy en zona Venezuela (YYYY-MM-DD). */
+function hoyVE(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).slice(0, 10);
+}
+
+/**
+ * Resumen financiero de la caja del Centro de Acopio (como la hoja del Excel):
+ * período + días, saldo actual, total entregado/gastado, % gastos vs % nómina,
+ * distribución de gastos y nómina por categoría, y bloque de Kg de casiterita.
+ */
+export async function resumenCajaAcopio(cajaId?: string): Promise<ResumenCajaAcopio> {
+  const movs = await listCajaMovimientos(cajaId);
+  const sum = (f: (m: CajaMovimiento) => unknown) => movs.reduce((a, m) => a + num(f(m)), 0);
+  const totalEntregado = sum((m) => m.usd_entregado);
+  const totalFacturado = sum((m) => m.facturados);
+  const totalGastos = sum((m) => m.gastos);
+  const totalNominas = sum((m) => m.nominas);
+  const totalTraslado = sum((m) => m.traslado);
+  const totalGastado = totalGastos + totalNominas;
+  // Redondeo a centavos y normalización del «-0» (evita mostrar «$ -0,00»).
+  const round2 = (n: number) => { const v = Math.round(n * 100) / 100; return v === 0 ? 0 : v; };
+  const saldoUsd = round2(totalEntregado - totalFacturado - totalGastos - totalNominas - totalTraslado);
+  const kgProduccion = sum((m) => m.kg_cerrados);
+  const kgEnviados = sum((m) => m.kg_recibidos);
+
+  // Distribución por categoría (base = total gastado, así gastos + nómina = 100%).
+  const porCategoria = (grupo: GrupoClasificacion, campo: (m: CajaMovimiento) => unknown): CategoriaResumen[] => {
+    const map = new Map<string, number>();
+    for (const m of movs) {
+      if (m.clasif_grupo !== grupo) continue;
+      const k = (m.clasif_valor ?? '').trim() || 'Sin categoría';
+      map.set(k, (map.get(k) ?? 0) + num(campo(m)));
+    }
+    return Array.from(map.entries())
+      .map(([valor, monto]) => ({ valor, monto, pct: totalGastado > 0 ? monto / totalGastado : 0 }))
+      .sort((a, b) => b.monto - a.monto);
+  };
+
+  const fechas = movs.map((m) => m.fecha).filter(Boolean).sort();
+  const fechaInicio = fechas[0] ?? null;
+  const fechaActualizacion = hoyVE();
+  const dias = fechaInicio ? Math.max(0, Math.round((Date.parse(fechaActualizacion) - Date.parse(fechaInicio)) / 86400000)) : 0;
+
+  return {
+    centro: 'PERAMANAL GT',
+    fechaInicio, fechaActualizacion, dias, movimientos: movs.length,
+    totalEntregado, totalFacturado, totalGastos, totalNominas, totalTraslado, totalGastado, saldoUsd,
+    pctGastos: totalGastado > 0 ? totalGastos / totalGastado : 0,
+    pctNomina: totalGastado > 0 ? totalNominas / totalGastado : 0,
+    gastosPorCategoria: porCategoria('gastos_caja', (m) => m.gastos),
+    nominaPorCategoria: porCategoria('nomina', (m) => m.nominas),
+    kgProduccion, kgEnviados, diferenciaKg: kgEnviados - kgProduccion,
+    tasaMaterial: kgProduccion > 0 ? (totalFacturado + totalGastos + totalNominas) / kgProduccion : 0,
+  };
+}
+
 /** Agregados de cabecera + tasa del material. */
 export function resumirCaja(movs: CajaMovimiento[]): CajaResumen {
   const r = movs.reduce(

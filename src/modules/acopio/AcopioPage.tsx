@@ -20,7 +20,10 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, type CajaMovimientoInput } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
+import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
+import { ConsumoMartillosModal } from './ConsumoMartillosModal';
 import type { ClasificacionAcopio } from '@/shared/lib/types';
 import { DineroPorEntrar } from './DineroPorEntrar';
 import { listEntrantesPorConfirmar } from '@/modules/tesoreria/transferenciasInter.repository';
@@ -48,9 +51,27 @@ export function AcopioPage() {
   const [nuevo, setNuevo] = useState(false);
   const [movAcopio, setMovAcopio] = useState(false);
   const [categorias, setCategorias] = useState(false);
+  const [resumenCaja, setResumenCaja] = useState(false);
+  const [martillos, setMartillos] = useState(false);
   // Resumen único que alimenta TODAS las tarjetas (misma fuente que la tabla de movimientos).
   const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0 });
   const onResumenAcopio = useCallback((r: ResumenAcopio) => { setResumen(r); }, []);
+
+  // Tendencia de la TASA: ▲ verde si subió, ▼ rojo si bajó (vs. el último valor visto).
+  const [tasaTrend, setTasaTrend] = useState<'up' | 'down' | null>(null);
+  useEffect(() => {
+    const t = resumen.tasa;
+    if (!t) return;
+    const key = 'gt_acopio_tasa_prev';
+    const prevRaw = localStorage.getItem(key);
+    const prev = prevRaw == null ? null : Number(prevRaw);
+    if (prev != null && Number.isFinite(prev) && Math.abs(prev - t) > 0.0001) {
+      setTasaTrend(t > prev ? 'up' : 'down');
+      localStorage.setItem(key, String(t));
+    } else if (prev == null || !Number.isFinite(prev)) {
+      localStorage.setItem(key, String(t));
+    }
+  }, [resumen.tasa]);
 
   const reload = useCallback(async () => {
     const [ps, alms, cjs, ent] = await Promise.all([
@@ -81,6 +102,8 @@ export function AcopioPage() {
           <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
         <div className="actions">
+          <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
+          <button className="btn btn-ghost" onClick={() => setMartillos(true)}>🔨 Consumo Martillos</button>
           <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
           {canWrite && <button className="btn btn-primary" onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>}
         </div>
@@ -93,7 +116,15 @@ export function AcopioPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="card" style={{ borderColor: 'var(--primary)', background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
           <div className="card-title"><span>💲 Tasa actual del material</span></div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(resumen.tasa)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(resumen.tasa)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
+            {tasaTrend && (
+              <span style={{ fontWeight: 800, fontSize: '.9rem', color: tasaTrend === 'up' ? 'var(--success)' : 'var(--danger)' }}
+                title={tasaTrend === 'up' ? 'La tasa subió respecto al valor anterior' : 'La tasa bajó respecto al valor anterior'}>
+                {tasaTrend === 'up' ? '▲ SUBIÓ' : '▼ BAJÓ'}
+              </span>
+            )}
+          </div>
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</div>
         </div>
         <div className="card" style={{ borderColor: 'var(--success)' }}>
@@ -111,6 +142,10 @@ export function AcopioPage() {
       <MovimientosAcopioView onResumen={onResumenAcopio} />
 
       {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
+
+      {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} onClose={() => setResumenCaja(false)} />}
+
+      {martillos && <ConsumoMartillosModal onClose={() => setMartillos(false)} />}
 
       {movAcopio && (
         <AgregarMovimientoModal
@@ -274,6 +309,135 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
         </div>
         {campoDesc(descKg, setDescKg, 'Kg recibidos por MGG')}
       </div>
+    </Modal>
+  );
+}
+
+/* ───────────── Resumen de Caja (réplica de la hoja «RESUMEN CAJA PERAMANAL GT») ───────────── */
+
+function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onClose: () => void }) {
+  const [r, setR] = useState<ResumenCajaAcopio | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [bajando, setBajando] = useState(false);
+  const [correoOpen, setCorreoOpen] = useState(false);
+
+  // Se recalcula desde los movimientos; en vivo cuando entra/cambia alguno (Realtime).
+  const cargar = useCallback(() => {
+    resumenCajaAcopio().then(setR).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el resumen'));
+  }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['acopio_caja_movimientos', 'acopio_contratos'], cargar);
+
+  const pct = (v: number) => `${(v * 100).toLocaleString('es', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <button className="btn btn-ghost" disabled={!r} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
+      <button className="btn btn-primary" disabled={!r || bajando}
+        onClick={async () => {
+          if (!r) return;
+          setBajando(true);
+          try { await descargarResumenCajaPdf(r); }
+          catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+          finally { setBajando(false); }
+        }}>{bajando ? 'Generando…' : '↓ PDF'}</button>
+    </>
+  );
+
+  const Kpi = ({ titulo, valor, color, destacar }: { titulo: string; valor: string; color?: string; destacar?: boolean }) => (
+    <div className="card" style={destacar ? { borderColor: 'var(--primary)', borderWidth: 2, background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' } : undefined}>
+      <div className="card-title"><span>{titulo}</span></div>
+      <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 800, color }}>{valor}</div>
+    </div>
+  );
+
+  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color }: {
+    titulo: string; filas: { valor: string; monto: number; pct: number }[]; totalLabel: string; totalMonto: number; totalPct: number; color: string;
+  }) => (
+    <>
+      <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color }}>{titulo}</span></div>
+      {!filas.length ? <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin registros.</p> : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.8rem' }}>
+            <thead><tr><th>Categoría</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>% del total gastado</th></tr></thead>
+            <tbody>
+              {filas.map((c) => (
+                <tr key={c.valor}>
+                  <td>{c.valor}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{money(c.monto)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{pct(c.pct)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+              <td>{totalLabel}</td>
+              <td className="mono" style={{ textAlign: 'right' }}>{money(totalMonto)}</td>
+              <td className="mono" style={{ textAlign: 'right' }}>{pct(totalPct)}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      )}
+    </>
+  );
+
+  return (
+    <Modal title="📊 Resumen de Caja · PERAMANAL GT" size="lg" onClose={onClose} footer={footer}>
+      {error ? (
+        <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>
+      ) : !r ? (
+        <p className="muted" style={{ margin: 0 }}>Cargando resumen…</p>
+      ) : (
+        <>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+            Inicio <strong>{r.fechaInicio ?? '—'}</strong> · Última actualización <strong>{r.fechaActualizacion}</strong> · <strong>{r.dias}</strong> días transcurridos · {r.movimientos} movimiento(s)
+          </p>
+
+          {/* KPIs principales */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.75rem' }}>
+            <Kpi titulo="Saldo actual de la caja" valor={money(r.saldoUsd)} color={r.saldoUsd < 0 ? 'var(--danger)' : undefined} destacar />
+            <Kpi titulo="Total entregado" valor={money(r.totalEntregado)} color="var(--success)" />
+            <Kpi titulo="Total gastado" valor={money(r.totalGastado)} color="var(--danger)" />
+            <Kpi titulo="Tasa del material" valor={`${money(r.tasaMaterial)} /Kg`} color="var(--primary-3)" />
+          </div>
+
+          {/* % Gastos vs % Nómina */}
+          <div className="card" style={{ marginTop: '1rem' }}>
+            <div className="card-title"><span>Distribución de lo gastado</span></div>
+            <div style={{ display: 'flex', height: 16, borderRadius: 6, overflow: 'hidden', background: 'var(--surface-2)' }}>
+              <div title={`Gastos ${pct(r.pctGastos)}`} style={{ width: `${r.pctGastos * 100}%`, background: '#ef4444' }} />
+              <div title={`Nómina ${pct(r.pctNomina)}`} style={{ width: `${r.pctNomina * 100}%`, background: '#a855f7' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '.4rem', fontSize: '.82rem' }}>
+              <span><span style={{ color: '#ef4444' }}>■</span> Gastos GT <strong>{pct(r.pctGastos)}</strong> · {money(r.totalGastos)}</span>
+              <span><span style={{ color: '#a855f7' }}>■</span> Nómina GT <strong>{pct(r.pctNomina)}</strong> · {money(r.totalNominas)}</span>
+            </div>
+          </div>
+
+          {/* Kg de casiterita */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.75rem', marginTop: '1rem' }}>
+            <Kpi titulo="Producción GT (entra)" valor={`${num(r.kgProduccion)} Kg`} color="var(--primary-3)" />
+            <Kpi titulo="Enviados a MGG" valor={`${num(r.kgEnviados)} Kg`} />
+            <Kpi titulo="Diferencia" valor={`${num(r.diferenciaKg)} Kg`} color={r.diferenciaKg < 0 ? 'var(--danger)' : 'var(--success)'} />
+          </div>
+
+          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" />
+          <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" />
+        </>
+      )}
+
+      {correoOpen && r && (
+        <CorreoReporteModal
+          titulo={`Enviar Resumen de Caja · ${r.centro}`}
+          descripcion={`Se enviará el PDF del resumen de caja al ${r.fechaActualizacion} (saldo ${money(r.saldoUsd)} · total gastado ${money(r.totalGastado)}).`}
+          defaultEmail={defaultEmail}
+          onEnviar={async (emails) => {
+            const { destinatarios } = await enviarResumenCajaPorCorreo(r, emails);
+            return destinatarios;
+          }}
+          onClose={() => setCorreoOpen(false)}
+        />
+      )}
     </Modal>
   );
 }

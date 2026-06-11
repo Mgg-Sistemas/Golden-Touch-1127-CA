@@ -1582,6 +1582,81 @@ begin
   end if;
 end$$;
 
+-- ============================================================
+-- CONSUMO DE MARTILLOS (Molino H66) — hoja «CONSUMO MAZOS MARTILLOS GT»
+-- ============================================================
+create table if not exists public.acopio_martillos_movimientos (
+  id uuid primary key default gen_random_uuid(),
+  fecha date not null,
+  descripcion text,
+  usd_entregados numeric not null default 0,
+  cantidad_entregados numeric not null default 0,
+  usd_facturados numeric not null default 0,
+  martillos_a_gt numeric not null default 0,
+  orden int not null default 0,
+  created_by text,
+  actor_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_acopio_martillos_fecha on public.acopio_martillos_movimientos(fecha, orden, created_at);
+alter table public.acopio_martillos_movimientos enable row level security;
+do $$ begin
+  drop policy if exists "mart read auth" on public.acopio_martillos_movimientos;
+  create policy "mart read auth" on public.acopio_martillos_movimientos for select using (auth.role() = 'authenticated');
+  drop policy if exists "mart write auth" on public.acopio_martillos_movimientos;
+  create policy "mart write auth" on public.acopio_martillos_movimientos for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='acopio_martillos_movimientos') then
+    alter publication supabase_realtime add table public.acopio_martillos_movimientos;
+  end if;
+end$$;
+
+-- ============================================================
+-- SINCRONIZACIÓN Acopio → Inventario (con trazabilidad)
+-- · CASITERITA: el stock aumenta al CERRAR un contrato desde Producción
+--   (cerrarContrato → registrarMovimiento), valorizado a la TASA de acopio
+--   vigente en ese momento. No la maneja un trigger (la sincroniza el cierre).
+-- · MARTILLOS: se reflejan como producto y su cantidad/costo se mantienen al día
+--   por trigger desde el libro de martillos. Cada cambio queda como AJUSTE.
+-- El helper _acopio_sync_producto registra el ajuste en la trazabilidad.
+-- ============================================================
+create or replace function public._acopio_sync_producto(
+  p_sku text, p_nombre text, p_categoria text, p_unidad text, p_almacen text,
+  p_target_stock numeric, p_costo numeric, p_detalle text
+) returns void language plpgsql as $$
+declare v_pid uuid; v_stock numeric; v_costo numeric; v_delta numeric;
+begin
+  select id into v_pid from public.productos where sku = p_sku;
+  if v_pid is null then
+    insert into public.productos (sku, nombre, categoria, unidad, almacen, tipo, estado)
+    values (p_sku, p_nombre, p_categoria, p_unidad, p_almacen, 'final', 'activo') returning id into v_pid;
+  end if;
+  select stock, costo_promedio into v_stock, v_costo from public.existencias where producto_id = v_pid and almacen = p_almacen;
+  v_stock := coalesce(v_stock, 0); v_costo := coalesce(v_costo, 0);
+  if abs(p_target_stock - v_stock) < 0.0001 and abs(p_costo - v_costo) < 0.0001 then return; end if;
+  v_delta := p_target_stock - v_stock;
+  insert into public.movimientos (producto_id, tipo, delta, almacen, stock_antes, stock_despues, actor, ref_tipo, detalle, precio_unitario, costo_promedio, at)
+  values (v_pid, 'ajuste', v_delta, p_almacen, v_stock, p_target_stock, 'acopio-sync', 'acopio_sync', p_detalle, p_costo, p_costo, now());
+  insert into public.existencias (producto_id, almacen, stock, costo_promedio, updated_at)
+  values (v_pid, p_almacen, p_target_stock, p_costo, now())
+  on conflict (producto_id, almacen) do update set stock = excluded.stock, costo_promedio = excluded.costo_promedio, updated_at = now();
+  update public.productos p set stock = coalesce((select sum(stock) from public.existencias e where e.producto_id = p.id), 0), precio = p_costo where p.id = v_pid;
+end$$;
+
+create or replace function public._trg_sync_martillos() returns trigger language plpgsql as $$
+declare v_stock numeric; v_tasa numeric;
+begin
+  select coalesce(sum(cantidad_entregados - martillos_a_gt),0),
+         case when coalesce(sum(cantidad_entregados),0) > 0 then sum(usd_entregados)/sum(cantidad_entregados) else 0 end
+    into v_stock, v_tasa from public.acopio_martillos_movimientos;
+  perform public._acopio_sync_producto('MARTILLO-H66','Martillos Molino H66','Insumo','Unidad','PRODUCCION',
+    v_stock, round(v_tasa,4), 'Sync martillos · precio '||round(v_tasa,2)||' $/u · restantes '||round(v_stock,2));
+  return null;
+end$$;
+
+drop trigger if exists trg_sync_martillos on public.acopio_martillos_movimientos;
+create trigger trg_sync_martillos after insert or update or delete on public.acopio_martillos_movimientos for each statement execute function public._trg_sync_martillos();
+
 -- Seed de las 5 clasificaciones (hoja CLASIFICACIONES del Excel).
 insert into public.acopio_clasificaciones (grupo, valor, orden) values
   ('contratos','1. CASITERITA - MINERO - MOTOR',1),
