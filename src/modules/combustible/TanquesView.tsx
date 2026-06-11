@@ -151,7 +151,12 @@ export function TanquesView() {
         <>
           {/* Tarjeta-resumen destacada: total disponible + valor + tasa promedio */}
           <div className="card" style={{ margin: '1rem 0 1.25rem', borderColor: 'var(--primary)', borderWidth: 2, background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
-            <div className="card-title"><span>💧 Combustible disponible</span></div>
+            <div className="card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+              <svg width="14" height="18" viewBox="0 0 14 18" aria-hidden="true" style={{ flexShrink: 0 }}>
+                <path d="M7 0 C7 0 0 8 0 12 a7 7 0 0 0 14 0 C14 8 7 0 7 0 Z" fill="#000" stroke="rgba(255,255,255,.35)" strokeWidth="0.6" />
+              </svg>
+              Combustible disponible
+            </span></div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5rem', flexWrap: 'wrap' }}>
               <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">
                 {num(totalDisponible)} <span style={{ fontSize: '1rem', fontWeight: 500 }}>ltrs</span>
