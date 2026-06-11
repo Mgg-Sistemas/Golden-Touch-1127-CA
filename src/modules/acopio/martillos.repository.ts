@@ -21,7 +21,7 @@ export interface MartilloMovimiento {
   actor_name?: string | null;
   created_at?: string;
   // Calculados al listar (no se persisten):
-  precio_usd_martillo: number;   // usd_entregados / cantidad_entregados
+  precio_usd_martillo: number;   // usd_facturados / cantidad_entregados (igual que el Excel)
   saldo_usd: number;             // corrido: + entregados − facturados
   martillos_restantes: number;   // corrido: + entregados − entregados a GT
 }
@@ -53,7 +53,8 @@ export async function listMovimientosMartillos(): Promise<MartilloMovimiento[]> 
     restantes += cant - num(m.martillos_a_gt);
     return {
       ...m,
-      precio_usd_martillo: cant > 0 ? num(m.usd_entregados) / cant : 0,
+      // El Excel calcula el «Precio $Usd por Martillo» sobre lo FACTURADO, no lo entregado.
+      precio_usd_martillo: cant > 0 ? num(m.usd_facturados) / cant : 0,
       saldo_usd: saldo,
       martillos_restantes: restantes,
     };

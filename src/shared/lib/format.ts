@@ -37,8 +37,12 @@ const TZ = 'America/Caracas';
 
 export function date(iso: string | null | undefined): string {
   if (!iso) return '—';
+  // Una fecha SIN hora (YYYY-MM-DD) representa un día calendario: no debe correrse
+  // por zona horaria (si no, 2026-04-15 se mostraría como 14 en Venezuela). Para
+  // esos casos se interpreta en UTC y así coincide con el día real (el del Excel).
+  const soloFecha = typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
   return new Date(iso).toLocaleDateString('es-VE', {
-    timeZone: TZ,
+    timeZone: soloFecha ? 'UTC' : TZ,
     day: '2-digit',
     month: 'short',
     year: 'numeric',

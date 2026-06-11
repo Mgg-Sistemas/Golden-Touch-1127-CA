@@ -149,7 +149,8 @@ function AgregarMartilloModal({ actor, actorName, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
 
   const r2 = (s: string) => Math.round((Number(s) || 0) * 100) / 100;
-  const precio = Number(cantEntregados) > 0 ? r2(usdEntregados) / Number(cantEntregados) : 0;
+  // Igual que el Excel: el precio por martillo se calcula sobre lo FACTURADO, no lo entregado.
+  const precio = Number(cantEntregados) > 0 ? r2(usdFacturados) / Number(cantEntregados) : 0;
 
   async function guardar() {
     setError(null);
