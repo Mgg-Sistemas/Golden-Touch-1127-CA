@@ -86,6 +86,9 @@ export function TanquesView() {
   const [borrandoTanque, setBorrandoTanque] = useState(false);
   // La lista actual solo muestra el mes en curso; lo anterior va al Histórico.
   const [historico, setHistorico] = useState(false);
+  // Se incrementa ante cada recarga/realtime para que el modal Histórico (que tiene
+  // su propio estado de movimientos) vuelva a consultar y refleje las ediciones.
+  const [reloadKey, setReloadKey] = useState(0);
   const mesActual = useMemo(() => mesActualVE(), []);
 
   const reloadTanques = useCallback(async () => {
@@ -114,6 +117,7 @@ export function TanquesView() {
   useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_conciliaciones'], () => {
     void reloadTanques();
     void reloadMovs(selId);
+    setReloadKey((k) => k + 1);
   });
 
   const sel = useMemo(() => tanques.find((t) => t.id === selId) ?? null, [tanques, selId]);
@@ -131,7 +135,7 @@ export function TanquesView() {
   // contador NO se reinician: siguen encadenados sobre TODOS los movimientos.
   const movsMesActual = useMemo(() => movs.filter((m) => mesDe(m.fecha) === mesActual), [movs, mesActual]);
 
-  async function recargarTodo() { await reloadTanques(); await reloadMovs(selId); }
+  async function recargarTodo() { await reloadTanques(); await reloadMovs(selId); setReloadKey((k) => k + 1); }
 
   return (
     <div>
@@ -283,6 +287,7 @@ export function TanquesView() {
           reporte={reporte}
           userEmail={user?.email ?? ''}
           mesActual={mesActual}
+          reloadKey={reloadKey}
           onVerDetalle={setDetalle}
           onClose={() => setHistorico(false)}
         />
@@ -538,11 +543,12 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
    agrupados por mes, con filtros, búsqueda y reportes. El mes en curso NO aparece acá
    (ese está en la lista actual). No se reinicia saldo/horómetro/contador: solo es una
    vista segmentada por mes de los mismos movimientos. */
-function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, onVerDetalle, onClose }: {
+function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, reloadKey, onVerDetalle, onClose }: {
   tanques: TanqueCombustible[];
   reporte: ReporteTanque[];
   userEmail: string;
   mesActual: string;
+  reloadKey: number;
   onVerDetalle: (m: MovimientoTanque) => void;
   onClose: () => void;
 }) {
@@ -562,11 +568,14 @@ function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, onV
       const previos = ms.filter((m) => mesDe(m.fecha) < mesActual);
       setMovs(previos);
       const meses = Array.from(new Set(previos.map((m) => mesDe(m.fecha)).filter(Boolean))).sort();
-      setMes(meses[meses.length - 1] ?? '');
+      // Conservar el mes que el usuario está viendo (si sigue existiendo tras recargar);
+      // si no, mostrar el más reciente.
+      setMes((prev) => (prev && meses.includes(prev) ? prev : (meses[meses.length - 1] ?? '')));
     }).catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'No se pudo cargar el histórico', 'error'); })
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
-  }, [tankId, mesActual]);
+    // reloadKey: al editar/eliminar un movimiento (o por realtime) se vuelve a consultar.
+  }, [tankId, mesActual, reloadKey]);
 
   const meses = useMemo(() => Array.from(new Set(movs.map((m) => mesDe(m.fecha)).filter(Boolean))).sort().reverse(), [movs]);
   const movsMes = useMemo(() => movs.filter((m) => mesDe(m.fecha) === mes), [movs, mes]);
