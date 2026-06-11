@@ -524,7 +524,7 @@ export async function emitirOrdenCompra(o: Orden, actorEmail: string): Promise<O
 /* ───────── Pago de la OC desde Tesorería (oc_aprobada → pagada) ───────── */
 
 async function subirAdjuntoOc(ordenId: string, file: File, tipo: 'factura' | 'retencion'): Promise<string> {
-  const safe = file.name.replace(/[^\w.\-]+/g, '_');
+  const safe = file.name.replace(/[^\w.-]+/g, '_');
   const path = `${ordenId}/${tipo}-${safe}`;
   const { error } = await supabase.storage.from(BUCKET_OC).upload(path, file, {
     upsert: true, contentType: file.type || 'application/pdf',

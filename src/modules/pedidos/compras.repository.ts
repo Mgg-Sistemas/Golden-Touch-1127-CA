@@ -146,7 +146,7 @@ export async function crearCompraDirecta(
 /* ───────── Adjunto en Storage ───────── */
 
 export async function subirAdjuntoCompra(compraId: string, file: File): Promise<string> {
-  const safe = file.name.replace(/[^\w.\-]+/g, '_');
+  const safe = file.name.replace(/[^\w.-]+/g, '_');
   const path = `${compraId}/${safe}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
     upsert: true, contentType: file.type || 'application/pdf',

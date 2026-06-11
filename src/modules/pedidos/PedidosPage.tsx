@@ -2312,7 +2312,6 @@ function CrearOrdenModal({
       return p && /viver|limpie/i.test(p.categoria ?? '');
     });
     setMotivo((m) => (hayMercado ? 'MERCADO' : (m === 'MERCADO' ? '' : m)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, allProductos, motivoTocado]);
 
   function addItem() {

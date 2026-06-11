@@ -73,7 +73,7 @@ export async function contarRetencionesPendientes(): Promise<number> {
 }
 
 async function subirComprobante(ordenId: string, tipo: TipoRetencion, file: File): Promise<{ path: string; nombre: string }> {
-  const safe = file.name.replace(/[^\w.\-]+/g, '_');
+  const safe = file.name.replace(/[^\w.-]+/g, '_');
   const path = `${ordenId}/retencion_${tipo}_${safe}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
     upsert: true, contentType: file.type || 'application/pdf',
