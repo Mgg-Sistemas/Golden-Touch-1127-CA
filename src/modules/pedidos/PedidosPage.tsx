@@ -2368,7 +2368,9 @@ function CrearOrdenModal({
       notify(`Nueva orden de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Error al crear', 'error');
+      // Los errores de Supabase no son instancias de Error: igual traen `.message`.
+      const msg = e instanceof Error ? e.message : (e as { message?: string })?.message || 'Error al crear';
+      toast(msg, 'error');
     } finally {
       setSubmitting(false);
     }
