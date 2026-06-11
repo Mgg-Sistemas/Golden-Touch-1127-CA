@@ -6,11 +6,11 @@ import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { MovimientosAcopioView } from './MovimientosAcopioView';
+import { MovimientosAcopioView, type ResumenAcopio } from './MovimientosAcopioView';
 import { CategoriasModal } from './CategoriasModal';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
-import type { CajaMovimiento, CajaResumen, Producto, RecepcionAcopio } from '@/shared/lib/types';
+import type { Producto, RecepcionAcopio } from '@/shared/lib/types';
 import {
   createRecepcion,
   updateRecepcion,
@@ -20,7 +20,7 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajaMovimientos, resumirCaja, listCajas, crearMovimientoCaja, listClasificacionesAll, type CajaMovimientoInput } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, type CajaMovimientoInput } from './caja.repository';
 import type { ClasificacionAcopio } from '@/shared/lib/types';
 import { DineroPorEntrar } from './DineroPorEntrar';
 import { listEntrantesPorConfirmar } from '@/modules/tesoreria/transferenciasInter.repository';
@@ -42,25 +42,23 @@ export function AcopioPage() {
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [almacenes, setAlmacenes] = useState<string[]>([]);
-  const [cajaMovs, setCajaMovs] = useState<CajaMovimiento[]>([]);
   const [cajas, setCajas] = useState<CajaCierre[]>([]);
   const [entrantes, setEntrantes] = useState<TransferenciaInter[]>([]);
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
   const [nuevo, setNuevo] = useState(false);
   const [movAcopio, setMovAcopio] = useState(false);
   const [categorias, setCategorias] = useState(false);
-  const [saldoCasiterita, setSaldoCasiterita] = useState(0);
-  const [tasaMaterial, setTasaMaterial] = useState(0);
-  const onResumenAcopio = useCallback((r: { saldoKg: number; tasa: number }) => { setSaldoCasiterita(r.saldoKg); setTasaMaterial(r.tasa); }, []);
+  // Resumen único que alimenta TODAS las tarjetas (misma fuente que la tabla de movimientos).
+  const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0 });
+  const onResumenAcopio = useCallback((r: ResumenAcopio) => { setResumen(r); }, []);
 
   const reload = useCallback(async () => {
-    const [ps, alms, cms, cjs, ent] = await Promise.all([
-      listProductos(), getNombresAlmacenes(), listCajaMovimientos(), listCajas(),
+    const [ps, alms, cjs, ent] = await Promise.all([
+      listProductos(), getNombresAlmacenes(), listCajas(),
       listEntrantesPorConfirmar().catch(() => []),
     ]);
     setProductos(ps);
     setAlmacenes(alms);
-    setCajaMovs(cms);
     setCajas(cjs);
     setEntrantes(ent);
   }, []);
@@ -72,10 +70,8 @@ export function AcopioPage() {
   }, [reload]);
   useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'transferencias_inter', 'cajas', 'productos', 'existencias'], reload);
 
-  // La tasa de la vista inicial es la del cierre/caja ACTUALMENTE ABIERTO.
+  // Caja a la que se asocian los movimientos nuevos (la ACTUALMENTE ABIERTA).
   const cajaActual = useMemo(() => cajas.find((c) => c.estado === 'abierta') ?? cajas[0] ?? null, [cajas]);
-  const movsActual = useMemo(() => (cajaActual ? cajaMovs.filter((m) => m.caja_id === cajaActual.id) : cajaMovs), [cajaMovs, cajaActual]);
-  const caja: CajaResumen = useMemo(() => resumirCaja(movsActual), [movsActual]);
 
   return (
     <div>
@@ -97,18 +93,18 @@ export function AcopioPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="card" style={{ borderColor: 'var(--primary)', background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
           <div className="card-title"><span>💲 Tasa actual del material</span></div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(tasaMaterial)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
+          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(resumen.tasa)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</div>
         </div>
         <div className="card" style={{ borderColor: 'var(--success)' }}>
           <div className="card-title"><span>💵 USD entregados</span></div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }} className="mono">{money(caja.usdEntregado)}</div>
+          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }} className="mono">{money(resumen.usdEntregado)}</div>
           <div className="muted" style={{ fontSize: '.72rem' }}>suma de lo que entra (incluye el dinero recibido del otro sistema)</div>
         </div>
-        <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700 }} className="mono">{money(caja.saldoUsd)}</div></div>
-        <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: saldoCasiterita < 0 ? 'var(--danger)' : undefined }} className="mono">{num(saldoCasiterita)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
-        <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.gastos)}</div></div>
-        <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(caja.nominas)}</div></div>
+        <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
+        <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
+        <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div></div>
+        <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div></div>
       </div>
 
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí) */}
@@ -153,12 +149,17 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 }) {
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [facturados, setFacturados] = useState('');
+  const [descFacturados, setDescFacturados] = useState('');
   const [gastos, setGastos] = useState('');
   const [gastoCat, setGastoCat] = useState('');
+  const [descGastos, setDescGastos] = useState('');
   const [nominas, setNominas] = useState('');
   const [nominaCat, setNominaCat] = useState('');
+  const [descNominas, setDescNominas] = useState('');
   const [traslado, setTraslado] = useState('');
+  const [descTraslado, setDescTraslado] = useState('');
   const [kgRecibidos, setKgRecibidos] = useState('');
+  const [descKg, setDescKg] = useState('');
   const [cats, setCats] = useState<ClasificacionAcopio[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,11 +184,11 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       // Una fila por concepto: así cada monto conserva su categoría y la distribución
       // por grupo (Gastos/Nómina/Traslado) queda correcta.
       const filas: CajaMovimientoInput[] = [];
-      if (fac > 0) filas.push({ fecha, facturados: fac, descripcion: 'Facturado', caja_id: cajaId });
-      if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, descripcion: gastoCat, caja_id: cajaId });
-      if (nom > 0) filas.push({ fecha, nominas: nom, clasif_grupo: 'nomina', clasif_valor: nominaCat, descripcion: nominaCat, caja_id: cajaId });
-      if (tras > 0) filas.push({ fecha, traslado: tras, clasif_grupo: 'traslado', descripcion: 'Traslado de caja', caja_id: cajaId });
-      if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: 'Kg recibidos por MGG', caja_id: cajaId });
+      if (fac > 0) filas.push({ fecha, facturados: fac, descripcion: descFacturados.trim() || 'Facturado', caja_id: cajaId });
+      if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
+      if (nom > 0) filas.push({ fecha, nominas: nom, clasif_grupo: 'nomina', clasif_valor: nominaCat, descripcion: descNominas.trim() || nominaCat, caja_id: cajaId });
+      if (tras > 0) filas.push({ fecha, traslado: tras, clasif_grupo: 'traslado', descripcion: descTraslado.trim() || 'Traslado de caja', caja_id: cajaId });
+      if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
       toast(`${filas.length} movimiento(s) registrado(s)`, 'success');
       onSaved();
@@ -209,6 +210,14 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
     </div>
   );
 
+  // Descripción del concepto → es lo que se muestra en la columna «Descripción» de la tabla.
+  const campoDesc = (val: string, set: (v: string) => void, placeholder: string) => (
+    <div className="form-row">
+      <label>Descripción</label>
+      <input className="input" value={val} onChange={(e) => set(e.target.value)} placeholder={placeholder} />
+    </div>
+  );
+
   return (
     <Modal title="Agregar movimiento" size="md" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
@@ -216,12 +225,15 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
         Caja: <strong>{cajaActual ? `${cajaActual.numero}${cajaActual.nombre ? ` · ${cajaActual.nombre}` : ''}` : '—'}</strong>. Completá los campos que apliquen; cada concepto se registra como un movimiento.
       </p>
 
+      <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+
+      {/* Facturados: monto + descripción */}
       <div className="form-grid">
-        <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
         {campoUsd('$ Usd Facturados', facturados, setFacturados)}
+        {campoDesc(descFacturados, setDescFacturados, 'Facturado')}
       </div>
 
-      {/* Gastos GT: monto + categoría */}
+      {/* Gastos GT: monto + categoría + descripción */}
       <div className="form-grid">
         {campoUsd('$ Gastos GT', gastos, setGastos)}
         <div className="form-row">
@@ -232,8 +244,9 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
           </select>
         </div>
       </div>
+      {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto')}
 
-      {/* Nómina: monto + categoría */}
+      {/* Nómina: monto + categoría + descripción */}
       <div className="form-grid">
         {campoUsd('$ Nómina', nominas, setNominas)}
         <div className="form-row">
@@ -244,14 +257,22 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
           </select>
         </div>
       </div>
+      {campoDesc(descNominas, setDescNominas, nominaCat || 'Descripción de la nómina')}
 
+      {/* Traslado: monto + descripción */}
       <div className="form-grid">
         {campoUsd('$ Traslado de Caja', traslado, setTraslado)}
+        {campoDesc(descTraslado, setDescTraslado, 'Traslado de caja')}
+      </div>
+
+      {/* Kg recibidos por MGG: cantidad + descripción */}
+      <div className="form-grid">
         <div className="form-row">
           <label>Kg Recibidos por MGG</label>
           <input className="input mono" type="number" min={0} step="any" value={kgRecibidos} onChange={(e) => setKgRecibidos(e.target.value)} placeholder="0" />
           <small className="muted">Expresado en Kg.</small>
         </div>
+        {campoDesc(descKg, setDescKg, 'Kg recibidos por MGG')}
       </div>
     </Modal>
   );
