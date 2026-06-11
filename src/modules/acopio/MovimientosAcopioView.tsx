@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
@@ -20,6 +21,7 @@ import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorre
 
 interface FilaMov {
   id: string;
+  contratoId?: string;      // ← si la fila proviene de un contrato cerrado, su id (para ir al detalle)
   fecha: string;
   descripcion: string;
   usdEntregado: number | null;
@@ -47,6 +49,7 @@ export interface ResumenAcopio {
 
 export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAcopio) => void } = {}) {
   const { user } = useSession();
+  const navigate = useNavigate();
   const [contratos, setContratos] = useState<ContratoAcopio[]>([]);
   const [cajaMovs, setCajaMovs] = useState<CajaMovimiento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,6 +99,7 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
         saldoKg = saldoKg + kg - mgg;
         return {
           id: `c-${e.c.id}`,
+          contratoId: e.c.id,
           fecha: e.c.fecha,
           descripcion: `CONTRATO PRODUCCIÓN GT - #${e.c.seq}`,
           usdEntregado: null,
@@ -178,7 +182,6 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
   // Totales de la vista (para la fila de totales de la tabla, respeta el filtro).
   const totUsdEntregadoVista = mostradas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
   const totKgVista = mostradas.reduce((a, f) => a + f.kgCerrados, 0);
-  const totMggVista = mostradas.reduce((a, f) => a + (f.kgRecibidosMgg ?? 0), 0);
   // Saldo final del rango filtrado = el del movimiento cronológicamente más nuevo (no depende del orden mostrado).
   const ascFiltradas = ordenDesc ? mostradas.slice().reverse() : mostradas;
   const saldoVista = ascFiltradas.length ? ascFiltradas[ascFiltradas.length - 1].saldoKgCasiterita : 0;
@@ -227,34 +230,38 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                 <th>Descripción</th>
                 <th>$Usd entregado</th>
                 <th>Kg Cerrados</th>
-                <th>Precio $Usd por Kg</th>
                 <th>$Usd Facturados</th>
                 <th>Gastos GT</th>
                 <th>Nóminas GT</th>
                 <th>Traslado de caja</th>
                 <th>Saldo en moneda $ Usd</th>
-                <th>Kg Recibidos por MGG</th>
-                <th>Saldo en Kg de casiterita</th>
+                <th title="Saldo corrido = saldo anterior + Kg Cerrados − Kg Recibidos por MGG">Saldo en Kg de casiterita ⓘ</th>
               </tr>
             </thead>
             <tbody>
               {!mostradas.length && (
-                <tr><td colSpan={12} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {mostradas.map((f) => (
-                <tr key={f.id}>
+                <tr
+                  key={f.id}
+                  onClick={f.contratoId ? () => navigate(`/app/produccion?contrato=${f.contratoId}`) : undefined}
+                  style={f.contratoId ? { cursor: 'pointer' } : undefined}
+                  title={f.contratoId ? 'Ver el contrato en Producción' : undefined}
+                >
                   <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(f.fecha)}</td>
-                  <td style={{ fontWeight: 600 }}>{f.descripcion}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {f.descripcion}
+                    {f.contratoId && <span className="muted" style={{ marginLeft: '.4rem', fontWeight: 400 }} title="Ver el contrato en Producción">↗</span>}
+                  </td>
                   <td className="mono">{f.usdEntregado == null ? '—' : money(f.usdEntregado)}</td>
                   {/* Kg que aporta el contrato al cerrarse → resaltado */}
                   <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(f.kgCerrados)}</td>
-                  <td className="mono">{f.precioUsdKg == null ? '—' : money(f.precioUsdKg)}</td>
                   <td className="mono">{money(f.usdFacturados)}</td>
                   <td className="mono">{f.gastosGt == null ? '—' : money(f.gastosGt)}</td>
                   <td className="mono">{f.nominasGt == null ? '—' : money(f.nominasGt)}</td>
                   <td className="mono">{f.trasladoCaja == null ? '—' : money(f.trasladoCaja)}</td>
                   <td className="mono"><strong>{money(f.saldoUsd)}</strong></td>
-                  <td className="mono">{f.kgRecibidosMgg == null ? '—' : num(f.kgRecibidosMgg)}</td>
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
                 </tr>
@@ -265,12 +272,14 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                 <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Totales</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--success, #45c08a)' }}>{totUsdEntregadoVista ? money(totUsdEntregadoVista) : '—'}</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
-                <td colSpan={6}></td>
-                <td className="mono" style={{ fontWeight: 700 }}>{totMggVista ? num(totMggVista) : '—'}</td>
+                <td colSpan={5}></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>
               </tr>
             </tfoot>
           </table>
+          <p className="muted" style={{ fontSize: '.74rem', marginTop: '.5rem' }}>
+            <strong>Saldo en Kg de casiterita</strong> = saldo anterior + Kg Cerrados − Kg Recibidos por MGG (acumulado corrido; admite negativo).
+          </p>
         </div>
       )}
 

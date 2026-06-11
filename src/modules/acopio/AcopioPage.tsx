@@ -183,8 +183,6 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   onSaved: () => void;
 }) {
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
-  const [facturados, setFacturados] = useState('');
-  const [descFacturados, setDescFacturados] = useState('');
   const [gastos, setGastos] = useState('');
   const [gastoCat, setGastoCat] = useState('');
   const [descGastos, setDescGastos] = useState('');
@@ -208,9 +206,9 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 
   async function guardar() {
     setError(null);
-    const fac = r2(facturados), gas = r2(gastos), nom = r2(nominas), tras = r2(traslado);
+    const gas = r2(gastos), nom = r2(nominas), tras = r2(traslado);
     const kg = Number(kgRecibidos) || 0;
-    if (fac <= 0 && gas <= 0 && nom <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (gas <= 0 && nom <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
     if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto (Gastos GT).'); return; }
     if (nom > 0 && !nominaCat) { setError('Elegí la categoría de la nómina.'); return; }
     setSaving(true);
@@ -219,7 +217,6 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       // Una fila por concepto: así cada monto conserva su categoría y la distribución
       // por grupo (Gastos/Nómina/Traslado) queda correcta.
       const filas: CajaMovimientoInput[] = [];
-      if (fac > 0) filas.push({ fecha, facturados: fac, descripcion: descFacturados.trim() || 'Facturado', caja_id: cajaId });
       if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
       if (nom > 0) filas.push({ fecha, nominas: nom, clasif_grupo: 'nomina', clasif_valor: nominaCat, descripcion: descNominas.trim() || nominaCat, caja_id: cajaId });
       if (tras > 0) filas.push({ fecha, traslado: tras, clasif_grupo: 'traslado', descripcion: descTraslado.trim() || 'Traslado de caja', caja_id: cajaId });
@@ -261,12 +258,6 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       </p>
 
       <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
-
-      {/* Facturados: monto + descripción */}
-      <div className="form-grid">
-        {campoUsd('$ Usd Facturados', facturados, setFacturados)}
-        {campoDesc(descFacturados, setDescFacturados, 'Facturado')}
-      </div>
 
       {/* Gastos GT: monto + categoría + descripción */}
       <div className="form-grid">

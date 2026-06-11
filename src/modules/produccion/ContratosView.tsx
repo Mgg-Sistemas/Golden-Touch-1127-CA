@@ -17,7 +17,9 @@ export interface ContratosViewHandle { openCreate: () => void }
 
 export const ContratosView = forwardRef<ContratosViewHandle, {
   canWrite: boolean; actor: string; actorName: string | null; defaultEmail: string;
-}>(function ContratosView({ canWrite, actor, actorName, defaultEmail }, ref) {
+  // Cuando llega un id (p. ej. al hacer click en un contrato desde Acopio) se abre su detalle.
+  openContratoId?: string | null; onOpenConsumed?: () => void;
+}>(function ContratosView({ canWrite, actor, actorName, defaultEmail, openContratoId, onOpenConsumed }, ref) {
   const [contratos, setContratos] = useState<ContratoAcopio[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: 'none' } | { kind: 'crear' } | { kind: 'editar'; c: ContratoAcopio }>({ kind: 'none' });
@@ -43,6 +45,16 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
 
   // El botón "Crear contrato" vive en el header de la página; lo disparamos por ref.
   useImperativeHandle(ref, () => ({ openCreate: () => setModal({ kind: 'crear' }) }), []);
+
+  // Llegada desde Acopio (?contrato=<id>): cuando ya cargaron los contratos, abrir su detalle.
+  useEffect(() => {
+    if (!openContratoId || !contratos.length) return;
+    const c = contratos.find((x) => x.id === openContratoId);
+    if (c) {
+      setModal({ kind: 'editar', c });
+      onOpenConsumed?.();
+    }
+  }, [openContratoId, contratos, onOpenConsumed]);
 
   // Opciones para los selectores de filtro.
   const opcs = useMemo(() => {

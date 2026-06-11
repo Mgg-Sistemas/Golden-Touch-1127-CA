@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { ContratosView, type ContratosViewHandle } from './ContratosView';
 import { CatalogoAcopioModal } from './ContratosModal';
@@ -12,6 +13,12 @@ export function ProduccionPage() {
   const viewRef = useRef<ContratosViewHandle>(null);
   const [catalogoOpen, setCatalogoOpen] = useState(false);
   const [tenorOpen, setTenorOpen] = useState(false);
+  // Permite abrir un contrato concreto al entrar con ?contrato=<id> (p. ej. desde Acopio).
+  const [params, setParams] = useSearchParams();
+  const contratoParam = params.get('contrato');
+  const limpiarParam = useCallback(() => {
+    setParams((prev) => { const p = new URLSearchParams(prev); p.delete('contrato'); return p; }, { replace: true });
+  }, [setParams]);
 
   return (
     <div>
@@ -27,7 +34,8 @@ export function ProduccionPage() {
         </div>
       </div>
 
-      <ContratosView ref={viewRef} canWrite={canWrite} actor={actor} actorName={actorName} defaultEmail={actor} />
+      <ContratosView ref={viewRef} canWrite={canWrite} actor={actor} actorName={actorName} defaultEmail={actor}
+        openContratoId={contratoParam} onOpenConsumed={limpiarParam} />
 
       {catalogoOpen && <CatalogoAcopioModal canWrite={canWrite} onClose={() => setCatalogoOpen(false)} />}
       {tenorOpen && <TenorModal defaultEmail={actor} onClose={() => setTenorOpen(false)} />}
