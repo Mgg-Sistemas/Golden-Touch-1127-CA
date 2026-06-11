@@ -38,6 +38,9 @@ export interface CompraDirecta {
   almacen: string;
   cantidad: number;
   items: CompraDirectaItem[];
+  /** Proveedor opcional (directorio). Si se tipea uno nuevo, se da de alta en `proveedores`. */
+  proveedor_id: string | null;
+  proveedor_nombre: string | null;
   estado: EstadoCompraDirecta;
   gasto: number | null;
   caja_id: string | null;
@@ -85,6 +88,10 @@ export type LineaCompra = LineaExistente | LineaNueva;
 export interface CrearCompraInput {
   lineas: LineaCompra[];
   almacen: string;
+  /** Proveedor opcional ya existente en el directorio. */
+  proveedorId?: string | null;
+  /** Nombre del proveedor (para mostrar sin re-consultar). */
+  proveedorNombre?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -133,6 +140,8 @@ export async function crearCompraDirecta(
       almacen,
       cantidad: totalCantidad,
       items,
+      proveedor_id: input.proveedorId ?? null,
+      proveedor_nombre: input.proveedorNombre?.trim() || null,
       estado: 'en_proceso',
       actor: input.actor,
       actor_name: input.actorName ?? null,

@@ -7,10 +7,12 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
 import { descargarCompraDirectaPdf } from './compraDirectaPdf';
-import type { Caja, Producto, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
+import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
+import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { saldosDeCaja, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import {
@@ -38,16 +40,17 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
   const [cajas, setCajas] = useState<Caja[]>([]);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
   const [crear, setCrear] = useState(false);
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
-    const [cs, pds, alms, cats, unis, cjs] = await Promise.all([
-      listComprasDirectas(), listProductos(), getNombresAlmacenes(), getCategorias(), getUnidades(), listCajasActivas(),
+    const [cs, pds, alms, cats, unis, cjs, provs] = await Promise.all([
+      listComprasDirectas(), listProductos(), getNombresAlmacenes(), getCategorias(), getUnidades(), listCajasActivas(), listProveedores(),
     ]);
-    setCompras(cs); setProductos(pds); setAlmacenes(alms); setCategorias(cats); setUnidades(unis); setCajas(cjs);
+    setCompras(cs); setProductos(pds); setAlmacenes(alms); setCategorias(cats); setUnidades(unis); setCajas(cjs); setProveedores(provs);
   }, []);
 
   useEffect(() => {
@@ -58,7 +61,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   }, [reload]);
 
   // Realtime multiusuario: las compras directas se reflejan al instante.
-  useRealtime(['compras_directas', 'productos'], () => { void reload(); });
+  useRealtime(['compras_directas', 'productos', 'proveedores'], () => { void reload(); });
 
   const porEstado = useMemo(() => {
     const m: Record<string, CompraDirecta[]> = { en_proceso: [], finalizada: [] };
@@ -103,11 +106,12 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       ) : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Material(es)</th><th>Almacén</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
+            <thead><tr><th>Material(es)</th><th>Proveedor</th><th>Almacén</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
             <tbody>
               {compras.map((c) => (
                 <tr key={c.id}>
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : (c.producto_sku ? <span className="muted"> · {c.producto_sku}</span> : null)}</td>
+                  <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td>{c.almacen}</td>
                   <td className="mono">{num(c.cantidad)}</td>
                   <td>{ESTADO_LABEL[c.estado] ?? c.estado}</td>
@@ -127,7 +131,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       )}
 
       {crear && (
-        <CrearCompraModal productos={productos} almacenes={almacenes} categorias={categorias} unidades={unidades}
+        <CrearCompraModal productos={productos} almacenes={almacenes} categorias={categorias} unidades={unidades} proveedores={proveedores}
           actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await reload(); }} />
       )}
 
@@ -149,6 +153,7 @@ function CompraCard({ compra, onFinalizar, onPdf }: {
         <span className="badge">{num(compra.cantidad)}</span>
       </div>
       <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>→ {compra.almacen}</div>
+      {compra.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem' }}>🏷 {compra.proveedor_nombre}</div>}
       {compra.items.length > 1 && (
         <ul className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0', paddingLeft: '1rem' }}>
           {compra.items.map((it, i) => <li key={i}>{it.producto_nombre} · {num(it.cantidad)}</li>)}
@@ -186,12 +191,13 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
 
 interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
 
-function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, actorName, onClose, onSaved }: {
-  productos: Producto[]; almacenes: string[]; categorias: string[]; unidades: string[];
+function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedores, actor, actorName, onClose, onSaved }: {
+  productos: Producto[]; almacenes: string[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const alms = almacenes.length ? almacenes : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
+  const provActivos = useMemo(() => proveedores.filter((p) => p.estado === 'activo'), [proveedores]);
   const nuevaLinea = (id: number): LineaUI => ({
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
     nombre: '', categoria: categorias[0] ?? '', unidad: unidades[0] ?? 'und', cantidad: '1',
@@ -201,6 +207,16 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, a
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seq, setSeq] = useState(2);
+
+  // Proveedor (opcional): se elige del directorio o se da de alta en el momento.
+  const [proveedorId, setProveedorId] = useState('');
+  const [nuevoProveedor, setNuevoProveedor] = useState(false);
+  const [provRazon, setProvRazon] = useState('');
+  const [provRif, setProvRif] = useState('J-');
+  const [provTelefono, setProvTelefono] = useState('');
+  const [provEmail, setProvEmail] = useState('');
+  const [provOrigen, setProvOrigen] = useState<OrigenProveedor>('nacional');
+  const rifPartes = partirRif(provRif);
 
   function set(id: number, patch: Partial<LineaUI>) { setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l))); }
   function add() { setLineas((ls) => [...ls, nuevaLinea(seq)]); setSeq((s) => s + 1); }
@@ -220,9 +236,37 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, a
         payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: l.categoria, unidad: l.unidad, cantidad: cant });
       }
     }
+    // Validación del proveedor nuevo (si se eligió darlo de alta ahora).
+    if (nuevoProveedor) {
+      if (!provRazon.trim() || !rifPartes.numero) { setError('Razón social y RIF (con número) son obligatorios para el nuevo proveedor.'); return; }
+      const emailClean = provEmail.trim();
+      if (emailClean && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)) { setError('El correo del proveedor no tiene un formato válido.'); return; }
+    }
     setSaving(true);
     try {
-      await crearCompraDirecta({ lineas: payload, almacen, actor, actorName }, productos);
+      // Resolver proveedor: existente del directorio o alta en línea (se guarda en `proveedores`).
+      let proveedorIdFinal: string | null = null;
+      let proveedorNombreFinal: string | null = null;
+      if (nuevoProveedor) {
+        const creado = await crearProveedor({
+          razon_social: provRazon.trim().toUpperCase(),
+          rif: `${rifPartes.letra}-${rifPartes.numero}`,
+          contacto: null,
+          telefono: provTelefono.trim() || null,
+          email: provEmail.trim() || null,
+          direccion: null,
+          categorias: [],
+          origen: provOrigen,
+          estado: 'activo',
+        });
+        proveedorIdFinal = creado.id;
+        proveedorNombreFinal = creado.razon_social;
+        notify(`Proveedor "${creado.razon_social}" registrado`, 'success', { link: '#/app/proveedores' });
+      } else if (proveedorId) {
+        proveedorIdFinal = proveedorId;
+        proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
+      }
+      await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName }, productos);
       notify(`Compra directa creada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear la compra directa.'); setSaving(false); }
@@ -245,6 +289,66 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, a
           <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} style={{ maxWidth: 280 }}>
             {alms.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+        </div>
+
+        {/* Proveedor (opcional): buscador del directorio + alta en línea. */}
+        <div className="form-row">
+          <label>Proveedor <span className="muted">(opcional)</span></label>
+          {!nuevoProveedor ? (
+            <>
+              <SearchSelect value={proveedorId} onChange={setProveedorId} style={{ maxWidth: 360 }}
+                placeholder={provActivos.length ? '🔍 Buscar proveedor…' : '— sin proveedores —'}
+                options={provActivos.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}` }))} />
+              <small className="muted">
+                {proveedorId
+                  ? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setProveedorId('')}>✕ Quitar proveedor</button>
+                  : <>¿No está? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setNuevoProveedor(true)}>＋ Agregar proveedor nuevo</button> (se guarda en el directorio)</>}
+              </small>
+            </>
+          ) : (
+            <div className="card" style={{ background: 'var(--bg-2)', padding: '.85rem', marginTop: '.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
+                <strong style={{ fontSize: '.88rem' }}>Nuevo proveedor</strong>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoProveedor(false)} title="Elegir uno existente">↩ Elegir existente</button>
+              </div>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Razón social *</label>
+                  <input className="input" value={provRazon} onChange={(e) => setProvRazon(e.target.value.toUpperCase())} placeholder="Nombre del proveedor" />
+                </div>
+                <div className="form-row">
+                  <label>RIF *</label>
+                  <div style={{ display: 'flex', gap: '.4rem' }}>
+                    <select className="select" value={rifPartes.letra} onChange={(e) => setProvRif(`${e.target.value}-${rifPartes.numero}`)}
+                      style={{ width: 'auto', flex: '0 0 auto' }} aria-label="Tipo de RIF">
+                      {PREFIJOS_RIF.map((p) => <option key={p.letra} value={p.letra}>{p.letra} · {p.desc}</option>)}
+                    </select>
+                    <input className="input mono" value={rifPartes.numero}
+                      onChange={(e) => setProvRif(`${rifPartes.letra}-${e.target.value.replace(/\D/g, '').slice(0, 10)}`)}
+                      placeholder="40778442" inputMode="numeric" style={{ flex: 1 }} />
+                  </div>
+                </div>
+              </div>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Teléfono</label>
+                  <input className="input" inputMode="numeric" value={provTelefono}
+                    onChange={(e) => setProvTelefono(e.target.value.replace(/\D/g, '').slice(0, 15))} maxLength={15} placeholder="Solo dígitos" />
+                </div>
+                <div className="form-row">
+                  <label>Email</label>
+                  <input className="input" type="email" value={provEmail} onChange={(e) => setProvEmail(e.target.value)} placeholder="correo@dominio.com" />
+                </div>
+                <div className="form-row">
+                  <label>Origen</label>
+                  <select className="select" value={provOrigen} onChange={(e) => setProvOrigen(e.target.value as OrigenProveedor)}>
+                    <option value="nacional">Nacional</option>
+                    <option value="internacional">Internacional</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {lineas.map((l, idx) => (
