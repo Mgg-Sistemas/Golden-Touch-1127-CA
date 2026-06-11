@@ -221,30 +221,39 @@ export async function crearCaja(input: { numero: string; nombre?: string | null;
 }
 
 /**
- * Acepta una transferencia ENTRANTE del otro sistema acreditándola en una caja
- * de Acopio: registra un movimiento (usd_entregado ↑ saldo, clasificado en
- * "Movimientos de Caja"), marca la transferencia como recibida y avisa al
- * origen (ACK). El id global de la transferencia evita doble acreditación.
+ * Descripción FIJA con la que se registra todo dinero que llega del sistema
+ * externo (Mineral Group). Aparece en la columna «Descripción» de los
+ * Movimientos del Centro de Acopio y suma en la tarjeta «$Usd entregados».
+ */
+export const DESC_ENTRADA_EXTERNA = 'CAJA MULTIMONEDAS MGG / CAJA GT PERAMANAL';
+
+/**
+ * Acepta una transferencia ENTRANTE del otro sistema acreditándola en los
+ * MOVIMIENTOS del Centro de Acopio: registra un movimiento (usd_entregado ↑
+ * saldo, clasificado en "Movimientos de Caja", descripción fija de entrada
+ * externa), marca la transferencia como recibida y avisa al origen (ACK). El id
+ * global de la transferencia evita doble acreditación. No exige caja abierta;
+ * si hay una, se asocia, y si no, el movimiento entra igual (caja_id null).
  */
 export async function aceptarEntradaEnCajaAcopio(input: {
   row: TransferenciaInter;
-  cajaId: string;              // acopio_cajas.id (caja de Acopio que recibe)
+  cajaId?: string | null;      // acopio_cajas.id (opcional: caja abierta a la que se asocia)
   cajaNombre?: string | null;
   actor: string;
   actorName?: string | null;
 }): Promise<void> {
-  const { row, cajaId } = input;
+  const { row } = input;
+  const cajaId = input.cajaId ?? null;
   if (row.estado !== 'por_confirmar') throw new Error('Esta transferencia ya fue procesada.');
-  if (!cajaId) throw new Error('Elegí la caja que recibe el dinero.');
   const legs = (row.legs ?? []).filter((l) => Number(l.monto) > 0);
   if (!legs.length) throw new Error('La transferencia no tiene montos.');
   const montoUsd = legs.reduce((a, l) => a + num(l.monto), 0);
-  const detalleMonedas = legs.map((l) => `${l.moneda} ${num(l.monto)}`).join(' · ');
 
-  // 1) Entra a la caja como movimiento (sube el saldo USD), grupo Movimientos de Caja.
+  // 1) Entra a los movimientos (sube el saldo USD), grupo Movimientos de Caja,
+  //    con la descripción fija de entrada externa.
   await crearMovimientoCaja({
     fecha: new Date().toISOString().slice(0, 10),
-    descripcion: `Entrada desde ${row.empresa_origen}${row.motivo ? ' · ' + row.motivo : ''} (${detalleMonedas})`,
+    descripcion: DESC_ENTRADA_EXTERNA,
     usd_entregado: montoUsd,
     clasif_grupo: 'movimientos_caja',
     caja_id: cajaId,

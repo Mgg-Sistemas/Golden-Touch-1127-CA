@@ -34,7 +34,18 @@ interface FilaMov {
   saldoKgCasiterita: number; // saldo corrido
 }
 
-export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: { saldoKg: number; tasa: number }) => void } = {}) {
+/** Resumen que las tarjetas de la página consumen (misma fuente que la tabla). */
+export interface ResumenAcopio {
+  saldoKg: number;
+  tasa: number;
+  usdEntregado: number;
+  saldoUsd: number;
+  gastos: number;
+  nominas: number;
+  facturado: number;
+}
+
+export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAcopio) => void } = {}) {
   const { user } = useSession();
   const [contratos, setContratos] = useState<ContratoAcopio[]>([]);
   const [cajaMovs, setCajaMovs] = useState<CajaMovimiento[]>([]);
@@ -148,12 +159,21 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: { saldoKg
   const totalFacturado = filas.reduce((a, f) => a + (f.usdFacturados ?? 0), 0);
   const totalGastos = filas.reduce((a, f) => a + (f.gastosGt ?? 0), 0);
   const totalNominas = filas.reduce((a, f) => a + (f.nominasGt ?? 0), 0);
+  const totalUsdEntregado = filas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
   const saldoFinal = filas.length ? filas[filas.length - 1].saldoKgCasiterita : 0;
+  // Saldo en moneda $ Usd = el saldo corrido del movimiento cronológicamente más nuevo.
+  const saldoUsdFinal = filas.length ? filas[filas.length - 1].saldoUsd : 0;
   // TASA ACTUAL DEL MATERIAL = (Facturado + Gastos + Nóminas) ÷ Kg cerrados.
   const tasa = totalKg !== 0 ? (totalFacturado + totalGastos + totalNominas) / totalKg : 0;
 
-  // Reflejamos el saldo acumulado de casiterita y la tasa en las tarjetas de la página.
-  useEffect(() => { onResumen?.({ saldoKg: saldoFinal, tasa }); }, [saldoFinal, tasa, onResumen]);
+  // Reflejamos en las tarjetas de la página el MISMO resumen que alimenta la tabla.
+  useEffect(() => {
+    onResumen?.({
+      saldoKg: saldoFinal, tasa,
+      usdEntregado: totalUsdEntregado, saldoUsd: saldoUsdFinal,
+      gastos: totalGastos, nominas: totalNominas, facturado: totalFacturado,
+    });
+  }, [saldoFinal, tasa, totalUsdEntregado, saldoUsdFinal, totalGastos, totalNominas, totalFacturado, onResumen]);
 
   // Totales de la vista (para la fila de totales de la tabla, respeta el filtro).
   const totUsdEntregadoVista = mostradas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);

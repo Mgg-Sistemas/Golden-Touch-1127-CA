@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money } from '@/shared/lib/format';
 import type { CajaCierre, TransferenciaInter } from '@/shared/lib/types';
-import { aceptarEntradaEnCajaAcopio } from './caja.repository';
+import { aceptarEntradaEnCajaAcopio, DESC_ENTRADA_EXTERNA } from './caja.repository';
 
 /** Suma los legs por moneda y arma un texto "USD 1.000,00 · Bs 5.000,00". */
 function resumenLegs(t: TransferenciaInter): string {
@@ -14,8 +14,10 @@ function resumenLegs(t: TransferenciaInter): string {
 /**
  * Tarjeta-banner "DINERO POR ENTRAR": dinero que llega desde el otro sistema
  * (transferencias inter-sistema entrantes pendientes de confirmar). Al hacer
- * clic muestra el monto y el botón ACEPTAR ENTRADA, que acredita el dinero en
- * la caja de Acopio (abierta) que se elija.
+ * clic muestra el monto y el botón ACEPTAR ENTRADA, que acredita el dinero
+ * directamente en los MOVIMIENTOS del Centro de Acopio (suma en «$Usd
+ * entregados») con la descripción fija «CAJA MULTIMONEDAS MGG / CAJA GT
+ * PERAMANAL». No exige caja abierta.
  */
 export function DineroPorEntrar({ entrantes, cajas, actor, actorName, onReload }: {
   entrantes: TransferenciaInter[];
@@ -74,19 +76,20 @@ function DineroModal({ entrantes, cajas, actor, actorName, onClose, onReload }: 
   onReload: () => Promise<void>;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
-  // Caja de Acopio que recibe el dinero, elegida por transferencia.
-  const [cajaSel, setCajaSel] = useState<Record<string, string>>({});
-  // Solo cajas de Acopio ABIERTAS pueden recibir el dinero entrante.
-  const cajasAbiertas = useMemo(() => cajas.filter((c) => c.estado === 'abierta'), [cajas]);
 
   async function aceptar(t: TransferenciaInter) {
-    const cajaId = cajaSel[t.id];
-    if (!cajaId) { toast('Elegí la caja que recibe el dinero', 'error'); return; }
-    const caja = cajas.find((c) => c.id === cajaId);
+    // El dinero entra directo a los movimientos de Acopio. Si hay una caja
+    // abierta se asocia automáticamente; si no, entra igual (caja_id null).
+    const cajaAbierta = cajas.find((c) => c.estado === 'abierta') ?? null;
     setBusyId(t.id);
     try {
-      await aceptarEntradaEnCajaAcopio({ row: t, cajaId, cajaNombre: caja?.nombre || caja?.numero || null, actor, actorName });
-      toast('Entrada aceptada · dinero acreditado en la caja', 'success');
+      await aceptarEntradaEnCajaAcopio({
+        row: t,
+        cajaId: cajaAbierta?.id ?? null,
+        cajaNombre: cajaAbierta?.nombre || cajaAbierta?.numero || null,
+        actor, actorName,
+      });
+      toast('Entrada aceptada · dinero acreditado en los movimientos', 'success');
       await onReload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo aceptar', 'error'); setBusyId(null); }
   }
@@ -108,20 +111,14 @@ function DineroModal({ entrantes, cajas, actor, actorName, onClose, onReload }: 
                 </div>
               </div>
 
-              {/* Caja de Acopio que recibe + Aceptar */}
-              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', marginTop: '.6rem', flexWrap: 'wrap' }}>
+              {/* El dinero entra a los movimientos con descripción fija de entrada externa */}
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: '.6rem', flexWrap: 'wrap' }}>
                 <div className="form-row" style={{ margin: 0, flex: 1, minWidth: 200 }}>
-                  <label style={{ fontSize: '.74rem' }}>Caja que recibe el dinero</label>
-                  {cajasAbiertas.length ? (
-                    <select className="select" value={cajaSel[t.id] ?? ''} onChange={(e) => setCajaSel((p) => ({ ...p, [t.id]: e.target.value }))}>
-                      <option value="">— elegí la caja —</option>
-                      {cajasAbiertas.map((c) => <option key={c.id} value={c.id}>{c.nombre || c.numero}</option>)}
-                    </select>
-                  ) : (
-                    <div className="muted" style={{ fontSize: '.76rem' }}>No hay cajas de Acopio abiertas. Abrí una en la pestaña Caja Peramanal.</div>
-                  )}
+                  <label style={{ fontSize: '.74rem' }}>Entra a los movimientos como</label>
+                  <div className="mono" style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--success)' }}>{DESC_ENTRADA_EXTERNA}</div>
+                  <div className="muted" style={{ fontSize: '.72rem' }}>Suma en «$Usd entregados» y en el saldo de los movimientos del Centro de Acopio.</div>
                 </div>
-                <button className="btn btn-primary" onClick={() => aceptar(t)} disabled={busyId === t.id || !cajasAbiertas.length}>
+                <button className="btn btn-primary" onClick={() => aceptar(t)} disabled={busyId === t.id}>
                   {busyId === t.id ? 'Aceptando…' : '✓ ACEPTAR ENTRADA'}
                 </button>
               </div>
