@@ -25,7 +25,7 @@ export function OcPorLoteView() {
   const [sel, setSel] = useState<Set<string>>(new Set());
 
   function toggle(id: string) {
-    setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
   function toggleAll(ids: string[], all: boolean) {
     setSel(() => (all ? new Set<string>() : new Set(ids)));

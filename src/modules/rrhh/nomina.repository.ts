@@ -218,7 +218,7 @@ export async function listHistoricoPersona(personalId: string): Promise<NominaRe
 /* ───────────── Comprobantes (storage) ───────────── */
 
 export async function subirComprobanteNomina(renglonId: string, file: File): Promise<string> {
-  const safe = file.name.replace(/[^\w.\-]+/g, '_');
+  const safe = file.name.replace(/[^\w.-]+/g, '_');
   const path = `${renglonId}/${safe}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' });
   if (error) throw error;

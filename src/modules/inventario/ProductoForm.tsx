@@ -87,7 +87,6 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   useEffect(() => {
     if (isEdit || !form.categoria) return;
     setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, productos) }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit, form.categoria, productos]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
