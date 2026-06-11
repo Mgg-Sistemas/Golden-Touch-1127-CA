@@ -29,6 +29,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
 
   const ficha: Array<[string, string]> = [
     ['Material', compra.producto_sku ? `${compra.producto_sku} — ${compra.producto_nombre}` : compra.producto_nombre],
+    ['Proveedor', compra.proveedor_nombre || '—'],
     ['Almacén destino', compra.almacen || '—'],
     ['Cantidad', fmt.num(cant)],
     ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
