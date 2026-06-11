@@ -210,11 +210,15 @@ async function revertirEntradaCasiterita(c: ContratoMov, actor: string, actorNam
 export async function cerrarContrato(id: string, actor: string, actorName?: string | null): Promise<void> {
   const { data, error } = await supabase
     .from('acopio_contratos')
-    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad')
+    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad, mesa_peso_mojado, observaciones')
     .eq('id', id).single();
   if (error) throw error;
-  const c = data as ContratoMov;
+  const c = data as ContratoMov & { mesa_peso_mojado: number | null; observaciones: string | null };
   if (c.estado === 'cerrado') return;
+
+  // Al cerrar, volcamos el «Pesos Mojado» (cargado en KG Mesas) a la observación
+  // del contrato como «Material de Mesa: X», conservando el resto del texto.
+  const obsConMesa = aplicarMaterialDeMesa(c.observaciones, c.mesa_peso_mojado ?? null);
 
   const cantidad = Number(c.kg_seco_limpio) || 0;
   let movId: string | null = null, movProductoId: string | null = null, movAlmacen: string | null = null;
@@ -237,6 +241,7 @@ export async function cerrarContrato(id: string, actor: string, actorName?: stri
   const { error: uErr } = await supabase.from('acopio_contratos').update({
     estado: 'cerrado', cerrado_at: new Date().toISOString(), cerrado_por: actor,
     mov_id: movId, mov_producto_id: movProductoId, mov_almacen: movAlmacen, mov_cantidad: cantidad,
+    observaciones: obsConMesa,
   }).eq('id', id);
   if (uErr) throw uErr;
 }
