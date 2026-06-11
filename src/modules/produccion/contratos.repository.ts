@@ -5,6 +5,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { tasaActualAcopio } from '@/modules/acopio/caja.repository';
 import type { CatalogoAcopio, ContratoAcopio, TipoCatalogoAcopio } from '@/shared/lib/types';
 
 /** Producto del inventario al que entra la casiterita de los contratos (al cerrar). */
@@ -26,6 +27,13 @@ async function casiteritaProductoId(): Promise<string> {
 
 /** Prefijo del correlativo de contratos. */
 export const CONTRATO_PREFIJO = 'Producción GT';
+/**
+ * Correlativo MÍNIMO desde el que arrancan los contratos en el sistema.
+ * Los contratos #1–#45 ya existían hechos a mano (cargados en la caja como
+ * movimientos), así que el primero creado en el sistema debe ser el #46 para
+ * continuar la secuencia real sin pisarla.
+ */
+export const SEQ_INICIAL_CONTRATO = 46;
 /** Formatea el correlativo: 1 → "Producción GT-01". */
 export const numeroContrato = (seq: number) => `${CONTRATO_PREFIJO}-${String(seq).padStart(2, '0')}`;
 
@@ -47,7 +55,7 @@ export async function listContratos(): Promise<ContratoAcopio[]> {
   return (data ?? []) as ContratoAcopio[];
 }
 
-/** Próximo correlativo disponible (lee el máximo seq y suma 1). */
+/** Próximo correlativo disponible (máximo seq + 1, con piso en SEQ_INICIAL_CONTRATO). */
 export async function nextSeqContrato(): Promise<number> {
   const { data, error } = await supabase
     .from('acopio_contratos')
@@ -56,7 +64,9 @@ export async function nextSeqContrato(): Promise<number> {
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  return ((data as { seq?: number } | null)?.seq ?? 0) + 1;
+  const siguiente = ((data as { seq?: number } | null)?.seq ?? 0) + 1;
+  // Hasta que se cree el primero, el piso garantiza arrancar en #46 (secuencia real).
+  return Math.max(siguiente, SEQ_INICIAL_CONTRATO);
 }
 
 /** Datos editables de un contrato (los inputs; las fórmulas las calcula la BD). */
@@ -176,11 +186,16 @@ export async function cerrarContrato(id: string, actor: string, actorName?: stri
   if (cantidad > 0) {
     movProductoId = await casiteritaProductoId();
     movAlmacen = CASITERITA_ALMACEN;
+    // El costo de la casiterita que entra es la TASA del material en acopio
+    // (Facturado + Gastos + Nóminas) ÷ Kg cerrados. Así el movimiento (y su PMP)
+    // queda valorizado a la tasa vigente de acopio.
+    const tasa = await tasaActualAcopio().catch(() => 0);
     const mov = await registrarMovimiento({
       producto_id: movProductoId, tipo: 'entrada', delta: cantidad, almacen: movAlmacen,
       actor, actor_name: actorName ?? null,
       ref_tipo: 'contrato_produccion', ref_id: id, ref_codigo: c.numero,
-      detalle: `Contrato ${c.numero} · Casiterita`,
+      detalle: `Contrato ${c.numero} · Casiterita · tasa acopio ${tasa.toFixed(2)} $/Kg`,
+      precio_unitario: tasa > 0 ? tasa : undefined,
     });
     movId = mov.id;
   }
