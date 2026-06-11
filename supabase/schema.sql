@@ -1485,6 +1485,11 @@ create table if not exists public.acopio_contratos (
   pct_recuperacion_casiterita numeric generated always as (kg_seco_limpio / nullif(ton_procesadas * 1000, 0)) stored,
   kg_hierro                   numeric generated always as (kg_seco_limpio - kg_secos) stored,
   pct_hierro                  numeric generated always as ((kg_seco_limpio - kg_secos) / nullif(kg_secos, 0)) stored,
+  -- KG MESAS (merma por humedad): inputs manuales + fórmulas. Admite negativos.
+  mesa_peso_mojado numeric,                          -- Pesos Mojado (manual, 2 dec)
+  mesa_peso_seco   numeric,                           -- Pesos Seco (manual, 2 dec)
+  mesa_merma_kg    numeric generated always as (mesa_peso_seco - mesa_peso_mojado) stored,
+  mesa_pct_merma   numeric generated always as ((mesa_peso_seco - mesa_peso_mojado) / nullif(mesa_peso_mojado, 0) * 100) stored,
   estado           text not null default 'activo'
                      check (estado in ('activo','cerrado')),
   cerrado_at       timestamptz,

@@ -4,6 +4,7 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import type { Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DestinoSelect } from './DestinoSelect';
 
 export function SalidaDineroForm({
@@ -76,10 +77,9 @@ export function SalidaDineroForm({
 
         <div className="form-row">
           <label>Caja</label>
-          <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
-            {!activas.length && <option value="">— sin cajas activas —</option>}
-            {activas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {c.moneda} · saldo {money(Number(c.saldo) || 0)}</option>)}
-          </select>
+          <SearchSelect value={cajaId} onChange={setCajaId} disabled={!activas.length}
+            placeholder={activas.length ? '🔍 Buscar caja…' : '— sin cajas activas —'}
+            options={activas.map((c) => ({ value: c.id, label: `${c.nombre} · ${c.moneda} · saldo ${money(Number(c.saldo) || 0)}` }))} />
           {caja && <small className="muted">Saldo disponible: <strong className="mono">{money(saldo)} {caja.moneda}</strong></small>}
         </div>
 

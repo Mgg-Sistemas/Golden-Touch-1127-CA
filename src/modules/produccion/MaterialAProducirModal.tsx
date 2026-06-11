@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
@@ -342,11 +343,8 @@ export function MaterialAProducirModal({
             </button>
           </div>
           {modoOutput === 'existente' ? (
-            <select className="select" value={productoSelId} onChange={(e) => setProductoSelId(e.target.value)}>
-              {producibles.map((p) => (
-                <option key={p.id} value={p.id}>{p.nombre}{p.precio_venta != null ? ` · venta ${money(p.precio_venta)}` : ''}</option>
-              ))}
-            </select>
+            <SearchSelect value={productoSelId} onChange={setProductoSelId} placeholder="🔍 Buscar producto…"
+              options={producibles.map((p) => ({ value: p.id, label: `${p.nombre}${p.precio_venta != null ? ` · venta ${money(p.precio_venta)}` : ''}` }))} />
           ) : (
             <div className="form-grid">
               <input className="input" placeholder="Nombre del producto a producir" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value.toUpperCase())} />

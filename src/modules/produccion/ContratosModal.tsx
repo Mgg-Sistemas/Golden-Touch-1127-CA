@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { date, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -108,14 +109,12 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
           <div className="form-row">
             <label>Supervisor de Producción <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <input className="input" list="acopio-supervisores" value={supervisor} onChange={(e) => setSupervisor(e.target.value)} placeholder="Escribí o elegí…" disabled={ro} />
-            <datalist id="acopio-supervisores">{supervisoresActivos.map((s) => <option key={s.id} value={s.valor} />)}</datalist>
+            <SearchCreateSelect options={supervisoresActivos.map((s) => s.valor)} value={supervisor} onChange={setSupervisor} disabled={ro} placeholder="Escribí o elegí…" />
             <small className="muted">Si es nuevo, se guarda solo en el catálogo de supervisores.</small>
           </div>
           <div className="form-row">
             <label>Lugar de extracción <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <input className="input" list="acopio-lugares" value={lugar} onChange={(e) => setLugar(e.target.value)} placeholder="Escribí o elegí…" disabled={ro} />
-            <datalist id="acopio-lugares">{lugaresActivos.map((l) => <option key={l.id} value={l.valor} />)}</datalist>
+            <SearchCreateSelect options={lugaresActivos.map((l) => l.valor)} value={lugar} onChange={setLugar} disabled={ro} placeholder="Escribí o elegí…" />
             <small className="muted">Si es nuevo, se guarda solo en el catálogo de lugares.</small>
           </div>
           <div className="form-row">

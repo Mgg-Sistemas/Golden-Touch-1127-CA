@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { listDirectorioUsuarios, type PersonaDirectorio } from './salidas.repository';
 
 type Modo = 'almacen' | 'persona';
@@ -60,13 +61,9 @@ export function DestinoSelect({
           {opcionesAlmacen.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
       ) : (
-        <select className="select" value={value} onChange={(e) => onChange(e.target.value)} disabled={cargando}>
-          <option value="">{cargando ? 'Cargando…' : '— elegí la persona —'}</option>
-          {personas.map((p) => {
-            const label = etiquetaPersona(p);
-            return <option key={p.id} value={label}>{label}</option>;
-          })}
-        </select>
+        <SearchSelect value={value} onChange={onChange} disabled={cargando}
+          placeholder={cargando ? 'Cargando…' : '🔍 Buscar persona…'}
+          options={personas.map((p) => { const l = etiquetaPersona(p); return { value: l, label: l }; })} />
       )}
     </div>
   );

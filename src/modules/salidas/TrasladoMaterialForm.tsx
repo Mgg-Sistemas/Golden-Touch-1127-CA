@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
@@ -90,10 +91,9 @@ export function TrasladoMaterialForm({
 
         <div className="form-row">
           <label>Producto</label>
-          <select className="select" value={productoId} onChange={(e) => setProductoId(e.target.value)}>
-            {!activos.length && <option value="">— sin productos —</option>}
-            {activos.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {p.sku}</option>)}
-          </select>
+          <SearchSelect value={productoId} onChange={setProductoId} disabled={!activos.length}
+            placeholder={activos.length ? '🔍 Buscar producto…' : '— sin productos —'}
+            options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
         </div>
 
         <div className="form-grid">

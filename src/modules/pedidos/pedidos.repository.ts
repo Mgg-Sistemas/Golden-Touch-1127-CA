@@ -167,6 +167,38 @@ export async function actualizarComprarItems(
   return data as Orden;
 }
 
+/**
+ * Modifica una OC mientras está en etapa de sourcing (sin oferta aceptada, total = 0).
+ * Permite cambiar los ítems (cantidades, agregar/quitar, comprar), el motivo y la
+ * finalidad. Se bloquea en cuanto hay una oferta con precio para no descuadrar montos.
+ */
+export async function actualizarOrdenEditable(
+  o: Orden,
+  patch: { items?: ItemOrden[]; motivo?: string | null; finalidad?: string | null },
+  actorEmail: string,
+): Promise<Orden> {
+  if (Number(o.total) > 0) throw new Error('La OC ya tiene una oferta con precio: no se puede modificar.');
+  if (!['pendiente', 'aprobada'].includes(o.estado)) {
+    throw new Error('Solo se puede modificar la OC antes de elegir una oferta (estado «cargar ofertas»).');
+  }
+  if (patch.items && !patch.items.length) throw new Error('La OC debe tener al menos un ítem.');
+  if (patch.items && !patch.items.some((i) => i.comprar !== false)) {
+    throw new Error('Marcá al menos un ítem a comprar.');
+  }
+  const upd: Record<string, unknown> = { historial: appendHistorial(o, 'orden_modificada', actorEmail) };
+  if (patch.items) upd.items = patch.items;
+  if (patch.motivo !== undefined) upd.motivo = patch.motivo;
+  if (patch.finalidad !== undefined) upd.finalidad = patch.finalidad;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update(upd)
+    .eq('id', o.id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 function appendHistorial(
   o: Orden,
   evento: string,
