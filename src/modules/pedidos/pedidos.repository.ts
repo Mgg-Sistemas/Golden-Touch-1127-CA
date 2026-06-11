@@ -1034,13 +1034,29 @@ export async function listAbonos(ordenId: string): Promise<AbonoCredito[]> {
   return (data ?? []) as AbonoCredito[];
 }
 
+/**
+ * Estados desde los que se puede cancelar.
+ *  - OP en revisión/aprobada (antes de elegir oferta).
+ *  - OC ya aprobada por el gerente o con el proveedor desistido, SIEMPRE que aún
+ *    no se haya pagado (cancelar tras el pago implicaría un reembolso, fuera de
+ *    este flujo). Por eso NO se incluyen `pagada`, `oc_emitida`, recepción, etc.
+ */
+const ESTADOS_CANCELABLES: EstadoOrden[] = [
+  'pendiente',
+  'aprobada',
+  'oc_creada',
+  'confirmada_metodo',
+  'oc_aprobada',
+  'desistida_proveedor',
+];
+
 export async function cancelarOrden(
   o: Orden,
   actorEmail: string,
   motivo: string
 ): Promise<Orden> {
-  if (!['pendiente', 'aprobada'].includes(o.estado))
-    throw new Error('Solo se cancelan órdenes pendientes o aprobadas');
+  if (!ESTADOS_CANCELABLES.includes(o.estado))
+    throw new Error('La orden no se puede cancelar en su estado actual (ya pagada o recibida)');
   if (!motivo.trim()) throw new Error('Debes indicar un motivo');
   const patch = {
     estado: 'cancelada' as EstadoOrden,

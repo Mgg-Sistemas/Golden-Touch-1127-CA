@@ -102,6 +102,7 @@ const SECCIONES: Seccion[] = [
       'Trazabilidad: cada orden tiene una línea de tiempo con todo lo que ocurrió (creación, emisión, documentos, recepción, etc.).',
       'Si un proveedor desiste, se registra la fecha, la hora y el motivo; eso queda reflejado en el PDF de la orden.',
       'Editar y cancelar la OC: en la etapa "Pendiente (cargar ofertas)", desde el detalle de la tarjeta se puede Editar OC (cambiar cantidades, agregar/quitar ítems, marcar cuáles se compran, motivo y finalidad) mientras no haya una oferta con precio. Las órdenes canceladas quedan en la columna Cancelada (en rojo) del kanban de Órdenes de Compra.',
+      'Cancelar una OC ya aprobada: una OC aprobada por el gerente (o con el proveedor desistido) se puede cancelar mientras aún no se haya pagado, con el botón "Cancelar OC". El sistema exige el motivo, que se imprime en el PDF de la OC (banner rojo "Orden de Compra Cancelada" con el motivo, quién la canceló y cuándo). Una OC ya pagada o recibida no se cancela.',
       'Todas las órdenes se pueden descargar en PDF (orden de compra y trazabilidad).',
     ],
   },

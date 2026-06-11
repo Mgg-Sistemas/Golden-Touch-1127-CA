@@ -917,6 +917,9 @@ alter type public.estado_orden add value if not exists 'pagada';
 -- Fase 4: el gerente confirma → 'confirmada_metodo' (indicar método de pago);
 -- al indicar el método (multipago) y "Enviar para Pagar" → 'oc_aprobada' (Confirmada pagar).
 alter type public.estado_orden add value if not exists 'confirmada_metodo';
+-- Tipos de movimiento de producción (marca/desmarca el producto «en producción»).
+alter type public.tipo_movimiento add value if not exists 'fundicion';
+alter type public.tipo_movimiento add value if not exists 'fin_fundicion';
 alter table public.ordenes add column if not exists condiciones_pago text;   -- copiado de la oferta
 alter table public.ordenes add column if not exists metodo_pago     jsonb;   -- [{metodo,moneda,monto}] multipago
 alter table public.ordenes add column if not exists metodo_pago_por text;
