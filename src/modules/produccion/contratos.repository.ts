@@ -151,7 +151,7 @@ const ETIQUETA_MESA = 'Material de Mesa:';
  * Inserta/actualiza la línea «Material de Mesa: X» dentro de una observación,
  * conservando el resto del texto. Si el peso es null, deja la etiqueta vacía.
  */
-function aplicarMaterialDeMesa(obs: string | null | undefined, pesoMojado: number | null): string {
+export function aplicarMaterialDeMesa(obs: string | null | undefined, pesoMojado: number | null): string {
   const valorTxt = pesoMojado == null ? '' : ` ${pesoMojado}`;
   const linea = `${ETIQUETA_MESA}${valorTxt}`;
   const actual = obs ?? '';
@@ -184,7 +184,13 @@ export async function actualizarContrato(id: string, input: ContratoInput): Prom
   if (!lugar) throw new Error('Indicá el lugar de extracción.');
   await addCatalogoAcopio('lugar_extraccion', lugar).catch(() => { /* ya existe: ok */ });
   if (input.supervisor?.trim()) await addCatalogoAcopio('supervisor', input.supervisor).catch(() => {});
-  const { error } = await supabase.from('acopio_contratos').update(payloadContrato(input)).eq('id', id);
+  const payload = payloadContrato(input);
+  // Conservar siempre el «Material de Mesa: X» en la observación según el Pesos Mojado
+  // cargado en KG Mesas, para que editar/guardar el contrato no lo pise.
+  const { data } = await supabase.from('acopio_contratos').select('mesa_peso_mojado').eq('id', id).maybeSingle();
+  const mesa = (data as { mesa_peso_mojado?: number | null } | null)?.mesa_peso_mojado ?? null;
+  payload.observaciones = aplicarMaterialDeMesa(payload.observaciones as string | null, mesa);
+  const { error } = await supabase.from('acopio_contratos').update(payload).eq('id', id);
   if (error) throw error;
 }
 
