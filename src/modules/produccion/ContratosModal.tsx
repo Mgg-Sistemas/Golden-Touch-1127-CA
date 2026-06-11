@@ -7,6 +7,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { CatalogoAcopio, ContratoAcopio, TipoCatalogoAcopio } from '@/shared/lib/types';
 import {
   nextSeqContrato, numeroContrato, crearContrato, actualizarContrato, horaSistema, formulasContrato,
+  aplicarMaterialDeMesa,
   listCatalogosAcopio, addCatalogoAcopio, updateCatalogoAcopio, setCatalogoAcopioActivo, eliminarCatalogoAcopio,
 } from './contratos.repository';
 
@@ -39,7 +40,11 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   const [kgSec, setKgSec] = useState(contrato?.kg_secos ? String(contrato.kg_secos) : '');
   const [kgLim, setKgLim] = useState(contrato?.kg_seco_limpio ? String(contrato.kg_seco_limpio) : '');
   // En contratos nuevos la observación arranca con "Material de Mesa:" (como en el Excel).
-  const [obs, setObs] = useState(contrato?.observaciones ?? 'Material de Mesa: ');
+  // En existentes, se muestra el «Material de Mesa: X» según el Pesos Mojado de KG Mesas
+  // (así el valor cargado allí siempre se ve, no solo al cerrar el contrato).
+  const [obs, setObs] = useState(() => contrato
+    ? aplicarMaterialDeMesa(contrato.observaciones ?? '', contrato.mesa_peso_mojado ?? null)
+    : 'Material de Mesa: ');
   const [busy, setBusy] = useState(false);
 
   const recargar = useCallback(async () => {
