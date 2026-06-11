@@ -20,7 +20,8 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajaMovimientos, resumirCaja, listCajas } from './caja.repository';
+import { listCajaMovimientos, resumirCaja, listCajas, crearMovimientoCaja, listClasificacionesAll, type CajaMovimientoInput } from './caja.repository';
+import type { ClasificacionAcopio } from '@/shared/lib/types';
 import { DineroPorEntrar } from './DineroPorEntrar';
 import { listEntrantesPorConfirmar } from '@/modules/tesoreria/transferenciasInter.repository';
 import { descargarRecepcionPdf } from './acopioPdf';
@@ -116,10 +117,13 @@ export function AcopioPage() {
       {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
       {movAcopio && (
-        <Modal title="Agregar movimiento" size="md" onClose={() => setMovAcopio(false)}
-          footer={<button className="btn btn-ghost" onClick={() => setMovAcopio(false)}>Cerrar</button>}>
-          <p className="muted" style={{ margin: 0 }}>Pendiente de configurar.</p>
-        </Modal>
+        <AgregarMovimientoModal
+          cajaActual={cajaActual}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setMovAcopio(false)}
+          onSaved={async () => { setMovAcopio(false); await reload(); }}
+        />
       )}
 
       {(nuevo || editar) && (
@@ -135,6 +139,121 @@ export function AcopioPage() {
         />
       )}
     </div>
+  );
+}
+
+/* ───────────── Agregar movimiento de caja (acopio) ───────────── */
+
+function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved }: {
+  cajaActual: CajaCierre | null;
+  actor: string;
+  actorName: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [facturados, setFacturados] = useState('');
+  const [gastos, setGastos] = useState('');
+  const [gastoCat, setGastoCat] = useState('');
+  const [nominas, setNominas] = useState('');
+  const [nominaCat, setNominaCat] = useState('');
+  const [traslado, setTraslado] = useState('');
+  const [kgRecibidos, setKgRecibidos] = useState('');
+  const [cats, setCats] = useState<ClasificacionAcopio[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { listClasificacionesAll().then(setCats).catch(() => setCats([])); }, []);
+  const gastosCats = useMemo(() => cats.filter((c) => c.grupo === 'gastos_caja' && c.activo), [cats]);
+  const nominaCats = useMemo(() => cats.filter((c) => c.grupo === 'nomina' && c.activo), [cats]);
+
+  // Redondeo a 2 decimales para los montos en $.
+  const r2 = (s: string) => Math.round((Number(s) || 0) * 100) / 100;
+
+  async function guardar() {
+    setError(null);
+    const fac = r2(facturados), gas = r2(gastos), nom = r2(nominas), tras = r2(traslado);
+    const kg = Number(kgRecibidos) || 0;
+    if (fac <= 0 && gas <= 0 && nom <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto (Gastos GT).'); return; }
+    if (nom > 0 && !nominaCat) { setError('Elegí la categoría de la nómina.'); return; }
+    setSaving(true);
+    try {
+      const cajaId = cajaActual?.id ?? null;
+      // Una fila por concepto: así cada monto conserva su categoría y la distribución
+      // por grupo (Gastos/Nómina/Traslado) queda correcta.
+      const filas: CajaMovimientoInput[] = [];
+      if (fac > 0) filas.push({ fecha, facturados: fac, descripcion: 'Facturado', caja_id: cajaId });
+      if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, descripcion: gastoCat, caja_id: cajaId });
+      if (nom > 0) filas.push({ fecha, nominas: nom, clasif_grupo: 'nomina', clasif_valor: nominaCat, descripcion: nominaCat, caja_id: cajaId });
+      if (tras > 0) filas.push({ fecha, traslado: tras, clasif_grupo: 'traslado', descripcion: 'Traslado de caja', caja_id: cajaId });
+      if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: 'Kg recibidos por MGG', caja_id: cajaId });
+      for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
+      toast(`${filas.length} movimiento(s) registrado(s)`, 'success');
+      onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar.'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Registrar'}</button>
+    </>
+  );
+
+  // Campo monto en $ con 2 decimales.
+  const campoUsd = (label: string, val: string, set: (v: string) => void) => (
+    <div className="form-row">
+      <label>{label}</label>
+      <input className="input mono" type="number" min={0} step="0.01" value={val} onChange={(e) => set(e.target.value)} placeholder="0.00" />
+    </div>
+  );
+
+  return (
+    <Modal title="Agregar movimiento" size="md" onClose={onClose} footer={footer}>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+        Caja: <strong>{cajaActual ? `${cajaActual.numero}${cajaActual.nombre ? ` · ${cajaActual.nombre}` : ''}` : '—'}</strong>. Completá los campos que apliquen; cada concepto se registra como un movimiento.
+      </p>
+
+      <div className="form-grid">
+        <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+        {campoUsd('$ Usd Facturados', facturados, setFacturados)}
+      </div>
+
+      {/* Gastos GT: monto + categoría */}
+      <div className="form-grid">
+        {campoUsd('$ Gastos GT', gastos, setGastos)}
+        <div className="form-row">
+          <label>Categoría del gasto</label>
+          <select className="select" value={gastoCat} onChange={(e) => setGastoCat(e.target.value)}>
+            <option value="">— elegí el gasto —</option>
+            {gastosCats.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Nómina: monto + categoría */}
+      <div className="form-grid">
+        {campoUsd('$ Nómina', nominas, setNominas)}
+        <div className="form-row">
+          <label>Categoría de nómina</label>
+          <select className="select" value={nominaCat} onChange={(e) => setNominaCat(e.target.value)}>
+            <option value="">— elegí la nómina —</option>
+            {nominaCats.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="form-grid">
+        {campoUsd('$ Traslado de Caja', traslado, setTraslado)}
+        <div className="form-row">
+          <label>Kg Recibidos por MGG</label>
+          <input className="input mono" type="number" min={0} step="any" value={kgRecibidos} onChange={(e) => setKgRecibidos(e.target.value)} placeholder="0" />
+          <small className="muted">Expresado en Kg.</small>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
