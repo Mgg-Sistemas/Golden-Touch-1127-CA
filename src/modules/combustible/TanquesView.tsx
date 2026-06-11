@@ -42,6 +42,20 @@ function horaSistema(): string {
   }).format(new Date());
 }
 
+/** YYYY-MM del mes actual (zona Venezuela). */
+function mesActualVE(): string {
+  const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  return f.slice(0, 7);
+}
+/** «junio de 2026» a partir de «2026-06». */
+function nombreMes(ym: string): string {
+  if (!ym) return '';
+  const [y, m] = ym.split('-').map(Number);
+  return new Intl.DateTimeFormat('es', { month: 'long', year: 'numeric' }).format(new Date(y, (m || 1) - 1, 1));
+}
+/** Mes (YYYY-MM) de una fecha ISO. */
+const mesDe = (fecha: string | null | undefined) => (fecha ?? '').slice(0, 7);
+
 const TIPO_MOV_LABEL: Record<TipoMovTanque, string> = {
   entrada: '⬇ Entrada (entra combustible)',
   uso: '⛽ Uso (consumo de equipo)',
@@ -70,23 +84,9 @@ export function TanquesView() {
   const [editTanque, setEditTanque] = useState<TanqueCombustible | null>(null);
   const [tanqueABorrar, setTanqueABorrar] = useState<TanqueCombustible | null>(null);
   const [borrandoTanque, setBorrandoTanque] = useState(false);
-  // Filtros del libro mayor (registro de movimientos del tanque seleccionado).
-  const [fTexto, setFTexto] = useState('');
-  const [fTipo, setFTipo] = useState<'todos' | TipoMovTanque>('todos');
-  const [fEquipo, setFEquipo] = useState('');
-  const [fAutorizado, setFAutorizado] = useState('');
-  const [fUbicacion, setFUbicacion] = useState('');
-  const [fDesde, setFDesde] = useState('');
-  const [fHasta, setFHasta] = useState('');
-  const [ordenDesc, setOrdenDesc] = useState(true); // true = más nuevo→viejo (por fecha y hora)
-  // Campo por el que se ordena el libro: por fecha/hora (default) o por los contadores
-  // del surtidor (inicial / final) de forma independiente.
-  const [ordenCampo, setOrdenCampo] = useState<'fecha' | 'contIni' | 'contFin'>('fecha');
-  function ordenarPor(campo: 'fecha' | 'contIni' | 'contFin') {
-    if (campo === ordenCampo) setOrdenDesc((d) => !d);
-    else { setOrdenCampo(campo); setOrdenDesc(true); }
-  }
-  const [correoLibroOpen, setCorreoLibroOpen] = useState(false);
+  // La lista actual solo muestra el mes en curso; lo anterior va al Histórico.
+  const [historico, setHistorico] = useState(false);
+  const mesActual = useMemo(() => mesActualVE(), []);
 
   const reloadTanques = useCallback(async () => {
     const [ts, rep, cat] = await Promise.all([listTanques(), reporteGlobal(), listCatalogos()]);
@@ -118,63 +118,26 @@ export function TanquesView() {
 
   const sel = useMemo(() => tanques.find((t) => t.id === selId) ?? null, [tanques, selId]);
   const totalDisponible = useMemo(() => reporte.reduce((a, r) => a + (Number(r.disponible) || 0), 0), [reporte]);
+  // Valor total del combustible disponible y TASA PROMEDIO ponderada por litros
+  // (así el promedio es correcto aunque cada tanque tenga una tasa distinta).
+  const valorTotal = useMemo(() => reporte.reduce((a, r) => a + (Number(r.disponible) || 0) * (Number(r.tanque.tasa_usd_litro) || 0), 0), [reporte]);
+  const tasaPromedio = totalDisponible > 0 ? valorTotal / totalDisponible : 0;
+  // Modo de vista: false = inicio (resumen + tarjetas); true = detalle (tarjeta + movimientos).
+  const [abierto, setAbierto] = useState(false);
+  const reporteSel = useMemo(() => reporte.find((r) => r.tanque.id === selId) ?? null, [reporte, selId]);
 
-  // Al cambiar de tanque, limpiamos los filtros del libro.
-  useEffect(() => { setFTexto(''); setFTipo('todos'); setFEquipo(''); setFAutorizado(''); setFUbicacion(''); setFDesde(''); setFHasta(''); }, [selId]);
-
-  // Valores distintos presentes en los movimientos (para poblar los desplegables).
-  const opcs = useMemo(() => {
-    const uniq = (sel2: (m: MovimientoTanque) => string | null | undefined) =>
-      Array.from(new Set(movs.map((m) => (sel2(m) ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
-    return { equipos: uniq((m) => m.equipo), autorizados: uniq((m) => m.autorizado_por), ubicaciones: uniq((m) => m.ubicacion) };
-  }, [movs]);
-
-  const movsFiltrados = useMemo(() => {
-    const q = fTexto.trim().toLowerCase();
-    // `movs` viene en orden cronológico ascendente por fecha + hora (con saldo corrido).
-    // Según el toggle se muestra del más nuevo al más viejo (descendente) o al revés.
-    const arr = movs.filter((m) => {
-      if (fTipo !== 'todos' && m.tipo !== fTipo) return false;
-      if (fEquipo && (m.equipo ?? '') !== fEquipo) return false;
-      if (fAutorizado && (m.autorizado_por ?? '') !== fAutorizado) return false;
-      if (fUbicacion && (m.ubicacion ?? '') !== fUbicacion) return false;
-      if (fDesde && (m.fecha ?? '') < fDesde) return false;
-      if (fHasta && (m.fecha ?? '') > fHasta) return false;
-      if (q) {
-        const hay = [m.fecha, m.hora, m.equipo, m.autorizado_por, m.ubicacion, m.observacion, m.tipo]
-          .map((x) => (x ?? '').toString().toLowerCase()).join(' ');
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-    if (ordenCampo === 'fecha') {
-      return ordenDesc ? arr.slice().reverse() : arr;
-    }
-    // Orden por contador del surtidor (inicial o final), independiente de la fecha.
-    // Los movimientos sin contador van al final, en cualquier dirección.
-    return arr.slice().sort((a, b) => {
-      const av = ordenCampo === 'contIni' ? a.contador_global_ini : a.contador_global_fin;
-      const bv = ordenCampo === 'contIni' ? b.contador_global_ini : b.contador_global_fin;
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      const d = Number(av) - Number(bv);
-      return ordenDesc ? -d : d;
-    });
-  }, [movs, fTexto, fTipo, fEquipo, fAutorizado, fUbicacion, fDesde, fHasta, ordenDesc, ordenCampo]);
-
-  const hayFiltro = !!(fTexto || fTipo !== 'todos' || fEquipo || fAutorizado || fUbicacion || fDesde || fHasta);
-  function limpiarFiltros() { setFTexto(''); setFTipo('todos'); setFEquipo(''); setFAutorizado(''); setFUbicacion(''); setFDesde(''); setFHasta(''); }
+  // La lista actual solo muestra los movimientos del MES EN CURSO. Los meses
+  // anteriores quedan en el Histórico (agrupados por mes). El saldo, horómetro y
+  // contador NO se reinician: siguen encadenados sobre TODOS los movimientos.
+  const movsMesActual = useMemo(() => movs.filter((m) => mesDe(m.fecha) === mesActual), [movs, mesActual]);
 
   async function recargarTodo() { await reloadTanques(); await reloadMovs(selId); }
 
   return (
     <div>
-      <div className="filterbar" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
-        <div className="muted" style={{ fontSize: '.85rem' }}>
-          A la fecha hay <strong className="mono" style={{ color: 'var(--primary-3)' }}>{num(totalDisponible)} L</strong> disponibles en {reporte.length} tanque(s).
-        </div>
+      <div className="filterbar" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: '.5rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setHistorico(true)} disabled={!tanques.length} title="Movimientos de meses anteriores, por mes">📚 Histórico de Movimientos</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
@@ -184,158 +147,68 @@ export function TanquesView() {
         </div>
       </div>
 
-      {/* Reporte global por tanque */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', margin: '1rem 0 1.25rem' }}>
-        {reporte.map((r) => {
-          const cap = Number(r.tanque.capacidad_litros) || 0;
-          const capCalc = Number(r.tanque.capacidad_calculada_litros) || 0;
-          const disp = Number(r.disponible) || 0;
-          const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
-          const activo = r.tanque.id === selId;
-          return (
-            <div key={r.tanque.id} role="button" tabIndex={0} onClick={() => setSelId(r.tanque.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelId(r.tanque.id); }} className="card"
-              style={{ textAlign: 'left', cursor: 'pointer', borderColor: activo ? 'var(--primary)' : 'var(--border)', borderWidth: activo ? 2 : 1, opacity: r.tanque.estado === 'activo' ? 1 : 0.55 }}>
-              <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.4rem' }}>
-                <span>{r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}</span>
-                <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
-                  {r.tanque.es_movil && <span className="badge" title="Tanque móvil">móvil</span>}
-                  {r.tanque.estado !== 'activo' && <span className="badge">inactivo</span>}
-                  {canWrite && <button type="button" className="btn btn-sm btn-ghost" title="Editar tanque" onClick={(e) => { e.stopPropagation(); setEditTanque(r.tanque); setModal('tanque'); }}>✎</button>}
-                </span>
+      {!abierto ? (
+        <>
+          {/* Tarjeta-resumen destacada: total disponible + valor + tasa promedio */}
+          <div className="card" style={{ margin: '1rem 0 1.25rem', borderColor: 'var(--primary)', borderWidth: 2, background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
+            <div className="card-title"><span>💧 Combustible disponible</span></div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5rem', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">
+                {num(totalDisponible)} <span style={{ fontSize: '1rem', fontWeight: 500 }}>ltrs</span>
               </div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800 }} className="mono">{num(disp)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>L</span></div>
-              <div style={{ height: 7, borderRadius: 5, background: 'var(--surface-2)', margin: '.5rem 0', overflow: 'hidden' }}>
-                <div style={{ width: `${pct}%`, height: '100%', background: pct < 12 ? 'var(--danger)' : 'var(--primary)' }} />
+              <div className="muted" style={{ fontSize: '.9rem' }}>disponibles en <strong>{reporte.length}</strong> tanque(s)</div>
+            </div>
+            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>Valor total del combustible</div>
+                <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--success)' }}>{money(valorTotal)}</div>
               </div>
-              <div className="muted" style={{ fontSize: '.76rem' }}>
-                Cap. {num(cap)} L{capCalc > 0 ? <> · calc. <span className="mono">{num(capCalc)}</span></> : null} · Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/L
-              </div>
-              <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-                ↓{num(r.entradas)} · ⛽{num(r.uso)} · ↔{num(r.traslados)} L
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>Tasa promedio (ponderada por litros)</div>
+                <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700 }}>{money(tasaPromedio)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>/ltrs</span></div>
               </div>
             </div>
-          );
-        })}
-        {!reporte.length && !loading && <div className="card"><p className="muted" style={{ margin: 0 }}>Sin tanques. Creá uno con "+ Tanque".</p></div>}
-      </div>
-
-      {/* Libro mayor del tanque seleccionado */}
-      {sel && (
-        <>
-          <div className="page-head" style={{ marginBottom: '.5rem' }}>
-            <div><h2 style={{ margin: 0 }}>📒 {sel.nombre}</h2><p className="muted" style={{ margin: 0, fontSize: '.82rem' }}>Saldo: <strong className="mono">{num(sel.saldo_litros)} L</strong> · <strong className="mono">{money(sel.saldo_usd)}</strong> · Tasa {money(sel.tasa_usd_litro)}/L</p></div>
           </div>
 
-          {/* Filtros del libro mayor: búsqueda libre + todos los campos (estilo Tesorería) */}
-          {!!movs.length && (
-            <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
-              <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                Registro de movimientos
-                <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar PDF del registro (con el filtro aplicado)"
-                  onClick={() => sel && void descargarMovimientosTanquePdf(sel, movsFiltrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
-                <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar Excel del registro (con el filtro aplicado)"
-                  onClick={() => sel && void descargarMovimientosTanqueExcel(sel, movsFiltrados).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
-                <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Enviar el registro por correo (con el filtro aplicado)"
-                  onClick={() => setCorreoLibroOpen(true)}>✉ Correo</button>
-              </span>
-              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ position: 'relative' }}>
-                  <input className="input" type="search" value={fTexto} onChange={(e) => setFTexto(e.target.value)}
-                    placeholder="🔍 Buscar (equipo, autorizado, destino…)" style={{ width: 260, paddingRight: fTexto ? '1.6rem' : undefined }} />
-                  {fTexto && (
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFTexto('')} title="Limpiar búsqueda"
-                      style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>
-                  )}
-                </div>
-                <select className="select" value={fTipo} onChange={(e) => setFTipo(e.target.value as 'todos' | TipoMovTanque)} style={{ width: 'auto' }}>
-                  <option value="todos">Todo movimiento</option>
-                  <option value="entrada">⬇ Entrada</option>
-                  <option value="uso">⛽ Uso</option>
-                  <option value="traslado">↔ Traslado</option>
-                  <option value="retorno">↩ Retorno</option>
-                  <option value="merma">🔻 Merma</option>
-                </select>
-                <SearchSelect value={fEquipo} onChange={setFEquipo} placeholder="🔍 Equipo…" style={{ width: 180 }}
-                  options={[{ value: '', label: 'Todo equipo' }, ...opcs.equipos.map((v) => ({ value: v, label: v }))]} />
-                <SearchSelect value={fAutorizado} onChange={setFAutorizado} placeholder="🔍 Autorizado…" style={{ width: 180 }}
-                  options={[{ value: '', label: 'Todo autorizado' }, ...opcs.autorizados.map((v) => ({ value: v, label: v }))]} />
-                <SearchSelect value={fUbicacion} onChange={setFUbicacion} placeholder="🔍 Destino…" style={{ width: 180 }}
-                  options={[{ value: '', label: 'Todo destino' }, ...opcs.ubicaciones.map((v) => ({ value: v, label: v }))]} />
-                <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
-                  Desde <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} />
-                </label>
-                <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
-                  Hasta <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
-                </label>
-                <button className={`btn btn-sm ${ordenCampo === 'fecha' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('fecha')} title="Ordenar por fecha y hora">
-                  Fecha {ordenCampo === 'fecha' ? (ordenDesc ? '↓ (nuevo→viejo)' : '↑ (viejo→nuevo)') : ''}
-                </button>
-                <button className={`btn btn-sm ${ordenCampo === 'contIni' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('contIni')} title="Ordenar por el contador inicial del surtidor">
-                  Cont. I {ordenCampo === 'contIni' ? (ordenDesc ? '↓' : '↑') : ''}
-                </button>
-                <button className={`btn btn-sm ${ordenCampo === 'contFin' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('contFin')} title="Ordenar por el contador final del surtidor">
-                  Cont. F {ordenCampo === 'contFin' ? (ordenDesc ? '↓' : '↑') : ''}
-                </button>
-                {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={limpiarFiltros}>✕ Limpiar</button>}
-                <span className="muted" style={{ fontSize: '.8rem' }}>{movsFiltrados.length}/{movs.length}</span>
-              </div>
-            </div>
-          )}
-
-          {loading ? <EmptyState message="Cargando…" icon="◔" /> : !movs.length ? (
-            <EmptyState message="Sin movimientos en este tanque." icon="🛢" />
-          ) : (
-            <div className="table-wrap">
-              <table className="table" style={{ fontSize: '.8rem' }}>
-                <thead>
-                  <tr>
-                    <th>Fecha</th><th>Tanque</th><th>Equipo</th><th>Autorizado</th><th>Destino</th><th>Observación</th>
-                    <th>HI</th><th>HF</th><th>Hrs</th>
-                    <th>Cont. ini</th><th>Cont. fin</th><th>Lt usados (cont.)</th>
-                    <th>Entrada</th><th>Uso</th><th>Traslado</th><th>Retorno</th><th>Merma</th><th>Saldo L</th>
-                    <th>Tasa</th><th>$ Mov.</th><th>Saldo $</th><th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {!movsFiltrados.length && (
-                    <tr><td colSpan={22} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
-                  )}
-                  {movsFiltrados.map((m) => (
-                    <tr key={m.id}>
-                      <td className="mono" style={{ whiteSpace: 'nowrap' }}>{m.fecha}{m.hora ? <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div> : null}</td>
-                      <td className="muted">{tanques.find((t) => t.id === m.tanque_id)?.nombre ?? sel?.nombre ?? '—'}</td>
-                      <td>{m.equipo || '—'}</td>
-                      <td className="muted">{m.autorizado_por || '—'}</td>
-                      <td className="muted">{m.ubicacion || '—'}</td>
-                      <td className="muted" style={{ maxWidth: 180 }}>{m.observacion || '—'}</td>
-                      <td className="mono muted">{m.horometro_ini != null ? num(m.horometro_ini) : '—'}</td>
-                      <td className="mono muted">{m.horometro_fin != null ? num(m.horometro_fin) : '—'}</td>
-                      <td className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>
-                      <td className="mono muted">{m.contador_global_ini != null ? num(m.contador_global_ini) : '—'}</td>
-                      <td className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>
-                      <td className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>
-                      <td className="mono" style={{ color: 'var(--primary-3)' }}>{m.tipo === 'entrada' ? num(m.litros) : ''}</td>
-                      <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'uso' ? num(m.litros) : ''}</td>
-                      <td className="mono" style={{ color: 'var(--warning)' }}>{m.tipo === 'traslado' ? num(m.litros) : ''}</td>
-                      <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{m.tipo === 'retorno' ? num(m.litros) : ''}</td>
-                      <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'merma' ? num(m.litros) : ''}</td>
-                      <td className="mono"><strong>{num(m.saldo_litros)}</strong></td>
-                      <td className="mono muted">{money(m.tasa_usd_litro)}</td>
-                      <td className="mono">{money(m.monto_usd)}</td>
-                      <td className="mono"><strong>{money(m.saldo_usd)}</strong></td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => setDetalle(m)}>👁 Ver</button>
-                        {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => setABorrar(m)}>🗑</button>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {/* Tarjetas de los tanques existentes → clic abre el detalle */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+            {reporte.map((r) => (
+              <TanqueCard key={r.tanque.id} r={r} canWrite={canWrite}
+                onClick={() => { setSelId(r.tanque.id); setAbierto(true); }}
+                onEdit={() => { setEditTanque(r.tanque); setModal('tanque'); }} />
+            ))}
+            {!reporte.length && !loading && <div className="card"><p className="muted" style={{ margin: 0 }}>Sin tanques. Creá uno con "+ Tanque".</p></div>}
+          </div>
         </>
-      )}
+      ) : sel && reporteSel ? (
+        <>
+          {/* Detalle: botón Volver + tarjeta seleccionada arriba + movimientos abajo */}
+          <div style={{ margin: '1rem 0 .75rem' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setAbierto(false)} title="Volver al inicio de Combustible">← Volver</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+            <TanqueCard r={reporteSel} canWrite={canWrite} activo
+              onEdit={() => { setEditTanque(reporteSel.tanque); setModal('tanque'); }} />
+          </div>
+
+          <div className="page-head" style={{ marginBottom: '.5rem' }}>
+            <div><h2 style={{ margin: 0 }}>📒 {sel.nombre}</h2><p className="muted" style={{ margin: 0, fontSize: '.82rem' }}>Saldo: <strong className="mono">{num(sel.saldo_litros)} ltrs</strong> · <strong className="mono">{money(sel.saldo_usd)}</strong> · Tasa {money(sel.tasa_usd_litro)}/ltrs</p></div>
+          </div>
+
+          <RegistroMovimientos
+            sel={sel}
+            movs={movsMesActual}
+            userEmail={user?.email ?? ''}
+            canWrite={canWrite}
+            allowDelete
+            titulo={`Registro de movimientos · ${nombreMes(mesActual)}`}
+            emptyMsg="Sin movimientos este mes."
+            loading={loading}
+            onVerDetalle={setDetalle}
+            onBorrar={setABorrar}
+          />
+        </>
+      ) : null}
 
       {modal === 'mov' && sel && (
         <MovimientoModal tanques={tanques.filter((t) => t.estado === 'activo')} tanqueSel={sel} catalogos={catalogos} actor={actor} actorName={actorName}
@@ -391,7 +264,7 @@ export function TanquesView() {
               await eliminarTanque(t.id);
               toast(`Tanque «${t.nombre}» eliminado`, 'success');
               setTanqueABorrar(null);
-              if (selId === t.id) setSelId('');
+              if (selId === t.id) { setSelId(''); setAbierto(false); }
               await reloadTanques();
             } catch (err) {
               toast(err instanceof Error ? err.message : 'No se pudo eliminar el tanque', 'error');
@@ -399,16 +272,14 @@ export function TanquesView() {
           }}
         />
       )}
-      {correoLibroOpen && sel && (
-        <CorreoReporteModal
-          titulo={`Enviar registro · ${sel.nombre}`}
-          descripcion={`Se enviará el PDF del libro mayor de ${sel.nombre} (${movsFiltrados.length} movimiento(s)${hayFiltro ? ', con el filtro aplicado' : ''}).`}
-          defaultEmail={user?.email ?? ''}
-          onEnviar={async (emails) => {
-            const { destinatarios } = await enviarMovimientosTanquePorCorreo(sel, movsFiltrados, emails, { filtro: hayFiltro ? 'filtrado' : undefined });
-            return destinatarios;
-          }}
-          onClose={() => setCorreoLibroOpen(false)}
+      {historico && (
+        <HistoricoMovimientosModal
+          tanques={tanques}
+          reporte={reporte}
+          userEmail={user?.email ?? ''}
+          mesActual={mesActual}
+          onVerDetalle={setDetalle}
+          onClose={() => setHistorico(false)}
         />
       )}
       {modal === 'consumo' && (
@@ -429,6 +300,337 @@ export function TanquesView() {
     try { await eliminarMovimientoTanque(m); await recargarTodo(); toast('Movimiento eliminado', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
+}
+
+/* ───────────── Tarjeta de un tanque (reporte) ─────────────
+   Reutilizable: en el grid del inicio (clickeable, abre el detalle) y arriba del
+   detalle (sin click, solo informativa). */
+function TanqueCard({ r, canWrite, activo, onClick, onEdit }: {
+  r: ReporteTanque; canWrite: boolean; activo?: boolean;
+  onClick?: () => void; onEdit?: () => void;
+}) {
+  const cap = Number(r.tanque.capacidad_litros) || 0;
+  const capCalc = Number(r.tanque.capacidad_calculada_litros) || 0;
+  const disp = Number(r.disponible) || 0;
+  const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
+  const clickable = !!onClick;
+  return (
+    <div role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined} onClick={onClick}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick!(); } : undefined} className="card"
+      style={{ textAlign: 'left', cursor: clickable ? 'pointer' : 'default', borderColor: activo ? 'var(--primary)' : 'var(--border)', borderWidth: activo ? 2 : 1, opacity: r.tanque.estado === 'activo' ? 1 : 0.55 }}>
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.4rem' }}>
+        <span>{r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}</span>
+        <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
+          {r.tanque.es_movil && <span className="badge" title="Tanque móvil">móvil</span>}
+          {r.tanque.estado !== 'activo' && <span className="badge">inactivo</span>}
+          {canWrite && onEdit && <button type="button" className="btn btn-sm btn-ghost" title="Editar tanque" onClick={(e) => { e.stopPropagation(); onEdit(); }}>✎</button>}
+        </span>
+      </div>
+      <div style={{ fontSize: '1.5rem', fontWeight: 800 }} className="mono">{num(disp)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>ltrs</span></div>
+      <div style={{ height: 7, borderRadius: 5, background: 'var(--surface-2)', margin: '.5rem 0', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: pct < 12 ? 'var(--danger)' : 'var(--primary)' }} />
+      </div>
+      <div className="muted" style={{ fontSize: '.76rem' }}>
+        Cap. {num(cap)} ltrs{capCalc > 0 ? <> · calc. <span className="mono">{num(capCalc)}</span></> : null} · Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/ltrs
+      </div>
+      <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
+        ↓{num(r.entradas)} · ⛽{num(r.uso)} · ↔{num(r.traslados)} ltrs
+      </div>
+    </div>
+  );
+}
+
+/* ───────────── Registro de movimientos (filtros + tabla) reutilizable ─────────────
+   Se usa tanto para la LISTA ACTUAL (mes en curso) como para cada mes del HISTÓRICO.
+   La tabla NO muestra Tanque, HI (horómetro inicial), Cont. ini ni Tasa: esos datos
+   quedan disponibles en «Ver detalle». */
+function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titulo, emptyMsg, loading, onVerDetalle, onBorrar }: {
+  sel: TanqueCombustible;
+  movs: MovimientoTanque[];        // ya acotados a un mes, en orden cronológico ascendente
+  userEmail: string;
+  canWrite: boolean;
+  allowDelete?: boolean;
+  titulo: ReactNode;
+  emptyMsg?: string;
+  loading?: boolean;
+  onVerDetalle: (m: MovimientoTanque) => void;
+  onBorrar?: (m: MovimientoTanque) => void;
+}) {
+  const [fTexto, setFTexto] = useState('');
+  const [fTipo, setFTipo] = useState<'todos' | TipoMovTanque>('todos');
+  const [fEquipo, setFEquipo] = useState('');
+  const [fAutorizado, setFAutorizado] = useState('');
+  const [fUbicacion, setFUbicacion] = useState('');
+  const [fDesde, setFDesde] = useState('');
+  const [fHasta, setFHasta] = useState('');
+  const [ordenDesc, setOrdenDesc] = useState(true);
+  const [ordenCampo, setOrdenCampo] = useState<'fecha' | 'contIni' | 'contFin'>('fecha');
+  const [correoOpen, setCorreoOpen] = useState(false);
+  function ordenarPor(campo: 'fecha' | 'contIni' | 'contFin') {
+    if (campo === ordenCampo) setOrdenDesc((d) => !d);
+    else { setOrdenCampo(campo); setOrdenDesc(true); }
+  }
+  // Al cambiar de tanque, limpiamos los filtros.
+  useEffect(() => { setFTexto(''); setFTipo('todos'); setFEquipo(''); setFAutorizado(''); setFUbicacion(''); setFDesde(''); setFHasta(''); }, [sel.id]);
+
+  const opcs = useMemo(() => {
+    const uniq = (g: (m: MovimientoTanque) => string | null | undefined) =>
+      Array.from(new Set(movs.map((m) => (g(m) ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
+    return { equipos: uniq((m) => m.equipo), autorizados: uniq((m) => m.autorizado_por), ubicaciones: uniq((m) => m.ubicacion) };
+  }, [movs]);
+
+  const movsFiltrados = useMemo(() => {
+    const q = fTexto.trim().toLowerCase();
+    const arr = movs.filter((m) => {
+      if (fTipo !== 'todos' && m.tipo !== fTipo) return false;
+      if (fEquipo && (m.equipo ?? '') !== fEquipo) return false;
+      if (fAutorizado && (m.autorizado_por ?? '') !== fAutorizado) return false;
+      if (fUbicacion && (m.ubicacion ?? '') !== fUbicacion) return false;
+      if (fDesde && (m.fecha ?? '') < fDesde) return false;
+      if (fHasta && (m.fecha ?? '') > fHasta) return false;
+      if (q) {
+        const hay = [m.fecha, m.hora, m.equipo, m.autorizado_por, m.ubicacion, m.observacion, m.tipo]
+          .map((x) => (x ?? '').toString().toLowerCase()).join(' ');
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    if (ordenCampo === 'fecha') return ordenDesc ? arr.slice().reverse() : arr;
+    return arr.slice().sort((a, b) => {
+      const av = ordenCampo === 'contIni' ? a.contador_global_ini : a.contador_global_fin;
+      const bv = ordenCampo === 'contIni' ? b.contador_global_ini : b.contador_global_fin;
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      const d = Number(av) - Number(bv);
+      return ordenDesc ? -d : d;
+    });
+  }, [movs, fTexto, fTipo, fEquipo, fAutorizado, fUbicacion, fDesde, fHasta, ordenDesc, ordenCampo]);
+
+  const hayFiltro = !!(fTexto || fTipo !== 'todos' || fEquipo || fAutorizado || fUbicacion || fDesde || fHasta);
+  function limpiarFiltros() { setFTexto(''); setFTipo('todos'); setFEquipo(''); setFAutorizado(''); setFUbicacion(''); setFDesde(''); setFHasta(''); }
+
+  return (
+    <>
+      {!!movs.length && (
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+          <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {titulo}
+            <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar PDF del registro (con el filtro aplicado)"
+              onClick={() => void descargarMovimientosTanquePdf(sel, movsFiltrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
+            <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar Excel del registro (con el filtro aplicado)"
+              onClick={() => void descargarMovimientosTanqueExcel(sel, movsFiltrados).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
+            <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Enviar el registro por correo (con el filtro aplicado)"
+              onClick={() => setCorreoOpen(true)}>✉ Correo</button>
+          </span>
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ position: 'relative' }}>
+              <input className="input" type="search" value={fTexto} onChange={(e) => setFTexto(e.target.value)}
+                placeholder="🔍 Buscar (equipo, autorizado, destino…)" style={{ width: 260, paddingRight: fTexto ? '1.6rem' : undefined }} />
+              {fTexto && (
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFTexto('')} title="Limpiar búsqueda"
+                  style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>
+              )}
+            </div>
+            <select className="select" value={fTipo} onChange={(e) => setFTipo(e.target.value as 'todos' | TipoMovTanque)} style={{ width: 'auto' }}>
+              <option value="todos">Todo movimiento</option>
+              <option value="entrada">⬇ Entrada</option>
+              <option value="uso">⛽ Uso</option>
+              <option value="traslado">↔ Traslado</option>
+              <option value="retorno">↩ Retorno</option>
+              <option value="merma">🔻 Merma</option>
+            </select>
+            <SearchSelect value={fEquipo} onChange={setFEquipo} placeholder="🔍 Equipo…" style={{ width: 180 }}
+              options={[{ value: '', label: 'Todo equipo' }, ...opcs.equipos.map((v) => ({ value: v, label: v }))]} />
+            <SearchSelect value={fAutorizado} onChange={setFAutorizado} placeholder="🔍 Autorizado…" style={{ width: 180 }}
+              options={[{ value: '', label: 'Todo autorizado' }, ...opcs.autorizados.map((v) => ({ value: v, label: v }))]} />
+            <SearchSelect value={fUbicacion} onChange={setFUbicacion} placeholder="🔍 Destino…" style={{ width: 180 }}
+              options={[{ value: '', label: 'Todo destino' }, ...opcs.ubicaciones.map((v) => ({ value: v, label: v }))]} />
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+              Desde <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} />
+            </label>
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+              Hasta <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
+            </label>
+            <button className={`btn btn-sm ${ordenCampo === 'fecha' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('fecha')} title="Ordenar por fecha y hora">
+              Fecha {ordenCampo === 'fecha' ? (ordenDesc ? '↓ (nuevo→viejo)' : '↑ (viejo→nuevo)') : ''}
+            </button>
+            <button className={`btn btn-sm ${ordenCampo === 'contFin' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('contFin')} title="Ordenar por el contador final del surtidor">
+              Cont. F {ordenCampo === 'contFin' ? (ordenDesc ? '↓' : '↑') : ''}
+            </button>
+            {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={limpiarFiltros}>✕ Limpiar</button>}
+            <span className="muted" style={{ fontSize: '.8rem' }}>{movsFiltrados.length}/{movs.length}</span>
+          </div>
+        </div>
+      )}
+
+      {loading ? <EmptyState message="Cargando…" icon="◔" /> : !movs.length ? (
+        <EmptyState message={emptyMsg ?? 'Sin movimientos.'} icon="🛢" />
+      ) : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.8rem' }}>
+            <thead>
+              <tr>
+                <th>Fecha</th><th>Equipo</th><th>Autorizado</th><th>Destino</th><th>Observación</th>
+                <th>HF</th><th>Hrs</th>
+                <th>Cont. fin</th><th>Lt usados (cont.)</th>
+                <th>Entrada</th><th>Uso</th><th>Traslado</th><th>Retorno</th><th>Merma</th><th>Saldo ltrs</th>
+                <th>$ Mov.</th><th>Saldo $</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {!movsFiltrados.length && (
+                <tr><td colSpan={18} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+              )}
+              {movsFiltrados.map((m) => (
+                <tr key={m.id}>
+                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>{m.fecha}{m.hora ? <div className="muted" style={{ fontSize: '.7rem' }}>{m.hora}</div> : null}</td>
+                  <td>{m.equipo || '—'}</td>
+                  <td className="muted">{m.autorizado_por || '—'}</td>
+                  <td className="muted">{m.ubicacion || '—'}</td>
+                  <td className="muted" style={{ maxWidth: 180 }}>{m.observacion || '—'}</td>
+                  <td className="mono muted">{m.horometro_fin != null ? num(m.horometro_fin) : '—'}</td>
+                  <td className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>
+                  <td className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>
+                  <td className="mono muted">{m.contador_global_dif ? num(m.contador_global_dif) : '—'}</td>
+                  <td className="mono" style={{ color: 'var(--primary-3)' }}>{m.tipo === 'entrada' ? num(m.litros) : ''}</td>
+                  <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'uso' ? num(m.litros) : ''}</td>
+                  <td className="mono" style={{ color: 'var(--warning)' }}>{m.tipo === 'traslado' ? num(m.litros) : ''}</td>
+                  <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{m.tipo === 'retorno' ? num(m.litros) : ''}</td>
+                  <td className="mono" style={{ color: 'var(--danger)' }}>{m.tipo === 'merma' ? num(m.litros) : ''}</td>
+                  <td className="mono"><strong>{num(m.saldo_litros)}</strong></td>
+                  <td className="mono">{money(m.monto_usd)}</td>
+                  <td className="mono"><strong>{money(m.saldo_usd)}</strong></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => onVerDetalle(m)}>👁 Ver</button>
+                    {canWrite && allowDelete && onBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => onBorrar(m)}>🗑</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {correoOpen && (
+        <CorreoReporteModal
+          titulo={`Enviar registro · ${sel.nombre}`}
+          descripcion={`Se enviará el PDF del registro de ${sel.nombre} (${movsFiltrados.length} movimiento(s)${hayFiltro ? ', con el filtro aplicado' : ''}).`}
+          defaultEmail={userEmail}
+          onEnviar={async (emails) => {
+            const { destinatarios } = await enviarMovimientosTanquePorCorreo(sel, movsFiltrados, emails, { filtro: hayFiltro ? 'filtrado' : undefined });
+            return destinatarios;
+          }}
+          onClose={() => setCorreoOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/* ───────────── Modal: Histórico de Movimientos (por tanque y por mes) ─────────────
+   Tarjetas de tanques → al elegir uno, sus movimientos de meses ANTERIORES al actual,
+   agrupados por mes, con filtros, búsqueda y reportes. El mes en curso NO aparece acá
+   (ese está en la lista actual). No se reinicia saldo/horómetro/contador: solo es una
+   vista segmentada por mes de los mismos movimientos. */
+function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, onVerDetalle, onClose }: {
+  tanques: TanqueCombustible[];
+  reporte: ReporteTanque[];
+  userEmail: string;
+  mesActual: string;
+  onVerDetalle: (m: MovimientoTanque) => void;
+  onClose: () => void;
+}) {
+  const [tankId, setTankId] = useState('');
+  const [movs, setMovs] = useState<MovimientoTanque[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [mes, setMes] = useState('');
+  const tank = useMemo(() => tanques.find((t) => t.id === tankId) ?? null, [tanques, tankId]);
+
+  useEffect(() => {
+    if (!tankId) { setMovs([]); setMes(''); return; }
+    let cancel = false;
+    setLoading(true);
+    listMovimientosTanque(tankId).then((ms) => {
+      if (cancel) return;
+      // Solo meses ANTERIORES al mes en curso (el actual vive en la lista actual).
+      const previos = ms.filter((m) => mesDe(m.fecha) < mesActual);
+      setMovs(previos);
+      const meses = Array.from(new Set(previos.map((m) => mesDe(m.fecha)).filter(Boolean))).sort();
+      setMes(meses[meses.length - 1] ?? '');
+    }).catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'No se pudo cargar el histórico', 'error'); })
+      .finally(() => { if (!cancel) setLoading(false); });
+    return () => { cancel = true; };
+  }, [tankId, mesActual]);
+
+  const meses = useMemo(() => Array.from(new Set(movs.map((m) => mesDe(m.fecha)).filter(Boolean))).sort().reverse(), [movs]);
+  const movsMes = useMemo(() => movs.filter((m) => mesDe(m.fecha) === mes), [movs, mes]);
+
+  return (
+    <Modal title="📚 Histórico de Movimientos" size="xl" onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      {!tankId ? (
+        <>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Elegí un tanque para ver sus movimientos de meses anteriores, agrupados por mes.</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
+            {reporte.map((r) => {
+              const cap = Number(r.tanque.capacidad_litros) || 0;
+              const disp = Number(r.disponible) || 0;
+              const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
+              return (
+                <div key={r.tanque.id} role="button" tabIndex={0} onClick={() => setTankId(r.tanque.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setTankId(r.tanque.id); }} className="card"
+                  style={{ textAlign: 'left', cursor: 'pointer', opacity: r.tanque.estado === 'activo' ? 1 : 0.55 }}>
+                  <div className="card-title"><span>{r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}</span></div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }} className="mono">{num(disp)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>ltrs</span></div>
+                  <div style={{ height: 7, borderRadius: 5, background: 'var(--surface-2)', margin: '.5rem 0', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: pct < 12 ? 'var(--danger)' : 'var(--primary)' }} />
+                  </div>
+                  <div className="muted" style={{ fontSize: '.76rem' }}>
+                    Cap. {num(cap)} ltrs · Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/ltrs
+                  </div>
+                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
+                    ↓{num(r.entradas)} · ⛽{num(r.uso)} · ↔{num(r.traslados)} ltrs
+                  </div>
+                </div>
+              );
+            })}
+            {!reporte.length && <div className="card"><p className="muted" style={{ margin: 0 }}>Sin tanques.</p></div>}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="page-head" style={{ marginBottom: '.6rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+              <button className="btn btn-sm btn-ghost" onClick={() => setTankId('')}>← Tanques</button>
+              <h3 style={{ margin: 0 }}>{tank?.es_movil ? '🚚' : '🛢'} {tank?.nombre}</h3>
+              {!!meses.length && (
+                <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.82rem' }}>
+                  Mes
+                  <select className="select" value={mes} onChange={(e) => setMes(e.target.value)} style={{ width: 'auto' }}>
+                    {meses.map((m) => <option key={m} value={m}>{nombreMes(m)}</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
+          </div>
+          {loading ? <EmptyState message="Cargando…" icon="◔" /> : !meses.length ? (
+            <EmptyState message="Este tanque aún no tiene meses anteriores en el histórico." icon="📚" />
+          ) : tank ? (
+            <RegistroMovimientos
+              sel={tank}
+              movs={movsMes}
+              userEmail={userEmail}
+              canWrite={false}
+              titulo={`Movimientos · ${nombreMes(mes)}`}
+              emptyMsg="Sin movimientos en este mes."
+              onVerDetalle={onVerDetalle}
+            />
+          ) : null}
+        </>
+      )}
+    </Modal>
+  );
 }
 
 /* ───────────── Modal: nuevo movimiento ───────────── */
