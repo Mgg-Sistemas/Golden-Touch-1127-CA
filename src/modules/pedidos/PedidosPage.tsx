@@ -1610,6 +1610,18 @@ function OrdenDetailModal({
   // Contra entrega: ya pagó (tras recibir) → se puede finalizar.
   const contraEntregaFinalizar = isPagada && esContraEntrega && !!o.recibida_en;
   const canCancel = ['pendiente', 'aprobada'].includes(o.estado);
+  // Cancelar la OC ya aprobada por el gerente (o con proveedor desistido) antes de
+  // pagarla. Pide motivo y queda registrado para el PDF.
+  const canCancelOc =
+    canManageProcurement &&
+    ['oc_creada', 'confirmada_metodo', 'oc_aprobada', 'desistida_proveedor'].includes(o.estado);
+  const isCancelada = o.estado === 'cancelada';
+  // ¿La orden llegó a etapa de OC? (para ofrecer el PDF de la OC aun cancelada).
+  const tuvoOc =
+    !!o.oc_codigo ||
+    (o.historial ?? []).some((h) =>
+      ['oc_creada', 'confirmada_metodo', 'oc_aprobada', 'oferta_aceptada', 'oc_emitida'].includes(h.evento),
+    );
 
   const puedeTrazabilidad = ['recibida', 'finalizada', 'pagada'].includes(o.estado);
   const isFinalizada = o.estado === 'finalizada';
@@ -1696,6 +1708,17 @@ function OrdenDetailModal({
       )}
       {canCancel && (
         <button className="btn btn-danger" onClick={onCancel}>Cancelar orden</button>
+      )}
+      {canCancelOc && (
+        <button className="btn btn-danger" onClick={onCancel} title="Cancelar la OC (indicando el motivo, que aparecerá en el PDF)">
+          ✖ Cancelar OC
+        </button>
+      )}
+      {/* OC cancelada: el PDF queda disponible con el motivo de cancelación. */}
+      {isCancelada && tuvoOc && (
+        <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF (incluye el motivo de cancelación)">
+          ↓ OC PDF
+        </button>
       )}
       {/* Etapa OC: oferta ya elegida (sin confirmar). Se confirma individual o en lote (checklist). */}
       {isOcCreada && canManageProcurement && (

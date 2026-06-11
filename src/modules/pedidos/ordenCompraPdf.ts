@@ -123,6 +123,36 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setLineWidth(0.5);
   doc.setDrawColor(180);
 
+  // ─── Banner de CANCELACIÓN (si la OC fue cancelada) ───
+  const cancelEvent = (orden.historial ?? []).find((h) => h.evento === 'cancelada');
+  if (cancelEvent) {
+    const motivoCanc = (cancelEvent as { motivo?: string }).motivo?.trim() || '—';
+    const motivoLines = doc.splitTextToSize(`Motivo: ${motivoCanc}`, PAGE_W - MARGIN * 2 - 24);
+    const bannerH = 30 + motivoLines.length * 11;
+    doc.setFillColor(253, 232, 232);
+    doc.setDrawColor(220, 53, 69);
+    doc.setLineWidth(1);
+    doc.roundedRect(MARGIN, y, PAGE_W - MARGIN * 2, bannerH, 4, 4, 'FD');
+    doc.setTextColor(176, 32, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text('ORDEN DE COMPRA CANCELADA', MARGIN + 12, y + 18);
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text(
+      `Cancelada por ${cancelEvent.actor ?? '—'} · ${dateTime(cancelEvent.at)}`,
+      PAGE_W - MARGIN - 12,
+      y + 18,
+      { align: 'right' },
+    );
+    doc.setFontSize(9.5);
+    doc.text(motivoLines, MARGIN + 12, y + 30);
+    doc.setTextColor(0);
+    doc.setDrawColor(180);
+    doc.setLineWidth(0.5);
+    y += bannerH + 16;
+  }
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.text('EMISOR', MARGIN, y);
