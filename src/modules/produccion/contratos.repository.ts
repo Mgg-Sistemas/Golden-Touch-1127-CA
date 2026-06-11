@@ -144,6 +144,41 @@ export async function crearContrato(input: ContratoInput & { actor: string; acto
   throw new Error('No se pudo asignar el número de contrato. Intentá de nuevo.');
 }
 
+/** Etiqueta de la observación del contrato que refleja el peso de mesa. */
+const ETIQUETA_MESA = 'Material de Mesa:';
+
+/**
+ * Inserta/actualiza la línea «Material de Mesa: X» dentro de una observación,
+ * conservando el resto del texto. Si el peso es null, deja la etiqueta vacía.
+ */
+function aplicarMaterialDeMesa(obs: string | null | undefined, pesoMojado: number | null): string {
+  const valorTxt = pesoMojado == null ? '' : ` ${pesoMojado}`;
+  const linea = `${ETIQUETA_MESA}${valorTxt}`;
+  const actual = obs ?? '';
+  const re = /^Material de Mesa:.*$/m;
+  if (re.test(actual)) return actual.replace(re, linea);
+  return actual.trim() ? `${linea}\n${actual}` : linea;
+}
+
+/**
+ * KG MESAS · guarda los pesos manuales (mojado/seco) de un contrato. La BD
+ * recalcula sola la Merma (= seco − mojado) y el % de merma (columnas generadas).
+ * Además refleja el «Pesos Mojado» en la observación del contrato como
+ * «Material de Mesa: X» (conservando el resto del texto). `null` lo deja vacío.
+ */
+export async function setMesaContrato(id: string, pesoMojado: number | null, pesoSeco: number | null): Promise<void> {
+  const norm = (v: number | null) => (v == null || !Number.isFinite(v) ? null : v);
+  const pm = norm(pesoMojado), ps = norm(pesoSeco);
+  // Traemos la observación actual para actualizar SOLO la línea «Material de Mesa:».
+  const { data } = await supabase.from('acopio_contratos').select('observaciones').eq('id', id).maybeSingle();
+  const nuevaObs = aplicarMaterialDeMesa((data as { observaciones?: string | null } | null)?.observaciones, pm);
+  const { error } = await supabase
+    .from('acopio_contratos')
+    .update({ mesa_peso_mojado: pm, mesa_peso_seco: ps, observaciones: nuevaObs })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function actualizarContrato(id: string, input: ContratoInput): Promise<void> {
   const lugar = (input.lugarExtraccion || '').trim();
   if (!lugar) throw new Error('Indicá el lugar de extracción.');

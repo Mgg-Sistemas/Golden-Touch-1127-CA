@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import type { Caja } from '@/shared/lib/types';
@@ -79,18 +80,16 @@ export function TrasladoDineroForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Caja origen</label>
-            <select className="select" value={origenId} onChange={(e) => setOrigenId(e.target.value)}>
-              {!activas.length && <option value="">— sin cajas —</option>}
-              {activas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {c.moneda} · {money(Number(c.saldo) || 0)}</option>)}
-            </select>
+            <SearchSelect value={origenId} onChange={setOrigenId} disabled={!activas.length}
+              placeholder={activas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+              options={activas.map((c) => ({ value: c.id, label: `${c.nombre} · ${c.moneda} · ${money(Number(c.saldo) || 0)}` }))} />
             {origen && <small className="muted">Saldo: <strong className="mono">{money(saldo)} {origen.moneda}</strong></small>}
           </div>
           <div className="form-row">
             <label>Caja destino (misma moneda)</label>
-            <select className="select" value={destinoValido} onChange={(e) => setDestinoId(e.target.value)}>
-              {!destinos.length && <option value="">— no hay otra caja en {origen?.moneda} —</option>}
-              {destinos.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {money(Number(c.saldo) || 0)}</option>)}
-            </select>
+            <SearchSelect value={destinoValido} onChange={setDestinoId} disabled={!destinos.length}
+              placeholder={destinos.length ? '🔍 Buscar caja…' : `— no hay otra caja en ${origen?.moneda ?? ''} —`}
+              options={destinos.map((c) => ({ value: c.id, label: `${c.nombre} · ${money(Number(c.saldo) || 0)}` }))} />
           </div>
         </div>
 

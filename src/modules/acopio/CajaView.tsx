@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
@@ -57,9 +58,8 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
       <div className="card" style={{ marginBottom: '.75rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} style={{ maxWidth: 280 }}>
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.numero}{c.nombre ? ` · ${c.nombre}` : ''} {c.estado === 'cerrada' ? '🔒' : '●'}</option>)}
-            </select>
+            <SearchSelect value={cajaId} onChange={setCajaId} style={{ maxWidth: 280 }} placeholder="🔍 Buscar cierre…"
+              options={cajas.map((c) => ({ value: c.id, label: `${c.numero}${c.nombre ? ` · ${c.nombre}` : ''} ${c.estado === 'cerrada' ? '🔒' : '●'}` }))} />
             {caja && (
               <span className="muted" style={{ fontSize: '.82rem' }}>
                 {date(caja.fecha_inicio)} → {caja.fecha_fin ? date(caja.fecha_fin) : 'hoy'}

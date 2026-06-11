@@ -4,6 +4,7 @@ import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DestinoSelect } from './DestinoSelect';
 
 export function SalidaMaterialForm({
@@ -122,10 +123,9 @@ export function SalidaMaterialForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Producto del almacén</label>
-            <select className="select" value={productoId} onChange={(e) => setProductoId(e.target.value)}>
-              {!productosEnAlmacen.length && <option value="">— el almacén no tiene materiales —</option>}
-              {productosEnAlmacen.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {p.sku}</option>)}
-            </select>
+            <SearchSelect value={productoId} onChange={setProductoId} disabled={!productosEnAlmacen.length}
+              placeholder={productosEnAlmacen.length ? '🔍 Buscar producto…' : '— el almacén no tiene materiales —'}
+              options={productosEnAlmacen.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
             <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong></small>
           </div>
           <div className="form-row">

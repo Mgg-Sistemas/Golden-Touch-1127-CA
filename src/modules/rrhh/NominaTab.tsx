@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -352,10 +353,8 @@ function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
       <div className="form-grid">
         <div className="form-row">
           <label>Trabajador</label>
-          <select className="select" value={personaId} onChange={(e) => setPersonaId(e.target.value)} required>
-            <option value="">— elegir —</option>
-            {personal.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
-          </select>
+          <SearchSelect value={personaId} onChange={setPersonaId} placeholder="🔍 Buscar trabajador…"
+            options={personal.map((p) => ({ value: p.id, label: `${p.nombre} ${p.apellido}` }))} />
         </div>
         <div className="form-row"><label>Monto del pago (USD)</label><input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} placeholder="0,00" /></div>
         <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Concepto</label><input className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="Liquidación por renuncia, vacaciones pendientes, etc." /></div>

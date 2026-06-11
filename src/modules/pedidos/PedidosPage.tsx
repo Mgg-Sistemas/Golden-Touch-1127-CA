@@ -24,6 +24,7 @@ import {
   aprobarOrden,
   aprobarOcsEnLote,
   actualizarComprarItems,
+  actualizarOrdenEditable,
   cancelarOrden,
   crearOrden,
   desistirProveedor,
@@ -96,6 +97,7 @@ const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
   { key: 'recibida', label: 'Recibida' },
   { key: 'finalizada', label: 'Finalizada' },
   { key: 'desistida_proveedor', label: 'Proveedor desistió' },
+  { key: 'cancelada', label: 'Cancelada' },
 ];
 
 // Etiqueta y clase visual de cada evento del historial (igual al demo).
@@ -158,6 +160,7 @@ type ModalKind =
   | { kind: 'abono'; orden: Orden }
   | { kind: 'finalizar'; orden: Orden }
   | { kind: 'price-history'; sku: string; nombre: string }
+  | { kind: 'edit-orden'; orden: Orden }
   | { kind: 'add-offer'; orden: Orden };
 
 export function PedidosPage() {
@@ -478,6 +481,7 @@ export function PedidosPage() {
           actorEmail={user?.email ?? ''}
           offersReloadKey={offersReloadKey}
           onAddOffer={() => setModal({ kind: 'add-offer', orden: currentDetail })}
+          onEditarOrden={() => setModal({ kind: 'edit-orden', orden: currentDetail })}
           onAcceptedOffer={async () => {
             await refresh();
             setOffersReloadKey((k) => k + 1);
@@ -517,6 +521,17 @@ export function PedidosPage() {
             setModal({ kind: 'none' });
             await refresh();
           }}
+        />
+      )}
+
+      {/* Modal: editar OC (etapa cargar ofertas) */}
+      {modal.kind === 'edit-orden' && (
+        <EditarOrdenModal
+          orden={modal.orden}
+          productos={productos}
+          actorEmail={user?.email ?? ''}
+          onClose={() => setModal({ kind: 'detail', ordenId: modal.orden.id })}
+          onSaved={async () => { await refresh(); setModal({ kind: 'detail', ordenId: modal.orden.id }); }}
         />
       )}
 
@@ -1547,6 +1562,7 @@ interface OrdenDetailModalProps {
   onSeePriceHistory: (sku: string, nombre: string) => void;
   onAddOffer: () => void;
   onAcceptedOffer: () => void;
+  onEditarOrden: () => void;
   offersReloadKey: number;
   usuarioRole: string | null;
 }
@@ -1572,6 +1588,7 @@ function OrdenDetailModal({
   onSeePriceHistory,
   onAddOffer,
   onAcceptedOffer,
+  onEditarOrden,
   offersReloadKey,
   usuarioRole,
 }: OrdenDetailModalProps) {
@@ -1598,6 +1615,9 @@ function OrdenDetailModal({
   const isFinalizada = o.estado === 'finalizada';
   // Las ofertas (añadir proveedor) se gestionan SOLO desde la pestaña Órdenes de Compra.
   const mostrarOfertas = enOc && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada'].includes(o.estado);
+  // Editar la OC: solo en la etapa «Pendiente (cargar ofertas)» y mientras no haya
+  // una oferta con precio (total = 0), para no descuadrar montos ya cotizados.
+  const puedeEditarOc = enOc && o.estado === 'aprobada' && Number(o.total) === 0 && canManageProcurement;
 
   // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
   const creditoSaldadoDet = isCuentaAbierta && (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
@@ -1667,6 +1687,11 @@ function OrdenDetailModal({
           title="Enviar la trazabilidad por correo"
         >
           📧 Enviar por correo
+        </button>
+      )}
+      {puedeEditarOc && (
+        <button className="btn btn-ghost" onClick={onEditarOrden} title="Modificar los ítems, cantidades, motivo y finalidad de la OC">
+          ✎ Editar OC
         </button>
       )}
       {canCancel && (
@@ -2550,6 +2575,136 @@ function CrearOrdenModal({
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>
         El precio lo fijará el proveedor al cargar su oferta. La solicitud queda sin monto hasta entonces.
       </p>
+    </Modal>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Modal: Editar OC (etapa «cargar ofertas», sin oferta con precio)
+   Permite cambiar ítems (cantidad, comprar, agregar/quitar), motivo y finalidad.
+   ───────────────────────────────────────────── */
+function EditarOrdenModal({
+  orden,
+  productos,
+  actorEmail,
+  onClose,
+  onSaved,
+}: {
+  orden: Orden;
+  productos: Producto[];
+  actorEmail: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [items, setItems] = useState<ItemOrden[]>(() => orden.items.map((i) => ({ ...i })));
+  const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
+  const [motivo, setMotivo] = useState(orden.motivo ?? '');
+  const [finalidad, setFinalidad] = useState(orden.finalidad ?? '');
+  const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
+  const [saving, setSaving] = useState(false);
+
+  function updateItem(idx: number, patch: Partial<ItemOrden>) {
+    setItems((prev) => prev.map((i, k) => (k === idx ? { ...i, ...patch } : i)));
+  }
+  function removeItem(idx: number) {
+    setItems((prev) => prev.filter((_, k) => k !== idx));
+  }
+  function addItem() {
+    const p = productos.find((x) => x.id === prodSelectId);
+    if (!p) return;
+    setItems((prev) => prev.some((i) => i.productoId === p.id)
+      ? prev.map((i) => (i.productoId === p.id ? { ...i, cantidad: i.cantidad + 1 } : i))
+      : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
+  }
+
+  async function guardar() {
+    if (!items.length) { toast('La OC debe tener al menos un ítem.', 'error'); return; }
+    if (!items.some((i) => i.comprar !== false)) { toast('Marcá al menos un ítem a comprar.', 'error'); return; }
+    setSaving(true);
+    try {
+      await actualizarOrdenEditable(orden, { items, motivo: motivo.trim() || null, finalidad: finalidad.trim() || null }, actorEmail || 'sistema');
+      notify(`OC ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
+      onSaved();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo modificar la OC', 'error'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button className="btn btn-primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
+    </>
+  );
+
+  return (
+    <Modal title={`Editar OC · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.8rem' }}>
+        Modificá los ítems, cantidades, motivo y finalidad. Solo disponible antes de elegir una oferta con precio.
+      </p>
+
+      <div className="form-row">
+        <label>Productos solicitados</label>
+        <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 130px 40px' }}>
+          <div title="Comprar">✓</div><div>Producto</div><div>Cantidad</div><div></div>
+        </div>
+        <div>
+          {!items.length && <div className="muted" style={{ fontSize: '.84rem', padding: '.4rem 0' }}>Sin ítems. Añadí al menos uno.</div>}
+          {items.map((it, idx) => {
+            const comprar = it.comprar !== false;
+            return (
+              <div key={`${it.sku}-${idx}`} style={{ opacity: comprar ? 1 : 0.5, marginBottom: '.4rem' }}>
+                <div className="line-picker" style={{ gridTemplateColumns: '34px 2fr 130px 40px', marginBottom: 0 }}>
+                  <input type="checkbox" checked={comprar} title={comprar ? 'Se comprará' : 'No se comprará'}
+                    onChange={(e) => updateItem(idx, { comprar: e.target.checked })} style={{ alignSelf: 'center' }} />
+                  <div>
+                    <div>{it.nombre}</div>
+                    <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
+                    <input className="input mono" type="number" min={0} step="any" style={{ flex: 1, minWidth: 0 }}
+                      value={cantEdit[it.sku] ?? String(it.cantidad)}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setCantEdit((m) => ({ ...m, [it.sku]: raw }));
+                        const n = Number(raw.replace(',', '.'));
+                        if (raw !== '' && Number.isFinite(n) && n > 0) updateItem(idx, { cantidad: n });
+                      }}
+                      onBlur={() => {
+                        const n = Number((cantEdit[it.sku] ?? String(it.cantidad)).replace(',', '.'));
+                        const val = Number.isFinite(n) && n > 0 ? n : 1;
+                        updateItem(idx, { cantidad: val });
+                        setCantEdit((m) => ({ ...m, [it.sku]: String(val) }));
+                      }} />
+                    {it.unidad && <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{it.unidad}</span>}
+                  </div>
+                  <button type="button" className="rm" title="Quitar" onClick={() => removeItem(idx)}>✕</button>
+                </div>
+                {comprar && (
+                  <input className="input" style={{ marginLeft: 34, width: 'calc(100% - 34px)', fontSize: '.82rem' }}
+                    placeholder="Finalidad de este producto (¿para qué se compra?)"
+                    value={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>
+          <SearchSelect style={{ flex: 1 }} value={prodSelectId} onChange={setProdSelectId}
+            options={productos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` }))}
+            placeholder="Buscar producto por nombre o SKU…" emptyText="Ningún producto coincide" />
+          <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
+        </div>
+      </div>
+
+      <div className="form-row">
+        <label>Motivo por el cual</label>
+        <textarea className="textarea" value={motivo} onChange={(e) => setMotivo(e.target.value)}
+          placeholder="¿Por qué se solicita?" />
+      </div>
+      <div className="form-row">
+        <label>Finalidad</label>
+        <textarea className="textarea" value={finalidad} onChange={(e) => setFinalidad(e.target.value)}
+          placeholder="¿Para qué se usará?" />
+      </div>
     </Modal>
   );
 }

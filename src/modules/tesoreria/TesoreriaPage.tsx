@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, date as fmtDate, dosDecimales, redondearArriba5 } from '@/shared/lib/format';
@@ -1207,10 +1208,9 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Caja</label>
-            <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
-              {!cajas.length && <option value="">— sin cajas —</option>}
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-            </select>
+            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length}
+              placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+              options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
           </div>
           {esMulti && (
             <div className="form-row">
@@ -1311,16 +1311,13 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Desde</label>
-            <select className="select" value={origenId} onChange={(e) => { setOrigenId(e.target.value); setDestinoId(destinoId); }}>
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {monto(c.saldo, c.moneda)}</option>)}
-            </select>
+            <SearchSelect value={origenId} onChange={(v) => { setOrigenId(v); setDestinoId(destinoId); }} placeholder="🔍 Buscar caja…"
+              options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${monto(c.saldo, c.moneda)}` }))} />
           </div>
           <div className="form-row">
             <label>Hacia (Centro de Acopio)</label>
-            <select className="select" value={destinoId} onChange={(e) => setDestinoId(e.target.value)} required>
-              <option value="">— elegir —</option>
-              {centros.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.externo ? ' · sistema externo' : ''}</option>)}
-            </select>
+            <SearchSelect value={destinoId} onChange={setDestinoId} placeholder="🔍 Buscar centro…"
+              options={centros.map((c) => ({ value: c.id, label: `${c.nombre}${c.externo ? ' · sistema externo' : ''}` }))} />
             {destino?.externo && (
               <small className="muted">🔗 Centro de acopio en otro sistema: el traslado se replica automáticamente y queda “por confirmar” del otro lado.</small>
             )}
@@ -1422,10 +1419,8 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
                   <div className="muted" style={{ fontSize: '.72rem' }}>{dateTime(t.created_at)}</div>
                 </div>
                 {!t.caja_id && (
-                  <select className="select" value={sel[t.id] ?? ''} onChange={(e) => setSel((m) => ({ ...m, [t.id]: e.target.value }))} style={{ maxWidth: 200 }}>
-                    <option value="">— caja que recibe —</option>
-                    {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
+                  <SearchSelect value={sel[t.id] ?? ''} onChange={(v) => setSel((m) => ({ ...m, [t.id]: v }))} style={{ maxWidth: 200 }}
+                    placeholder="🔍 Caja que recibe…" options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
                 )}
                 {canWrite && (
                   <button className="btn btn-sm btn-primary" disabled={busy === t.id} onClick={() => confirmar(t)}>
@@ -1700,10 +1695,9 @@ function PagarRenglonModal({ renglon, cajas, actor, actorName, onClose, onPaid }
         <div className="form-grid">
           <div className="form-row">
             <label>Caja (de dónde sale el dinero)</label>
-            <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required>
-              {!cajas.length && <option value="">— sin cajas —</option>}
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-            </select>
+            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length}
+              placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+              options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
           </div>
           {esMulti && (
             <div className="form-row">
@@ -2119,13 +2113,8 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
         <>
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
             <label>Cuenta a crédito ({ordenes.length})</label>
-            <select className="select" value={selId} onChange={(e) => setSelId(e.target.value)}>
-              {ordenes.map((x) => (
-                <option key={x.orden.id} value={x.orden.id}>
-                  {x.orden.oc_codigo ?? x.orden.codigo} · {x.proveedorNombre} · saldo {monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}
-                </option>
-              ))}
-            </select>
+            <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
+              options={ordenes.map((x) => ({ value: x.orden.id, label: `${x.orden.oc_codigo ?? x.orden.codigo} · ${x.proveedorNombre} · saldo ${monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}` }))} />
           </div>
 
           {o && (
@@ -2172,10 +2161,9 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                 <div className="card-title" style={{ marginBottom: '.5rem' }}>Registrar abono (multipago)</div>
                 <div className="form-row" style={{ marginBottom: '.5rem' }}>
                   <label>Caja (de dónde sale el dinero)</label>
-                  <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
-                    {!cajas.length && <option value="">— sin cajas —</option>}
-                    {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
+                  <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length}
+                    placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+                    options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
                 </div>
                 <div className="table-wrap">
                   <table className="table" style={{ fontSize: '.84rem' }}>
@@ -2329,13 +2317,8 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
     <>
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
         <label>Cuenta por pagar ({lista.length})</label>
-        <select className="select" value={selId} onChange={(e) => setSelId(e.target.value)}>
-          {lista.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.tipo === 'proveedor' ? '🏭' : '👤'} {c.contraparte} · saldo {monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}
-            </option>
-          ))}
-        </select>
+        <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
+          options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}` }))} />
       </div>
 
       {sel && (
@@ -2363,9 +2346,8 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
             <div className="form-grid">
               <div className="form-row">
                 <label>Caja (egreso)</label>
-                <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
-                  {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                </select>
+                <SearchSelect value={cajaId} onChange={setCajaId} placeholder="🔍 Buscar caja…"
+                  options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
                 {/* De qué cuenta/moneda sale el dinero (el abono es en la moneda de la cuenta por pagar). */}
                 {cuentasMoneda.length > 1 ? (
                   <select className="select" style={{ marginTop: '.35rem' }} value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value)}>
@@ -2837,10 +2819,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Caja (de dónde sale el dinero)</label>
-            <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required>
-              {!cajas.length && <option value="">— sin cajas —</option>}
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-            </select>
+            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length}
+              placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+              options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
             <small className="muted">Se descuenta de esta caja y queda registrado en el registro de movimientos (pago de compra).{esMultimoneda ? ' Abajo elegís de qué cuentas (con saldo) sale el dinero.' : ''}</small>
           </div>
           {!esMultimoneda && (

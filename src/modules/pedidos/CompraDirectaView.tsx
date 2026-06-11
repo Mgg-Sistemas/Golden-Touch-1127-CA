@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
@@ -260,10 +261,9 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, actor, a
               <div className="form-grid">
                 <div className="form-row">
                   <label>Material #{idx + 1}</label>
-                  <select className="select" value={l.productoId} onChange={(e) => set(l.id, { productoId: e.target.value })}>
-                    {!activos.length && <option value="">— sin materiales —</option>}
-                    {activos.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {p.sku}</option>)}
-                  </select>
+                  <SearchSelect value={l.productoId} onChange={(v) => set(l.id, { productoId: v })} disabled={!activos.length}
+                    placeholder={activos.length ? '🔍 Buscar material…' : '— sin materiales —'}
+                    options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
                 </div>
                 <div className="form-row">
                   <label>Cantidad</label>
@@ -387,10 +387,9 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
 
         <div className="form-row">
           <label>Caja (de dónde sale el dinero)</label>
-          <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required style={{ maxWidth: 320 }}>
-            {!cajas.length && <option value="">— sin cajas —</option>}
-            {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {montoCaja(c.saldo, c.moneda)}</option>)}
-          </select>
+          <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 320 }}
+            placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+            options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(c.saldo, c.moneda)}` }))} />
           <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
         </div>
 

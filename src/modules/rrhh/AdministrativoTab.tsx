@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date } from '@/shared/lib/format';
@@ -124,10 +125,8 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
             <div className="form-grid">
               <div className="form-row">
                 <label>Trabajador</label>
-                <select className="select" value={form.personal_id} onChange={(e) => setForm((f) => ({ ...f, personal_id: e.target.value }))} required>
-                  <option value="">— elegir —</option>
-                  {personal.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
-                </select>
+                <SearchSelect value={form.personal_id} onChange={(v) => setForm((f) => ({ ...f, personal_id: v }))} placeholder="🔍 Buscar trabajador…"
+                  options={personal.filter((p) => p.activo).map((p) => ({ value: p.id, label: `${p.nombre} ${p.apellido}` }))} />
               </div>
               <div className="form-row">
                 <label>Tipo</label>

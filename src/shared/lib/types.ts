@@ -551,6 +551,11 @@ export interface ContratoAcopio {
   pct_recuperacion_casiterita?: number | null;
   kg_hierro?: number | null;
   pct_hierro?: number | null;
+  // KG MESAS (merma por humedad): inputs manuales + fórmulas de la BD.
+  mesa_peso_mojado?: number | null;
+  mesa_peso_seco?: number | null;
+  mesa_merma_kg?: number | null;     // = mesa_peso_seco − mesa_peso_mojado (admite negativo)
+  mesa_pct_merma?: number | null;    // = merma / mesa_peso_mojado × 100
   estado: EstadoContratoAcopio;
   cerrado_at?: string | null;
   cerrado_por?: string | null;

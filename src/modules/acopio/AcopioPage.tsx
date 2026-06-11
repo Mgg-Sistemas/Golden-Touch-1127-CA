@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -311,11 +312,16 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
   const [error, setError] = useState<string | null>(null);
   const [bajando, setBajando] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
+  // Filtro por rango de fechas: el resumen se recalcula solo con los movimientos del rango.
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const hayRango = !!(desde || hasta);
 
   // Se recalcula desde los movimientos; en vivo cuando entra/cambia alguno (Realtime).
   const cargar = useCallback(() => {
-    resumenCajaAcopio().then(setR).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el resumen'));
-  }, []);
+    resumenCajaAcopio(undefined, { desde: desde || null, hasta: hasta || null })
+      .then(setR).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar el resumen'));
+  }, [desde, hasta]);
   useEffect(() => { cargar(); }, [cargar]);
   useRealtime(['acopio_caja_movimientos', 'acopio_contratos'], cargar);
 
@@ -380,8 +386,21 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
         <p className="muted" style={{ margin: 0 }}>Cargando resumen…</p>
       ) : (
         <>
+          {/* Filtro por rango de fechas: recalcula el resumen solo con los movimientos del rango. */}
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+              Desde <input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
+            </label>
+            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+              Hasta <input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+            </label>
+            {hayRango && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Limpiar rango</button>}
+            {hayRango && <span className="badge" style={{ fontSize: '.72rem' }}>Mostrando solo el rango seleccionado</span>}
+          </div>
           <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-            Inicio <strong>{r.fechaInicio ?? '—'}</strong> · Última actualización <strong>{r.fechaActualizacion}</strong> · <strong>{r.dias}</strong> días transcurridos · {r.movimientos} movimiento(s)
+            {hayRango
+              ? <>Rango <strong>{desde || '—'}</strong> → <strong>{hasta || '—'}</strong> · {r.movimientos} movimiento(s) en el rango</>
+              : <>Inicio <strong>{r.fechaInicio ?? '—'}</strong> · Última actualización <strong>{r.fechaActualizacion}</strong> · <strong>{r.dias}</strong> días transcurridos · {r.movimientos} movimiento(s)</>}
           </p>
 
           {/* KPIs principales */}
@@ -637,10 +656,8 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
         <div className="form-grid" style={{ gap: '.6rem 1rem', marginTop: '.4rem', padding: '.5rem .6rem', border: '1px dashed var(--border-strong)', borderRadius: 8 }}>
           <div className="form-row">
             <label>📦 Producto (mineral) que suma stock al cerrar</label>
-            <select className="select" value={productoId} onChange={(e) => setProductoId(e.target.value)} disabled={ro}>
-              <option value="">— elegí el producto —</option>
-              {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.sku ? `(${p.sku})` : ''}</option>)}
-            </select>
+            <SearchSelect value={productoId} onChange={setProductoId} disabled={ro} placeholder="🔍 Buscar producto…"
+              options={productos.map((p) => ({ value: p.id, label: `${p.nombre} ${p.sku ? `(${p.sku})` : ''}`.trim() }))} />
           </div>
           <div className="form-row">
             <label>Almacén destino del stock</label>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -322,10 +323,8 @@ function ProgramarVacacionModal({ personal, eventos, actor, actorName, onClose, 
         <div className="form-grid">
           <div className="form-row" style={{ gridColumn: '1 / -1' }}>
             <label>Trabajador</label>
-            <select className="select" value={personaId} onChange={(e) => setPersonaId(e.target.value)} required>
-              <option value="">— elegir —</option>
-              {personal.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}{p.departamento ? ` · ${p.departamento}` : ''}</option>)}
-            </select>
+            <SearchSelect value={personaId} onChange={setPersonaId} placeholder="🔍 Buscar trabajador…"
+              options={personal.filter((p) => p.activo).map((p) => ({ value: p.id, label: `${p.nombre} ${p.apellido}${p.departamento ? ` · ${p.departamento}` : ''}` }))} />
           </div>
           <div className="form-row"><label>Desde</label><input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} required /></div>
           <div className="form-row"><label>Hasta</label><input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} required /></div>

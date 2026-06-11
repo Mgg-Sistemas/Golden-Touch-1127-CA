@@ -167,8 +167,19 @@ function hoyVE(): string {
  * período + días, saldo actual, total entregado/gastado, % gastos vs % nómina,
  * distribución de gastos y nómina por categoría, y bloque de Kg de casiterita.
  */
-export async function resumenCajaAcopio(cajaId?: string): Promise<ResumenCajaAcopio> {
-  const movs = await listCajaMovimientos(cajaId);
+export async function resumenCajaAcopio(
+  cajaId?: string,
+  rango?: { desde?: string | null; hasta?: string | null },
+): Promise<ResumenCajaAcopio> {
+  const todos = await listCajaMovimientos(cajaId);
+  // Filtro opcional por rango de fechas (inclusive). Las fechas son 'YYYY-MM-DD',
+  // así que la comparación lexicográfica equivale a la cronológica.
+  const movs = todos.filter((m) => {
+    const f = m.fecha ?? '';
+    if (rango?.desde && f < rango.desde) return false;
+    if (rango?.hasta && f > rango.hasta) return false;
+    return true;
+  });
   const sum = (f: (m: CajaMovimiento) => unknown) => movs.reduce((a, m) => a + num(f(m)), 0);
   const totalEntregado = sum((m) => m.usd_entregado);
   const totalFacturado = sum((m) => m.facturados);
