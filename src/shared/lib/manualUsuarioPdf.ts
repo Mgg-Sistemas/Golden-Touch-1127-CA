@@ -96,7 +96,7 @@ const SECCIONES: Seccion[] = [
     intro:
       'Aquí se gestiona todo el ciclo de compra: desde que se pide un material hasta que se recibe. También deja un registro ordenado (trazabilidad) de cada paso.',
     puntos: [
-      'Orden de pedido: es la solicitud interna de lo que se necesita. Al crearla se indica su clasificación: Producción, Bienes o Servicios.',
+      'Orden de pedido: es la solicitud interna de lo que se necesita. Al crearla se indica su clasificación: Producción, Bienes o Servicios. El Solicitante (y su CI) es editable: un analista puede registrar la solicitud a nombre de otra persona. Por cada producto se carga su finalidad y su Área (Administrativa o Producción), que aparece en el detalle de la OP (también desde la OC) y en el PDF. Se puede agregar una Nota opcional. Al aprobarla, el detalle y el PDF muestran quién la aprobó y cuándo.',
       'Realizar OC (Orden de Compra): convierte el pedido en una compra a un proveedor. Antes de emitirla se eligen los documentos que la acompañan: Nota de entrega y/o Nota de despacho.',
       'Recepción: cuando llega la mercadería se registra la entrada, y el inventario se actualiza solo con su costo.',
       'Trazabilidad: cada orden tiene una línea de tiempo con todo lo que ocurrió (creación, emisión, documentos, recepción, etc.).',

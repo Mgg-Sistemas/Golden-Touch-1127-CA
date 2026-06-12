@@ -76,6 +76,8 @@ type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote';
 
 // Clasificación del pedido (checklist al crear la orden).
 const CLASIFICACION_PEDIDO = ['Producción', 'Bienes', 'Servicios', 'Papelería'] as const;
+/** Área a la que pertenece cada producto de una OP. */
+const AREAS_OP = ['Administrativa', 'Producción'] as const;
 
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
@@ -1992,6 +1994,7 @@ function OrdenDetailModal({
             <th>SKU</th>
             <th>Producto</th>
             <th>Finalidad</th>
+            <th>Área</th>
             <th className="num">Cantidad</th>
             {conPrecio ? (
               <>
@@ -2010,6 +2013,7 @@ function OrdenDetailModal({
               <td className="mono">{it.sku}</td>
               <td>{it.nombre}</td>
               <td style={{ fontSize: '.84rem' }}>{it.finalidad?.trim() ? it.finalidad : <span className="muted">—</span>}</td>
+              <td style={{ fontSize: '.84rem' }}>{it.area?.trim() ? it.area : <span className="muted">—</span>}</td>
               <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
               {conPrecio ? (
                 <>
@@ -2047,7 +2051,7 @@ function OrdenDetailModal({
         {conPrecio && (
           <tfoot>
             <tr>
-              <td colSpan={5} className="num">TOTAL</td>
+              <td colSpan={6} className="num">TOTAL</td>
               <td className="num">{money(o.total)}</td>
               <td></td>
             </tr>
@@ -2257,11 +2261,8 @@ function CrearOrdenModal({
   const [items, setItems] = useState<ItemOrden[]>([]);
   // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
-  // El "porqué" de la OP: dos campos distintos (motivo y finalidad).
-  const [motivo, setMotivo] = useState('');
-  const [finalidad, setFinalidad] = useState('');
-  const [motivoTocado, setMotivoTocado] = useState(false);
   const [clasificacion, setClasificacion] = useState<Set<string>>(new Set());
+  const [notas, setNotas] = useState('');
   function toggleClasif(c: string) {
     setClasificacion((prev) => {
       const next = new Set(prev);
@@ -2318,24 +2319,14 @@ function CrearOrdenModal({
     }
   }
 
-  // Solicitante y CI vienen de la ficha del usuario en la BD (módulo Usuarios).
-  const solicitanteNombre = usuario?.nombre ?? authEmail;
-  const solicitanteCi = usuario?.ci ?? '';
+  // Solicitante y CI: por defecto los del usuario logueado, pero EDITABLES — un
+  // analista puede registrar la solicitud a nombre de otra persona.
+  const [solicitanteNombre, setSolicitanteNombre] = useState(usuario?.nombre ?? authEmail);
+  const [solicitanteCi, setSolicitanteCi] = useState(usuario?.ci ?? '');
 
   useEffect(() => {
     nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));
   }, []);
-
-  // Si se piden productos de Víveres y Limpieza, el motivo por defecto es MERCADO
-  // (mientras el usuario no haya escrito su propio motivo).
-  useEffect(() => {
-    if (motivoTocado) return;
-    const hayMercado = items.some((it) => {
-      const p = allProductos.find((x) => x.id === it.productoId);
-      return p && /viver|limpie/i.test(p.categoria ?? '');
-    });
-    setMotivo((m) => (hayMercado ? 'MERCADO' : (m === 'MERCADO' ? '' : m)));
-  }, [items, allProductos, motivoTocado]);
 
   function addItem() {
     const p = allProductos.find((x) => x.id === prodSelectId);
@@ -2381,12 +2372,15 @@ function CrearOrdenModal({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
         proveedor_id: null,
         items,
-        motivo: motivo.trim() || null,
-        finalidad: finalidad.trim() || null,
+        notas: notas.trim() || null,
+        motivo: null,
+        finalidad: null,
         clasificacion: CLASIFICACION_PEDIDO.filter((c) => clasificacion.has(c)),
+        // El email queda como el de la cuenta que registra (auditoría); el nombre y CI
+        // pueden ser los de otra persona (solicitud a su nombre).
         solicitante_email: email,
-        solicitante: usuario?.nombre ?? null,
-        ci_solicitante: usuario?.ci ?? null,
+        solicitante: solicitanteNombre.trim() || null,
+        ci_solicitante: solicitanteCi.trim() || null,
       });
       notify(`Nueva orden de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
@@ -2418,7 +2412,7 @@ function CrearOrdenModal({
       <div className="form-grid">
         <div className="form-row">
           <label>Solicitante</label>
-          <input className="input" value={solicitanteNombre} disabled />
+          <input className="input" value={solicitanteNombre} onChange={(e) => setSolicitanteNombre(e.target.value)} placeholder="Nombre de quien solicita" />
         </div>
         <div className="form-row">
           <label>Código</label>
@@ -2430,9 +2424,9 @@ function CrearOrdenModal({
         <label>CI</label>
         <input
           className="input mono"
-          value={solicitanteCi || ''}
-          placeholder={solicitanteCi ? '' : 'No registrada en tu ficha de usuario'}
-          disabled
+          value={solicitanteCi}
+          onChange={(e) => setSolicitanteCi(e.target.value)}
+          placeholder="CI del solicitante"
         />
       </div>
 
@@ -2497,15 +2491,26 @@ function CrearOrdenModal({
                 ✕
               </button>
             </div>
-            {/* Finalidad de la compra de este producto en concreto (solo si se va a comprar). */}
+            {/* Finalidad + Área de la compra de este producto en concreto (solo si se va a comprar). */}
             {comprar && (
-              <input
-                className="input"
-                style={{ marginLeft: 34, width: 'calc(100% - 34px)', fontSize: '.82rem' }}
-                placeholder="Finalidad de este producto (¿para qué se compra?)"
-                value={it.finalidad ?? ''}
-                onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
-              />
+              <div style={{ marginLeft: 34, display: 'grid', gap: '.3rem', marginTop: '.3rem' }}>
+                <input
+                  className="input"
+                  style={{ width: '100%', fontSize: '.82rem' }}
+                  placeholder="Finalidad de este producto (¿para qué se compra?)"
+                  value={it.finalidad ?? ''}
+                  onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
+                />
+                <select
+                  className="select"
+                  style={{ width: '100%', fontSize: '.82rem' }}
+                  value={it.area ?? ''}
+                  onChange={(e) => updateItem(idx, { area: e.target.value || null })}
+                >
+                  <option value="">Área… (Administrativa / Producción)</option>
+                  {AREAS_OP.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
             )}
             </div>
             );
@@ -2577,22 +2582,12 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row">
-        <label>Motivo por el cual</label>
+        <label>Nota <span className="muted">(opcional)</span></label>
         <textarea
           className="textarea"
-          placeholder="¿Por qué se solicita? (ej.: reposición de stock, MERCADO, reparación…)"
-          value={motivo}
-          onChange={(e) => { setMotivo(e.target.value); setMotivoTocado(true); }}
-        />
-      </div>
-
-      <div className="form-row">
-        <label>Finalidad</label>
-        <textarea
-          className="textarea"
-          placeholder="¿Para qué se usará? (frente de trabajo, equipo, destino…)"
-          value={finalidad}
-          onChange={(e) => setFinalidad(e.target.value)}
+          placeholder="Nota o justificación de la solicitud (opcional)"
+          value={notas}
+          onChange={(e) => setNotas(e.target.value)}
         />
       </div>
 
@@ -2703,9 +2698,16 @@ function EditarOrdenModal({
                   <button type="button" className="rm" title="Quitar" onClick={() => removeItem(idx)}>✕</button>
                 </div>
                 {comprar && (
-                  <input className="input" style={{ marginLeft: 34, width: 'calc(100% - 34px)', fontSize: '.82rem' }}
-                    placeholder="Finalidad de este producto (¿para qué se compra?)"
-                    value={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
+                  <div style={{ marginLeft: 34, display: 'grid', gap: '.3rem', marginTop: '.3rem' }}>
+                    <input className="input" style={{ width: '100%', fontSize: '.82rem' }}
+                      placeholder="Finalidad de este producto (¿para qué se compra?)"
+                      value={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
+                    <select className="select" style={{ width: '100%', fontSize: '.82rem' }}
+                      value={it.area ?? ''} onChange={(e) => updateItem(idx, { area: e.target.value || null })}>
+                      <option value="">Área… (Administrativa / Producción)</option>
+                      {AREAS_OP.map((a) => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  </div>
                 )}
               </div>
             );

@@ -871,6 +871,8 @@ export interface ItemOrden {
   comprar?: boolean;
   /** Finalidad de la compra de este producto en concreto (para qué se pide). */
   finalidad?: string;
+  /** Área a la que pertenece este producto: Administrativa o Producción. */
+  area?: string | null;
   /** Cantidad realmente recibida (recepción parcial). Si falta = aún no recibido. */
   cantidad_recibida?: number;
 }
