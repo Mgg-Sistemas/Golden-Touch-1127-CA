@@ -225,14 +225,24 @@ export async function actualizarTanque(id: string, input: TanqueInput): Promise<
     updated_at: new Date().toISOString(),
   };
   // Tasa USD/L editable: si viene, la guardamos y recalculamos el saldo en $ (saldo L × tasa).
-  if (input.tasaUsdLitro != null) {
-    const tasa = Math.max(0, num(input.tasaUsdLitro));
+  const cambiaTasa = input.tasaUsdLitro != null;
+  let tasaNueva = 0;
+  if (cambiaTasa) {
+    tasaNueva = round(Math.max(0, num(input.tasaUsdLitro)), 4);
     const actual = await getTanque(id);
-    patch.tasa_usd_litro = round(tasa, 4);
-    patch.saldo_usd = round((Number(actual.saldo_litros) || 0) * tasa, 2);
+    patch.tasa_usd_litro = tasaNueva;
+    patch.saldo_usd = round((Number(actual.saldo_litros) || 0) * tasaNueva, 2);
   }
   const { error } = await supabase.from('combustible_tanques').update(patch).eq('id', id);
   if (error) throw error;
+  // TASA FIJA: editar la tasa del tanque es el ÚNICO punto donde cambia. Al hacerlo, se
+  // re-valorizan TODOS los movimientos del tanque a la nueva tasa (el monto $ es columna
+  // generada = litros × tasa), así "todo queda a esa tasa", no solo el saldo de cabecera.
+  if (cambiaTasa) {
+    const { error: e2 } = await supabase.from('combustible_tanque_movimientos')
+      .update({ tasa_usd_litro: tasaNueva }).eq('tanque_id', id);
+    if (e2) throw e2;
+  }
 }
 
 export async function renombrarTanque(id: string, nombre: string): Promise<void> {
@@ -394,16 +404,19 @@ export async function registrarEntrada(input: {
   const costo = Math.max(0, num(input.costoLitro));
   const t = await getTanque(input.tanqueId);
 
+  // TASA FIJA: la tasa del tanque NO varía sola (sin promedio ponderado). La entrada se
+  // valoriza a la tasa vigente del tanque; solo cambia cuando se edita la tasa del tanque (✎).
+  // La PRIMERA entrada de un tanque sin tasa fija el valor con el costo informado.
+  const tasa = num(t.tasa_usd_litro) > 0 ? num(t.tasa_usd_litro) : costo;
   const saldoL = num(t.saldo_litros) + litros;
-  const saldoU = num(t.saldo_usd) + litros * costo;
-  const tasa = saldoL > 0 ? saldoU / saldoL : costo; // promedio ponderado
+  const saldoU = num(t.saldo_usd) + litros * tasa;
 
   await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'entrada',
     litros,
-    tasa_usd_litro: round(costo, 4),
+    tasa_usd_litro: round(tasa, 4),
     created_by: input.actor,
     actor_name: input.actorName ?? null,
   });
@@ -638,14 +651,14 @@ async function revertirSaldoMovimiento(mov: { tanque_id: string; tipo: string; l
  *  movimientos en orden cronológico (fecha + hora). El saldo del último movimiento es
  *  el saldo vigente del tanque. Se usa tras editar un movimiento que afecta el balance. */
 export async function recomputarTanque(tanqueId: string): Promise<void> {
+  // TASA FIJA: se conserva la tasa vigente del tanque (no se promedia) y el saldo $ se
+  // re-valoriza a esa tasa (saldo L × tasa). Así editar/borrar un movimiento nunca mueve la tasa.
+  const t = await getTanque(tanqueId);
+  const tasa = num(t.tasa_usd_litro);
   const movs = await listMovimientosTanque(tanqueId); // ya ordenado por fecha+hora, con saldo corrido
   const last = movs.length ? movs[movs.length - 1] : null;
   const saldoL = last ? num(last.saldo_litros) : 0;
-  const saldoU = last ? num(last.saldo_usd) : 0;
-  let tasa: number;
-  if (saldoL > 0) tasa = saldoU / saldoL;
-  else { const t = await getTanque(tanqueId); tasa = num(t.tasa_usd_litro); }
-  await aplicarSaldoTanque(tanqueId, round(saldoL, 2), round(saldoU, 2), tasa);
+  await aplicarSaldoTanque(tanqueId, round(saldoL, 2), round(saldoL * tasa, 2), tasa);
 }
 
 /** Fila mínima para re-encadenar un medidor continuo (ini→fin) en orden cronológico. */
