@@ -15,6 +15,8 @@ interface TrazabilidadData {
   proveedoresPorId: Map<string, Proveedor>;
   ofertas: OfertaProveedor[];
   evaluacion: EvaluacionRecepcion | null;
+  /** Nombre legible de quien aprobó la OP (resuelto desde su correo). */
+  aprobadaPorNombre: string | null;
 }
 
 async function cargarTrazabilidad(ordenId: string): Promise<TrazabilidadData> {
@@ -39,12 +41,24 @@ async function cargarTrazabilidad(ordenId: string): Promise<TrazabilidadData> {
     (provs ?? []).forEach((p: Proveedor) => proveedoresPorId.set(p.id, p));
   }
 
+  // Nombre legible de quien aprobó la OP (el correo se guarda en aprobada_por).
+  let aprobadaPorNombre: string | null = null;
+  if (orden.aprobada_por) {
+    const { data: u } = await supabase
+      .from('usuarios')
+      .select('nombre, apellido')
+      .eq('email', orden.aprobada_por)
+      .maybeSingle();
+    if (u) aprobadaPorNombre = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || null;
+  }
+
   return {
     orden: orden as Orden,
     proveedorFinal: orden.proveedor_id ? proveedoresPorId.get(orden.proveedor_id) ?? null : null,
     proveedoresPorId,
     ofertas: (ofertas ?? []) as OfertaProveedor[],
     evaluacion: (evals ?? null) as EvaluacionRecepcion | null,
+    aprobadaPorNombre,
   };
 }
 
@@ -61,7 +75,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
-  const { orden, proveedorFinal, proveedoresPorId, ofertas, evaluacion } = data;
+  const { orden, proveedorFinal, proveedoresPorId, ofertas, evaluacion, aprobadaPorNombre } = data;
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -107,8 +121,14 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['Correo', orden.solicitante_email],
     ['Fecha de solicitud', dateTime(orden.created_at)],
     ['Estado actual', orden.estado],
+    ...(orden.aprobada_en
+      ? ([
+          ['Aprobada por', aprobadaPorNombre || orden.aprobada_por || '—'],
+          ['Fecha de aprobación', dateTime(orden.aprobada_en)],
+        ] as Array<[string, string]>)
+      : []),
     ['Clasificación', orden.clasificacion?.length ? orden.clasificacion.join(' · ') : '—'],
-    ['Motivo / Justificación', orden.notas ?? '—'],
+    ['Nota / Justificación', orden.notas ?? '—'],
   ];
   autoTable(doc, {
     startY: y,
@@ -126,19 +146,21 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   y += 6;
   autoTable(doc, {
     startY: y,
-    head: [['SKU', 'Producto', 'Cantidad', 'Precio unit.', 'Subtotal']],
+    head: [['SKU', 'Producto', 'Finalidad', 'Área', 'Cantidad', 'Precio unit.', 'Subtotal']],
     body: orden.items.map((it) => [
       it.sku,
       it.nombre,
+      it.finalidad?.trim() || '—',
+      it.area?.trim() || '—',
       num(it.cantidad),
       money(it.precio),
       money(it.cantidad * it.precio),
     ]),
-    foot: [['', '', '', 'TOTAL', money(orden.total)]],
+    foot: [['', '', '', '', '', 'TOTAL', money(orden.total)]],
     theme: 'grid',
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
-    columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
     margin: { left: MARGIN, right: MARGIN },
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
