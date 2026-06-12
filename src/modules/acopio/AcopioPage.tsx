@@ -55,6 +55,8 @@ export function AcopioPage() {
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
   const [martillos, setMartillos] = useState(false);
+  // Switch «Listar movimientos»: la tabla de movimientos arranca oculta y se muestra al activarlo.
+  const [listar, setListar] = useState(false);
   // Resumen único que alimenta TODAS las tarjetas (misma fuente que la tabla de movimientos).
   const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0 });
   const onResumenAcopio = useCallback((r: ResumenAcopio) => { setResumen(r); }, []);
@@ -107,6 +109,13 @@ export function AcopioPage() {
           <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
           <button className="btn btn-ghost" onClick={() => setMartillos(true)}>🔨 Consumo Martillos</button>
           <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
+          <label className="switch-inline" title="Mostrar u ocultar la lista de movimientos del centro de acopio">
+            <span className="switch">
+              <input type="checkbox" checked={listar} onChange={(e) => setListar(e.target.checked)} />
+              <span className="slider-toggle" />
+            </span>
+            <span style={{ fontSize: '.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>LISTAR MOVIMIENTOS</span>
+          </label>
           {canWrite && <button className="btn btn-primary" onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>}
         </div>
       </div>
@@ -140,8 +149,9 @@ export function AcopioPage() {
         <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div></div>
       </div>
 
-      {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí) */}
-      <MovimientosAcopioView onResumen={onResumenAcopio} />
+      {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí).
+          Se muestra solo con el switch «Listar movimientos»; aun oculta, alimenta las tarjetas. */}
+      <MovimientosAcopioView onResumen={onResumenAcopio} visible={listar} />
 
       {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
