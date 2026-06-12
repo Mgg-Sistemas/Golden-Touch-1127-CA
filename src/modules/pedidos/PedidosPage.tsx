@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
-import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, relTime } from '@/shared/lib/format';
@@ -62,6 +62,8 @@ import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { CompraDirectaView } from './CompraDirectaView';
 import { OcPorLoteView } from './OcPorLoteView';
+import { CategoriasModal } from './CategoriasModal';
+import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 
 /* ============================================================
    Golden Touch · Pedidos / Órdenes · Página principal
@@ -187,6 +189,7 @@ export function PedidosPage() {
   const [scope, setScope] = useState<Scope>('pedidos');
 
   const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
+  const [categoriasOpen, setCategoriasOpen] = useState(false);
   const [offersReloadKey, setOffersReloadKey] = useState(0);
 
   const refresh = useCallback(async () => {
@@ -340,6 +343,11 @@ export function PedidosPage() {
           <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
             ⌕ Histórico
           </Link>
+          {canWrite && scope === 'pedidos' && (
+            <button className="btn btn-ghost" onClick={() => setCategoriasOpen(true)} title="Gestionar clasificaciones y unidades solicitantes">
+              🗂 Categorías
+            </button>
+          )}
           {canWrite && scope !== 'compra_directa' && scope !== 'oc_lote' && (
             <button
               className="btn btn-primary"
@@ -524,6 +532,10 @@ export function PedidosPage() {
             await refresh();
           }}
         />
+      )}
+
+      {categoriasOpen && (
+        <CategoriasModal canWrite={canWrite} onClose={() => setCategoriasOpen(false)} />
       )}
 
       {/* Modal: editar OC (etapa cargar ofertas) */}
@@ -2334,6 +2346,9 @@ function CrearOrdenModal({
   const [almacenesList, setAlmacenesList] = useState<string[]>([]);
   const [unidadesList, setUnidadesList] = useState<string[]>([]);
   const [nuevoAlmacen, setNuevoAlmacen] = useState('General');
+  // Catálogo gestionable de la OP: clasificaciones activas + unidades solicitantes.
+  const [clasifOpciones, setClasifOpciones] = useState<string[]>([...CLASIFICACION_PEDIDO]);
+  const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
 
   useEffect(() => {
     nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));
@@ -2341,6 +2356,8 @@ function CrearOrdenModal({
       .then((a) => { setAlmacenesList(a); setNuevoAlmacen((prev) => (a.includes(prev) ? prev : (a[0] ?? 'General'))); })
       .catch(() => setAlmacenesList(['General']));
     getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((prev) => (u.includes(prev) ? prev : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
+    listActivosPedido('clasificacion').then((c) => { if (c.length) setClasifOpciones(c); }).catch(() => {});
+    listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => {});
   }, []);
 
   function addItem() {
@@ -2383,6 +2400,11 @@ function CrearOrdenModal({
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
+      // Si la unidad solicitante es nueva, la guardamos en el catálogo para reusarla.
+      const unidad = unidadSolicitante.trim();
+      if (unidad && !unidadOpciones.some((u) => u.toLowerCase() === unidad.toLowerCase())) {
+        await addCatalogoPedido('unidad_solicitante', unidad).catch(() => { /* ya existe / sin permiso */ });
+      }
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
         proveedor_id: null,
@@ -2390,7 +2412,7 @@ function CrearOrdenModal({
         notas: notas.trim() || null,
         motivo: null,
         finalidad: null,
-        clasificacion: CLASIFICACION_PEDIDO.filter((c) => clasificacion.has(c)),
+        clasificacion: Array.from(clasificacion),
         // El email queda como el de la cuenta que registra (auditoría); el nombre y CI
         // pueden ser los de otra persona (solicitud a su nombre).
         solicitante_email: email,
@@ -2428,7 +2450,8 @@ function CrearOrdenModal({
       <div className="form-grid">
         <div className="form-row">
           <label>Unidad solicitante</label>
-          <input className="input" value={unidadSolicitante} onChange={(e) => setUnidadSolicitante(e.target.value.toUpperCase())} placeholder="Unidad / área que solicita" />
+          <SearchCreateSelect value={unidadSolicitante} onChange={(v) => setUnidadSolicitante(v.toUpperCase())}
+            options={unidadOpciones} placeholder="Elegí o escribí una unidad…" />
         </div>
         <div className="form-row">
           <label>Código</label>
@@ -2585,26 +2608,46 @@ function CrearOrdenModal({
 
       <div className="form-row">
         <label>Clasificación del pedido</label>
-        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-          {CLASIFICACION_PEDIDO.map((c) => {
-            const checked = clasificacion.has(c);
-            return (
-              <label
-                key={c}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '.45rem',
-                  padding: '.45rem .7rem', border: '1px solid var(--border)',
-                  borderRadius: 'var(--r-md)',
-                  background: checked ? 'rgba(255,138,0,0.08)' : 'transparent',
-                  cursor: 'pointer',
-                }}
-              >
-                <input type="checkbox" checked={checked} onChange={() => toggleClasif(c)} />
-                <span style={{ fontWeight: 600 }}>{c}</span>
-              </label>
-            );
-          })}
-        </div>
+        {clasifOpciones.length <= 5 ? (
+          // Pocas opciones: checks. Más de 5: lista buscable (sin checks).
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            {clasifOpciones.map((c) => {
+              const checked = clasificacion.has(c);
+              return (
+                <label
+                  key={c}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '.45rem',
+                    padding: '.45rem .7rem', border: '1px solid var(--border)',
+                    borderRadius: 'var(--r-md)',
+                    background: checked ? 'rgba(255,138,0,0.08)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input type="checkbox" checked={checked} onChange={() => toggleClasif(c)} />
+                  <span style={{ fontWeight: 600 }}>{c}</span>
+                </label>
+              );
+            })}
+          </div>
+        ) : (
+          <>
+            <SearchSelect value="" onChange={(c) => { if (c) toggleClasif(c); }}
+              placeholder="🔍 Buscar y agregar clasificación…"
+              options={clasifOpciones.filter((c) => !clasificacion.has(c)).map((c) => ({ value: c, label: c }))} />
+            {clasificacion.size > 0 && (
+              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.45rem' }}>
+                {Array.from(clasificacion).map((c) => (
+                  <span key={c} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
+                    {c}
+                    <button type="button" onClick={() => toggleClasif(c)} title="Quitar"
+                      style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, lineHeight: 1 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       <div className="form-row">
