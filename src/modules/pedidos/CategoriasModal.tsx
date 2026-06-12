@@ -24,7 +24,6 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
   const [tab, setTab] = useState<TipoCatalogoPedido>('clasificacion');
   const [items, setItems] = useState<CatalogoPedido[]>([]);
   const [valor, setValor] = useState('');
-  const [categoria, setCategoria] = useState('');
   const [filtro, setFiltro] = useState('');
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -53,8 +52,9 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
     if (!valor.trim()) { toast(`Indicá la ${tabActual.singular}`, 'error'); return; }
     setBusy(true);
     try {
-      await addCatalogoPedido(tab, valor.trim().toUpperCase(), esUnidad ? categoria.trim() || null : undefined);
-      setValor(''); setCategoria(''); await recargar(); toast('Agregado', 'success');
+      // La categoría de la unidad solicitante se toma de la OP, no se elige al agregar acá.
+      await addCatalogoPedido(tab, valor.trim().toUpperCase());
+      setValor(''); await recargar(); toast('Agregado', 'success');
     }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
     finally { setBusy(false); }
@@ -81,7 +81,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
     <Modal title="Categorías" size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem' }}>
         {TABS.map((t) => (
-          <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setEditId(null); setValor(''); setCategoria(''); setFiltro(''); }}>{t.label}</button>
+          <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setEditId(null); setValor(''); setFiltro(''); }}>{t.label}</button>
         ))}
       </div>
 
@@ -89,12 +89,6 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.5rem', flexWrap: 'wrap' }}>
           <input className="input" style={{ flex: '1 1 160px' }} value={valor} onChange={(e) => setValor(e.target.value.toUpperCase())} placeholder={`Nueva ${tabActual.singular}…`}
             onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} />
-          {esUnidad && (
-            <select className="select" style={{ flex: '1 1 150px' }} value={categoria} onChange={(e) => setCategoria(e.target.value)} title="Categoría (clasificación de la OP)">
-              <option value="">— categoría —</option>
-              {clasifActivas.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          )}
           <button className="btn btn-primary" onClick={() => void agregar()} disabled={busy}>+ Agregar</button>
         </div>
       )}
