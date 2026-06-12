@@ -245,32 +245,30 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                 <th>Nóminas GT</th>
                 <th>Saldo en moneda $ Usd</th>
                 <th title="Saldo corrido = saldo anterior + Kg Cerrados − Kg Recibidos por MGG">Saldo en Kg de casiterita ⓘ</th>
+                {canWrite && <th></th>}
               </tr>
             </thead>
             <tbody>
               {!mostradas.length && (
-                <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={canWrite ? 10 : 9} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {mostradas.map((f) => {
                 const movId = f.id.startsWith('m-') ? f.id.slice(2) : null;
-                const editable = canWrite && !!movId;     // las filas de caja se pueden editar
-                const onRowClick = f.contratoId
-                  ? () => navigate(`/app/produccion?contrato=${f.contratoId}`)
-                  : editable
-                    ? () => { const m = cajaMovs.find((x) => x.id === movId); if (m) setEditMov(m); }
-                    : undefined;
+                const editable = canWrite && !!movId;     // las filas de caja se editan con el botón ✎ del final
+                // Solo las filas de CONTRATO son clicables (llevan a Producción). La edición de
+                // los movimientos de caja se hace con el botón ✎ al final de la fila.
+                const onRowClick = f.contratoId ? () => navigate(`/app/produccion?contrato=${f.contratoId}`) : undefined;
                 return (
                 <tr
                   key={f.id}
                   onClick={onRowClick}
                   style={onRowClick ? { cursor: 'pointer' } : undefined}
-                  title={f.contratoId ? 'Ver el contrato en Producción' : editable ? 'Editar movimiento' : undefined}
+                  title={f.contratoId ? 'Ver el contrato en Producción' : undefined}
                 >
                   <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(f.fecha)}</td>
                   <td style={{ fontWeight: 600 }}>
                     {f.descripcion}
                     {f.contratoId && <span className="muted" style={{ marginLeft: '.4rem', fontWeight: 400 }} title="Ver el contrato en Producción">↗</span>}
-                    {editable && <span className="muted" style={{ marginLeft: '.4rem', fontWeight: 400 }} title="Editar movimiento">✎</span>}
                   </td>
                   <td className="mono">{f.usdEntregado == null ? '—' : money(f.usdEntregado)}</td>
                   {/* Kg que aporta el contrato al cerrarse → resaltado */}
@@ -281,6 +279,14 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                   <td className="mono"><strong>{money(f.saldoUsd)}</strong></td>
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
+                  {canWrite && (
+                    <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {editable && (
+                        <button className="btn btn-sm btn-ghost" title="Editar movimiento"
+                          onClick={(e) => { e.stopPropagation(); const m = cajaMovs.find((x) => x.id === movId); if (m) setEditMov(m); }}>✎</button>
+                      )}
+                    </td>
+                  )}
                 </tr>
                 );
               })}
@@ -292,6 +298,7 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
                 <td colSpan={4}></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>
+                {canWrite && <td></td>}
               </tr>
             </tfoot>
           </table>

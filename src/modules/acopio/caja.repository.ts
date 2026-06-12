@@ -91,7 +91,15 @@ export interface CajaMovimientoInput {
   clasif_valor?: string | null;
   costo_clasificacion?: string | null;
   costo_subclasificacion?: string | null;
+  equipo?: string | null;
   caja_id?: string | null;
+}
+
+/** Las categorías de gasto "atadas a un vehículo/equipo" terminan en
+ *  "REPUESTOS - REPARACIONES - SERVICIOS" (VEHÍCULO, MAQ. LIVIANA/PESADA, MOTO…).
+ *  En esos gastos el formulario despliega la lista buscable de equipos de combustible. */
+export function esCategoriaVehiculo(valor?: string | null): boolean {
+  return /REPUESTOS\s*-\s*REPARACIONES\s*-\s*SERVICIOS/i.test(valor ?? '');
 }
 
 /**
@@ -261,6 +269,7 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
     clasif_valor: input.clasif_valor?.trim() || null,
     costo_clasificacion: input.costo_clasificacion?.trim() || null,
     costo_subclasificacion: input.costo_subclasificacion?.trim() || null,
+    equipo: input.equipo?.trim() || null,
     caja_id: input.caja_id ?? null,
     created_by: actor,
     actor_name: actorName ?? null,
@@ -287,6 +296,7 @@ export async function actualizarMovimientoCaja(id: string, input: CajaMovimiento
       clasif_valor: input.clasif_valor?.trim() || null,
       costo_clasificacion: input.costo_clasificacion?.trim() || null,
       costo_subclasificacion: input.costo_subclasificacion?.trim() || null,
+      equipo: input.equipo?.trim() || null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
@@ -294,6 +304,41 @@ export async function actualizarMovimientoCaja(id: string, input: CajaMovimiento
     .single();
   if (error) throw error;
   return data as CajaMovimiento;
+}
+
+/* ───────────── Consumo de gastos por equipo (drill-down del resumen) ───────────── */
+
+export interface ConsumoEquipoAcopio { id: string; nombre: string; cantidad: number; valor: number }
+
+/**
+ * Gasto por EQUIPO de una categoría de vehículo (grupo gastos_caja), en un rango/caja.
+ * `cantidad` = cantidad de movimientos; `valor` = suma de gastos $. Alimenta la gráfica
+ * de "consumo por equipo" del resumen de caja (réplica de la gráfica de combustible).
+ */
+export async function consumoGastosPorEquipo(opts: {
+  categoria: string; cajaId?: string | null; desde?: string | null; hasta?: string | null;
+}): Promise<ConsumoEquipoAcopio[]> {
+  let q = supabase.from('acopio_caja_movimientos')
+    .select('equipo, gastos')
+    .eq('clasif_grupo', 'gastos_caja')
+    .eq('clasif_valor', opts.categoria);
+  if (opts.cajaId) q = q.eq('caja_id', opts.cajaId);
+  if (opts.desde) q = q.gte('fecha', opts.desde);
+  if (opts.hasta) q = q.lte('fecha', opts.hasta);
+  const { data, error } = await q;
+  if (error) throw error;
+  const acc = new Map<string, { cantidad: number; valor: number }>();
+  for (const row of (data ?? []) as Array<{ equipo: string | null; gastos: number }>) {
+    const g = num(row.gastos);
+    if (g <= 0) continue;
+    const clave = (row.equipo ?? '').trim() || '— sin equipo —';
+    const cur = acc.get(clave) ?? { cantidad: 0, valor: 0 };
+    cur.cantidad += 1; cur.valor += g;
+    acc.set(clave, cur);
+  }
+  return Array.from(acc.entries())
+    .map(([nombre, v]) => ({ id: nombre, nombre, cantidad: v.cantidad, valor: Math.round(v.valor * 100) / 100 }))
+    .sort((a, b) => b.valor - a.valor);
 }
 
 /* ───────────── Cierres (cajas) + taxonomía de costos + resumen ───────────── */

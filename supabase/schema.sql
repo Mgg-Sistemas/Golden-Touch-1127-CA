@@ -1884,6 +1884,10 @@ create table if not exists public.acopio_cajas (
 alter table public.acopio_caja_movimientos add column if not exists caja_id uuid references public.acopio_cajas(id) on delete set null;
 alter table public.acopio_caja_movimientos add column if not exists costo_clasificacion text;
 alter table public.acopio_caja_movimientos add column if not exists costo_subclasificacion text;
+-- Equipo/vehículo atado al gasto (categorías "…REPUESTOS - REPARACIONES - SERVICIOS").
+-- El valor es el nombre del equipo del catálogo de combustible (combustible_catalogos tipo='equipo').
+alter table public.acopio_caja_movimientos add column if not exists equipo text;
+create index if not exists idx_acopio_caja_equipo on public.acopio_caja_movimientos(equipo) where equipo is not null;
 create index if not exists idx_acopio_caja_mov_caja on public.acopio_caja_movimientos(caja_id);
 
 insert into public.acopio_costo_clases (clasificacion, subclasificacion, orden) values

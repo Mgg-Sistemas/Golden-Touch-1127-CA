@@ -63,6 +63,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
   const [rows, setRows] = useState<ConsumoRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState('');
 
   // `cargar` suele llegar como arrow inline (nueva referencia en cada render).
   // Lo guardamos en un ref para que NO entre en las deps del efecto y evitar un
@@ -83,16 +84,23 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
   }, [preset, desdeStr, hastaStr]);
   useEffect(() => { void recargar(); }, [recargar]);
 
-  const totalCantidad = rows.reduce((a, r) => a + r.cantidad, 0);
-  const totalValor = rows.reduce((a, r) => a + r.valor, 0);
+  // Buscador: filtra las filas por nombre (label) o sub-etiqueta.
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return rows;
+    return rows.filter((r) => r.label.toLowerCase().includes(s) || (r.sub ?? '').toLowerCase().includes(s));
+  }, [rows, q]);
+
+  const totalCantidad = filtered.reduce((a, r) => a + r.cantidad, 0);
+  const totalValor = filtered.reduce((a, r) => a + r.valor, 0);
 
   const data: ChartPoint[] = useMemo(
-    () => rows.map((r) => ({
+    () => filtered.map((r) => ({
       label: r.label,
       value: metrica === 'valor' ? Math.round(r.valor * 100) / 100 : r.cantidad,
       tooltip: `${r.label}: ${num(r.cantidad)} ${r.unidad} · ${money(r.valor)}`,
     })),
-    [rows, metrica],
+    [filtered, metrica],
   );
 
   return (
@@ -119,11 +127,21 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
         </span>
       </div>
 
+      {/* Buscador por nombre */}
+      <div style={{ position: 'relative', marginBottom: '.6rem' }}>
+        <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="🔍 Buscar…" style={{ width: '100%', paddingRight: q ? '1.8rem' : undefined }} />
+        {q && (
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setQ('')} title="Limpiar búsqueda"
+            style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>
+        )}
+      </div>
+
       {/* Totales */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>PRODUCTOS CONSUMIDOS</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(rows.length)}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(filtered.length)}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>CANTIDAD TOTAL</div>
@@ -141,7 +159,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
       <div className="card" style={{ padding: '.8rem', marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.4rem' }}>
           <span>Consumo por producto {metrica === 'valor' ? '(en $)' : '(en cantidad)'}</span>
-          <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${rows.length} producto(s)`}</span>
+          <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${filtered.length} producto(s)`}</span>
         </div>
         <HBarChart data={data}
           yFormatter={(v) => (metrica === 'valor' ? money(v) : num(v))}
@@ -153,8 +171,8 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
         <table className="table" style={{ fontSize: '.84rem' }}>
           <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Valor ($)</th></tr></thead>
           <tbody>
-            {!rows.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>{loading ? 'Cargando…' : 'Sin consumo en el período.'}</td></tr>}
-            {rows.map((r) => (
+            {!filtered.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>{loading ? 'Cargando…' : 'Sin consumo en el período.'}</td></tr>}
+            {filtered.map((r) => (
               <tr key={r.id}>
                 <td>{r.label}{r.sub ? <span className="muted mono" style={{ fontSize: '.72rem' }}> · {r.sub}</span> : null}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(r.cantidad)} {r.unidad}</td>
@@ -162,7 +180,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
               </tr>
             ))}
           </tbody>
-          {rows.length > 0 && (
+          {filtered.length > 0 && (
             <tfoot>
               <tr>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL</td>
