@@ -814,6 +814,28 @@ export async function reporteGlobal(): Promise<ReporteTanque[]> {
   });
 }
 
+/* ───────────── Grupo «Los Brasileros» y aviso de combustible bajo ───────────── */
+
+/** Tanques del grupo «Los Brasileros» (Tanque #2 Brasileros + Registro Brasileros - GT):
+ *  se identifican porque su nombre contiene «brasileros». Suman aparte (su propia tarjeta)
+ *  y se descuentan del total general / del aviso de combustible bajo. */
+export const esBrasileros = (nombre: string | null | undefined): boolean =>
+  (nombre ?? '').toLowerCase().includes('brasileros');
+
+/** Umbral (litros) del grupo GENERAL por debajo del cual se avisa que hay que comprar
+ *  combustible. Aplica SOLO a la primera tarjeta (todos los tanques excepto los Brasileros). */
+export const UMBRAL_COMBUSTIBLE_BAJO = 6000;
+
+/** Litros disponibles del grupo GENERAL (todos los tanques excepto «Los Brasileros»).
+ *  Es el número de la primera tarjeta; alimenta el aviso de combustible bajo. */
+export async function combustibleDisponibleGeneral(): Promise<number> {
+  const { data, error } = await supabase.from('combustible_tanques').select('nombre, saldo_litros');
+  if (error) throw error;
+  return ((data ?? []) as Array<{ nombre: string | null; saldo_litros: number | null }>)
+    .filter((t) => !esBrasileros(t.nombre))
+    .reduce((a, t) => a + num(t.saldo_litros), 0);
+}
+
 /* ───────────── Conciliación (libro vs mina) ───────────── */
 
 export async function listConciliaciones(tanqueId?: string): Promise<ConciliacionCombustible[]> {

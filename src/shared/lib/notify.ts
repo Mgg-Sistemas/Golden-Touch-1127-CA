@@ -19,6 +19,10 @@ function emitRefresh() {
   });
 }
 
+/** Refresca la campana cuando se persiste una notif por fuera de notify()
+ *  (ej. el aviso de combustible bajo, que no muestra toast). */
+export function emitNotifRefresh(): void { emitRefresh(); }
+
 export interface NotifyOptions {
   /** Persistir además en la tabla `notificaciones` (campana). Default: true. */
   persist?: boolean;
