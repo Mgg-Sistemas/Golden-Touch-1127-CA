@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
-import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, relTime } from '@/shared/lib/format';
@@ -2349,6 +2349,19 @@ function CrearOrdenModal({
   // Catálogo gestionable de la OP: clasificaciones activas + unidades solicitantes.
   const [clasifOpciones, setClasifOpciones] = useState<string[]>([...CLASIFICACION_PEDIDO]);
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
+  // Alta de unidad nueva desde el propio formulario (campo «¿No está?» + botón Añadir).
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
+
+  // Carga (y recarga, en vivo) las opciones del catálogo de la OP.
+  const cargarCatalogosOP = useCallback(async () => {
+    const [cls, uns] = await Promise.all([
+      listActivosPedido('clasificacion').catch(() => [] as string[]),
+      listActivosPedido('unidad_solicitante').catch(() => [] as string[]),
+    ]);
+    if (cls.length) setClasifOpciones(cls);
+    setUnidadOpciones(uns);
+  }, []);
 
   useEffect(() => {
     nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));
@@ -2356,9 +2369,35 @@ function CrearOrdenModal({
       .then((a) => { setAlmacenesList(a); setNuevoAlmacen((prev) => (a.includes(prev) ? prev : (a[0] ?? 'General'))); })
       .catch(() => setAlmacenesList(['General']));
     getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((prev) => (u.includes(prev) ? prev : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
-    listActivosPedido('clasificacion').then((c) => { if (c.length) setClasifOpciones(c); }).catch(() => {});
-    listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => {});
-  }, []);
+    void cargarCatalogosOP();
+  }, [cargarCatalogosOP]);
+  // En vivo: si se agregan/editan unidades o clasificaciones (acá o en el catálogo), se reflejan al instante.
+  useRealtime(['pedido_catalogos'], () => { void cargarCatalogosOP(); });
+
+  // Agrega la unidad escrita al catálogo y la deja seleccionada (sin cerrar el formulario).
+  async function agregarUnidadNueva() {
+    const v = nuevaUnidad.trim().toUpperCase();
+    if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
+    if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
+      setUnidadSolicitante(v); setNuevaUnidad('');
+      toast('Esa unidad ya existía; la seleccioné', 'info');
+      return;
+    }
+    setAddingUnidad(true);
+    try {
+      // Registra como categoría la clasificación elegida en esta OP (si hay).
+      const categoria = Array.from(clasificacion).join(', ') || null;
+      await addCatalogoPedido('unidad_solicitante', v, categoria);
+      await cargarCatalogosOP();
+      setUnidadSolicitante(v);
+      setNuevaUnidad('');
+      toast('Unidad agregada al catálogo', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error');
+    } finally {
+      setAddingUnidad(false);
+    }
+  }
 
   function addItem() {
     const p = allProductos.find((x) => x.id === prodSelectId);
@@ -2452,8 +2491,20 @@ function CrearOrdenModal({
       <div className="form-grid">
         <div className="form-row">
           <label>Unidad solicitante</label>
-          <SearchCreateSelect value={unidadSolicitante} onChange={(v) => setUnidadSolicitante(v.toUpperCase())}
-            options={unidadOpciones} placeholder="Elegí o escribí una unidad…" />
+          {/* Desplegable de unidades del catálogo (en vivo). */}
+          <SearchSelect value={unidadSolicitante} onChange={(v) => setUnidadSolicitante(v.toUpperCase())}
+            options={unidadOpciones.map((u) => ({ value: u, label: u }))}
+            placeholder="Departamento / unidad que solicita" />
+          {/* Alta directa: si la unidad no está, se escribe y se agrega al catálogo de una vez. */}
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+            <input className="input" value={nuevaUnidad} onChange={(e) => setNuevaUnidad(e.target.value.toUpperCase())}
+              placeholder="¿No está? Escribí la unidad nueva…"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
+            <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
+              {addingUnidad ? '…' : '+ Añadir'}
+            </button>
+          </div>
+          <small className="muted">La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).</small>
         </div>
         <div className="form-row">
           <label>Código</label>

@@ -6,6 +6,7 @@ import { notify } from '@/shared/lib/notify';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { date, money } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { listOcPorLote, nextCodigoChecklist, type OcLoteRow } from './ocLote.repository';
 import { aprobarOcsEnLote } from './pedidos.repository';
 import { descargarChecklistOcPdf } from './checklistOcPdf';
@@ -40,6 +41,8 @@ export function OcPorLoteView() {
   }, [incluirPagadas]);
 
   useEffect(() => { void reload(); }, [reload]);
+  // En vivo (multiusuario): nuevas OC por aprobar / cambios de proveedor o config se reflejan solos.
+  useRealtime(['ordenes', 'proveedores', 'config'], () => { void reload(); });
 
   // Genera (una vez) el código de checklist y lo reutiliza para PDF y correo.
   const ensureCodigo = useCallback(async () => {
