@@ -94,6 +94,33 @@ function ResumenCombustible({ titulo, totales }: { titulo: string; totales: { li
   );
 }
 
+/** Un grupo de combustible: su tarjeta-resumen (banner) + las tarjetas de SUS tanques debajo. */
+function GrupoTanques({ titulo, totales, grupo, canWrite, loading, estiloTop, vacio, onAbrir, onEditar }: {
+  titulo: string;
+  totales: { litros: number; valor: number; tasa: number; count: number };
+  grupo: ReporteTanque[];
+  canWrite: boolean;
+  loading: boolean;
+  estiloTop: string;
+  vacio: string;
+  onAbrir: (id: string) => void;
+  onEditar: (t: TanqueCombustible) => void;
+}) {
+  return (
+    <div style={{ marginTop: estiloTop, marginBottom: '1.5rem' }}>
+      <ResumenCombustible titulo={titulo} totales={totales} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+        {grupo.map((r) => (
+          <TanqueCard key={r.tanque.id} r={r} canWrite={canWrite}
+            onClick={() => onAbrir(r.tanque.id)}
+            onEdit={() => onEditar(r.tanque)} />
+        ))}
+        {!grupo.length && !loading && <div className="card"><p className="muted" style={{ margin: 0 }}>{vacio}</p></div>}
+      </div>
+    </div>
+  );
+}
+
 const TIPO_MOV_LABEL: Record<TipoMovTanque, string> = {
   entrada: '⬇ Entrada (entra combustible)',
   uso: '⛽ Uso (consumo de equipo)',
@@ -193,27 +220,19 @@ export function TanquesView() {
 
       {!abierto ? (
         <>
-          {/* Dos tarjetas-resumen: combustible general (sin Brasileros) + Los Brasileros */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', margin: '1rem 0 1.25rem' }}>
-            <ResumenCombustible
-              titulo="Combustible disponible"
-              totales={totalGeneral}
-            />
-            <ResumenCombustible
-              titulo="Los Brasileros"
-              totales={totalBrasileros}
-            />
-          </div>
-
-          {/* Tarjetas de los tanques existentes → clic abre el detalle */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
-            {reporte.map((r) => (
-              <TanqueCard key={r.tanque.id} r={r} canWrite={canWrite}
-                onClick={() => { setSelId(r.tanque.id); setAbierto(true); }}
-                onEdit={() => { setEditTanque(r.tanque); setModal('tanque'); }} />
-            ))}
-            {!reporte.length && !loading && <div className="card"><p className="muted" style={{ margin: 0 }}>Sin tanques. Creá uno con "+ Tanque".</p></div>}
-          </div>
+          {/* Cada banner con SUS tanques debajo: general (sin Brasileros) y Los Brasileros. */}
+          <GrupoTanques
+            titulo="Combustible disponible" totales={totalGeneral} grupo={grupoGeneral}
+            canWrite={canWrite} loading={loading} estiloTop="1rem"
+            vacio={reporte.length ? 'Sin tanques en este grupo.' : 'Sin tanques. Creá uno con "+ Tanque".'}
+            onAbrir={(id) => { setSelId(id); setAbierto(true); }}
+            onEditar={(t) => { setEditTanque(t); setModal('tanque'); }} />
+          <GrupoTanques
+            titulo="Los Brasileros" totales={totalBrasileros} grupo={grupoBrasileros}
+            canWrite={canWrite} loading={loading} estiloTop="0"
+            vacio="Sin tanques en Los Brasileros."
+            onAbrir={(id) => { setSelId(id); setAbierto(true); }}
+            onEditar={(t) => { setEditTanque(t); setModal('tanque'); }} />
         </>
       ) : sel && reporteSel ? (
         <>

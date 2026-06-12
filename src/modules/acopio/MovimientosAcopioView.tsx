@@ -233,14 +233,13 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                 <th>$Usd Facturados</th>
                 <th>Gastos GT</th>
                 <th>Nóminas GT</th>
-                <th>Traslado de caja</th>
                 <th>Saldo en moneda $ Usd</th>
                 <th title="Saldo corrido = saldo anterior + Kg Cerrados − Kg Recibidos por MGG">Saldo en Kg de casiterita ⓘ</th>
               </tr>
             </thead>
             <tbody>
               {!mostradas.length && (
-                <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {mostradas.map((f) => (
                 <tr
@@ -260,7 +259,6 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                   <td className="mono">{money(f.usdFacturados)}</td>
                   <td className="mono">{f.gastosGt == null ? '—' : money(f.gastosGt)}</td>
                   <td className="mono">{f.nominasGt == null ? '—' : money(f.nominasGt)}</td>
-                  <td className="mono">{f.trasladoCaja == null ? '—' : money(f.trasladoCaja)}</td>
                   <td className="mono"><strong>{money(f.saldoUsd)}</strong></td>
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
@@ -272,7 +270,7 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                 <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Totales</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--success, #45c08a)' }}>{totUsdEntregadoVista ? money(totUsdEntregadoVista) : '—'}</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
-                <td colSpan={5}></td>
+                <td colSpan={4}></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>
               </tr>
             </tfoot>
