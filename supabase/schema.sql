@@ -564,7 +564,8 @@ create table if not exists public.ordenes (
   codigo             text not null unique,
   proveedor_id       uuid not null references public.proveedores(id) on delete restrict,
   solicitante_email  text not null,
-  solicitante        text,
+  solicitante        text,           -- nombre de la persona solicitante
+  unidad_solicitante text,           -- unidad/área que solicita
   items              jsonb not null default '[]',
   total              numeric not null default 0,
   estado             estado_orden not null default 'pendiente',

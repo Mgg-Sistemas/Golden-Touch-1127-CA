@@ -51,8 +51,8 @@ import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto } from '@/modules/inventario/inventario.repository';
-import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { createProducto, getUnidades } from '@/modules/inventario/inventario.repository';
+import { listAlmacenes, getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
@@ -1849,6 +1849,12 @@ function OrdenDetailModal({
           <span className="muted mono">{proveedor?.rif ?? ''}</span>
         </div>
       </div>
+      {o.unidad_solicitante && (
+        <div className="detail-row">
+          <div className="k">Unidad solicitante</div>
+          <div className="v">{o.unidad_solicitante}</div>
+        </div>
+      )}
       <div className="detail-row">
         <div className="k">Solicitante</div>
         <div className="v">
@@ -2300,7 +2306,7 @@ function CrearOrdenModal({
         stock: 0,
         stock_min: 0,
         precio: 0,
-        almacen: 'General',
+        almacen: nuevoAlmacen || 'General',
         estado: 'activo',
       });
       setExtraProductos((prev) => [...prev, creado]);
@@ -2319,13 +2325,22 @@ function CrearOrdenModal({
     }
   }
 
-  // Solicitante y CI: por defecto los del usuario logueado, pero EDITABLES — un
-  // analista puede registrar la solicitud a nombre de otra persona.
-  const [solicitanteNombre, setSolicitanteNombre] = useState(usuario?.nombre ?? authEmail);
-  const [solicitanteCi, setSolicitanteCi] = useState(usuario?.ci ?? '');
+  // Solicitante (persona) y Unidad solicitante: por defecto los del usuario logueado,
+  // pero EDITABLES — un analista puede registrar la solicitud a nombre de otra persona.
+  const [solicitanteNombre, setSolicitanteNombre] = useState((usuario?.nombre ?? authEmail).toUpperCase());
+  const [unidadSolicitante, setUnidadSolicitante] = useState((usuario?.departamento ?? '').toUpperCase());
+
+  // Catálogos para el alta de producto nuevo (almacenes/subalmacenes + unidades del inventario).
+  const [almacenesList, setAlmacenesList] = useState<string[]>([]);
+  const [unidadesList, setUnidadesList] = useState<string[]>([]);
+  const [nuevoAlmacen, setNuevoAlmacen] = useState('General');
 
   useEffect(() => {
     nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));
+    getNombresAlmacenes()
+      .then((a) => { setAlmacenesList(a); setNuevoAlmacen((prev) => (a.includes(prev) ? prev : (a[0] ?? 'General'))); })
+      .catch(() => setAlmacenesList(['General']));
+    getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((prev) => (u.includes(prev) ? prev : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
   }, []);
 
   function addItem() {
@@ -2380,7 +2395,8 @@ function CrearOrdenModal({
         // pueden ser los de otra persona (solicitud a su nombre).
         solicitante_email: email,
         solicitante: solicitanteNombre.trim() || null,
-        ci_solicitante: solicitanteCi.trim() || null,
+        unidad_solicitante: unidadSolicitante.trim() || null,
+        ci_solicitante: null,
       });
       notify(`Nueva orden de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
@@ -2411,8 +2427,8 @@ function CrearOrdenModal({
     >
       <div className="form-grid">
         <div className="form-row">
-          <label>Solicitante</label>
-          <input className="input" value={solicitanteNombre} onChange={(e) => setSolicitanteNombre(e.target.value)} placeholder="Nombre de quien solicita" />
+          <label>Unidad solicitante</label>
+          <input className="input" value={unidadSolicitante} onChange={(e) => setUnidadSolicitante(e.target.value.toUpperCase())} placeholder="Unidad / área que solicita" />
         </div>
         <div className="form-row">
           <label>Código</label>
@@ -2421,12 +2437,12 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row">
-        <label>CI</label>
+        <label>Solicitante</label>
         <input
-          className="input mono"
-          value={solicitanteCi}
-          onChange={(e) => setSolicitanteCi(e.target.value)}
-          placeholder="CI del solicitante"
+          className="input"
+          value={solicitanteNombre}
+          onChange={(e) => setSolicitanteNombre(e.target.value.toUpperCase())}
+          placeholder="Nombre de quien solicita"
         />
       </div>
 
@@ -2535,7 +2551,7 @@ function CrearOrdenModal({
           {nuevoOpen && (
             <div className="card" style={{ padding: '.65rem', marginTop: '.4rem', display: 'grid', gap: '.5rem' }}>
               <div className="muted" style={{ fontSize: '.78rem' }}>
-                Datos mínimos. Se crea en inventario y lo completás luego (stock, precio, almacén…).
+                Datos mínimos. Se crea en inventario y lo completás luego (stock, precio…).
               </div>
               <input
                 className="input"
@@ -2544,8 +2560,18 @@ function CrearOrdenModal({
                 onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
               />
               <div className="form-grid">
-                <input className="input" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value)} />
-                <input className="input" placeholder="Unidad" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)} />
+                <input className="input" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                <div className="form-row" style={{ margin: 0 }}>
+                  <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
+                    placeholder="🔍 Unidad…"
+                    options={unidadesList.map((u) => ({ value: u, label: u }))} />
+                </div>
+              </div>
+              <div className="form-row" style={{ margin: 0 }}>
+                <label style={{ fontSize: '.74rem' }}>Almacén / sub-almacén destino</label>
+                <SearchSelect value={nuevoAlmacen} onChange={setNuevoAlmacen}
+                  placeholder="🔍 Buscar almacén…"
+                  options={almacenesList.map((a) => ({ value: a, label: a }))} />
               </div>
               <div>
                 <button type="button" className="btn btn-sm btn-primary" onClick={crearProductoNuevo} disabled={creandoNuevo}>
@@ -2587,7 +2613,7 @@ function CrearOrdenModal({
           className="textarea"
           placeholder="Nota o justificación de la solicitud (opcional)"
           value={notas}
-          onChange={(e) => setNotas(e.target.value)}
+          onChange={(e) => setNotas(e.target.value.toUpperCase())}
         />
       </div>
 

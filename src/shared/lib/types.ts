@@ -892,7 +892,10 @@ export interface Orden {
   oc_codigo?: string | null;
   proveedor_id: string | null;
   solicitante_email: string;
+  /** Nombre de la persona solicitante. */
   solicitante?: string | null;
+  /** Unidad / área que solicita (separada del solicitante persona). */
+  unidad_solicitante?: string | null;
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;
