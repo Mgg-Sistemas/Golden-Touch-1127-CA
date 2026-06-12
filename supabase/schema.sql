@@ -592,6 +592,9 @@ create table if not exists public.pedido_catalogos (
   id         uuid primary key default gen_random_uuid(),
   tipo       text not null check (tipo in ('clasificacion','unidad_solicitante')),
   valor      text not null,
+  -- categoria: solo para 'unidad_solicitante' → la clasificación de la OP con la que se
+  -- creó/asoció la unidad. Se muestra y se puede editar en el catálogo de la OP.
+  categoria  text,
   activo     boolean not null default true,
   orden      int not null default 999,
   created_at timestamptz not null default now(),
