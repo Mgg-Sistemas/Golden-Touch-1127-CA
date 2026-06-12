@@ -13,6 +13,20 @@ const STALE_MS = 10_000; // un lock más viejo que esto se considera abandonado 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
+ * Mismo contrato que el `LockAcquireTimeoutError` de @supabase/auth-js: su tick de
+ * auto-refresco IGNORA en silencio los errores con `isAcquireTimeout` (es un timeout
+ * benigno: otra pestaña tiene el lock y se reintenta en el próximo tick). Si lanzáramos
+ * un Error genérico, Supabase no lo reconoce y se escapa como «Uncaught (in promise)».
+ */
+class LockAcquireTimeoutError extends Error {
+  readonly isAcquireTimeout = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'LockAcquireTimeoutError';
+  }
+}
+
+/**
  * Lock de refresco de sesión coordinado ENTRE PESTAÑAS vía localStorage.
  *
  * Supabase usa `navigator.locks` (Web Locks API) para que dos pestañas no
@@ -43,8 +57,10 @@ async function localStorageLock<R>(name: string, acquireTimeout: number, fn: () 
       if (mine) break; // adquirido
     }
 
-    if (acquireTimeout >= 0 && now - start > acquireTimeout) {
-      throw new Error(`No se pudo adquirir el lock de auth «${name}» a tiempo.`);
+    // timeout 0 = no bloqueante (lo usa el tick de auto-refresco): si no se adquirió
+    // de inmediato, se descarta YA como timeout benigno (igual que el lock nativo).
+    if (acquireTimeout === 0 || (acquireTimeout > 0 && now - start > acquireTimeout)) {
+      throw new LockAcquireTimeoutError(`No se pudo adquirir el lock de auth «${name}» a tiempo.`);
     }
     await sleep(25 + Math.random() * 35);
   }

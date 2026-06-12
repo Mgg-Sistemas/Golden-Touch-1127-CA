@@ -1923,7 +1923,7 @@ function GraficoTasasModal({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Tarjetas de las 3 tasas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.6rem', marginBottom: '.8rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem', marginBottom: '.8rem' }}>
         {[
           { t: 'Compra', v: tasas?.buy, c: '#22c55e', n: 'Lo que cobran al venderte USDT' },
           { t: 'Promedio', v: tasas?.promedio, c: '#f3ba2f', n: 'Punto medio (referencia)' },
@@ -2119,7 +2119,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
 
           {o && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.6rem', marginBottom: '.75rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
                 <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
                   <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
                   <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{monto(total, 'USD')}</div>
@@ -2323,7 +2323,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
 
       {sel && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.6rem', marginBottom: '.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
             <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
               <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
               <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{monto(Number(sel.monto), sel.moneda)}</div>

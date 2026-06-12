@@ -1312,7 +1312,7 @@ function AbonosModal({
   return (
     <Modal title={`Crédito · OC ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.6rem', marginBottom: '.75rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
         <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
           <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{money(orden.total)}</div>
