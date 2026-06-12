@@ -11,6 +11,8 @@ export interface CatalogoPedido {
   id: string;
   tipo: TipoCatalogoPedido;
   valor: string;
+  /** Solo para 'unidad_solicitante': la clasificación de la OP asociada (categoría). */
+  categoria: string | null;
   activo: boolean;
   orden: number;
   created_at: string;
@@ -34,12 +36,13 @@ export async function listActivosPedido(tipo: TipoCatalogoPedido): Promise<strin
   return rows.filter((r) => r.activo).map((r) => r.valor);
 }
 
-export async function addCatalogoPedido(tipo: TipoCatalogoPedido, valor: string): Promise<CatalogoPedido> {
+export async function addCatalogoPedido(tipo: TipoCatalogoPedido, valor: string, categoria?: string | null): Promise<CatalogoPedido> {
   const v = valor.trim();
   if (!v) throw new Error('Indicá el valor.');
+  const cat = categoria?.trim() || null;
   const { data, error } = await supabase
     .from(TABLE)
-    .insert({ tipo, valor: v, orden: 999 })
+    .insert({ tipo, valor: v, categoria: cat, orden: 999 })
     .select('*')
     .single();
   if (error) {
@@ -49,10 +52,13 @@ export async function addCatalogoPedido(tipo: TipoCatalogoPedido, valor: string)
   return data as CatalogoPedido;
 }
 
-export async function updateCatalogoPedido(id: string, valor: string): Promise<void> {
+export async function updateCatalogoPedido(id: string, valor: string, categoria?: string | null): Promise<void> {
   const v = valor.trim();
   if (!v) throw new Error('Indicá el valor.');
-  const { error } = await supabase.from(TABLE).update({ valor: v }).eq('id', id);
+  // Si `categoria` no se pasa (undefined), no se toca la columna; null/'' la limpia.
+  const patch: { valor: string; categoria?: string | null } = { valor: v };
+  if (categoria !== undefined) patch.categoria = categoria?.trim() || null;
+  const { error } = await supabase.from(TABLE).update(patch).eq('id', id);
   if (error) {
     if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
     throw error;

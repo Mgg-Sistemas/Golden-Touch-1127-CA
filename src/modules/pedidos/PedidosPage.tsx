@@ -2400,10 +2400,12 @@ function CrearOrdenModal({
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
-      // Si la unidad solicitante es nueva, la guardamos en el catálogo para reusarla.
+      // Si la unidad solicitante es nueva, la guardamos en el catálogo para reusarla,
+      // registrando como CATEGORÍA la clasificación elegida en esta OP.
       const unidad = unidadSolicitante.trim();
       if (unidad && !unidadOpciones.some((u) => u.toLowerCase() === unidad.toLowerCase())) {
-        await addCatalogoPedido('unidad_solicitante', unidad).catch(() => { /* ya existe / sin permiso */ });
+        const categoria = Array.from(clasificacion).join(', ') || null;
+        await addCatalogoPedido('unidad_solicitante', unidad, categoria).catch(() => { /* ya existe / sin permiso */ });
       }
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
