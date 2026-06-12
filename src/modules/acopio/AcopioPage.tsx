@@ -116,7 +116,7 @@ export function AcopioPage() {
             </span>
             <span style={{ fontSize: '.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>LISTAR MOVIMIENTOS</span>
           </label>
-          {canWrite && <button className="btn btn-primary" onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>}
+          {canWrite && listar && <button className="btn btn-primary" onClick={() => setMovAcopio(true)}>+ Agregar Movimiento</button>}
         </div>
       </div>
 
