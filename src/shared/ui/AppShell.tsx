@@ -6,6 +6,7 @@ import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { AvisoMantenimientoBanner } from '@/shared/ui/AvisoMantenimientoBanner';
+import { AvisoCombustibleBajo } from '@/shared/ui/AvisoCombustibleBajo';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
@@ -367,6 +368,7 @@ export function AppShell() {
 
       <main className="main">
         <AvisoMantenimientoBanner />
+        <AvisoCombustibleBajo />
         <Outlet />
       </main>
 

@@ -25,7 +25,7 @@ import {
   actualizarMovimientoTanque,
   crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
-  consumoUso, resumenTanquesPeriodo, type ReporteTanque, type ResumenTanquePeriodo,
+  consumoUso, resumenTanquesPeriodo, esBrasileros, type ReporteTanque, type ResumenTanquePeriodo,
 } from './tanques.repository';
 import { descargarMovimientosTanquePdf } from './tanquePdf';
 import { descargarMovimientosTanqueExcel } from './tanqueExcel';
@@ -55,6 +55,44 @@ function nombreMes(ym: string): string {
 }
 /** Mes (YYYY-MM) de una fecha ISO. */
 const mesDe = (fecha: string | null | undefined) => (fecha ?? '').slice(0, 7);
+
+/** Totales de un grupo de tanques: litros disponibles, valor en USD, tasa promedio
+ *  ponderada por litros (correcta aunque cada tanque tenga distinta tasa) y cantidad. */
+function totalesGrupo(rep: ReporteTanque[]): { litros: number; valor: number; tasa: number; count: number } {
+  const litros = rep.reduce((a, r) => a + (Number(r.disponible) || 0), 0);
+  const valor = rep.reduce((a, r) => a + (Number(r.disponible) || 0) * (Number(r.tanque.tasa_usd_litro) || 0), 0);
+  return { litros, valor, tasa: litros > 0 ? valor / litros : 0, count: rep.length };
+}
+
+/** Tarjeta-resumen de un grupo de combustible (litros + valor + tasa promedio). */
+function ResumenCombustible({ titulo, totales }: { titulo: string; totales: { litros: number; valor: number; tasa: number; count: number } }) {
+  return (
+    <div className="card" style={{ margin: 0, borderColor: 'var(--primary)', borderWidth: 2, background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
+      <div className="card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+        <svg width="14" height="18" viewBox="0 0 14 18" aria-hidden="true" style={{ flexShrink: 0 }}>
+          <path d="M7 0 C7 0 0 8 0 12 a7 7 0 0 0 14 0 C14 8 7 0 7 0 Z" fill="#000" stroke="rgba(255,255,255,.35)" strokeWidth="0.6" />
+        </svg>
+        {titulo}
+      </span></div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5rem', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">
+          {num(totales.litros)} <span style={{ fontSize: '1rem', fontWeight: 500 }}>ltrs</span>
+        </div>
+        <div className="muted" style={{ fontSize: '.9rem' }}>disponibles en <strong>{totales.count}</strong> tanque(s)</div>
+      </div>
+      <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
+        <div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Valor total del combustible</div>
+          <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--success)' }}>{money(totales.valor)}</div>
+        </div>
+        <div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Tasa promedio (ponderada por litros)</div>
+          <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700 }}>{money(totales.tasa)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>/ltrs</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const TIPO_MOV_LABEL: Record<TipoMovTanque, string> = {
   entrada: '⬇ Entrada (entra combustible)',
@@ -121,11 +159,13 @@ export function TanquesView() {
   });
 
   const sel = useMemo(() => tanques.find((t) => t.id === selId) ?? null, [tanques, selId]);
-  const totalDisponible = useMemo(() => reporte.reduce((a, r) => a + (Number(r.disponible) || 0), 0), [reporte]);
-  // Valor total del combustible disponible y TASA PROMEDIO ponderada por litros
-  // (así el promedio es correcto aunque cada tanque tenga una tasa distinta).
-  const valorTotal = useMemo(() => reporte.reduce((a, r) => a + (Number(r.disponible) || 0) * (Number(r.tanque.tasa_usd_litro) || 0), 0), [reporte]);
-  const tasaPromedio = totalDisponible > 0 ? valorTotal / totalDisponible : 0;
+  // El total de combustible se divide en DOS grupos: «Los Brasileros» (Tanque #2
+  // Brasileros + Registro Brasileros - GT, identificados por su nombre) y el resto.
+  // Esos tanques se descuentan del total general y SOLO suman en la tarjeta Brasileros.
+  const grupoBrasileros = useMemo(() => reporte.filter((r) => esBrasileros(r.tanque.nombre)), [reporte]);
+  const grupoGeneral = useMemo(() => reporte.filter((r) => !esBrasileros(r.tanque.nombre)), [reporte]);
+  const totalGeneral = useMemo(() => totalesGrupo(grupoGeneral), [grupoGeneral]);
+  const totalBrasileros = useMemo(() => totalesGrupo(grupoBrasileros), [grupoBrasileros]);
   // Modo de vista: false = inicio (resumen + tarjetas); true = detalle (tarjeta + movimientos).
   const [abierto, setAbierto] = useState(false);
   const reporteSel = useMemo(() => reporte.find((r) => r.tanque.id === selId) ?? null, [reporte, selId]);
@@ -153,30 +193,16 @@ export function TanquesView() {
 
       {!abierto ? (
         <>
-          {/* Tarjeta-resumen destacada: total disponible + valor + tasa promedio */}
-          <div className="card" style={{ margin: '1rem 0 1.25rem', borderColor: 'var(--primary)', borderWidth: 2, background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
-            <div className="card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
-              <svg width="14" height="18" viewBox="0 0 14 18" aria-hidden="true" style={{ flexShrink: 0 }}>
-                <path d="M7 0 C7 0 0 8 0 12 a7 7 0 0 0 14 0 C14 8 7 0 7 0 Z" fill="#000" stroke="rgba(255,255,255,.35)" strokeWidth="0.6" />
-              </svg>
-              Combustible disponible
-            </span></div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5rem', flexWrap: 'wrap' }}>
-              <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">
-                {num(totalDisponible)} <span style={{ fontSize: '1rem', fontWeight: 500 }}>ltrs</span>
-              </div>
-              <div className="muted" style={{ fontSize: '.9rem' }}>disponibles en <strong>{reporte.length}</strong> tanque(s)</div>
-            </div>
-            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
-              <div>
-                <div className="muted" style={{ fontSize: '.72rem' }}>Valor total del combustible</div>
-                <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--success)' }}>{money(valorTotal)}</div>
-              </div>
-              <div>
-                <div className="muted" style={{ fontSize: '.72rem' }}>Tasa promedio (ponderada por litros)</div>
-                <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700 }}>{money(tasaPromedio)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>/ltrs</span></div>
-              </div>
-            </div>
+          {/* Dos tarjetas-resumen: combustible general (sin Brasileros) + Los Brasileros */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', margin: '1rem 0 1.25rem' }}>
+            <ResumenCombustible
+              titulo="Combustible disponible"
+              totales={totalGeneral}
+            />
+            <ResumenCombustible
+              titulo="Los Brasileros"
+              totales={totalBrasileros}
+            />
           </div>
 
           {/* Tarjetas de los tanques existentes → clic abre el detalle */}

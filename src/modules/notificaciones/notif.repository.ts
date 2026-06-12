@@ -56,6 +56,13 @@ export async function markRead(id: string): Promise<void> {
   await supabase.from('notificaciones').update({ read: true }).eq('id', id);
 }
 
+/** Marca como leídas todas las notificaciones NO leídas con un `dedup_key` dado
+ *  (best-effort). Se usa para «apagar» un aviso recurrente cuando su causa se resuelve
+ *  (ej. el combustible bajo se repone). */
+export async function markReadByDedup(dedupKey: string): Promise<void> {
+  await supabase.from('notificaciones').update({ read: true }).eq('dedup_key', dedupKey).eq('read', false);
+}
+
 export interface PushArgs {
   destino?: string;
   kind?: NotifKind;
