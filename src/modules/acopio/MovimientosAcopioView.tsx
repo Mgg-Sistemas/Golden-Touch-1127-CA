@@ -49,7 +49,7 @@ export interface ResumenAcopio {
   facturado: number;
 }
 
-export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAcopio) => void } = {}) {
+export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen?: (r: ResumenAcopio) => void; visible?: boolean } = {}) {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can('acopio', 'escritura');
@@ -195,6 +195,10 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
   // Saldo final del rango filtrado = el del movimiento cronológicamente más nuevo (no depende del orden mostrado).
   const ascFiltradas = ordenDesc ? mostradas.slice().reverse() : mostradas;
   const saldoVista = ascFiltradas.length ? ascFiltradas[ascFiltradas.length - 1].saldoKgCasiterita : 0;
+
+  // El switch «Listar movimientos» de la página controla si se muestra la tabla.
+  // Aunque esté oculta, el componente sigue montado para alimentar las tarjetas (onResumen).
+  if (!visible) return null;
 
   return (
     <div className="card" style={{ marginBottom: '1.25rem' }}>

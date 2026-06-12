@@ -239,6 +239,15 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
   background: #1a0e00;
 }
 
+/* Switch en línea con su etiqueta (p. ej. «Listar movimientos» en la barra de acciones) */
+.switch-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
 /* Radio cards (selector de modo de política, etc.) */
 .mode-card {
   display: flex;
