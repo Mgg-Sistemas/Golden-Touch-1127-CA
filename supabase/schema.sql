@@ -1621,6 +1621,7 @@ create table if not exists public.acopio_martillos_movimientos (
   cantidad_entregados numeric not null default 0,
   usd_facturados numeric not null default 0,
   martillos_a_gt numeric not null default 0,
+  consumidos numeric not null default 0,        -- martillos consumidos/usados (uso) → genera gasto en Acopio
   orden int not null default 0,
   created_by text,
   actor_name text,
@@ -1671,10 +1672,11 @@ begin
   update public.productos p set stock = coalesce((select sum(stock) from public.existencias e where e.producto_id = p.id), 0), precio = p_costo where p.id = v_pid;
 end$$;
 
+-- Inventario: el stock de martillos = Σ(entregados − a_gt − consumidos).
 create or replace function public._trg_sync_martillos() returns trigger language plpgsql as $$
 declare v_stock numeric; v_tasa numeric;
 begin
-  select coalesce(sum(cantidad_entregados - martillos_a_gt),0),
+  select coalesce(sum(cantidad_entregados - martillos_a_gt - consumidos),0),
          case when coalesce(sum(cantidad_entregados),0) > 0 then sum(usd_entregados)/sum(cantidad_entregados) else 0 end
     into v_stock, v_tasa from public.acopio_martillos_movimientos;
   perform public._acopio_sync_producto('MARTILLO-H66','Martillos Molino H66','Insumo','Unidad','PRODUCCION',
@@ -1684,6 +1686,39 @@ end$$;
 
 drop trigger if exists trg_sync_martillos on public.acopio_martillos_movimientos;
 create trigger trg_sync_martillos after insert or update or delete on public.acopio_martillos_movimientos for each statement execute function public._trg_sync_martillos();
+
+-- Vínculo del gasto generado por un consumo (para actualizar/borrar en cascada).
+alter table public.acopio_caja_movimientos
+  add column if not exists ref_martillo_id uuid
+  references public.acopio_martillos_movimientos(id) on delete cascade;
+create index if not exists idx_acopio_caja_ref_martillo on public.acopio_caja_movimientos(ref_martillo_id);
+
+-- Gasto por consumo: cada movimiento con `consumidos` > 0 genera (o actualiza) un gasto en
+-- la caja de Acopio (grupo Gastos Caja, clasif. "USO DE MARTILLOS") = consumidos × precio
+-- vigente (Σ facturados / Σ cantidad entregados). Se ancla a la caja abierta (si hay).
+create or replace function public._trg_martillo_gasto() returns trigger language plpgsql as $$
+declare v_precio numeric; v_caja uuid; v_gasto numeric;
+begin
+  select case when coalesce(sum(cantidad_entregados),0) > 0
+              then sum(usd_facturados)/sum(cantidad_entregados) else 0 end
+    into v_precio from public.acopio_martillos_movimientos;
+  delete from public.acopio_caja_movimientos where ref_martillo_id = new.id;
+  if coalesce(new.consumidos,0) > 0 and v_precio > 0 then
+    v_gasto := round(new.consumidos * v_precio, 2);
+    select id into v_caja from public.acopio_cajas where estado = 'abierta' order by created_at desc limit 1;
+    insert into public.acopio_caja_movimientos
+      (fecha, descripcion, gastos, clasif_grupo, clasif_valor, caja_id, ref_martillo_id, created_by, actor_name)
+    values
+      (new.fecha,
+       'USO DE MARTILLOS · ' || trim(to_char(new.consumidos,'FM999999990.##')) || ' u × ' || trim(to_char(round(v_precio,2),'FM999999990.00')) || ' $/u'
+         || case when new.descripcion is not null and length(trim(new.descripcion)) > 0 then ' · ' || new.descripcion else '' end,
+       v_gasto, 'gastos_caja', 'USO DE MARTILLOS', v_caja, new.id, new.created_by, new.actor_name);
+  end if;
+  return new;
+end$$;
+
+drop trigger if exists trg_martillo_gasto on public.acopio_martillos_movimientos;
+create trigger trg_martillo_gasto after insert or update on public.acopio_martillos_movimientos for each row execute function public._trg_martillo_gasto();
 
 -- Seed de las 5 clasificaciones (hoja CLASIFICACIONES del Excel).
 insert into public.acopio_clasificaciones (grupo, valor, orden) values

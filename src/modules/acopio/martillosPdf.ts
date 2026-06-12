@@ -11,7 +11,7 @@ const fmtNum = (v: number | null | undefined) => (v == null ? '' : v.toLocaleStr
 
 const HEAD = [
   'Fecha', 'Descripción', '$Usd Entregados', 'Cant. entregados', 'Precio $/Martillo',
-  '$Usd Facturados', 'Saldo $ Usd', 'Martillos a GT', 'Martillos restantes',
+  '$Usd Facturados', 'Saldo $ Usd', 'Martillos a GT', 'Consumidos', 'Martillos restantes',
 ];
 
 async function construirDoc(movs: MartilloMovimiento[]) {
@@ -28,7 +28,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Consumo de Martillos · Molino H66', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Saldo $ = entregados − facturados · Restantes = entregados − entregados a GT', tx, y + 33);
+  doc.text('Saldo $ = entregados − facturados · Restantes = entregados − a GT − consumidos', tx, y + 33);
   doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${movs.length} movimiento(s)`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 54;
@@ -37,7 +37,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
   const body = movs.map((m) => [
     m.fecha, m.descripcion ?? '', fmtUsd(m.usd_entregados || null), fmtNum(m.cantidad_entregados || null),
     fmtUsd(m.precio_usd_martillo || null), fmtUsd(m.usd_facturados || null), fmtUsd(m.saldo_usd),
-    fmtNum(m.martillos_a_gt || null), fmtNum(m.martillos_restantes),
+    fmtNum(m.martillos_a_gt || null), fmtNum(m.consumidos || null), fmtNum(m.martillos_restantes),
   ]);
 
   autoTable(doc, {
@@ -49,7 +49,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {
       2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' },
-      6: { halign: 'right', fontStyle: 'bold' }, 7: { halign: 'right' }, 8: { halign: 'right', fontStyle: 'bold' },
+      6: { halign: 'right', fontStyle: 'bold' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right', fontStyle: 'bold' },
     },
   });
   return doc;
