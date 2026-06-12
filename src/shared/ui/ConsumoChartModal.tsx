@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
-import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
+import { HBarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { money, num } from '@/shared/lib/format';
 
 /** Una fila de consumo: un producto/combustible consumido en el período. */
@@ -88,7 +88,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
 
   const data: ChartPoint[] = useMemo(
     () => rows.map((r) => ({
-      label: r.label.length > 14 ? r.label.slice(0, 13) + '…' : r.label,
+      label: r.label,
       value: metrica === 'valor' ? Math.round(r.valor * 100) / 100 : r.cantidad,
       tooltip: `${r.label}: ${num(r.cantidad)} ${r.unidad} · ${money(r.valor)}`,
     })),
@@ -120,7 +120,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
       </div>
 
       {/* Totales */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.6rem', marginBottom: '.75rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>PRODUCTOS CONSUMIDOS</div>
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(rows.length)}</div>
@@ -143,7 +143,7 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
           <span>Consumo por producto {metrica === 'valor' ? '(en $)' : '(en cantidad)'}</span>
           <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${rows.length} producto(s)`}</span>
         </div>
-        <BarChart data={data} color="#10b981"
+        <HBarChart data={data}
           yFormatter={(v) => (metrica === 'valor' ? money(v) : num(v))}
           emptyMessage={loading ? 'Cargando…' : 'Sin consumo en el período seleccionado.'} />
       </div>
