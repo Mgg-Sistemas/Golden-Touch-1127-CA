@@ -648,23 +648,28 @@ export async function recomputarTanque(tanqueId: string): Promise<void> {
   await aplicarSaldoTanque(tanqueId, round(saldoL, 2), round(saldoU, 2), tasa);
 }
 
-/** Edita un movimiento. Acepta metadatos + medidores y, opcionalmente, los campos que
- *  afectan el saldo (tipo, litros, tasa). Si se tocan esos, se recalcula el saldo del tanque. */
-/**
- * Encadena el horómetro: tras editar un movimiento, el HI del SIGUIENTE movimiento
- * (cronológico) del mismo equipo pasa a ser el HF del editado (el medidor es continuo).
- * Devuelve true si actualizó algo. Solo afecta el horómetro (no toca saldos).
- */
-async function sincronizarHorometroSiguiente(movId: string): Promise<boolean> {
-  const { data: cur } = await supabase.from('combustible_tanque_movimientos')
-    .select('id, equipo, horometro_fin').eq('id', movId).maybeSingle();
-  const m = cur as { equipo?: string | null; horometro_fin?: number | null } | null;
-  if (!m || !m.equipo || m.horometro_fin == null) return false;
+/** Fila mínima para re-encadenar un medidor continuo (ini→fin) en orden cronológico. */
+interface FilaMedidor {
+  id: string;
+  fecha: string | null;
+  hora: string | null;
+  created_at: string | null;
+  ini: number | null;
+  fin: number | null;
+}
 
-  // Todos los del mismo equipo (el horómetro es por equipo, puede cruzar tanques).
-  const { data } = await supabase.from('combustible_tanque_movimientos')
-    .select('id, fecha, hora, created_at, horometro_ini').eq('equipo', m.equipo);
-  const rows = ((data ?? []) as Array<{ id: string; fecha: string | null; hora: string | null; created_at: string | null; horometro_ini: number | null }>)
+/**
+ * Re-encadena un medidor CONTINUO (lectura inicial → final) sobre un conjunto de
+ * movimientos ya acotado (por tanque para el contador del surtidor, por equipo para
+ * el horómetro). El medidor es acumulativo: el INICIAL de cada movimiento = el FINAL
+ * del anterior en el tiempo. Conserva el «delta» de cada fila (fin − ini = lo que pasó
+ * por el medidor en ese movimiento) y lo re-apila en orden cronológico (fecha + hora)
+ * desde la lectura BASE (la más baja, porque el medidor sólo crece). Sólo encadena las
+ * filas con par completo (ini y fin). Devuelve cuántas filas cambió.
+ */
+async function reencadenarMedidor(rows: FilaMedidor[], iniCol: string, finCol: string): Promise<number> {
+  const usables = rows
+    .filter((r) => r.ini != null && r.fin != null)
     .slice()
     .sort((a, b) => {
       const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
@@ -673,20 +678,73 @@ async function sincronizarHorometroSiguiente(movId: string): Promise<boolean> {
       if (h !== 0) return h;
       return (a.created_at ?? '').localeCompare(b.created_at ?? '');
     });
-  const idx = rows.findIndex((r) => r.id === movId);
-  const sig = idx >= 0 ? rows[idx + 1] : null;
-  if (!sig) return false;
-  if (num(sig.horometro_ini) === num(m.horometro_fin)) return false; // ya coincide
-  const { error } = await supabase.from('combustible_tanque_movimientos')
-    .update({ horometro_ini: m.horometro_fin, updated_at: new Date().toISOString() }).eq('id', sig.id);
-  if (error) throw error;
-  return true;
+  if (usables.length === 0) return 0;
+  // Base = lectura más baja (el medidor es monótono creciente): es el «saldo previo».
+  let cursor = Math.min(...usables.map((r) => num(r.ini)));
+  let cambios = 0;
+  for (const r of usables) {
+    const delta = num(r.fin) - num(r.ini); // lo registrado en este movimiento (se conserva)
+    const ini = round(cursor, 2);
+    const fin = round(cursor + delta, 2);
+    if (ini !== round(num(r.ini), 2) || fin !== round(num(r.fin), 2)) {
+      const { error } = await supabase.from('combustible_tanque_movimientos')
+        .update({ [iniCol]: ini, [finCol]: fin, updated_at: new Date().toISOString() }).eq('id', r.id);
+      if (error) throw error;
+      cambios++;
+    }
+    cursor = fin;
+  }
+  return cambios;
 }
 
+/** Re-encadena el CONTADOR del surtidor (por tanque) en orden cronológico. */
+async function reencadenarContadorTanque(tanqueId: string): Promise<number> {
+  if (!tanqueId) return 0;
+  const { data, error } = await supabase.from('combustible_tanque_movimientos')
+    .select('id, fecha, hora, created_at, tipo, mov_vinculado_id, contador_global_ini, contador_global_fin')
+    .eq('tanque_id', tanqueId);
+  if (error) throw error;
+  const rows: FilaMedidor[] = ((data ?? []) as Array<Record<string, unknown>>)
+    // El contador es del surtidor de ESTE tanque; las entradas que son reflejo de un
+    // traslado traen el contador del tanque de ORIGEN, así que no entran en la cadena.
+    .filter((r) => !(r.tipo === 'entrada' && r.mov_vinculado_id))
+    .map((r) => ({
+      id: r.id as string, fecha: r.fecha as string | null, hora: r.hora as string | null,
+      created_at: r.created_at as string | null,
+      ini: r.contador_global_ini as number | null, fin: r.contador_global_fin as number | null,
+    }));
+  return reencadenarMedidor(rows, 'contador_global_ini', 'contador_global_fin');
+}
+
+/** Re-encadena el HORÓMETRO (por equipo, puede cruzar tanques) en orden cronológico. */
+async function reencadenarHorometroEquipo(equipo: string | null | undefined): Promise<number> {
+  const e = (equipo ?? '').trim();
+  if (!e) return 0;
+  const { data, error } = await supabase.from('combustible_tanque_movimientos')
+    .select('id, fecha, hora, created_at, horometro_ini, horometro_fin').eq('equipo', e);
+  if (error) throw error;
+  const rows: FilaMedidor[] = ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+    id: r.id as string, fecha: r.fecha as string | null, hora: r.hora as string | null,
+    created_at: r.created_at as string | null,
+    ini: r.horometro_ini as number | null, fin: r.horometro_fin as number | null,
+  }));
+  return reencadenarMedidor(rows, 'horometro_ini', 'horometro_fin');
+}
+
+/** Edita un movimiento. Acepta metadatos + medidores y, opcionalmente, los campos que
+ *  afectan el saldo (tipo, litros, tasa). Si se tocan esos, se recalcula el saldo del tanque.
+ *  Como la fecha/hora puede cambiar la posición cronológica del movimiento, tras guardar se
+ *  RE-ENCADENAN los medidores continuos: el contador del surtidor (por tanque) y el horómetro
+ *  (por equipo) — el inicial de cada movimiento vuelve a colgar del final del anterior. */
 export async function actualizarMovimientoTanque(
   id: string,
   patch: MovimientoTanqueCampos & { tipo?: TipoMovTanque; litros?: number; tasaUsdLitro?: number },
 ): Promise<void> {
+  // Equipo previo: si la edición lo cambia, hay que re-encadenar también la cadena vieja.
+  const { data: prev } = await supabase.from('combustible_tanque_movimientos')
+    .select('equipo').eq('id', id).maybeSingle();
+  const equipoViejo = (prev as { equipo?: string | null } | null)?.equipo ?? null;
+
   const upd: Record<string, unknown> = { ...campos(patch), updated_at: new Date().toISOString() };
   const afectaSaldo = patch.tipo != null || patch.litros != null || patch.tasaUsdLitro != null;
   if (patch.tipo != null) upd.tipo = patch.tipo;
@@ -694,14 +752,17 @@ export async function actualizarMovimientoTanque(
   if (patch.tasaUsdLitro != null) upd.tasa_usd_litro = round(num(patch.tasaUsdLitro), 4);
 
   const { data, error } = await supabase.from('combustible_tanque_movimientos')
-    .update(upd).eq('id', id).select('tanque_id').single();
+    .update(upd).eq('id', id).select('tanque_id, equipo').single();
   if (error) throw error;
-  if (afectaSaldo) {
-    const tanqueId = (data as { tanque_id: string }).tanque_id;
-    await recomputarTanque(tanqueId);
-  }
-  // Encadena el horómetro con el siguiente movimiento del equipo (medidor continuo).
-  await sincronizarHorometroSiguiente(id);
+  const tanqueId = (data as { tanque_id: string }).tanque_id;
+  const equipoNuevo = (data as { equipo: string | null }).equipo;
+
+  if (afectaSaldo) await recomputarTanque(tanqueId);
+
+  // Re-encadena los medidores en el NUEVO orden cronológico (la hora pudo moverlo).
+  await reencadenarContadorTanque(tanqueId);
+  await reencadenarHorometroEquipo(equipoNuevo);
+  if (equipoViejo && equipoViejo !== equipoNuevo) await reencadenarHorometroEquipo(equipoViejo);
 }
 
 export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<void> {
