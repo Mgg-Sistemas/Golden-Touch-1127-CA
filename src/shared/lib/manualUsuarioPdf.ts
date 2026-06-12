@@ -335,11 +335,11 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(13);
   doc.setTextColor(GRIS_TEXTO[0], GRIS_TEXTO[1], GRIS_TEXTO[2]);
-  doc.text('Sistema de Gestión · Golden Touch 1127 C.A.', PAGE_W / 2, y, { align: 'center' });
+  doc.text('Sistema de Gestión · GOLDEN TOUCH 1127 C.A.', PAGE_W / 2, y, { align: 'center' });
   y += 40;
 
   // Mensaje de bienvenida (recuadro).
-  const bienvenida = 'Bienvenido al manual de usuario del sistema de gestión de la empresa Golden Touch 1127 CA.';
+  const bienvenida = 'Bienvenido al manual de usuario del sistema de gestión de la empresa GOLDEN TOUCH 1127 C.A.';
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(13);
   const bLines = doc.splitTextToSize(bienvenida, CONTENT_W - 40) as string[];
@@ -418,9 +418,9 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
-    doc.text('Golden Touch 1127 C.A. · Manual de Usuario', MARGIN, PAGE_H - 28);
+    doc.text('GOLDEN TOUCH 1127 C.A. · Manual de Usuario', MARGIN, PAGE_H - 28);
     doc.text(`Página ${i} de ${total}`, PAGE_W - MARGIN, PAGE_H - 28, { align: 'right' });
   }
 
-  doc.save('Manual-de-Usuario-Golden Touch.pdf');
+  doc.save('Manual-de-Usuario-GOLDEN-TOUCH-1127-CA.pdf');
 }

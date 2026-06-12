@@ -46,7 +46,7 @@ export async function descargarContratosExcel(rows: ContratoAcopio[]): Promise<v
     rows.reduce((a, c) => a + n(c.kg_hierro), 0), '', '', ''];
 
   const aoa: unknown[][] = [
-    ['CONTRATOS DE PRODUCCIÓN · Golden Touch'],
+    ['CONTRATOS DE PRODUCCIÓN · GOLDEN TOUCH 1127 C.A.'],
     [`${rows.length} contrato(s) · ${dateTime(new Date().toISOString())}`],
     [],
     head, ...filas, totFila,

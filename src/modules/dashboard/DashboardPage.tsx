@@ -83,7 +83,7 @@ export function DashboardPage() {
       <div className="page-head">
         <div>
           <h1>Dashboard</h1>
-          <p className="muted">Resumen operativo del sistema Golden Touch al {date(new Date().toISOString())}.</p>
+          <p className="muted">Resumen operativo del sistema GOLDEN TOUCH 1127 C.A. al {date(new Date().toISOString())}.</p>
         </div>
       </div>
 

@@ -36,7 +36,7 @@ async function construirDoc(rows: ConciliacionRow[], meta: ConciliacionReporteMe
   doc.text('Combustible · Conciliaciones', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text('Saldo en libros vs. saldo según la mina (libreta)', tx, y + 33);
-  doc.text(`Golden Touch 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${rows.length} registro(s)${meta.filtro ? ` · ${meta.filtro}` : ''}`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 58;
 

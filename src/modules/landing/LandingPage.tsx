@@ -5,9 +5,9 @@ export function LandingPage() {
     <div className="landing">
       <header className="landing-nav">
         <Link to="/" className="brand">
-          <img src="/LOGO.jpg" alt="Golden Touch" />
+          <img src="/LOGO.jpg" alt="GOLDEN TOUCH 1127 C.A." />
           <div className="brand-text">
-            <strong>Golden Touch</strong>
+            <strong>GOLDEN TOUCH 1127 C.A.</strong>
             <small>1127 C.A.</small>
           </div>
         </Link>
@@ -16,7 +16,7 @@ export function LandingPage() {
 
       <section className="hero" style={{ minHeight: 'calc(100vh - 88px)' }}>
         <div>
-          <span className="hero-eyebrow">⬢ Golden Touch 1127 C.A.</span>
+          <span className="hero-eyebrow">⬢ GOLDEN TOUCH 1127 C.A.</span>
           <h1>
             🪨 De la tierra al <span className="grad">estaño</span>.
           </h1>
@@ -32,7 +32,7 @@ export function LandingPage() {
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-ghost"
-              aria-label="Instagram de Golden Touch"
+              aria-label="Instagram de GOLDEN TOUCH 1127 C.A."
               title="Síguenos en Instagram"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem' }}
             >
@@ -42,7 +42,7 @@ export function LandingPage() {
           </div>
         </div>
         <div className="hero-visual">
-          <img src="/LOGO.jpg" alt="Logo Golden Touch" />
+          <img src="/LOGO.jpg" alt="Logo GOLDEN TOUCH 1127 C.A." />
         </div>
       </section>
     </div>

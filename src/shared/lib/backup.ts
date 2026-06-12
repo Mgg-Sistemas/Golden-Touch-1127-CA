@@ -107,7 +107,7 @@ export async function enviarRespaldoPorCorreo(
     body: {
       pdf_base64: toBase64Utf8(sql),
       nombre_archivo: nombre,
-      asunto: `Respaldo de base de datos · Golden Touch · ${fecha}`,
+      asunto: `Respaldo de base de datos · GOLDEN TOUCH 1127 C.A. · ${fecha}`,
       mensaje: `${automatico ? 'Respaldo automático (cada 30 días)' : 'Respaldo manual'} · Generado por ${actorEmail || 'sistema'} · ${cuando} (America/Caracas).`,
       to_emails: toEmails,
     },

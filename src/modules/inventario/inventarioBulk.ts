@@ -386,7 +386,7 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
 
 function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
   const rows: (string | null)[][] = [
-    ['INSTRUCCIONES DE CARGA · PLANTILLA INVENTARIO Golden Touch'],
+    ['INSTRUCCIONES DE CARGA · PLANTILLA INVENTARIO GOLDEN TOUCH 1127 C.A.'],
     [''],
     ['1. ESTRUCTURA DEL ARCHIVO'],
     ['• Trabajá exclusivamente sobre la hoja "Productos". No renombres columnas.'],
@@ -554,7 +554,7 @@ export async function exportarInventarioPdf(productos: Producto[]): Promise<void
   doc.text('Inventario · Reporte filtrado', TEXT_X, y + 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text(`Golden Touch · ${productos.length} productos · ${dateTime(new Date().toISOString())}`, TEXT_X, y + 34);
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${productos.length} productos · ${dateTime(new Date().toISOString())}`, TEXT_X, y + 34);
   y += Math.max(LOGO_SIZE, 36) + 8;
 
   doc.setDrawColor(255, 138, 0);

@@ -52,7 +52,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[]) {
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text('Golden Touch 1127 C.A. · Sistema de Gestión de Inventarios', MARGIN, y);
+  doc.text('GOLDEN TOUCH 1127 C.A. · Sistema de Gestión de Inventarios', MARGIN, y);
   doc.text(`Estado: ${cuenta.estado === 'saldada' ? 'Saldada' : 'Abierta'}`, PAGE_W - MARGIN, y, { align: 'right' });
   y += 14;
 

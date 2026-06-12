@@ -48,7 +48,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* logo opcional */ } }
     const tx = logoDataUrl ? MARGIN + LOGO + 14 : MARGIN;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-    doc.text('Golden Touch 1127 C.A.', tx, y + 16);
+    doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     doc.text('Comprobante de Pago de Personal', tx, y + 32);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);

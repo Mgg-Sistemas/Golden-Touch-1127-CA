@@ -207,9 +207,9 @@ export function AppShell() {
       <aside className="sidebar">
         <div className="sidebar-brand">
           <NavLink to="/app" className="brand">
-            <img src="/LOGO.jpg" alt="Golden Touch" />
+            <img src="/LOGO.jpg" alt="GOLDEN TOUCH 1127 C.A." />
             <div className="brand-text">
-              <strong>Golden Touch</strong>
+              <strong>GOLDEN TOUCH 1127 C.A.</strong>
               <small>BIENVENIDO</small>
             </div>
           </NavLink>
@@ -314,7 +314,7 @@ export function AppShell() {
           >
             ☰
           </button>
-          <span>Golden Touch · <strong>Sistema</strong></span>
+          <span>GOLDEN TOUCH 1127 C.A. · <strong>Sistema</strong></span>
         </div>
         <div className="top-actions">
           <TasaChip />

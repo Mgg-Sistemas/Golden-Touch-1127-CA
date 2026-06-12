@@ -37,7 +37,7 @@ async function construirDoc(rows: TenorRow[], meta: TenorMeta = {}) {
   doc.text('Tenor Promedio Diarios', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text('Tenor = Kg Casiterita ÷ (Ton procesadas × 1000)', tx, y + 33);
-  doc.text(`Golden Touch 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${rows.length} registro(s)${meta.filtro ? ` · ${meta.filtro}` : ''}`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 58;
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5); doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 8;
@@ -75,7 +75,7 @@ export async function descargarTenorExcel(rows: TenorRow[]): Promise<void> {
   const TITLE = { ...HEADER, font: { ...HEADER.font, sz: 14 }, alignment: { horizontal: 'left' } };
   const head = ['N° Contrato', 'Fecha', 'Ton procesadas', 'Kg Casiterita', 'Ton × 1000', 'Tenor %'];
   const filas = rows.map((r) => [r.numero, r.fecha, r.ton, r.kg, r.tonMil, r.tenor == null ? '' : r.tenor]);
-  const aoa: unknown[][] = [['TENOR PROMEDIO DIARIOS · Golden Touch'], [`${rows.length} registro(s) · ${dateTime(new Date().toISOString())}`], [], head, ...filas];
+  const aoa: unknown[][] = [['TENOR PROMEDIO DIARIOS · GOLDEN TOUCH 1127 C.A.'], [`${rows.length} registro(s) · ${dateTime(new Date().toISOString())}`], [], head, ...filas];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   (ws as Record<string, unknown>)['!cols'] = [{ wch: 16 }, { wch: 13 }, { wch: 15 }, { wch: 15 }, { wch: 14 }, { wch: 12 }];
   (ws as Record<string, unknown>)['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }];

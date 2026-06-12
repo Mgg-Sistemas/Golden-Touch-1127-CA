@@ -37,7 +37,7 @@ async function construirDoc(
   doc.text(`Combustible · ${tanque.nombre}`, tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text(`Saldo: ${num(tanque.saldo_litros)} L · ${money(tanque.saldo_usd)} · Tasa ${money(tanque.tasa_usd_litro)}/L`, tx, y + 33);
-  doc.text(`Golden Touch 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${movs.length} movimiento(s)${meta.filtro ? ` · ${meta.filtro}` : ''}`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 58;
 

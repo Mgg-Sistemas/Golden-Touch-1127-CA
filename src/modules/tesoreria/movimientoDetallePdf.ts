@@ -61,7 +61,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text('Golden Touch 1127 C.A. · Sistema de Gestión de Inventarios', MARGIN, y);
+  doc.text('GOLDEN TOUCH 1127 C.A. · Sistema de Gestión de Inventarios', MARGIN, y);
   y += 8;
 
   const signo = esEgreso(mov) ? '-' : '+';

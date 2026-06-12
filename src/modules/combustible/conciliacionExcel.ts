@@ -46,7 +46,7 @@ export async function descargarConciliacionesExcel(rows: ConciliacionRow[]): Pro
   const totalFila = ['', 'TOTALES', '', totLibros, totLibreta, '', ''];
 
   const aoa: unknown[][] = [
-    ['COMBUSTIBLE · CONCILIACIONES · Golden Touch'],
+    ['COMBUSTIBLE · CONCILIACIONES · GOLDEN TOUCH 1127 C.A.'],
     [`${rows.length} registro(s) · ${dateTime(new Date().toISOString())}`],
     [],
     head,

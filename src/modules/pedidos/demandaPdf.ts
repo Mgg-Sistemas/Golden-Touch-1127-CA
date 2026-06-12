@@ -49,7 +49,7 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
   doc.text('Materiales con más demanda', TEXT_X, y + 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(`Golden Touch 1127 C.A. · Generado ${dateTime(new Date().toISOString())}`, TEXT_X, y + 36);
+  doc.text(`GOLDEN TOUCH 1127 C.A. · Generado ${dateTime(new Date().toISOString())}`, TEXT_X, y + 36);
   y += Math.max(LOGO_SIZE, 36) + 10;
 
   doc.setDrawColor(200);
