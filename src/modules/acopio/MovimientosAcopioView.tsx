@@ -5,10 +5,12 @@ import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import type { ContratoAcopio, CajaMovimiento } from '@/shared/lib/types';
+import type { ContratoAcopio, CajaMovimiento, ClasificacionAcopio, CostoClase } from '@/shared/lib/types';
 import { listContratos } from '@/modules/produccion/contratos.repository';
-import { listCajaMovimientos } from './caja.repository';
+import { listCajaMovimientos, listClasificaciones, listCostoClases } from './caja.repository';
+import { MovimientoCajaModal } from './MovimientoCajaModal';
 import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorreo } from './movimientosAcopioReportes';
 
 /**
@@ -49,9 +51,15 @@ export interface ResumenAcopio {
 
 export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAcopio) => void } = {}) {
   const { user } = useSession();
+  const { can, appUser } = usePermissions();
+  const canWrite = can('acopio', 'escritura');
+  const actorName = appUser?.nombre?.trim() || user?.email || null;
   const navigate = useNavigate();
   const [contratos, setContratos] = useState<ContratoAcopio[]>([]);
   const [cajaMovs, setCajaMovs] = useState<CajaMovimiento[]>([]);
+  const [clasificaciones, setClasificaciones] = useState<ClasificacionAcopio[]>([]);
+  const [costoClases, setCostoClases] = useState<CostoClase[]>([]);
+  const [editMov, setEditMov] = useState<CajaMovimiento | null>(null);
   const [loading, setLoading] = useState(true);
   // Filtros (estilo Tesorería).
   const [fTexto, setFTexto] = useState('');
@@ -61,9 +69,11 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
   const [correoOpen, setCorreoOpen] = useState(false);
 
   const recargar = useCallback(async () => {
-    const [cs, cms] = await Promise.all([listContratos(), listCajaMovimientos()]);
+    const [cs, cms, cls, ccs] = await Promise.all([listContratos(), listCajaMovimientos(), listClasificaciones(), listCostoClases()]);
     setContratos(cs);
     setCajaMovs(cms);
+    setClasificaciones(cls);
+    setCostoClases(ccs);
   }, []);
   useEffect(() => {
     let cancel = false;
@@ -241,17 +251,26 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
               {!mostradas.length && (
                 <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
-              {mostradas.map((f) => (
+              {mostradas.map((f) => {
+                const movId = f.id.startsWith('m-') ? f.id.slice(2) : null;
+                const editable = canWrite && !!movId;     // las filas de caja se pueden editar
+                const onRowClick = f.contratoId
+                  ? () => navigate(`/app/produccion?contrato=${f.contratoId}`)
+                  : editable
+                    ? () => { const m = cajaMovs.find((x) => x.id === movId); if (m) setEditMov(m); }
+                    : undefined;
+                return (
                 <tr
                   key={f.id}
-                  onClick={f.contratoId ? () => navigate(`/app/produccion?contrato=${f.contratoId}`) : undefined}
-                  style={f.contratoId ? { cursor: 'pointer' } : undefined}
-                  title={f.contratoId ? 'Ver el contrato en Producción' : undefined}
+                  onClick={onRowClick}
+                  style={onRowClick ? { cursor: 'pointer' } : undefined}
+                  title={f.contratoId ? 'Ver el contrato en Producción' : editable ? 'Editar movimiento' : undefined}
                 >
                   <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(f.fecha)}</td>
                   <td style={{ fontWeight: 600 }}>
                     {f.descripcion}
                     {f.contratoId && <span className="muted" style={{ marginLeft: '.4rem', fontWeight: 400 }} title="Ver el contrato en Producción">↗</span>}
+                    {editable && <span className="muted" style={{ marginLeft: '.4rem', fontWeight: 400 }} title="Editar movimiento">✎</span>}
                   </td>
                   <td className="mono">{f.usdEntregado == null ? '—' : money(f.usdEntregado)}</td>
                   {/* Kg que aporta el contrato al cerrarse → resaltado */}
@@ -263,7 +282,8 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot>
               <tr style={{ borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
@@ -291,6 +311,19 @@ export function MovimientosAcopioView({ onResumen }: { onResumen?: (r: ResumenAc
             return destinatarios;
           }}
           onClose={() => setCorreoOpen(false)}
+        />
+      )}
+
+      {editMov && (
+        <MovimientoCajaModal
+          mov={editMov}
+          cajaId={editMov.caja_id ?? null}
+          clasificaciones={clasificaciones}
+          costoClases={costoClases}
+          actor={user?.email ?? 'sistema'}
+          actorName={actorName}
+          onClose={() => setEditMov(null)}
+          onSaved={async () => { setEditMov(null); await recargar(); }}
         />
       )}
     </div>
