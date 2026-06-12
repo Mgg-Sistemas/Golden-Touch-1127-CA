@@ -3,10 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import { App } from './App';
 import { instalarSelectOnFocusMonto } from './shared/lib/selectOnFocus';
+import { instalarMayusculaAutomatica } from './shared/lib/mayusculaInputs';
 import './styles/index.css';
 
 // Al enfocar un campo numérico que muestra 0, selecciona el 0 para reemplazarlo.
 instalarSelectOnFocusMonto();
+// Mayúscula automática global en los campos de texto (con exclusiones: correo,
+// contraseña, números y buscadores).
+instalarMayusculaAutomatica();
 
 // Recuperación tras un despliegue: si la app tenía el index.html viejo en caché y
 // un chunk con hash ya no existe (404), el lazy-import falla y la pantalla queda en
