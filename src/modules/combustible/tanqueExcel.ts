@@ -44,7 +44,7 @@ export async function descargarMovimientosTanqueExcel(tanque: TanqueCombustible,
   ]);
 
   const aoa: unknown[][] = [
-    [`COMBUSTIBLE · ${tanque.nombre.toUpperCase()} · Golden Touch`],
+    [`COMBUSTIBLE · ${tanque.nombre.toUpperCase()} · GOLDEN TOUCH 1127 C.A.`],
     [`Saldo ${n(tanque.saldo_litros)} L · ${n(tanque.saldo_usd)} USD · ${movs.length} movimiento(s) · ${dateTime(new Date().toISOString())}`],
     [],
     head,

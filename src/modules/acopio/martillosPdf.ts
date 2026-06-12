@@ -29,7 +29,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
   doc.text('Consumo de Martillos · Molino H66', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text('Saldo $ = entregados − facturados · Restantes = entregados − entregados a GT', tx, y + 33);
-  doc.text(`Golden Touch 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${movs.length} movimiento(s)`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 54;
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5); doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 8;

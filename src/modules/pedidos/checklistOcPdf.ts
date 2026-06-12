@@ -61,7 +61,7 @@ async function construir(rows: OcLoteRow[], codigo: string) {
   });
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · Golden Touch 1127 C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · GOLDEN TOUCH 1127 C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
 
   return { doc, filename: `checklist-${codigo}.pdf` };
 }

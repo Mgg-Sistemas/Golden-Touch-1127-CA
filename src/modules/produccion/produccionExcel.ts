@@ -48,7 +48,7 @@ export async function descargarProduccionExcel(id: string): Promise<void> {
   const cp = prod.costo_material + prod.mano_obra + prod.costos_indirectos;
 
   const encabezado: (string | number)[][] = [
-    ['RECETA / PRODUCCIÓN · Golden Touch'],
+    ['RECETA / PRODUCCIÓN · GOLDEN TOUCH 1127 C.A.'],
     ['Producto', prod.producto_nombre],
     ['Cantidad producida (und)', prod.cantidad],
     ['Almacén destino', prod.almacen_destino],

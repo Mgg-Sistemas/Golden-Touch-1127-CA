@@ -53,9 +53,9 @@ export function LoginPage() {
           }}
         >
           <div className="brand" style={{ flexDirection: 'column', alignItems: 'center', gap: '.75rem' }}>
-            <img src="/LOGO.jpg" alt="Golden Touch" style={{ width: 72, height: 72 }} />
+            <img src="/LOGO.jpg" alt="GOLDEN TOUCH 1127 C.A." style={{ width: 72, height: 72 }} />
             <div className="brand-text" style={{ alignItems: 'center' }}>
-              <strong>Golden Touch</strong>
+              <strong>GOLDEN TOUCH 1127 C.A.</strong>
               <small>1127 C.A.</small>
             </div>
           </div>
@@ -66,7 +66,7 @@ export function LoginPage() {
         </div>
 
         <div className="footnote">
-          <span>© Golden Touch 1127 C.A.</span>
+          <span>© GOLDEN TOUCH 1127 C.A.</span>
           <span>v0.3.0</span>
         </div>
       </aside>
@@ -76,7 +76,7 @@ export function LoginPage() {
           <Link to="/" className="back-link">← Volver al inicio</Link>
 
           <h1>Iniciar sesión</h1>
-          <p className="sub">Ingresa con tu cuenta corporativa Golden Touch.</p>
+          <p className="sub">Ingresa con tu cuenta corporativa GOLDEN TOUCH 1127 C.A.</p>
 
           {!isSupabaseConfigured && (
             <div className="badge warning" style={{ marginBottom: '1rem', display: 'block', padding: '.6rem .8rem' }}>

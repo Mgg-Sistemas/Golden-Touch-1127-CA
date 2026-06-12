@@ -23,7 +23,7 @@ async function construir(prod: Produccion) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Reporte de Producción', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`Golden Touch · ${dateTime(new Date().toISOString())}`, tx, y + 33);
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
 
   doc.setFontSize(11); doc.setFont('helvetica', 'bold');

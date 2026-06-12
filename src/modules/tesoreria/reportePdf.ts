@@ -59,7 +59,7 @@ async function construirDoc(movs: MovimientoCaja[], meta: ReporteMeta) {
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text('Golden Touch 1127 C.A. · Sistema de Gestión de Inventarios', MARGIN, y);
+  doc.text('GOLDEN TOUCH 1127 C.A. · Sistema de Gestión de Inventarios', MARGIN, y);
   doc.text(`${movs.length} movimiento(s)`, PAGE_W - MARGIN, y, { align: 'right' });
   y += 10;
 

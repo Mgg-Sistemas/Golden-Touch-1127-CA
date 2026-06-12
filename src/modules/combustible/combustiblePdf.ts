@@ -27,7 +27,7 @@ async function construir(s: SolicitudCombustible) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
   doc.text('Solicitud de Salida de Combustible', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`${s.codigo} · Golden Touch 1127 C.A.`, tx, y + 36);
+  doc.text(`${s.codigo} · GOLDEN TOUCH 1127 C.A.`, tx, y + 36);
   doc.text(`Generado ${fmt.dateTime(new Date().toISOString())}`, tx, y + 50);
   y += 70;
 

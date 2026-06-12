@@ -20,7 +20,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Comprobante de Compra Directa', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`Golden Touch · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
 
   const cant = Number(compra.cantidad) || 0;

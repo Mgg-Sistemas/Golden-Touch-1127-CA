@@ -31,7 +31,7 @@ async function construirDoc(rows: ContratoAcopio[], meta: ContratoReporteMeta = 
   doc.text('Contratos de producción', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text('Casiterita = Kg seco, limpio · fórmulas del control de producción', tx, y + 33);
-  doc.text(`Golden Touch 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
+  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
   doc.text(`${rows.length} contrato(s)${meta.filtro ? ` · ${meta.filtro}` : ''}`, PAGE_W - MARGIN, y + 33, { align: 'right' });
   y += 58;
 

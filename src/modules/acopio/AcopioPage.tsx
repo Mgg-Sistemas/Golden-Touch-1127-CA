@@ -740,7 +740,7 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
             <div className="form-row"><label>N° C.I.</label><input className="input" value={entCi} onChange={(e) => setEntCi(e.target.value)} disabled={ro} /></div>
           </div>
           <div className="card" style={{ background: 'var(--surface-2)' }}>
-            <div className="card-title" style={{ justifyContent: 'center' }}><span>Conforme Recibido por Golden Touch 1127 C.A.</span></div>
+            <div className="card-title" style={{ justifyContent: 'center' }}><span>Conforme Recibido por GOLDEN TOUCH 1127 C.A.</span></div>
             <div className="form-row"><label>Nombres y Apellidos</label><input className="input" value={recNombre} onChange={(e) => setRecNombre(e.target.value)} disabled={ro} /></div>
             <div className="form-row"><label>N° C.I.</label><input className="input" value={recCi} onChange={(e) => setRecCi(e.target.value)} disabled={ro} /></div>
           </div>
