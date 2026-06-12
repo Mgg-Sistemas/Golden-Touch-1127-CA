@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import type { CajaMovimiento, ClasificacionAcopio, CostoClase, GrupoClasificacion } from '@/shared/lib/types';
 import {
-  GRUPOS, grupoColor,
+  GRUPOS, grupoColor, esCategoriaVehiculo,
   crearMovimientoCaja, actualizarMovimientoCaja, eliminarMovimientoCaja, addClasificacion, addCostoClase,
   type CajaMovimientoInput,
 } from './caja.repository';
+import { listCatalogos } from '@/modules/combustible/tanques.repository';
 
 /**
  * Alta/edición de un movimiento de la caja de Acopio (acopio_caja_movimientos).
@@ -38,6 +40,8 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
   const [nominas, setNominas] = useState(mov?.nominas ? String(mov.nominas) : '');
   const [traslado, setTraslado] = useState(mov?.traslado ? String(mov.traslado) : '');
   const [kgRecibidos, setKgRecibidos] = useState(mov?.kg_recibidos ? String(mov.kg_recibidos) : '');
+  const [equipo, setEquipo] = useState(mov?.equipo ?? '');
+  const [equipos, setEquipos] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nuevoValor, setNuevoValor] = useState('');
@@ -45,6 +49,18 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
   const valoresGrupo = useMemo(() => clasificaciones.filter((c) => c.grupo === grupo), [clasificaciones, grupo]);
   const clasifCosto = useMemo(() => [...new Set(costoClases.map((c) => c.clasificacion))], [costoClases]);
   const subsCosto = useMemo(() => costoClases.filter((c) => c.clasificacion === costoCl), [costoClases, costoCl]);
+  // El gasto está "atado a un vehículo" cuando es del grupo Gastos Caja y la categoría
+  // termina en "REPUESTOS - REPARACIONES - SERVICIOS" → se despliega la lista de equipos.
+  const pideEquipo = grupo === 'gastos_caja' && esCategoriaVehiculo(valor);
+
+  // Lista de equipos del catálogo de combustible (la misma que se usa en los tanques).
+  useEffect(() => {
+    let cancel = false;
+    listCatalogos()
+      .then((cats) => { if (!cancel) setEquipos(cats.filter((c) => c.tipo === 'equipo' && c.activo).map((c) => c.valor)); })
+      .catch(() => { /* sin red/RLS: queda vacío */ });
+    return () => { cancel = true; };
+  }, []);
 
   async function agregarValor() {
     if (!grupo) { setError('Elegí primero el grupo.'); return; }
@@ -69,6 +85,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
       traslado: Number(traslado) || 0, kg_recibidos: Number(kgRecibidos) || 0,
       clasif_grupo: grupo || null, clasif_valor: valor || null,
       costo_clasificacion: costoCl || null, costo_subclasificacion: costoSub || null,
+      equipo: pideEquipo ? (equipo || null) : null, // solo se guarda en categorías de vehículo
       caja_id: cajaId,
     };
   }
@@ -123,6 +140,21 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
             <input className="input" style={{ flex: 1 }} value={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva categoría a este grupo" />
             <button type="button" className="btn btn-sm btn-ghost" onClick={agregarValor}>Agregar</button>
           </div>
+        </div>
+      )}
+
+      {/* Equipo/vehículo (solo para gastos de "…REPUESTOS - REPARACIONES - SERVICIOS"). */}
+      {pideEquipo && (
+        <div className="form-row">
+          <label>🚜 Equipo / vehículo <span className="muted" style={{ fontWeight: 400 }}>(opcional · lista de combustible)</span></label>
+          <SearchSelect
+            value={equipo}
+            onChange={setEquipo}
+            options={equipos.map((e) => ({ value: e, label: e }))}
+            placeholder="Buscar equipo…"
+            emptyText="Sin equipos en el catálogo de combustible"
+          />
+          {equipo && <small className="muted">El gasto quedará atado a <strong>{equipo}</strong> y se verá en su consumo desde el resumen.</small>}
         </div>
       )}
 

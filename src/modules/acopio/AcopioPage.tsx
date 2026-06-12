@@ -21,9 +21,10 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
 import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
+import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { ConsumoMartillosModal } from './ConsumoMartillosModal';
 import type { ClasificacionAcopio } from '@/shared/lib/types';
 import { DineroPorEntrar } from './DineroPorEntrar';
@@ -316,6 +317,8 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const hayRango = !!(desde || hasta);
+  // Drill-down: categoría de vehículo elegida → gráfica de gasto por equipo.
+  const [consumoCat, setConsumoCat] = useState<string | null>(null);
 
   // Se recalcula desde los movimientos; en vivo cuando entra/cambia alguno (Realtime).
   const cargar = useCallback(() => {
@@ -349,8 +352,9 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
     </div>
   );
 
-  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color }: {
+  const TablaCat = ({ titulo, filas, totalLabel, totalMonto, totalPct, color, onCat }: {
     titulo: string; filas: { valor: string; monto: number; pct: number }[]; totalLabel: string; totalMonto: number; totalPct: number; color: string;
+    onCat?: (valor: string) => void;
   }) => (
     <>
       <div className="card-title" style={{ marginTop: '1rem' }}><span style={{ color }}>{titulo}</span></div>
@@ -359,13 +363,19 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
           <table className="table" style={{ fontSize: '.8rem' }}>
             <thead><tr><th>Categoría</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>% del total gastado</th></tr></thead>
             <tbody>
-              {filas.map((c) => (
-                <tr key={c.valor}>
-                  <td>{c.valor}</td>
+              {filas.map((c) => {
+                const clickable = !!onCat && esCategoriaVehiculo(c.valor);
+                return (
+                <tr key={c.valor}
+                  onClick={clickable ? () => onCat!(c.valor) : undefined}
+                  style={clickable ? { cursor: 'pointer' } : undefined}
+                  title={clickable ? 'Ver consumo por equipo' : undefined}>
+                  <td>{c.valor}{clickable && <span className="muted" style={{ marginLeft: '.4rem' }} title="Ver consumo por equipo">📊</span>}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(c.monto)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{pct(c.pct)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
               <td>{totalLabel}</td>
@@ -431,7 +441,8 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
             <Kpi titulo="Diferencia" valor={`${num(r.diferenciaKg)} Kg`} color={r.diferenciaKg < 0 ? 'var(--danger)' : 'var(--success)'} />
           </div>
 
-          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" />
+          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" onCat={setConsumoCat} />
+          <p className="muted" style={{ fontSize: '.74rem', margin: '.35rem 0 0' }}>📊 Las categorías de vehículo/maquinaria son clicables: muestran el gasto por equipo.</p>
           <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" />
         </>
       )}
@@ -446,6 +457,18 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
             return destinatarios;
           }}
           onClose={() => setCorreoOpen(false)}
+        />
+      )}
+
+      {consumoCat && (
+        <ConsumoChartModal
+          title={`Consumo por equipo · ${consumoCat}`}
+          subtitle="Gasto por equipo/vehículo de esta categoría. «Valor» = gasto en $; «Cantidad» = nº de movimientos. Respeta el rango del resumen."
+          cargar={async (d, h) => {
+            const items = await consumoGastosPorEquipo({ categoria: consumoCat, desde: desde || d.toISOString().slice(0, 10), hasta: hasta || h.toISOString().slice(0, 10) });
+            return items.map((x) => ({ id: x.id, label: x.nombre, unidad: 'mov', cantidad: x.cantidad, valor: x.valor }));
+          }}
+          onClose={() => setConsumoCat(null)}
         />
       )}
     </Modal>

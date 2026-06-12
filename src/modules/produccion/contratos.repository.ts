@@ -152,7 +152,7 @@ const ETIQUETA_MESA = 'Material de Mesa:';
  * conservando el resto del texto. Si el peso es null, deja la etiqueta vacía.
  */
 export function aplicarMaterialDeMesa(obs: string | null | undefined, pesoMojado: number | null): string {
-  const valorTxt = pesoMojado == null ? '' : ` ${pesoMojado}`;
+  const valorTxt = pesoMojado == null ? '' : ` ${pesoMojado} KG SECO`;
   const linea = `${ETIQUETA_MESA}${valorTxt}`;
   const actual = obs ?? '';
   const re = /^Material de Mesa:.*$/m;
