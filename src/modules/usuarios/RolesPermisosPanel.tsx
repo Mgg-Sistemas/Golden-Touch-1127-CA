@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { ConfirmDialog } from '@/shared/ui/Modal';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import {
   loadPermisos,
@@ -84,6 +85,8 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
     void refresh().finally(() => { if (cancelled) void 0; });
     return () => { cancelled = true; };
   }, []);
+  // En vivo (multiusuario): cambios de roles o de la matriz de permisos se reflejan solos.
+  useRealtime(['custom_roles', 'roles_permisos', 'taxonomias'], () => { void refresh(); });
 
   // Recarga la matriz y avisa al padre (para que el dropdown de "crear usuario"
   // y otros listados de roles se actualicen automáticamente tras un cambio).

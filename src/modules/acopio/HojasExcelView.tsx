@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import type { CeldaExcel, HojaExcel } from '@/shared/lib/types';
 import { getHojaExcel } from './hojas.repository';
 
@@ -33,15 +34,15 @@ export function HojasExcelView() {
 
   const cfg = VISTAS.find((v) => v.nombre === sel)!;
 
-  useEffect(() => {
-    let cancel = false;
+  const cargar = useCallback(async () => {
     setLoading(true);
-    getHojaExcel(sel)
-      .then((h) => { if (!cancel) setHoja(h); })
-      .catch((e) => toast(e instanceof Error ? e.message : 'Error al cargar', 'error'))
-      .finally(() => { if (!cancel) setLoading(false); });
-    return () => { cancel = true; };
+    try { setHoja(await getHojaExcel(sel)); }
+    catch (e) { toast(e instanceof Error ? e.message : 'Error al cargar', 'error'); }
+    finally { setLoading(false); }
   }, [sel]);
+  useEffect(() => { void cargar(); }, [cargar]);
+  // En vivo (multiusuario): cambios en las hojas de Excel se reflejan solos.
+  useRealtime(['acopio_hojas_excel'], () => { void cargar(); });
 
   return (
     <div>

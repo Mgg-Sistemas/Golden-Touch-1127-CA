@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { TasaHoy } from '@/shared/lib/types';
 import {
@@ -72,6 +73,8 @@ export function TasasView() {
   }, []);
 
   useEffect(() => { void cargar(); }, [cargar]);
+  // En vivo (multiusuario): cambios de tasas/configuración se reflejan solos.
+  useRealtime(['config', 'tasa_cambio', 'tasa_snapshot'], () => { void cargar(); });
 
   async function refrescar() {
     setBusy(true);
