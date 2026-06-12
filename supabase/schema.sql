@@ -564,7 +564,8 @@ create table if not exists public.ordenes (
   codigo             text not null unique,
   proveedor_id       uuid not null references public.proveedores(id) on delete restrict,
   solicitante_email  text not null,
-  solicitante        text,
+  solicitante        text,           -- nombre de la persona solicitante
+  unidad_solicitante text,           -- unidad/área que solicita
   items              jsonb not null default '[]',
   total              numeric not null default 0,
   estado             estado_orden not null default 'pendiente',
@@ -584,6 +585,18 @@ create table if not exists public.ordenes (
 
 create index if not exists idx_ordenes_proveedor on public.ordenes(proveedor_id);
 create index if not exists idx_ordenes_estado    on public.ordenes(estado);
+
+-- Catálogo gestionable de la OP: clasificaciones del pedido y unidades solicitantes
+-- (mismo patrón que acopio_catalogos: tipo + valor + activo, con activar/desactivar).
+create table if not exists public.pedido_catalogos (
+  id         uuid primary key default gen_random_uuid(),
+  tipo       text not null check (tipo in ('clasificacion','unidad_solicitante')),
+  valor      text not null,
+  activo     boolean not null default true,
+  orden      int not null default 999,
+  created_at timestamptz not null default now(),
+  unique (tipo, valor)
+);
 
 -- ─────────────────────────────────────────────────────────────
 -- 7. facturas
