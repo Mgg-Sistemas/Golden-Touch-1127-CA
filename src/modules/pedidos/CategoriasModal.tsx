@@ -9,7 +9,6 @@ import {
 } from './pedidoCatalogos.repository';
 
 const TABS: { key: TipoCatalogoPedido; label: string; singular: string }[] = [
-  { key: 'clasificacion', label: 'Clasificaciones', singular: 'clasificación' },
   { key: 'unidad_solicitante', label: 'Unidades solicitantes', singular: 'unidad solicitante' },
 ];
 
@@ -21,7 +20,7 @@ const TABS: { key: TipoCatalogoPedido; label: string; singular: string }[] = [
  * que se muestra y se puede editar acá.
  */
 export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onClose: () => void }) {
-  const [tab, setTab] = useState<TipoCatalogoPedido>('clasificacion');
+  const [tab, setTab] = useState<TipoCatalogoPedido>('unidad_solicitante');
   const [items, setItems] = useState<CatalogoPedido[]>([]);
   const [valor, setValor] = useState('');
   const [filtro, setFiltro] = useState('');
@@ -79,11 +78,13 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
 
   return (
     <Modal title="Categorías" size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem' }}>
-        {TABS.map((t) => (
-          <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setEditId(null); setValor(''); setFiltro(''); }}>{t.label}</button>
-        ))}
-      </div>
+      {TABS.length > 1 && (
+        <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem' }}>
+          {TABS.map((t) => (
+            <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setEditId(null); setValor(''); setFiltro(''); }}>{t.label}</button>
+          ))}
+        </div>
+      )}
 
       {canWrite && (
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.5rem', flexWrap: 'wrap' }}>
