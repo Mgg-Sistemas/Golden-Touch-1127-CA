@@ -76,8 +76,6 @@ const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
 type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote';
 
-// Clasificación del pedido (checklist al crear la orden).
-const CLASIFICACION_PEDIDO = ['Producción', 'Bienes', 'Servicios', 'Papelería'] as const;
 /** Área a la que pertenece cada producto de una OP. */
 const AREAS_OP = ['Administrativa', 'Producción'] as const;
 
@@ -2279,15 +2277,7 @@ function CrearOrdenModal({
   const [items, setItems] = useState<ItemOrden[]>([]);
   // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
-  const [clasificacion, setClasificacion] = useState<Set<string>>(new Set());
   const [notas, setNotas] = useState('');
-  function toggleClasif(c: string) {
-    setClasificacion((prev) => {
-      const next = new Set(prev);
-      if (next.has(c)) next.delete(c); else next.add(c);
-      return next;
-    });
-  }
   // Productos del inventario + los nuevos creados al vuelo en este modal.
   const [extraProductos, setExtraProductos] = useState<Producto[]>([]);
   const allProductos = useMemo(() => [...productos, ...extraProductos], [productos, extraProductos]);
@@ -2346,8 +2336,7 @@ function CrearOrdenModal({
   const [almacenesList, setAlmacenesList] = useState<string[]>([]);
   const [unidadesList, setUnidadesList] = useState<string[]>([]);
   const [nuevoAlmacen, setNuevoAlmacen] = useState('General');
-  // Catálogo gestionable de la OP: clasificaciones activas + unidades solicitantes.
-  const [clasifOpciones, setClasifOpciones] = useState<string[]>([...CLASIFICACION_PEDIDO]);
+  // Catálogo gestionable de la OP: unidades solicitantes.
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   // Alta de unidad nueva desde el propio formulario (campo «¿No está?» + botón Añadir).
   const [nuevaUnidad, setNuevaUnidad] = useState('');
@@ -2355,11 +2344,7 @@ function CrearOrdenModal({
 
   // Carga (y recarga, en vivo) las opciones del catálogo de la OP.
   const cargarCatalogosOP = useCallback(async () => {
-    const [cls, uns] = await Promise.all([
-      listActivosPedido('clasificacion').catch(() => [] as string[]),
-      listActivosPedido('unidad_solicitante').catch(() => [] as string[]),
-    ]);
-    if (cls.length) setClasifOpciones(cls);
+    const uns = await listActivosPedido('unidad_solicitante').catch(() => [] as string[]);
     setUnidadOpciones(uns);
   }, []);
 
@@ -2385,9 +2370,7 @@ function CrearOrdenModal({
     }
     setAddingUnidad(true);
     try {
-      // Registra como categoría la clasificación elegida en esta OP (si hay).
-      const categoria = Array.from(clasificacion).join(', ') || null;
-      await addCatalogoPedido('unidad_solicitante', v, categoria);
+      await addCatalogoPedido('unidad_solicitante', v);
       await cargarCatalogosOP();
       setUnidadSolicitante(v);
       setNuevaUnidad('');
@@ -2439,12 +2422,10 @@ function CrearOrdenModal({
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
-      // Si la unidad solicitante es nueva, la guardamos en el catálogo para reusarla,
-      // registrando como CATEGORÍA la clasificación elegida en esta OP.
+      // Si la unidad solicitante es nueva, la guardamos en el catálogo para reusarla.
       const unidad = unidadSolicitante.trim();
       if (unidad && !unidadOpciones.some((u) => u.toLowerCase() === unidad.toLowerCase())) {
-        const categoria = Array.from(clasificacion).join(', ') || null;
-        await addCatalogoPedido('unidad_solicitante', unidad, categoria).catch(() => { /* ya existe / sin permiso */ });
+        await addCatalogoPedido('unidad_solicitante', unidad).catch(() => { /* ya existe / sin permiso */ });
       }
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
@@ -2453,7 +2434,7 @@ function CrearOrdenModal({
         notas: notas.trim() || null,
         motivo: null,
         finalidad: null,
-        clasificacion: Array.from(clasificacion),
+        clasificacion: [],
         // El email queda como el de la cuenta que registra (auditoría); el nombre y CI
         // pueden ser los de otra persona (solicitud a su nombre).
         solicitante_email: email,
@@ -2657,50 +2638,6 @@ function CrearOrdenModal({
             </div>
           )}
         </div>
-      </div>
-
-      <div className="form-row">
-        <label>Clasificación del pedido</label>
-        {clasifOpciones.length <= 5 ? (
-          // Pocas opciones: checks. Más de 5: lista buscable (sin checks).
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            {clasifOpciones.map((c) => {
-              const checked = clasificacion.has(c);
-              return (
-                <label
-                  key={c}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '.45rem',
-                    padding: '.45rem .7rem', border: '1px solid var(--border)',
-                    borderRadius: 'var(--r-md)',
-                    background: checked ? 'rgba(255,138,0,0.08)' : 'transparent',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input type="checkbox" checked={checked} onChange={() => toggleClasif(c)} />
-                  <span style={{ fontWeight: 600 }}>{c}</span>
-                </label>
-              );
-            })}
-          </div>
-        ) : (
-          <>
-            <SearchSelect value="" onChange={(c) => { if (c) toggleClasif(c); }}
-              placeholder="🔍 Buscar y agregar clasificación…"
-              options={clasifOpciones.filter((c) => !clasificacion.has(c)).map((c) => ({ value: c, label: c }))} />
-            {clasificacion.size > 0 && (
-              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginTop: '.45rem' }}>
-                {Array.from(clasificacion).map((c) => (
-                  <span key={c} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
-                    {c}
-                    <button type="button" onClick={() => toggleClasif(c)} title="Quitar"
-                      style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, lineHeight: 1 }}>✕</button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </>
-        )}
       </div>
 
       <div className="form-row">
