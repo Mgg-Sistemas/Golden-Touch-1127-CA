@@ -1,13 +1,12 @@
 /* ============================================================
-   Golden Touch · Tesorería · Reporte PDF de una Cuenta por Pagar (crédito)
-   Reusa la estética del reporte de movimientos (logo, franja naranja,
-   emisor, tabla autoTable). Muestra el resumen (total/abonado/saldo) y el
-   historial de abonos. Devuelve el doc para descargar o el base64 para el
-   correo (Edge Function enviar-reporte, mismo formato que los demás reportes).
+   Golden Touch · Tesorería · Reporte PDF de una Cuenta por Cobrar
+   Muestra el resumen (total/cobrado/saldo a favor), el historial de CARGOS
+   (cada fecha en que se le cargó al cliente + total adeudado acumulado) y el
+   historial de COBROS recibidos. Misma estética que los demás reportes.
    ============================================================ */
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
-import type { CuentaPorPagar, AbonoCxP, IngresoCxP } from './cuentasPorPagar.repository';
+import type { CuentaPorCobrar, CargoCxC, CobroCxC } from './cuentasPorCobrar.repository';
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -16,7 +15,7 @@ function montoStr(n: number | null | undefined, moneda: string): string {
   return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
 }
 
-async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos: IngresoCxP[] = []) {
+async function construirDoc(cuenta: CuentaPorCobrar, cargos: CargoCxC[], cobros: CobroCxC[]) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     loadLogoDataUrl().catch(() => null),
     import('jspdf'),
@@ -30,7 +29,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
 
   const moneda = cuenta.moneda;
   const tipoLabel = cuenta.tipo === 'proveedor' ? 'Proveedor' : 'Cliente';
-  const saldo = round2(Number(cuenta.monto) - (Number(cuenta.abonado) || 0));
+  const saldo = round2(Number(cuenta.monto) - (Number(cuenta.cobrado) || 0));
 
   const LOGO_SIZE = 60;
   const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
@@ -38,7 +37,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.text('REPORTE DE CUENTA POR PAGAR', TEXT_X, y + 18);
+  doc.text('REPORTE DE CUENTA POR COBRAR', TEXT_X, y + 18);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text(`${tipoLabel}: ${cuenta.contraparte}`, TEXT_X, y + 36);
@@ -56,11 +55,11 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
   doc.text(`Estado: ${cuenta.estado === 'saldada' ? 'Saldada' : 'Abierta'}`, PAGE_W - MARGIN, y, { align: 'right' });
   y += 14;
 
-  // Resumen (Total / Abonado / Saldo).
+  // Resumen (Total que deben / Cobrado / Saldo a favor).
   autoTable(doc, {
     startY: y,
-    head: [['Total', 'Abonado', 'Saldo pendiente']],
-    body: [[montoStr(cuenta.monto, moneda), montoStr(cuenta.abonado, moneda), montoStr(saldo, moneda)]],
+    head: [['Total a cobrar', 'Cobrado', 'Saldo pendiente']],
+    body: [[montoStr(cuenta.monto, moneda), montoStr(cuenta.cobrado, moneda), montoStr(saldo, moneda)]],
     margin: MARGIN,
     styles: { fontSize: 10, cellPadding: 6, halign: 'center', fontStyle: 'bold' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
@@ -75,31 +74,29 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
     y += 14;
   }
 
-  // Historial de INGRESOS (préstamos): cada fecha en que entró dinero del cliente y el
-  // total adeudado acumulado tras ese ingreso. Si faltan filas (cuentas viejas), se
-  // sintetiza un "Saldo inicial" con la diferencia para que el acumulado cuadre con el total.
-  const ingOrden = [...ingresos].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
-  const sumIng = round2(ingOrden.reduce((s, i) => s + Number(i.monto || 0), 0));
-  const gap = round2(Number(cuenta.monto) - sumIng);
-  type FilaIng = { at: string; monto: number; nota: string };
-  const filasIngBase: FilaIng[] = ingOrden.map((i) => ({ at: i.at, monto: Number(i.monto || 0), nota: i.nota || '—' }));
-  if (gap > 0.01) filasIngBase.unshift({ at: cuenta.created_at, monto: gap, nota: 'Saldo inicial' });
+  // Historial de CARGOS (cada fecha en que aumentó lo que deben + acumulado).
+  const cgOrden = [...cargos].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  const sumCg = round2(cgOrden.reduce((s, i) => s + Number(i.monto || 0), 0));
+  const gap = round2(Number(cuenta.monto) - sumCg);
+  type FilaCg = { at: string; monto: number; nota: string };
+  const filasBase: FilaCg[] = cgOrden.map((i) => ({ at: i.at, monto: Number(i.monto || 0), nota: i.nota || '—' }));
+  if (gap > 0.01) filasBase.unshift({ at: cuenta.created_at, monto: gap, nota: 'Saldo inicial' });
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('Historial de ingresos (préstamos del ' + (cuenta.tipo === 'proveedor' ? 'proveedor' : 'cliente') + ')', MARGIN, y);
+  doc.text('Historial de cargos (lo que se le debe)', MARGIN, y);
   y += 6;
 
   let acum = 0;
-  const filasIng = filasIngBase.map((f) => {
+  const filasCg = filasBase.map((f) => {
     acum = round2(acum + f.monto);
     return [dateTime(f.at), montoStr(f.monto, moneda), montoStr(acum, moneda), f.nota];
   });
 
   autoTable(doc, {
     startY: y + 4,
-    head: [['Fecha de ingreso', 'Monto prestado', 'Total adeudado (acum.)', 'Nota']],
-    body: filasIng.length ? filasIng : [['—', 'Sin ingresos registrados', '—', '—']],
+    head: [['Fecha', 'Monto cargado', 'Total adeudado (acum.)', 'Nota']],
+    body: filasCg.length ? filasCg : [['—', 'Sin cargos registrados', '—', '—']],
     margin: MARGIN,
     styles: { fontSize: 8.5, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
@@ -108,7 +105,7 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
       2: { cellWidth: 110, halign: 'right' }, 3: { cellWidth: 'auto' },
     },
     foot: [[
-      { content: `${filasIng.length} ingreso(s) · Total prestado`, styles: { halign: 'right', fontStyle: 'bold' } },
+      { content: `${filasCg.length} cargo(s) · Total a cobrar`, styles: { halign: 'right', fontStyle: 'bold' } },
       { content: montoStr(cuenta.monto, moneda), styles: { halign: 'right', fontStyle: 'bold' } },
       { content: '', styles: {} }, { content: '', styles: {} },
     ]],
@@ -116,13 +113,13 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
   // @ts-expect-error lastAutoTable lo añade el plugin autoTable en runtime.
   y = (doc.lastAutoTable?.finalY ?? y) + 16;
 
-  // Historial de abonos.
+  // Historial de COBROS recibidos.
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('Historial de abonos', MARGIN, y);
+  doc.text('Historial de cobros', MARGIN, y);
   y += 6;
 
-  const filas = abonos.map((ab) => [
+  const filasCo = cobros.map((ab) => [
     dateTime(ab.at),
     montoStr(ab.monto, ab.moneda),
     ab.saldo_restante != null ? montoStr(ab.saldo_restante, ab.moneda) : '—',
@@ -131,8 +128,8 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
 
   autoTable(doc, {
     startY: y + 4,
-    head: [['Fecha', 'Abono', 'Saldo restante', 'Nota']],
-    body: filas.length ? filas : [['—', 'Sin abonos registrados', '—', '—']],
+    head: [['Fecha', 'Cobro', 'Saldo restante', 'Nota']],
+    body: filasCo.length ? filasCo : [['—', 'Sin cobros registrados', '—', '—']],
     margin: MARGIN,
     styles: { fontSize: 8.5, cellPadding: 4, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
@@ -141,8 +138,8 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
       2: { cellWidth: 100, halign: 'right' }, 3: { cellWidth: 'auto' },
     },
     foot: [[
-      { content: `${abonos.length} abono(s) · Total abonado`, styles: { halign: 'right', fontStyle: 'bold' } },
-      { content: montoStr(cuenta.abonado, moneda), styles: { halign: 'right', fontStyle: 'bold' } },
+      { content: `${cobros.length} cobro(s) · Total cobrado`, styles: { halign: 'right', fontStyle: 'bold' } },
+      { content: montoStr(cuenta.cobrado, moneda), styles: { halign: 'right', fontStyle: 'bold' } },
       { content: '', styles: {} }, { content: '', styles: {} },
     ]],
   });
@@ -150,21 +147,13 @@ async function construirDoc(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos
   return doc;
 }
 
-function nombreArchivo(cuenta: CuentaPorPagar): string {
-  const base = `cuenta-por-pagar-${cuenta.contraparte}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  return `${base || 'cuenta-por-pagar'}.pdf`;
+function nombreArchivo(cuenta: CuentaPorCobrar): string {
+  const base = `cuenta-por-cobrar-${cuenta.contraparte}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return `${base || 'cuenta-por-cobrar'}.pdf`;
 }
 
-/** Descarga la cuenta por pagar (con sus ingresos y abonos) como PDF. */
-export async function descargarCuentaPorPagarPdf(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos: IngresoCxP[] = []): Promise<void> {
-  const doc = await construirDoc(cuenta, abonos, ingresos);
+/** Descarga la cuenta por cobrar (con sus cargos y cobros) como PDF. */
+export async function descargarCuentaPorCobrarPdf(cuenta: CuentaPorCobrar, cargos: CargoCxC[], cobros: CobroCxC[]): Promise<void> {
+  const doc = await construirDoc(cuenta, cargos, cobros);
   doc.save(nombreArchivo(cuenta));
-}
-
-/** Genera el PDF y devuelve el base64 (sin prefijo) + nombre, para el correo. */
-export async function obtenerCuentaPorPagarBase64(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos: IngresoCxP[] = []): Promise<{ base64: string; nombre: string }> {
-  const doc = await construirDoc(cuenta, abonos, ingresos);
-  const dataUri = doc.output('datauristring');
-  const base64 = dataUri.split(',')[1] ?? '';
-  return { base64, nombre: nombreArchivo(cuenta) };
 }

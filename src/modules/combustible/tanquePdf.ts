@@ -28,7 +28,7 @@ async function construirDoc(
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 32;
+  const MARGIN = 42.52; // 1.5 cm
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
@@ -67,7 +67,7 @@ async function construirDoc(
     startY: y + 4,
     head: [['Fecha', 'Equipo', 'Autorizado', 'Ubicación', 'Observación', 'HI', 'HF', 'Hrs', 'Entrada', 'Uso', 'Traslado', 'Retorno', 'Saldo L', 'Tasa', '$ Mov.', 'Saldo $']],
     body,
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGIN,
     styles: { fontSize: 6.5, cellPadding: 2.5, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {

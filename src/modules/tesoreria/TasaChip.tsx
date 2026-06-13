@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { TasaHoy } from '@/shared/lib/types';
-import { getTasaHoy } from './tasas.repository';
+import { getTasaHoy, getTasasMercado, type TasasMercado } from './tasas.repository';
 import { HistorialTasasModal } from './HistorialTasasModal';
 
 /** Tasa (Bs por unidad) con 2 decimales, es-VE. */
@@ -17,25 +17,32 @@ function fechaCorta(iso: string | null): string {
   } catch { return iso; }
 }
 
-/** Chip de tasas BCV (USD/EUR del día) en el navbar. Clic → Historial de Tasas. */
+/** Chip de tasas en el navbar: BCV (USD/EUR del día) + Binance (USDT/VES) y margen. Clic → Historial de Tasas. */
 export function TasaChip() {
   const [tasa, setTasa] = useState<TasaHoy | null>(null);
+  const [mercado, setMercado] = useState<TasasMercado | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     getTasaHoy().then((t) => { if (!cancelled) setTasa(t); }).catch(() => { /* offline / sin desplegar */ });
+    getTasasMercado().then((m) => { if (!cancelled) setMercado(m); }).catch(() => { /* sin función desplegada */ });
     return () => { cancelled = true; };
   }, []);
 
   if (!tasa || tasa.usd == null) return null;
+
+  // Margen de ahorro pagando a BCV respecto a Binance: (Binance − BCV) / Binance.
+  const bin = mercado?.usdtVes ?? null;
+  const bcv = mercado?.bcvUsd ?? tasa.usd;
+  const margen = bin && bcv && bin > 0 ? ((bin - bcv) / bin) * 100 : null;
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title={`Tasa BCV (Bs por unidad) · ${tasa.fecha ?? ''} · clic para ver el historial`}
+        title={`Tasas (Bs por unidad) · BCV ${tasa.fecha ?? ''}${bin ? ` · Binance Bs ${r2(bin)}` : ''} · clic para ver el historial`}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: '.5rem',
           background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)',
@@ -46,6 +53,18 @@ export function TasaChip() {
         <span style={{ color: 'var(--brand, #ff8a00)', fontWeight: 700 }}>BCV</span>
         <span className="mono">$ {r2(tasa.usd)}</span>
         {tasa.eur != null && <span className="mono">€ {r2(tasa.eur)}</span>}
+        {bin != null && (
+          <>
+            <span className="muted" style={{ opacity: 0.5 }}>·</span>
+            <span style={{ color: '#f3ba2f', fontWeight: 700 }}>BIN</span>
+            <span className="mono">Bs {r2(bin)}</span>
+            {margen != null && (
+              <span className="mono" style={{ color: '#16c784', fontWeight: 700 }} title="Margen de ahorro pagando a BCV respecto a Binance">
+                ▼ {margen.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+              </span>
+            )}
+          </>
+        )}
         <span className="muted" style={{ fontSize: '.7rem' }}>{fechaCorta(tasa.fecha)}</span>
       </button>
       {open && <HistorialTasasModal tasaHoy={tasa} onClose={() => setOpen(false)} onRefreshed={setTasa} />}
