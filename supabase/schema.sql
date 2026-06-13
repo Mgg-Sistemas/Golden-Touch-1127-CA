@@ -797,12 +797,97 @@ create table if not exists public.cuentas_por_pagar_abonos (
   actor_name     text,
   at             timestamptz not null default now()
 );
+-- Historial de INGRESOS (préstamos) de una cuenta por pagar: cada vez que el mismo
+-- cliente/proveedor presta dinero, se suma a su cuenta y queda una fila con su fecha.
+create table if not exists public.cuentas_por_pagar_ingresos (
+  id             uuid primary key default gen_random_uuid(),
+  cuenta_id      uuid not null references public.cuentas_por_pagar(id) on delete cascade,
+  monto          numeric not null check (monto > 0),
+  moneda         text not null,
+  caja_id        uuid references public.cajas(id) on delete set null,
+  cuenta         text,
+  caja_mov_id    uuid,
+  total_adeudado numeric,   -- saldo adeudado tras este ingreso (acumulado − abonado)
+  nota           text,
+  actor          text,
+  actor_name     text,
+  at             timestamptz not null default now()
+);
+create index if not exists idx_cxp_ingresos_cuenta on public.cuentas_por_pagar_ingresos(cuenta_id);
 alter table public.cuentas_por_pagar enable row level security;
 alter table public.cuentas_por_pagar_abonos enable row level security;
+alter table public.cuentas_por_pagar_ingresos enable row level security;
 create policy "cxp read auth" on public.cuentas_por_pagar for select using (auth.role()='authenticated');
 create policy "cxp write operativo" on public.cuentas_por_pagar for all using (public.is_operativo()) with check (public.is_operativo());
 create policy "cxpa read auth" on public.cuentas_por_pagar_abonos for select using (auth.role()='authenticated');
 create policy "cxpa write operativo" on public.cuentas_por_pagar_abonos for all using (public.is_operativo()) with check (public.is_operativo());
+create policy "cxpi read auth" on public.cuentas_por_pagar_ingresos for select using (auth.role()='authenticated');
+create policy "cxpi write operativo" on public.cuentas_por_pagar_ingresos for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- ─────────────────────────────────────────────────────────────
+-- Cuentas por COBRAR: lo que un cliente/proveedor le debe a la empresa.
+-- Nace al pagar de más una cuenta por pagar (el excedente queda a favor); es
+-- INCREMENTAL (cargos acumulables del mismo cliente) y se cobra con abonos
+-- (entradas de dinero a caja).
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.cuentas_por_cobrar (
+  id          uuid primary key default gen_random_uuid(),
+  tipo        text not null check (tipo in ('cliente','proveedor')),
+  contraparte text not null,
+  monto       numeric not null default 0,   -- total que nos deben (acumulado)
+  cobrado     numeric not null default 0,   -- total ya recibido
+  moneda      text not null,
+  cuenta      text,
+  caja_id     uuid references public.cajas(id) on delete set null,
+  caja_mov_id uuid,
+  estado      text not null default 'abierta' check (estado in ('abierta','saldada')),
+  nota        text,
+  actor       text,
+  actor_name  text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz
+);
+-- Cargos que aumentan lo que nos deben (cada uno con su fecha + total adeudado tras él).
+create table if not exists public.cuentas_por_cobrar_cargos (
+  id             uuid primary key default gen_random_uuid(),
+  cuenta_id      uuid not null references public.cuentas_por_cobrar(id) on delete cascade,
+  monto          numeric not null check (monto > 0),
+  moneda         text not null,
+  caja_id        uuid references public.cajas(id) on delete set null,
+  cuenta         text,
+  caja_mov_id    uuid,
+  total_adeudado numeric,
+  nota           text,
+  actor          text,
+  actor_name     text,
+  at             timestamptz not null default now()
+);
+create index if not exists idx_cxc_cargos_cuenta on public.cuentas_por_cobrar_cargos(cuenta_id);
+-- Abonos = cobros recibidos (entradas de dinero), con saldo restante tras el cobro.
+create table if not exists public.cuentas_por_cobrar_abonos (
+  id             uuid primary key default gen_random_uuid(),
+  cuenta_id      uuid not null references public.cuentas_por_cobrar(id) on delete cascade,
+  monto          numeric not null check (monto > 0),
+  moneda         text not null,
+  caja_id        uuid references public.cajas(id) on delete set null,
+  cuenta         text,
+  caja_mov_id    uuid,
+  saldo_restante numeric,
+  nota           text,
+  actor          text,
+  actor_name     text,
+  at             timestamptz not null default now()
+);
+create index if not exists idx_cxc_abonos_cuenta on public.cuentas_por_cobrar_abonos(cuenta_id);
+alter table public.cuentas_por_cobrar enable row level security;
+alter table public.cuentas_por_cobrar_cargos enable row level security;
+alter table public.cuentas_por_cobrar_abonos enable row level security;
+create policy "cxc read auth"  on public.cuentas_por_cobrar for select using (auth.role()='authenticated');
+create policy "cxc write op"   on public.cuentas_por_cobrar for all using (public.is_operativo()) with check (public.is_operativo());
+create policy "cxcc read auth" on public.cuentas_por_cobrar_cargos for select using (auth.role()='authenticated');
+create policy "cxcc write op"  on public.cuentas_por_cobrar_cargos for all using (public.is_operativo()) with check (public.is_operativo());
+create policy "cxca read auth" on public.cuentas_por_cobrar_abonos for select using (auth.role()='authenticated');
+create policy "cxca write op"  on public.cuentas_por_cobrar_abonos for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- movimientos_caja: cuenta + tasa aplicada (multipago y trazabilidad).
 alter table public.movimientos_caja add column if not exists cuenta  text;
@@ -1998,7 +2083,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','transferencias_combustible_inter','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos','pedido_catalogos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','transferencias_combustible_inter','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos','cuentas_por_pagar_ingresos','cuentas_por_cobrar','cuentas_por_cobrar_cargos','cuentas_por_cobrar_abonos','pedido_catalogos']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

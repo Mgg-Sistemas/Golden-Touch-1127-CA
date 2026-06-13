@@ -13,7 +13,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   ]);
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const MARGIN = 36;
+  const MARGIN = 42.52; // 1.5 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 60 : MARGIN;
@@ -44,7 +44,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     startY: y, body: ficha, theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGIN,
   });
   doc.save(`compra-directa-${(compra.producto_sku ?? 'material')}-${compra.id.slice(0, 8)}.pdf`);
 }

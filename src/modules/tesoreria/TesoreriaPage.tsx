@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -17,7 +17,7 @@ import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
-import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti } from './cajaSaldos.repository';
+import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisaEnCaja } from './cajaSaldos.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
   listTransferenciasInter,
@@ -36,9 +36,14 @@ import {
   type Contraparte, type TipoContraparte,
 } from './contrapartes.repository';
 import {
-  crearCuentaPorPagar, listCuentasPorPagar, listAbonosCuenta, registrarAbonoCuenta,
-  type CuentaPorPagar, type AbonoCxP,
+  crearCuentaPorPagar, listCuentasPorPagar, listAbonosCuenta, listIngresosCuenta, registrarAbonoCuenta,
+  type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
+import {
+  listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro,
+  type CuentaPorCobrar, type CargoCxC, type CobroCxC,
+} from './cuentasPorCobrar.repository';
+import { descargarCuentaPorCobrarPdf } from './cuentaPorCobrarPdf';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMulti, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg,
@@ -87,7 +92,7 @@ export function TesoreriaPage() {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'conversor' | 'grafico' | 'contrapartes'>('none');
+  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes'>('none');
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
@@ -95,6 +100,7 @@ export function TesoreriaPage() {
   const [vista, setVista] = useState<'tesoreria' | 'tasas' | 'movimientos'>('tesoreria');
   const [correoMovOpen, setCorreoMovOpen] = useState(false);
   const [movSel, setMovSel] = useState<MovimientoCaja | null>(null);
+  const [resumenMovOpen, setResumenMovOpen] = useState(false);
 
   // Filtros del registro de movimientos
   const [fMoneda, setFMoneda] = useState<string>('');
@@ -125,7 +131,7 @@ export function TesoreriaPage() {
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
-  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos'], () => { void reload(); });
+  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos'], () => { void reload(); });
 
   useEffect(() => {
     setLoading(true);
@@ -216,6 +222,9 @@ export function TesoreriaPage() {
                     {creditosCount}
                   </span>
                 </button>
+                <button className="btn btn-primary" onClick={() => setModal('cobrar')} title="Lo que clientes/proveedores le deben a la empresa">
+                  💰 CUENTAS POR COBRAR
+                </button>
                 <button className={nominaCount > 0 ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModal('pago')}>
                   {nominaCount > 0 ? `💸 PAGAR NÓMINA (${nominaCount})` : '👥 Pago a personal'}
                 </button>
@@ -226,6 +235,7 @@ export function TesoreriaPage() {
               </>
             )}
             <button className="btn btn-ghost" onClick={() => setModal('conversor')}>💱 Conversor</button>
+            <button className="btn btn-ghost" onClick={() => setModal('calculadora')}>🧮 Calculadora</button>
             <button className="btn btn-ghost" onClick={() => setModal('grafico')}>📊 Tasas Binance</button>
             <button className="btn btn-ghost" onClick={() => setModal('tasas')}>📈 Historial Tasas</button>
           </div>
@@ -297,6 +307,7 @@ export function TesoreriaPage() {
                 try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
+              <button className="btn btn-sm btn-primary" onClick={() => setResumenMovOpen(true)}>📊 Resumen</button>
               {fBuscar.trim() && (
                 <span className="muted" style={{ fontSize: '.8rem' }}>
                   {libroView.length} de {libro.length} {libro.length === 1 ? 'movimiento' : 'movimientos'}
@@ -335,16 +346,19 @@ export function TesoreriaPage() {
       )}
 
       {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={actor} onClose={() => setMovSel(null)} />}
+      {resumenMovOpen && <ResumenMovimientosModal movimientos={libro} onClose={() => setResumenMovOpen(false)} />}
       {correoMovOpen && <EnviarReporteModal movs={libroView} meta={reporteMeta()} defaultEmail={actor} onClose={() => setCorreoMovOpen(false)} />}
       {modal === 'gasto' && <GastoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
       {modal === 'traslado' && <TrasladoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
       {modal === 'pago' && <NominaPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'cajas' && <GestionarCajasModal actor={actor} actorName={actorName} onClose={() => setModal('none')} onCambioAplicado={reload} />}
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
-      {modal === 'conversor' && <ConversorModal onClose={() => setModal('none')} />}
+      {modal === 'conversor' && <ConversorModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onConverted={reload} />}
+      {modal === 'calculadora' && <CalculadoraModal onClose={() => setModal('none')} />}
       {modal === 'grafico' && <GraficoTasasModal onClose={() => setModal('none')} />}
       {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
+      {modal === 'cobrar' && <CuentasPorCobrarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'contrapartes' && <ContrapartesModal onClose={() => setModal('none')} />}
       {cajaSel && <CajaDetalleModal caja={cajaSel} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCajaSel(null)} onChanged={async () => { await reload(); }} />}
     </div>
@@ -659,8 +673,6 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
   // La cuenta jurídica/personal solo aplica a Bs.
   useEffect(() => { setCuenta(moneda === 'Bs' ? 'juridica' : 'general'); }, [moneda]);
 
-  const totalBs = saldos.reduce((a, s) => a + equivBs(s), 0);
-
   async function agregarMoneda() {
     const code = nuevaMoneda.trim().toUpperCase();
     if (!code) { setNuevaMonedaOpen(false); return; }
@@ -723,7 +735,6 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
         <div className="card-title" style={{ marginBottom: '.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem' }}>
           <span>Saldos por cuenta / moneda</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
-            <span className="muted" style={{ fontSize: '.8rem' }}>Total: <strong className="mono">{monto(totalBs, 'Bs')}</strong></span>
             <button className="btn btn-sm btn-ghost" disabled={!movs.length} onClick={async () => {
               try { await descargarReportePdf(movs, { titulo: 'REPORTE DE CAJA', subtitulo: caja.nombre }); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
             }}>↓ PDF</button>
@@ -732,57 +743,18 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
         </div>
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.84rem' }}>
-            <thead><tr><th>Cuenta</th><th>Moneda</th><th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'right' }}>Tasa prom. (Bs)</th><th style={{ textAlign: 'right' }}>Equiv. Bs</th><th></th></tr></thead>
+            <thead><tr><th>Cuenta</th><th>Moneda</th><th style={{ textAlign: 'right' }}>Saldo</th><th></th></tr></thead>
             <tbody>
-              {loading && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-              {!loading && !saldos.length && <tr><td colSpan={6}><EmptyState message="Sin saldos · ingresá dinero abajo" /></td></tr>}
-              {!loading && saldos.map((s) => {
-                const bcv = mercado?.bcvUsd ?? null;
-                const prom = s.tasa_prom != null ? Number(s.tasa_prom) : null;
-                const saldoN = Number(s.saldo) || 0;
-                const mostrarBcvRow = s.moneda !== 'Bs' && bcv != null && prom != null && prom > 0;
-                const equivProm = prom != null ? saldoN * prom : 0;
-                const equivBcv = bcv != null ? saldoN * bcv : 0;
-                // Margen de ahorro: cuánto menos vale en Bs a tasa BCV respecto a la tasa promedio de compra.
-                const margen = mostrarBcvRow && prom && bcv != null ? ((prom - bcv) / prom) * 100 : null;
-                return (
-                  <Fragment key={s.id}>
-                    <tr>
-                      <td>{s.cuenta === 'general' ? '—' : s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}</td>
-                      <td><span className="badge">{s.moneda}</span></td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{monto(s.saldo, s.moneda)}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{s.moneda === 'Bs' ? (mercado?.bcvUsd ? `BCV ${Number(mercado.bcvUsd).toLocaleString('es-VE', { maximumFractionDigits: 4 })}` : '—') : (prom != null ? Number(prom).toLocaleString('es-VE', { maximumFractionDigits: 4 }) : '—')}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>
-                        {monto(equivBs(s), 'Bs')}
-                        {s.moneda === 'Bs' && mercado?.bcvUsd ? <div className="muted" style={{ fontSize: '.7rem' }}>≈ {monto(Number(s.saldo) / mercado.bcvUsd, 'USD')} a BCV</div> : null}
-                      </td>
-                      <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => verLotes(s)}>Trazabilidad</button></td>
-                    </tr>
-                    {mostrarBcvRow && (
-                      <tr style={{ background: 'var(--bg-1)' }}>
-                        <td></td>
-                        <td className="muted" style={{ fontSize: '.72rem' }}>≡ a BCV</td>
-                        <td className="mono muted" style={{ textAlign: 'right', fontSize: '.78rem' }}>—</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>BCV {Number(bcv).toLocaleString('es-VE', { maximumFractionDigits: 4 })}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>
-                          {monto(equivBcv, 'Bs')}
-                          <div className="muted" style={{ fontSize: '.7rem' }}>a tasa prom. {monto(equivProm, 'Bs')}</div>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          {margen != null && (
-                            <div style={{ lineHeight: 1.15 }}>
-                              <div className="muted" style={{ fontSize: '.6rem', letterSpacing: '.02em' }}>MARGEN AHORRO</div>
-                              <strong className="mono" style={{ color: '#16c784', fontWeight: 800, fontSize: '.98rem' }} title="Ahorro pagando a tasa BCV respecto a la tasa promedio de compra de este saldo">
-                                {margen.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %
-                              </strong>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
+              {loading && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+              {!loading && !saldos.length && <tr><td colSpan={4}><EmptyState message="Sin saldos · ingresá dinero abajo" /></td></tr>}
+              {!loading && saldos.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.cuenta === 'general' ? '—' : s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}</td>
+                  <td><span className="badge">{s.moneda}</span></td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{monto(s.saldo, s.moneda)}</td>
+                  <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => verLotes(s)}>Trazabilidad</button></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -1792,14 +1764,143 @@ function tasaCruzada(de: MonedaCaja, a: MonedaCaja, t: TasasMercado): number | n
   return round2(vd / va);
 }
 
-function ConversorModal({ onClose }: { onClose: () => void }) {
-  const [de, setDe] = useState<MonedaCaja>('USDT');
+/* ───────── Resumen de movimientos (gráfico + drill-down + filtro por fechas) ───────── */
+type CatResumen = 'ingresos' | 'egresos' | 'gastos';
+function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: MovimientoCaja[]; onClose: () => void }) {
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const monedas = useMemo(() => Array.from(new Set(movimientos.map((m) => m.moneda))).sort(), [movimientos]);
+  const [moneda, setMoneda] = useState<string>('');
+  const [drill, setDrill] = useState<CatResumen | null>(null);
+
+  // Moneda por defecto: la de mayor cantidad de movimientos.
+  useEffect(() => {
+    if (moneda || !movimientos.length) return;
+    const cnt: Record<string, number> = {};
+    movimientos.forEach((m) => { cnt[m.moneda] = (cnt[m.moneda] || 0) + 1; });
+    const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (top) setMoneda(top);
+  }, [movimientos, moneda]);
+
+  // Movimientos del rango + moneda elegida.
+  const enRango = useMemo(() => movimientos.filter((m) => {
+    if (moneda && m.moneda !== moneda) return false;
+    const dia = (m.at ?? '').slice(0, 10);
+    if (desde && dia < desde) return false;
+    if (hasta && dia > hasta) return false;
+    return true;
+  }), [movimientos, moneda, desde, hasta]);
+
+  const esEgreso = (m: MovimientoCaja) => m.tipo === 'salida' || m.tipo === 'traslado_salida' || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
+  const movIngresos = useMemo(() => enRango.filter((m) => m.tipo === 'ingreso' || m.tipo === 'traslado_entrada'), [enRango]);
+  const movEgresos = useMemo(() => enRango.filter(esEgreso), [enRango]);
+  const movGastos = useMemo(() => movEgresos.filter((m) => m.categoria === 'gasto'), [movEgresos]);
+
+  const sum = (arr: MovimientoCaja[]) => round2(arr.reduce((a, m) => a + (Number(m.monto) || 0), 0));
+  const totIngresos = sum(movIngresos);
+  const totEgresos = sum(movEgresos);
+  const totGastos = sum(movGastos);
+  const neto = round2(totIngresos - totEgresos);
+
+  const data: ChartPoint[] = [
+    { label: 'Ingresos', value: totIngresos, tooltip: `Ingresos: ${monto(totIngresos, moneda)}` },
+    { label: 'Egresos', value: totEgresos, tooltip: `Egresos: ${monto(totEgresos, moneda)}` },
+    { label: 'Gastos', value: totGastos, tooltip: `Gastos: ${monto(totGastos, moneda)}` },
+  ];
+
+  const drillMovs = drill === 'ingresos' ? movIngresos : drill === 'egresos' ? movEgresos : drill === 'gastos' ? movGastos : [];
+  const Card = ({ cat, titulo, valor, color }: { cat: CatResumen; titulo: string; valor: number; color: string }) => (
+    <div className="card" style={{ margin: 0, padding: '.6rem .85rem', cursor: 'pointer', borderColor: drill === cat ? color : undefined }}
+      onClick={() => setDrill((d) => d === cat ? null : cat)} title="Ver los movimientos">
+      <div className="muted" style={{ fontSize: '.68rem' }}>{titulo} 📊</div>
+      <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800, color }}>{monto(valor, moneda)}</div>
+    </div>
+  );
+
+  return (
+    <Modal title="📊 Resumen de movimientos" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.7rem' }}>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+          Desde <input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
+        </label>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+          Hasta <input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+        </label>
+        {(desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Fechas</button>}
+        <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value)} style={{ width: 'auto' }}>
+          {monedas.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <span className="muted" style={{ fontSize: '.78rem', marginLeft: 'auto' }}>{enRango.length} movimiento(s)</span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
+        <Card cat="ingresos" titulo="INGRESOS" valor={totIngresos} color="var(--success, #16c784)" />
+        <Card cat="egresos" titulo="EGRESOS" valor={totEgresos} color="var(--danger, #e5484d)" />
+        <Card cat="gastos" titulo="GASTOS" valor={totGastos} color="#f59e0b" />
+        <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+          <div className="muted" style={{ fontSize: '.68rem' }}>NETO (ingresos − egresos)</div>
+          <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800, color: neto < 0 ? 'var(--danger)' : 'var(--success)' }}>{monto(neto, moneda)}</div>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: '.8rem', marginBottom: '.75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Ingresos vs Egresos vs Gastos ({moneda})</span></div>
+        <BarChart data={data} yFormatter={(v) => monto(v, moneda)} emptyMessage="Sin movimientos en el período." />
+      </div>
+
+      <p className="muted" style={{ fontSize: '.74rem', margin: '0 0 .4rem' }}>📊 Tocá una tarjeta (Ingresos/Egresos/Gastos) para ver sus movimientos.</p>
+
+      {drill && (
+        <div className="table-wrap" style={{ maxHeight: 280, overflow: 'auto' }}>
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr><th>Fecha</th><th>Caja</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
+            <tbody>
+              {!drillMovs.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin movimientos.</td></tr>}
+              {drillMovs.map((m) => {
+                const concepto = [CAT_LABEL[m.categoria ?? ''], m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
+                const eg = esEgreso(m);
+                return (
+                  <tr key={m.id}>
+                    <td>{dateTime(m.at)}</td>
+                    <td>{m.caja?.nombre ?? '—'}</td>
+                    <td>{concepto}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: eg ? 'var(--danger)' : 'var(--success)' }}>{eg ? '−' : '+'}{monto(m.monto, m.moneda)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+              <td colSpan={3} style={{ textAlign: 'right' }}>Total {drill}</td>
+              <td className="mono" style={{ textAlign: 'right' }}>{monto(sum(drillMovs), moneda)}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
+  cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onConverted: () => void | Promise<void>;
+}) {
+  const [de, setDe] = useState<MonedaCaja>('USD');
   const [a, setA] = useState<MonedaCaja>('Bs');
   const [montoStr, setMontoStr] = useState('');
   const [tasaStr, setTasaStr] = useState('');
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
+  // Conversión real desde saldos: caja + cuentas Bs.
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [cuentaDe, setCuentaDe] = useState<CuentaCaja>('juridica');
+  const [cuentaA, setCuentaA] = useState<CuentaCaja>('juridica');
+  const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
+  useEffect(() => {
+    if (!cajaId) { setSaldos([]); return; }
+    saldosDeCaja(cajaId).then(setSaldos).catch(() => setSaldos([]));
+  }, [cajaId]);
 
   // Sugerencia de tasa al cambiar las monedas o cargar el mercado (editable).
   useEffect(() => {
@@ -1812,6 +1913,16 @@ function ConversorModal({ onClose }: { onClose: () => void }) {
   const tasaNum = Number(tasaStr) || 0;
   const resultado = round2(montoNum * tasaNum);
 
+  // Cuenta efectiva por moneda: Bs usa jurídica/personal; el resto, 'general'.
+  const ctaDe: CuentaCaja = de === 'Bs' ? cuentaDe : 'general';
+  const ctaA: CuentaCaja = a === 'Bs' ? cuentaA : 'general';
+  const saldoDe = saldos.find((s) => s.moneda === de && s.cuenta === ctaDe);
+  const dispDe = Number(saldoDe?.saldo) || 0;
+  // Bs por unidad de la moneda DESTINO (para su tasa promedio).
+  const tasaBsHacia = a === 'Bs' ? 1
+    : de === 'Bs' ? (tasaNum > 0 ? round2(1 / tasaNum) : 0)
+    : (mercado ? (tasaCruzada(a, 'Bs', mercado) ?? 0) : 0);
+
   function swap() { setDe(a); setA(de); }
   function usarMercado() {
     if (!mercado) return;
@@ -1819,14 +1930,45 @@ function ConversorModal({ onClose }: { onClose: () => void }) {
     if (sug != null) setTasaStr(String(sug));
   }
 
+  async function convertir() {
+    setError(null);
+    if (!cajaId) { setError('Elegí la caja.'); return; }
+    if (de === a) { setError('Elegí monedas distintas.'); return; }
+    if (montoNum <= 0) { setError('Indicá el monto a convertir.'); return; }
+    if (resultado <= 0) { setError('Indicá una tasa válida.'); return; }
+    if (montoNum > dispDe) { setError(`Saldo insuficiente en ${de}. Disponible: ${monto(dispDe, de)}.`); return; }
+    setSaving(true);
+    try {
+      await convertirDivisaEnCaja({
+        cajaId,
+        desde: { cuenta: ctaDe, moneda: de, monto: montoNum },
+        hacia: { cuenta: ctaA, moneda: a, monto: resultado },
+        tasaBsHacia, actor, actorName,
+      });
+      notify(`Conversión ${monto(montoNum, de)} → ${monto(resultado, a)}`, 'success', { link: '#/app/tesoreria' });
+      setMontoStr('');
+      setSaldos(await saldosDeCaja(cajaId));
+      await onConverted();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo convertir'); }
+    finally { setSaving(false); }
+  }
+
   return (
     <Modal title="Conversor multimoneda" size="md" onClose={onClose} footer={
-      <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Conversión con <strong>tasa personalizada</strong> (editable). La sugerencia toma el dólar
-        de <strong>Binance (USDT/VES)</strong> y la TRM del COP; la tasa <strong>BCV no se usa acá</strong> (queda en la barra superior). Se redondea a 2 decimales.
+        Convierte dinero <strong>entre los saldos de una caja</strong> (ej. USD → Bs) a una tasa <strong>editable</strong>.
+        Al <strong>Convertir</strong>, descuenta el monto del saldo de origen y suma el equivalente al de destino (queda como movimiento de conversión). La sugerencia toma <strong>Binance (USDT/VES)</strong> y la TRM del COP; la <strong>BCV no se usa acá</strong>.
       </p>
+
+      <div className="form-row" style={{ marginBottom: '.5rem' }}>
+        <label>Caja</label>
+        <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
+          {!cajas.length && <option value="">— sin cajas —</option>}
+          {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </select>
+      </div>
 
       <div className="form-grid">
         <div className="form-row">
@@ -1834,6 +1976,12 @@ function ConversorModal({ onClose }: { onClose: () => void }) {
           <select className="select" value={de} onChange={(e) => setDe(e.target.value as MonedaCaja)}>
             {MONEDAS_CONV.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
+          {de === 'Bs' && (
+            <select className="select" style={{ marginTop: '.3rem' }} value={cuentaDe} onChange={(e) => setCuentaDe(e.target.value as CuentaCaja)}>
+              <option value="juridica">Jurídica</option><option value="personal">Personal</option>
+            </select>
+          )}
+          <small className="muted">Disponible: {monto(dispDe, de)}</small>
         </div>
         <div className="form-row" style={{ alignSelf: 'end' }}>
           <button type="button" className="btn btn-ghost" onClick={swap} title="Invertir">⇄ Invertir</button>
@@ -1843,6 +1991,11 @@ function ConversorModal({ onClose }: { onClose: () => void }) {
           <select className="select" value={a} onChange={(e) => setA(e.target.value as MonedaCaja)}>
             {MONEDAS_CONV.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
+          {a === 'Bs' && (
+            <select className="select" style={{ marginTop: '.3rem' }} value={cuentaA} onChange={(e) => setCuentaA(e.target.value as CuentaCaja)}>
+              <option value="juridica">Jurídica</option><option value="personal">Personal</option>
+            </select>
+          )}
         </div>
       </div>
 
@@ -1869,6 +2022,145 @@ function ConversorModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.5rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '.6rem' }}>
+        <button className="btn btn-primary" onClick={() => void convertir()} disabled={saving || de === a || montoNum <= 0}>
+          {saving ? 'Convirtiendo…' : `⇄ Convertir ${de} → ${a}`}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────────── Calculadora (con historial + export PDF) ───────────── */
+
+/** Evalúa una expresión aritmética simple (+ − × ÷, paréntesis, decimales) sin eval. */
+function evalExpr(expr: string): number {
+  const s = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '.').replace(/\s+/g, '');
+  if (!/^[0-9.+\-*/()]+$/.test(s)) throw new Error('Expresión inválida');
+  const out: number[] = []; const ops: string[] = [];
+  const prec: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2 };
+  const apply = () => {
+    const op = ops.pop()!; const b = out.pop()!; const a = out.pop()!;
+    out.push(op === '+' ? a + b : op === '-' ? a - b : op === '*' ? a * b : a / b);
+  };
+  const toks = s.match(/(\d+\.?\d*|\.\d+|[+\-*/()])/g) ?? [];
+  let prev: string | null = null;
+  for (const t of toks) {
+    if (/^[\d.]/.test(t)) { out.push(parseFloat(t)); }
+    else if (t === '(') { ops.push(t); }
+    else if (t === ')') { while (ops.length && ops[ops.length - 1] !== '(') apply(); ops.pop(); }
+    else {
+      // Signo unario (ej. "-5" o "(-3)").
+      if ((t === '-' || t === '+') && (prev === null || prev === '(' || prev in prec)) { out.push(0); }
+      while (ops.length && ops[ops.length - 1] !== '(' && prec[ops[ops.length - 1]] >= prec[t]) apply();
+      ops.push(t);
+    }
+    prev = t;
+  }
+  while (ops.length) apply();
+  const r = out.pop();
+  if (r == null || !Number.isFinite(r)) throw new Error('Resultado inválido');
+  return Math.round(r * 1e6) / 1e6;
+}
+
+function CalculadoraModal({ onClose }: { onClose: () => void }) {
+  const [expr, setExpr] = useState('');
+  const [resultado, setResultado] = useState<string>('');
+  const [historial, setHistorial] = useState<{ expr: string; res: string }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const fmt = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 6 });
+
+  function push(s: string) { setError(null); setExpr((e) => e + s); }
+  function limpiar() { setExpr(''); setResultado(''); setError(null); }
+  function borrar() { setExpr((e) => e.slice(0, -1)); }
+  function calcular() {
+    if (!expr.trim()) return;
+    try {
+      const r = evalExpr(expr);
+      const res = fmt(r);
+      setResultado(res);
+      setHistorial((h) => [{ expr, res }, ...h].slice(0, 50));
+      setExpr(res.replace(/\./g, '').replace(/,/g, '.'));
+      setError(null);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
+  }
+
+  async function exportarPdf() {
+    if (!historial.length) { toast('No hay operaciones para exportar', 'error'); return; }
+    try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+      const MARGIN = 42.52; // 1.5 cm
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+      doc.text('CALCULADORA · OPERACIONES', MARGIN, MARGIN + 8);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      doc.text(`Generado: ${dateTime(new Date().toISOString())}`, MARGIN, MARGIN + 24);
+      autoTable(doc, {
+        startY: MARGIN + 40,
+        head: [['#', 'Operación', 'Resultado']],
+        body: historial.map((h, i) => [String(historial.length - i), h.expr, h.res]),
+        margin: MARGIN,
+        styles: { fontSize: 9, cellPadding: 5 },
+        headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 40 }, 2: { halign: 'right' } },
+      });
+      doc.save('calculadora-operaciones.pdf');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+  }
+
+  const teclas = ['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '0', '.', '(', ')'];
+
+  return (
+    <Modal title="🧮 Calculadora" size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={exportarPdf} disabled={!historial.length}>↓ PDF</button>
+        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      </>
+    }>
+      <div className="card" style={{ padding: '.6rem .8rem', marginBottom: '.6rem' }}>
+        <input className="input mono" value={expr} onChange={(e) => { setError(null); setExpr(e.target.value); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') calcular(); }} placeholder="0" style={{ textAlign: 'right', fontSize: '1.1rem' }} autoFocus />
+        <div className="mono" style={{ textAlign: 'right', fontSize: '1.7rem', fontWeight: 800, marginTop: '.3rem', minHeight: '2rem' }}>
+          {error ? <span style={{ color: 'var(--danger)', fontSize: '1rem' }}>{error}</span> : (resultado || '0')}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.4rem' }}>
+        <button className="btn btn-ghost" onClick={limpiar}>C</button>
+        <button className="btn btn-ghost" onClick={borrar}>⌫</button>
+        <button className="btn btn-ghost" onClick={() => push('+')}>+</button>
+        <button className="btn btn-ghost" onClick={() => push('/')}>÷</button>
+        {teclas.map((t) => (
+          <button key={t} className="btn btn-ghost" onClick={() => push(t === '÷' ? '/' : t === '×' ? '*' : t)}>{t}</button>
+        ))}
+        <button className="btn btn-primary" style={{ gridColumn: 'span 4' }} onClick={calcular}>=</button>
+      </div>
+
+      {historial.length > 0 && (
+        <div style={{ marginTop: '.8rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <strong style={{ fontSize: '.84rem' }}>Historial de operaciones</strong>
+            <button className="btn btn-sm btn-ghost" onClick={() => setHistorial([])}>Limpiar</button>
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 180, overflow: 'auto', marginTop: '.3rem' }}>
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>Operación</th><th style={{ textAlign: 'right' }}>Resultado</th></tr></thead>
+              <tbody>
+                {historial.map((h, i) => (
+                  <tr key={i} style={{ cursor: 'pointer' }} onClick={() => setExpr(h.res.replace(/\./g, '').replace(/,/g, '.'))} title="Usar este resultado">
+                    <td className="mono">{h.expr}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{h.res}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -1876,11 +2168,6 @@ function ConversorModal({ onClose }: { onClose: () => void }) {
 /* ───────────── Cajas multimoneda (saldos + lotes + promedio) ───────────── */
 
 const MONEDAS_CAJA: MonedaCaja[] = ['Bs', 'USD', 'USDT', 'COP'];
-/** Equivalente en Bs de un saldo según su tasa promedio (Bs por unidad). */
-function equivBs(s: CajaSaldo): number {
-  if (s.moneda === 'Bs') return Number(s.saldo) || 0;
-  return round2((Number(s.saldo) || 0) * (Number(s.tasa_prom) || 0));
-}
 
 
 /* ───────────── Tasas Binance (3 tasas del P2P, en barras) ───────────── */
@@ -2242,6 +2529,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   const [lista, setLista] = useState<CuentaPorPagar[]>([]);
   const [selId, setSelId] = useState<string>('');
   const [abonos, setAbonos] = useState<AbonoCxP[]>([]);
+  const [ingresos, setIngresos] = useState<IngresoCxP[]>([]);
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
   const [cuentaCaja, setCuentaCaja] = useState<string>('');
   const [montoStr, setMontoStr] = useState('');
@@ -2261,8 +2549,9 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   useEffect(() => {
-    if (!selId) { setAbonos([]); return; }
+    if (!selId) { setAbonos([]); setIngresos([]); return; }
     listAbonosCuenta(selId).then(setAbonos).catch(() => setAbonos([]));
+    listIngresosCuenta(selId).then(setIngresos).catch(() => setIngresos([]));
   }, [selId]);
 
   const sel = lista.find((c) => c.id === selId) ?? null;
@@ -2300,9 +2589,11 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
         cuenta: sel, cajaId, cuentaCaja: cuentaCaja as CuentaCaja, monto: m,
         nota: nota.trim() || null, actor, actorName,
       });
-      notify(r.cuenta.estado === 'saldada'
-        ? `Cuenta por pagar saldada · ${sel.contraparte}`
-        : `Abono ${monto(m, sel.moneda)} · ${sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
+      notify(r.exceso > 0.01
+        ? `Pago ${monto(m, sel.moneda)} · ${sel.contraparte} · excedente ${monto(r.exceso, sel.moneda)} → cuenta por cobrar`
+        : (r.cuenta.estado === 'saldada'
+          ? `Cuenta por pagar saldada · ${sel.contraparte}`
+          : `Abono ${monto(m, sel.moneda)} · ${sel.contraparte}`), 'success', { link: '#/app/tesoreria' });
       setMontoStr(''); setNota('');
       await cargar(); await onChanged();
       if (r.cuenta.estado !== 'saldada') await listAbonosCuenta(sel.id).then(setAbonos);
@@ -2400,6 +2691,29 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
             <button className="btn btn-primary btn-sm" onClick={abonar} disabled={saving || saldo <= 0}>{saving ? 'Registrando…' : 'Registrar abono'}</button>
           </div>
 
+          {/* Historial de INGRESOS (préstamos): cada fecha en que entró dinero del mismo cliente
+              y el total adeudado acumulado tras ese ingreso. */}
+          <strong style={{ fontSize: '.84rem' }}>Historial de ingresos (préstamos)</strong>
+          <div className="table-wrap" style={{ marginBottom: '.7rem', marginTop: '.3rem' }}>
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>Fecha de ingreso</th><th style={{ textAlign: 'right' }}>Monto prestado</th><th style={{ textAlign: 'right' }}>Total adeudado (acum.)</th><th>Nota</th></tr></thead>
+              <tbody>
+                {!ingresos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin ingresos registrados.</td></tr>}
+                {(() => { let acc = 0; return ingresos.map((ig) => {
+                  acc = round2(acc + Number(ig.monto || 0));
+                  return (
+                    <tr key={ig.id}>
+                      <td>{dateTime(ig.at)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ig.monto), ig.moneda)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(acc, ig.moneda)}</td>
+                      <td className="muted">{ig.nota || '—'}</td>
+                    </tr>
+                  );
+                }); })()}
+              </tbody>
+            </table>
+          </div>
+
           {/* Reportes de la cuenta por pagar: PDF y correo (mismo formato que los demás reportes). */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
             <strong style={{ fontSize: '.84rem' }}>Historial de abonos</strong>
@@ -2408,7 +2722,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                 className="btn btn-sm btn-ghost"
                 title="Descargar el reporte de esta cuenta por pagar en PDF"
                 onClick={async () => {
-                  try { await descargarCuentaPorPagarPdf(sel, abonos); }
+                  try { await descargarCuentaPorPagarPdf(sel, abonos, ingresos); }
                   catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
                 }}
               >↓ PDF</button>
@@ -2438,7 +2752,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
           </div>
 
           {correoCuentaOpen && (
-            <EnviarCuentaPorPagarModal cuenta={sel} abonos={abonos} defaultEmail={actor} onClose={() => setCorreoCuentaOpen(false)} />
+            <EnviarCuentaPorPagarModal cuenta={sel} abonos={abonos} ingresos={ingresos} defaultEmail={actor} onClose={() => setCorreoCuentaOpen(false)} />
           )}
         </>
       )}
@@ -2446,9 +2760,200 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   );
 }
 
+/* ───────── Cuentas por COBRAR (lo que nos deben) ───────── */
+function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: {
+  cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onChanged: () => void | Promise<void>;
+}) {
+  const [lista, setLista] = useState<CuentaPorCobrar[]>([]);
+  const [selId, setSelId] = useState<string>('');
+  const [cargos, setCargos] = useState<CargoCxC[]>([]);
+  const [cobros, setCobros] = useState<CobroCxC[]>([]);
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [cuentaCaja, setCuentaCaja] = useState<CuentaCaja>('general');
+  const [montoStr, setMontoStr] = useState('');
+  const [tasaStr, setTasaStr] = useState('');
+  const [nota, setNota] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const cs = await listCuentasPorCobrar(true);
+      setLista(cs);
+      setSelId((p) => (p && cs.some((c) => c.id === p)) ? p : (cs[0]?.id ?? ''));
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useRealtime(['cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos'], () => { void cargar(); });
+  useEffect(() => {
+    if (!selId) { setCargos([]); setCobros([]); return; }
+    listCargosCobrar(selId).then(setCargos).catch(() => setCargos([]));
+    listCobrosCuenta(selId).then(setCobros).catch(() => setCobros([]));
+  }, [selId]);
+
+  const sel = lista.find((c) => c.id === selId) ?? null;
+  // Cuenta destino del cobro: Bs → jurídica/personal; otras monedas → general.
+  useEffect(() => { if (sel) setCuentaCaja(sel.moneda === 'Bs' ? 'juridica' : 'general'); }, [sel]);
+  const saldo = sel ? round2(Number(sel.monto) - (Number(sel.cobrado) || 0)) : 0;
+  const esBs = sel?.moneda === 'Bs';
+
+  async function cobrar() {
+    setError(null);
+    if (!sel) return;
+    const m = Number(montoStr) || 0;
+    if (m <= 0) { setError('Indicá el monto a cobrar.'); return; }
+    if (!cajaId) { setError('Elegí la caja que recibe el dinero.'); return; }
+    if (!esBs && (Number(tasaStr) || 0) <= 0) { setError(`Indicá la tasa (Bs por ${sel.moneda}).`); return; }
+    setSaving(true);
+    try {
+      const r = await registrarCobro({
+        cuenta: sel, cajaId, cuentaCaja, monto: m, tasaBs: esBs ? 1 : (Number(tasaStr) || 0),
+        nota: nota.trim() || null, actor, actorName,
+      });
+      notify(r.cuenta.estado === 'saldada'
+        ? `Cuenta por cobrar saldada · ${sel.contraparte}`
+        : `Cobro ${monto(m, sel.moneda)} · ${sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
+      setMontoStr(''); setNota('');
+      await cargar(); await onChanged();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el cobro'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="💰 Cuentas por cobrar" size="xl" onClose={() => !saving && onClose()}
+      footer={<button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+        Lo que un cliente/proveedor le debe a la empresa. Nace al <strong>pagar de más</strong> una cuenta por pagar (el excedente queda a favor) y se cobra con <strong>abonos</strong> (entradas de dinero a la caja). Acumula los cargos del mismo cliente.
+      </p>
+      {loading ? <p className="muted">Cargando…</p> : !lista.length ? (
+        <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por cobrar. 🎉</p>
+      ) : (
+        <>
+          <div className="form-row" style={{ marginBottom: '.6rem' }}>
+            <label>Cuenta por cobrar ({lista.length})</label>
+            <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
+              options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.cobrado) || 0)), c.moneda)}` }))} />
+          </div>
+
+          {sel && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
+                <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+                  <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL A COBRAR</div>
+                  <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{monto(Number(sel.monto), sel.moneda)}</div>
+                </div>
+                <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+                  <div className="muted" style={{ fontSize: '.7rem' }}>COBRADO</div>
+                  <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{monto(Number(sel.cobrado) || 0, sel.moneda)}</div>
+                </div>
+                <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+                  <div className="muted" style={{ fontSize: '.7rem' }}>SALDO</div>
+                  <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{monto(saldo, sel.moneda)}</div>
+                </div>
+              </div>
+
+              {/* Registrar un cobro: ENTRA dinero a la caja elegida. */}
+              {saldo > 0.01 && (
+                <div className="card" style={{ marginBottom: '.75rem' }}>
+                  <div className="card-title"><span>Registrar cobro (entra a caja)</span></div>
+                  {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {error}</div>}
+                  <div className="form-grid">
+                    <div className="form-row">
+                      <label>Caja que recibe</label>
+                      <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
+                        {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                      </select>
+                    </div>
+                    {esBs ? (
+                      <div className="form-row">
+                        <label>Cuenta (Bs)</label>
+                        <select className="select" value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value as CuentaCaja)}>
+                          <option value="juridica">Jurídica</option>
+                          <option value="personal">Personal</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="form-row">
+                        <label>Tasa (Bs por {sel.moneda})</label>
+                        <input className="input mono" type="number" min={0} step="any" value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} placeholder="0.00" />
+                      </div>
+                    )}
+                    <div className="form-row">
+                      <label>Monto a cobrar ({sel.moneda})</label>
+                      <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} placeholder="0.00" />
+                      <small className="muted">Máx. {monto(saldo, sel.moneda)}</small>
+                    </div>
+                    <div className="form-row">
+                      <label>Nota <span className="muted">(opcional)</span></label>
+                      <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Nota del cobro" />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '.5rem' }}>
+                    <button className="btn btn-primary" onClick={() => void cobrar()} disabled={saving}>{saving ? 'Registrando…' : '＋ Registrar cobro'}</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Historial de cargos (incremental). */}
+              <strong style={{ fontSize: '.84rem' }}>Historial de cargos (lo que se le debe)</strong>
+              <div className="table-wrap" style={{ marginBottom: '.7rem', marginTop: '.3rem' }}>
+                <table className="table" style={{ fontSize: '.82rem' }}>
+                  <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Monto cargado</th><th style={{ textAlign: 'right' }}>Total adeudado (acum.)</th><th>Nota</th></tr></thead>
+                  <tbody>
+                    {!cargos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin cargos.</td></tr>}
+                    {(() => { let acc = 0; return cargos.map((cg) => {
+                      acc = round2(acc + Number(cg.monto || 0));
+                      return (
+                        <tr key={cg.id}>
+                          <td>{dateTime(cg.at)}</td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(cg.monto), cg.moneda)}</td>
+                          <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(acc, cg.moneda)}</td>
+                          <td className="muted">{cg.nota || '—'}</td>
+                        </tr>
+                      );
+                    }); })()}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Historial de cobros + PDF. */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
+                <strong style={{ fontSize: '.84rem' }}>Historial de cobros</strong>
+                <button className="btn btn-sm btn-ghost" title="Descargar el reporte en PDF"
+                  onClick={async () => {
+                    try { await descargarCuentaPorCobrarPdf(sel, cargos, cobros); }
+                    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+                  }}>↓ PDF</button>
+              </div>
+              <div className="table-wrap">
+                <table className="table" style={{ fontSize: '.82rem' }}>
+                  <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Cobro</th><th style={{ textAlign: 'right' }}>Saldo restante</th><th>Nota</th></tr></thead>
+                  <tbody>
+                    {!cobros.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin cobros.</td></tr>}
+                    {cobros.map((ab) => (
+                      <tr key={ab.id}>
+                        <td>{dateTime(ab.at)}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), ab.moneda)}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{ab.saldo_restante != null ? monto(Number(ab.saldo_restante), ab.moneda) : '—'}</td>
+                        <td className="muted">{ab.nota || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
 /* ───────── Enviar por correo el reporte de una cuenta por pagar ───────── */
-function EnviarCuentaPorPagarModal({ cuenta, abonos, defaultEmail, onClose }: {
-  cuenta: CuentaPorPagar; abonos: AbonoCxP[]; defaultEmail: string; onClose: () => void;
+function EnviarCuentaPorPagarModal({ cuenta, abonos, ingresos, defaultEmail, onClose }: {
+  cuenta: CuentaPorPagar; abonos: AbonoCxP[]; ingresos: IngresoCxP[]; defaultEmail: string; onClose: () => void;
 }) {
   const [incluirPropio, setIncluirPropio] = useState(true);
   const [extra, setExtra] = useState('');
@@ -2466,7 +2971,7 @@ function EnviarCuentaPorPagarModal({ cuenta, abonos, defaultEmail, onClose }: {
     }
     setEnviando(true);
     try {
-      const r = await enviarCuentaPorPagarPorCorreo(cuenta, abonos, lista);
+      const r = await enviarCuentaPorPagarPorCorreo(cuenta, abonos, lista, ingresos);
       notify(`Reporte enviado a ${r.destinatarios.join(', ')}`, 'success', { link: '#/app/tesoreria' });
       onClose();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar', 'error'); }

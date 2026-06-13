@@ -29,7 +29,7 @@ async function construirDoc(rows: TenorRow[], meta: TenorMeta = {}) {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 32;
+  const MARGIN = 42.52; // 1.5 cm
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 62 : MARGIN;
@@ -52,7 +52,7 @@ async function construirDoc(rows: TenorRow[], meta: TenorMeta = {}) {
     startY: y + 4,
     head: [['N° Contrato', 'Fecha', 'Ton procesadas', 'Kg Casiterita', 'Ton × 1000', 'Tenor %']],
     body,
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGIN,
     styles: { fontSize: 8.5, cellPadding: 4 },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right', fontStyle: 'bold' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } },

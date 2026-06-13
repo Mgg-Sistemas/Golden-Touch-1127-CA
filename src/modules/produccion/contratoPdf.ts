@@ -22,7 +22,7 @@ async function construirDoc(rows: ContratoAcopio[], meta: ContratoReporteMeta = 
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 28;
+  const MARGIN = 42.52; // 1.5 cm
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
@@ -64,7 +64,7 @@ async function construirDoc(rows: ContratoAcopio[], meta: ContratoReporteMeta = 
     startY: y + 4,
     head: [['N°', 'Fecha', 'Supervisor', 'Lugar', 'Molino', 'Ton', 'Tolva', 'Kg húm.', 'Kg secos', 'Kg s/limpio', '% Rec. Cas.', 'Kg Fe', '% Fe', 'Estado']],
     body,
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGIN,
     styles: { fontSize: 7, cellPadding: 2.5, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {

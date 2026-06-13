@@ -224,6 +224,71 @@ export async function trasladoEntreCajasMulti(input: {
   }
 }
 
+/**
+ * CONVIERTE dinero entre dos monedas DENTRO de la misma caja (desde saldos existentes).
+ * Ej.: 1000 USD → Bs a una tasa: descuenta 1000 del saldo USD y suma el equivalente al
+ * saldo Bs (o viceversa). Deja ambos movimientos en el libro con categoría 'conversion'.
+ */
+export async function convertirDivisaEnCaja(input: {
+  cajaId: string;
+  desde: { cuenta: CuentaCaja; moneda: string; monto: number };
+  hacia: { cuenta: CuentaCaja; moneda: string; monto: number };
+  /** Bs por 1 unidad de la moneda destino (1 si Bs) — para su tasa promedio. */
+  tasaBsHacia?: number | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const dMonto = round2(input.desde.monto);
+  const hMonto = round2(input.hacia.monto);
+  if (dMonto <= 0 || hMonto <= 0) throw new Error('Indicá montos válidos para convertir.');
+  if (input.desde.moneda === input.hacia.moneda && input.desde.cuenta === input.hacia.cuenta)
+    throw new Error('Elegí monedas (o cuentas) distintas para convertir.');
+  const now = new Date().toISOString();
+
+  // 1) Descontar del saldo ORIGEN (valida fondos).
+  const { data: orig } = await supabase.from(SALDOS).select('id, saldo, tasa_prom')
+    .eq('caja_id', input.cajaId).eq('cuenta', input.desde.cuenta).eq('moneda', input.desde.moneda).maybeSingle();
+  const saldoAntesO = Number(orig?.saldo) || 0;
+  if (dMonto > saldoAntesO)
+    throw new Error(`Saldo insuficiente en ${input.desde.moneda}${input.desde.cuenta !== 'general' ? ` (${input.desde.cuenta})` : ''}. Disponible: ${saldoAntesO}.`);
+  const saldoDespuesO = round2(saldoAntesO - dMonto);
+  await supabase.from(SALDOS).update({ saldo: saldoDespuesO, updated_at: now })
+    .eq('caja_id', input.cajaId).eq('cuenta', input.desde.cuenta).eq('moneda', input.desde.moneda);
+  await supabase.from('movimientos_caja').insert({
+    caja_id: input.cajaId, tipo: 'salida', monto: dMonto, moneda: input.desde.moneda, cuenta: input.desde.cuenta,
+    tasa_bs: input.desde.moneda === 'Bs' ? null : (Number(orig?.tasa_prom) || null),
+    saldo_antes: saldoAntesO, saldo_despues: saldoDespuesO,
+    motivo: `Conversión ${input.desde.moneda} → ${input.hacia.moneda}`, categoria: 'conversion',
+    actor: input.actor, actor_name: input.actorName ?? null,
+  });
+
+  // 2) Sumar al saldo DESTINO (recalcula promedio ponderado).
+  const esBsH = input.hacia.moneda === 'Bs';
+  const tasaH = esBsH ? 1 : round4(Number(input.tasaBsHacia) || 0);
+  const { data: dest } = await supabase.from(SALDOS).select('id, saldo, tasa_prom')
+    .eq('caja_id', input.cajaId).eq('cuenta', input.hacia.cuenta).eq('moneda', input.hacia.moneda).maybeSingle();
+  const saldoAntesD = Number(dest?.saldo) || 0;
+  const tasaDest = Number(dest?.tasa_prom) || 0;
+  const saldoDespuesD = round2(saldoAntesD + hMonto);
+  const nuevaTasa = esBsH ? 1
+    : (saldoAntesD > 0 && tasaDest > 0 ? round4((saldoAntesD * tasaDest + hMonto * tasaH) / saldoDespuesD) : (tasaH || tasaDest || 0));
+  await supabase.from(SALDOS).upsert(
+    { caja_id: input.cajaId, cuenta: input.hacia.cuenta, moneda: input.hacia.moneda, saldo: saldoDespuesD, tasa_prom: nuevaTasa, updated_at: now },
+    { onConflict: 'caja_id,cuenta,moneda' });
+  await supabase.from(LOTES).insert({
+    caja_id: input.cajaId, cuenta: input.hacia.cuenta, moneda: input.hacia.moneda,
+    monto: hMonto, tasa_bs: esBsH ? null : tasaH,
+    origen: `Conversión desde ${input.desde.moneda}`, motivo: `Conversión ${input.desde.moneda} → ${input.hacia.moneda}`,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  });
+  await supabase.from('movimientos_caja').insert({
+    caja_id: input.cajaId, tipo: 'ingreso', monto: hMonto, moneda: input.hacia.moneda, cuenta: input.hacia.cuenta,
+    tasa_bs: esBsH ? null : tasaH, saldo_antes: saldoAntesD, saldo_despues: saldoDespuesD,
+    motivo: `Conversión desde ${input.desde.moneda}`, categoria: 'conversion',
+    actor: input.actor, actor_name: input.actorName ?? null,
+  });
+}
+
 /** Ajusta (fija) el saldo y/o la tasa promedio de una (caja, cuenta, moneda). */
 export async function ajustarSaldoDivisa(input: {
   cajaId: string; cuenta: CuentaCaja; moneda: string; saldo: number; tasaProm?: number | null;

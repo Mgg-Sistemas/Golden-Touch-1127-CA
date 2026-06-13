@@ -79,7 +79,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 40;
+  const MARGIN = 42.52; // 1.5 cm
   let y = MARGIN;
 
   // ─── Header ────────────────────────────────────────────
@@ -136,7 +136,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 4 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 140 }, 1: { cellWidth: 'auto' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGIN,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
@@ -161,7 +161,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
     columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGIN,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
@@ -189,7 +189,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
       headStyles: { fillColor: [230, 230, 230], textColor: 20 },
       styles: { fontSize: 9, cellPadding: 4 },
       columnStyles: { 1: { halign: 'right' }, 4: { halign: 'right' } },
-      margin: { left: MARGIN, right: MARGIN },
+      margin: MARGIN,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
   }
@@ -221,7 +221,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 4 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180 }, 1: { cellWidth: 'auto' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGIN,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
@@ -253,7 +253,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 4 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180 }, 1: { cellWidth: 'auto' } },
-    margin: { left: MARGIN, right: MARGIN },
+    margin: MARGIN,
   });
 
   // ─── Footer ────────────────────────────────────────────
