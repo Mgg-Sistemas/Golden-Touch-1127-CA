@@ -208,10 +208,7 @@ export function PedidosPage() {
   }, []);
 
   // Realtime multiusuario: las órdenes/compras se reflejan al instante entre usuarios.
-  // PERO se pausa mientras hay un modal abierto: si un refresh llega mientras se
-  // está escribiendo (p. ej. el solicitante o la finalidad en «Nueva orden»), el
-  // re-render del formulario hace perder el foco y el campo se corta a medias.
-  useRealtime(['ordenes', 'productos'], () => { void refresh(); }, { enabled: modal.kind === 'none' });
+  useRealtime(['ordenes', 'productos'], () => { void refresh(); });
 
   useEffect(() => {
     let cancelled = false;
@@ -2500,10 +2497,15 @@ function CrearOrdenModal({
 
       <div className="form-row">
         <label>Solicitante</label>
+        {/* NO controlado (sin `value`): el DOM conserva lo tecleado aunque el modal
+            re-renderice; el estado se sincroniza para el guardado. Antes, con `value`
+            controlado, un re-render pisaba el campo y cortaba el nombre a medias. */}
         <input
           className="input"
-          value={solicitanteNombre}
+          autoComplete="off"
+          defaultValue={solicitanteNombre}
           onChange={(e) => setSolicitanteNombre(e.target.value.toUpperCase())}
+          style={{ textTransform: 'uppercase' }}
           placeholder="Nombre de quien solicita"
         />
       </div>
@@ -2576,7 +2578,7 @@ function CrearOrdenModal({
                   className="input"
                   style={{ width: '100%', fontSize: '.82rem' }}
                   placeholder="Finalidad de este producto (¿para qué se compra?)"
-                  value={it.finalidad ?? ''}
+                  defaultValue={it.finalidad ?? ''}
                   onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
                 />
               </div>
@@ -2756,7 +2758,7 @@ function EditarOrdenModal({
                   <div style={{ marginLeft: 34, display: 'grid', gap: '.3rem', marginTop: '.3rem' }}>
                     <input className="input" style={{ width: '100%', fontSize: '.82rem' }}
                       placeholder="Finalidad de este producto (¿para qué se compra?)"
-                      value={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
+                      defaultValue={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
                   </div>
                 )}
               </div>
