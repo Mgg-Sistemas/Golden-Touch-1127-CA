@@ -2273,6 +2273,10 @@ function CrearOrdenModal({
   // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
   const [notas, setNotas] = useState('');
+  // Lectura del DOM al guardar: el guardado toma SIEMPRE lo que está escrito en
+  // pantalla (solicitante, finalidad y nota), aunque algún re-render del modal no
+  // haya sincronizado el estado. Es la fuente de verdad al crear la orden.
+  const formRef = useRef<HTMLDivElement>(null);
   // Productos del inventario + los nuevos creados al vuelo en este modal.
   const [extraProductos, setExtraProductos] = useState<Producto[]>([]);
   const allProductos = useMemo(() => [...productos, ...extraProductos], [productos, extraProductos]);
@@ -2421,6 +2425,18 @@ function CrearOrdenModal({
       toast('Marcá al menos un artículo a comprar', 'error');
       return;
     }
+    // Fuente de verdad = lo que está escrito en pantalla AHORA (leído del DOM,
+    // antes de cualquier re-render del submit). Cae al estado si no hay DOM.
+    const root = formRef.current;
+    const solDom = root?.querySelector('input[name="op-solicitante"]') as HTMLInputElement | null;
+    const notaDom = root?.querySelector('textarea[name="op-nota"]') as HTMLTextAreaElement | null;
+    const finDoms = root ? (Array.from(root.querySelectorAll('input[data-fin-idx]')) as HTMLInputElement[]) : [];
+    const solicitanteFinal = ((solDom?.value ?? solicitanteNombre) || '').toUpperCase().trim();
+    const notaFinal = ((notaDom?.value ?? notas) || '').trim();
+    const itemsFinal = items.map((it, idx) => {
+      const dom = finDoms.find((d) => d.dataset.finIdx === String(idx));
+      return dom ? { ...it, finalidad: dom.value } : it;
+    });
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
@@ -2432,15 +2448,15 @@ function CrearOrdenModal({
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
         proveedor_id: null,
-        items,
-        notas: notas.trim() || null,
+        items: itemsFinal,
+        notas: notaFinal || null,
         motivo: null,
         finalidad: null,
         clasificacion: [],
         // El email queda como el de la cuenta que registra (auditoría); el nombre y CI
         // pueden ser los de otra persona (solicitud a su nombre).
         solicitante_email: email,
-        solicitante: solicitanteNombre.trim() || null,
+        solicitante: solicitanteFinal || null,
         unidad_solicitante: unidadSolicitante.trim() || null,
         ci_solicitante: null,
       });
@@ -2471,6 +2487,7 @@ function CrearOrdenModal({
         </>
       }
     >
+      <div ref={formRef}>
       <div className="form-grid">
         <div className="form-row">
           <label>Unidad solicitante</label>
@@ -2502,6 +2519,7 @@ function CrearOrdenModal({
             controlado, un re-render pisaba el campo y cortaba el nombre a medias. */}
         <input
           className="input"
+          name="op-solicitante"
           autoComplete="off"
           defaultValue={solicitanteNombre}
           onChange={(e) => setSolicitanteNombre(e.target.value.toUpperCase())}
@@ -2578,6 +2596,7 @@ function CrearOrdenModal({
                   className="input"
                   style={{ width: '100%', fontSize: '.82rem' }}
                   placeholder="Finalidad de este producto (¿para qué se compra?)"
+                  data-fin-idx={idx}
                   defaultValue={it.finalidad ?? ''}
                   onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
                 />
@@ -2642,8 +2661,9 @@ function CrearOrdenModal({
         <label>Nota <span className="muted">(opcional)</span></label>
         <textarea
           className="textarea"
+          name="op-nota"
           placeholder="Nota o justificación de la solicitud (opcional)"
-          value={notas}
+          defaultValue={notas}
           onChange={(e) => setNotas(e.target.value.toUpperCase())}
         />
       </div>
@@ -2651,6 +2671,7 @@ function CrearOrdenModal({
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>
         El precio lo fijará el proveedor al cargar su oferta. La solicitud queda sin monto hasta entonces.
       </p>
+      </div>
     </Modal>
   );
 }
