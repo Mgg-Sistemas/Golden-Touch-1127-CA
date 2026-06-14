@@ -227,9 +227,8 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
     if (input.scope === 'traslado') {
       if (!input.almacenDestino) throw new Error('Indicá el almacén destino.');
       if (input.almacenOrigen === input.almacenDestino) throw new Error('El almacén origen y destino deben ser distintos.');
-    } else if (!input.destino?.trim()) {
-      throw new Error('Indicá a quién va dirigida la salida.');
     }
+    // La salida de material NO lleva destino (a quién va dirigido): solo el traslado.
   } else {
     const monto = Number(input.monto) || 0;
     if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
