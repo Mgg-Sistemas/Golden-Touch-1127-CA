@@ -5,7 +5,6 @@ import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { DestinoSelect } from './DestinoSelect';
 
 export function SalidaMaterialForm({
   productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
@@ -41,7 +40,6 @@ export function SalidaMaterialForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [almacen, productosEnAlmacen]);
   const [cantidad, setCantidad] = useState('1');
-  const [destino, setDestino] = useState(almacenes[0] ?? '');
   const [motivo, setMotivo] = useState('');
   const [precio, setPrecio] = useState('0');
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
@@ -79,17 +77,16 @@ export function SalidaMaterialForm({
     if (!productoId) { setError('Elegí el producto.'); return; }
     if (cantNum <= 0) { setError('La cantidad debe ser mayor que 0.'); return; }
     if (cantNum > stock) { setError(`No hay stock suficiente en ${almacen}. Disponible: ${num(stock)}.`); return; }
-    if (!destino.trim()) { setError('Indicá a quién va dirigido.'); return; }
     setSaving(true);
     try {
       await crearSolicitudSalida({
         scope: 'salida', tipo: 'material',
         productoId, productoNombre: producto?.nombre ?? null, almacenOrigen: almacen,
-        cantidad: cantNum, destino: destino.trim(), motivo: motivo.trim() || null,
+        cantidad: cantNum, destino: null, motivo: motivo.trim() || null,
         precioUnit: precioNum || null, fechaEntrega: fechaEntrega || null,
         solicitante: actorName || actor, actor, actorName,
       });
-      notify(`Solicitud de salida creada: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
+      notify(`Solicitud de salida creada: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
     } catch (err) {
@@ -134,8 +131,6 @@ export function SalidaMaterialForm({
             {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>}
           </div>
         </div>
-
-        <DestinoSelect value={destino} onChange={setDestino} almacenes={almacenes} />
 
         <div className="form-grid">
           <div className="form-row">
