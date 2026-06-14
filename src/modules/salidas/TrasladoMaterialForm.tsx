@@ -1,10 +1,13 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
+import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 
 export function TrasladoMaterialForm({
   productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
@@ -37,11 +40,51 @@ export function TrasladoMaterialForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Unidad solicitante: mismo catálogo de OP (en vivo).
+  const [unidadSolicitante, setUnidadSolicitante] = useState('');
+  const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
+  const cargarUnidades = useCallback(async () => {
+    const uns = await listActivosPedido('unidad_solicitante').catch(() => [] as string[]);
+    setUnidadOpciones(uns);
+  }, []);
+  useEffect(() => { void cargarUnidades(); }, [cargarUnidades]);
+  useRealtime(['pedido_catalogos'], () => { void cargarUnidades(); });
+
+  async function agregarUnidadNueva() {
+    const v = nuevaUnidad.trim().toUpperCase();
+    if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
+    if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
+      setUnidadSolicitante(v); setNuevaUnidad(''); return;
+    }
+    try {
+      setAddingUnidad(true);
+      await addCatalogoPedido('unidad_solicitante', v).catch(() => { /* ya existe / sin permiso */ });
+      await cargarUnidades();
+      setUnidadSolicitante(v);
+      setNuevaUnidad('');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error');
+    } finally {
+      setAddingUnidad(false);
+    }
+  }
+
   const producto = activos.find((p) => p.id === productoId) ?? null;
-  const stock = Number(exMap.get(`${productoId}|${origen}`)?.stock) || 0;
+  const exSel = exMap.get(`${productoId}|${origen}`);
+  const stock = Number(exSel?.stock) || 0;
   const cantNum = Number(cantidad) || 0;
   const precioNum = Number(precio) || 0;
   const excede = cantNum > stock;
+
+  // Anclado al valor del material: el precio es el COSTO (PMP) del almacén de
+  // origen (el traslado lleva ese costo). No se edita a mano.
+  useEffect(() => {
+    const costoOrigen = Number(exSel?.costo_promedio) || 0;
+    setPrecio(String(costoOrigen || producto?.precio || 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productoId, origen]);
 
   function onCantidadChange(v: string) {
     const n = Number(v);
@@ -62,6 +105,7 @@ export function TrasladoMaterialForm({
         scope: 'traslado', tipo: 'material',
         productoId, productoNombre: producto?.nombre ?? null, almacenOrigen: origen, almacenDestino: destino,
         cantidad: cantNum, motivo: motivo.trim() || null, precioUnit: precioNum || null,
+        unidadSolicitante: unidadSolicitante.trim() || null,
         notaEntrega: notaOn ? (notaTexto.trim() || null) : null, fechaEntrega: fechaEntrega || null,
         solicitante: actorName || actor, actor, actorName,
       });
@@ -96,6 +140,30 @@ export function TrasladoMaterialForm({
             options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
         </div>
 
+        <div className="form-row">
+          <label>Sede</label>
+          <select className="select" value="Peramanal" disabled>
+            <option value="Peramanal">Peramanal</option>
+          </select>
+          <small className="muted">El traslado es entre sub-almacenes de Peramanal.</small>
+        </div>
+
+        <div className="form-row">
+          <label>Unidad solicitante</label>
+          <SearchSelect value={unidadSolicitante} onChange={(v) => setUnidadSolicitante(v.toUpperCase())}
+            options={unidadOpciones.map((u) => ({ value: u, label: u }))}
+            placeholder="Departamento / unidad que solicita" />
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+            <input className="input" value={nuevaUnidad} onChange={(e) => setNuevaUnidad(e.target.value.toUpperCase())}
+              placeholder="¿No está? Escribí la unidad nueva…"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
+            <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
+              {addingUnidad ? '…' : '+ Añadir'}
+            </button>
+          </div>
+          <small className="muted">Mismo catálogo compartido con OP (Pedidos → Categorías).</small>
+        </div>
+
         <div className="form-grid">
           <div className="form-row">
             <label>Almacén origen</label>
@@ -120,8 +188,8 @@ export function TrasladoMaterialForm({
           </div>
           <div className="form-row">
             <label>Precio unitario (USD)</label>
-            <input className="input mono" type="number" min={0} step="0.01" value={precio} onChange={(e) => setPrecio(e.target.value)} />
-            <small className="muted">Total: <strong className="mono">{money(precioNum * cantNum)}</strong></small>
+            <input className="input mono" value={money(precioNum)} readOnly tabIndex={-1} title="Costo (PMP) del almacén de origen · no editable" />
+            <small className="muted">Costo (PMP) del origen · Total: <strong className="mono">{money(precioNum * cantNum)}</strong></small>
           </div>
         </div>
 

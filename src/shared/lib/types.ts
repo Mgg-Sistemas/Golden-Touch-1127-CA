@@ -760,6 +760,7 @@ export interface SolicitudSalida {
   cuenta?: string | null;
   // comunes
   solicitante: string;
+  unidad_solicitante?: string | null;
   destino?: string | null;
   motivo?: string | null;
   historial: EventoHistorial[];

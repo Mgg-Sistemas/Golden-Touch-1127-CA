@@ -76,9 +76,6 @@ const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
 type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote';
 
-/** Área a la que pertenece cada producto de una OP. */
-const AREAS_OP = ['Administrativa', 'Producción'] as const;
-
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
   { key: 'pendiente', label: 'Pendiente' },
@@ -211,7 +208,10 @@ export function PedidosPage() {
   }, []);
 
   // Realtime multiusuario: las órdenes/compras se reflejan al instante entre usuarios.
-  useRealtime(['ordenes', 'productos'], () => { void refresh(); });
+  // PERO se pausa mientras hay un modal abierto: si un refresh llega mientras se
+  // está escribiendo (p. ej. el solicitante o la finalidad en «Nueva orden»), el
+  // re-render del formulario hace perder el foco y el campo se corta a medias.
+  useRealtime(['ordenes', 'productos'], () => { void refresh(); }, { enabled: modal.kind === 'none' });
 
   useEffect(() => {
     let cancelled = false;
@@ -2010,7 +2010,6 @@ function OrdenDetailModal({
             <th>SKU</th>
             <th>Producto</th>
             <th>Finalidad</th>
-            <th>Área</th>
             <th className="num">Cantidad</th>
             {conPrecio ? (
               <>
@@ -2029,7 +2028,6 @@ function OrdenDetailModal({
               <td className="mono">{it.sku}</td>
               <td>{it.nombre}</td>
               <td style={{ fontSize: '.84rem' }}>{it.finalidad?.trim() ? it.finalidad : <span className="muted">—</span>}</td>
-              <td style={{ fontSize: '.84rem' }}>{it.area?.trim() ? it.area : <span className="muted">—</span>}</td>
               <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
               {conPrecio ? (
                 <>
@@ -2281,6 +2279,13 @@ function CrearOrdenModal({
   // Productos del inventario + los nuevos creados al vuelo en este modal.
   const [extraProductos, setExtraProductos] = useState<Producto[]>([]);
   const allProductos = useMemo(() => [...productos, ...extraProductos], [productos, extraProductos]);
+  // Opciones del buscador de productos memoizadas: si se recalculan inline en cada
+  // render (al teclear en Solicitante/Finalidad), el SearchSelect se rehace y el
+  // input pierde el foco a las pocas letras. Memoizado, el tecleo es fluido.
+  const prodOptions = useMemo(
+    () => allProductos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` })),
+    [allProductos],
+  );
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
   const [codigo, setCodigo] = useState<string>('…');
   const [submitting, setSubmitting] = useState(false);
@@ -2564,7 +2569,7 @@ function CrearOrdenModal({
                 ✕
               </button>
             </div>
-            {/* Finalidad + Área de la compra de este producto en concreto (solo si se va a comprar). */}
+            {/* Finalidad de la compra de este producto en concreto (solo si se va a comprar). */}
             {comprar && (
               <div style={{ marginLeft: 34, display: 'grid', gap: '.3rem', marginTop: '.3rem' }}>
                 <input
@@ -2574,15 +2579,6 @@ function CrearOrdenModal({
                   value={it.finalidad ?? ''}
                   onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
                 />
-                <select
-                  className="select"
-                  style={{ width: '100%', fontSize: '.82rem' }}
-                  value={it.area ?? ''}
-                  onChange={(e) => updateItem(idx, { area: e.target.value || null })}
-                >
-                  <option value="">Área… (Administrativa / Producción)</option>
-                  {AREAS_OP.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
               </div>
             )}
             </div>
@@ -2594,7 +2590,7 @@ function CrearOrdenModal({
             style={{ flex: 1 }}
             value={prodSelectId}
             onChange={setProdSelectId}
-            options={allProductos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` }))}
+            options={prodOptions}
             placeholder="Buscar producto por nombre o SKU…"
             emptyText="Ningún producto coincide"
           />
@@ -2761,11 +2757,6 @@ function EditarOrdenModal({
                     <input className="input" style={{ width: '100%', fontSize: '.82rem' }}
                       placeholder="Finalidad de este producto (¿para qué se compra?)"
                       value={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
-                    <select className="select" style={{ width: '100%', fontSize: '.82rem' }}
-                      value={it.area ?? ''} onChange={(e) => updateItem(idx, { area: e.target.value || null })}>
-                      <option value="">Área… (Administrativa / Producción)</option>
-                      {AREAS_OP.map((a) => <option key={a} value={a}>{a}</option>)}
-                    </select>
                   </div>
                 )}
               </div>

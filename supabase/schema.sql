@@ -542,6 +542,7 @@ create table if not exists public.solicitudes_salida (
   monto           numeric check (monto is null or monto > 0), moneda text, cuenta text,
   -- comunes
   solicitante     text not null, destino text, motivo text,
+  unidad_solicitante text,                 -- unidad/depto que solicita (catálogo compartido con OP)
   historial       jsonb not null default '[]'::jsonb,
   aprobada_por    text, aprobada_en   timestamptz,
   ejecutada_por   text, ejecutada_en  timestamptz,
@@ -549,6 +550,8 @@ create table if not exists public.solicitudes_salida (
   actor           text, actor_name text,
   created_at      timestamptz not null default now()
 );
+-- Tabla preexistente: garantizar la columna nueva (idempotente).
+alter table public.solicitudes_salida add column if not exists unidad_solicitante text;
 create index if not exists idx_sol_salida_estado on public.solicitudes_salida(estado);
 create index if not exists idx_sol_salida_scope_tipo on public.solicitudes_salida(scope, tipo);
 -- RLS: lectura auth; escritura is_operativo() (el gate "obrero no aprueba" vive en el front).
@@ -2083,7 +2086,7 @@ end$$;
 do $$
 declare t text;
 begin
-  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','transferencias_combustible_inter','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos','cuentas_por_pagar_ingresos','cuentas_por_cobrar','cuentas_por_cobrar_cargos','cuentas_por_cobrar_abonos','pedido_catalogos']
+  foreach t in array array['movimientos_caja','caja_saldos','cajas','transferencias_inter','ordenes','productos','movimientos','combustible_solicitudes','compras_directas','combustible_catalogos','combustible_tanques','combustible_tanque_movimientos','combustible_conciliaciones','combustible_cubicaciones','combustible_medidores','transferencias_combustible_inter','personal','anticipos_prestamos','nomina_periodos','nomina_renglones','rrhh_eventos','almacenes','tesoreria_contrapartes','cuentas_por_pagar','cuentas_por_pagar_abonos','cuentas_por_pagar_ingresos','cuentas_por_cobrar','cuentas_por_cobrar_cargos','cuentas_por_cobrar_abonos','pedido_catalogos','solicitudes_salida']
   loop
     if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=t) then
       execute format('alter publication supabase_realtime add table public.%I', t);

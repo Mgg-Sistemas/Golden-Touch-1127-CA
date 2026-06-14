@@ -51,7 +51,7 @@ import {
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
-import { comprobantesDeOrden, urlRetencion, labelRetencionModo } from '@/modules/retenciones/retenciones.repository';
+import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
 import { descargarReportePdf, type ReporteMeta } from './reportePdf';
 import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
 import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
@@ -92,7 +92,7 @@ export function TesoreriaPage() {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes'>('none');
+  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes' | 'retencion'>('none');
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
@@ -238,6 +238,8 @@ export function TesoreriaPage() {
             <button className="btn btn-ghost" onClick={() => setModal('calculadora')}>🧮 Calculadora</button>
             <button className="btn btn-ghost" onClick={() => setModal('grafico')}>📊 Tasas Binance</button>
             <button className="btn btn-ghost" onClick={() => setModal('tasas')}>📈 Historial Tasas</button>
+            <button className="btn btn-ghost" onClick={() => setResumenMovOpen(true)}>📊 Resumen de movimientos</button>
+            <button className="btn btn-ghost" onClick={() => setModal('retencion')}>🧾 Retención</button>
           </div>
 
           {/* Saldos por caja (multimoneda; clic = detalle, ingreso, trazabilidad) */}
@@ -307,7 +309,6 @@ export function TesoreriaPage() {
                 try { await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
-              <button className="btn btn-sm btn-primary" onClick={() => setResumenMovOpen(true)}>📊 Resumen</button>
               {fBuscar.trim() && (
                 <span className="muted" style={{ fontSize: '.8rem' }}>
                   {libroView.length} de {libro.length} {libro.length === 1 ? 'movimiento' : 'movimientos'}
@@ -352,6 +353,7 @@ export function TesoreriaPage() {
       {modal === 'traslado' && <TrasladoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
       {modal === 'pago' && <NominaPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'cajas' && <GestionarCajasModal actor={actor} actorName={actorName} onClose={() => setModal('none')} onCambioAplicado={reload} />}
+      {modal === 'retencion' && <RetencionesTesoreriaModal onClose={() => setModal('none')} />}
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
       {modal === 'conversor' && <ConversorModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onConverted={reload} />}
       {modal === 'calculadora' && <CalculadoraModal onClose={() => setModal('none')} />}
@@ -1845,10 +1847,14 @@ function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: Movimi
 
       <div className="card" style={{ padding: '.8rem', marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Ingresos vs Egresos vs Gastos ({moneda})</span></div>
-        <BarChart data={data} yFormatter={(v) => monto(v, moneda)} emptyMessage="Sin movimientos en el período." />
+        <BarChart data={data} yFormatter={(v) => monto(v, moneda)} emptyMessage="Sin movimientos en el período."
+          onBarClick={(_, i) => {
+            const cat: CatResumen = i === 0 ? 'ingresos' : i === 1 ? 'egresos' : 'gastos';
+            setDrill((d) => d === cat ? null : cat);
+          }} />
       </div>
 
-      <p className="muted" style={{ fontSize: '.74rem', margin: '0 0 .4rem' }}>📊 Tocá una tarjeta (Ingresos/Egresos/Gastos) para ver sus movimientos.</p>
+      <p className="muted" style={{ fontSize: '.74rem', margin: '0 0 .4rem' }}>📊 Tocá una barra o una tarjeta (Ingresos/Egresos/Gastos) para ver sus movimientos.</p>
 
       {drill && (
         <div className="table-wrap" style={{ maxHeight: 280, overflow: 'auto' }}>
@@ -1876,6 +1882,118 @@ function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: Movimi
           </table>
         </div>
       )}
+    </Modal>
+  );
+}
+
+/* ───────── Retenciones listas (vista desde Tesorería: detalle + comprobante + OC + estado pago) ───────── */
+function RetencionesTesoreriaModal({ onClose }: { onClose: () => void }) {
+  const [items, setItems] = useState<RetencionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sel, setSel] = useState<RetencionItem | null>(null);
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try { setItems(await listRetencionesHechas()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las retenciones', 'error'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void cargar(); }, [cargar]);
+  // En vivo: al pagar una OC (retencion_pagada) o finalizar una retención, se refleja al instante.
+  useRealtime(['ordenes'], () => { void cargar(); });
+
+  // Mantiene sincronizado el detalle abierto con la última data (p. ej. pasó a "Pagada").
+  const selLive = sel ? (items.find((i) => i.orden.id === sel.orden.id) ?? sel) : null;
+
+  async function descargar(path: string) {
+    try { window.open(await urlRetencion(path), '_blank', 'noopener'); }
+    catch { toast('No se pudo abrir el comprobante', 'error'); }
+  }
+
+  const footer = <button className="btn btn-primary" onClick={onClose}>Cerrar</button>;
+
+  return (
+    <Modal title="🧾 Retenciones listas" size="lg" onClose={onClose} footer={footer}>
+      <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .6rem' }}>
+        Retenciones <strong>finalizadas</strong> (con sus comprobantes cargados), listas para pagar. Al pagar la OC se marcan como <strong>pagadas</strong> automáticamente y se reflejan acá y en el módulo de Retenciones.
+      </p>
+
+      {loading && <EmptyState message="Cargando…" />}
+      {!loading && !items.length && <EmptyState message="No hay retenciones finalizadas." />}
+
+      {!loading && items.length > 0 && (
+        <div className="table-wrap" style={{ maxHeight: 300, overflow: 'auto', marginBottom: selLive ? '.85rem' : 0 }}>
+          <table className="table" style={{ fontSize: '.84rem' }}>
+            <thead><tr><th>OC</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>Total</th><th>Finalizada</th><th style={{ textAlign: 'center' }}>Estado</th><th></th></tr></thead>
+            <tbody>
+              {items.map((it) => {
+                const o = it.orden;
+                const activo = selLive?.orden.id === o.id;
+                return (
+                  <tr key={o.id} style={{ cursor: 'pointer', background: activo ? 'var(--bg-1)' : undefined }} onClick={() => setSel(it)}>
+                    <td className="mono">{o.oc_codigo ?? o.codigo}</td>
+                    <td>{it.proveedorNombre}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{monto(o.total, 'USD')}</td>
+                    <td>{o.retencion_finalizada_en ? fmtDate(o.retencion_finalizada_en) : '—'}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {o.retencion_pagada
+                        ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span>
+                        : <span className="badge" style={{ color: 'var(--warning)' }}>Por pagar</span>}
+                    </td>
+                    <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); setSel(it); }}>🔍 Ver</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {selLive && (() => {
+        const o = selLive.orden;
+        const comprobantes = comprobantesDeOrden(o);
+        return (
+          <div className="card" style={{ margin: 0 }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la retención · OC {o.oc_codigo ?? o.codigo}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
+              <div><span className="muted">OC:</span> <strong className="mono">{o.oc_codigo ?? o.codigo}</strong></div>
+              <div><span className="muted">Proveedor:</span> <strong>{selLive.proveedorNombre}</strong></div>
+              <div><span className="muted">Modo retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
+              <div><span className="muted">Total OC:</span> <strong className="mono">{monto(o.total, 'USD')}</strong></div>
+              <div><span className="muted">Finalizada:</span> {o.retencion_finalizada_en ? dateTime(o.retencion_finalizada_en) : '—'}</div>
+              <div><span className="muted">Tesorería:</span> {o.retencion_pagada
+                ? <strong style={{ color: 'var(--success)' }}>✓ Pagada{o.retencion_pagada_en ? ` · ${dateTime(o.retencion_pagada_en)}` : ''}</strong>
+                : <strong style={{ color: 'var(--warning)' }}>Por pagar</strong>}</div>
+            </div>
+
+            {/* Ítems de la OC */}
+            <div className="table-wrap" style={{ marginTop: '.55rem' }}>
+              <table className="table" style={{ fontSize: '.82rem' }}>
+                <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
+                <tbody>
+                  {(o.items ?? []).map((it, i) => (
+                    <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{Number(it.cantidad).toLocaleString('es-VE', { maximumFractionDigits: 2 })}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, 'USD')}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Comprobantes */}
+            <div className="card-title" style={{ margin: '.7rem 0 .35rem' }}>Comprobantes</div>
+            {comprobantes.length === 0 && <div className="muted" style={{ fontSize: '.84rem' }}>Sin comprobantes cargados.</div>}
+            <div style={{ display: 'grid', gap: '.35rem' }}>
+              {comprobantes.map((c) => (
+                <div key={c.tipo} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', fontSize: '.85rem' }}>
+                  <span><span className="badge">{c.label}</span> <span className="muted">{c.nombre}</span></span>
+                  <button className="btn btn-sm btn-ghost" onClick={() => descargar(c.path)}>📎 Descargar</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </Modal>
   );
 }
