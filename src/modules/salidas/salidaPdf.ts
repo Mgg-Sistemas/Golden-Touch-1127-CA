@@ -206,6 +206,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     ] as Array<[string, string]>) : []),
     ['Motivo de la salida', sol.motivo || '—'],
     ['Solicitado por', sol.solicitante || '—'],
+    ...(sol.unidad_solicitante ? [['Unidad solicitante', sol.unidad_solicitante] as [string, string]] : []),
     ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
     ['Autorizado por', autorizo || '— (pendiente de aprobación) —'],

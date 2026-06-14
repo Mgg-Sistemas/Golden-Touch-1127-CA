@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
+import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 
 export function SalidaMaterialForm({
   productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
@@ -46,6 +49,38 @@ export function SalidaMaterialForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Unidad solicitante: MISMO catálogo de OP (Pedidos). En vivo: si se agrega en
+  // OP o acá, se refleja al instante en ambos lados.
+  const [unidadSolicitante, setUnidadSolicitante] = useState('');
+  const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
+  const cargarUnidades = useCallback(async () => {
+    const uns = await listActivosPedido('unidad_solicitante').catch(() => [] as string[]);
+    setUnidadOpciones(uns);
+  }, []);
+  useEffect(() => { void cargarUnidades(); }, [cargarUnidades]);
+  useRealtime(['pedido_catalogos'], () => { void cargarUnidades(); });
+
+  async function agregarUnidadNueva() {
+    const v = nuevaUnidad.trim().toUpperCase();
+    if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
+    if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
+      setUnidadSolicitante(v); setNuevaUnidad(''); return;
+    }
+    try {
+      setAddingUnidad(true);
+      await addCatalogoPedido('unidad_solicitante', v).catch(() => { /* ya existe / sin permiso */ });
+      await cargarUnidades();
+      setUnidadSolicitante(v);
+      setNuevaUnidad('');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error');
+    } finally {
+      setAddingUnidad(false);
+    }
+  }
+
   const producto = activos.find((p) => p.id === productoId) ?? null;
   const exSel = exMap.get(`${productoId}|${almacen}`);
   const stock = Number(exSel?.stock) || 0;
@@ -62,11 +97,12 @@ export function SalidaMaterialForm({
     setCantidad(v);
   }
 
-  // Precarga el precio desde el inventario: precio de venta si existe, si no el
-  // costo (PMP) del almacén, y como último recurso el precio global del producto.
+  // Anclado al VALOR del material: el precio unitario es el COSTO (PMP) de ese
+  // almacén. Ej.: caja de 10 lápices que costó 100 → 10 c/u; al sacar 1, el stock
+  // restante (9) representa 90. Si el almacén no tiene PMP, cae al costo global.
   useEffect(() => {
     const costoAlmacen = Number(exSel?.costo_promedio) || 0;
-    const precioInv = producto?.precio_venta ?? (costoAlmacen || producto?.precio || 0);
+    const precioInv = costoAlmacen || producto?.precio || 0;
     setPrecio(String(precioInv ?? 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productoId, almacen]);
@@ -83,6 +119,7 @@ export function SalidaMaterialForm({
         scope: 'salida', tipo: 'material',
         productoId, productoNombre: producto?.nombre ?? null, almacenOrigen: almacen,
         cantidad: cantNum, destino: null, motivo: motivo.trim() || null,
+        unidadSolicitante: unidadSolicitante.trim() || null,
         precioUnit: precioNum || null, fechaEntrega: fechaEntrega || null,
         solicitante: actorName || actor, actor, actorName,
       });
@@ -110,11 +147,38 @@ export function SalidaMaterialForm({
       <form id="salida-mat-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Sede origen</label>
+            <select className="select" value="Peramanal" disabled>
+              <option value="Peramanal">Peramanal</option>
+            </select>
+            <small className="muted">Centro de acopio principal.</small>
+          </div>
+          <div className="form-row">
+            <label>Almacén origen</label>
+            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
+              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <small className="muted">Sub-almacén de Peramanal.</small>
+          </div>
+        </div>
+
         <div className="form-row">
-          <label>Almacén origen</label>
-          <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-            {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
+          <label>Unidad solicitante</label>
+          {/* Mismo catálogo de OP (en vivo). */}
+          <SearchSelect value={unidadSolicitante} onChange={(v) => setUnidadSolicitante(v.toUpperCase())}
+            options={unidadOpciones.map((u) => ({ value: u, label: u }))}
+            placeholder="Departamento / unidad que solicita" />
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+            <input className="input" value={nuevaUnidad} onChange={(e) => setNuevaUnidad(e.target.value.toUpperCase())}
+              placeholder="¿No está? Escribí la unidad nueva…"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
+            <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
+              {addingUnidad ? '…' : '+ Añadir'}
+            </button>
+          </div>
+          <small className="muted">La unidad nueva queda guardada en el catálogo compartido con OP (Pedidos → Categorías).</small>
         </div>
 
         <div className="form-grid">

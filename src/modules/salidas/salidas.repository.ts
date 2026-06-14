@@ -195,6 +195,7 @@ export interface CrearSolicitudSalidaInput {
   scope: ScopeSalida;
   tipo: TipoSalida;
   solicitante: string;
+  unidadSolicitante?: string | null;
   destino?: string | null;
   motivo?: string | null;
   // material
@@ -264,6 +265,7 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       moneda: input.moneda ?? null,
       cuenta: input.cuenta ?? null,
       solicitante: input.solicitante.trim(),
+      unidad_solicitante: input.unidadSolicitante?.trim() || null,
       destino: input.destino?.trim() || null,
       motivo: input.motivo?.trim() || null,
       historial,

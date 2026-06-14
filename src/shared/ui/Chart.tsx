@@ -161,7 +161,7 @@ export function HBarChart({ data, color, yFormatter = String, emptyMessage }: Ba
   );
 }
 
-export function BarChart({ data, height = 220, color = '#10b981', yFormatter = String, emptyMessage }: BaseProps) {
+export function BarChart({ data, height = 220, color = '#10b981', yFormatter = String, emptyMessage, onBarClick }: BaseProps & { onBarClick?: (point: ChartPoint, index: number) => void }) {
   const width = 720;
 
   // Cuando hay muchas barras o nombres largos, las etiquetas horizontales se
@@ -224,7 +224,19 @@ export function BarChart({ data, height = 220, color = '#10b981', yFormatter = S
         const mostrar = i % showEvery === 0 || i === bars.length - 1;
         return (
           <g key={i}>
-            <rect x={b.x} y={b.y} width={b.w} height={b.h} fill={color} rx={3} />
+            {/* Zona clicable: cubre todo el slot (incluso si la barra es 0) para el drill-down. */}
+            {onBarClick && (
+              <rect
+                x={b.x - (b.w * 0.215)} y={PAD.top} width={b.w / 0.7} height={innerH}
+                fill="transparent" style={{ cursor: 'pointer' }}
+                onClick={() => onBarClick(b.pt, i)}
+              />
+            )}
+            <rect
+              x={b.x} y={b.y} width={b.w} height={b.h} fill={color} rx={3}
+              style={onBarClick ? { cursor: 'pointer' } : undefined}
+              onClick={onBarClick ? () => onBarClick(b.pt, i) : undefined}
+            />
             <title>{b.pt.tooltip ?? `${b.pt.label}: ${yFormatter(b.pt.value)}`}</title>
             {mostrar && (
               <text
