@@ -21,7 +21,7 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, gastosDetalleCategoria, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
 import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
@@ -374,13 +374,14 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
             <thead><tr><th>Categoría</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>% del total gastado</th></tr></thead>
             <tbody>
               {filas.map((c) => {
-                const clickable = !!onCat && esCategoriaVehiculo(c.valor);
+                const clickable = !!onCat;
+                const titulo = esCategoriaVehiculo(c.valor) ? 'Ver gasto por equipo' : 'Ver detalle del gasto';
                 return (
                 <tr key={c.valor}
                   onClick={clickable ? () => onCat!(c.valor) : undefined}
                   style={clickable ? { cursor: 'pointer' } : undefined}
-                  title={clickable ? 'Ver consumo por equipo' : undefined}>
-                  <td>{c.valor}{clickable && <span className="muted" style={{ marginLeft: '.4rem' }} title="Ver consumo por equipo">📊</span>}</td>
+                  title={clickable ? titulo : undefined}>
+                  <td>{c.valor}{clickable && <span className="muted" style={{ marginLeft: '.4rem' }} title={titulo}>📊</span>}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(c.monto)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{pct(c.pct)}</td>
                 </tr>
@@ -452,7 +453,7 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
           </div>
 
           <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" onCat={setConsumoCat} />
-          <p className="muted" style={{ fontSize: '.74rem', margin: '.35rem 0 0' }}>📊 Las categorías de vehículo/maquinaria son clicables: muestran el gasto por equipo.</p>
+          <p className="muted" style={{ fontSize: '.74rem', margin: '.35rem 0 0' }}>📊 Todas las categorías son clicables: muestran el detalle del gasto con gráfica (las de vehículo/maquinaria, por equipo; el resto, por descripción).</p>
           <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" />
         </>
       )}
@@ -470,17 +471,23 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
         />
       )}
 
-      {consumoCat && (
-        <ConsumoChartModal
-          title={`Consumo por equipo · ${consumoCat}`}
-          subtitle="Gasto por equipo/vehículo de esta categoría. «Valor» = gasto en $; «Cantidad» = nº de movimientos. Respeta el rango del resumen."
-          cargar={async (d, h) => {
-            const items = await consumoGastosPorEquipo({ categoria: consumoCat, desde: desde || d.toISOString().slice(0, 10), hasta: hasta || h.toISOString().slice(0, 10) });
-            return items.map((x) => ({ id: x.id, label: x.nombre, unidad: 'mov', cantidad: x.cantidad, valor: x.valor }));
-          }}
-          onClose={() => setConsumoCat(null)}
-        />
-      )}
+      {consumoCat && (() => {
+        const porEquipo = esCategoriaVehiculo(consumoCat);
+        return (
+          <ConsumoChartModal
+            title={`${porEquipo ? 'Gasto por equipo' : 'Detalle del gasto'} · ${consumoCat}`}
+            subtitle={porEquipo
+              ? 'Gasto por equipo/vehículo de esta categoría. «Valor» = gasto en $; «Cantidad» = nº de movimientos. Respeta el rango del resumen.'
+              : 'Detalle del gasto de esta categoría agrupado por descripción. «Valor» = gasto en $; «Cantidad» = nº de movimientos. Respeta el rango del resumen.'}
+            cargar={async (d, h) => {
+              const args = { categoria: consumoCat, desde: desde || d.toISOString().slice(0, 10), hasta: hasta || h.toISOString().slice(0, 10) };
+              const items = porEquipo ? await consumoGastosPorEquipo(args) : await gastosDetalleCategoria(args);
+              return items.map((x) => ({ id: x.id, label: x.nombre, unidad: 'mov', cantidad: x.cantidad, valor: x.valor }));
+            }}
+            onClose={() => setConsumoCat(null)}
+          />
+        );
+      })()}
     </Modal>
   );
 }

@@ -341,6 +341,38 @@ export async function consumoGastosPorEquipo(opts: {
     .sort((a, b) => b.valor - a.valor);
 }
 
+/**
+ * Detalle de gasto de UNA categoría (cualquiera), agrupado por la DESCRIPCIÓN del
+ * movimiento. `cantidad` = nº de movimientos con esa descripción; `valor` = suma de
+ * gastos $. Alimenta la gráfica/tabla del drill-down de cualquier categoría de gasto
+ * (las de vehículo usan `consumoGastosPorEquipo`, que agrupa por equipo).
+ */
+export async function gastosDetalleCategoria(opts: {
+  categoria: string; cajaId?: string | null; desde?: string | null; hasta?: string | null;
+}): Promise<ConsumoEquipoAcopio[]> {
+  let q = supabase.from('acopio_caja_movimientos')
+    .select('descripcion, gastos, fecha')
+    .eq('clasif_grupo', 'gastos_caja')
+    .eq('clasif_valor', opts.categoria);
+  if (opts.cajaId) q = q.eq('caja_id', opts.cajaId);
+  if (opts.desde) q = q.gte('fecha', opts.desde);
+  if (opts.hasta) q = q.lte('fecha', opts.hasta);
+  const { data, error } = await q;
+  if (error) throw error;
+  const acc = new Map<string, { cantidad: number; valor: number }>();
+  for (const row of (data ?? []) as Array<{ descripcion: string | null; gastos: number }>) {
+    const g = num(row.gastos);
+    if (g <= 0) continue;
+    const clave = (row.descripcion ?? '').trim() || '— sin descripción —';
+    const cur = acc.get(clave) ?? { cantidad: 0, valor: 0 };
+    cur.cantidad += 1; cur.valor += g;
+    acc.set(clave, cur);
+  }
+  return Array.from(acc.entries())
+    .map(([nombre, v]) => ({ id: nombre, nombre, cantidad: v.cantidad, valor: Math.round(v.valor * 100) / 100 }))
+    .sort((a, b) => b.valor - a.valor);
+}
+
 /* ───────────── Cierres (cajas) + taxonomía de costos + resumen ───────────── */
 
 export async function listCajas(): Promise<CajaCierre[]> {
