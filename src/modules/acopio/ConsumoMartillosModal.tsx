@@ -200,11 +200,11 @@ function MartilloFormModal({ actor, actorName, precioVigente, editar, onClose, o
     </>
   );
   const destacado = { background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 } as const;
-  const campoUsd = (label: string, val: string, set: (v: string) => void) => (
-    <div className="form-row"><label>{label}</label><input className="input mono" type="number" min={0} step="0.01" value={val} onChange={(e) => set(e.target.value)} placeholder="0.00" /></div>
+  const campoUsd = (label: string, name: string, val: string, set: (v: string) => void) => (
+    <div className="form-row"><label>{label}</label><input className="input mono" name={name} type="number" min={0} step="0.01" defaultValue={val} onChange={(e) => set(e.target.value)} placeholder="0.00" /></div>
   );
-  const campoNum = (label: string, val: string, set: (v: string) => void) => (
-    <div className="form-row"><label>{label}</label><input className="input mono" type="number" min={0} step="any" value={val} onChange={(e) => set(e.target.value)} placeholder="0" /></div>
+  const campoNum = (label: string, name: string, val: string, set: (v: string) => void) => (
+    <div className="form-row"><label>{label}</label><input className="input mono" name={name} type="number" min={0} step="any" defaultValue={val} onChange={(e) => set(e.target.value)} placeholder="0" /></div>
   );
 
   return (
@@ -223,7 +223,7 @@ function MartilloFormModal({ actor, actorName, precioVigente, editar, onClose, o
       <div className="form-grid">
         <div className="form-row" style={{ gridColumn: '1 / -1' }}>
           <label>Descripción</label>
-          <input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)}
+          <input className="input" name="m-descripcion" defaultValue={descripcion} onChange={(e) => setDescripcion(e.target.value)}
             placeholder={tipo === 'consumo' ? 'USO DE MARTILLOS EN…' : 'ENTREGA DE MARTILLOS A…'} />
         </div>
       </div>
@@ -231,25 +231,25 @@ function MartilloFormModal({ actor, actorName, precioVigente, editar, onClose, o
       {tipo === 'entrega' ? (
         <>
           <div className="form-grid">
-            {campoUsd('$ Usd Entregados', usdEntregados, setUsdEntregados)}
-            {campoNum('Cantidad de martillos entregados', cantEntregados, setCantEntregados)}
+            {campoUsd('$ Usd Entregados', 'm-usd-entregados', usdEntregados, setUsdEntregados)}
+            {campoNum('Cantidad de martillos entregados', 'm-cant-entregados', cantEntregados, setCantEntregados)}
           </div>
           <div className="form-grid">
             <div className="form-row">
               <label>Precio $Usd por Martillo</label>
               <input className="input mono" value={precioEntrega ? money(precioEntrega) : ''} readOnly placeholder="se calcula" style={destacado} />
             </div>
-            {campoUsd('$ Usd Facturados', usdFacturados, setUsdFacturados)}
+            {campoUsd('$ Usd Facturados', 'm-usd-facturados', usdFacturados, setUsdFacturados)}
           </div>
           <div className="form-grid">
-            {campoNum('Martillos entregados a GT', martillosAGt, setMartillosAGt)}
+            {campoNum('Martillos entregados a GT', 'm-martillos-gt', martillosAGt, setMartillosAGt)}
             <div />
           </div>
         </>
       ) : (
         <>
           <div className="form-grid">
-            {campoNum('Martillos consumidos (uso)', consumidos, setConsumidos)}
+            {campoNum('Martillos consumidos (uso)', 'm-consumidos', consumidos, setConsumidos)}
             <div className="form-row">
               <label>Precio vigente $/Martillo</label>
               <input className="input mono" value={precioVigente ? money(precioVigente) : ''} readOnly placeholder="—" />

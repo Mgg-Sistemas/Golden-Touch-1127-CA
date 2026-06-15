@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -29,6 +29,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
   const [editValor, setEditValor] = useState('');
   const [editCategoria, setEditCategoria] = useState('');
   const [borrarId, setBorrarId] = useState<string | null>(null);
+  const valorRef = useRef<HTMLInputElement>(null);
 
   const tabActual = TABS.find((t) => t.key === tab)!;
   const esUnidad = tab === 'unidad_solicitante';
@@ -53,7 +54,8 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
     try {
       // La categoría de la unidad solicitante se toma de la OP, no se elige al agregar acá.
       await addCatalogoPedido(tab, valor.trim().toUpperCase());
-      setValor(''); await recargar(); toast('Agregado', 'success');
+      setValor(''); if (valorRef.current) valorRef.current.value = '';
+      await recargar(); toast('Agregado', 'success');
     }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
     finally { setBusy(false); }
@@ -88,7 +90,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
 
       {canWrite && (
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.5rem', flexWrap: 'wrap' }}>
-          <input className="input" style={{ flex: '1 1 160px' }} value={valor} onChange={(e) => setValor(e.target.value.toUpperCase())} placeholder={`Nueva ${tabActual.singular}…`}
+          <input ref={valorRef} className="input" name="cat-nuevo-valor" style={{ flex: '1 1 160px' }} defaultValue={valor} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setValor(e.target.value); }} placeholder={`Nueva ${tabActual.singular}…`}
             onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} />
           <button className="btn btn-primary" onClick={() => void agregar()} disabled={busy}>+ Agregar</button>
         </div>
@@ -104,7 +106,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
               <tr key={l.id} style={{ opacity: l.activo ? 1 : 0.5 }}>
                 <td>
                   {editId === l.id ? (
-                    <input className="input" value={editValor} autoFocus onChange={(e) => setEditValor(e.target.value.toUpperCase())}
+                    <input className="input" name="cat-edit-valor" defaultValue={editValor} autoFocus onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setEditValor(e.target.value); }}
                       onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdicion(l.id); if (e.key === 'Escape') setEditId(null); }} />
                   ) : l.valor}
                 </td>

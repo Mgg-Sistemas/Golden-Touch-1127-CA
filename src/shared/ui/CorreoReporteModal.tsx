@@ -67,7 +67,7 @@ export function CorreoReporteModal({ titulo, descripcion, defaultEmail, onEnviar
 
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
-        <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
+        <input className="input" type="email" name="correo-adicional" defaultValue={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
         <small className="muted">Podés mandarlo a un segundo destinatario al mismo tiempo.</small>
       </div>
     </Modal>

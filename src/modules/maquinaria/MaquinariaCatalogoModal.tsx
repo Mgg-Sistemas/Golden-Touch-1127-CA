@@ -23,6 +23,7 @@ export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boole
   const [tab, setTab] = useState<TipoCatalogoMaquinaria>('tipo_maquinaria');
   const [items, setItems] = useState<CatalogoMaquinaria[]>([]);
   const [valor, setValor] = useState('');
+  const [valorKey, setValorKey] = useState(0);
   const [filtro, setFiltro] = useState('');
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -44,7 +45,7 @@ export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boole
     setBusy(true);
     try {
       await addCatalogoMaquinaria(tab, valor.trim().toUpperCase());
-      setValor(''); await recargar(); toast('Agregado', 'success');
+      setValor(''); setValorKey((k) => k + 1); await recargar(); toast('Agregado', 'success');
     }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
     finally { setBusy(false); }
@@ -71,13 +72,13 @@ export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boole
     <Modal title="🚜 Catálogo de maquinaria" size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem' }}>
         {TABS.map((t) => (
-          <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setEditId(null); setValor(''); setFiltro(''); }}>{t.label}</button>
+          <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setEditId(null); setValor(''); setValorKey((k) => k + 1); setFiltro(''); }}>{t.label}</button>
         ))}
       </div>
 
       {canWrite && (
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.5rem', flexWrap: 'wrap' }}>
-          <input className="input" style={{ flex: '1 1 160px' }} value={valor} onChange={(e) => setValor(e.target.value.toUpperCase())} placeholder={`Nuevo ${tabActual.singular}…`}
+          <input key={valorKey} name="maq-cat-nuevo" className="input" style={{ flex: '1 1 160px' }} defaultValue={valor} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setValor(e.target.value); }} placeholder={`Nuevo ${tabActual.singular}…`}
             onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} />
           <button className="btn btn-primary" onClick={() => void agregar()} disabled={busy}>+ Agregar</button>
         </div>
@@ -93,7 +94,7 @@ export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boole
               <tr key={l.id} style={{ opacity: l.activo ? 1 : 0.5 }}>
                 <td>
                   {editId === l.id ? (
-                    <input className="input" value={editValor} autoFocus onChange={(e) => setEditValor(e.target.value.toUpperCase())}
+                    <input name="maq-cat-editar" className="input" defaultValue={editValor} autoFocus onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setEditValor(e.target.value); }}
                       onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdicion(l.id); if (e.key === 'Escape') setEditId(null); }} />
                   ) : l.valor}
                 </td>

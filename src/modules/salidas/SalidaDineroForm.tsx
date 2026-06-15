@@ -88,7 +88,7 @@ export function SalidaDineroForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Monto ({caja?.moneda ?? '—'})</label>
-            <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} required />
+            <input className="input mono" name="f-monto" type="number" min={0} step="any" defaultValue={monto} onChange={(e) => setMonto(e.target.value)} required />
           </div>
           <div className="form-row">
             <label>Saldo resultante</label>
@@ -98,7 +98,7 @@ export function SalidaDineroForm({
 
         <div className="form-row">
           <label>Motivo</label>
-          <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo de la salida de dinero…" />
+          <input className="input" name="f-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo de la salida de dinero…" />
         </div>
       </form>
     </Modal>

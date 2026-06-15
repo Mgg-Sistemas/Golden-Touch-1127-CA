@@ -94,7 +94,7 @@ export function ConciliarMineralModal({
               placeholder={activos.length ? '🔍 Buscar producto…' : '— sin productos —'}
               options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
           ) : (
-            <input className="input" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value.toUpperCase())} placeholder="Nombre del mineral" />
+            <input className="input" name="c-nombre-nuevo" defaultValue={nombreNuevo} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNombreNuevo(e.target.value); }} placeholder="Nombre del mineral" />
           )}
         </div>
 
@@ -117,18 +117,18 @@ export function ConciliarMineralModal({
         <div className="form-grid">
           <div className="form-row">
             <label>Total de mineral entrante ({unidad})</label>
-            <input className="input mono" type="number" min={0} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
+            <input className="input mono" name="c-cantidad" type="number" min={0} step="any" defaultValue={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
           </div>
           <div className="form-row">
             <label>Costo por {unidad} (USD)</label>
-            <input className="input mono" type="number" min={0} step="0.0001" value={costoUnit} onChange={(e) => setCostoUnit(e.target.value)} />
+            <input className="input mono" name="c-costo-unit" type="number" min={0} step="0.0001" defaultValue={costoUnit} onChange={(e) => setCostoUnit(e.target.value)} />
             <small className="muted">Valor del mineral: <strong className="mono">{money(totalMineral)}</strong></small>
           </div>
         </div>
 
         <div className="form-row">
           <label>Descripción de la entrada</label>
-          <input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Ley, lote, observaciones…" />
+          <input className="input" name="c-descripcion" defaultValue={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Ley, lote, observaciones…" />
         </div>
       </form>
     </Modal>

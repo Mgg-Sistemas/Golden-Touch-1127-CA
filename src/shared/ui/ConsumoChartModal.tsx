@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { HBarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { money, num } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 
 /** Una fila de consumo: un producto/combustible consumido en el período. */
 export interface ConsumoRow {
@@ -49,11 +50,13 @@ function rangoDePreset(preset: Preset, desdeStr: string, hastaStr: string): { de
  * muestra una barra por cada producto/combustible consumido y una tabla con la
  * cantidad y su equivalente en $. Lo usan Inventario (por almacén) y Combustible.
  */
-export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
+export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTables }: {
   title: string;
   subtitle?: string;
   cargar: (desde: Date, hasta: Date) => Promise<ConsumoRow[]>;
   onClose: () => void;
+  /** Tablas a vigilar en vivo: si cambian (alta/edición/baja), se recarga el consumo. */
+  realtimeTables?: string[];
 }) {
   const hoy = isoDay(new Date());
   const [preset, setPreset] = useState<Preset>('15d');
@@ -83,6 +86,9 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose }: {
     } finally { setLoading(false); }
   }, [preset, desdeStr, hastaStr]);
   useEffect(() => { void recargar(); }, [recargar]);
+  // En vivo: si cambian las tablas indicadas (p. ej. movimientos de combustible),
+  // se recarga el consumo para que eliminar/editar se refleje sin cerrar el modal.
+  useRealtime(realtimeTables ?? [], () => { void recargar(); }, { enabled: !!realtimeTables?.length });
 
   // Buscador: filtra las filas por nombre (label) o sub-etiqueta.
   const filtered = useMemo(() => {

@@ -99,7 +99,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Equipo / designación *</label>
-            <input className="input" value={f.equipo ?? ''} onChange={(e) => set('equipo', upper(e.target.value))} placeholder="Ej. VOLVO A35F 484" required />
+            <input name="f-equipo" className="input" defaultValue={f.equipo ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('equipo', e.target.value); }} placeholder="Ej. VOLVO A35F 484" required />
           </div>
           <div className="form-row">
             <label>Tipo de maquinaria</label>
@@ -123,31 +123,31 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Última ubicación</label>
-            <input className="input" value={f.ubicacion ?? ''} onChange={(e) => set('ubicacion', upper(e.target.value))} placeholder="GT PERAMANAL…" />
+            <input name="f-ubicacion" className="input" defaultValue={f.ubicacion ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('ubicacion', e.target.value); }} placeholder="GT PERAMANAL…" />
           </div>
           <div className="form-row">
             <label>Año</label>
-            <input className="input mono" type="number" value={f.anio ?? ''} onChange={(e) => set('anio', numField(e.target.value))} />
+            <input name="f-anio" className="input mono" type="number" defaultValue={f.anio ?? ''} onChange={(e) => set('anio', numField(e.target.value))} />
           </div>
         </div>
 
         <div className="form-grid">
-          <div className="form-row"><label>Marca</label><input className="input" value={f.marca ?? ''} onChange={(e) => set('marca', upper(e.target.value))} /></div>
-          <div className="form-row"><label>Modelo</label><input className="input" value={f.modelo ?? ''} onChange={(e) => set('modelo', upper(e.target.value))} /></div>
+          <div className="form-row"><label>Marca</label><input name="f-marca" className="input" defaultValue={f.marca ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('marca', e.target.value); }} /></div>
+          <div className="form-row"><label>Modelo</label><input name="f-modelo" className="input" defaultValue={f.modelo ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('modelo', e.target.value); }} /></div>
         </div>
 
         <div className="form-grid">
-          <div className="form-row"><label>Color</label><input className="input" value={f.color ?? ''} onChange={(e) => set('color', upper(e.target.value))} /></div>
-          <div className="form-row"><label>Serial</label><input className="input mono" value={f.serial ?? ''} onChange={(e) => set('serial', upper(e.target.value))} /></div>
+          <div className="form-row"><label>Color</label><input name="f-color" className="input" defaultValue={f.color ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('color', e.target.value); }} /></div>
+          <div className="form-row"><label>Serial</label><input name="f-serial" className="input mono" defaultValue={f.serial ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('serial', e.target.value); }} /></div>
         </div>
 
         <div className="form-grid">
-          <div className="form-row"><label>Placa</label><input className="input mono" value={f.placa ?? ''} onChange={(e) => set('placa', upper(e.target.value))} /></div>
-          <div className="form-row"><label>Motor (modelo)</label><input className="input" value={f.motor_modelo ?? ''} onChange={(e) => set('motor_modelo', upper(e.target.value))} /></div>
+          <div className="form-row"><label>Placa</label><input name="f-placa" className="input mono" defaultValue={f.placa ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('placa', e.target.value); }} /></div>
+          <div className="form-row"><label>Motor (modelo)</label><input name="f-motor_modelo" className="input" defaultValue={f.motor_modelo ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('motor_modelo', e.target.value); }} /></div>
         </div>
 
         <div className="form-grid">
-          <div className="form-row"><label>Motor (serial)</label><input className="input mono" value={f.motor_serial ?? ''} onChange={(e) => set('motor_serial', upper(e.target.value))} /></div>
+          <div className="form-row"><label>Motor (serial)</label><input name="f-motor_serial" className="input mono" defaultValue={f.motor_serial ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('motor_serial', e.target.value); }} /></div>
           <div className="form-row">
             <label>Combustible</label>
             <select className="select" value={f.combustible ?? 'GASOIL'} onChange={(e) => set('combustible', e.target.value)}>
@@ -157,10 +157,10 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
         </div>
 
         <div className="form-grid">
-          <div className="form-row"><label>Litros que consume / capacidad</label><input className="input mono" type="number" step="any" value={f.litros_consume ?? ''} onChange={(e) => set('litros_consume', numField(e.target.value))} /></div>
+          <div className="form-row"><label>Litros que consume / capacidad</label><input name="f-litros_consume" className="input mono" type="number" step="any" defaultValue={f.litros_consume ?? ''} onChange={(e) => set('litros_consume', numField(e.target.value))} /></div>
           <div className="form-row">
             <label>Mantenimiento cada (hrs)</label>
-            <input className="input mono" type="number" step="any" value={f.mantenimiento_cada_hrs ?? ''} onChange={(e) => set('mantenimiento_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
+            <input name="f-mantenimiento_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_hrs ?? ''} onChange={(e) => set('mantenimiento_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
             <small className="muted">Frecuencia para la alerta de mantenimiento preventivo.</small>
           </div>
         </div>
@@ -175,8 +175,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
         </div>
 
         <div className="form-grid">
-          <div className="form-row"><label>Documentación (tipo)</label><input className="input" value={f.documentacion ?? ''} onChange={(e) => set('documentacion', upper(e.target.value))} placeholder="FACTURA / CERTIFICADO…" /></div>
-          <div className="form-row"><label>Ficha técnica</label><input className="input" value={f.ficha_tecnica ?? ''} onChange={(e) => set('ficha_tecnica', upper(e.target.value))} /></div>
+          <div className="form-row"><label>Documentación (tipo)</label><input name="f-documentacion" className="input" defaultValue={f.documentacion ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('documentacion', e.target.value); }} placeholder="FACTURA / CERTIFICADO…" /></div>
+          <div className="form-row"><label>Ficha técnica</label><input name="f-ficha_tecnica" className="input" defaultValue={f.ficha_tecnica ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('ficha_tecnica', e.target.value); }} /></div>
         </div>
 
         <div className="form-row">
@@ -192,7 +192,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
 
         <div className="form-row">
           <label>Notas</label>
-          <textarea className="input" rows={2} value={f.notas ?? ''} onChange={(e) => set('notas', e.target.value)} />
+          <textarea name="f-notas" className="input" rows={2} defaultValue={f.notas ?? ''} onChange={(e) => set('notas', e.target.value)} />
         </div>
       </form>
     </Modal>

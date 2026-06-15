@@ -247,18 +247,18 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   );
 
   // Campo monto en $ con 2 decimales.
-  const campoUsd = (label: string, val: string, set: (v: string) => void) => (
+  const campoUsd = (label: string, val: string, set: (v: string) => void, name: string) => (
     <div className="form-row">
       <label>{label}</label>
-      <input className="input mono" type="number" min={0} step="0.01" value={val} onChange={(e) => set(e.target.value)} placeholder="0.00" />
+      <input className="input mono" name={name} type="number" min={0} step="0.01" defaultValue={val} onChange={(e) => set(e.target.value)} placeholder="0.00" />
     </div>
   );
 
   // Descripción del concepto → es lo que se muestra en la columna «Descripción» de la tabla.
-  const campoDesc = (val: string, set: (v: string) => void, placeholder: string) => (
+  const campoDesc = (val: string, set: (v: string) => void, placeholder: string, name: string) => (
     <div className="form-row">
       <label>Descripción</label>
-      <input className="input" value={val} onChange={(e) => set(e.target.value)} placeholder={placeholder} />
+      <input className="input" name={name} defaultValue={val} onChange={(e) => set(e.target.value)} placeholder={placeholder} />
     </div>
   );
 
@@ -273,7 +273,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 
       {/* Gastos GT: monto + categoría + descripción */}
       <div className="form-grid">
-        {campoUsd('$ Gastos GT', gastos, setGastos)}
+        {campoUsd('$ Gastos GT', gastos, setGastos, 'mov-gastos')}
         <div className="form-row">
           <label>Categoría del gasto</label>
           <select className="select" value={gastoCat} onChange={(e) => setGastoCat(e.target.value)}>
@@ -282,11 +282,11 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
           </select>
         </div>
       </div>
-      {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto')}
+      {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto', 'mov-desc-gastos')}
 
       {/* Nómina: monto + categoría + descripción */}
       <div className="form-grid">
-        {campoUsd('$ Nómina', nominas, setNominas)}
+        {campoUsd('$ Nómina', nominas, setNominas, 'mov-nominas')}
         <div className="form-row">
           <label>Categoría de nómina</label>
           <select className="select" value={nominaCat} onChange={(e) => setNominaCat(e.target.value)}>
@@ -295,22 +295,22 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
           </select>
         </div>
       </div>
-      {campoDesc(descNominas, setDescNominas, nominaCat || 'Descripción de la nómina')}
+      {campoDesc(descNominas, setDescNominas, nominaCat || 'Descripción de la nómina', 'mov-desc-nominas')}
 
       {/* Traslado: monto + descripción */}
       <div className="form-grid">
-        {campoUsd('$ Traslado de Caja', traslado, setTraslado)}
-        {campoDesc(descTraslado, setDescTraslado, 'Traslado de caja')}
+        {campoUsd('$ Traslado de Caja', traslado, setTraslado, 'mov-traslado')}
+        {campoDesc(descTraslado, setDescTraslado, 'Traslado de caja', 'mov-desc-traslado')}
       </div>
 
       {/* Kg recibidos por MGG: cantidad + descripción */}
       <div className="form-grid">
         <div className="form-row">
           <label>Kg Recibidos por MGG</label>
-          <input className="input mono" type="number" min={0} step="any" value={kgRecibidos} onChange={(e) => setKgRecibidos(e.target.value)} placeholder="0" />
+          <input className="input mono" name="mov-kg" type="number" min={0} step="any" defaultValue={kgRecibidos} onChange={(e) => setKgRecibidos(e.target.value)} placeholder="0" />
           <small className="muted">Expresado en Kg.</small>
         </div>
-        {campoDesc(descKg, setDescKg, 'Kg recibidos por MGG')}
+        {campoDesc(descKg, setDescKg, 'Kg recibidos por MGG', 'mov-desc-kg')}
       </div>
     </Modal>
   );
@@ -495,6 +495,9 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
 /* ───────────── Editor / detalle (réplica del formato Excel) ───────────── */
 
 interface FilaLote {
+  // Identidad estable de la fila: como los inputs son no-controlados (defaultValue),
+  // el key debe ser estable para que React no reutilice el DOM al agregar/quitar lotes.
+  _uid: number;
   nro_lote: string;
   cantidad_bolsas: string;
   peso_bolsa_kg: string;
@@ -504,7 +507,9 @@ interface FilaLote {
   precinto_final: string;
 }
 
+let _filaUid = 0;
 const filaVacia = (n: number): FilaLote => ({
+  _uid: ++_filaUid,
   nro_lote: String(n), cantidad_bolsas: '', peso_bolsa_kg: '', peso_neto_kg: '',
   precinto_inicio: '', peso_recepcionado_kg: '', precinto_final: '',
 });
@@ -540,6 +545,7 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
     const ls = recepcion?.lotes ?? [];
     if (!ls.length) return Array.from({ length: FILAS_DEFAULT }, (_, i) => filaVacia(i + 1));
     return ls.map((l) => ({
+      _uid: ++_filaUid,
       nro_lote: l.nro_lote ?? '',
       cantidad_bolsas: l.cantidad_bolsas ? String(l.cantidad_bolsas) : '',
       peso_bolsa_kg: l.peso_bolsa_kg ? String(l.peso_bolsa_kg) : '',
@@ -688,8 +694,8 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
         {/* Encabezado: Fecha / Centro de Acopio / Aliado */}
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
           <div className="form-row"><label>FECHA</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={ro} /></div>
-          <div className="form-row"><label>CENTRO DE ACOPIO</label><input className="input" value={centro} onChange={(e) => setCentro(e.target.value)} disabled={ro} /></div>
-          <div className="form-row"><label>ALIADO</label><input className="input" value={aliado} onChange={(e) => setAliado(e.target.value)} placeholder="Nombre del aliado" disabled={ro} /></div>
+          <div className="form-row"><label>CENTRO DE ACOPIO</label><input className="input" name="rec-centro" defaultValue={centro} onChange={(e) => setCentro(e.target.value)} disabled={ro} /></div>
+          <div className="form-row"><label>ALIADO</label><input className="input" name="rec-aliado" defaultValue={aliado} onChange={(e) => setAliado(e.target.value)} placeholder="Nombre del aliado" disabled={ro} /></div>
         </div>
 
         {/* Vínculo de inventario (no está en el Excel; es lo que suma stock) */}
@@ -739,17 +745,17 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
                 const v = verf(f);
                 const algo = f.cantidad_bolsas || f.peso_neto_kg || f.precinto_inicio || f.peso_recepcionado_kg;
                 return (
-                  <tr key={i}>
-                    <td><input className="input" style={{ width: 52, textAlign: 'center' }} value={f.nro_lote} onChange={(e) => setFila(i, { nro_lote: e.target.value })} disabled={ro} /></td>
-                    <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.cantidad_bolsas} onChange={(e) => setFila(i, { cantidad_bolsas: e.target.value })} disabled={ro} /></td>
-                    <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.peso_bolsa_kg} onChange={(e) => setFila(i, { peso_bolsa_kg: e.target.value })} disabled={ro} /></td>
+                  <tr key={f._uid}>
+                    <td><input className="input" name={`lote-${f._uid}-nro`} style={{ width: 52, textAlign: 'center' }} defaultValue={f.nro_lote} onChange={(e) => setFila(i, { nro_lote: e.target.value })} disabled={ro} /></td>
+                    <td><input className="input mono" name={`lote-${f._uid}-bolsas`} style={cellNum} type="number" min={0} step="any" defaultValue={f.cantidad_bolsas} onChange={(e) => setFila(i, { cantidad_bolsas: e.target.value })} disabled={ro} /></td>
+                    <td><input className="input mono" name={`lote-${f._uid}-pbolsa`} style={cellNum} type="number" min={0} step="any" defaultValue={f.peso_bolsa_kg} onChange={(e) => setFila(i, { peso_bolsa_kg: e.target.value })} disabled={ro} /></td>
                     <td className="mono" style={{ ...calcCol, color: 'var(--primary-3)' }}>{num(bruto)}</td>
-                    <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.peso_neto_kg} onChange={(e) => setFila(i, { peso_neto_kg: e.target.value })} disabled={ro} /></td>
+                    <td><input className="input mono" name={`lote-${f._uid}-neto`} style={cellNum} type="number" min={0} step="any" defaultValue={f.peso_neto_kg} onChange={(e) => setFila(i, { peso_neto_kg: e.target.value })} disabled={ro} /></td>
                     <td className="mono" style={calcCol}>{num(dif1)}</td>
-                    <td><input className="input" style={{ width: 80 }} value={f.precinto_inicio} onChange={(e) => setFila(i, { precinto_inicio: e.target.value })} disabled={ro} /></td>
-                    <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.peso_recepcionado_kg} onChange={(e) => setFila(i, { peso_recepcionado_kg: e.target.value })} disabled={ro} /></td>
+                    <td><input className="input" name={`lote-${f._uid}-pini`} style={{ width: 80 }} defaultValue={f.precinto_inicio} onChange={(e) => setFila(i, { precinto_inicio: e.target.value })} disabled={ro} /></td>
+                    <td><input className="input mono" name={`lote-${f._uid}-recep`} style={cellNum} type="number" min={0} step="any" defaultValue={f.peso_recepcionado_kg} onChange={(e) => setFila(i, { peso_recepcionado_kg: e.target.value })} disabled={ro} /></td>
                     <td className="mono" style={calcCol}>{num(dif2)}</td>
-                    <td><input className="input" style={{ width: 80 }} value={f.precinto_final} onChange={(e) => setFila(i, { precinto_final: e.target.value })} disabled={ro} /></td>
+                    <td><input className="input" name={`lote-${f._uid}-pfin`} style={{ width: 80 }} defaultValue={f.precinto_final} onChange={(e) => setFila(i, { precinto_final: e.target.value })} disabled={ro} /></td>
                     <td style={{ textAlign: 'center', fontWeight: 700, color: algo ? (v ? 'var(--success)' : 'var(--danger)') : 'var(--muted)' }}>{algo ? (v ? 'V' : 'F') : '—'}</td>
                     {editable && <td><button type="button" className="btn btn-sm btn-ghost" onClick={() => delFila(i)} title="Quitar fila">✕</button></td>}
                   </tr>
@@ -776,18 +782,18 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
         <div className="form-grid" style={{ marginTop: '1rem' }}>
           <div className="card" style={{ background: 'var(--surface-2)' }}>
             <div className="card-title" style={{ justifyContent: 'center' }}><span>Conforme Entregado</span></div>
-            <div className="form-row"><label>Nombres y Apellidos</label><input className="input" value={entNombre} onChange={(e) => setEntNombre(e.target.value)} disabled={ro} /></div>
-            <div className="form-row"><label>N° C.I.</label><input className="input" value={entCi} onChange={(e) => setEntCi(e.target.value)} disabled={ro} /></div>
+            <div className="form-row"><label>Nombres y Apellidos</label><input className="input" name="rec-ent-nombre" defaultValue={entNombre} onChange={(e) => setEntNombre(e.target.value)} disabled={ro} /></div>
+            <div className="form-row"><label>N° C.I.</label><input className="input" name="rec-ent-ci" defaultValue={entCi} onChange={(e) => setEntCi(e.target.value)} disabled={ro} /></div>
           </div>
           <div className="card" style={{ background: 'var(--surface-2)' }}>
             <div className="card-title" style={{ justifyContent: 'center' }}><span>Conforme Recibido por GOLDEN TOUCH 1127 C.A.</span></div>
-            <div className="form-row"><label>Nombres y Apellidos</label><input className="input" value={recNombre} onChange={(e) => setRecNombre(e.target.value)} disabled={ro} /></div>
-            <div className="form-row"><label>N° C.I.</label><input className="input" value={recCi} onChange={(e) => setRecCi(e.target.value)} disabled={ro} /></div>
+            <div className="form-row"><label>Nombres y Apellidos</label><input className="input" name="rec-rec-nombre" defaultValue={recNombre} onChange={(e) => setRecNombre(e.target.value)} disabled={ro} /></div>
+            <div className="form-row"><label>N° C.I.</label><input className="input" name="rec-rec-ci" defaultValue={recCi} onChange={(e) => setRecCi(e.target.value)} disabled={ro} /></div>
           </div>
         </div>
         <div className="form-row" style={{ marginTop: '.6rem' }}>
           <label>Observaciones</label>
-          <textarea className="input" rows={2} value={obs} onChange={(e) => setObs(e.target.value)} disabled={ro} />
+          <textarea className="input" name="rec-obs" rows={2} defaultValue={obs} onChange={(e) => setObs(e.target.value)} disabled={ro} />
         </div>
       </div>
 

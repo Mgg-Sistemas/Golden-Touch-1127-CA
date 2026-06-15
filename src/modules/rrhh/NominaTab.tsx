@@ -207,7 +207,7 @@ function CargarNominaModal({ actor, actorName, onClose, onSaved }: {
           </div>
           <div className="form-row" style={{ minWidth: 130 }}>
             <label style={{ fontSize: '.72rem' }}>Días base (quincena)</label>
-            <input className="input mono" type="number" min={1} max={31} value={diasBase} onChange={(e) => aplicarDiasBase(Number(e.target.value) || 0)} />
+            <input className="input mono" name="cn-dias-base" type="number" min={1} max={31} defaultValue={diasBase} onChange={(e) => aplicarDiasBase(Number(e.target.value) || 0)} />
           </div>
           <div className="form-row" style={{ minWidth: 170 }}>
             <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
@@ -215,7 +215,7 @@ function CargarNominaModal({ actor, actorName, onClose, onSaved }: {
           </div>
           <div className="form-row" style={{ flex: 1, minWidth: 180 }}>
             <label style={{ fontSize: '.72rem' }}>Notas (opcional)</label>
-            <input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Comentario de la nómina" />
+            <input className="input" name="cn-notas" defaultValue={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Comentario de la nómina" />
           </div>
         </div>
         <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
@@ -356,8 +356,8 @@ function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
           <SearchSelect value={personaId} onChange={setPersonaId} placeholder="🔍 Buscar trabajador…"
             options={personal.map((p) => ({ value: p.id, label: `${p.nombre} ${p.apellido}` }))} />
         </div>
-        <div className="form-row"><label>Monto del pago (USD)</label><input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} placeholder="0,00" /></div>
-        <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Concepto</label><input className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="Liquidación por renuncia, vacaciones pendientes, etc." /></div>
+        <div className="form-row"><label>Monto del pago (USD)</label><input className="input mono" name="liq-monto" type="number" min={0} step="any" defaultValue={montoStr} onChange={(e) => setMontoStr(e.target.value)} placeholder="0,00" /></div>
+        <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Concepto</label><input className="input" name="liq-concepto" defaultValue={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="Liquidación por renuncia, vacaciones pendientes, etc." /></div>
       </div>
 
       {persona && ants.length > 0 && (
@@ -366,7 +366,7 @@ function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
           {ants.map((a) => (
             <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.25rem' }}>
               <span className="badge" style={{ fontSize: '.7rem' }}>{a.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'}</span>
-              <input className="input mono" type="number" min={0} max={Number(a.saldo)} step="any" value={deduc[a.id] ?? ''} onChange={(e) => setDeduc((m) => ({ ...m, [a.id]: e.target.value }))} placeholder="0,00" style={{ width: 110, textAlign: 'right' }} />
+              <input className="input mono" name={`liq-deduc-${a.id}`} type="number" min={0} max={Number(a.saldo)} step="any" defaultValue={deduc[a.id] ?? ''} onChange={(e) => setDeduc((m) => ({ ...m, [a.id]: e.target.value }))} placeholder="0,00" style={{ width: 110, textAlign: 'right' }} />
               <span className="muted" style={{ fontSize: '.78rem' }}>de {money(a.saldo)} pendiente{a.motivo ? ` · ${a.motivo}` : ''}</span>
             </div>
           ))}

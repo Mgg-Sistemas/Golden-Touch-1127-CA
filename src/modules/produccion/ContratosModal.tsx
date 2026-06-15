@@ -124,17 +124,17 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
           </div>
           <div className="form-row">
             <label>Molino utilizado</label>
-            <input className="input" value={molino} onChange={(e) => setMolino(e.target.value)} placeholder="Ej. H-66" disabled={ro} />
+            <input className="input" name="f-molino" defaultValue={molino} onChange={(e) => setMolino(e.target.value)} placeholder="Ej. H-66" disabled={ro} />
           </div>
         </div>
 
         {/* Inputs principales (los que mueven las fórmulas) */}
         <div className="card-title" style={{ marginTop: '.4rem' }}><span>Producción (datos medidos)</span></div>
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
-          <div className="form-row"><label>Ton procesadas (material primario)</label><input className="input mono" type="number" min={0} step="any" value={ton} onChange={(e) => setTon(e.target.value)} disabled={ro} /></div>
-          <div className="form-row"><label>Kg Peso húmedo</label><input className="input mono" type="number" min={0} step="any" value={kgHum} onChange={(e) => setKgHum(e.target.value)} disabled={ro} /></div>
-          <div className="form-row"><label>Kg secos</label><input className="input mono" type="number" min={0} step="any" value={kgSec} onChange={(e) => setKgSec(e.target.value)} disabled={ro} /></div>
-          <div className="form-row"><label>Kg seco, limpio (Casiterita)</label><input className="input mono" type="number" min={0} step="any" value={kgLim} onChange={(e) => setKgLim(e.target.value)} disabled={ro} /></div>
+          <div className="form-row"><label>Ton procesadas (material primario)</label><input className="input mono" name="f-ton" type="number" min={0} step="any" defaultValue={ton} onChange={(e) => setTon(e.target.value)} disabled={ro} /></div>
+          <div className="form-row"><label>Kg Peso húmedo</label><input className="input mono" name="f-kg-humedo" type="number" min={0} step="any" defaultValue={kgHum} onChange={(e) => setKgHum(e.target.value)} disabled={ro} /></div>
+          <div className="form-row"><label>Kg secos</label><input className="input mono" name="f-kg-secos" type="number" min={0} step="any" defaultValue={kgSec} onChange={(e) => setKgSec(e.target.value)} disabled={ro} /></div>
+          <div className="form-row"><label>Kg seco, limpio (Casiterita)</label><input className="input mono" name="f-kg-seco-limpio" type="number" min={0} step="any" defaultValue={kgLim} onChange={(e) => setKgLim(e.target.value)} disabled={ro} /></div>
           <div className="form-row">
             <label>Kg seco, Limpio Finales (automático)</label>
             <input className="input mono" value={num(Number(kgLim) || 0)} readOnly
@@ -156,7 +156,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
 
         <div className="form-row" style={{ marginTop: '.6rem' }}>
           <label>Observación</label>
-          <textarea className="input" rows={2} value={obs} onChange={(e) => setObs(e.target.value)} disabled={ro} />
+          <textarea className="input" name="f-obs" rows={2} defaultValue={obs} onChange={(e) => setObs(e.target.value)} disabled={ro} />
         </div>
         {ro && editando && contrato!.estado === 'cerrado' && (
           <p className="muted" style={{ fontSize: '.8rem' }}>El contrato está <strong>cerrado</strong>. Reabrilo desde la lista para editarlo.</p>

@@ -22,6 +22,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
   const [items, setItems] = useState<ClasificacionAcopio[]>([]);
   const [loading, setLoading] = useState(true);
   const [valor, setValor] = useState('');
+  const [valorKey, setValorKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
@@ -46,7 +47,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
   async function agregar() {
     if (!valor.trim()) { toast('Indicá la categoría', 'error'); return; }
     setBusy(true);
-    try { await addClasificacion(tab, valor); setValor(''); await recargar(); toast('Categoría agregada', 'success'); }
+    try { await addClasificacion(tab, valor); setValor(''); setValorKey((k) => k + 1); await recargar(); toast('Categoría agregada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
     finally { setBusy(false); }
   }
@@ -71,7 +72,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
 
       {canWrite && (
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.6rem' }}>
-          <input className="input" value={valor} onChange={(e) => setValor(e.target.value)} placeholder={`Nueva categoría de ${tabActual.label}…`}
+          <input key={`${tab}-${valorKey}`} className="input" name="cat-valor" defaultValue={valor} onChange={(e) => setValor(e.target.value)} placeholder={`Nueva categoría de ${tabActual.label}…`}
             onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} style={{ flex: 1 }} />
           <button className="btn btn-primary" onClick={() => void agregar()} disabled={busy}>+ Agregar</button>
         </div>
@@ -90,7 +91,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
                   <td className="mono muted">{c.orden}</td>
                   <td>
                     {editId === c.id ? (
-                      <input className="input" value={editValor} autoFocus onChange={(e) => setEditValor(e.target.value)}
+                      <input className="input" name="cat-edit-valor" defaultValue={editValor} autoFocus onChange={(e) => setEditValor(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdicion(c.id); if (e.key === 'Escape') setEditId(null); }} />
                     ) : (<strong>{c.valor}</strong>)}
                   </td>

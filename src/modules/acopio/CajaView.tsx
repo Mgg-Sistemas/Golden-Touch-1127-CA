@@ -187,11 +187,11 @@ function NuevaCajaModal({ actor, onClose, onSaved }: { actor: string; onClose: (
   return (
     <Modal title="Nueva caja / cierre" size="md" onClose={onClose} footer={<><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button><button className="btn btn-primary" onClick={guardar} disabled={saving}>Crear</button></>}>
       <div className="form-grid">
-        <div className="form-row"><label>Número</label><input className="input" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Caja #13" /></div>
+        <div className="form-row"><label>Número</label><input className="input" name="nc-numero" defaultValue={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Caja #13" /></div>
         <div className="form-row"><label>Fecha de inicio</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
       </div>
-      <div className="form-row"><label>Nombre (opcional)</label><input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} /></div>
-      <div className="form-row"><label>Recepción asociada (opcional)</label><input className="input" value={recepcion} onChange={(e) => setRecepcion(e.target.value)} placeholder="RECEPCION 69" /></div>
+      <div className="form-row"><label>Nombre (opcional)</label><input className="input" name="nc-nombre" defaultValue={nombre} onChange={(e) => setNombre(e.target.value)} /></div>
+      <div className="form-row"><label>Recepción asociada (opcional)</label><input className="input" name="nc-recepcion" defaultValue={recepcion} onChange={(e) => setRecepcion(e.target.value)} placeholder="RECEPCION 69" /></div>
     </Modal>
   );
 }

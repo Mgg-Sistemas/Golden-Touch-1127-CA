@@ -314,7 +314,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
               <div className="form-grid">
                 <div className="form-row">
                   <label>Razón social *</label>
-                  <input className="input" value={provRazon} onChange={(e) => setProvRazon(e.target.value.toUpperCase())} placeholder="Nombre del proveedor" />
+                  <input className="input" name="prov-razon" defaultValue={provRazon} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setProvRazon(e.target.value); }} placeholder="Nombre del proveedor" />
                 </div>
                 <div className="form-row">
                   <label>RIF *</label>
@@ -323,8 +323,8 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
                       style={{ width: 'auto', flex: '0 0 auto' }} aria-label="Tipo de RIF">
                       {PREFIJOS_RIF.map((p) => <option key={p.letra} value={p.letra}>{p.letra} · {p.desc}</option>)}
                     </select>
-                    <input className="input mono" value={rifPartes.numero}
-                      onChange={(e) => setProvRif(`${rifPartes.letra}-${e.target.value.replace(/\D/g, '').slice(0, 10)}`)}
+                    <input className="input mono" name="prov-rif-num" defaultValue={rifPartes.numero}
+                      onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 10); e.target.value = v; setProvRif(`${rifPartes.letra}-${v}`); }}
                       placeholder="40778442" inputMode="numeric" style={{ flex: 1 }} />
                   </div>
                 </div>
@@ -332,12 +332,12 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
               <div className="form-grid">
                 <div className="form-row">
                   <label>Teléfono</label>
-                  <input className="input" inputMode="numeric" value={provTelefono}
-                    onChange={(e) => setProvTelefono(e.target.value.replace(/\D/g, '').slice(0, 15))} maxLength={15} placeholder="Solo dígitos" />
+                  <input className="input" name="prov-telefono" inputMode="numeric" defaultValue={provTelefono}
+                    onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 15); e.target.value = v; setProvTelefono(v); }} maxLength={15} placeholder="Solo dígitos" />
                 </div>
                 <div className="form-row">
                   <label>Email</label>
-                  <input className="input" type="email" value={provEmail} onChange={(e) => setProvEmail(e.target.value)} placeholder="correo@dominio.com" />
+                  <input className="input" type="email" name="prov-email" defaultValue={provEmail} onChange={(e) => setProvEmail(e.target.value)} placeholder="correo@dominio.com" />
                 </div>
                 <div className="form-row">
                   <label>Origen</label>
@@ -371,14 +371,14 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
                 </div>
                 <div className="form-row">
                   <label>Cantidad</label>
-                  <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
+                  <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
                 </div>
               </div>
             ) : (
               <>
                 <div className="form-row">
                   <label>Descripción del material nuevo</label>
-                  <input className="input" value={l.nombre} onChange={(e) => set(l.id, { nombre: e.target.value.toUpperCase() })} placeholder="Nombre / descripción" />
+                  <input className="input" name={`linea-nombre-${l.id}`} defaultValue={l.nombre} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); set(l.id, { nombre: e.target.value }); }} placeholder="Nombre / descripción" />
                   <small className="muted">Se da de alta en el inventario (stock 0, sin precio). SKU automático.</small>
                 </div>
                 <div className="form-grid">
@@ -387,7 +387,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
                   <div className="form-row"><label>Unidad</label>
                     <select className="select" value={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })}>{unidades.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
                   <div className="form-row"><label>Cantidad</label>
-                    <input className="input mono" type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
+                    <input className="input mono" name={`linea-cant-nuevo-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
               </>
             )}
@@ -508,7 +508,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
                   <tr key={i}>
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
-                    <td><input className="input mono" type="number" min={0} step="any" value={gastos[i] ?? ''} onChange={(e) => setGastos((m) => ({ ...m, [i]: dosDecimales(e.target.value) }))} placeholder="0,00" /></td>
+                    <td><input className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
                     <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
                   </tr>
                 );
@@ -554,9 +554,9 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
                         <td><span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(Number(s.saldo), s.moneda)}</td>
                         <td style={{ textAlign: 'right' }}>
-                          <input className="input mono" type="number" min={0} max={Number(s.saldo)} step="any"
-                            value={legMontos[s.id] ?? ''} placeholder="0,00"
-                            onChange={(e) => setLegMontos((m) => ({ ...m, [s.id]: dosDecimales(e.target.value) }))}
+                          <input className="input mono" name={`leg-${s.id}`} type="number" min={0} max={Number(s.saldo)} step="any"
+                            defaultValue={legMontos[s.id] ?? ''} placeholder="0,00"
+                            onChange={(e) => { e.target.value = dosDecimales(e.target.value); setLegMontos((m) => ({ ...m, [s.id]: e.target.value })); }}
                             style={{ width: 130, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{n > 0 ? montoCaja(legUsd(s.moneda, n), 'USD') : '—'}</td>

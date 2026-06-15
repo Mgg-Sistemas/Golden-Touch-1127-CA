@@ -113,7 +113,8 @@ export function AlmacenForm({ almacen, almacenes = [], parentPreset, sedePreset,
             <label>Sede</label>
             {nuevaSede ? (
               <div style={{ display: 'flex', gap: '.4rem' }}>
-                <input className="input" value={sede} onChange={(e) => setSede(e.target.value.toUpperCase())}
+                <input className="input" name="f-nueva-sede" defaultValue={sede}
+                  onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setSede(e.target.value); }}
                   placeholder="Ej: MATANZAS, LOS PINOS…" autoFocus style={{ flex: 1 }} />
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setNuevaSede(false); setSede(''); }}>Elegir existente</button>
               </div>
@@ -132,7 +133,8 @@ export function AlmacenForm({ almacen, almacenes = [], parentPreset, sedePreset,
           <label>Nombre del almacén</label>
           <input
             className="input"
-            value={nombre}
+            name="f-nombre"
+            defaultValue={nombre}
             onChange={(e) => setNombre(e.target.value)}
             placeholder={esSub ? 'Ej: Estante A, Sección 1…' : 'Ej: Almacén 1, Galpón A…'}
             required
@@ -143,7 +145,8 @@ export function AlmacenForm({ almacen, almacenes = [], parentPreset, sedePreset,
           <label>Ubicación</label>
           <input
             className="input"
-            value={ubicacion}
+            name="f-ubicacion"
+            defaultValue={ubicacion}
             onChange={(e) => setUbicacion(e.target.value)}
             placeholder="Ej: Galpón A · Planta 2 · Sede principal…"
           />

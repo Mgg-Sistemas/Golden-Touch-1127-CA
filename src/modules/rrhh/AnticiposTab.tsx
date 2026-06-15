@@ -18,6 +18,7 @@ export function AnticiposTab({ canWrite, actor, actorName }: { canWrite: boolean
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verSaldadas, setVerSaldadas] = useState(false);
+  const [formKey, setFormKey] = useState(0);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -45,6 +46,7 @@ export function AnticiposTab({ canWrite, actor, actorName }: { canWrite: boolean
       await crearAnticipo(form, actor, actorName);
       toast('Registrado', 'success');
       setForm(VACIO);
+      setFormKey((k) => k + 1);
       await recargar();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); }
     finally { setGuardando(false); }
@@ -65,7 +67,7 @@ export function AnticiposTab({ canWrite, actor, actorName }: { canWrite: boolean
           {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
           <div className="card" style={{ padding: '.85rem' }}>
             <div className="card-title" style={{ marginBottom: '.5rem' }}>Registrar anticipo / préstamo</div>
-            <div className="form-grid">
+            <div className="form-grid" key={formKey}>
               <div className="form-row">
                 <label>Trabajador</label>
                 <SearchSelect value={form.personal_id} onChange={(v) => setForm((f) => ({ ...f, personal_id: v }))} placeholder="🔍 Buscar trabajador…"
@@ -78,9 +80,9 @@ export function AnticiposTab({ canWrite, actor, actorName }: { canWrite: boolean
                   <option value="prestamo">Préstamo</option>
                 </select>
               </div>
-              <div className="form-row"><label>Monto total (USD)</label><input className="input mono" type="number" min={0} step="any" value={form.monto_total || ''} onChange={(e) => setForm((f) => ({ ...f, monto_total: Number(e.target.value) || 0 }))} placeholder="0,00" required /></div>
-              <div className="form-row"><label>Cuota sugerida por quincena (opcional)</label><input className="input mono" type="number" min={0} step="any" value={form.cuota_sugerida ?? ''} onChange={(e) => setForm((f) => ({ ...f, cuota_sugerida: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" /></div>
-              <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Motivo</label><input className="input" value={form.motivo ?? ''} onChange={(e) => setForm((f) => ({ ...f, motivo: e.target.value }))} placeholder="Adelanto de quincena, préstamo personal…" /></div>
+              <div className="form-row"><label>Monto total (USD)</label><input name="anticipo-monto-total" className="input mono" type="number" min={0} step="any" defaultValue={form.monto_total || ''} onChange={(e) => setForm((f) => ({ ...f, monto_total: Number(e.target.value) || 0 }))} placeholder="0,00" required /></div>
+              <div className="form-row"><label>Cuota sugerida por quincena (opcional)</label><input name="anticipo-cuota-sugerida" className="input mono" type="number" min={0} step="any" defaultValue={form.cuota_sugerida ?? ''} onChange={(e) => setForm((f) => ({ ...f, cuota_sugerida: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" /></div>
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Motivo</label><input name="anticipo-motivo" className="input" defaultValue={form.motivo ?? ''} onChange={(e) => setForm((f) => ({ ...f, motivo: e.target.value }))} placeholder="Adelanto de quincena, préstamo personal…" /></div>
             </div>
             <div style={{ marginTop: '.5rem' }}>
               <button type="submit" className="btn btn-primary" disabled={guardando}>{guardando ? 'Guardando…' : '+ Registrar'}</button>

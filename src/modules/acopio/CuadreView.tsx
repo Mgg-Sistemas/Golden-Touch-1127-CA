@@ -153,8 +153,8 @@ function CuadreEditor({ cuadre, canWrite, actor, actorName, onClose, onSaved, on
       {/* Encabezado */}
       <div className="form-grid">
         <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!editable} /></div>
-        <div className="form-row"><label>Quién suministra</label><input className="input" value={fuente} onChange={(e) => setFuente(e.target.value)} placeholder="Sr. Cheli" disabled={!editable} /></div>
-        <div className="form-row"><label>Responsable de la caja</label><input className="input" value={responsable} onChange={(e) => setResponsable(e.target.value)} placeholder="Maikel…" disabled={!editable} /></div>
+        <div className="form-row"><label>Quién suministra</label><input className="input" name="cu-fuente" defaultValue={fuente} onChange={(e) => setFuente(e.target.value)} placeholder="Sr. Cheli" disabled={!editable} /></div>
+        <div className="form-row"><label>Responsable de la caja</label><input className="input" name="cu-responsable" defaultValue={responsable} onChange={(e) => setResponsable(e.target.value)} placeholder="Maikel…" disabled={!editable} /></div>
       </div>
 
       {/* Conteo de billetes */}
@@ -164,7 +164,7 @@ function CuadreEditor({ cuadre, canWrite, actor, actorName, onClose, onSaved, on
           {DENOMINACIONES.map((d) => (
             <div key={d} className="form-row" style={{ margin: 0 }}>
               <label style={{ fontSize: '.74rem' }}>${d} ×</label>
-              <input className="input mono" type="number" min={0} step={1} value={billetes[d] ?? ''} onChange={(e) => setBilletes((p) => ({ ...p, [d]: e.target.value }))} disabled={!editable} placeholder="0" />
+              <input className="input mono" type="number" name={`cu-billete-${d}`} min={0} step={1} defaultValue={billetes[d] ?? ''} onChange={(e) => setBilletes((p) => ({ ...p, [d]: e.target.value }))} disabled={!editable} placeholder="0" />
               <small className="muted">{money(d * (Number(billetes[d]) || 0))}</small>
             </div>
           ))}
@@ -224,7 +224,7 @@ function CuadreEditor({ cuadre, canWrite, actor, actorName, onClose, onSaved, on
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
         <label>Observaciones</label>
-        <textarea className="input" rows={2} value={obs} onChange={(e) => setObs(e.target.value)} disabled={!editable} />
+        <textarea className="input" name="cu-obs" rows={2} defaultValue={obs} onChange={(e) => setObs(e.target.value)} disabled={!editable} />
       </div>
 
       {movModal && cuadre && (
@@ -301,11 +301,11 @@ function MovModal({ cuadreId, mov, orden, onClose, onSaved }: {
           {CATEGORIAS_CUADRE.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
         </select>
       </div>
-      <div className="form-row"><label>Descripción</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Pago nómina, compra casiterita…" /></div>
+      <div className="form-row"><label>Descripción</label><input className="input" name="mov-descripcion" defaultValue={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Pago nómina, compra casiterita…" /></div>
       <div className="form-grid">
-        <div className="form-row"><label>Beneficiario</label><input className="input" value={beneficiario} onChange={(e) => setBeneficiario(e.target.value)} placeholder="Nombre" /></div>
-        <div className="form-row"><label>Monto (USD)</label><input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} /></div>
-        <div className="form-row"><label>Monto (Bs) opcional</label><input className="input mono" type="number" min={0} step="any" value={montoBs} onChange={(e) => setMontoBs(e.target.value)} /></div>
+        <div className="form-row"><label>Beneficiario</label><input className="input" name="mov-beneficiario" defaultValue={beneficiario} onChange={(e) => setBeneficiario(e.target.value)} placeholder="Nombre" /></div>
+        <div className="form-row"><label>Monto (USD)</label><input className="input mono" type="number" name="mov-monto" min={0} step="any" defaultValue={monto} onChange={(e) => setMonto(e.target.value)} /></div>
+        <div className="form-row"><label>Monto (Bs) opcional</label><input className="input mono" type="number" name="mov-monto-bs" min={0} step="any" defaultValue={montoBs} onChange={(e) => setMontoBs(e.target.value)} /></div>
       </div>
       <div style={{ display: 'flex', gap: '1.2rem', alignItems: 'center', marginTop: '.3rem' }}>
         <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: '.85rem' }}>
@@ -317,7 +317,7 @@ function MovModal({ cuadreId, mov, orden, onClose, onSaved }: {
           </label>
         )}
       </div>
-      <div className="form-row" style={{ marginTop: '.3rem' }}><label>Nota</label><input className="input" value={nota} onChange={(e) => setNota(e.target.value)} /></div>
+      <div className="form-row" style={{ marginTop: '.3rem' }}><label>Nota</label><input className="input" name="mov-nota" defaultValue={nota} onChange={(e) => setNota(e.target.value)} /></div>
     </Modal>
   );
 }
