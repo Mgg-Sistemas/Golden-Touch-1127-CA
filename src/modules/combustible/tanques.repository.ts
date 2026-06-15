@@ -794,6 +794,16 @@ export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<v
   const ids = par ? [mov.id, par.id] : [mov.id];
   const { error } = await supabase.from('combustible_tanque_movimientos').delete().in('id', ids);
   if (error) throw error;
+
+  // Tras la baja, RE-ENCADENAR los medidores: el horómetro (por equipo) y el contador del
+  // surtidor (por tanque) deben recolgar del anterior, igual que en la edición. Antes esto
+  // no se hacía y al borrar un horómetro la cadena quedaba desfasada (no sincronizaba).
+  await reencadenarHorometroEquipo(mov.equipo);
+  await reencadenarContadorTanque(mov.tanque_id);
+  if (par) {
+    if (par.equipo && par.equipo !== mov.equipo) await reencadenarHorometroEquipo(par.equipo);
+    if (par.tanque_id && par.tanque_id !== mov.tanque_id) await reencadenarContadorTanque(par.tanque_id);
+  }
 }
 
 /* ───────────── Reporte global ───────────── */
