@@ -12,12 +12,30 @@ import { BitacoraModal } from './BitacoraModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { horasUltimoPorEquipo } from './maquinariaMant.repository';
+import { horometrosVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
 import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
 
 const STATUS_COLOR: Record<string, string> = {
   'ACTIVO': 'var(--success)', 'MANTENIMIENTO': 'var(--warning)',
   'FUERA DE SERVICIO': 'var(--danger)', 'INACTIVO': 'var(--muted)',
 };
+
+/** Umbral de alerta: si faltan ≤ 250 HRS para el próximo mantenimiento, se avisa. */
+const UMBRAL_ALERTA_HRS = 250;
+
+/** Quita acentos y pasa a minúsculas para una búsqueda tolerante. */
+const normTxt = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+/**
+ * HRS restantes hasta el próximo mantenimiento. El mantenimiento se hace cada N horas
+ * de horómetro (N = mantenimiento_cada_hrs); el próximo toca en el siguiente múltiplo de N.
+ * restantes = N − (horómetro mod N). Devuelve null si falta el dato.
+ */
+function hrsRestantes(frecuencia: number | null, horometro: number | null): number | null {
+  if (!frecuencia || frecuencia <= 0 || horometro == null) return null;
+  return ((frecuencia - (horometro % frecuencia)) % frecuencia);
+}
 
 export function MaquinariaPage() {
   const { can, appUser } = usePermissions();
@@ -27,6 +45,8 @@ export function MaquinariaPage() {
   const actorName = appUser?.nombre ?? null;
 
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  const [horometros, setHorometros] = useState<Map<string, number>>(new Map());     // combustible: nombre→horómetro
+  const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map()); // bitácora: equipo_id→…
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState('');
   const [verInactivos, setVerInactivos] = useState(false);
@@ -39,21 +59,49 @@ export function MaquinariaPage() {
   const [borrar, setBorrar] = useState<MaquinariaEquipo | null>(null);
 
   const cargar = useCallback(async () => {
-    try { setEquipos(await listEquipos()); }
-    finally { setLoading(false); }
+    try {
+      const [eqs, horos, bit] = await Promise.all([
+        listEquipos(),
+        horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
+        horasUltimoPorEquipo().catch(() => new Map()),
+      ]);
+      setEquipos(eqs);
+      setHorometros(horos);
+      setBitMap(bit);
+    } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos'], () => { void cargar(); });
+  // También vigila los movimientos de combustible: el horómetro vigente sale de ahí.
+  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'combustible_tanque_movimientos'], () => { void cargar(); });
+
+  // HRS restantes + alerta por equipo. Horómetro vigente: el de Combustible (si está
+  // vinculado), si no el último de la bitácora.
+  const infoEquipo = useMemo(() => {
+    const m = new Map<string, { restantes: number | null; alerta: boolean; horometro: number | null }>();
+    for (const e of equipos) {
+      const horo = (e.combustible_equipo ? horometros.get(e.combustible_equipo.trim()) : undefined)
+        ?? bitMap.get(e.id)?.ultimoHorometro ?? null;
+      const restantes = hrsRestantes(e.mantenimiento_cada_hrs, horo);
+      m.set(e.id, { restantes, horometro: horo, alerta: restantes != null && restantes <= UMBRAL_ALERTA_HRS });
+    }
+    return m;
+  }, [equipos, horometros, bitMap]);
 
   const lista = useMemo(() => {
-    const q = filtro.trim().toLowerCase();
+    const q = normTxt(filtro.trim());
     return equipos.filter((e) => {
       if (!verInactivos && !e.activo) return false;
       if (!q) return true;
       return [e.equipo, e.tipo, e.propietario, e.status, e.ubicacion, e.serial, e.placa, e.marca, e.modelo]
-        .some((v) => (v ?? '').toLowerCase().includes(q));
+        .some((v) => normTxt(v ?? '').includes(q));
     });
   }, [equipos, filtro, verInactivos]);
+
+  // Equipos activos que requieren mantenimiento pronto (≤ 250 HRS).
+  const enAlerta = useMemo(
+    () => equipos.filter((e) => e.activo && infoEquipo.get(e.id)?.alerta),
+    [equipos, infoEquipo],
+  );
 
   async function toggleActivo(e: MaquinariaEquipo) {
     try { await setEquipoActivo(e.id, !e.activo); await cargar(); }
@@ -80,6 +128,12 @@ export function MaquinariaPage() {
         </div>
       </div>
 
+      {enAlerta.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
+          ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
         <input className="input" value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="🔍 Buscar equipo, tipo, propietario, serial…" style={{ flex: '1 1 280px' }} />
         <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.82rem', cursor: 'pointer' }}>
@@ -97,18 +151,26 @@ export function MaquinariaPage() {
           <table className="table" style={{ fontSize: '.85rem' }}>
             <thead><tr>
               <th>Equipo</th><th>Tipo</th><th>Propietario</th><th>Status</th><th>Ubicación</th>
-              <th style={{ textAlign: 'right' }}>Mantt. (h)</th><th>⛽</th><th></th>
+              <th style={{ textAlign: 'right' }}>Mantt. cada (h)</th><th style={{ textAlign: 'right' }}>HRS restantes</th><th></th>
             </tr></thead>
             <tbody>
-              {lista.map((e) => (
-                <tr key={e.id} style={{ opacity: e.activo ? 1 : 0.5 }}>
+              {lista.map((e) => {
+                const info = infoEquipo.get(e.id);
+                return (
+                <tr key={e.id} style={{ opacity: e.activo ? 1 : 0.5, background: info?.alerta ? 'rgba(255,165,0,.10)' : undefined }}>
                   <td><strong>{e.equipo}</strong>{e.serial ? <div className="muted mono" style={{ fontSize: '.72rem' }}>{e.serial}</div> : null}</td>
                   <td>{e.tipo ?? '—'}</td>
                   <td>{e.propietario ?? '—'}</td>
                   <td><span className="badge" style={{ color: STATUS_COLOR[e.status] ?? undefined }}>{e.status}</span></td>
                   <td>{e.ubicacion ?? '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{e.mantenimiento_cada_hrs != null ? fmtNum(e.mantenimiento_cada_hrs) : '—'}</td>
-                  <td>{e.combustible_equipo ? <span title={`Vinculado a Combustible: ${e.combustible_equipo}`}>✅</span> : <span className="muted" title="Sin vincular">—</span>}</td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {info?.restantes == null
+                      ? <span className="muted" title={!e.mantenimiento_cada_hrs ? 'Definí «Mantenimiento cada (hrs)» en la ficha' : 'Sin horómetro registrado'}>—</span>
+                      : info.alerta
+                        ? <span style={{ color: 'var(--warning)', fontWeight: 700 }} title={`Faltan ${fmtNum(info.restantes)} h · horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>⚠️ {fmtNum(info.restantes)} h</span>
+                        : <span title={`horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>{fmtNum(info.restantes)} h</span>}
+                  </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
@@ -116,7 +178,8 @@ export function MaquinariaPage() {
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => setBorrar(e)}>🗑</button>}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

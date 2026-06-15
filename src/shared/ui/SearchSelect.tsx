@@ -5,6 +5,9 @@ export interface SearchOption {
   label: string;
 }
 
+/** Normaliza para buscar: minúsculas y SIN acentos (así "peramanal" encuentra "Peramanál"). */
+const normBusqueda = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+
 /** Estilos compartidos del panel desplegable (mismos en SearchSelect y SearchCreateSelect). */
 const PANEL_STYLE: CSSProperties = {
   position: 'absolute', zIndex: 60, top: '100%', left: 0, right: 0, marginTop: 2,
@@ -51,9 +54,9 @@ export function SearchSelect({
   const selected = options.find((o) => o.value === value) ?? null;
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = normBusqueda(query);
     if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
+    return options.filter((o) => normBusqueda(o.label).includes(q));
   }, [options, query]);
 
   // Cerrar al hacer clic afuera (y limpiar el texto tecleado).
@@ -164,7 +167,7 @@ export function SearchCreateSelect({
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const norm = (s: string) => s.trim().toLowerCase();
+  const norm = (s: string) => normBusqueda(s);
 
   const filtered = useMemo(() => {
     const q = norm(value);
