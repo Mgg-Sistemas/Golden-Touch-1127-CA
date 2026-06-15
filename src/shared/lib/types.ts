@@ -208,6 +208,12 @@ export interface MovimientoCaja {
   conciliada_at?: string | null;
   /** Tesorería: etiqueta del egreso ('gasto' / 'pago_personal' / 'pago_oc'). */
   categoria?: string | null;
+  /** Tesorería · gasto: categoría/subcategoría del catálogo y correlativo (RECEPCIÓN/EXPORTACIÓN). */
+  gasto_categoria?: string | null;
+  gasto_subcategoria?: string | null;
+  gasto_correlativo?: number | null;
+  /** Tesorería: cierre de mes que archiva el movimiento (null = abierto). */
+  cierre_id?: string | null;
   beneficiario?: string | null;
   beneficiario_id?: string | null;
   ref_orden_id?: string | null;
