@@ -37,7 +37,7 @@ export function AppShell() {
   const { can, role } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('tesoreria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('tesoreria') || can('maquinaria');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -229,6 +229,7 @@ export function AppShell() {
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
+          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria" />}
         </nav>
 
         {showSistema && <div className="sidebar-section">Sistema</div>}
@@ -280,7 +281,6 @@ export function AppShell() {
         <div className="sidebar-section">Próximamente</div>
         <nav className="nav">
           <NavItem to="#" icon="↗" label="Ventas" disabled />
-          <NavItem to="#" icon="🚜" label="Control de Maquinaria" disabled />
         </nav>
 
         <div className="sidebar-footer">

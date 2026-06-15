@@ -206,6 +206,21 @@ const SECCIONES: Seccion[] = [
     ],
   },
   {
+    icono: '🚜',
+    titulo: 'Control de Maquinaria',
+    intro:
+      'Registro y control de la maquinaria y equipos: ficha técnica, bitácora de horómetro/mantenimiento, alertas de mantenimiento preventivo y reportes.',
+    puntos: [
+      'Catálogo (botón 🏷): 3 pestañas — Tipo de maquinaria, Propietario y Status (ACTIVO, MANTENIMIENTO, FUERA DE SERVICIO, INACTIVO). Se puede agregar, filtrar, editar, desactivar/activar y eliminar; nombres en MAYÚSCULA, sin duplicados.',
+      'Registro de equipos (+ Nuevo equipo): ficha técnica completa (tipo, propietario, status, ubicación, año, marca, modelo, color, serial, placa, motor, combustible, litros, frecuencia de mantenimiento preventivo cada N horas y documentación). Tabla con búsqueda, edición, activar/desactivar y eliminar.',
+      'Integración con Combustible: al vincular el equipo con su equipo de Combustible, el horómetro vigente y el gasoil consumido se traen solos del módulo de Combustible (✅ en la tabla indica vinculado).',
+      'Bitácora / horómetro (🔧): registro cronológico (fecha, horómetro, aceite, refrigerante, gasoil, trabajo, mecánico, ubicación). Las HRS. trabajadas (lectura − lectura anterior) y el consumo Lts/h (gasoil ÷ HRS) se calculan solos, igual que el Excel. Avisa cuando el período supera la frecuencia de mantenimiento.',
+      'Resumen (📊): gráficas de gasoil por equipo y por status, y tabla de mantenimiento preventivo (⚠️ Toca servicio). Filtrable por fechas. La gráfica de gasoil es dinámica: al hacer click sobre un equipo se abre su detalle (consumo y valor del período, último horómetro, horas del período y ficha técnica).',
+      'Reportes: el registro de equipos se descarga en PDF y Excel y se envía por correo.',
+      'Tiempo real y permisos por rol como el resto del sistema.',
+    ],
+  },
+  {
     icono: '👤',
     titulo: 'Usuarios',
     captura: 'usuarios',

@@ -113,7 +113,7 @@ function colorEscala(pct: number): string {
  * Ideal cuando hay MUCHAS categorías (p. ej. vehículos): la lista hace scroll y
  * nunca se solapan los nombres.
  */
-export function HBarChart({ data, color, yFormatter = String, emptyMessage }: BaseProps) {
+export function HBarChart({ data, color, yFormatter = String, emptyMessage, onBarClick }: BaseProps & { onBarClick?: (point: ChartPoint, index: number) => void }) {
   if (!data.length) {
     return (
       <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
@@ -132,8 +132,9 @@ export function HBarChart({ data, color, yFormatter = String, emptyMessage }: Ba
         return (
           <div
             key={i}
-            title={d.tooltip ?? `${d.label}: ${yFormatter(d.value)}`}
-            style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 150px) 1fr auto', gap: '.55rem', alignItems: 'center' }}
+            title={onBarClick ? `Ver detalle de ${d.label}` : (d.tooltip ?? `${d.label}: ${yFormatter(d.value)}`)}
+            onClick={onBarClick ? () => onBarClick(d, i) : undefined}
+            style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 150px) 1fr auto', gap: '.55rem', alignItems: 'center', cursor: onBarClick ? 'pointer' : undefined }}
           >
             <span style={{ fontSize: '.78rem', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {d.label}
