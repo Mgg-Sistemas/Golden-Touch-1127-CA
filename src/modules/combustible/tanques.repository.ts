@@ -1041,6 +1041,25 @@ export function consumoPorEquipo(desde: Date, hasta: Date): Promise<ConsumoEquip
   return consumoUso(desde, hasta, 'equipo');
 }
 
+/** Horómetro vigente (último HF registrado) de TODOS los equipos, en una sola consulta.
+ *  Devuelve Map<nombreEquipo, horómetro>. Lo usa Maquinaria para calcular las HRS
+ *  restantes hasta el próximo mantenimiento sin pegarle N veces a la base. */
+export async function horometrosVigentesPorEquipo(): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('equipo, horometro_fin, created_at')
+    .not('horometro_fin', 'is', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, number>();
+  for (const r of (data ?? []) as Array<{ equipo: string | null; horometro_fin: number | null }>) {
+    const eq = (r.equipo ?? '').trim();
+    if (!eq || r.horometro_fin == null) continue;
+    if (!out.has(eq)) out.set(eq, num(r.horometro_fin)); // orden desc: el primero es el vigente
+  }
+  return out;
+}
+
 /* ───────────── Medidores por equipo (horómetro / contador) ───────────── */
 
 export async function listMedidores(): Promise<MedidorCombustible[]> {

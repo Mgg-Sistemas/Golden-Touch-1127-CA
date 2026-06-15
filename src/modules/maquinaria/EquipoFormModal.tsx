@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
-import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { listActivosMaquinaria } from './maquinaria.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
@@ -47,6 +47,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   const [props, setProps] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
   const [combEquipos, setCombEquipos] = useState<string[]>([]);
+  const [ubicaciones, setUbicaciones] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +55,11 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     listActivosMaquinaria('tipo_maquinaria').then(setTipos).catch(() => {});
     listActivosMaquinaria('propietario').then(setProps).catch(() => {});
     listActivosMaquinaria('status').then((s) => setStatuses(s.length ? s : ['ACTIVO'])).catch(() => setStatuses(['ACTIVO']));
-    listCatalogos().then((c) => setCombEquipos(c.filter((x) => x.tipo === 'equipo' && x.activo).map((x) => x.valor))).catch(() => {});
+    // Equipos y UBICACIONES se traen del catálogo de Combustible (fuente única).
+    listCatalogos().then((c) => {
+      setCombEquipos(c.filter((x) => x.tipo === 'equipo' && x.activo).map((x) => x.valor));
+      setUbicaciones(c.filter((x) => x.tipo === 'ubicacion' && x.activo).map((x) => x.valor));
+    }).catch(() => {});
   }, []);
 
   const set = <K extends keyof MaquinariaEquipoInput>(k: K, v: MaquinariaEquipoInput[K]) => setF((p) => ({ ...p, [k]: v }));
@@ -123,7 +128,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Última ubicación</label>
-            <input name="f-ubicacion" className="input" defaultValue={f.ubicacion ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('ubicacion', e.target.value); }} placeholder="GT PERAMANAL…" />
+            <SearchCreateSelect value={f.ubicacion ?? ''} onChange={(v) => set('ubicacion', upper(v) || null)} options={ubicaciones} placeholder="Buscá una ubicación de Combustible o escribí una nueva…" />
+            <small className="muted">Se traen del catálogo de Combustible → Ubicaciones.</small>
           </div>
           <div className="form-row">
             <label>Año</label>
