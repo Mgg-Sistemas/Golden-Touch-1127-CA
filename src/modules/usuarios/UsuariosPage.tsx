@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -459,11 +459,9 @@ function UsuarioFormModal({
   onClose,
   onCreated,
 }: UsuarioFormModalProps) {
-  const [nombre, setNombre] = useState('');
-  const [apellido, setApellido] = useState('');
-  const [ci, setCi] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [email, setEmail] = useState('');
+  // Campos de texto NO controlados: el DOM es la fuente de verdad (inmune a re-renders
+  // del realtime y al autocompletado del navegador). Se leen del DOM al guardar.
+  const formRef = useRef<HTMLDivElement>(null);
   const [departamento, setDepartamento] = useState<string>('');
   const [nuevoDeptoOpen, setNuevoDeptoOpen] = useState(false);
   const [role, setRole] = useState<string>(roles.find((r) => r.key === 'analista')?.key ?? roles[0]?.key ?? '');
@@ -477,7 +475,14 @@ function UsuarioFormModal({
   }, [recientementeCreado, roles, onRecienteConsumido]);
 
   async function handleSubmit() {
-    if (!nombre.trim() || !apellido.trim() || !ci.trim() || !email.trim()) {
+    const root = formRef.current;
+    const val = (name: string) => (root?.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? '';
+    const nombre = onlyLetters(val('u-nombre')).trim();
+    const apellido = onlyLetters(val('u-apellido')).trim();
+    const ci = onlyDigits(val('u-ci'), 8).trim();
+    const email = val('u-email').trim().toLowerCase();
+    const telefono = onlyDigits(val('u-telefono'), 15).trim();
+    if (!nombre || !apellido || !ci || !email) {
       toast('Nombre, apellido, CI y correo son obligatorios', 'error');
       return;
     }
@@ -488,12 +493,12 @@ function UsuarioFormModal({
     setSubmitting(true);
     try {
       await crearUsuario({
-        nombre: nombre.trim(),
-        apellido: apellido.trim(),
-        ci: ci.trim(),
-        email: email.trim().toLowerCase(),
+        nombre,
+        apellido,
+        ci,
+        email,
         role,
-        telefono: telefono.trim() || undefined,
+        telefono: telefono || undefined,
         departamento: departamento.trim() || undefined,
       });
       notify(`Usuario creado: ${email} · clave inicial 123456`, 'success', { link: '#/app/usuarios' });
@@ -519,13 +524,15 @@ function UsuarioFormModal({
         </>
       }
     >
+      <div ref={formRef}>
       <div className="form-grid">
         <div className="form-row">
           <label>Nombre</label>
           <input
             className="input"
-            value={nombre}
-            onChange={(e) => setNombre(onlyLetters(e.target.value))}
+            name="u-nombre"
+            defaultValue=""
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); }}
             disabled={submitting}
             placeholder="Solo letras"
           />
@@ -534,8 +541,9 @@ function UsuarioFormModal({
           <label>Apellido</label>
           <input
             className="input"
-            value={apellido}
-            onChange={(e) => setApellido(onlyLetters(e.target.value))}
+            name="u-apellido"
+            defaultValue=""
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); }}
             disabled={submitting}
             placeholder="Solo letras"
           />
@@ -547,8 +555,9 @@ function UsuarioFormModal({
           <label>CI</label>
           <input
             className="input mono"
-            value={ci}
-            onChange={(e) => setCi(onlyDigits(e.target.value, 8))}
+            name="u-ci"
+            defaultValue=""
+            onChange={(e) => { e.target.value = onlyDigits(e.target.value, 8); }}
             placeholder="12345678"
             maxLength={8}
             inputMode="numeric"
@@ -560,8 +569,8 @@ function UsuarioFormModal({
           <input
             className="input"
             type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            name="u-email"
+            defaultValue=""
             placeholder="usuario@empresa.com"
             disabled={submitting}
           />
@@ -573,8 +582,9 @@ function UsuarioFormModal({
           <label>Teléfono</label>
           <input
             className="input mono"
-            value={telefono}
-            onChange={(e) => setTelefono(onlyDigits(e.target.value, 15))}
+            name="u-telefono"
+            defaultValue=""
+            onChange={(e) => { e.target.value = onlyDigits(e.target.value, 15); }}
             placeholder="04241234567"
             maxLength={15}
             inputMode="numeric"
@@ -672,6 +682,7 @@ function UsuarioFormModal({
           En su primer inicio de sesión deberá cambiarla obligatoriamente.
         </p>
       </div>
+      </div>
     </Modal>
   );
 }
@@ -704,10 +715,8 @@ function UsuarioEditModal({
   onSaved,
 }: UsuarioEditModalProps) {
   const [nuevoDeptoOpen, setNuevoDeptoOpen] = useState(false);
-  const [nombre, setNombre] = useState(usuario.nombre ?? '');
-  const [apellido, setApellido] = useState(usuario.apellido ?? '');
-  const [ci, setCi] = useState(usuario.ci ?? '');
-  const [telefono, setTelefono] = useState(usuario.telefono ?? '');
+  // Campos de texto NO controlados (DOM como fuente de verdad): inmunes a re-renders.
+  const formRef = useRef<HTMLDivElement>(null);
   const [departamento, setDepartamento] = useState(usuario.departamento ?? '');
   const [role, setRole] = useState<string>(usuario.role);
   const [submitting, setSubmitting] = useState(false);
@@ -720,17 +729,23 @@ function UsuarioEditModal({
   }, [recientementeCreado, roles, onRecienteConsumido]);
 
   async function handleSubmit() {
-    if (!nombre.trim() || !apellido.trim() || !ci.trim()) {
+    const root = formRef.current;
+    const val = (name: string) => (root?.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? '';
+    const nombre = onlyLetters(val('u-nombre')).trim();
+    const apellido = onlyLetters(val('u-apellido')).trim();
+    const ci = onlyDigits(val('u-ci'), 8).trim();
+    const telefono = onlyDigits(val('u-telefono'), 15).trim();
+    if (!nombre || !apellido || !ci) {
       toast('Nombre, apellido y CI son obligatorios', 'error');
       return;
     }
     setSubmitting(true);
     try {
       await actualizarUsuario(usuario.id, {
-        nombre: nombre.trim(),
-        apellido: apellido.trim(),
-        ci: ci.trim(),
-        telefono: telefono.trim(),
+        nombre,
+        apellido,
+        ci,
+        telefono,
         departamento: departamento.trim(),
         role,
       });
@@ -757,13 +772,15 @@ function UsuarioEditModal({
         </>
       }
     >
+      <div ref={formRef}>
       <div className="form-grid">
         <div className="form-row">
           <label>Nombre</label>
           <input
             className="input"
-            value={nombre}
-            onChange={(e) => setNombre(onlyLetters(e.target.value))}
+            name="u-nombre"
+            defaultValue={usuario.nombre ?? ''}
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); }}
             disabled={submitting}
           />
         </div>
@@ -771,8 +788,9 @@ function UsuarioEditModal({
           <label>Apellido</label>
           <input
             className="input"
-            value={apellido}
-            onChange={(e) => setApellido(onlyLetters(e.target.value))}
+            name="u-apellido"
+            defaultValue={usuario.apellido ?? ''}
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); }}
             disabled={submitting}
           />
         </div>
@@ -783,8 +801,9 @@ function UsuarioEditModal({
           <label>CI</label>
           <input
             className="input mono"
-            value={ci}
-            onChange={(e) => setCi(onlyDigits(e.target.value, 8))}
+            name="u-ci"
+            defaultValue={usuario.ci ?? ''}
+            onChange={(e) => { e.target.value = onlyDigits(e.target.value, 8); }}
             maxLength={8}
             inputMode="numeric"
             disabled={submitting}
@@ -794,8 +813,9 @@ function UsuarioEditModal({
           <label>Teléfono</label>
           <input
             className="input mono"
-            value={telefono}
-            onChange={(e) => setTelefono(onlyDigits(e.target.value, 15))}
+            name="u-telefono"
+            defaultValue={usuario.telefono ?? ''}
+            onChange={(e) => { e.target.value = onlyDigits(e.target.value, 15); }}
             placeholder="04241234567"
             maxLength={15}
             inputMode="numeric"
@@ -892,6 +912,7 @@ function UsuarioEditModal({
           }}
         />
       )}
+      </div>
     </Modal>
   );
 }
