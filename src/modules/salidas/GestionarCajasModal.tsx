@@ -31,6 +31,8 @@ export function GestionarCajasModal({
   const [nombre, setNombre] = useState('');
   const [moneda, setMoneda] = useState<MonedaCaja>('USD');
   const [saldoIni, setSaldoIni] = useState('0');
+  // Se incrementa al limpiar el form de alta para forzar remonte de los inputs no-controlados.
+  const [altaKey, setAltaKey] = useState(0);
   // Tasa Binance (Bs por 1 USDT) para cajas USDT: sugerida del mercado, editable.
   const [tasaUsdt, setTasaUsdt] = useState('');
   const [tasaBinance, setTasaBinance] = useState<number | null>(null);
@@ -93,6 +95,7 @@ export function GestionarCajasModal({
       }
       notify(`Caja "${nombre.trim()}" creada${esUsdt ? ' · USDT' : ''}`, 'success');
       setNombre(''); setSaldoIni('0'); setTasaUsdt(esUsdt && tasaBinance != null ? String(tasaBinance) : '');
+      setAltaKey((k) => k + 1); // el form queda abierto: remontar inputs no-controlados para limpiar el DOM
       await recargar(); cambio();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear', 'error'); }
     finally { setBusy(false); }
@@ -141,10 +144,10 @@ export function GestionarCajasModal({
       </p>
 
       {/* Alta */}
-      <div className="form-grid" style={{ marginBottom: '.85rem' }}>
+      <div className="form-grid" style={{ marginBottom: '.85rem' }} key={altaKey}>
         <div className="form-row">
           <label>Nombre</label>
-          <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. Caja chica" />
+          <input className="input" name="caja-nombre" defaultValue={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. Caja chica" />
         </div>
         <div className="form-row">
           <label>Moneda</label>
@@ -156,11 +159,13 @@ export function GestionarCajasModal({
         </div>
         <div className="form-row">
           <label>Saldo inicial</label>
-          <input className="input mono" type="number" min={0} step="0.01" value={saldoIni} onChange={(e) => setSaldoIni(e.target.value)} />
+          <input className="input mono" name="caja-saldo-inicial" type="number" min={0} step="0.01" defaultValue={saldoIni} onChange={(e) => setSaldoIni(e.target.value)} />
         </div>
         {ES_DIVISA(moneda) ? (
           <div className="form-row">
             <label>Tasa Binance (Bs por USDT)</label>
+            {/* Controlado a propósito: la tasa se prellena por estado (useEffect con la tasa Binance del día),
+                lo que NO se reflejaría en un input no-controlado. */}
             <input className="input mono" type="number" min={0} step="0.0001" value={tasaUsdt} onChange={(e) => setTasaUsdt(e.target.value)} placeholder={tasaBinance != null ? String(tasaBinance) : 'Bs por 1 USDT'} />
             <small className="muted">{tasaBinance != null ? `Sugerida (Binance hoy): ${tasaBinance.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs` : 'Sin tasa Binance cargada'}</small>
           </div>
@@ -195,7 +200,7 @@ export function GestionarCajasModal({
                 return (
                   <tr key={c.id}>
                     <td>{enEd ? (
-                      <input className="input" value={editVal} onChange={(e) => setEditVal(e.target.value)} autoFocus
+                      <input className="input" name="caja-rename" defaultValue={editVal} onChange={(e) => setEditVal(e.target.value)} autoFocus
                         onKeyDown={(e) => { if (e.key === 'Enter') void guardarRename(); if (e.key === 'Escape') setEditId(null); }} />
                     ) : <strong>{c.nombre}</strong>}</td>
                     <td><span className="badge">{c.moneda}</span></td>
@@ -273,11 +278,11 @@ export function GestionarCajasModal({
           </>}>
           <div className="form-row">
             <label>Nuevo saldo</label>
-            <input className="input mono" type="number" step="0.01" value={ajusteVal} onChange={(e) => setAjusteVal(e.target.value)} autoFocus />
+            <input className="input mono" name="ajuste-saldo" type="number" step="0.01" defaultValue={ajusteVal} onChange={(e) => setAjusteVal(e.target.value)} autoFocus />
           </div>
           <div className="form-row">
             <label>Motivo del ajuste</label>
-            <input className="input" value={ajusteMotivo} onChange={(e) => setAjusteMotivo(e.target.value)} placeholder="Ej. conciliación de caja" />
+            <input className="input" name="ajuste-motivo" defaultValue={ajusteMotivo} onChange={(e) => setAjusteMotivo(e.target.value)} placeholder="Ej. conciliación de caja" />
           </div>
         </Modal>
       )}

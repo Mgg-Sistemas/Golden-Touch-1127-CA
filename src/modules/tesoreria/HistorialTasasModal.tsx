@@ -77,6 +77,8 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   // Corrección manual
   const [mMoneda, setMMoneda] = useState<string>('USD');
   const [mTasa, setMTasa] = useState('');
+  // Fuerza remonte del input no controlado al limpiarlo tras guardar.
+  const [mTasaKey, setMTasaKey] = useState(0);
   // Monedas con tasa (todas las del sistema menos Bs, que es la base).
   const [monedasTasa, setMonedasTasa] = useState<string[]>(['USD', 'EUR', 'USDT', 'COP']);
   useEffect(() => {
@@ -129,6 +131,7 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
     try {
       await setTasaManual({ moneda: mMoneda, tasa: v });
       setMTasa('');
+      setMTasaKey((k) => k + 1);
       onRefreshed?.(await getTasaHoy());
       toast('Tasa corregida', 'success');
       await reload();
@@ -167,7 +170,7 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
             </div>
             <div className="form-row" style={{ margin: 0 }}>
               <label>{mMoneda === 'COP' ? 'Tasa (COP por $)' : 'Tasa (Bs)'}</label>
-              <input className="input mono" type="number" min={0} step="0.01" value={mTasa} onChange={(e) => setMTasa(e.target.value)} />
+              <input key={mTasaKey} name="m-tasa" className="input mono" type="number" min={0} step="0.01" defaultValue={mTasa} onChange={(e) => setMTasa(e.target.value)} />
             </div>
             <button className="btn btn-sm btn-primary" onClick={guardarManual} disabled={busy}>Guardar</button>
           </div>

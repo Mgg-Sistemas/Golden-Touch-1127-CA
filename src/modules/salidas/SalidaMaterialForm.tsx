@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
@@ -54,6 +54,7 @@ export function SalidaMaterialForm({
   const [unidadSolicitante, setUnidadSolicitante] = useState('');
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const nuevaUnidadRef = useRef<HTMLInputElement>(null);
   const [addingUnidad, setAddingUnidad] = useState(false);
   const cargarUnidades = useCallback(async () => {
     const uns = await listActivosPedido('unidad_solicitante').catch(() => [] as string[]);
@@ -66,7 +67,10 @@ export function SalidaMaterialForm({
     const v = nuevaUnidad.trim().toUpperCase();
     if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
     if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
-      setUnidadSolicitante(v); setNuevaUnidad(''); return;
+      setUnidadSolicitante(v);
+      setNuevaUnidad('');
+      if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = ''; // limpiar DOM (input no controlado)
+      return;
     }
     try {
       setAddingUnidad(true);
@@ -74,6 +78,7 @@ export function SalidaMaterialForm({
       await cargarUnidades();
       setUnidadSolicitante(v);
       setNuevaUnidad('');
+      if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = ''; // limpiar DOM (input no controlado)
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error');
     } finally {
@@ -91,9 +96,14 @@ export function SalidaMaterialForm({
 
   // No permite escribir una cantidad mayor a la disponible en el almacén:
   // la recortamos al stock al momento de cambiarla.
-  function onCantidadChange(v: string) {
+  function onCantidadChange(e: ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
     const n = Number(v);
-    if (Number.isFinite(n) && n > stock) { setCantidad(String(stock)); return; }
+    if (Number.isFinite(n) && n > stock) {
+      e.target.value = String(stock); // reflejar el recorte al DOM (input no controlado)
+      setCantidad(String(stock));
+      return;
+    }
     setCantidad(v);
   }
 
@@ -171,7 +181,8 @@ export function SalidaMaterialForm({
             options={unidadOpciones.map((u) => ({ value: u, label: u }))}
             placeholder="Departamento / unidad que solicita" />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-            <input className="input" value={nuevaUnidad} onChange={(e) => setNuevaUnidad(e.target.value.toUpperCase())}
+            <input className="input" name="f-nueva-unidad" ref={nuevaUnidadRef} defaultValue={nuevaUnidad}
+              onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevaUnidad(e.target.value); }}
               placeholder="¿No está? Escribí la unidad nueva…"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
             <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
@@ -191,7 +202,7 @@ export function SalidaMaterialForm({
           </div>
           <div className="form-row">
             <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
-            <input className="input mono" type="number" min={1} max={stock || undefined} step="any" value={cantidad} onChange={(e) => onCantidadChange(e.target.value)} required />
+            <input className="input mono" name="f-cantidad" type="number" min={1} max={stock || undefined} step="any" defaultValue={cantidad} onChange={onCantidadChange} required />
             {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>}
           </div>
         </div>
@@ -211,7 +222,7 @@ export function SalidaMaterialForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Motivo / detalle</label>
-            <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del despacho, referencia…" />
+            <input className="input" name="f-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del despacho, referencia…" />
           </div>
           <div className="form-row">
             <label>Fecha de entrega</label>

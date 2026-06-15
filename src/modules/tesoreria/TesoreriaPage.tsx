@@ -609,7 +609,7 @@ function DetalleCorreoModal({ mov, orden, defaultEmail, onClose }: {
       </label>
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
-        <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
+        <input className="input" type="email" name="correo-extra" defaultValue={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
         <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
@@ -649,6 +649,9 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
   const [error, setError] = useState<string | null>(null);
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
   const [correoOpen, setCorreoOpen] = useState(false);
+  // Inputs no controlados (monto/origen): este nonce remonta el formulario al
+  // limpiarlo tras un ingreso, para que el DOM refleje los campos vacíos.
+  const [ingresoKey, setIngresoKey] = useState(0);
 
   // Sugerencia de tasa del día para la moneda elegida (Bs por 1 unidad).
   const tasaSugerida = moneda === 'Bs' || !mercado ? null : tasaCruzada(moneda as MonedaCaja, 'Bs', mercado);
@@ -725,6 +728,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
       const etiqueta = moneda === 'Bs' ? `Bs · ${cuenta}` : moneda;
       notify(`Ingreso ${etiqueta} · ${monto(montoNum, moneda)} · ${origenStr} · genera cuenta por pagar`, 'success', { link: '#/app/tesoreria' });
       setMontoStr(''); setTasaStr(''); setOrigen(''); setOrigenTipo('');
+      setIngresoKey((k) => k + 1);
       await reload(); await onChanged();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo ingresar.'); }
     finally { setSaving(false); }
@@ -845,8 +849,8 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
               <label>Moneda</label>
               {nuevaMonedaOpen ? (
                 <div style={{ display: 'flex', gap: '.3rem' }}>
-                  <input className="input mono" value={nuevaMoneda} autoFocus placeholder="Ej. EUR, PEN…"
-                    onChange={(e) => setNuevaMoneda(e.target.value.toUpperCase())}
+                  <input className="input mono" name="ing-nueva-moneda" defaultValue={nuevaMoneda} autoFocus placeholder="Ej. EUR, PEN…"
+                    onChange={(e) => { const v = e.target.value.toUpperCase(); e.target.value = v; setNuevaMoneda(v); }}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarMoneda(); } if (e.key === 'Escape') setNuevaMonedaOpen(false); }} />
                   <button type="button" className="btn btn-sm btn-primary" onClick={() => void agregarMoneda()}>✓</button>
                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevaMonedaOpen(false)}>✕</button>
@@ -870,7 +874,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
             )}
             <div className="form-row">
               <label>Monto ({moneda})</label>
-              <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} placeholder="0,00" required />
+              <input key={`ing-monto-${ingresoKey}`} className="input mono" type="number" name="ing-monto" min={0} step="any" defaultValue={montoStr} onChange={(e) => { const v = dosDecimales(e.target.value); e.target.value = v; setMontoStr(v); }} placeholder="0,00" required />
             </div>
             {moneda !== 'Bs' && (
               <div className="form-row">
@@ -909,9 +913,11 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 return (
                 <>
                   <input
+                    key={`ing-origen-${origenTipo}-${ingresoKey}`}
                     className="input"
+                    name="ing-origen"
                     list="origen-contrapartes"
-                    value={origen}
+                    defaultValue={origen}
                     onChange={(e) => setOrigen(e.target.value)}
                     placeholder={origenTipo === 'proveedor' ? 'Buscar o agregar razón social del proveedor…' : 'Buscar o agregar nombre del cliente…'}
                     autoFocus
@@ -1011,6 +1017,9 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
   const [editId, setEditId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Inputs no controlados: este nonce remonta el bloque del formulario cuando se
+  // limpia/cambia el registro en edición, para que el DOM refleje el nuevo estado.
+  const [formKey, setFormKey] = useState(0);
 
   const recargar = useCallback(async () => {
     try { setLista(await listContrapartes()); }
@@ -1018,11 +1027,12 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
 
-  function nuevo() { setEditId(null); setForm({ ...VACIA }); setError(null); }
+  function nuevo() { setEditId(null); setForm({ ...VACIA }); setError(null); setFormKey((k) => k + 1); }
   function editar(c: Contraparte) {
     setEditId(c.id);
     setForm({ tipo: c.tipo, nombre: c.nombre, rif: c.rif ?? '', telefono: c.telefono ?? '', email: c.email ?? '', nota: c.nota ?? '' });
     setError(null);
+    setFormKey((k) => k + 1);
   }
 
   async function guardar() {
@@ -1068,27 +1078,29 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
             );
           })}
         </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>{form.tipo === 'proveedor' ? 'Razón social' : 'Nombre del cliente'}</label>
-            <input className="input" value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} />
+        <div key={formKey}>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>{form.tipo === 'proveedor' ? 'Razón social' : 'Nombre del cliente'}</label>
+              <input className="input" name="cp-nombre" defaultValue={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} />
+            </div>
+            <div className="form-row">
+              <label>RIF / C.I. (opcional)</label>
+              <input className="input" name="cp-rif" defaultValue={form.rif} onChange={(e) => setForm((f) => ({ ...f, rif: e.target.value }))} />
+            </div>
+            <div className="form-row">
+              <label>Teléfono (opcional)</label>
+              <input className="input" name="cp-telefono" defaultValue={form.telefono} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} />
+            </div>
+            <div className="form-row">
+              <label>Correo (opcional)</label>
+              <input className="input" name="cp-email" defaultValue={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+            </div>
           </div>
           <div className="form-row">
-            <label>RIF / C.I. (opcional)</label>
-            <input className="input" value={form.rif} onChange={(e) => setForm((f) => ({ ...f, rif: e.target.value }))} />
+            <label>Nota (opcional)</label>
+            <input className="input" name="cp-nota" defaultValue={form.nota} onChange={(e) => setForm((f) => ({ ...f, nota: e.target.value }))} />
           </div>
-          <div className="form-row">
-            <label>Teléfono (opcional)</label>
-            <input className="input" value={form.telefono} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} />
-          </div>
-          <div className="form-row">
-            <label>Correo (opcional)</label>
-            <input className="input" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Nota (opcional)</label>
-          <input className="input" value={form.nota} onChange={(e) => setForm((f) => ({ ...f, nota: e.target.value }))} />
         </div>
         <div className="actions" style={{ marginTop: '.5rem' }}>
           <button className="btn btn-primary btn-sm" onClick={guardar} disabled={busy}>{busy ? 'Guardando…' : (editId ? 'Guardar cambios' : '+ Registrar')}</button>
@@ -1200,13 +1212,13 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
           )}
           <div className="form-row">
             <label>Monto ({monedaPago})</label>
-            <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required />
+            <input className="input mono" type="number" name="g-monto" min={0} step="any" defaultValue={montoStr} onChange={(e) => { const v = dosDecimales(e.target.value); e.target.value = v; setMontoStr(v); }} required />
             <small className="muted">Disponible: <strong className="mono">{monto(disponible, monedaPago)}</strong></small>
           </div>
         </div>
         <div className="form-row">
           <label>Concepto</label>
-          <input className="input" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
+          <input className="input" name="g-concepto" defaultValue={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
           <small className="muted">El gasto queda etiquetado por la moneda elegida y aparece en el registro de movimientos.</small>
         </div>
       </form>
@@ -1310,8 +1322,8 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
                     <span style={{ flex: '1 1 auto', fontSize: '.85rem' }}>
                       <span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)} <span className="muted">· disp. {monto(s.saldo, s.moneda)}</span>
                     </span>
-                    <input className="input mono" type="number" min={0} max={Number(s.saldo) || 0} step="any" placeholder="0,00"
-                      value={montos[s.id] ?? ''} onChange={(e) => setMontos((m) => ({ ...m, [s.id]: dosDecimales(e.target.value) }))}
+                    <input className="input mono" type="number" name={`tras-monto-${s.id}`} min={0} max={Number(s.saldo) || 0} step="any" placeholder="0,00"
+                      defaultValue={montos[s.id] ?? ''} onChange={(e) => { const v = dosDecimales(e.target.value); e.target.value = v; setMontos((m) => ({ ...m, [s.id]: v })); }}
                       style={{ width: 140 }} />
                   </div>
                 ))}
@@ -1319,7 +1331,7 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
             )}
         </div>
 
-        <div className="form-row"><label>Motivo *</label><input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Obligatorio" required /></div>
+        <div className="form-row"><label>Motivo *</label><input className="input" name="tras-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Obligatorio" required /></div>
       </form>
     </Modal>
   );
@@ -1487,7 +1499,7 @@ function EnviarReporteModal({ movs, meta, defaultEmail, onClose }: {
       </label>
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
-        <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
+        <input className="input" type="email" name="correo-extra" defaultValue={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
         <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
@@ -2437,6 +2449,9 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Inputs no controlados (montos/nota): este nonce remonta los campos al
+  // limpiarlos tras registrar un abono (el panel queda abierto).
+  const [formKey, setFormKey] = useState(0);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -2494,6 +2509,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
         ? `Crédito saldado · ${o.oc_codigo ?? o.codigo} · pasa a recepción/finalización`
         : `Abono ${monto(sumUsd, 'USD')} · ${o.oc_codigo ?? o.codigo}`, 'success');
       setLegMontos({}); setNota(''); setFactura(null);
+      setFormKey((k) => k + 1);
       await onChanged();
       await cargar();
       if (!saldadoNow) await listAbonos(o.id).then(setAbonos);
@@ -2584,9 +2600,9 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                             <td><span className="badge">{s.moneda}</span>{etq}</td>
                             <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(s.saldo), s.moneda)}</td>
                             <td style={{ textAlign: 'right' }}>
-                              <input className="input mono" type="number" min={0} max={Number(s.saldo)} step="any"
-                                value={legMontos[s.id] ?? ''} placeholder="0,00"
-                                onChange={(e) => setLegMontos((m) => ({ ...m, [s.id]: dosDecimales(e.target.value) }))}
+                              <input key={`cred-leg-${s.id}-${formKey}`} className="input mono" type="number" name={`cred-leg-${s.id}`} min={0} max={Number(s.saldo)} step="any"
+                                defaultValue={legMontos[s.id] ?? ''} placeholder="0,00"
+                                onChange={(e) => { const v = dosDecimales(e.target.value); e.target.value = v; setLegMontos((m) => ({ ...m, [s.id]: v })); }}
                                 style={{ width: 130, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
                             </td>
                             <td className="mono" style={{ textAlign: 'right' }}>{n > 0 ? monto(legUsd(s.moneda, n), 'USD') : '—'}</td>
@@ -2608,7 +2624,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                   </div>
                   <div className="form-row">
                     <label>Nota (opcional)</label>
-                    <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
+                    <input key={`cred-nota-${formKey}`} className="input" name="cred-nota" defaultValue={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', marginTop: '.5rem' }}>
@@ -2656,6 +2672,9 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [correoCuentaOpen, setCorreoCuentaOpen] = useState(false);
+  // Inputs no controlados (monto/nota): este nonce remonta los campos al
+  // limpiarlos tras registrar el abono (el panel queda abierto).
+  const [formKey, setFormKey] = useState(0);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -2713,6 +2732,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
           ? `Cuenta por pagar saldada · ${sel.contraparte}`
           : `Abono ${monto(m, sel.moneda)} · ${sel.contraparte}`), 'success', { link: '#/app/tesoreria' });
       setMontoStr(''); setNota('');
+      setFormKey((k) => k + 1);
       await cargar(); await onChanged();
       if (r.cuenta.estado !== 'saldada') await listAbonosCuenta(sel.id).then(setAbonos);
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el abono'); }
@@ -2774,7 +2794,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
               </div>
               <div className="form-row">
                 <label>Monto a abonar ({sel.moneda})</label>
-                <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} />
+                <input key={`cxp-monto-${formKey}`} className="input mono" type="number" name="cxp-monto" min={0} step="any" defaultValue={montoStr} onChange={(e) => setMontoStr(e.target.value)} />
                 <small className="muted">Saldo pendiente: <strong className="mono">{monto(saldo, sel.moneda)}</strong></small>
               </div>
             </div>
@@ -2804,7 +2824,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
             </div>
             <div className="form-row">
               <label>Nota (opcional)</label>
-              <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
+              <input key={`cxp-nota-${formKey}`} className="input" name="cxp-nota" defaultValue={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del abono…" />
             </div>
             <button className="btn btn-primary btn-sm" onClick={abonar} disabled={saving || saldo <= 0}>{saving ? 'Registrando…' : 'Registrar abono'}</button>
           </div>
@@ -2894,6 +2914,9 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Inputs no controlados (monto/nota): este nonce remonta los campos al
+  // limpiarlos tras registrar el cobro (el modal queda abierto).
+  const [formKey, setFormKey] = useState(0);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -2934,6 +2957,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
         ? `Cuenta por cobrar saldada · ${sel.contraparte}`
         : `Cobro ${monto(m, sel.moneda)} · ${sel.contraparte}`, 'success', { link: '#/app/tesoreria' });
       setMontoStr(''); setNota('');
+      setFormKey((k) => k + 1);
       await cargar(); await onChanged();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el cobro'); }
     finally { setSaving(false); }
@@ -2995,17 +3019,17 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
                     ) : (
                       <div className="form-row">
                         <label>Tasa (Bs por {sel.moneda})</label>
-                        <input className="input mono" type="number" min={0} step="any" value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} placeholder="0.00" />
+                        <input className="input mono" type="number" name="cxc-tasa" min={0} step="any" defaultValue={tasaStr} onChange={(e) => setTasaStr(e.target.value)} placeholder="0.00" />
                       </div>
                     )}
                     <div className="form-row">
                       <label>Monto a cobrar ({sel.moneda})</label>
-                      <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} placeholder="0.00" />
+                      <input key={`cxc-monto-${formKey}`} className="input mono" type="number" name="cxc-monto" min={0} step="any" defaultValue={montoStr} onChange={(e) => setMontoStr(e.target.value)} placeholder="0.00" />
                       <small className="muted">Máx. {monto(saldo, sel.moneda)}</small>
                     </div>
                     <div className="form-row">
                       <label>Nota <span className="muted">(opcional)</span></label>
-                      <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Nota del cobro" />
+                      <input key={`cxc-nota-${formKey}`} className="input" name="cxc-nota" defaultValue={nota} onChange={(e) => setNota(e.target.value)} placeholder="Nota del cobro" />
                     </div>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '.5rem' }}>
@@ -3115,7 +3139,7 @@ function EnviarCuentaPorPagarModal({ cuenta, abonos, ingresos, defaultEmail, onC
       </label>
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
-        <input className="input" type="email" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
+        <input className="input" type="email" name="correo-extra" defaultValue={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
         <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
@@ -3558,7 +3582,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
           </div>
           <div className="form-row">
             <label>Motivo del pago</label>
-            <input className="input" value={motivoPago} onChange={(e) => setMotivoPago(e.target.value)} placeholder="Nota del pago (opcional)" />
+            <input className="input" name="oc-motivo" defaultValue={motivoPago} onChange={(e) => setMotivoPago(e.target.value)} placeholder="Nota del pago (opcional)" />
             <small className="muted">Se suma al motivo de la OP en el registro de movimientos.</small>
           </div>
         </div>

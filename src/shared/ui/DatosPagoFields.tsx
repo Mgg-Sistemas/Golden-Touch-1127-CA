@@ -65,13 +65,13 @@ export function DatosPagoFields({ metodo, value, onChange }: {
 
   if (metodo === 'pago_movil') {
     return (
-      <div style={{ display: 'grid', gap: '.5rem' }}>
+      <div key={metodo} style={{ display: 'grid', gap: '.5rem' }}>
         <Campo label="CI o RIF *">
-          <input className="input" value={value.ci_rif ?? ''} onChange={(e) => set('ci_rif', e.target.value)} placeholder="V-12345678 / J-..." />
+          <input className="input" name="dp-pm-ci-rif" defaultValue={value.ci_rif ?? ''} onChange={(e) => set('ci_rif', e.target.value)} placeholder="V-12345678 / J-..." />
         </Campo>
         <Campo label="Banco *"><BancoSelect value={value.banco ?? ''} onChange={(c) => set('banco', c)} /></Campo>
         <Campo label="Teléfono *" hint="Solo números">
-          <input className="input mono" inputMode="numeric" value={value.telefono ?? ''} onChange={(e) => set('telefono', soloNumeros(e.target.value, 11))} placeholder="04141234567" />
+          <input className="input mono" name="dp-pm-telefono" inputMode="numeric" defaultValue={value.telefono ?? ''} onChange={(e) => { const v = soloNumeros(e.target.value, 11); e.target.value = v; set('telefono', v); }} placeholder="04141234567" />
         </Campo>
       </div>
     );
@@ -80,16 +80,16 @@ export function DatosPagoFields({ metodo, value, onChange }: {
   if (metodo === 'transferencia') {
     const cuenta = value.cuenta ?? '';
     return (
-      <div style={{ display: 'grid', gap: '.5rem' }}>
+      <div key={metodo} style={{ display: 'grid', gap: '.5rem' }}>
         <Campo label="Nombre / Razón social *">
-          <input className="input" value={value.nombre ?? ''} onChange={(e) => set('nombre', e.target.value)} />
+          <input className="input" name="dp-tr-nombre" defaultValue={value.nombre ?? ''} onChange={(e) => set('nombre', e.target.value)} />
         </Campo>
         <Campo label="CI / RIF *">
-          <input className="input" value={value.ci ?? ''} onChange={(e) => set('ci', e.target.value)} placeholder="V-12345678 / J-..." />
+          <input className="input" name="dp-tr-ci" defaultValue={value.ci ?? ''} onChange={(e) => set('ci', e.target.value)} placeholder="V-12345678 / J-..." />
         </Campo>
         <Campo label="Banco *"><BancoSelect value={value.banco ?? ''} onChange={(c) => set('banco', c)} /></Campo>
         <Campo label="Número de cuenta *" hint={`Solo números · ${cuenta.length}/20 dígitos`}>
-          <input className="input mono" inputMode="numeric" value={cuenta} onChange={(e) => set('cuenta', soloNumeros(e.target.value, 20))} placeholder="01050000000000000000" />
+          <input className="input mono" name="dp-tr-cuenta" inputMode="numeric" defaultValue={cuenta} onChange={(e) => { const v = soloNumeros(e.target.value, 20); e.target.value = v; set('cuenta', v); }} placeholder="01050000000000000000" />
         </Campo>
       </div>
     );
@@ -97,12 +97,12 @@ export function DatosPagoFields({ metodo, value, onChange }: {
 
   if (metodo === 'zelle') {
     return (
-      <div style={{ display: 'grid', gap: '.5rem' }}>
+      <div key={metodo} style={{ display: 'grid', gap: '.5rem' }}>
         <Campo label="Nombre *">
-          <input className="input" value={value.nombre ?? ''} onChange={(e) => set('nombre', e.target.value)} />
+          <input className="input" name="dp-ze-nombre" defaultValue={value.nombre ?? ''} onChange={(e) => set('nombre', e.target.value)} />
         </Campo>
         <Campo label="Correo *">
-          <input className="input" type="email" value={value.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="correo@dominio.com" />
+          <input className="input" name="dp-ze-email" type="email" defaultValue={value.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="correo@dominio.com" />
         </Campo>
       </div>
     );
@@ -110,9 +110,9 @@ export function DatosPagoFields({ metodo, value, onChange }: {
 
   if (metodo === 'binance_usdt') {
     return (
-      <div style={{ display: 'grid', gap: '.5rem' }}>
+      <div key={metodo} style={{ display: 'grid', gap: '.5rem' }}>
         <Campo label="Correo o ID de Binance *">
-          <input className="input" value={value.email_o_id ?? ''} onChange={(e) => set('email_o_id', e.target.value)} placeholder="correo@dominio.com o 123456789" />
+          <input className="input" name="dp-bz-email-o-id" defaultValue={value.email_o_id ?? ''} onChange={(e) => set('email_o_id', e.target.value)} placeholder="correo@dominio.com o 123456789" />
         </Campo>
       </div>
     );

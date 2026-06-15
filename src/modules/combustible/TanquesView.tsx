@@ -345,6 +345,7 @@ export function TanquesView() {
             const items = await consumoUso(desde, hasta, 'equipo');
             return items.map((x) => ({ id: x.id, label: x.nombre, unidad: 'Lt', cantidad: x.cantidad, valor: x.valor }));
           }}
+          realtimeTables={['combustible_tanque_movimientos', 'combustible_tanques']}
           onClose={() => setModal('none')}
         />
       )}
@@ -723,29 +724,29 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
 
   // El HORÓMETRO inicial sí es del vehículo: autocarga con el último HF de ese equipo.
-  useEffect(() => {
+  const cargarHi = useCallback(() => {
     if (!equipo) { setHiAuto(false); return; }
-    let cancel = false;
     ultimoHorometroEquipo(equipo).then((ult) => {
-      if (cancel) return;
       if (ult != null) { setHi(String(ult)); setHiAuto(true); } else { setHiAuto(false); }
     }).catch(() => {});
-    return () => { cancel = true; };
   }, [equipo]);
+  useEffect(() => { cargarHi(); }, [cargarHi]);
 
   // El CONTADOR GLOBAL es por TANQUE: el contador final de un movimiento es el inicial del
   // siguiente del mismo tanque. Para un movimiento normal trae el último del tanque seleccionado;
   // para un traslado trae el del tanque ORIGEN (que es justamente el tanque seleccionado), y
   // ese contador se refleja luego en el tanque destino. Si trae dato, se bloquea.
-  useEffect(() => {
+  const cargarCi = useCallback(() => {
     if (!tanqueId) { setCiAuto(false); return; }
-    let cancel = false;
     ultimoContadorTanque(tanqueId).then((ult) => {
-      if (cancel) return;
       if (ult != null) { setCi(String(ult)); setCiAuto(true); } else { setCi(''); setCiAuto(false); }
     }).catch(() => {});
-    return () => { cancel = true; };
   }, [tanqueId]);
+  useEffect(() => { cargarCi(); }, [cargarCi]);
+
+  // En vivo: si se elimina/edita/agrega un movimiento (acá o por otro usuario), el HI del
+  // equipo y el contador del tanque se vuelven a consultar para no quedar desfasados.
+  useRealtime(['combustible_tanque_movimientos'], () => { cargarHi(); cargarCi(); });
 
   const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
   // Litros usados según el contador del surtidor (final − inicial). No se modifica.
@@ -806,17 +807,17 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
         </div>
         <div className="form-grid">
           <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required /></div>
-          <div className="form-row"><label>Hora (opcional)</label><input className="input" value={hora} onChange={(e) => setHora(e.target.value)} placeholder="8:02:00 AM" /></div>
+          <div className="form-row"><label>Hora (opcional)</label><input className="input" name="mov-hora" defaultValue={hora} onChange={(e) => setHora(e.target.value)} placeholder="8:02:00 AM" /></div>
         </div>
         <div className="form-grid">
           <div className="form-row">
             <label>Litros</label>
-            <input className="input mono" type="number" step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required />
+            <input className="input mono" type="number" step="any" name="mov-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} required />
           </div>
           {tipo === 'entrada' && (
             <div className="form-row">
               <label>Costo por litro (USD)</label>
-              <input className="input mono" type="number" min={0} step="0.0001" value={costo} onChange={(e) => setCosto(e.target.value)} />
+              <input className="input mono" type="number" min={0} step="0.0001" name="mov-costo" defaultValue={costo} onChange={(e) => setCosto(e.target.value)} />
               <small className="muted">Recalcula la tasa promedio del tanque.</small>
             </div>
           )}
@@ -851,7 +852,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
             options={[{ value: '', label: '— elegí el destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
           <small className="muted">¿Falta un destino? Agregalo en 🗂 Catálogos → Ubicaciones.</small>
         </div>
-        <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" /></div>
+        <div className="form-row"><label>Observación</label><input className="input" name="mov-observacion" defaultValue={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" /></div>
 
         {/* Medidores del equipo — parte del movimiento (no opcional). El HI autocarga con el último HF del equipo. */}
         <div className="card" style={{ marginTop: '.75rem' }}>
@@ -865,7 +866,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
             </div>
             <div className="form-row">
               <label>Horómetro final (HF)</label>
-              <input className="input mono" type="number" step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
+              <input className="input mono" type="number" step="any" name="mov-hf" defaultValue={hf} onChange={(e) => setHf(e.target.value)} />
             </div>
           </div>
           <div className="form-row">
@@ -880,7 +881,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
                 placeholder="auto: último del tanque" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
               <small className="muted">{ciAuto ? (tipo === 'traslado' ? 'Traído del último contador final del tanque ORIGEN (se reflejará en el destino).' : 'Traído del último contador final de este tanque (no se modifica).') : 'No hay contador previo en este tanque; ingresalo.'}</small>
             </div>
-            <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" value={cf} onChange={(e) => setCf(e.target.value)} /></div>
+            <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" name="mov-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} /></div>
           </div>
           <div className="form-row">
             <label>Litros usados (según contador = final − inicial)</label>
@@ -973,10 +974,10 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
             <option value="merma">{TIPO_MOV_LABEL.merma}</option>
           </select>
         </div>
-        <div className="form-row"><label>Litros</label><input className="input mono" type="number" step="any" value={litros} onChange={(e) => setLitros(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Litros</label><input className="input mono" type="number" step="any" name="det-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} disabled={!canWrite} /></div>
       </div>
       <div className="form-grid">
-        <div className="form-row"><label>Tasa $/L</label><input className="input mono" type="number" step="0.0001" value={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Tasa $/L</label><input className="input mono" type="number" step="0.0001" name="det-tasa" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite} /></div>
         <div className="form-row">
           <label>Monto $ (= litros × tasa)</label>
           <input className="input mono" value={montoCalc == null ? '' : money(montoCalc)} readOnly placeholder="se calcula automáticamente"
@@ -985,7 +986,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
       </div>
       <div className="form-grid">
         <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Hora</label><input className="input" value={hora} onChange={(e) => setHora(e.target.value)} disabled={!canWrite} placeholder="8:02:00 AM" /></div>
+        <div className="form-row"><label>Hora</label><input className="input" name="det-hora" defaultValue={hora} onChange={(e) => setHora(e.target.value)} disabled={!canWrite} placeholder="8:02:00 AM" /></div>
       </div>
       <div className="form-grid">
         <div className="form-row">
@@ -1004,12 +1005,12 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
         <SearchSelect value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscar destino…" disabled={!canWrite}
           options={[{ value: '', label: '— sin destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
       </div>
-      <div className="form-row"><label>Observación</label><input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} disabled={!canWrite} /></div>
+      <div className="form-row"><label>Observación</label><input className="input" name="det-observacion" defaultValue={observacion} onChange={(e) => setObservacion(e.target.value)} disabled={!canWrite} /></div>
 
       <div className="card-title" style={{ marginTop: '1rem' }}>🕒 Medidores</div>
       <div className="form-grid">
-        <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" value={hf} onChange={(e) => setHf(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" name="det-hi" defaultValue={hi} onChange={(e) => setHi(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" name="det-hf" defaultValue={hf} onChange={(e) => setHf(e.target.value)} disabled={!canWrite} /></div>
       </div>
       <div className="form-row">
         <label>Horas utilizadas (HRS = HF − HI)</label>
@@ -1017,8 +1018,8 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
           style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
       </div>
       <div className="form-grid">
-        <div className="form-row"><label>Contador global inicial</label><input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" value={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Contador global inicial</label><input className="input mono" type="number" step="any" name="det-ci" defaultValue={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" name="det-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
       </div>
       <div className="form-row">
         <label>Litros usados (según contador = final − inicial)</label>
@@ -1101,7 +1102,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
     <Modal title={editando ? `Editar ${tanque?.nombre}` : 'Nuevo tanque'} size="md" onClose={onClose} footer={footer}>
       <form id="tnk-new" onSubmit={submit}>
         <div className="form-grid">
-          <div className="form-row"><label>Nombre</label><input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Tanque #4" /></div>
+          <div className="form-row"><label>Nombre</label><input className="input" name="tnk-nombre" defaultValue={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Tanque #4" /></div>
           <div className="form-row">
             <label>Tipo (para la cubicación)</label>
             <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoTanque)}>
@@ -1118,21 +1119,21 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
         {/* Dimensiones según el tipo */}
         {tipo === 'cilindrico_horizontal' ? (
           <div className="form-grid">
-            <div className="form-row"><label>Radio R (m)</label><input className="input mono" type="number" min={0} step="any" value={radio} onChange={(e) => setRadio(e.target.value)} placeholder="1.1875" /></div>
-            <div className="form-row"><label>Largo L (m)</label><input className="input mono" type="number" min={0} step="any" value={largo} onChange={(e) => setLargo(e.target.value)} placeholder="8.17" /></div>
+            <div className="form-row"><label>Radio R (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-radio" defaultValue={radio} onChange={(e) => setRadio(e.target.value)} placeholder="1.1875" /></div>
+            <div className="form-row"><label>Largo L (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-largo-cil" defaultValue={largo} onChange={(e) => setLargo(e.target.value)} placeholder="8.17" /></div>
           </div>
         ) : (
           <div className="form-grid">
-            <div className="form-row"><label>Largo (m)</label><input className="input mono" type="number" min={0} step="any" value={largo} onChange={(e) => setLargo(e.target.value)} placeholder="1.99" /></div>
-            <div className="form-row"><label>Ancho (m)</label><input className="input mono" type="number" min={0} step="any" value={ancho} onChange={(e) => setAncho(e.target.value)} placeholder="0.99" /></div>
-            <div className="form-row"><label>Alto / altura total (m)</label><input className="input mono" type="number" min={0} step="any" value={alto} onChange={(e) => setAlto(e.target.value)} placeholder="0.99" /></div>
+            <div className="form-row"><label>Largo (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-largo-rect" defaultValue={largo} onChange={(e) => setLargo(e.target.value)} placeholder="1.99" /></div>
+            <div className="form-row"><label>Ancho (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-ancho" defaultValue={ancho} onChange={(e) => setAncho(e.target.value)} placeholder="0.99" /></div>
+            <div className="form-row"><label>Alto / altura total (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-alto" defaultValue={alto} onChange={(e) => setAlto(e.target.value)} placeholder="0.99" /></div>
           </div>
         )}
 
         <div className="form-grid">
           <div className="form-row">
             <label>Capacidad rotulada (L)</label>
-            <input className="input mono" type="number" min={0} step="any" value={capacidad} onChange={(e) => setCapacidad(e.target.value)} placeholder="35000" />
+            <input className="input mono" type="number" min={0} step="any" name="tnk-capacidad" defaultValue={capacidad} onChange={(e) => setCapacidad(e.target.value)} placeholder="35000" />
             <small className="muted">Tope operativo (el del rótulo físico).</small>
           </div>
           <div className="form-row">
@@ -1144,19 +1145,19 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
 
         {!editando ? (
           <div className="form-grid">
-            <div className="form-row"><label>Saldo inicial (L)</label><input className="input mono" type="number" min={0} step="any" value={saldo} onChange={(e) => setSaldo(e.target.value)} /></div>
-            <div className="form-row"><label>Tasa inicial (USD/L)</label><input className="input mono" type="number" min={0} step="0.0001" value={tasa} onChange={(e) => setTasa(e.target.value)} /></div>
+            <div className="form-row"><label>Saldo inicial (L)</label><input className="input mono" type="number" min={0} step="any" name="tnk-saldo" defaultValue={saldo} onChange={(e) => setSaldo(e.target.value)} /></div>
+            <div className="form-row"><label>Tasa inicial (USD/L)</label><input className="input mono" type="number" min={0} step="0.0001" name="tnk-tasa-new" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} /></div>
           </div>
         ) : (
           <div className="form-row">
             <label>Tasa (USD/L)</label>
-            <input className="input mono" type="number" min={0} step="0.0001" value={tasa} onChange={(e) => setTasa(e.target.value)} />
+            <input className="input mono" type="number" min={0} step="0.0001" name="tnk-tasa-edit" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} />
             <small className="muted">Modifica la tasa promedio del tanque; recalcula el saldo en $ (saldo L × tasa).</small>
           </div>
         )}
         <div className="form-row">
           <label>Ubicación</label>
-          <input className="input" list="cat-ubic-new" value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} placeholder="Mina Golden touch" />
+          <input className="input" list="cat-ubic-new" name="tnk-ubicacion" defaultValue={ubicacion} onChange={(e) => setUbicacion(e.target.value)} placeholder="Mina Golden touch" />
           <datalist id="cat-ubic-new">{catalogos.filter((c) => c.tipo === 'ubicacion' && c.activo).map((c) => <option key={c.id} value={c.valor} />)}</datalist>
         </div>
       </form>
@@ -1171,6 +1172,8 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
 }) {
   const [tab, setTab] = useState<TipoCatalogoCombustible>('equipo');
   const [valor, setValor] = useState('');
+  // Con el input no-controlado, al limpiar por estado hay que remontarlo para vaciar el DOM.
+  const [valorKey, setValorKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
@@ -1182,7 +1185,7 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
   async function agregar() {
     if (!valor.trim()) { toast('Indicá el valor', 'error'); return; }
     setBusy(true);
-    try { await addCatalogo(tab, valor); setValor(''); await onChanged(); }
+    try { await addCatalogo(tab, valor); setValor(''); setValorKey((k) => k + 1); await onChanged(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
     finally { setBusy(false); }
   }
@@ -1206,7 +1209,7 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
         {TABS.map((t) => <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>{t.label}</button>)}
       </div>
       <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.75rem' }}>
-        <input className="input" value={valor} onChange={(e) => setValor(e.target.value)} placeholder={`Nuevo ${tab}…`} onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} />
+        <input key={valorKey} className="input" name="cat-valor" defaultValue={valor} onChange={(e) => setValor(e.target.value)} placeholder={`Nuevo ${tab}…`} onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} />
         <button className="btn btn-primary" onClick={agregar} disabled={busy}>+ Agregar</button>
       </div>
       <div className="table-wrap" style={{ maxHeight: 340, overflow: 'auto' }}>
@@ -1262,6 +1265,8 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
   const [cargando, setCargando] = useState(false);
   const [libreta, setLibreta] = useState<Record<string, string>>({});
   const [notas, setNotas] = useState('');
+  // Con notas no-controlado, al limpiar tras guardar hay que remontar el input para vaciar el DOM.
+  const [notasKey, setNotasKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [historial, setHistorial] = useState<ConciliacionCombustible[]>([]);
   // Filtros del historial de conciliaciones (estilo Tesorería).
@@ -1352,7 +1357,7 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
         });
       }
       toast('Conciliación semanal registrada', 'success');
-      cargarHistorial(); setNotas('');
+      cargarHistorial(); setNotas(''); setNotasKey((k) => k + 1);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
     finally { setBusy(false); }
   }
@@ -1388,7 +1393,7 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
                     <td className="mono" style={{ color: 'var(--info, #6db8ff)' }}>{num(r.retornos)}</td>
                     <td className="mono" style={{ color: 'var(--danger)' }}>{num(r.mermas)}</td>
                     <td className="mono"><strong>{num(r.saldoLibros)}</strong></td>
-                    <td><input className="input mono" type="number" step="any" value={libreta[r.tanqueId] ?? ''} onChange={(e) => setLibreta((c) => ({ ...c, [r.tanqueId]: e.target.value }))} placeholder="libreta" style={{ width: 110 }} /></td>
+                    <td><input className="input mono" type="number" step="any" name={`conc-libreta-${r.tanqueId}`} defaultValue={libreta[r.tanqueId] ?? ''} onChange={(e) => setLibreta((c) => ({ ...c, [r.tanqueId]: e.target.value }))} placeholder="libreta" style={{ width: 110 }} /></td>
                     <td className="mono" style={{ color: d != null && Math.abs(d) > 0.01 ? 'var(--warning)' : 'inherit' }}>{d == null ? '—' : num(d)}</td>
                   </tr>
                 );
@@ -1427,7 +1432,7 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
           </div>
         </div>
 
-        <div className="form-row" style={{ marginTop: '.6rem' }}><label>Notas de la semana</label><input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} /></div>
+        <div className="form-row" style={{ marginTop: '.6rem' }}><label>Notas de la semana</label><input key={notasKey} className="input" name="conc-notas" defaultValue={notas} onChange={(e) => setNotas(e.target.value)} /></div>
         <button className="btn btn-primary btn-sm" onClick={guardar} disabled={busy || !resumenes.length}>Guardar conciliación de la semana</button>
         <p className="muted" style={{ fontSize: '.76rem' }}>El saldo en libros se calcula con todos los movimientos de cada tanque en la semana (saldo inicial + entradas + retornos − usos − traslados − mermas). La diferencia contra el <strong>saldo según la mina (libreta)</strong> es el faltante/merma a vigilar.</p>
       </div>
@@ -1522,6 +1527,8 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
   const [altura, setAltura] = useState('');
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [notas, setNotas] = useState('');
+  // Inputs no-controlados: al limpiar por estado tras guardar hay que remontarlos para vaciar el DOM.
+  const [formKey, setFormKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [historial, setHistorial] = useState<CubicacionCombustible[]>([]);
 
@@ -1541,7 +1548,7 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
       await crearCubicacion({ tanqueId: tanque.id, alturaCm: Number(altura) || 0, fecha, notas: notas || null, actor });
       toast('Cubicación guardada', 'success');
       setHistorial(await listCubicaciones(tanque.id));
-      setAltura(''); setNotas('');
+      setAltura(''); setNotas(''); setFormKey((k) => k + 1);
       onSaved();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
     finally { setBusy(false); }
@@ -1565,12 +1572,12 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
         </p>
         <div className="form-grid">
           <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
-          <div className="form-row"><label>Altura medida (cm)</label><input className="input mono" type="number" min={0} step="any" value={altura} onChange={(e) => setAltura(e.target.value)} placeholder="87" autoFocus /></div>
+          <div className="form-row"><label>Altura medida (cm)</label><input key={`alt-${formKey}`} className="input mono" type="number" min={0} step="any" name="cub-altura" defaultValue={altura} onChange={(e) => setAltura(e.target.value)} placeholder="87" autoFocus /></div>
           <div className="form-row"><label>Litros (cubicación)</label><input className="input mono" value={num(litros)} readOnly style={{ color: 'var(--primary-3)', fontWeight: 700 }} /></div>
           <div className="form-row"><label>Saldo por libros (L)</label><input className="input mono" value={num(libros)} readOnly /></div>
           <div className="form-row"><label>Diferencia (L)</label><input className="input mono" value={num(dif)} readOnly style={{ color: Math.abs(dif) > 0 ? 'var(--warning)' : 'var(--primary-3)' }} /></div>
         </div>
-        <div className="form-row"><label>Notas</label><input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="medición río Aro…" /></div>
+        <div className="form-row"><label>Notas</label><input key={`notas-${formKey}`} className="input" name="cub-notas" defaultValue={notas} onChange={(e) => setNotas(e.target.value)} placeholder="medición río Aro…" /></div>
         <button className="btn btn-primary btn-sm" onClick={guardar} disabled={busy || !geomOk}>Guardar medición</button>
       </div>
       <div className="table-wrap">

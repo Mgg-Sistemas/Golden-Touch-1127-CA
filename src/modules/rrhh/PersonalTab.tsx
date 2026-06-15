@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -32,6 +32,9 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [formOpen, setFormOpen] = useState(false);
   const [cargos, setCargos] = useState<string[]>([]);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
+  // Campos de texto NO controlados (DOM = fuente de verdad): inmunes a re-renders
+  // que de otro modo "cortan" lo tecleado. Se leen del DOM al guardar.
+  const formRef = useRef<HTMLFormElement>(null);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -57,14 +60,24 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!form.nombre.trim()) { setError('Indicá el nombre.'); return; }
+    // Campos de texto: se leen del DOM (no controlados). Cargo/Departamento/Fecha vienen del estado.
+    const root = formRef.current;
+    const val = (name: string) => (root?.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? '';
+    const datos: PersonalInput = {
+      ...form,
+      nombre: val('p-nombre').trim(),
+      apellido: val('p-apellido').trim(),
+      cedula: sanitizarCedula(val('p-cedula')),
+      sueldo_base: Number(val('p-sueldo')) || 0,
+    };
+    if (!datos.nombre) { setError('Indicá el nombre.'); return; }
     setGuardando(true);
     try {
-      if (editId) await actualizarPersonal(editId, form);
-      else await crearPersonal(form, actor);
+      if (editId) await actualizarPersonal(editId, datos);
+      else await crearPersonal(datos, actor);
       // Si el cargo/departamento es nuevo, lo agregamos al catálogo compartido.
-      const cargo = (form.cargo ?? '').trim();
-      const depto = (form.departamento ?? '').trim();
+      const cargo = (datos.cargo ?? '').trim();
+      const depto = (datos.departamento ?? '').trim();
       if (cargo && !cargos.includes(cargo)) await addCargo(cargo, actor).catch(() => {});
       if (depto && !departamentos.includes(depto)) await addDepartamento(depto, actor).catch(() => {});
       cargarCatalogos();
@@ -134,12 +147,12 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
             </>
           }
         >
-          <form id="rrhh-personal-form" onSubmit={guardar}>
+          <form id="rrhh-personal-form" ref={formRef} onSubmit={guardar}>
             {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
             <div className="form-grid">
-              <div className="form-row"><label>Nombre *</label><input className="input" autoFocus value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} required /></div>
-              <div className="form-row"><label>Apellido</label><input className="input" value={form.apellido ?? ''} onChange={(e) => setForm((f) => ({ ...f, apellido: e.target.value }))} /></div>
-              <div className="form-row"><label>Cédula</label><input className="input" value={form.cedula ?? ''} onChange={(e) => setForm((f) => ({ ...f, cedula: sanitizarCedula(e.target.value) }))} placeholder="V-12345678" maxLength={11} inputMode="numeric" /></div>
+              <div className="form-row"><label>Nombre *</label><input className="input" name="p-nombre" autoFocus defaultValue={form.nombre} required /></div>
+              <div className="form-row"><label>Apellido</label><input className="input" name="p-apellido" defaultValue={form.apellido ?? ''} /></div>
+              <div className="form-row"><label>Cédula</label><input className="input" name="p-cedula" defaultValue={form.cedula ?? ''} onChange={(e) => { e.target.value = sanitizarCedula(e.target.value); }} placeholder="V-12345678" maxLength={11} inputMode="numeric" /></div>
               <ComboConAgregar
                 label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
                 onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
@@ -148,7 +161,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 label="Departamento" valor={form.departamento ?? ''} opciones={departamentos}
                 onChange={(v) => setForm((f) => ({ ...f, departamento: v }))}
                 hint="Toma los de Usuarios; podés agregar uno nuevo." />
-              <div className="form-row"><label>Sueldo base mensual (USD)</label><input className="input mono" type="number" min={0} step="any" value={form.sueldo_base ?? 0} onChange={(e) => setForm((f) => ({ ...f, sueldo_base: Number(e.target.value) || 0 }))} placeholder="0,00" /></div>
+              <div className="form-row"><label>Sueldo base mensual (USD)</label><input className="input mono" name="p-sueldo" type="number" min={0} step="any" defaultValue={form.sueldo_base ?? 0} placeholder="0,00" /></div>
               <div className="form-row"><label>Fecha de ingreso</label><input className="input" type="date" value={form.fecha_ingreso ?? ''} onChange={(e) => setForm((f) => ({ ...f, fecha_ingreso: e.target.value }))} /></div>
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina.</small>
@@ -179,7 +192,7 @@ function ComboConAgregar({ label, valor, opciones, onChange, hint }: {
       <label>{label}</label>
       {agregando ? (
         <div style={{ display: 'flex', gap: '.3rem' }}>
-          <input className="input" autoFocus value={nuevo} placeholder={`Nuevo ${label.toLowerCase()}…`}
+          <input className="input" autoFocus name="combo-nuevo" defaultValue={nuevo} placeholder={`Nuevo ${label.toLowerCase()}…`}
             onChange={(e) => setNuevo(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmar(); } if (e.key === 'Escape') { setAgregando(false); setNuevo(''); } }} />
           <button type="button" className="btn btn-sm btn-primary" onClick={confirmar} title="Agregar">✓</button>

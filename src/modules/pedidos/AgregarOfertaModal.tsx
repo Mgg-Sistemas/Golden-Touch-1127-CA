@@ -204,7 +204,15 @@ export function AgregarOfertaModal({
           <div className="form-grid">
             <div className="form-row">
               <label>Razón social *</label>
-              <input className="input" value={provRazon} onChange={(e) => setProvRazon(e.target.value.toUpperCase())} />
+              <input
+                className="input"
+                name="prov-razon"
+                defaultValue={provRazon}
+                onChange={(e) => {
+                  e.target.value = e.target.value.toUpperCase();
+                  setProvRazon(e.target.value);
+                }}
+              />
             </div>
             <div className="form-row">
               <label>RIF *</label>
@@ -222,8 +230,13 @@ export function AgregarOfertaModal({
                 </select>
                 <input
                   className="input mono"
-                  value={rifPartes.numero}
-                  onChange={(e) => setProvRif(`${rifPartes.letra}-${e.target.value.replace(/\D/g, '').slice(0, 10)}`)}
+                  name="prov-rif-numero"
+                  defaultValue={rifPartes.numero}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    e.target.value = digits;
+                    setProvRif(`${rifPartes.letra}-${digits}`);
+                  }}
                   placeholder="40778442"
                   inputMode="numeric"
                   style={{ flex: 1 }}
@@ -236,9 +249,14 @@ export function AgregarOfertaModal({
               <label>Teléfono</label>
               <input
                 className="input"
+                name="prov-telefono"
                 inputMode="numeric"
-                value={provTelefono}
-                onChange={(e) => setProvTelefono(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                defaultValue={provTelefono}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 15);
+                  e.target.value = digits;
+                  setProvTelefono(digits);
+                }}
                 maxLength={15}
                 placeholder="Solo dígitos"
               />
@@ -248,7 +266,8 @@ export function AgregarOfertaModal({
               <input
                 className="input"
                 type="email"
-                value={provEmail}
+                name="prov-email"
+                defaultValue={provEmail}
                 onChange={(e) => setProvEmail(e.target.value)}
                 placeholder="correo@dominio.com"
               />
@@ -256,7 +275,15 @@ export function AgregarOfertaModal({
           </div>
           <div className="form-row">
             <label>Dirección</label>
-            <input className="input" value={provDireccion} onChange={(e) => setProvDireccion(e.target.value.toUpperCase())} />
+            <input
+              className="input"
+              name="prov-direccion"
+              defaultValue={provDireccion}
+              onChange={(e) => {
+                e.target.value = e.target.value.toUpperCase();
+                setProvDireccion(e.target.value);
+              }}
+            />
           </div>
           <div className="form-row">
             <label>Origen</label>
@@ -343,10 +370,11 @@ export function AgregarOfertaModal({
                     <input
                       type="number"
                       className="input mono"
+                      name={`item-precio-${idx}`}
                       style={{ width: 110, textAlign: 'right' }}
                       min={0}
                       step={0.01}
-                      value={it.precio}
+                      defaultValue={it.precio}
                       onChange={(e) => updateItemPrecio(idx, Number(e.target.value) || 0)}
                     />
                   </td>
@@ -380,7 +408,7 @@ export function AgregarOfertaModal({
 
       <div className="form-row">
         <label>Notas</label>
-        <textarea className="textarea" placeholder="Comentarios sobre la oferta, exclusiones, garantías…" value={notas} onChange={(e) => setNotas(e.target.value)} />
+        <textarea className="textarea" name="oferta-notas" placeholder="Comentarios sobre la oferta, exclusiones, garantías…" defaultValue={notas} onChange={(e) => setNotas(e.target.value)} />
       </div>
 
       <div className="form-row">

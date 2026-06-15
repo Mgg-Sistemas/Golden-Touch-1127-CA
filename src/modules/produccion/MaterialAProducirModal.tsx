@@ -326,7 +326,7 @@ export function MaterialAProducirModal({
             </div>
             <div style={{ minWidth: 120 }}>
               <label className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: '.2rem' }}>Margen bruto (%)</label>
-              <input className="input mono" type="number" min={0} max={95} step="1" value={margen} onChange={(e) => setMargen(e.target.value)} style={{ width: 110 }} />
+              <input className="input mono" name="prod-margen" type="number" min={0} max={95} step="1" defaultValue={margen} onChange={(e) => setMargen(e.target.value)} style={{ width: 110 }} />
             </div>
           </div>
         </div>
@@ -347,8 +347,8 @@ export function MaterialAProducirModal({
               options={producibles.map((p) => ({ value: p.id, label: `${p.nombre}${p.precio_venta != null ? ` · venta ${money(p.precio_venta)}` : ''}` }))} />
           ) : (
             <div className="form-grid">
-              <input className="input" placeholder="Nombre del producto a producir" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value.toUpperCase())} />
-              <input className="input" placeholder="Unidad" value={unidadNuevo} onChange={(e) => setUnidadNuevo(e.target.value)} />
+              <input className="input" name="prod-nombre-nuevo" placeholder="Nombre del producto a producir" defaultValue={nombreNuevo} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNombreNuevo(e.target.value); }} />
+              <input className="input" name="prod-unidad-nuevo" placeholder="Unidad" defaultValue={unidadNuevo} onChange={(e) => setUnidadNuevo(e.target.value)} />
             </div>
           )}
           {modoOutput === 'nuevo' && (
@@ -359,7 +359,7 @@ export function MaterialAProducirModal({
         <div className="form-grid">
           <div className="form-row">
             <label>Cantidad a producir</label>
-            <input className="input mono" type="number" min={1} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
+            <input className="input mono" name="prod-cantidad" type="number" min={1} step="any" defaultValue={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
           </div>
           <div className="form-row">
             <label>Almacén destino</label>
@@ -384,9 +384,11 @@ export function MaterialAProducirModal({
           {hornoAddOpen && (
             <div className="card" style={{ padding: '.6rem', marginTop: '.4rem', display: 'flex', gap: '.5rem' }}>
               <input
+                key={hornoAddOpen ? 'horno-open' : 'horno-closed'}
                 className="input"
+                name="prod-horno-nuevo"
                 placeholder="Nombre del horno (ej. Horno 3)"
-                value={hornoNuevo}
+                defaultValue={hornoNuevo}
                 onChange={(e) => setHornoNuevo(e.target.value)}
                 style={{ flex: 1 }}
               />
@@ -454,15 +456,15 @@ export function MaterialAProducirModal({
               ) : (
                 <div style={{ display: 'grid', gap: '.4rem' }}>
                   <div className="form-grid">
-                    <input className="input" placeholder="Nombre del insumo" value={nuevo.nombre} onChange={(e) => setNuevo((p) => ({ ...p, nombre: e.target.value.toUpperCase() }))} />
-                    <input className="input" placeholder="Unidad" value={nuevo.unidad} onChange={(e) => setNuevo((p) => ({ ...p, unidad: e.target.value }))} />
+                    <input className="input" name="insumo-nombre" placeholder="Nombre del insumo" defaultValue={nuevo.nombre} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevo((p) => ({ ...p, nombre: e.target.value })); }} />
+                    <input className="input" name="insumo-unidad" placeholder="Unidad" defaultValue={nuevo.unidad} onChange={(e) => setNuevo((p) => ({ ...p, unidad: e.target.value }))} />
                   </div>
                   <div className="form-grid">
                     <select className="select" value={nuevo.almacen} onChange={(e) => setNuevo((p) => ({ ...p, almacen: e.target.value }))}>
                       {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
                     </select>
-                    <input className="input mono" type="number" min={0} placeholder="Stock inicial" value={nuevo.stock} onChange={(e) => setNuevo((p) => ({ ...p, stock: e.target.value }))} />
-                    <input className="input mono" type="number" min={0} step="0.01" placeholder="Costo unit." value={nuevo.costo} onChange={(e) => setNuevo((p) => ({ ...p, costo: e.target.value }))} />
+                    <input className="input mono" name="insumo-stock" type="number" min={0} placeholder="Stock inicial" defaultValue={nuevo.stock} onChange={(e) => setNuevo((p) => ({ ...p, stock: e.target.value }))} />
+                    <input className="input mono" name="insumo-costo" type="number" min={0} step="0.01" placeholder="Costo unit." defaultValue={nuevo.costo} onChange={(e) => setNuevo((p) => ({ ...p, costo: e.target.value }))} />
                   </div>
                   <div>
                     <button type="button" className="btn btn-sm btn-primary" onClick={handleAddInsumo} disabled={addSaving}>
@@ -525,11 +527,11 @@ export function MaterialAProducirModal({
         <div className="form-grid">
           <div className="form-row">
             <label>Mano de obra (USD)</label>
-            <input className="input mono" type="number" min={0} step="0.01" value={manoObra} onChange={(e) => setManoObra(e.target.value)} />
+            <input className="input mono" name="prod-mano-obra" type="number" min={0} step="0.01" defaultValue={manoObra} onChange={(e) => setManoObra(e.target.value)} />
           </div>
           <div className="form-row">
             <label>Costos indirectos (USD)</label>
-            <input className="input mono" type="number" min={0} step="0.01" value={costosIndirectos} onChange={(e) => setCostosIndirectos(e.target.value)} />
+            <input className="input mono" name="prod-costos-indirectos" type="number" min={0} step="0.01" defaultValue={costosIndirectos} onChange={(e) => setCostosIndirectos(e.target.value)} />
           </div>
         </div>
 

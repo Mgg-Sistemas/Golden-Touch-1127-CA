@@ -1004,7 +1004,7 @@ function FinalizarPedidoModal({
 
       <div className="form-row">
         <label>Comentario adicional (opcional)</label>
-        <textarea className="input" rows={3} value={comentario} onChange={(e) => setComentario(e.target.value)}
+        <textarea className="input" rows={3} name="fin-comentario" defaultValue={comentario} onChange={(e) => setComentario(e.target.value)}
           placeholder="Observaciones de la recepción…" />
       </div>
       <small className="muted">Evaluador: {rolEvaluador === 'jefe' ? 'Jefe / analista' : 'Almacenista'}.</small>
@@ -1277,7 +1277,7 @@ function RecepcionParcialModal({
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
         <label>Nota de recepción {hayDiferencia && <span style={{ color: 'var(--warning)' }}>(obligatoria · llegó menos de lo pedido)</span>}</label>
-        <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
+        <textarea className="input" rows={2} name="recep-nota" defaultValue={nota} onChange={(e) => setNota(e.target.value)}
           placeholder="Diferencias, faltantes, observaciones de la recepción…" />
       </div>
       {orden.condiciones_pago === 'contra_entrega' && (
@@ -2185,7 +2185,8 @@ function EnviarPorCorreoModal({
         <input
           className="input"
           type="email"
-          value={extra}
+          name="traza-correo-extra"
+          defaultValue={extra}
           onChange={(e) => setExtra(e.target.value)}
           placeholder="otro@correo.com"
           maxLength={120}
@@ -2347,6 +2348,9 @@ function CrearOrdenModal({
   // Alta de unidad nueva desde el propio formulario (campo «¿No está?» + botón Añadir).
   const [nuevaUnidad, setNuevaUnidad] = useState('');
   const [addingUnidad, setAddingUnidad] = useState(false);
+  // Input no-controlado: al limpiar por estado (tras añadir) el DOM no se vacía solo.
+  // Este key se incrementa al limpiar para forzar el remonte del campo.
+  const [nuevaUnidadKey, setNuevaUnidadKey] = useState(0);
 
   // Carga (y recarga, en vivo) las opciones del catálogo de la OP.
   const cargarCatalogosOP = useCallback(async () => {
@@ -2370,7 +2374,7 @@ function CrearOrdenModal({
     const v = nuevaUnidad.trim().toUpperCase();
     if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
     if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
-      setUnidadSolicitante(v); setNuevaUnidad('');
+      setUnidadSolicitante(v); setNuevaUnidad(''); setNuevaUnidadKey((k) => k + 1);
       toast('Esa unidad ya existía; la seleccioné', 'info');
       return;
     }
@@ -2380,6 +2384,7 @@ function CrearOrdenModal({
       await cargarCatalogosOP();
       setUnidadSolicitante(v);
       setNuevaUnidad('');
+      setNuevaUnidadKey((k) => k + 1);
       toast('Unidad agregada al catálogo', 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error');
@@ -2497,7 +2502,8 @@ function CrearOrdenModal({
             placeholder="Departamento / unidad que solicita" />
           {/* Alta directa: si la unidad no está, se escribe y se agrega al catálogo de una vez. */}
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-            <input className="input" value={nuevaUnidad} onChange={(e) => setNuevaUnidad(e.target.value.toUpperCase())}
+            <input key={nuevaUnidadKey} className="input" name="op-nueva-unidad" defaultValue={nuevaUnidad}
+              onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevaUnidad(e.target.value); }}
               placeholder="¿No está? Escribí la unidad nueva…"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
             <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
@@ -2629,12 +2635,13 @@ function CrearOrdenModal({
               </div>
               <input
                 className="input"
+                name="op-nuevo-nombre"
                 placeholder="Nombre del producto *"
-                value={nuevoNombre}
-                onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
+                defaultValue={nuevoNombre}
+                onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoNombre(e.target.value); }}
               />
               <div className="form-grid">
-                <input className="input" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                <input className="input" name="op-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoCategoria(e.target.value); }} />
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
                     placeholder="🔍 Unidad…"
@@ -2796,12 +2803,12 @@ function EditarOrdenModal({
 
       <div className="form-row">
         <label>Motivo por el cual</label>
-        <textarea className="textarea" value={motivo} onChange={(e) => setMotivo(e.target.value)}
+        <textarea className="textarea" name="edit-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)}
           placeholder="¿Por qué se solicita?" />
       </div>
       <div className="form-row">
         <label>Finalidad</label>
-        <textarea className="textarea" value={finalidad} onChange={(e) => setFinalidad(e.target.value)}
+        <textarea className="textarea" name="edit-finalidad" defaultValue={finalidad} onChange={(e) => setFinalidad(e.target.value)}
           placeholder="¿Para qué se usará?" />
       </div>
     </Modal>
@@ -2862,7 +2869,8 @@ function MotivoModal({
         <label>{label}</label>
         <textarea
           className="textarea"
-          value={motivo}
+          name="motivo"
+          defaultValue={motivo}
           onChange={(e) => setMotivo(e.target.value)}
           placeholder={placeholder}
           required

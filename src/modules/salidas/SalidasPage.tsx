@@ -312,7 +312,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
       </div>
       {emailOpen && (
         <div className="card" style={{ padding: '.6rem', marginBottom: '.6rem', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input className="input" style={{ flex: 1, minWidth: 220 }} value={emails} onChange={(e) => setEmails(e.target.value)} placeholder="correo1@…, correo2@…" />
+          <input className="input" name="resumen-emails" style={{ flex: 1, minWidth: 220 }} defaultValue={emails} onChange={(e) => setEmails(e.target.value)} placeholder="correo1@…, correo2@…" />
           <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void enviar()}>{busy ? 'Enviando…' : 'Enviar'}</button>
         </div>
       )}
@@ -624,7 +624,7 @@ function SolicitudDetalleModal({
       {cancelOpen && (
         <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--danger)' }}>
           <label className="muted" style={{ fontSize: '.8rem' }}>Motivo de la cancelación</label>
-          <textarea className="input" rows={2} value={motivoCancel} onChange={(e) => setMotivoCancel(e.target.value)} placeholder="Indicá por qué se cancela…" />
+          <textarea className="input" name="motivo-cancel" rows={2} defaultValue={motivoCancel} onChange={(e) => setMotivoCancel(e.target.value)} placeholder="Indicá por qué se cancela…" />
           <div className="actions" style={{ marginTop: '.5rem' }}>
             <button className="btn btn-sm btn-ghost" onClick={() => setCancelOpen(false)} disabled={busy}>Volver</button>
             <button className="btn btn-sm btn-danger" disabled={busy || !motivoCancel.trim()}

@@ -120,20 +120,20 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         <form onSubmit={handleAdd} className="card" style={{ padding: '.75rem', marginBottom: '.75rem' }}>
           <div className="form-grid">
             <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
-            <div className="form-row"><label>Horómetro (lectura)</label><input className="input mono" type="number" step="any" value={horometro} onChange={(e) => setHorometro(e.target.value)} /></div>
+            <div className="form-row"><label>Horómetro (lectura)</label><input className="input mono" name="bit-horometro" type="number" step="any" defaultValue={horometro} onChange={(e) => setHorometro(e.target.value)} /></div>
           </div>
           <div className="form-grid">
-            <div className="form-row"><label>Aceite (Lts)</label><input className="input mono" type="number" step="any" value={aceite} onChange={(e) => setAceite(e.target.value)} /></div>
-            <div className="form-row"><label>Refrigerante (Lts)</label><input className="input mono" type="number" step="any" value={refrigerante} onChange={(e) => setRefrigerante(e.target.value)} /></div>
+            <div className="form-row"><label>Aceite (Lts)</label><input className="input mono" name="bit-aceite" type="number" step="any" defaultValue={aceite} onChange={(e) => setAceite(e.target.value)} /></div>
+            <div className="form-row"><label>Refrigerante (Lts)</label><input className="input mono" name="bit-refrigerante" type="number" step="any" defaultValue={refrigerante} onChange={(e) => setRefrigerante(e.target.value)} /></div>
           </div>
           <div className="form-grid">
-            <div className="form-row"><label>Gasoil (Lts)</label><input className="input mono" type="number" step="any" value={gasoil} onChange={(e) => setGasoil(e.target.value)} /></div>
-            <div className="form-row"><label>Mecánico / taller</label><input className="input" value={mecanico} onChange={(e) => setMecanico(e.target.value.toUpperCase())} /></div>
+            <div className="form-row"><label>Gasoil (Lts)</label><input className="input mono" name="bit-gasoil" type="number" step="any" defaultValue={gasoil} onChange={(e) => setGasoil(e.target.value)} /></div>
+            <div className="form-row"><label>Mecánico / taller</label><input className="input" name="bit-mecanico" defaultValue={mecanico} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setMecanico(e.target.value); }} /></div>
           </div>
-          <div className="form-row"><label>Trabajo y/o servicio</label><input className="input" value={trabajo} onChange={(e) => setTrabajo(e.target.value)} /></div>
+          <div className="form-row"><label>Trabajo y/o servicio</label><input className="input" name="bit-trabajo" defaultValue={trabajo} onChange={(e) => setTrabajo(e.target.value)} /></div>
           <div className="form-grid">
-            <div className="form-row"><label>Consumibles utilizados</label><input className="input" value={consumibles} onChange={(e) => setConsumibles(e.target.value)} /></div>
-            <div className="form-row"><label>Ubicación</label><input className="input" value={ubicacion} onChange={(e) => setUbicacion(e.target.value.toUpperCase())} /></div>
+            <div className="form-row"><label>Consumibles utilizados</label><input className="input" name="bit-consumibles" defaultValue={consumibles} onChange={(e) => setConsumibles(e.target.value)} /></div>
+            <div className="form-row"><label>Ubicación</label><input className="input" name="bit-ubicacion" defaultValue={ubicacion} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setUbicacion(e.target.value); }} /></div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar registro'}</button>

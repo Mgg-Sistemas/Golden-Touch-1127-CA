@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
@@ -86,9 +86,10 @@ export function TrasladoMaterialForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productoId, origen]);
 
-  function onCantidadChange(v: string) {
+  function onCantidadChange(e: ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
     const n = Number(v);
-    if (Number.isFinite(n) && n > stock) { setCantidad(String(stock)); return; }
+    if (Number.isFinite(n) && n > stock) { e.target.value = String(stock); setCantidad(String(stock)); return; }
     setCantidad(v);
   }
 
@@ -154,7 +155,7 @@ export function TrasladoMaterialForm({
             options={unidadOpciones.map((u) => ({ value: u, label: u }))}
             placeholder="Departamento / unidad que solicita" />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-            <input className="input" value={nuevaUnidad} onChange={(e) => setNuevaUnidad(e.target.value.toUpperCase())}
+            <input className="input" name="tm-nueva-unidad" defaultValue={nuevaUnidad} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevaUnidad(e.target.value); }}
               placeholder="¿No está? Escribí la unidad nueva…"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
             <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
@@ -183,7 +184,7 @@ export function TrasladoMaterialForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
-            <input className="input mono" type="number" min={1} max={stock || undefined} step="any" value={cantidad} onChange={(e) => onCantidadChange(e.target.value)} required />
+            <input className="input mono" name="tm-cantidad" type="number" min={1} max={stock || undefined} step="any" defaultValue={cantidad} onChange={onCantidadChange} required />
             {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>}
           </div>
           <div className="form-row">
@@ -196,7 +197,7 @@ export function TrasladoMaterialForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Motivo / detalle</label>
-            <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del traslado…" />
+            <input className="input" name="tm-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del traslado…" />
           </div>
           <div className="form-row">
             <label>Fecha de entrega</label>
@@ -211,7 +212,7 @@ export function TrasladoMaterialForm({
             Nota de entrega
           </label>
           {notaOn && (
-            <textarea className="input" rows={2} value={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
+            <textarea className="input" name="tm-nota" rows={2} defaultValue={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
               placeholder="Escribí el motivo / detalle de la nota de entrega…" style={{ marginTop: '.4rem' }} />
           )}
           {notaOn && <small className="muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}

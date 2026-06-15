@@ -328,7 +328,7 @@ function ProgramarVacacionModal({ personal, eventos, actor, actorName, onClose, 
           </div>
           <div className="form-row"><label>Desde</label><input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} required /></div>
           <div className="form-row"><label>Hasta</label><input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} required /></div>
-          <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Nota (opcional)</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Detalle" /></div>
+          <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Nota (opcional)</label><input className="input" name="vac-nota" defaultValue={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Detalle" /></div>
         </div>
         {dias > 0 && <div className="muted" style={{ marginTop: '.4rem', fontSize: '.84rem' }}>{dias} día(s){persona && Number(persona.sueldo_base) > 0 ? ` · pago estimado ${money(montoVacacion(Number(persona.sueldo_base), dias))}` : ''}</div>}
         {conflicto && <div className="card" style={{ borderColor: 'var(--warning)', background: 'rgba(255,170,0,.06)', marginTop: '.5rem', fontSize: '.84rem' }}>⚠ <strong>{conflicto}</strong> (mismo departamento) ya tiene vacaciones que se cruzan con esas fechas. Ajustá las fechas.</div>}

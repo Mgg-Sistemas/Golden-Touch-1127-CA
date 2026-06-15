@@ -148,14 +148,18 @@ export function KgMesasModal({ onClose }: { onClose: () => void }) {
                   <td style={{ fontWeight: 700 }} className="mono">{c.numero}</td>
                   <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(c.created_at)}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <input className="input mono" inputMode="decimal" disabled={!canWrite || guardando === c.id}
-                      value={valorMojado(c)} placeholder="0.00" style={{ width: 110, textAlign: 'right' }}
-                      onChange={(e) => setCampo(c, 'mojado', e.target.value)} onBlur={() => void guardar(c)} />
+                    <input key={`mojado-${c.id}-${c.mesa_peso_mojado ?? ''}`} name={`mesa-mojado-${c.id}`}
+                      className="input mono" inputMode="decimal" disabled={!canWrite || guardando === c.id}
+                      defaultValue={valorMojado(c)} placeholder="0.00" style={{ width: 110, textAlign: 'right' }}
+                      onChange={(e) => { const v = dosDecimales(e.target.value); e.target.value = v; setCampo(c, 'mojado', v); }}
+                      onBlur={() => void guardar(c)} />
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <input className="input mono" inputMode="decimal" disabled={!canWrite || guardando === c.id}
-                      value={valorSeco(c)} placeholder="0.00" style={{ width: 110, textAlign: 'right' }}
-                      onChange={(e) => setCampo(c, 'seco', e.target.value)} onBlur={() => void guardar(c)} />
+                    <input key={`seco-${c.id}-${c.mesa_peso_seco ?? ''}`} name={`mesa-seco-${c.id}`}
+                      className="input mono" inputMode="decimal" disabled={!canWrite || guardando === c.id}
+                      defaultValue={valorSeco(c)} placeholder="0.00" style={{ width: 110, textAlign: 'right' }}
+                      onChange={(e) => { const v = dosDecimales(e.target.value); e.target.value = v; setCampo(c, 'seco', v); }}
+                      onBlur={() => void guardar(c)} />
                   </td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: merma == null ? undefined : merma < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{fmt2(merma)}</td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: pct == null ? undefined : pct < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{fmtPct(pct)}</td>

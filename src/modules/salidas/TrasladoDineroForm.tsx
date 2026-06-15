@@ -96,11 +96,11 @@ export function TrasladoDineroForm({
         <div className="form-grid">
           <div className="form-row">
             <label>Monto ({origen?.moneda ?? '—'})</label>
-            <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} required />
+            <input className="input mono" name="traslado-monto" type="number" min={0} step="any" defaultValue={monto} onChange={(e) => setMonto(e.target.value)} required />
           </div>
           <div className="form-row">
             <label>Motivo (opcional)</label>
-            <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del traslado…" />
+            <input className="input" name="traslado-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del traslado…" />
           </div>
         </div>
 
@@ -110,7 +110,7 @@ export function TrasladoDineroForm({
             Nota de entrega
           </label>
           {notaOn && (
-            <textarea className="input" rows={2} value={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
+            <textarea className="input" name="traslado-nota" rows={2} defaultValue={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
               placeholder="Escribí el motivo / detalle de la nota de entrega…" style={{ marginTop: '.4rem' }} />
           )}
           {notaOn && <small className="muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}

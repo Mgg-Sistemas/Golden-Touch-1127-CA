@@ -45,6 +45,8 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nuevoValor, setNuevoValor] = useState('');
+  // Bump al agregar categoría/sub para remontar los inputs no-controlados y limpiarlos.
+  const [nuevoValorKey, setNuevoValorKey] = useState(0);
 
   const valoresGrupo = useMemo(() => clasificaciones.filter((c) => c.grupo === grupo), [clasificaciones, grupo]);
   const clasifCosto = useMemo(() => [...new Set(costoClases.map((c) => c.clasificacion))], [costoClases]);
@@ -66,14 +68,14 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
     if (!grupo) { setError('Elegí primero el grupo.'); return; }
     const v = nuevoValor.trim();
     if (!v) return;
-    try { await addClasificacion(grupo, v); setValor(v); setNuevoValor(''); toast('Clasificación agregada', 'success'); }
+    try { await addClasificacion(grupo, v); setValor(v); setNuevoValor(''); setNuevoValorKey((k) => k + 1); toast('Clasificación agregada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
   }
   async function agregarSub() {
     if (!costoCl.trim()) { setError('Indicá la clasificación de costo.'); return; }
     const v = nuevoValor.trim();
     if (!v) return;
-    try { await addCostoClase(costoCl, v); setCostoSub(v); setNuevoValor(''); toast('Sub-clasificación agregada', 'success'); }
+    try { await addCostoClase(costoCl, v); setCostoSub(v); setNuevoValor(''); setNuevoValorKey((k) => k + 1); toast('Sub-clasificación agregada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
   }
 
@@ -112,8 +114,8 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
       <button className="btn btn-primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (esNuevo ? 'Registrar' : 'Guardar')}</button>
     </>
   );
-  const fld = (label: string, val: string, set: (v: string) => void, hint?: string) => (
-    <div className="form-row"><label>{label}</label><input className="input mono" type="number" min={0} step="any" value={val} onChange={(e) => set(e.target.value)} />{hint && <small className="muted">{hint}</small>}</div>
+  const fld = (label: string, name: string, val: string, set: (v: string) => void, hint?: string) => (
+    <div className="form-row"><label>{label}</label><input className="input mono" name={name} type="number" min={0} step="any" defaultValue={val} onChange={(e) => set(e.target.value)} />{hint && <small className="muted">{hint}</small>}</div>
   );
 
   return (
@@ -137,7 +139,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
             {valoresGrupo.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
           </select>
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-            <input className="input" style={{ flex: 1 }} value={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva categoría a este grupo" />
+            <input key={`nv-cat-${nuevoValorKey}`} className="input" name="f-nueva-categoria" style={{ flex: 1 }} defaultValue={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva categoría a este grupo" />
             <button type="button" className="btn btn-sm btn-ghost" onClick={agregarValor}>Agregar</button>
           </div>
         </div>
@@ -175,7 +177,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
           </select>
           {costoCl && (
             <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-              <input className="input" style={{ flex: 1 }} value={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva sub-clasificación" />
+              <input key={`nv-sub-${nuevoValorKey}`} className="input" name="f-nueva-subclasificacion" style={{ flex: 1 }} defaultValue={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva sub-clasificación" />
               <button type="button" className="btn btn-sm btn-ghost" onClick={agregarSub}>Agregar</button>
             </div>
           )}
@@ -184,16 +186,16 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
 
       <div className="form-row">
         <label>Descripción</label>
-        <textarea className="input" rows={2} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Detalle del movimiento…" />
+        <textarea className="input" name="f-descripcion" rows={2} defaultValue={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Detalle del movimiento…" />
       </div>
       <div className="form-grid">
-        {fld('$ Entregado (entrada)', usdEntregado, setUsdEntregado)}
-        {fld('Kg Cerrados', kgCerrados, setKgCerrados)}
-        {fld('$ Facturados', facturados, setFacturados)}
-        {fld('Gastos GT', gastos, setGastos, 'suma a la tasa')}
-        {fld('Nóminas GT', nominas, setNominas, 'suma a la tasa')}
-        {fld('Traslado de caja', traslado, setTraslado)}
-        {fld('Kg Recibidos por MGG', kgRecibidos, setKgRecibidos)}
+        {fld('$ Entregado (entrada)', 'f-usd-entregado', usdEntregado, setUsdEntregado)}
+        {fld('Kg Cerrados', 'f-kg-cerrados', kgCerrados, setKgCerrados)}
+        {fld('$ Facturados', 'f-facturados', facturados, setFacturados)}
+        {fld('Gastos GT', 'f-gastos', gastos, setGastos, 'suma a la tasa')}
+        {fld('Nóminas GT', 'f-nominas', nominas, setNominas, 'suma a la tasa')}
+        {fld('Traslado de caja', 'f-traslado', traslado, setTraslado)}
+        {fld('Kg Recibidos por MGG', 'f-kg-recibidos', kgRecibidos, setKgRecibidos)}
       </div>
     </Modal>
   );

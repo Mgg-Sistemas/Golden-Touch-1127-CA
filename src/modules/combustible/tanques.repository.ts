@@ -999,11 +999,20 @@ const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep',
 export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsumo = 'equipo'): Promise<ConsumoEquipoItem[]> {
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('equipo, ubicacion, litros, monto_usd, fecha, tipo')
+    .select('equipo, ubicacion, litros, monto_usd, fecha, tipo, tanque_id')
     .eq('tipo', 'uso')
     .gte('fecha', desde.toISOString().slice(0, 10))
     .lte('fecha', hasta.toISOString().slice(0, 10));
   if (error) throw error;
+  // El valor en $ usa la TASA ACTUAL del tanque (tasa fija), no el monto histórico de
+  // cada movimiento: así el total siempre refleja la tasa vigente (p. ej. litros × 0,50)
+  // y no queda desfasado si un movimiento se guardó con una tasa anterior.
+  const tanqueIds = Array.from(new Set((data ?? []).map((r) => (r as { tanque_id?: string }).tanque_id).filter(Boolean))) as string[];
+  const tasaPorTanque = new Map<string, number>();
+  if (tanqueIds.length) {
+    const { data: tks } = await supabase.from('combustible_tanques').select('id, tasa_usd_litro').in('id', tanqueIds);
+    for (const t of (tks ?? []) as Array<{ id: string; tasa_usd_litro: number | null }>) tasaPorTanque.set(t.id, num(t.tasa_usd_litro));
+  }
   const acc = new Map<string, ConsumoEquipoItem>();
   for (const row of (data ?? []) as Array<Record<string, unknown>>) {
     const litros = num(row.litros);
@@ -1017,7 +1026,9 @@ export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsum
     } else clave = (row.equipo as string)?.trim() || '— sin equipo —';
     const cur = acc.get(clave) ?? { id: clave, nombre: clave, cantidad: 0, valor: 0 };
     cur.cantidad += litros;
-    cur.valor += num(row.monto_usd);
+    // Valor = litros × tasa vigente del tanque. Si no se conoce el tanque/tasa, cae al monto guardado.
+    const tasa = row.tanque_id ? tasaPorTanque.get(row.tanque_id as string) ?? 0 : 0;
+    cur.valor += tasa > 0 ? litros * tasa : num(row.monto_usd);
     acc.set(clave, cur);
   }
   const arr = Array.from(acc.values()).map((x) => ({ ...x, cantidad: round(x.cantidad, 2), valor: round(x.valor, 2) }));

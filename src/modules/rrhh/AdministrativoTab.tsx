@@ -34,6 +34,7 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
   const [lista, setLista] = useState<RrhhEvento[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<EventoInput>(VACIO);
+  const [formKey, setFormKey] = useState(0);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filtroTipo, setFiltroTipo] = useState<string>('');
@@ -66,6 +67,7 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
       await crearEvento(form, actor, actorName);
       toast('Registrado', 'success');
       setForm({ ...VACIO, tipo: form.tipo });
+      setFormKey((k) => k + 1); // fuerza remonte para limpiar inputs no controlados (el form queda abierto)
       await recargar();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); }
     finally { setGuardando(false); }
@@ -122,7 +124,7 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
           {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
           <div className="card" style={{ padding: '.85rem' }}>
             <div className="card-title" style={{ marginBottom: '.5rem' }}>Registrar (vacaciones · permisos · utilidades · notas)</div>
-            <div className="form-grid">
+            <div className="form-grid" key={formKey}>
               <div className="form-row">
                 <label>Trabajador</label>
                 <SearchSelect value={form.personal_id} onChange={(v) => setForm((f) => ({ ...f, personal_id: v }))} placeholder="🔍 Buscar trabajador…"
@@ -136,9 +138,10 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
               </div>
               <div className="form-row"><label>Desde</label><input className="input" type="date" value={form.fecha_desde ?? ''} max={form.fecha_hasta || undefined} onChange={(e) => cambiarFecha('fecha_desde', e.target.value)} /></div>
               <div className="form-row"><label>Hasta</label><input className="input" type="date" value={form.fecha_hasta ?? ''} min={form.fecha_desde || undefined} onChange={(e) => cambiarFecha('fecha_hasta', e.target.value)} /></div>
-              {tipoCfg?.conDias && <div className="form-row"><label>Días</label><input className="input mono" type="number" min={0} step="any" value={form.dias ?? ''} onChange={(e) => setForm((f) => ({ ...f, dias: e.target.value === '' ? null : Number(e.target.value) }))} /></div>}
-              {tipoCfg?.conMonto && <div className="form-row"><label>Monto (USD)</label><input className="input mono" type="number" min={0} step="any" value={form.monto ?? ''} onChange={(e) => setForm((f) => ({ ...f, monto: e.target.value === '' ? null : Number(e.target.value) }))} /></div>}
-              <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Descripción</label><input className="input" value={form.descripcion ?? ''} onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))} placeholder="Detalle del registro" /></div>
+              {/* Días: controlado a propósito — se autocompleta al cambiar las fechas (cambiarFecha), por eso necesita reflejar el estado en el DOM. */}
+              {tipoCfg?.conDias && <div className="form-row"><label>Días</label><input className="input mono" type="number" name="ev-dias" min={0} step="any" value={form.dias ?? ''} onChange={(e) => setForm((f) => ({ ...f, dias: e.target.value === '' ? null : Number(e.target.value) }))} /></div>}
+              {tipoCfg?.conMonto && <div className="form-row"><label>Monto (USD)</label><input className="input mono" type="number" name="ev-monto" min={0} step="any" defaultValue={form.monto ?? ''} onChange={(e) => setForm((f) => ({ ...f, monto: e.target.value === '' ? null : Number(e.target.value) }))} /></div>}
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Descripción</label><input className="input" name="ev-descripcion" defaultValue={form.descripcion ?? ''} onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))} placeholder="Detalle del registro" /></div>
             </div>
             {diasRango > 0 && (
               <div className="muted" style={{ marginTop: '.4rem', fontSize: '.84rem' }}>
