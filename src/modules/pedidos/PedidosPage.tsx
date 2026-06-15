@@ -2706,6 +2706,12 @@ function EditarOrdenModal({
   const [finalidad, setFinalidad] = useState(orden.finalidad ?? '');
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
   const [saving, setSaving] = useState(false);
+  // Opciones del selector de producto: se arman SOLO cuando cambia `productos`, no
+  // en cada tecleo del formulario (antes se recreaba el array completo por render).
+  const prodOptions = useMemo(
+    () => productos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` })),
+    [productos],
+  );
 
   function updateItem(idx: number, patch: Partial<ItemOrden>) {
     setItems((prev) => prev.map((i, k) => (k === idx ? { ...i, ...patch } : i)));
@@ -2795,7 +2801,7 @@ function EditarOrdenModal({
         </div>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>
           <SearchSelect style={{ flex: 1 }} value={prodSelectId} onChange={setProdSelectId}
-            options={productos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` }))}
+            options={prodOptions}
             placeholder="Buscar producto por nombre o SKU…" emptyText="Ningún producto coincide" />
           <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
         </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
-import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, date as fmtDate, dosDecimales, redondearArriba5 } from '@/shared/lib/format';
@@ -28,7 +28,7 @@ import type { MonedaCaja, CuentaCaja, CajaSaldo, CajaLote } from '@/shared/lib/t
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import {
   listCajasActivas, listCentrosAcopio,
-  registrarGasto, disponibilidadFinanciera, listLibroMayor,
+  registrarGasto, disponibilidadFinanciera, listLibroMayor, ultimoCorrelativo,
   type Disponibilidad,
 } from './tesoreria.repository';
 import {
@@ -53,6 +53,9 @@ import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
 import { descargarReportePdf, type ReporteMeta } from './reportePdf';
+import { CierreMesModal } from './CierreMesModal';
+import { CategoriasGastoModal } from './CategoriasGastoModal';
+import { listCategoriasGasto, soloCategorias, subcategoriasDe, ensureCategoriaGasto, categoriaLlevaCorrelativo, type CategoriaGasto } from './categoriasGasto.repository';
 import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
 import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
 import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo } from './enviarReporte';
@@ -68,6 +71,14 @@ const TIPO_MOV_LABEL: Record<string, string> = {
 const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
 };
+
+/** Detalle del gasto etiquetado: "N° 12 · Recepción · Flete" (lo que aplique). */
+function detalleGasto(m: MovimientoCaja): string {
+  return [
+    m.gasto_correlativo != null ? `N° ${m.gasto_correlativo}` : null,
+    m.gasto_categoria, m.gasto_subcategoria,
+  ].filter(Boolean).join(' · ');
+}
 
 /** Formatea un monto con el símbolo de su moneda (2 decimales). */
 function monto(n: number | null | undefined, moneda: string): string {
@@ -92,7 +103,7 @@ export function TesoreriaPage() {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes' | 'retencion'>('none');
+  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes' | 'retencion' | 'cierre' | 'categorias'>('none');
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
@@ -150,19 +161,23 @@ export function TesoreriaPage() {
   // Búsqueda general (client-side) sobre los movimientos ya cargados: caja,
   // concepto, beneficiario, motivo, moneda, monto, saldo y fecha. Cada palabra
   // tecleada debe aparecer en algún campo (búsqueda tipo "todas las palabras").
+  // Texto de búsqueda por fila, precomputado SOLO cuando cambia `libro`. Así teclear
+  // en el buscador no recalcula normalize/toLocaleString por cada movimiento en cada
+  // pulsación (antes era el cuello de botella con cientos de filas), solo hace `includes`.
+  const libroIndexado = useMemo(() => libro.map((m) => ({
+    m,
+    heno: normalizarBusqueda([
+      m.caja?.nombre, TIPO_MOV_LABEL[m.tipo] ?? m.tipo, CAT_LABEL[m.categoria ?? ''] ?? m.categoria,
+      detalleGasto(m), m.beneficiario, m.motivo, m.destino, m.cuenta, m.moneda,
+      monto(m.monto, m.moneda), monto(m.saldo_despues, m.moneda), dateTime(m.at),
+    ].filter(Boolean).join(' ')),
+  })), [libro]);
   const libroView = useMemo(() => {
     const q = normalizarBusqueda(fBuscar);
     if (!q) return libro;
     const palabras = q.split(/\s+/).filter(Boolean);
-    return libro.filter((m) => {
-      const heno = normalizarBusqueda([
-        m.caja?.nombre, TIPO_MOV_LABEL[m.tipo] ?? m.tipo, CAT_LABEL[m.categoria ?? ''] ?? m.categoria,
-        m.beneficiario, m.motivo, m.destino, m.cuenta, m.moneda,
-        monto(m.monto, m.moneda), monto(m.saldo_despues, m.moneda), dateTime(m.at),
-      ].filter(Boolean).join(' '));
-      return palabras.every((p) => heno.includes(p));
-    });
-  }, [libro, fBuscar]);
+    return libroIndexado.filter(({ heno }) => palabras.every((p) => heno.includes(p))).map(({ m }) => m);
+  }, [libro, libroIndexado, fBuscar]);
 
   // Metadatos del reporte PDF/correo del registro de movimientos (según filtros).
   const reporteMeta = () => ({
@@ -240,6 +255,8 @@ export function TesoreriaPage() {
             <button className="btn btn-ghost" onClick={() => setModal('tasas')}>📈 Historial Tasas</button>
             <button className="btn btn-ghost" onClick={() => setResumenMovOpen(true)}>📊 Resumen de movimientos</button>
             <button className="btn btn-ghost" onClick={() => setModal('retencion')}>🧾 Retención</button>
+            <button className="btn btn-ghost" onClick={() => setModal('categorias')}>🏷 Categorías (gasto)</button>
+            <button className="btn btn-ghost" onClick={() => setModal('cierre')}>🗓️ Cierre de mes</button>
           </div>
 
           {/* Saldos por caja (multimoneda; clic = detalle, ingreso, trazabilidad) */}
@@ -324,7 +341,7 @@ export function TesoreriaPage() {
                   {!loading && libroView.map((m) => {
                     const egreso = m.tipo === 'salida' || m.tipo === 'traslado_salida'
                   || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
-                    const concepto = [CAT_LABEL[m.categoria ?? ''] , m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
+                    const concepto = [CAT_LABEL[m.categoria ?? ''] , detalleGasto(m), m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
                     return (
                       <tr key={m.id}>
                         <td>{dateTime(m.at)}</td>
@@ -354,6 +371,8 @@ export function TesoreriaPage() {
       {modal === 'pago' && <NominaPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'cajas' && <GestionarCajasModal actor={actor} actorName={actorName} onClose={() => setModal('none')} onCambioAplicado={reload} />}
       {modal === 'retencion' && <RetencionesTesoreriaModal onClose={() => setModal('none')} />}
+      {modal === 'categorias' && <CategoriasGastoModal canWrite={canWrite} actor={actor} onClose={() => setModal('none')} />}
+      {modal === 'cierre' && <CierreMesModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setModal('none')} />}
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
       {modal === 'conversor' && <ConversorModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onConverted={reload} />}
       {modal === 'calculadora' && <CalculadoraModal onClose={() => setModal('none')} />}
@@ -446,6 +465,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: Movimient
           <div><span className="muted">Caja:</span> <strong>{mov.caja?.nombre ?? '—'}</strong></div>
           <div><span className="muted">Tipo:</span> <strong>{TIPO_MOV_LABEL[mov.tipo] ?? mov.tipo}</strong></div>
           <div><span className="muted">Categoría:</span> <strong>{CAT_LABEL[mov.categoria ?? ''] ?? (mov.categoria || '—')}</strong></div>
+          {detalleGasto(mov) && <div><span className="muted">Detalle del gasto:</span> <strong>{detalleGasto(mov)}</strong></div>}
           <div><span className="muted">Monto:</span> <strong className="mono" style={{ color: egreso ? 'var(--danger)' : 'var(--success)' }}>{egreso ? '−' : '+'}{monto(mov.monto, mov.moneda)}</strong></div>
           {mov.cuenta && <div><span className="muted">Cuenta:</span> <strong>{mov.cuenta}</strong></div>}
           {mov.tasa_bs != null && mov.tasa_bs > 0 && <div><span className="muted">Tasa aplicada:</span> <strong className="mono">{monto(mov.tasa_bs, 'Bs')} / $</strong></div>}
@@ -979,7 +999,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
               {!loading && movs.map((m) => {
                 const egreso = m.tipo === 'salida' || m.tipo === 'traslado_salida'
                   || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
-                const concepto = [CAT_LABEL[m.categoria ?? ''], m.beneficiario, m.motivo, m.destino].filter(Boolean).join(' · ') || '—';
+                const concepto = [CAT_LABEL[m.categoria ?? ''], detalleGasto(m), m.beneficiario, m.motivo, m.destino].filter(Boolean).join(' · ') || '—';
                 return (
                   <tr key={m.id}>
                     <td>{dateTime(m.at)}</td>
@@ -1152,6 +1172,34 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
 
+  // Categoría / subcategoría de gasto (obligatorias; se pueden crear al vuelo).
+  const [catRows, setCatRows] = useState<CategoriaGasto[]>([]);
+  const [catNombre, setCatNombre] = useState('');
+  const [subNombre, setSubNombre] = useState('');
+  const cargarCats = useCallback(() => { listCategoriasGasto(true).then(setCatRows).catch(() => {}); }, []);
+  useEffect(() => { cargarCats(); }, [cargarCats]);
+  useRealtime(['categorias_gasto'], () => { cargarCats(); });
+  const catOpts = useMemo(() => soloCategorias(catRows).map((c) => c.nombre), [catRows]);
+  const catSel = useMemo(() => soloCategorias(catRows).find((c) => c.nombre.toLowerCase() === catNombre.trim().toLowerCase()) ?? null, [catRows, catNombre]);
+  const subOpts = useMemo(() => (catSel ? subcategoriasDe(catRows, catSel.id).map((s) => s.nombre) : []), [catRows, catSel]);
+
+  // Correlativo autoincremental para RECEPCIÓN/EXPORTACIÓN: el primero lo ingresa
+  // el usuario; si ya hay registrados, se sugiere el siguiente y queda fijo.
+  const llevaCorrelativo = useMemo(() => categoriaLlevaCorrelativo(catNombre), [catNombre]);
+  const [ultimoCorr, setUltimoCorr] = useState<number | null>(null);
+  const [cargandoCorr, setCargandoCorr] = useState(false);
+  const [correlativoStr, setCorrelativoStr] = useState('');
+  useEffect(() => {
+    const catN = catNombre.trim();
+    if (!llevaCorrelativo || !catN) { setUltimoCorr(null); return; }
+    setCargandoCorr(true);
+    ultimoCorrelativo(catN)
+      .then((u) => setUltimoCorr(u))
+      .catch(() => setUltimoCorr(null))
+      .finally(() => setCargandoCorr(false));
+  }, [llevaCorrelativo, catNombre]);
+  const correlativoSugerido = ultimoCorr != null ? ultimoCorr + 1 : null;
+
   // Saldos reales de la caja (multimoneda: cada cuenta/moneda con su saldo).
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
   const [saldoSelId, setSaldoSelId] = useState('');
@@ -1176,9 +1224,25 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
     if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) se paga.'); return; }
     const m = Number(montoStr) || 0;
     if (m > disponible + 0.01) { setError(`Saldo insuficiente. Disponible: ${monto(disponible, monedaPago)}.`); return; }
+    const catN = catNombre.trim(); const subN = subNombre.trim();
+    if (!catN) { setError('Elegí o creá la categoría del gasto.'); return; }
+    if (!subN) { setError('Elegí o creá la subcategoría del gasto.'); return; }
+    // Para RECEPCIÓN/EXPORTACIÓN el primer correlativo lo ingresa el usuario.
+    let primerCorr: number | null = null;
+    if (llevaCorrelativo && ultimoCorr == null) {
+      const c = Math.trunc(Number(correlativoStr));
+      if (!Number.isFinite(c) || c <= 0) { setError('Ingresá el número de correlativo inicial (mayor que 0).'); return; }
+      primerCorr = c;
+    }
     setSaving(true);
     try {
-      await registrarGasto({ cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago, actor, actorName });
+      // Asegura la categoría/subcategoría en el catálogo (idempotente) y etiqueta el gasto.
+      const cat = await ensureCategoriaGasto(catN, null, actor);
+      await ensureCategoriaGasto(subN, cat.id, actor);
+      await registrarGasto({
+        cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago,
+        gastoCategoria: cat.nombre, gastoSubcategoria: subN, gastoCorrelativo: primerCorr, actor, actorName,
+      });
       notify(`Gasto registrado: ${monto(m, monedaPago)}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); setSaving(false); }
@@ -1216,10 +1280,38 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
             <small className="muted">Disponible: <strong className="mono">{monto(disponible, monedaPago)}</strong></small>
           </div>
         </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Categoría *</label>
+            <SearchCreateSelect value={catNombre} onChange={(v) => { setCatNombre(v); setSubNombre(''); }} options={catOpts} placeholder="Elegí o escribí una categoría…" />
+          </div>
+          <div className="form-row">
+            <label>Subcategoría *</label>
+            <SearchCreateSelect value={subNombre} onChange={setSubNombre} options={subOpts} placeholder={catNombre.trim() ? 'Elegí o escribí una subcategoría…' : 'Elegí primero la categoría'} />
+          </div>
+        </div>
+        {llevaCorrelativo && (
+          <div className="form-row">
+            <label>Correlativo (N°)</label>
+            {cargandoCorr ? (
+              <input className="input mono" value="Cargando…" disabled />
+            ) : ultimoCorr == null ? (
+              <input className="input mono" type="number" min={1} step={1} value={correlativoStr}
+                onChange={(e) => setCorrelativoStr(e.target.value)} placeholder="N° inicial" required />
+            ) : (
+              <input className="input mono" value={String(correlativoSugerido)} disabled />
+            )}
+            <small className="muted">
+              {ultimoCorr == null
+                ? 'Primer registro de esta categoría: ingresá el número inicial. De ahí la secuencia sigue sola.'
+                : `Se asignará automáticamente el N° ${correlativoSugerido} (último registrado: ${ultimoCorr}).`}
+            </small>
+          </div>
+        )}
         <div className="form-row">
           <label>Concepto</label>
           <input className="input" name="g-concepto" defaultValue={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
-          <small className="muted">El gasto queda etiquetado por la moneda elegida y aparece en el registro de movimientos.</small>
+          <small className="muted">Categoría y subcategoría son obligatorias (podés crearlas escribiéndolas). El gasto queda etiquetado y aparece en el registro de movimientos.</small>
         </div>
       </form>
     </Modal>
@@ -1875,7 +1967,7 @@ function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: Movimi
             <tbody>
               {!drillMovs.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin movimientos.</td></tr>}
               {drillMovs.map((m) => {
-                const concepto = [CAT_LABEL[m.categoria ?? ''], m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
+                const concepto = [CAT_LABEL[m.categoria ?? ''], detalleGasto(m), m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
                 const eg = esEgreso(m);
                 return (
                   <tr key={m.id}>

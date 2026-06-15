@@ -8,6 +8,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Caja, MovimientoCaja, Retencion, TipoRetencion, CuentaCaja } from '@/shared/lib/types';
 import { getTasaHoy, round2 } from './tasas.repository';
+import { categoriaLlevaCorrelativo } from './categoriasGasto.repository';
 
 const TABLE = 'cajas';
 const LIBRO = 'movimientos_caja';
@@ -28,15 +29,48 @@ async function getCaja(id: string): Promise<Caja> {
 
 /* ───────────── Gasto (egreso simple, etiquetado por moneda) ───────────── */
 
+/**
+ * Último correlativo usado para una categoría (RECEPCIÓN/EXPORTACIÓN).
+ * Devuelve el número más alto registrado, o null si todavía no hay ninguno.
+ */
+export async function ultimoCorrelativo(categoria: string): Promise<number | null> {
+  const { data, error } = await supabase.from(LIBRO)
+    .select('gasto_correlativo')
+    .eq('gasto_categoria', categoria)
+    .not('gasto_correlativo', 'is', null)
+    .order('gasto_correlativo', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  const n = data ? Number((data as { gasto_correlativo: number | null }).gasto_correlativo) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function registrarGasto(input: {
   cajaId: string; monto: number; concepto: string; categoria?: string;
   cuenta?: CuentaCaja | null; moneda?: string | null;
+  // Categoría/subcategoría de gasto (catálogo jerárquico) y correlativo opcional.
+  gastoCategoria?: string | null; gastoSubcategoria?: string | null; gastoCorrelativo?: number | null;
   actor: string; actorName?: string | null;
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   if (!input.concepto.trim()) throw new Error('Indicá el concepto del gasto.');
   const caja = await getCaja(input.cajaId);
+
+  // Correlativo autoincremental para RECEPCIÓN/EXPORTACIÓN: el primero lo ingresa
+  // el usuario; a partir de ahí la secuencia sigue sola (último + 1) por categoría.
+  // Se recalcula acá, lo más cerca posible del insert, para reducir choques entre usuarios.
+  let correlativo = input.gastoCorrelativo ?? null;
+  if (input.gastoCategoria && categoriaLlevaCorrelativo(input.gastoCategoria)) {
+    const ultimo = await ultimoCorrelativo(input.gastoCategoria);
+    if (ultimo == null) {
+      // Aún no hay ninguno: usamos el que ingresó el usuario (o 1 por defecto).
+      correlativo = input.gastoCorrelativo != null ? Math.trunc(input.gastoCorrelativo) : 1;
+    } else {
+      correlativo = ultimo + 1; // ya hay secuencia: se ignora lo tecleado y sigue sola.
+    }
+  }
 
   // Si la caja maneja saldos multimoneda (caja_saldos), se descuenta del saldo
   // elegido (cuenta+moneda); si no, del saldo legado de la caja.
@@ -54,6 +88,9 @@ export async function registrarGasto(input: {
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: monedaPago,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto.trim(), categoria: input.categoria ?? 'gasto',
+    gasto_categoria: input.gastoCategoria ?? null,
+    gasto_subcategoria: input.gastoSubcategoria ?? null,
+    gasto_correlativo: correlativo,
     cuenta: usaSaldos ? cuentaSel : null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
@@ -166,6 +203,9 @@ export async function disponibilidadFinanciera(): Promise<Disponibilidad> {
 
 export async function listLibroMayor(filtros: {
   cajaId?: string; moneda?: string; tipo?: string; desde?: string; hasta?: string;
+  // Por defecto se ocultan los movimientos archivados en un cierre de mes (cierre_id != null):
+  // así el mes nuevo arranca limpio. `incluirArchivados` los trae todos; `cierreId` filtra uno.
+  incluirArchivados?: boolean; cierreId?: string;
 } = {}): Promise<MovimientoCaja[]> {
   let q = supabase.from(LIBRO).select('*, caja:cajas!movimientos_caja_caja_id_fkey(nombre, moneda)').order('at', { ascending: false });
   if (filtros.cajaId) q = q.eq('caja_id', filtros.cajaId);
@@ -173,6 +213,8 @@ export async function listLibroMayor(filtros: {
   if (filtros.tipo) q = q.eq('tipo', filtros.tipo);
   if (filtros.desde) q = q.gte('at', `${filtros.desde}T00:00:00`);
   if (filtros.hasta) q = q.lte('at', `${filtros.hasta}T23:59:59`);
+  if (filtros.cierreId) q = q.eq('cierre_id', filtros.cierreId);
+  else if (!filtros.incluirArchivados) q = q.is('cierre_id', null);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as MovimientoCaja[];

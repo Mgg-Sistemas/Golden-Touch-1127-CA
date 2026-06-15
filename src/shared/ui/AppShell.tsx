@@ -95,6 +95,28 @@ export function AppShell() {
   // Inicializa el contexto de audio (se "desbloquea" en el primer click/tecla).
   useEffect(() => { initSound(); }, []);
 
+  // Precalienta en segundo plano (cuando el navegador está ocioso) las librerías
+  // pesadas de PDF/Excel y el logo. Así el PRIMER clic en un botón de reporte ya
+  // las encuentra en caché y responde al instante, en vez de descargar el chunk
+  // de ~200-320 kB en ese momento. No bloquea el arranque.
+  useEffect(() => {
+    if (!user) return;
+    let done = false;
+    const warm = () => {
+      if (done) return; done = true;
+      import('jspdf').catch(() => {});
+      import('jspdf-autotable').catch(() => {});
+      import('xlsx-js-style').catch(() => {});
+      import('@/shared/lib/pdfLogo').then((m) => m.loadLogoDataUrl()).catch(() => {});
+    };
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    const id = ric ? ric(warm) : window.setTimeout(warm, 3000);
+    return () => {
+      const cancel = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback;
+      if (ric && cancel) cancel(id as number); else window.clearTimeout(id as number);
+    };
+  }, [user]);
+
   // Cuando cualquier `notify()` persista en BD, refresca el contador de la campana.
   useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), []);
 
