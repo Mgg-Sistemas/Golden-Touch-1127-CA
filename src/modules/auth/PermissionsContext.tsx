@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 import { getAppUser, useSession, type AppUser } from './authStore';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   loadRolePermisos,
   defaultsFor,
@@ -35,6 +36,32 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [permisos, setPermisos] = useState<RolePermisos | null>(null);
 
+  // Carga el rol del usuario y su matriz de permisos. Reutilizable: se llama al
+  // iniciar sesión y cada vez que cambian roles/permisos/usuarios (realtime), para
+  // que un cambio de un admin se refleje en la sesión activa SIN recargar.
+  const cargar = useCallback(async (mostrarCargando: boolean) => {
+    if (!user) return;
+    if (mostrarCargando) setLoading(true);
+    const u = await getAppUser(user);
+    setAppUser(u);
+    const r = u?.role ?? null;
+    setRole(r);
+    if (!r) {
+      setPermisos(null);
+      setLoading(false);
+      return;
+    }
+    let stored: RolePermisos | null = null;
+    try {
+      stored = await loadRolePermisos(r);
+    } catch {
+      stored = null; // RLS/offline: caemos a los defaults del rol
+    }
+    // Si la matriz aún no tiene fila para el rol, usamos los defaults (mismos que el panel).
+    setPermisos(stored ? normalizeRolePermisos(stored, r) : defaultsFor(r));
+    setLoading(false);
+  }, [user]);
+
   useEffect(() => {
     if (sessionLoading) return;
     if (!user) {
@@ -44,34 +71,16 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const u = await getAppUser(user);
-      if (cancelled) return;
-      setAppUser(u);
-      const r = u?.role ?? null;
-      setRole(r);
-      if (!r) {
-        setPermisos(null);
-        setLoading(false);
-        return;
-      }
-      let stored: RolePermisos | null = null;
-      try {
-        stored = await loadRolePermisos(r);
-      } catch {
-        stored = null; // RLS/offline: caemos a los defaults del rol
-      }
-      if (cancelled) return;
-      // Si la matriz aún no tiene fila para el rol, usamos los defaults (mismos que el panel).
-      setPermisos(stored ? normalizeRolePermisos(stored, r) : defaultsFor(r));
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, sessionLoading]);
+    void cargar(true);
+  }, [user?.id, sessionLoading, cargar]);
+
+  // Sincronización en vivo: si el admin cambia los permisos de un rol o reasigna el
+  // rol del usuario, su sesión re-aplica los permisos al instante (sin recargar).
+  useRealtime(
+    ['roles_permisos', 'custom_roles', 'usuarios'],
+    () => { void cargar(false); },
+    { enabled: !!user },
+  );
 
   const value = useMemo<PermissionsValue>(() => {
     const isAdmin = role === 'admin';

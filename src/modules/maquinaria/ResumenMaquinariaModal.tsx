@@ -14,6 +14,7 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
   const [horasMap, setHorasMap] = useState<Map<string, { horasUltimo: number | null; ultimoHorometro: number | null }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [detalle, setDetalle] = useState<string | null>(null); // nombre (equipo de combustible) seleccionado
+  const [statusSel, setStatusSel] = useState<string | null>(null); // status seleccionado (drill-down)
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -102,8 +103,8 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
           <HBarChart data={gasoilData} yFormatter={(v) => `${fmtNum(v)} L`} onBarClick={(p) => setDetalle(p.label)} emptyMessage={loading ? 'Cargando…' : 'Sin consumo de gasoil en el período (equipos vinculados a Combustible).'} />
         </div>
         <div className="card" style={{ flex: '1 1 260px', padding: '.8rem' }}>
-          <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Equipos por status</span></div>
-          <HBarChart data={porStatus} yFormatter={(v) => fmtNum(v)} emptyMessage="Sin equipos." />
+          <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Equipos por status</span><span className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>click para ver detalle</span></div>
+          <HBarChart data={porStatus} yFormatter={(v) => fmtNum(v)} onBarClick={(p) => setStatusSel(p.label)} emptyMessage="Sin equipos." />
         </div>
       </div>
 
@@ -128,6 +129,34 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
           </table>
         </div>
       )}
+
+      {statusSel && (() => {
+        const eqs = equipos.filter((e) => (e.status || '—') === statusSel);
+        return (
+          <Modal title={`🚜 Equipos · ${statusSel}`} size="lg" onClose={() => setStatusSel(null)}
+            footer={<button className="btn btn-primary" onClick={() => setStatusSel(null)}>Cerrar</button>}>
+            <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>{eqs.length} equipo(s) con status <strong>{statusSel}</strong>.</p>
+            <div className="table-wrap" style={{ maxHeight: 420, overflow: 'auto' }}>
+              <table className="table" style={{ fontSize: '.82rem' }}>
+                <thead><tr><th>Equipo</th><th>Tipo</th><th>Propietario</th><th>Ubicación</th><th>Marca / Modelo</th><th>Serial</th></tr></thead>
+                <tbody>
+                  {eqs.map((e) => (
+                    <tr key={e.id}>
+                      <td><strong>{e.equipo}</strong></td>
+                      <td>{e.tipo ?? '—'}</td>
+                      <td>{e.propietario ?? '—'}</td>
+                      <td>{e.ubicacion ?? '—'}</td>
+                      <td>{[e.marca, e.modelo].filter(Boolean).join(' ') || '—'}</td>
+                      <td className="mono" style={{ fontSize: '.74rem' }}>{e.serial ?? '—'}</td>
+                    </tr>
+                  ))}
+                  {!eqs.length && <tr><td colSpan={6} className="muted">Sin equipos con este status.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {detalleData && (
         <Modal title={`⛽ ${detalleData.nombre}`} size="md" onClose={() => setDetalle(null)} footer={<button className="btn btn-primary" onClick={() => setDetalle(null)}>Cerrar</button>}>
