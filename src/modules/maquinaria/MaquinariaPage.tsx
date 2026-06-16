@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useSession } from '@/modules/auth/authStore';
 import { num as fmtNum } from '@/shared/lib/format';
@@ -11,7 +10,7 @@ import { EquipoFormModal } from './EquipoFormModal';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { listEquipos, setEquipoActivo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
 import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
@@ -22,15 +21,19 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 /** Umbral de alerta: si faltan ≤ 250 HRS para el próximo mantenimiento, se avisa. */
-const UMBRAL_ALERTA_HRS = 250;
+// La alerta de mantenimiento salta cuando faltan ≤ 10% de las horas del intervalo
+// para el próximo servicio (ej.: cada 250 h → avisa con ≤ 25 h restantes). Antes el
+// umbral era fijo (250 h): igual o mayor que el intervalo, así que alertaba desde la
+// hora 0 y nunca se apagaba.
+const MARGEN_ALERTA_PCT = 0.1;
 
 /** Quita acentos y pasa a minúsculas para una búsqueda tolerante. */
 const normTxt = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 /**
  * HRS restantes hasta el próximo mantenimiento. El mantenimiento se hace cada N horas
- * de horómetro (N = mantenimiento_cada_hrs); el próximo toca en el siguiente múltiplo de N.
- * restantes = N − (horómetro mod N). Devuelve null si falta el dato.
+ * ACUMULADAS de horómetro (N = mantenimiento_cada_hrs); el próximo toca en el siguiente
+ * múltiplo de N. restantes = N − (horómetro mod N). Devuelve null si falta el dato.
  */
 function hrsRestantes(frecuencia: number | null, horometro: number | null): number | null {
   if (!frecuencia || frecuencia <= 0 || horometro == null) return null;
@@ -56,7 +59,6 @@ export function MaquinariaPage() {
   const [correoOpen, setCorreoOpen] = useState(false);
   const [form, setForm] = useState<{ open: boolean; equipo: MaquinariaEquipo | null }>({ open: false, equipo: null });
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
-  const [borrar, setBorrar] = useState<MaquinariaEquipo | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -82,7 +84,8 @@ export function MaquinariaPage() {
       const horo = (e.combustible_equipo ? horometros.get(e.combustible_equipo.trim()) : undefined)
         ?? bitMap.get(e.id)?.ultimoHorometro ?? null;
       const restantes = hrsRestantes(e.mantenimiento_cada_hrs, horo);
-      m.set(e.id, { restantes, horometro: horo, alerta: restantes != null && restantes <= UMBRAL_ALERTA_HRS });
+      const margen = e.mantenimiento_cada_hrs ? e.mantenimiento_cada_hrs * MARGEN_ALERTA_PCT : 0;
+      m.set(e.id, { restantes, horometro: horo, alerta: restantes != null && restantes <= margen });
     }
     return m;
   }, [equipos, horometros, bitMap]);
@@ -107,10 +110,6 @@ export function MaquinariaPage() {
     try { await setEquipoActivo(e.id, !e.activo); await cargar(); }
     catch (err) { toast(err instanceof Error ? err.message : 'No se pudo cambiar', 'error'); }
   }
-  async function doBorrar(e: MaquinariaEquipo) {
-    try { await eliminarEquipo(e.id); await cargar(); toast('Equipo eliminado', 'success'); }
-    catch (err) { toast(err instanceof Error ? err.message : 'No se pudo eliminar', 'error'); }
-  }
 
   return (
     <div>
@@ -130,7 +129,7 @@ export function MaquinariaPage() {
 
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
-          ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
+          ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (cerca de cumplir sus horas de servicio): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
         </div>
       )}
 
@@ -151,7 +150,7 @@ export function MaquinariaPage() {
           <table className="table" style={{ fontSize: '.85rem' }}>
             <thead><tr>
               <th>Equipo</th><th>Tipo</th><th>Propietario</th><th>Status</th><th>Ubicación</th>
-              <th style={{ textAlign: 'right' }}>Mantt. cada (h)</th><th style={{ textAlign: 'right' }}>HRS restantes</th><th></th>
+              <th style={{ textAlign: 'right' }}>Mantt. cada (h)</th><th style={{ textAlign: 'right' }}>HRS acumuladas</th><th></th>
             </tr></thead>
             <tbody>
               {lista.map((e) => {
@@ -165,17 +164,21 @@ export function MaquinariaPage() {
                   <td>{e.ubicacion ?? '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{e.mantenimiento_cada_hrs != null ? fmtNum(e.mantenimiento_cada_hrs) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {info?.restantes == null
-                      ? <span className="muted" title={!e.mantenimiento_cada_hrs ? 'Definí «Mantenimiento cada (hrs)» en la ficha' : 'Sin horómetro registrado'}>—</span>
-                      : info.alerta
-                        ? <span style={{ color: 'var(--warning)', fontWeight: 700 }} title={`Faltan ${fmtNum(info.restantes)} h · horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>⚠️ {fmtNum(info.restantes)} h</span>
-                        : <span title={`horómetro ${info.horometro != null ? fmtNum(info.horometro) : '—'}`}>{fmtNum(info.restantes)} h</span>}
+                    {info?.horometro == null
+                      ? <span className="muted" title="Sin horómetro registrado (se toma el acumulado de HRS de Combustible o la bitácora)">—</span>
+                      : <>
+                          <div title="Horas acumuladas (suma de HRS)">{fmtNum(info.horometro)} h</div>
+                          {info.restantes != null && (
+                            info.alerta
+                              ? <div style={{ color: 'var(--warning)', fontWeight: 700, fontSize: '.72rem' }} title={`Faltan ${fmtNum(info.restantes)} h para el próximo mantenimiento`}>⚠️ faltan {fmtNum(info.restantes)} h</div>
+                              : <div className="muted" style={{ fontSize: '.72rem' }}>faltan {fmtNum(info.restantes)} h</div>
+                          )}
+                        </>}
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
-                    {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => void toggleActivo(e)}>{e.activo ? 'Desactivar' : 'Activar'}</button>}
-                    {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => setBorrar(e)}>🗑</button>}
+                    {canWrite && <button className="btn btn-sm btn-ghost" title={e.activo ? 'Desactivar (queda inactivo, no se borra)' : 'Reactivar'} onClick={() => void toggleActivo(e)}>{e.activo ? 'Desactivar' : 'Activar'}</button>}
                   </td>
                 </tr>
                 );
@@ -197,10 +200,6 @@ export function MaquinariaPage() {
           onEnviar={async (emails) => (await enviarEquiposPorCorreo(lista, emails)).destinatarios}
           onClose={() => setCorreoOpen(false)}
         />
-      )}
-      {borrar && (
-        <ConfirmDialog title="Eliminar equipo" message={`¿Eliminar "${borrar.equipo}" y toda su bitácora?`} confirmText="Eliminar" danger
-          onCancel={() => setBorrar(null)} onConfirm={() => { const e = borrar; setBorrar(null); void doBorrar(e); }} />
       )}
     </div>
   );
