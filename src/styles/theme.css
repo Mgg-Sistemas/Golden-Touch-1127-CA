@@ -169,6 +169,18 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
 }
 .textarea { resize: vertical; min-height: 80px; }
 
+/* Inputs de fecha/hora: el icono del calendario se ve negro sobre el tema oscuro.
+   Lo volvemos blanco e indicamos el esquema oscuro al navegador. */
+/* Aplica a TODOS los date/time pickers del sistema, lleven o no la clase .input. */
+input[type="date"], input[type="time"], input[type="datetime-local"],
+input[type="month"], input[type="week"] { color-scheme: dark; }
+input::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.8);
+  cursor: pointer;
+  opacity: .9;
+}
+input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
 .form-row { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .9rem; }
 .form-row label { font-size: .78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
