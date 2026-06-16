@@ -6,7 +6,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type {
-  Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida,
+  Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSalida,
 } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
@@ -201,6 +201,9 @@ export interface CrearSolicitudSalidaInput {
   // material
   productoId?: string | null;
   productoNombre?: string | null;
+  /** Varios renglones de material en una misma solicitud (como una OC). Si se
+   *  pasa, tiene prioridad sobre productoId/cantidad (que quedan como resumen). */
+  items?: ItemSalida[] | null;
   almacenOrigen?: string | null;
   almacenDestino?: string | null;
   cantidad?: number | null;
@@ -217,13 +220,40 @@ export interface CrearSolicitudSalidaInput {
   actorName?: string | null;
 }
 
+/** Normaliza los renglones de material: usa `items` si viene; si no, arma uno
+ *  solo a partir de los campos sueltos (productoId/cantidad). */
+function normalizarItemsSalida(input: CrearSolicitudSalidaInput): ItemSalida[] {
+  const lista = (input.items ?? []).filter((i) => i && i.producto_id && (Number(i.cantidad) || 0) > 0);
+  if (lista.length) {
+    return lista.map((i) => ({
+      producto_id: i.producto_id,
+      producto_nombre: i.producto_nombre ?? '',
+      producto_sku: i.producto_sku ?? null,
+      unidad: i.unidad ?? null,
+      cantidad: Number(i.cantidad) || 0,
+      precio_unit: Number(i.precio_unit) || 0,
+    }));
+  }
+  if (input.productoId && (Number(input.cantidad) || 0) > 0) {
+    return [{
+      producto_id: input.productoId,
+      producto_nombre: input.productoNombre ?? '',
+      producto_sku: null,
+      unidad: null,
+      cantidad: Number(input.cantidad) || 0,
+      precio_unit: Number(input.precioUnit) || 0,
+    }];
+  }
+  return [];
+}
+
 /** Crea la solicitud en estado 'por_aprobar'. NO ejecuta el movimiento. */
 export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Promise<SolicitudSalida> {
   if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+  let items: ItemSalida[] = [];
   if (input.tipo === 'material') {
-    const cantidad = Number(input.cantidad) || 0;
-    if (cantidad <= 0) throw new Error('La cantidad debe ser mayor que 0.');
-    if (!input.productoId) throw new Error('Elegí el producto.');
+    items = normalizarItemsSalida(input);
+    if (!items.length) throw new Error('Agregá al menos un material con cantidad.');
     if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
     if (input.scope === 'traslado') {
       if (!input.almacenDestino) throw new Error('Indicá el almacén destino.');
@@ -242,6 +272,16 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
     }
   }
 
+  // Resumen para los campos sueltos (compatibilidad con vistas/reportes que aún
+  // leen producto_nombre/cantidad/precio_unit de la solicitud).
+  const esMulti = input.tipo === 'material' && items.length > 0;
+  const cantTotal = items.reduce((a, i) => a + i.cantidad, 0);
+  const montoTotal = items.reduce((a, i) => a + i.cantidad * i.precio_unit, 0);
+  const resumenNombre = items.length === 1
+    ? items[0].producto_nombre
+    : `${items.length} materiales`;
+  const precioProm = cantTotal > 0 ? montoTotal / cantTotal : 0;
+
   const codigo = await nextCodigoSolicitudSalida(input.scope);
   const historial = appendHistorial({ historial: [] }, 'creada', input.actor);
   const { data, error } = await supabase
@@ -251,12 +291,13 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       scope: input.scope,
       tipo: input.tipo,
       estado: 'por_aprobar',
-      producto_id: input.productoId ?? null,
-      producto_nombre: input.productoNombre ?? null,
+      items: esMulti ? items : null,
+      producto_id: esMulti ? (items.length === 1 ? items[0].producto_id : null) : (input.productoId ?? null),
+      producto_nombre: esMulti ? resumenNombre : (input.productoNombre ?? null),
       almacen_origen: input.almacenOrigen ?? null,
       almacen_destino: input.almacenDestino ?? null,
-      cantidad: input.cantidad != null ? Number(input.cantidad) : null,
-      precio_unit: input.precioUnit != null ? Number(input.precioUnit) : null,
+      cantidad: esMulti ? cantTotal : (input.cantidad != null ? Number(input.cantidad) : null),
+      precio_unit: esMulti ? precioProm : (input.precioUnit != null ? Number(input.precioUnit) : null),
       fecha_entrega: input.fechaEntrega || null,
       nota_entrega: input.notaEntrega?.trim() || null,
       caja_id: input.cajaId ?? null,
@@ -300,22 +341,54 @@ export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string):
 export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string, actorName?: string | null): Promise<void> {
   if (s.estado !== 'aprobada') throw new Error('Solo se ejecutan solicitudes aprobadas.');
 
+  // Renglones de material: la solicitud puede tener varios (items) o uno solo
+  // (campos sueltos). Unificamos en una lista para ejecutar todos.
+  const itemsMat: ItemSalida[] = (s.items && s.items.length)
+    ? s.items
+    : (s.producto_id
+        ? [{ producto_id: s.producto_id, producto_nombre: s.producto_nombre ?? '', producto_sku: null, unidad: null, cantidad: Number(s.cantidad) || 0, precio_unit: Number(s.precio_unit) || 0 }]
+        : []);
+
   let movId: string | null = null;
   let movRef = '';
   if (s.scope === 'salida' && s.tipo === 'material') {
-    const mov = await salidaMaterial({
-      productoId: s.producto_id!, almacen: s.almacen_origen!, cantidad: Number(s.cantidad) || 0,
-      destino: s.destino || '', motivo: s.motivo, precioUnit: s.precio_unit,
-      fechaEntrega: s.fecha_entrega, actor, actorName,
-    });
-    movId = mov.id; movRef = 'salida_modulo';
+    if (!itemsMat.length) throw new Error('La solicitud no tiene materiales.');
+    // Pre-validación: que TODOS los renglones tengan stock antes de mover nada
+    // (reduce ejecuciones a medias; la atomicidad real queda pendiente en servidor).
+    for (const it of itemsMat) {
+      const ex = await getExistencia(it.producto_id, s.almacen_origen!);
+      const stock = Number(ex?.stock) || 0;
+      if ((Number(it.cantidad) || 0) > stock) {
+        throw new Error(`Stock insuficiente de ${it.producto_nombre || 'un material'} en ${s.almacen_origen}. Disponible: ${stock}.`);
+      }
+    }
+    for (const it of itemsMat) {
+      const mov = await salidaMaterial({
+        productoId: it.producto_id, almacen: s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
+        destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit,
+        fechaEntrega: s.fecha_entrega, actor, actorName,
+      });
+      if (!movId) movId = mov.id;
+    }
+    movRef = 'salida_modulo';
   } else if (s.scope === 'traslado' && s.tipo === 'material') {
-    const mov = await trasladoMaterial({
-      productoId: s.producto_id!, almacenOrigen: s.almacen_origen!, almacenDestino: s.almacen_destino!,
-      cantidad: Number(s.cantidad) || 0, motivo: s.motivo, precioUnit: s.precio_unit,
-      notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, actor, actorName,
-    });
-    movId = mov.id; movRef = 'traslado_modulo';
+    if (!itemsMat.length) throw new Error('La solicitud no tiene materiales.');
+    for (const it of itemsMat) {
+      const ex = await getExistencia(it.producto_id, s.almacen_origen!);
+      const stock = Number(ex?.stock) || 0;
+      if ((Number(it.cantidad) || 0) > stock) {
+        throw new Error(`Stock insuficiente de ${it.producto_nombre || 'un material'} en ${s.almacen_origen}. Disponible: ${stock}.`);
+      }
+    }
+    for (const it of itemsMat) {
+      const mov = await trasladoMaterial({
+        productoId: it.producto_id, almacenOrigen: s.almacen_origen!, almacenDestino: s.almacen_destino!,
+        cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit,
+        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, actor, actorName,
+      });
+      if (!movId) movId = mov.id;
+    }
+    movRef = 'traslado_modulo';
   } else if (s.scope === 'salida' && s.tipo === 'dinero') {
     const mov = await salidaDinero({
       cajaId: s.caja_id!, destino: s.destino || '', motivo: s.motivo || '',
