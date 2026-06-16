@@ -238,6 +238,19 @@ export function PedidosPage() {
     }
   }, [ordenes, searchParams, setSearchParams]);
 
+  // Pre-filtrar por estado desde la URL (?estado=pendiente), p. ej. al venir de la
+  // tarjeta "Órdenes pendientes" del Dashboard. Pasa a vista Lista y aplica el filtro.
+  useEffect(() => {
+    const estado = searchParams.get('estado');
+    if (!estado) return;
+    setScope('pedidos');
+    setViewMode('lista');
+    setFilterEstado(estado as EstadoOrden);
+    const next = new URLSearchParams(searchParams);
+    next.delete('estado');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   // Callback estable para abrir el detalle: evita re-renderizar todas las tarjetas
   // del kanban en cada render (KanbanCard está memoizado).
   const openDetail = useCallback((id: string) => setModal({ kind: 'detail', ordenId: id }), []);

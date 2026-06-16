@@ -171,6 +171,16 @@ export async function actualizarUsuario(id: string, input: ActualizarUsuarioInpu
   if (error) throw error;
 }
 
+/** Cambia el correo del usuario (Auth + tabla) vía Edge Function. Solo admin. */
+export async function cambiarEmailUsuario(userId: string, email: string): Promise<string> {
+  const { data, error } = await supabase.functions.invoke<
+    { ok: true; email: string } | { error: string }
+  >('actualizar-email', { body: { user_id: userId, email } });
+  if (error) throw new Error(await mensajeErrorFuncion(error, 'Error al cambiar el correo'));
+  if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
+  return data.email;
+}
+
 /** Llama a la Edge Function resetear-clave. */
 export async function resetearClave(userId: string): Promise<void> {
   const { data, error } = await supabase.functions.invoke<

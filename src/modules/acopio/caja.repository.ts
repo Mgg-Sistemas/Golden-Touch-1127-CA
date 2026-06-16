@@ -201,8 +201,9 @@ export async function resumenCajaAcopio(
   const kgProduccion = sum((m) => m.kg_cerrados);
   const kgEnviados = sum((m) => m.kg_recibidos);
 
-  // Distribución por categoría (base = total gastado, así gastos + nómina = 100%).
-  const porCategoria = (grupo: GrupoClasificacion, campo: (m: CajaMovimiento) => unknown): CategoriaResumen[] => {
+  // Distribución por categoría. La base del % es el total de ESA tabla, así cada
+  // tabla (gastos / nómina) cierra en 100% por sí sola.
+  const porCategoria = (grupo: GrupoClasificacion, campo: (m: CajaMovimiento) => unknown, base: number): CategoriaResumen[] => {
     const map = new Map<string, number>();
     for (const m of movs) {
       if (m.clasif_grupo !== grupo) continue;
@@ -210,7 +211,7 @@ export async function resumenCajaAcopio(
       map.set(k, (map.get(k) ?? 0) + num(campo(m)));
     }
     return Array.from(map.entries())
-      .map(([valor, monto]) => ({ valor, monto, pct: totalGastado > 0 ? monto / totalGastado : 0 }))
+      .map(([valor, monto]) => ({ valor, monto, pct: base > 0 ? monto / base : 0 }))
       .sort((a, b) => b.monto - a.monto);
   };
 
@@ -225,8 +226,13 @@ export async function resumenCajaAcopio(
     totalEntregado, totalFacturado, totalGastos, totalNominas, totalTraslado, totalGastado, saldoUsd,
     pctGastos: totalGastado > 0 ? totalGastos / totalGastado : 0,
     pctNomina: totalGastado > 0 ? totalNominas / totalGastado : 0,
-    gastosPorCategoria: porCategoria('gastos_caja', (m) => m.gastos),
-    nominaPorCategoria: porCategoria('nomina', (m) => m.nominas),
+    // La nómina entra como una categoría más dentro de los gastos: una sola tabla
+    // cuyo total es el total gastado y cuyos porcentajes suman 100%.
+    gastosPorCategoria: [
+      ...porCategoria('gastos_caja', (m) => m.gastos, totalGastado),
+      ...porCategoria('nomina', (m) => m.nominas, totalGastado),
+    ].sort((a, b) => b.monto - a.monto),
+    nominaPorCategoria: [],
     kgProduccion, kgEnviados, diferenciaKg: kgEnviados - kgProduccion,
     tasaMaterial: kgProduccion > 0 ? (totalFacturado + totalGastos + totalNominas) / kgProduccion : 0,
   };

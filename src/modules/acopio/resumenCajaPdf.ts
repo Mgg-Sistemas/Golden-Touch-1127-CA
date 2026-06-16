@@ -75,12 +75,12 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
   // Distribución de gastos por categoría
   if (r.gastosPorCategoria.length) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Gastos por categoría', MARGIN, y); y += 6;
+    doc.text('Gastos por categoría (incluye nómina)', MARGIN, y); y += 6;
     autoTable(doc, {
       startY: y,
       head: [['Categoría', 'Monto', '% del total gastado']],
       body: r.gastosPorCategoria.map((c) => [c.valor, fmtUsd(c.monto), fmtPct(c.pct)]),
-      foot: [['Total gastos', fmtUsd(r.totalGastos), fmtPct(r.pctGastos)]],
+      foot: [['Total gastado', fmtUsd(r.totalGastado), fmtPct(1)]],
       theme: 'striped',
       headStyles: { fillColor: [239, 68, 68], textColor: 255 },
       footStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold' },

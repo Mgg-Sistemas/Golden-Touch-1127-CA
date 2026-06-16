@@ -1,12 +1,17 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { notify } from '@/shared/lib/notify';
 import { date, money, num, relTime } from '@/shared/lib/format';
 import type { Producto, TipoMovimiento } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { ProductoDetail } from '@/modules/inventario/ProductoDetail';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
+import { listOrdenesPendientes, aprobarOrdenesEnLote } from '@/modules/pedidos/pedidos.repository';
 import {
   loadDashboardData,
   type DashboardKpis,
@@ -45,6 +50,13 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [detalle, setDetalle] = useState<Producto | null>(null);
 
+  const { can, isAdmin, appUser } = usePermissions();
+  const { user } = useSession();
+  // Quién puede aprobar OC pendientes (igual criterio que en Pedidos).
+  const puedeAprobarOC = isAdmin || can('pedidos', 'escritura');
+  const [aprobarLote, setAprobarLote] = useState<{ cantidad: number; total: number } | null>(null);
+  const [aprobando, setAprobando] = useState(false);
+
   // Abre el detalle/trazabilidad del producto en un modal sobre el dashboard.
   async function verDetalle(productoId: string) {
     try {
@@ -78,6 +90,32 @@ export function DashboardPage() {
   // Tiempo real: el dashboard se actualiza cuando cambian inventario/movimientos/órdenes/producción.
   useRealtime(['movimientos', 'productos', 'ordenes', 'produccion', 'existencias'], reload);
 
+  // ── Aprobar OC pendientes EN LOTE (desde la tarjeta del dashboard) ──
+  const pendientesRef = useRef<import('@/shared/lib/types').Orden[]>([]);
+  const abrirAprobarLote = useCallback(async () => {
+    try {
+      const ords = await listOrdenesPendientes();
+      if (!ords.length) { toast('No hay órdenes pendientes por aprobar.', 'info'); return; }
+      pendientesRef.current = ords;
+      setAprobarLote({ cantidad: ords.length, total: ords.reduce((a, o) => a + (Number(o.total) || 0), 0) });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudieron cargar las órdenes pendientes', 'error');
+    }
+  }, []);
+  const confirmarAprobarLote = useCallback(async () => {
+    setAprobando(true);
+    try {
+      const n = await aprobarOrdenesEnLote(pendientesRef.current, user?.email ?? appUser?.email ?? 'sistema');
+      notify(`${n} orden(es) aprobada(s) en lote`, 'success', { link: '#/app/pedidos' });
+      setAprobarLote(null);
+      await reload();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo aprobar el lote', 'error');
+    } finally {
+      setAprobando(false);
+    }
+  }, [reload, user, appUser]);
+
   return (
     <div>
       <div className="page-head">
@@ -97,7 +135,7 @@ export function DashboardPage() {
         <EmptyState message="Cargando datos del dashboard..." icon="◔" />
       ) : (
         <>
-          <KpiGrid kpis={kpis} />
+          <KpiGrid kpis={kpis} puedeAprobar={puedeAprobarOC} onAprobarLote={() => void abrirAprobarLote()} />
 
           <Suspense fallback={<div className="card" style={{ padding: '1.25rem' }}><p className="muted">Cargando gráficas…</p></div>}>
             <DashboardCharts />
@@ -114,11 +152,21 @@ export function DashboardPage() {
       )}
 
       {detalle && <ProductoDetail producto={detalle} onClose={() => setDetalle(null)} />}
+
+      {aprobarLote && (
+        <ConfirmDialog
+          title="Aprobar órdenes en lote"
+          message={`Se aprobarán ${aprobarLote.cantidad} orden(es) pendiente(s) por un total de ${money(aprobarLote.total)}. Pasarán a "Aprobada" para continuar el flujo de compra.`}
+          confirmText={aprobando ? 'Aprobando…' : `Aprobar ${aprobarLote.cantidad}`}
+          onCancel={() => { if (!aprobando) setAprobarLote(null); }}
+          onConfirm={() => { if (!aprobando) void confirmarAprobarLote(); }}
+        />
+      )}
     </div>
   );
 }
 
-function KpiGrid({ kpis }: { kpis: DashboardKpis | null }) {
+function KpiGrid({ kpis, puedeAprobar, onAprobarLote }: { kpis: DashboardKpis | null; puedeAprobar: boolean; onAprobarLote: () => void }) {
   const navigate = useNavigate();
   if (!kpis) return null;
   const restCls = kpis.productosARestablecer > 0 ? 'delta down' : 'delta';
@@ -149,7 +197,10 @@ function KpiGrid({ kpis }: { kpis: DashboardKpis | null }) {
         value={num(kpis.ordenesPendientes)}
         deltaClassName={pendCls}
         deltaText="esperando aprobación"
-        onClick={() => navigate('/app/pedidos')}
+        onClick={() => navigate('/app/pedidos?estado=pendiente')}
+        action={(puedeAprobar && kpis.ordenesPendientes > 0)
+          ? { title: 'Aprobar todas las pendientes en lote', label: '✉', onClick: onAprobarLote }
+          : undefined}
       />
       <Kpi
         icon="$"
@@ -170,9 +221,11 @@ interface KpiProps {
   deltaClassName: string;
   deltaText: string;
   onClick?: () => void;
+  /** Botón de acción opcional (ej.: ✉ aprobar en lote) en la esquina de la tarjeta. */
+  action?: { title: string; label: string; onClick: () => void };
 }
 
-function Kpi({ icon, label, value, deltaClassName, deltaText, onClick }: KpiProps) {
+function Kpi({ icon, label, value, deltaClassName, deltaText, onClick, action }: KpiProps) {
   return (
     <div
       className="kpi"
@@ -180,9 +233,20 @@ function Kpi({ icon, label, value, deltaClassName, deltaText, onClick }: KpiProp
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
       onKeyDown={(e) => { if (onClick && e.key === 'Enter') onClick(); }}
-      style={onClick ? { cursor: 'pointer' } : undefined}
+      style={{ position: 'relative', ...(onClick ? { cursor: 'pointer' } : {}) }}
     >
       <div className="icon">{icon}</div>
+      {action && (
+        <button
+          type="button"
+          className="btn btn-sm"
+          title={action.title}
+          onClick={(e) => { e.stopPropagation(); action.onClick(); }}
+          style={{ position: 'absolute', top: '.7rem', right: '.7rem', borderColor: 'var(--primary)', color: 'var(--primary)', fontSize: '1rem', lineHeight: 1, padding: '.45rem .6rem' }}
+        >
+          {action.label}
+        </button>
+      )}
       <div className="label">{label}</div>
       <div className="value">{value}</div>
       <div className={deltaClassName}>{deltaText}</div>
