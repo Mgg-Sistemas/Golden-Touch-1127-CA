@@ -9,7 +9,7 @@ import type { ContratoAcopio } from '@/shared/lib/types';
 
 export interface ContratoReporteMeta { filtro?: string }
 
-const NOMBRE_ARCHIVO = 'contratos-produccion.pdf';
+const NOMBRE_ARCHIVO = 'datos-reporte-produccion.pdf';
 const pct = (v: number | null | undefined) =>
   v == null || !Number.isFinite(Number(v)) ? '' : `${(Number(v) * 100).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 
@@ -28,7 +28,7 @@ async function construirDoc(rows: ContratoAcopio[], meta: ContratoReporteMeta = 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 62 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-  doc.text('Contratos de producción', tx, y + 18);
+  doc.text('Datos de Reporte Producción', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text('Casiterita = Kg seco, limpio · fórmulas del control de producción', tx, y + 33);
   doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
