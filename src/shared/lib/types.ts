@@ -743,6 +743,18 @@ export type TipoSalida = 'material' | 'dinero';
  * aprobación: el obrero la crea (por_aprobar); admin/analista la aprueba y la
  * ejecuta (recién ahí se descuenta el stock / sale el dinero).
  */
+/** Un renglón de material dentro de una solicitud de salida/traslado.
+ *  El almacén origen/destino vive a nivel de la solicitud (es común a todos
+ *  los renglones); cada ítem aporta su producto, cantidad y costo (PMP). */
+export interface ItemSalida {
+  producto_id: string;
+  producto_nombre: string;
+  producto_sku?: string | null;
+  unidad?: string | null;
+  cantidad: number;
+  precio_unit: number;
+}
+
 export interface SolicitudSalida {
   id: string;
   codigo: string;
@@ -752,6 +764,9 @@ export interface SolicitudSalida {
   // material
   producto_id?: string | null;
   producto_nombre?: string | null;
+  /** Varios materiales en una misma solicitud (como una OC). Si falta o está
+   *  vacío, la solicitud es de un solo producto (campos producto_id/cantidad). */
+  items?: ItemSalida[] | null;
   almacen_origen?: string | null;
   almacen_destino?: string | null;
   cantidad?: number | null;

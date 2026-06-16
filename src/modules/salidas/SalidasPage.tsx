@@ -257,14 +257,16 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
   const filas = useMemo<SalidaResumenRow[]>(() => {
     return solicitudes
       .filter((s) => (s.scope === 'salida' || s.scope === 'traslado') && s.tipo === 'material' && s.estado === 'ejecutada')
-      .map((s) => {
+      .flatMap((s) => {
         const at = s.ejecutada_en ?? s.created_at;
-        const cantidad = Number(s.cantidad) || 0;
-        const precio = Number(s.precio_unit) || 0;
         const esTraslado = s.scope === 'traslado';
-        return {
+        // Una fila por material (solicitudes multi-ítem) o una sola (legado).
+        const renglones = (s.items && s.items.length)
+          ? s.items.map((it) => ({ nombre: it.producto_nombre ?? '—', cantidad: Number(it.cantidad) || 0, precio: Number(it.precio_unit) || 0, unidad: it.unidad ?? '' }))
+          : [{ nombre: s.producto_nombre ?? '—', cantidad: Number(s.cantidad) || 0, precio: Number(s.precio_unit) || 0, unidad: '' }];
+        return renglones.map((r) => ({
           unidad: (s.unidad_solicitante ?? '').trim() || 'Sin unidad',
-          producto: s.producto_nombre ?? '—',
+          producto: r.nombre,
           at,
           tipo: esTraslado ? 'Traslado' : 'Salida',
           codigo: s.codigo ?? '',
@@ -275,11 +277,11 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
           origen: s.almacen_origen ?? '',
           destinoTxt: esTraslado ? (s.almacen_destino ?? '') : (s.destino ?? ''),
           motivo: s.motivo ?? '',
-          cantidad,
-          precioUnit: precio,
-          unidadMedida: '',
-          monto: cantidad * precio,
-        } as SalidaResumenRow;
+          cantidad: r.cantidad,
+          precioUnit: r.precio,
+          unidadMedida: r.unidad,
+          monto: r.cantidad * r.precio,
+        } as SalidaResumenRow));
       })
       .filter((f) => {
         const dia = (f.at ?? '').slice(0, 10);
@@ -667,10 +669,34 @@ function SolicitudDetalleModal({
           {sol.unidad_solicitante && <tr><td className="muted">Unidad solicitante</td><td>{sol.unidad_solicitante}</td></tr>}
           {sol.tipo === 'material' ? (
             <>
-              <tr><td className="muted">Producto</td><td>{sol.producto_nombre ?? '—'}</td></tr>
-              <tr><td className="muted">Cantidad</td><td className="mono">{num(Number(sol.cantidad) || 0)}</td></tr>
               <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Almacén origen'}</td>
                 <td>{sol.scope === 'traslado' ? `${sol.almacen_origen} → ${sol.almacen_destino}` : sol.almacen_origen}</td></tr>
+              {sol.items && sol.items.length > 1 ? (
+                <tr>
+                  <td className="muted">Materiales</td>
+                  <td>
+                    <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
+                      <thead><tr><th>Producto</th><th className="num">Cantidad</th><th className="num">P. unit.</th><th className="num">Subtotal</th></tr></thead>
+                      <tbody>
+                        {sol.items.map((it, i) => (
+                          <tr key={i}>
+                            <td>{it.producto_nombre}{it.producto_sku ? ` · ${it.producto_sku}` : ''}</td>
+                            <td className="num mono">{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
+                            <td className="num mono">{money(Number(it.precio_unit) || 0)}</td>
+                            <td className="num mono">{money((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot><tr><td colSpan={3} className="num"><strong>Total</strong></td><td className="num mono"><strong>{money(sol.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0))}</strong></td></tr></tfoot>
+                    </table>
+                  </td>
+                </tr>
+              ) : (
+                <>
+                  <tr><td className="muted">Producto</td><td>{sol.producto_nombre ?? '—'}</td></tr>
+                  <tr><td className="muted">Cantidad</td><td className="mono">{num(Number(sol.cantidad) || 0)}</td></tr>
+                </>
+              )}
             </>
           ) : (
             <>

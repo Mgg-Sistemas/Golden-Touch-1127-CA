@@ -195,12 +195,15 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
   doc.text('DETALLE DE LA SALIDA', MARGIN, y);
   y += 8;
+  const esMulti = !!(sol.items && sol.items.length);
   const ficha: Array<[string, string]> = [
-    ['Material a salir', sol.producto_nombre || '—'],
-    ['Cantidad', fmt.num(cant)],
+    ...(esMulti ? [] : ([
+      ['Material a salir', sol.producto_nombre || '—'],
+      ['Cantidad', fmt.num(cant)],
+    ] as Array<[string, string]>)),
     [esTraslado ? 'Almacén origen' : 'Almacén de salida', sol.almacen_origen || '—'],
     [esTraslado ? 'Almacén destino' : 'Dirigido a', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
-    ...(precio ? ([
+    ...((!esMulti && precio) ? ([
       ['Precio unitario', `${fmt.money(precio)} USD`],
       ['Precio total', `${fmt.money(precio * cant)} USD`],
     ] as Array<[string, string]>) : []),
@@ -219,6 +222,30 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 170 }, 1: { cellWidth: 'auto' } },
     margin: MARGIN,
   });
+
+  // Tabla de materiales (solicitudes con varios renglones).
+  if (esMulti && sol.items) {
+    const itemsTotal = sol.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0);
+    // @ts-expect-error lastAutoTable lo agrega jspdf-autotable en runtime
+    const afterFichaY = (doc.lastAutoTable?.finalY ?? y) + 14;
+    autoTable(doc, {
+      startY: afterFichaY,
+      head: [['Material', 'Cantidad', 'P. unit. (USD)', 'Subtotal (USD)']],
+      body: sol.items.map((it) => [
+        `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`,
+        `${fmt.num(Number(it.cantidad) || 0)} ${it.unidad ?? ''}`.trim(),
+        fmt.money(Number(it.precio_unit) || 0),
+        fmt.money((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0)),
+      ]),
+      foot: [['', '', 'TOTAL', fmt.money(itemsTotal)]],
+      theme: 'grid',
+      headStyles: { fillColor: [255, 138, 0], textColor: 255 },
+      footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 4 },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      margin: MARGIN,
+    });
+  }
 
   // ── Firmas al pie ──
   const fy = PAGE_H - MARGIN - 50;

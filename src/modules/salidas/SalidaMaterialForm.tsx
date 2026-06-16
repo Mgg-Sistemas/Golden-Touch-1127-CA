@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
-import type { Existencia, Producto } from '@/shared/lib/types';
+import type { Existencia, Producto, ItemSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
+
+interface LineaUI { id: number; productoId: string; cantidad: string; }
 
 export function SalidaMaterialForm({
   productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
@@ -34,17 +36,23 @@ export function SalidaMaterialForm({
     () => activos.filter((p) => (Number(exMap.get(`${p.id}|${almacen}`)?.stock) || 0) > 0),
     [activos, exMap, almacen],
   );
-  const [productoId, setProductoId] = useState(productosEnAlmacen[0]?.id ?? '');
-  // Al cambiar de almacén, si el producto elegido no está en ese almacén, reseteamos.
+
+  // Carrito de renglones (varios materiales del mismo almacén, como una OC).
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1' }]);
+  const [seq, setSeq] = useState(2);
+  // Al cambiar de almacén, reiniciamos el carrito (el stock/precio dependen del almacén).
   useEffect(() => {
-    if (!productosEnAlmacen.some((p) => p.id === productoId)) {
-      setProductoId(productosEnAlmacen[0]?.id ?? '');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [almacen, productosEnAlmacen]);
-  const [cantidad, setCantidad] = useState('1');
+    setLineas([{ id: 1, productoId: '', cantidad: '1' }]);
+    setSeq(2);
+  }, [almacen]);
+
+  function setLinea(id: number, patch: Partial<LineaUI>) {
+    setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }
+  function addLinea() { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1' }]); setSeq((s) => s + 1); }
+  function quitarLinea(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
+
   const [motivo, setMotivo] = useState('');
-  const [precio, setPrecio] = useState('0');
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +77,7 @@ export function SalidaMaterialForm({
     if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
       setUnidadSolicitante(v);
       setNuevaUnidad('');
-      if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = ''; // limpiar DOM (input no controlado)
+      if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = '';
       return;
     }
     try {
@@ -78,7 +86,7 @@ export function SalidaMaterialForm({
       await cargarUnidades();
       setUnidadSolicitante(v);
       setNuevaUnidad('');
-      if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = ''; // limpiar DOM (input no controlado)
+      if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = '';
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error');
     } finally {
@@ -86,54 +94,51 @@ export function SalidaMaterialForm({
     }
   }
 
-  const producto = activos.find((p) => p.id === productoId) ?? null;
-  const exSel = exMap.get(`${productoId}|${almacen}`);
-  const stock = Number(exSel?.stock) || 0;
-  const cantNum = Number(cantidad) || 0;
-  const precioNum = Number(precio) || 0;
-  const total = precioNum * cantNum;
-  const excede = cantNum > stock;
-
-  // No permite escribir una cantidad mayor a la disponible en el almacén:
-  // la recortamos al stock al momento de cambiarla.
-  function onCantidadChange(e: ChangeEvent<HTMLInputElement>) {
-    const v = e.target.value;
-    const n = Number(v);
-    if (Number.isFinite(n) && n > stock) {
-      e.target.value = String(stock); // reflejar el recorte al DOM (input no controlado)
-      setCantidad(String(stock));
-      return;
-    }
-    setCantidad(v);
-  }
-
-  // Anclado al VALOR del material: el precio unitario es el COSTO (PMP) de ese
-  // almacén. Ej.: caja de 10 lápices que costó 100 → 10 c/u; al sacar 1, el stock
-  // restante (9) representa 90. Si el almacén no tiene PMP, cae al costo global.
-  useEffect(() => {
-    const costoAlmacen = Number(exSel?.costo_promedio) || 0;
-    const precioInv = costoAlmacen || producto?.precio || 0;
-    setPrecio(String(precioInv ?? 0));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productoId, almacen]);
+  // Datos por renglón (producto, stock, precio PMP, subtotal, exceso).
+  const lineasCalc = lineas.map((l) => {
+    const producto = activos.find((p) => p.id === l.productoId) ?? null;
+    const ex = exMap.get(`${l.productoId}|${almacen}`);
+    const stock = Number(ex?.stock) || 0;
+    const precio = (Number(ex?.costo_promedio) || 0) || (producto?.precio ?? 0) || 0;
+    const cantNum = Number(l.cantidad) || 0;
+    const excede = cantNum > stock;
+    return { l, producto, stock, precio, cantNum, subtotal: precio * cantNum, excede };
+  });
+  const total = lineasCalc.reduce((a, x) => a + x.subtotal, 0);
+  const hayInvalida = lineasCalc.some((x) => !x.l.productoId || x.cantNum <= 0 || x.excede);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!productoId) { setError('Elegí el producto.'); return; }
-    if (cantNum <= 0) { setError('La cantidad debe ser mayor que 0.'); return; }
-    if (cantNum > stock) { setError(`No hay stock suficiente en ${almacen}. Disponible: ${num(stock)}.`); return; }
+    if (!productosEnAlmacen.length) { setError('El almacén seleccionado no tiene materiales con stock.'); return; }
+    const items: ItemSalida[] = [];
+    for (const x of lineasCalc) {
+      if (!x.l.productoId) { setError('Elegí el material en cada renglón.'); return; }
+      if (x.cantNum <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
+      if (x.cantNum > x.stock) { setError(`No hay stock suficiente de ${x.producto?.nombre} en ${almacen}. Disponible: ${num(x.stock)}.`); return; }
+      items.push({
+        producto_id: x.l.productoId,
+        producto_nombre: x.producto?.nombre ?? '',
+        producto_sku: x.producto?.sku ?? null,
+        unidad: x.producto?.unidad ?? null,
+        cantidad: x.cantNum,
+        precio_unit: x.precio,
+      });
+    }
+    // Aviso si un mismo material está repetido en dos renglones (la suma podría exceder el stock).
+    const ids = items.map((i) => i.producto_id);
+    if (new Set(ids).size !== ids.length) { setError('Hay un material repetido en dos renglones. Unilo en uno solo.'); return; }
     setSaving(true);
     try {
       await crearSolicitudSalida({
         scope: 'salida', tipo: 'material',
-        productoId, productoNombre: producto?.nombre ?? null, almacenOrigen: almacen,
-        cantidad: cantNum, destino: null, motivo: motivo.trim() || null,
+        items, almacenOrigen: almacen, destino: null, motivo: motivo.trim() || null,
         unidadSolicitante: unidadSolicitante.trim() || null,
-        precioUnit: precioNum || null, fechaEntrega: fechaEntrega || null,
+        fechaEntrega: fechaEntrega || null,
         solicitante: actorName || actor, actor, actorName,
       });
-      notify(`Solicitud de salida creada: ${num(cantNum)} ${producto?.unidad ?? ''} de ${producto?.nombre} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
+      const resumen = items.length === 1 ? `${num(items[0].cantidad)} ${items[0].unidad ?? ''} de ${items[0].producto_nombre}` : `${items.length} materiales`;
+      notify(`Solicitud de salida creada: ${resumen} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
     } catch (err) {
@@ -146,7 +151,7 @@ export function SalidaMaterialForm({
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || excede || cantNum <= 0 || stock <= 0}>
+      <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || hayInvalida || !productosEnAlmacen.length}>
         {saving ? 'Creando…' : 'Crear solicitud'}
       </button>
     </>
@@ -170,7 +175,7 @@ export function SalidaMaterialForm({
             <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
               {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
-            <small className="muted">Sub-almacén de Peramanal.</small>
+            <small className="muted">Todos los materiales salen de este sub-almacén.</small>
           </div>
         </div>
 
@@ -192,32 +197,44 @@ export function SalidaMaterialForm({
           <small className="muted">La unidad nueva queda guardada en el catálogo compartido con OP (Pedidos → Categorías).</small>
         </div>
 
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Producto del almacén</label>
-            <SearchSelect value={productoId} onChange={setProductoId} disabled={!productosEnAlmacen.length}
-              placeholder={productosEnAlmacen.length ? '🔍 Buscar producto…' : '— el almacén no tiene materiales —'}
-              options={productosEnAlmacen.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
-            <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong></small>
+        {/* ── Carrito de materiales ── */}
+        <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.4rem 0 .35rem' }}>
+          Materiales del almacén
+        </label>
+        {lineasCalc.map(({ l, producto, stock, precio, cantNum, subtotal, excede }, idx) => (
+          <div key={l.id} className="card" style={{ margin: '0 0 .5rem', padding: '.6rem .7rem', background: 'var(--bg-1)' }}>
+            <div className="form-grid">
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <label>Material #{idx + 1}</label>
+                <SearchSelect value={l.productoId} onChange={(v) => setLinea(l.id, { productoId: v })} disabled={!productosEnAlmacen.length}
+                  placeholder={productosEnAlmacen.length ? '🔍 Buscar producto…' : '— el almacén no tiene materiales —'}
+                  options={productosEnAlmacen.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
+                <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precio)}</strong></small>
+              </div>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
+                <div style={{ display: 'flex', gap: '.4rem', alignItems: 'flex-start' }}>
+                  <input className="input mono" type="number" min={0} max={stock || undefined} step="any" style={{ flex: 1, minWidth: 0 }}
+                    value={l.cantidad}
+                    onChange={(e) => {
+                      const v = e.target.value; const n = Number(v);
+                      if (Number.isFinite(n) && n > stock) { setLinea(l.id, { cantidad: String(stock) }); return; }
+                      setLinea(l.id, { cantidad: v });
+                    }} required />
+                  {lineas.length > 1 && (
+                    <button type="button" className="btn btn-ghost" title="Quitar material" onClick={() => quitarLinea(l.id)}>✕</button>
+                  )}
+                </div>
+                {excede
+                  ? <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>
+                  : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && <>· queda {num(Math.max(0, stock - cantNum))}</>}</small>}
+              </div>
+            </div>
           </div>
-          <div className="form-row">
-            <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
-            <input className="input mono" name="f-cantidad" type="number" min={1} max={stock || undefined} step="any" defaultValue={cantidad} onChange={onCantidadChange} required />
-            {excede && <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>}
-          </div>
-        </div>
-
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Precio unitario (USD)</label>
-            <input className="input mono" value={money(precioNum)} readOnly tabIndex={-1} title="Traído del inventario · no editable" />
-            <small className="muted">Traído del inventario. No se modifica en la salida.</small>
-          </div>
-          <div className="form-row">
-            <label>Precio total</label>
-            <input className="input mono" value={money(total)} readOnly tabIndex={-1} />
-          </div>
-        </div>
+        ))}
+        <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea} disabled={!productosEnAlmacen.length} style={{ marginBottom: '.6rem' }}>
+          ＋ Agregar material
+        </button>
 
         <div className="form-grid">
           <div className="form-row">
@@ -231,10 +248,9 @@ export function SalidaMaterialForm({
           </div>
         </div>
 
-        <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: 0 }}>
-          <div className="mono" style={{ fontSize: '.85rem' }}>
-            {num(stock)} → <strong>{num(Math.max(0, stock - cantNum))}</strong> {producto?.unidad ?? ''} en {almacen}
-          </div>
+        <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: 0, display: 'flex', justifyContent: 'space-between' }}>
+          <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es) · {almacen}</span>
+          <span className="mono" style={{ fontSize: '.9rem', fontWeight: 700 }}>Total: {money(total)}</span>
         </div>
       </form>
     </Modal>
