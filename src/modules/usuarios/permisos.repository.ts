@@ -35,7 +35,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'produccion',  label: 'Producción' },
   { key: 'salidas',     label: 'Salidas / Traslados' },
   { key: 'combustible', label: 'Combustible' },
-  { key: 'acopio',      label: 'Centro de Acopio PERAMANAL' },
+  { key: 'acopio',      label: 'Centro de Costo PERAMANAL' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'retenciones', label: 'Retenciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
