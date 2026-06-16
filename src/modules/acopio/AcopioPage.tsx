@@ -452,9 +452,8 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
             <Kpi titulo="Diferencia" valor={`${num(r.diferenciaKg)} Kg`} color={r.diferenciaKg < 0 ? 'var(--danger)' : 'var(--success)'} />
           </div>
 
-          <TablaCat titulo="Gastos por categoría" filas={r.gastosPorCategoria} totalLabel="Total gastos" totalMonto={r.totalGastos} totalPct={r.pctGastos} color="#ef4444" onCat={setConsumoCat} />
-          <p className="muted" style={{ fontSize: '.74rem', margin: '.35rem 0 0' }}>📊 Todas las categorías son clicables: muestran el detalle del gasto con gráfica (las de vehículo/maquinaria, por equipo; el resto, por descripción).</p>
-          <TablaCat titulo="Nómina por categoría" filas={r.nominaPorCategoria} totalLabel="Total nómina" totalMonto={r.totalNominas} totalPct={r.pctNomina} color="#a855f7" />
+          <TablaCat titulo="Gastos por categoría (incluye nómina)" filas={r.gastosPorCategoria} totalLabel="Total gastado" totalMonto={r.totalGastado} totalPct={1} color="#ef4444" onCat={setConsumoCat} />
+          <p className="muted" style={{ fontSize: '.74rem', margin: '.35rem 0 0' }}>📊 Todas las categorías son clicables: muestran el detalle del gasto con gráfica (las de vehículo/maquinaria, por equipo; el resto, por descripción). La nómina aparece como una categoría más; los porcentajes suman 100%.</p>
         </>
       )}
 

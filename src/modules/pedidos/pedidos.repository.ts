@@ -216,6 +216,35 @@ function appendHistorial(
   return [...(o.historial ?? []), entry];
 }
 
+/** Órdenes en estado `pendiente` (esperando aprobación), más antiguas primero. */
+export async function listOrdenesPendientes(): Promise<Orden[]> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .eq('estado', 'pendiente')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Orden[];
+}
+
+/** Aprueba EN LOTE varias OP pendientes (pendiente → aprobada). Devuelve cuántas. */
+export async function aprobarOrdenesEnLote(ordenes: Orden[], actorEmail: string): Promise<number> {
+  const elegibles = ordenes.filter((o) => o.estado === 'pendiente');
+  if (!elegibles.length) throw new Error('No hay órdenes pendientes por aprobar.');
+  const nowIso = new Date().toISOString();
+  for (const o of elegibles) {
+    const patch = {
+      estado: 'aprobada' as EstadoOrden,
+      aprobada_por: actorEmail,
+      aprobada_en: nowIso,
+      historial: appendHistorial(o, 'aprobada', actorEmail),
+    };
+    const { error } = await supabase.from(TABLE).update(patch).eq('id', o.id);
+    if (error) throw error;
+  }
+  return elegibles.length;
+}
+
 export async function aprobarOrden(o: Orden, actorEmail: string): Promise<Orden> {
   if (o.estado !== 'pendiente') throw new Error('Solo se aprueban órdenes pendientes');
   const patch = {

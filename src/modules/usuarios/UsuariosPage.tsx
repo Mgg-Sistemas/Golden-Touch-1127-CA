@@ -11,6 +11,7 @@ import type { Usuario } from '@/shared/lib/types';
 import {
   crearUsuario,
   actualizarUsuario,
+  cambiarEmailUsuario,
   labelRol,
   listUsuarios,
   loadRolesAndCache,
@@ -735,8 +736,14 @@ function UsuarioEditModal({
     const apellido = onlyLetters(val('u-apellido')).trim();
     const ci = onlyDigits(val('u-ci'), 8).trim();
     const telefono = onlyDigits(val('u-telefono'), 15).trim();
+    const emailNuevo = val('u-email').trim().toLowerCase();
     if (!nombre || !apellido || !ci) {
       toast('Nombre, apellido y CI son obligatorios', 'error');
+      return;
+    }
+    const cambiaEmail = !!emailNuevo && emailNuevo !== (usuario.email ?? '').toLowerCase();
+    if (emailNuevo && !/\S+@\S+\.\S+/.test(emailNuevo)) {
+      toast('El correo no es válido', 'error');
       return;
     }
     setSubmitting(true);
@@ -749,7 +756,9 @@ function UsuarioEditModal({
         departamento: departamento.trim(),
         role,
       });
-      notify(`Datos actualizados de ${usuario.email}`, 'success', { link: '#/app/usuarios' });
+      // El correo se cambia aparte (Auth + tabla, vía Edge Function solo-admin).
+      if (cambiaEmail) await cambiarEmailUsuario(usuario.id, emailNuevo);
+      notify(`Datos actualizados de ${cambiaEmail ? emailNuevo : usuario.email}`, 'success', { link: '#/app/usuarios' });
       onSaved();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al actualizar', 'error');
@@ -896,9 +905,18 @@ function UsuarioEditModal({
         </div>
       </div>
 
-      <p className="muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
-        El correo no es editable. Si necesitás cambiarlo, deshabilitá este usuario y creá uno nuevo.
-      </p>
+      <div className="form-row" style={{ marginTop: '.6rem' }}>
+        <label>Correo (usuario de acceso)</label>
+        <input
+          className="input"
+          name="u-email"
+          type="email"
+          defaultValue={usuario.email ?? ''}
+          placeholder="correo@ejemplo.com"
+          autoComplete="off"
+        />
+        <small className="muted">Es el correo con el que inicia sesión. Si lo cambiás, el usuario deberá entrar con el nuevo correo (la contraseña no cambia).</small>
+      </div>
 
       {nuevoDeptoOpen && (
         <NuevaTaxonomiaModal
