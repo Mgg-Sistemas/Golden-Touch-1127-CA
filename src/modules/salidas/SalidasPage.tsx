@@ -8,10 +8,11 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
   Almacen, Caja, Existencia, Movimiento, MovimientoCaja, Producto,
-  SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida,
+  SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, Usuario,
 } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import {
   listCajas, listSalidasDinero, listTrasladosDinero,
 } from './cajas.repository';
@@ -76,6 +77,7 @@ export function SalidasPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [cajas, setCajas] = useState<Caja[]>([]);
   const [salMat, setSalMat] = useState<Movimiento[]>([]);
   const [trasMat, setTrasMat] = useState<Movimiento[]>([]);
@@ -86,7 +88,7 @@ export function SalidasPage() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [pds, exs, alms, cjs, sm, tm, sd, td, sols] = await Promise.all([
+      const [pds, exs, alms, cjs, sm, tm, sd, td, sols, usrs] = await Promise.all([
         listProductos(),
         listExistencias().catch(() => [] as Existencia[]),
         listAlmacenes().catch(() => [] as Almacen[]),
@@ -96,9 +98,10 @@ export function SalidasPage() {
         listSalidasDinero().catch(() => [] as MovimientoCaja[]),
         listTrasladosDinero().catch(() => [] as MovimientoCaja[]),
         listSolicitudesSalida().catch(() => [] as SolicitudSalida[]),
+        listUsuarios().catch(() => [] as Usuario[]),
       ]);
       setProductos(pds); setExistencias(exs); setAlmacenes(alms); setCajas(cjs);
-      setSalMat(sm); setTrasMat(tm); setSalDin(sd); setTrasDin(td); setSolicitudes(sols);
+      setSalMat(sm); setTrasMat(tm); setSalDin(sd); setTrasDin(td); setSolicitudes(sols); setUsuarios(usrs);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo cargar el módulo', 'error');
     } finally {
@@ -109,6 +112,21 @@ export function SalidasPage() {
   // Realtime multiusuario: stock, cajas y solicitudes se reflejan al instante.
   useRealtime(['movimientos', 'movimientos_caja', 'cajas', 'productos', 'solicitudes_salida'], () => { void reload(); });
   useEffect(() => { void reload(); }, [reload]);
+
+  // Mapa email → nombre completo, para mostrar quién autorizó/solicitó con su nombre
+  // (las solicitudes guardan el email del aprobador, no el nombre).
+  const nombrePorEmail = useMemo(() => {
+    const m = new Map<string, string>();
+    usuarios.forEach((u) => {
+      const nom = [u.nombre, u.apellido].filter(Boolean).join(' ').trim();
+      if (u.email && nom) m.set(u.email.toLowerCase(), nom);
+    });
+    return m;
+  }, [usuarios]);
+  const nombreDe = useCallback((email?: string | null) => {
+    if (!email) return '—';
+    return nombrePorEmail.get(email.toLowerCase()) || email;
+  }, [nombrePorEmail]);
 
   const almacenesActivos = useMemo(
     () => almacenes.filter((a) => a.estado === 'activo').map((a) => a.nombre),
@@ -179,6 +197,7 @@ export function SalidasPage() {
           puedeAprobar={puedeAprobar}
           actor={actor}
           actorName={actorName}
+          nombreDe={nombreDe}
           onClose={() => setModal({ kind: 'none' })}
           onChanged={reload}
         />
@@ -216,15 +235,15 @@ export function SalidasPage() {
         />
       )}
       {modal.kind === 'resumen-unidad' && (
-        <ResumenUnidadModal solicitudes={solicitudes} defaultEmail={actor} onClose={() => setModal({ kind: 'none' })} />
+        <ResumenUnidadModal solicitudes={solicitudes} defaultEmail={actor} nombreDe={nombreDe} onClose={() => setModal({ kind: 'none' })} />
       )}
     </div>
   );
 }
 
 /* ───────── Resumen del gasto de material por UNIDAD SOLICITANTE ───────── */
-function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
-  solicitudes: SolicitudSalida[]; defaultEmail: string; onClose: () => void;
+function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
+  solicitudes: SolicitudSalida[]; defaultEmail: string; nombreDe: (email?: string | null) => string; onClose: () => void;
 }) {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -250,9 +269,9 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
           tipo: esTraslado ? 'Traslado' : 'Salida',
           codigo: s.codigo ?? '',
           solicitante: s.solicitante || s.actor_name || s.actor || '—',
-          autorizo: s.aprobada_por ?? '',
+          autorizo: s.aprobada_por ? nombreDe(s.aprobada_por) : '',
           autorizadoEn: s.aprobada_en ?? '',
-          ejecutoPor: s.ejecutada_por ?? '',
+          ejecutoPor: s.ejecutada_por ? nombreDe(s.ejecutada_por) : '',
           origen: s.almacen_origen ?? '',
           destinoTxt: esTraslado ? (s.almacen_destino ?? '') : (s.destino ?? ''),
           motivo: s.motivo ?? '',
@@ -268,7 +287,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
         if (hasta && dia > hasta) return false;
         return true;
       });
-  }, [solicitudes, desde, hasta]);
+  }, [solicitudes, desde, hasta, nombreDe]);
 
   const grupos = useMemo<GrupoUnidad[]>(() => {
     const m = new Map<string, GrupoUnidad>();
@@ -449,7 +468,6 @@ function Historial({
           <thead>
             <tr>
               <th>Fecha</th><th>Producto</th><th>{esTraslado ? 'Origen → Destino' : 'Origen'}</th>
-              {!esTraslado && <th>Dirigido a</th>}
               <th style={{ textAlign: 'right' }}>Cantidad</th>
               <th style={{ textAlign: 'right' }}>Precio unit.</th>
               <th style={{ textAlign: 'right' }}>Total</th>
@@ -458,7 +476,7 @@ function Historial({
           </thead>
           <tbody>
             {!rows.length ? (
-              <tr><td colSpan={esTraslado ? 6 : 7}><EmptyState message={esTraslado ? 'Sin traslados de material.' : 'Sin salidas de material.'} icon="📦" /></td></tr>
+              <tr><td colSpan={7}><EmptyState message={esTraslado ? 'Sin traslados de material.' : 'Sin salidas de material.'} icon="📦" /></td></tr>
             ) : rows.map((m) => {
               const cant = Math.abs(Number(m.delta) || 0);
               const precio = Number(m.precio_unitario) || 0;
@@ -467,7 +485,6 @@ function Historial({
                   <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(m.at)}</td>
                   <td><strong>{m.producto?.nombre ?? '—'}</strong><div className="muted mono" style={{ fontSize: '.7rem' }}>{m.producto?.sku}</div></td>
                   <td>{esTraslado ? <span className="mono">{m.almacen} → {m.destino}</span> : <span className="badge">{m.almacen}</span>}</td>
-                  {!esTraslado && <td>{m.destino || '—'}</td>}
                   <td className="mono" style={{ textAlign: 'right' }}>{num(cant)} {m.producto?.unidad ?? ''}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio * cant) : '—'}</td>
@@ -580,12 +597,13 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
 /* ───────────── Detalle + acciones de una solicitud ───────────── */
 
 function SolicitudDetalleModal({
-  sol, puedeAprobar, actor, actorName, onClose, onChanged,
+  sol, puedeAprobar, actor, actorName, nombreDe, onClose, onChanged,
 }: {
   sol: SolicitudSalida;
   puedeAprobar: boolean;
   actor: string;
   actorName: string | null;
+  nombreDe: (email?: string | null) => string;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -653,7 +671,6 @@ function SolicitudDetalleModal({
               <tr><td className="muted">Cantidad</td><td className="mono">{num(Number(sol.cantidad) || 0)}</td></tr>
               <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Almacén origen'}</td>
                 <td>{sol.scope === 'traslado' ? `${sol.almacen_origen} → ${sol.almacen_destino}` : sol.almacen_origen}</td></tr>
-              {sol.scope === 'salida' && <tr><td className="muted">Dirigido a</td><td>{sol.destino ?? '—'}</td></tr>}
             </>
           ) : (
             <>
@@ -663,8 +680,8 @@ function SolicitudDetalleModal({
           )}
           {sol.motivo && <tr><td className="muted">Motivo</td><td>{sol.motivo}</td></tr>}
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
-          {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {sol.aprobada_por ?? ''}</td></tr>}
-          {sol.ejecutada_en && <tr><td className="muted">Ejecutada</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}
+          {sol.aprobada_en && <tr><td className="muted">Autorizada por</td><td>{nombreDe(sol.aprobada_por)} · {dateTime(sol.aprobada_en)}</td></tr>}
+          {sol.ejecutada_en && <tr><td className="muted">Ejecutada por</td><td>{nombreDe(sol.ejecutada_por)} · {dateTime(sol.ejecutada_en)}</td></tr>}
         </tbody>
       </table>
 

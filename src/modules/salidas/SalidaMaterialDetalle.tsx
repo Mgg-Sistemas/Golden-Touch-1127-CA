@@ -48,7 +48,8 @@ export function SalidaMaterialDetalle({
   const filas: Array<[string, string]> = [
     ['Producto', mov.producto ? `${mov.producto.nombre} · ${mov.producto.sku}` : '—'],
     ['Almacén origen', mov.almacen || '—'],
-    [esTraslado ? 'Almacén destino' : 'Dirigido a', mov.destino || '—'],
+    // La salida de material ya no se dirige a una persona; el traslado sí va a otro almacén.
+    ...(esTraslado ? [['Almacén destino', mov.destino || '—'] as [string, string]] : []),
     ['Cantidad', `${num(cant)} ${mov.producto?.unidad ?? ''}`.trim()],
     ['Precio unitario', precio ? money(precio) : '—'],
     ['Precio total', precio ? money(precio * cant) : '—'],

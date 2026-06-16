@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
@@ -111,6 +111,12 @@ export function TesoreriaPage() {
   // Cuentas por pagar / cobrar abiertas (para el libro mayor por moneda).
   const [cxpRows, setCxpRows] = useState<CuentaPorPagar[]>([]);
   const [cxcRows, setCxcRows] = useState<CuentaPorCobrar[]>([]);
+  // Filtros del libro mayor (rango de fechas para Debe/Haber + moneda).
+  const [lmDesde, setLmDesde] = useState('');
+  const [lmHasta, setLmHasta] = useState('');
+  const [lmMoneda, setLmMoneda] = useState('');
+  // Moneda cuyo detalle de movimientos se está viendo (clic en una fila del libro mayor).
+  const [lmDetalleMoneda, setLmDetalleMoneda] = useState<string | null>(null);
   const [vista, setVista] = useState<'tesoreria' | 'tasas' | 'movimientos'>('tesoreria');
   const [correoMovOpen, setCorreoMovOpen] = useState(false);
   const [movSel, setMovSel] = useState<MovimientoCaja | null>(null);
@@ -189,20 +195,41 @@ export function TesoreriaPage() {
   const libroMayor = useMemo(() => {
     const entra = (m: MovimientoCaja) => m.tipo === 'ingreso' || m.tipo === 'traslado_entrada' || (m.tipo === 'ajuste' && Number(m.saldo_despues) > Number(m.saldo_antes));
     const sale = (m: MovimientoCaja) => m.tipo === 'salida' || m.tipo === 'traslado_salida' || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
+    // El rango de fechas filtra los movimientos de Debe/Haber. Saldo, CxP y CxC
+    // son saldos vigentes (a hoy), no dependen del rango.
+    const enRango = (m: MovimientoCaja) => {
+      const dia = (m.at ?? '').slice(0, 10);
+      if (lmDesde && dia < lmDesde) return false;
+      if (lmHasta && dia > lmHasta) return false;
+      return true;
+    };
+    const movs = libro.filter(enRango);
     const monedasSet = new Set<string>();
     saldos.forEach((s) => monedasSet.add(s.moneda));
     libro.forEach((m) => monedasSet.add(m.moneda));
     cxpRows.forEach((c) => monedasSet.add(c.moneda));
     cxcRows.forEach((c) => monedasSet.add(c.moneda));
-    return [...monedasSet].sort().map((mon) => {
-      const debe = round2(libro.filter((m) => m.moneda === mon && entra(m)).reduce((a, m) => a + (Number(m.monto) || 0), 0));
-      const haber = round2(libro.filter((m) => m.moneda === mon && sale(m)).reduce((a, m) => a + (Number(m.monto) || 0), 0));
-      const saldo = round2(saldos.filter((s) => s.moneda === mon).reduce((a, s) => a + (Number(s.saldo) || 0), 0));
-      const porPagar = round2(cxpRows.filter((c) => c.moneda === mon).reduce((a, c) => a + (Number(c.monto) - (Number(c.abonado) || 0)), 0));
-      const porCobrar = round2(cxcRows.filter((c) => c.moneda === mon).reduce((a, c) => a + (Number(c.monto) - (Number(c.cobrado) || 0)), 0));
-      return { moneda: mon, debe, haber, saldo, porPagar, porCobrar };
-    }).filter((r) => r.debe || r.haber || r.saldo || r.porPagar || r.porCobrar);
-  }, [libro, saldos, cxpRows, cxcRows]);
+    return [...monedasSet].sort()
+      .filter((mon) => !lmMoneda || mon === lmMoneda)
+      .map((mon) => {
+        const debe = round2(movs.filter((m) => m.moneda === mon && entra(m)).reduce((a, m) => a + (Number(m.monto) || 0), 0));
+        const haber = round2(movs.filter((m) => m.moneda === mon && sale(m)).reduce((a, m) => a + (Number(m.monto) || 0), 0));
+        const saldo = round2(saldos.filter((s) => s.moneda === mon).reduce((a, s) => a + (Number(s.saldo) || 0), 0));
+        const porPagar = round2(cxpRows.filter((c) => c.moneda === mon).reduce((a, c) => a + (Number(c.monto) - (Number(c.abonado) || 0)), 0));
+        const porCobrar = round2(cxcRows.filter((c) => c.moneda === mon).reduce((a, c) => a + (Number(c.monto) - (Number(c.cobrado) || 0)), 0));
+        return { moneda: mon, debe, haber, saldo, porPagar, porCobrar };
+      }).filter((r) => r.debe || r.haber || r.saldo || r.porPagar || r.porCobrar);
+  }, [libro, saldos, cxpRows, cxcRows, lmDesde, lmHasta, lmMoneda]);
+
+  // Monedas disponibles para el selector del filtro del libro mayor.
+  const lmMonedas = useMemo(() => {
+    const s = new Set<string>();
+    saldos.forEach((x) => s.add(x.moneda));
+    libro.forEach((x) => s.add(x.moneda));
+    cxpRows.forEach((x) => s.add(x.moneda));
+    cxcRows.forEach((x) => s.add(x.moneda));
+    return [...s].sort();
+  }, [saldos, libro, cxpRows, cxcRows]);
 
   // Metadatos del reporte PDF/correo del registro de movimientos (según filtros).
   const reporteMeta = () => ({
@@ -308,9 +335,24 @@ export function TesoreriaPage() {
           </div>
 
           {/* Libro mayor por moneda: Debe / Haber / Saldo / Por pagar / Por cobrar */}
-          {libroMayor.length > 0 && (
+          {lmMonedas.length > 0 && (
             <div className="card" style={{ padding: '.7rem .85rem', marginBottom: '1rem' }}>
-              <div className="card-title" style={{ marginBottom: '.45rem' }}><span>📒 Libro mayor (por moneda)</span></div>
+              <div className="card-title" style={{ marginBottom: '.45rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
+                <span>📒 Libro mayor (por moneda)</span>
+                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.76rem', textTransform: 'none', fontWeight: 400 }}>
+                    Desde <input className="input" type="date" value={lmDesde} max={lmHasta || undefined} onChange={(e) => setLmDesde(e.target.value)} style={{ width: 'auto', padding: '.3rem .5rem' }} />
+                  </label>
+                  <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.76rem', textTransform: 'none', fontWeight: 400 }}>
+                    Hasta <input className="input" type="date" value={lmHasta} min={lmDesde || undefined} onChange={(e) => setLmHasta(e.target.value)} style={{ width: 'auto', padding: '.3rem .5rem' }} />
+                  </label>
+                  <select className="select" value={lmMoneda} onChange={(e) => setLmMoneda(e.target.value)} style={{ width: 'auto', padding: '.3rem .5rem' }}>
+                    <option value="">Todas las monedas</option>
+                    {lmMonedas.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  {(lmDesde || lmHasta || lmMoneda) && <button className="btn btn-sm btn-ghost" onClick={() => { setLmDesde(''); setLmHasta(''); setLmMoneda(''); }}>✕ Filtros</button>}
+                </div>
+              </div>
               <div className="table-wrap">
                 <table className="table" style={{ fontSize: '.84rem' }}>
                   <thead><tr>
@@ -322,9 +364,10 @@ export function TesoreriaPage() {
                     <th style={{ textAlign: 'right' }}>Cuentas por cobrar</th>
                   </tr></thead>
                   <tbody>
+                    {!libroMayor.length && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>Sin movimientos para el filtro elegido.</td></tr>}
                     {libroMayor.map((r) => (
-                      <tr key={r.moneda}>
-                        <td><strong>{r.moneda}</strong></td>
+                      <tr key={r.moneda} style={{ cursor: 'pointer' }} onClick={() => setLmDetalleMoneda(r.moneda)} title="Ver los movimientos de esta moneda">
+                        <td><strong>{r.moneda}</strong> 🔍</td>
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{monto(r.debe, r.moneda)}</td>
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>{monto(r.haber, r.moneda)}</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(r.saldo, r.moneda)}</td>
@@ -335,7 +378,7 @@ export function TesoreriaPage() {
                   </tbody>
                 </table>
               </div>
-              <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>Debe = entradas · Haber = salidas · Saldo = disponible en cajas · cada moneda por separado (no se convierte). El detalle de cada movimiento está en «📊 Resumen de movimientos» y en el registro.</p>
+              <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>Debe = entradas · Haber = salidas (filtran por el rango de fechas) · Saldo, Cuentas por pagar y por cobrar son saldos vigentes (a hoy). Cada moneda por separado (no se convierte). El detalle de cada movimiento está en «📊 Resumen de movimientos» y en el registro.</p>
             </div>
           )}
 
@@ -421,6 +464,20 @@ export function TesoreriaPage() {
       )}
 
       {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={actor} onClose={() => setMovSel(null)} />}
+      {lmDetalleMoneda && (
+        <LibroMayorDetalleModal
+          moneda={lmDetalleMoneda}
+          movimientos={libro.filter((m) => {
+            if (m.moneda !== lmDetalleMoneda) return false;
+            const d = (m.at ?? '').slice(0, 10);
+            if (lmDesde && d < lmDesde) return false;
+            if (lmHasta && d > lmHasta) return false;
+            return true;
+          })}
+          onSelMov={(m) => setMovSel(m)}
+          onClose={() => setLmDetalleMoneda(null)}
+        />
+      )}
       {resumenMovOpen && <ResumenMovimientosModal movimientos={libro} defaultEmail={actor} onClose={() => setResumenMovOpen(false)} />}
       {correoMovOpen && <EnviarReporteModal movs={libroView} meta={reporteMeta()} defaultEmail={actor} onClose={() => setCorreoMovOpen(false)} />}
       {modal === 'gasto' && <GastoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
@@ -1097,6 +1154,9 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
   // Inputs no controlados: este nonce remonta el bloque del formulario cuando se
   // limpia/cambia el registro en edición, para que el DOM refleje el nuevo estado.
   const [formKey, setFormKey] = useState(0);
+  // Se lee directo del DOM al guardar (robusto ante re-renders/realtime que
+  // desincronizan el estado mientras se escribe).
+  const formRef = useRef<HTMLDivElement>(null);
 
   const recargar = useCallback(async () => {
     try { setLista(await listContrapartes()); }
@@ -1113,11 +1173,23 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
   }
 
   async function guardar() {
-    if (!form.nombre.trim()) { setError(form.tipo === 'proveedor' ? 'Indicá la razón social.' : 'Indicá el nombre del cliente.'); return; }
+    // Lee del DOM (no del estado) para evitar el caso en que un re-render
+    // desincroniza `form` mientras se escribe y el nombre llega vacío.
+    const root = formRef.current;
+    const leer = (n: string) => ((root?.querySelector(`[name="${n}"]`) as HTMLInputElement | null)?.value ?? '').trim();
+    const datos = {
+      tipo: form.tipo,
+      nombre: leer('cp-nombre'),
+      rif: leer('cp-rif'),
+      telefono: leer('cp-telefono'),
+      email: leer('cp-email'),
+      nota: leer('cp-nota'),
+    };
+    if (!datos.nombre) { setError(form.tipo === 'proveedor' ? 'Indicá la razón social.' : 'Indicá el nombre del cliente.'); return; }
     setBusy(true); setError(null);
     try {
-      if (editId) await actualizarContraparte(editId, form);
-      else await crearContraparte(form);
+      if (editId) await actualizarContraparte(editId, datos);
+      else await crearContraparte(datos);
       toast(editId ? 'Actualizado' : 'Registrado', 'success');
       nuevo();
       await recargar();
@@ -1155,7 +1227,7 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
             );
           })}
         </div>
-        <div key={formKey}>
+        <div key={formKey} ref={formRef}>
           <div className="form-grid">
             <div className="form-row">
               <label>{form.tipo === 'proveedor' ? 'Razón social' : 'Nombre del cliente'}</label>
@@ -1929,6 +2001,48 @@ function tasaCruzada(de: MonedaCaja, a: MonedaCaja, t: TasasMercado): number | n
 
 /* ───────── Resumen de movimientos (gráfico + drill-down + filtro por fechas) ───────── */
 type CatResumen = 'ingresos' | 'egresos' | 'gastos';
+/* Detalle de los movimientos de UNA moneda (clic en una fila del libro mayor).
+   Lista cada movimiento como Debe/Haber; al tocar uno se abre su detalle completo. */
+function LibroMayorDetalleModal({ moneda, movimientos, onSelMov, onClose }: {
+  moneda: string; movimientos: MovimientoCaja[]; onSelMov: (m: MovimientoCaja) => void; onClose: () => void;
+}) {
+  const entra = (m: MovimientoCaja) => m.tipo === 'ingreso' || m.tipo === 'traslado_entrada' || (m.tipo === 'ajuste' && Number(m.saldo_despues) > Number(m.saldo_antes));
+  const ordenados = [...movimientos].sort((a, b) => (a.at < b.at ? 1 : -1));
+  const totDebe = round2(ordenados.filter(entra).reduce((a, m) => a + (Number(m.monto) || 0), 0));
+  const totHaber = round2(ordenados.filter((m) => !entra(m)).reduce((a, m) => a + (Number(m.monto) || 0), 0));
+  return (
+    <Modal title={`📒 Movimientos en ${moneda}`} size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.78rem' }}>{ordenados.length} movimiento(s). Tocá uno para ver <strong>todo su detalle</strong> (fecha, motivo, beneficiario, cuenta, etc.).</p>
+      <div className="table-wrap" style={{ maxHeight: 440, overflow: 'auto' }}>
+        <table className="table" style={{ fontSize: '.82rem' }}>
+          <thead><tr><th>Fecha</th><th>Caja</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Debe</th><th style={{ textAlign: 'right' }}>Haber</th></tr></thead>
+          <tbody>
+            {!ordenados.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin movimientos.</td></tr>}
+            {ordenados.map((m) => {
+              const concepto = [CAT_LABEL[m.categoria ?? ''], detalleGasto(m), m.beneficiario, m.motivo].filter(Boolean).join(' · ') || (TIPO_MOV_LABEL[m.tipo] ?? m.tipo);
+              const e = entra(m);
+              return (
+                <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => onSelMov(m)} title="Ver todo el detalle">
+                  <td>{dateTime(m.at)}</td>
+                  <td>{m.caja?.nombre ?? '—'}</td>
+                  <td>{concepto} 🔍</td>
+                  <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{e ? monto(m.monto, m.moneda) : ''}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>{!e ? monto(m.monto, m.moneda) : ''}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+            <td colSpan={3} style={{ textAlign: 'right' }}>Totales</td>
+            <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{monto(totDebe, moneda)}</td>
+            <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>{monto(totHaber, moneda)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </Modal>
+  );
+}
+
 function ResumenMovimientosModal({ movimientos, defaultEmail, onClose }: { movimientos: MovimientoCaja[]; defaultEmail: string; onClose: () => void }) {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -2788,9 +2902,11 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
       .filter((l) => l.monto > 0);
     if (!legs.length) { setError('Indicá cuánto abonar en al menos una moneda.'); return; }
     if (sumUsd > saldo + 0.01) { setError(`El abono (${monto(sumUsd, 'USD')}) supera el saldo pendiente (${monto(saldo, 'USD')}).`); return; }
+    // Lee la nota del DOM (no del estado) para evitar capturas incompletas.
+    const notaVal = (((document.querySelector('[name="cred-nota"]') as HTMLInputElement | null)?.value ?? '') || nota).trim();
     setSaving(true);
     try {
-      const r = await registrarAbonoMulti({ orden: o, legs, nota: nota.trim() || null, factura, actorEmail: actor, actorName });
+      const r = await registrarAbonoMulti({ orden: o, legs, nota: notaVal || null, factura, actorEmail: actor, actorName });
       const saldadoNow = r.orden.estado !== 'cuenta_abierta';
       notify(saldadoNow
         ? `Crédito saldado · ${o.oc_codigo ?? o.codigo} · pasa a recepción/finalización`
@@ -3003,7 +3119,11 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   async function abonar() {
     setError(null);
     if (!sel) return;
-    const m = Number(montoStr) || 0;
+    // Lee monto y nota del DOM (no del estado) para evitar capturas incompletas
+    // cuando un re-render desincroniza el estado mientras se escribe.
+    const leer = (n: string) => ((document.querySelector(`[name="${n}"]`) as HTMLInputElement | null)?.value ?? '');
+    const m = Number(leer('cxp-monto')) || Number(montoStr) || 0;
+    const notaVal = (leer('cxp-nota') || nota).trim();
     if (m <= 0) { setError('Indicá el monto a abonar.'); return; }
     if (!cajaId) { setError('Elegí la caja del egreso.'); return; }
     if (!cuentaCaja) { setError(`La caja no tiene saldo en ${sel.moneda}.`); return; }
@@ -3011,7 +3131,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
     try {
       const r = await registrarAbonoCuenta({
         cuenta: sel, cajaId, cuentaCaja: cuentaCaja as CuentaCaja, monto: m,
-        nota: nota.trim() || null, actor, actorName,
+        nota: notaVal || null, actor, actorName,
       });
       notify(r.exceso > 0.01
         ? `Pago ${monto(m, sel.moneda)} · ${sel.contraparte} · excedente ${monto(r.exceso, sel.moneda)} → cuenta por cobrar`
@@ -3236,7 +3356,10 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   async function cobrar() {
     setError(null);
     if (!sel) return;
-    const m = Number(montoStr) || 0;
+    // Lee monto y nota del DOM (no del estado) para evitar capturas incompletas.
+    const leer = (n: string) => ((document.querySelector(`[name="${n}"]`) as HTMLInputElement | null)?.value ?? '');
+    const m = Number(leer('cxc-monto')) || Number(montoStr) || 0;
+    const notaVal = (leer('cxc-nota') || nota).trim();
     if (m <= 0) { setError('Indicá el monto a cobrar.'); return; }
     if (!cajaId) { setError('Elegí la caja que recibe el dinero.'); return; }
     if (!esBs && (Number(tasaStr) || 0) <= 0) { setError(`Indicá la tasa (Bs por ${sel.moneda}).`); return; }
@@ -3244,7 +3367,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
     try {
       const r = await registrarCobro({
         cuenta: sel, cajaId, cuentaCaja, monto: m, tasaBs: esBs ? 1 : (Number(tasaStr) || 0),
-        nota: nota.trim() || null, actor, actorName,
+        nota: notaVal || null, actor, actorName,
       });
       notify(r.cuenta.estado === 'saldada'
         ? `Cuenta por cobrar saldada · ${sel.contraparte}`
