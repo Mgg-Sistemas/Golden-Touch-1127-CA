@@ -40,7 +40,7 @@ import {
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
 import {
-  listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro,
+  listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro, crearOAcumularCuentaPorCobrar,
   type CuentaPorCobrar, type CargoCxC, type CobroCxC,
 } from './cuentasPorCobrar.repository';
 import { descargarCuentaPorCobrarPdf } from './cuentaPorCobrarPdf';
@@ -108,6 +108,9 @@ export function TesoreriaPage() {
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
   const [nominaCount, setNominaCount] = useState(0);
+  // Cuentas por pagar / cobrar abiertas (para el libro mayor por moneda).
+  const [cxpRows, setCxpRows] = useState<CuentaPorPagar[]>([]);
+  const [cxcRows, setCxcRows] = useState<CuentaPorCobrar[]>([]);
   const [vista, setVista] = useState<'tesoreria' | 'tasas' | 'movimientos'>('tesoreria');
   const [correoMovOpen, setCorreoMovOpen] = useState(false);
   const [movSel, setMovSel] = useState<MovimientoCaja | null>(null);
@@ -125,7 +128,7 @@ export function TesoreriaPage() {
   const [transfers, setTransfers] = useState<TransferenciaInter[]>([]);
 
   const reload = useCallback(async () => {
-    const [d, cs, sal, mov, pp, cr, cxp, tr, nc] = await Promise.all([
+    const [d, cs, sal, mov, pp, cr, cxp, cxc, tr, nc] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
@@ -133,16 +136,17 @@ export function TesoreriaPage() {
       listOrdenesPorPagar().catch(() => [] as OrdenPorPagar[]),
       listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
       listCuentasPorPagar(true).catch(() => [] as CuentaPorPagar[]),
+      listCuentasPorCobrar(true).catch(() => [] as CuentaPorCobrar[]),
       listTransferenciasInter().catch(() => [] as TransferenciaInter[]),
       countRenglonesPorPagar().catch(() => 0),
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc);
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
-  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos'], () => { void reload(); });
+  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos'], () => { void reload(); });
 
   useEffect(() => {
     setLoading(true);
@@ -178,6 +182,27 @@ export function TesoreriaPage() {
     const palabras = q.split(/\s+/).filter(Boolean);
     return libroIndexado.filter(({ heno }) => palabras.every((p) => heno.includes(p))).map(({ m }) => m);
   }, [libro, libroIndexado, fBuscar]);
+
+  // Libro mayor por moneda: una fila por moneda con Debe (entra), Haber (sale),
+  // Saldo disponible en cajas, y los saldos abiertos de cuentas por pagar y por cobrar.
+  // Los totales son por moneda (no se convierten ni se mezclan monedas).
+  const libroMayor = useMemo(() => {
+    const entra = (m: MovimientoCaja) => m.tipo === 'ingreso' || m.tipo === 'traslado_entrada' || (m.tipo === 'ajuste' && Number(m.saldo_despues) > Number(m.saldo_antes));
+    const sale = (m: MovimientoCaja) => m.tipo === 'salida' || m.tipo === 'traslado_salida' || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
+    const monedasSet = new Set<string>();
+    saldos.forEach((s) => monedasSet.add(s.moneda));
+    libro.forEach((m) => monedasSet.add(m.moneda));
+    cxpRows.forEach((c) => monedasSet.add(c.moneda));
+    cxcRows.forEach((c) => monedasSet.add(c.moneda));
+    return [...monedasSet].sort().map((mon) => {
+      const debe = round2(libro.filter((m) => m.moneda === mon && entra(m)).reduce((a, m) => a + (Number(m.monto) || 0), 0));
+      const haber = round2(libro.filter((m) => m.moneda === mon && sale(m)).reduce((a, m) => a + (Number(m.monto) || 0), 0));
+      const saldo = round2(saldos.filter((s) => s.moneda === mon).reduce((a, s) => a + (Number(s.saldo) || 0), 0));
+      const porPagar = round2(cxpRows.filter((c) => c.moneda === mon).reduce((a, c) => a + (Number(c.monto) - (Number(c.abonado) || 0)), 0));
+      const porCobrar = round2(cxcRows.filter((c) => c.moneda === mon).reduce((a, c) => a + (Number(c.monto) - (Number(c.cobrado) || 0)), 0));
+      return { moneda: mon, debe, haber, saldo, porPagar, porCobrar };
+    }).filter((r) => r.debe || r.haber || r.saldo || r.porPagar || r.porCobrar);
+  }, [libro, saldos, cxpRows, cxcRows]);
 
   // Metadatos del reporte PDF/correo del registro de movimientos (según filtros).
   const reporteMeta = () => ({
@@ -281,6 +306,38 @@ export function TesoreriaPage() {
               );
             })}
           </div>
+
+          {/* Libro mayor por moneda: Debe / Haber / Saldo / Por pagar / Por cobrar */}
+          {libroMayor.length > 0 && (
+            <div className="card" style={{ padding: '.7rem .85rem', marginBottom: '1rem' }}>
+              <div className="card-title" style={{ marginBottom: '.45rem' }}><span>📒 Libro mayor (por moneda)</span></div>
+              <div className="table-wrap">
+                <table className="table" style={{ fontSize: '.84rem' }}>
+                  <thead><tr>
+                    <th>Moneda</th>
+                    <th style={{ textAlign: 'right' }}>Debe (entra)</th>
+                    <th style={{ textAlign: 'right' }}>Haber (sale)</th>
+                    <th style={{ textAlign: 'right' }}>Saldo</th>
+                    <th style={{ textAlign: 'right' }}>Cuentas por pagar</th>
+                    <th style={{ textAlign: 'right' }}>Cuentas por cobrar</th>
+                  </tr></thead>
+                  <tbody>
+                    {libroMayor.map((r) => (
+                      <tr key={r.moneda}>
+                        <td><strong>{r.moneda}</strong></td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{monto(r.debe, r.moneda)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>{monto(r.haber, r.moneda)}</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(r.saldo, r.moneda)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: r.porPagar > 0 ? 'var(--warning)' : undefined }}>{monto(r.porPagar, r.moneda)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: r.porCobrar > 0 ? 'var(--primary-3, #5b9)' : undefined }}>{monto(r.porCobrar, r.moneda)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>Debe = entradas · Haber = salidas · Saldo = disponible en cajas · cada moneda por separado (no se convierte). El detalle de cada movimiento está en «📊 Resumen de movimientos» y en el registro.</p>
+            </div>
+          )}
 
           {/* Transferencias inter-sistema (centros de acopio externos / otra Supabase) */}
           <TransferenciasInterPanel transfers={transfers} cajas={cajas} canWrite={canWrite} actor={actor} actorName={actorName} onChanged={reload} />
@@ -2580,6 +2637,88 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
 }
 
 /* ───────────── Cuentas por pagar (créditos) · abonos multipago ───────────── */
+/* ─── Form reutilizable: crear una cuenta por pagar/cobrar nueva. Elige
+   Cliente/Proveedor (con buscador) y, si no existe, lo agrega al directorio. ─── */
+function NuevaCuentaForm({ btnLabel, onCrear }: {
+  btnLabel: string;
+  onCrear: (input: { tipo: 'cliente' | 'proveedor'; contraparte: string; monto: number; moneda: string; nota: string | null }) => Promise<void>;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [tipo, setTipo] = useState<'cliente' | 'proveedor'>('proveedor');
+  const [contraparte, setContraparte] = useState('');
+  const [montoStr, setMontoStr] = useState('');
+  const [moneda, setMoneda] = useState('USD');
+  const [nota, setNota] = useState('');
+  const [contrapartes, setContrapartes] = useState<Contraparte[]>([]);
+  const [monedas, setMonedas] = useState<string[]>([...MONEDAS_CAJA]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reloadCp = useCallback(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
+  useEffect(() => { reloadCp(); }, [reloadCp]);
+  useEffect(() => { listMonedas().then((m) => setMonedas(m.length ? m : [...MONEDAS_CAJA])).catch(() => setMonedas([...MONEDAS_CAJA])); }, []);
+  useRealtime(['contrapartes'], () => { reloadCp(); });
+  const opts = useMemo(() => contrapartes.filter((c) => c.tipo === tipo).map((c) => c.nombre), [contrapartes, tipo]);
+
+  async function crear() {
+    setError(null);
+    const n = contraparte.trim();
+    if (!n) { setError('Indicá el cliente o proveedor.'); return; }
+    const m = Number(montoStr) || 0;
+    if (m <= 0) { setError('El monto debe ser mayor que 0.'); return; }
+    setSaving(true);
+    try {
+      await onCrear({ tipo, contraparte: n, monto: m, moneda, nota: nota.trim() || null });
+      // Si el cliente/proveedor no estaba en el directorio, se agrega para próximos usos.
+      const ya = contrapartes.some((c) => c.tipo === tipo && c.nombre.trim().toUpperCase() === n.toUpperCase());
+      if (!ya) { try { await crearContraparte({ tipo, nombre: n }); reloadCp(); } catch { /* duplicado: no bloquea */ } }
+      setContraparte(''); setMontoStr(''); setNota(''); setAbierto(false);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo crear la cuenta'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: '.7rem', padding: '.55rem .8rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => setAbierto((v) => !v)}>
+        <strong style={{ fontSize: '.85rem' }}>{abierto ? '▾' : '➕'} {btnLabel}</strong>
+      </div>
+      {abierto && (
+        <div style={{ marginTop: '.5rem' }}>
+          {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {error}</div>}
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Tipo</label>
+              <select className="select" value={tipo} onChange={(e) => { setTipo(e.target.value as 'cliente' | 'proveedor'); setContraparte(''); }}>
+                <option value="proveedor">🏭 Proveedor</option>
+                <option value="cliente">👤 Cliente</option>
+              </select>
+            </div>
+            <div className="form-row">
+              <label>{tipo === 'proveedor' ? 'Proveedor' : 'Cliente'} *</label>
+              <SearchCreateSelect value={contraparte} onChange={setContraparte} options={opts} placeholder="Elegí o escribí… (se crea si no existe)" />
+            </div>
+            <div className="form-row">
+              <label>Monto *</label>
+              <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} />
+            </div>
+            <div className="form-row">
+              <label>Moneda</label>
+              <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value)}>
+                {monedas.map((mo) => <option key={mo} value={mo}>{mo}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-row">
+            <label>Nota (opcional)</label>
+            <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia de la cuenta…" />
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => void crear()} disabled={saving}>{saving ? 'Creando…' : 'Crear cuenta'}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onChanged: () => void | Promise<void>;
 }) {
@@ -2887,11 +3026,15 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
     finally { setSaving(false); }
   }
 
-  if (loading) return <p className="muted">Cargando…</p>;
-  if (!lista.length) return <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar de clientes/proveedores. 🎉</p>;
-
   return (
     <>
+      <NuevaCuentaForm btnLabel="Nueva cuenta por pagar (cliente / proveedor)"
+        onCrear={async (inp) => { await crearCuentaPorPagar({ ...inp, actor, actorName }); await cargar(); await onChanged(); }} />
+
+      {loading ? <p className="muted">Cargando…</p>
+        : !lista.length ? <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar de clientes/proveedores todavía. Agregá una arriba. 🎉</p>
+        : (
+      <>
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
         <label>Cuenta por pagar ({lista.length})</label>
         <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
@@ -3042,6 +3185,8 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
           )}
         </>
       )}
+      </>
+      )}
     </>
   );
 }
@@ -3115,10 +3260,12 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
     <Modal title="💰 Cuentas por cobrar" size="xl" onClose={() => !saving && onClose()}
       footer={<button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Lo que un cliente/proveedor le debe a la empresa. Nace al <strong>pagar de más</strong> una cuenta por pagar (el excedente queda a favor) y se cobra con <strong>abonos</strong> (entradas de dinero a la caja). Acumula los cargos del mismo cliente.
+        Lo que un cliente/proveedor le debe a la empresa. Nace al <strong>pagar de más</strong> una cuenta por pagar (el excedente queda a favor) y se cobra con <strong>abonos</strong> (entradas de dinero a la caja). Acumula los cargos del mismo cliente. También podés <strong>agregar una cuenta por cobrar manual</strong> acá abajo.
       </p>
+      <NuevaCuentaForm btnLabel="Nueva cuenta por cobrar (cliente / proveedor)"
+        onCrear={async (inp) => { await crearOAcumularCuentaPorCobrar({ ...inp, actor, actorName }); await cargar(); await onChanged(); }} />
       {loading ? <p className="muted">Cargando…</p> : !lista.length ? (
-        <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por cobrar. 🎉</p>
+        <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por cobrar todavía. Agregá una arriba. 🎉</p>
       ) : (
         <>
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
