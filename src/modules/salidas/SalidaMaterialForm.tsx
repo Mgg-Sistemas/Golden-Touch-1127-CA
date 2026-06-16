@@ -9,20 +9,20 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; }
+// `key` = `${producto_id}|${almacen}` (identifica una existencia concreta).
+interface LineaUI { id: number; key: string; cantidad: string; }
 
 export function SalidaMaterialForm({
-  productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
+  productos, existencias, actor, actorName, onClose, onSaved,
 }: {
   productos: Producto[];
   existencias: Existencia[];
-  almacenesList: string[];
+  almacenesList?: string[];
   actor: string;
   actorName?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const almacenes = almacenesList.length ? almacenesList : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const exMap = useMemo(() => {
     const m = new Map<string, Existencia>();
@@ -30,26 +30,27 @@ export function SalidaMaterialForm({
     return m;
   }, [existencias]);
 
-  const [almacen, setAlmacen] = useState(almacenes[0]);
-  // Productos que ESE almacén contiene (con existencia > 0).
-  const productosEnAlmacen = useMemo(
-    () => activos.filter((p) => (Number(exMap.get(`${p.id}|${almacen}`)?.stock) || 0) > 0),
-    [activos, exMap, almacen],
-  );
+  // Buscador con TODOS los productos que tienen stock (en cualquier almacén). El
+  // almacén va en cada opción para saber de dónde se descuenta.
+  const opciones = useMemo(() => {
+    const prodById = new Map(activos.map((p) => [p.id, p]));
+    return existencias
+      .filter((e) => (Number(e.stock) || 0) > 0 && prodById.has(e.producto_id))
+      .map((e) => {
+        const p = prodById.get(e.producto_id)!;
+        return { value: `${e.producto_id}|${e.almacen}`, label: `${p.nombre} · ${p.sku} — ${e.almacen}`, nombre: p.nombre };
+      })
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [existencias, activos]);
 
-  // Carrito de renglones (varios materiales del mismo almacén, como una OC).
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1' }]);
+  // Carrito de renglones (varios materiales, cada uno de su almacén).
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, key: '', cantidad: '1' }]);
   const [seq, setSeq] = useState(2);
-  // Al cambiar de almacén, reiniciamos el carrito (el stock/precio dependen del almacén).
-  useEffect(() => {
-    setLineas([{ id: 1, productoId: '', cantidad: '1' }]);
-    setSeq(2);
-  }, [almacen]);
 
   function setLinea(id: number, patch: Partial<LineaUI>) {
     setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
-  function addLinea() { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1' }]); setSeq((s) => s + 1); }
+  function addLinea() { setLineas((ls) => [...ls, { id: seq, key: '', cantidad: '1' }]); setSeq((s) => s + 1); }
   function quitarLinea(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
 
   const [motivo, setMotivo] = useState('');
@@ -94,45 +95,47 @@ export function SalidaMaterialForm({
     }
   }
 
-  // Datos por renglón (producto, stock, precio PMP, subtotal, exceso).
+  // Datos por renglón (producto, almacén, stock, precio PMP, subtotal, exceso).
   const lineasCalc = lineas.map((l) => {
-    const producto = activos.find((p) => p.id === l.productoId) ?? null;
-    const ex = exMap.get(`${l.productoId}|${almacen}`);
+    const [pid, alm] = l.key ? l.key.split('|') : ['', ''];
+    const producto = activos.find((p) => p.id === pid) ?? null;
+    const ex = l.key ? exMap.get(l.key) : undefined;
     const stock = Number(ex?.stock) || 0;
     const precio = (Number(ex?.costo_promedio) || 0) || (producto?.precio ?? 0) || 0;
     const cantNum = Number(l.cantidad) || 0;
     const excede = cantNum > stock;
-    return { l, producto, stock, precio, cantNum, subtotal: precio * cantNum, excede };
+    return { l, pid, alm, producto, stock, precio, cantNum, subtotal: precio * cantNum, excede };
   });
   const total = lineasCalc.reduce((a, x) => a + x.subtotal, 0);
-  const hayInvalida = lineasCalc.some((x) => !x.l.productoId || x.cantNum <= 0 || x.excede);
+  const hayInvalida = !opciones.length || lineasCalc.some((x) => !x.l.key || x.cantNum <= 0 || x.excede);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!productosEnAlmacen.length) { setError('El almacén seleccionado no tiene materiales con stock.'); return; }
+    if (!opciones.length) { setError('No hay materiales con stock en ningún almacén.'); return; }
     const items: ItemSalida[] = [];
     for (const x of lineasCalc) {
-      if (!x.l.productoId) { setError('Elegí el material en cada renglón.'); return; }
+      if (!x.l.key) { setError('Elegí el material en cada renglón.'); return; }
       if (x.cantNum <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
-      if (x.cantNum > x.stock) { setError(`No hay stock suficiente de ${x.producto?.nombre} en ${almacen}. Disponible: ${num(x.stock)}.`); return; }
+      if (x.cantNum > x.stock) { setError(`No hay stock suficiente de ${x.producto?.nombre} en ${x.alm}. Disponible: ${num(x.stock)}.`); return; }
       items.push({
-        producto_id: x.l.productoId,
+        producto_id: x.pid,
         producto_nombre: x.producto?.nombre ?? '',
         producto_sku: x.producto?.sku ?? null,
         unidad: x.producto?.unidad ?? null,
         cantidad: x.cantNum,
         precio_unit: x.precio,
+        almacen: x.alm,
       });
     }
-    // Aviso si un mismo material está repetido en dos renglones (la suma podría exceder el stock).
-    const ids = items.map((i) => i.producto_id);
-    if (new Set(ids).size !== ids.length) { setError('Hay un material repetido en dos renglones. Unilo en uno solo.'); return; }
+    // Mismo material+almacén repetido en dos renglones → uniría a sumas inválidas.
+    const keys = lineas.map((l) => l.key);
+    if (new Set(keys).size !== keys.length) { setError('Hay un material repetido (mismo almacén) en dos renglones. Unilo en uno solo.'); return; }
     setSaving(true);
     try {
       await crearSolicitudSalida({
         scope: 'salida', tipo: 'material',
-        items, almacenOrigen: almacen, destino: null, motivo: motivo.trim() || null,
+        items, destino: null, motivo: motivo.trim() || null,
         unidadSolicitante: unidadSolicitante.trim() || null,
         fechaEntrega: fechaEntrega || null,
         solicitante: actorName || actor, actor, actorName,
@@ -151,7 +154,7 @@ export function SalidaMaterialForm({
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || hayInvalida || !productosEnAlmacen.length}>
+      <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || hayInvalida}>
         {saving ? 'Creando…' : 'Crear solicitud'}
       </button>
     </>
@@ -162,21 +165,12 @@ export function SalidaMaterialForm({
       <form id="salida-mat-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Sede origen</label>
-            <select className="select" value="Peramanal" disabled>
-              <option value="Peramanal">Peramanal</option>
-            </select>
-            <small className="muted">Centro de acopio principal.</small>
-          </div>
-          <div className="form-row">
-            <label>Almacén origen</label>
-            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <small className="muted">Todos los materiales salen de este sub-almacén.</small>
-          </div>
+        <div className="form-row">
+          <label>Sede origen</label>
+          <select className="select" value="Peramanal" disabled>
+            <option value="Peramanal">Peramanal</option>
+          </select>
+          <small className="muted">Cada material se descuenta automáticamente del almacén donde está.</small>
         </div>
 
         <div className="form-row">
@@ -199,17 +193,21 @@ export function SalidaMaterialForm({
 
         {/* ── Carrito de materiales ── */}
         <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.4rem 0 .35rem' }}>
-          Materiales del almacén
+          Materiales
         </label>
-        {lineasCalc.map(({ l, producto, stock, precio, cantNum, subtotal, excede }, idx) => (
+        {lineasCalc.map(({ l, producto, alm, stock, precio, cantNum, subtotal, excede }, idx) => (
           <div key={l.id} className="card" style={{ margin: '0 0 .5rem', padding: '.6rem .7rem', background: 'var(--bg-1)' }}>
             <div className="form-grid">
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Material #{idx + 1}</label>
-                <SearchSelect value={l.productoId} onChange={(v) => setLinea(l.id, { productoId: v })} disabled={!productosEnAlmacen.length}
-                  placeholder={productosEnAlmacen.length ? '🔍 Buscar producto…' : '— el almacén no tiene materiales —'}
-                  options={productosEnAlmacen.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
-                <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precio)}</strong></small>
+                <SearchSelect value={l.key} onChange={(v) => setLinea(l.id, { key: v })} disabled={!opciones.length}
+                  placeholder={opciones.length ? '🔍 Buscar producto (todos los almacenes)…' : '— no hay materiales con stock —'}
+                  options={opciones.map((o) => ({ value: o.value, label: o.label }))} />
+                <small className="muted">
+                  {l.key
+                    ? <>Almacén: <strong>{alm}</strong> · Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precio)}</strong></>
+                    : 'Elegí el producto; se descuenta del almacén donde está.'}
+                </small>
               </div>
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
@@ -227,12 +225,12 @@ export function SalidaMaterialForm({
                 </div>
                 {excede
                   ? <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>
-                  : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && <>· queda {num(Math.max(0, stock - cantNum))}</>}</small>}
+                  : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && l.key && <>· queda {num(Math.max(0, stock - cantNum))}</>}</small>}
               </div>
             </div>
           </div>
         ))}
-        <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea} disabled={!productosEnAlmacen.length} style={{ marginBottom: '.6rem' }}>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea} disabled={!opciones.length} style={{ marginBottom: '.6rem' }}>
           ＋ Agregar material
         </button>
 
@@ -249,7 +247,7 @@ export function SalidaMaterialForm({
         </div>
 
         <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: 0, display: 'flex', justifyContent: 'space-between' }}>
-          <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es) · {almacen}</span>
+          <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es)</span>
           <span className="mono" style={{ fontSize: '.9rem', fontWeight: 700 }}>Total: {money(total)}</span>
         </div>
       </form>
