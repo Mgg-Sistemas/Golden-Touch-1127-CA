@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
@@ -364,7 +364,7 @@ export function TesoreriaPage() {
       )}
 
       {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={actor} onClose={() => setMovSel(null)} />}
-      {resumenMovOpen && <ResumenMovimientosModal movimientos={libro} onClose={() => setResumenMovOpen(false)} />}
+      {resumenMovOpen && <ResumenMovimientosModal movimientos={libro} defaultEmail={actor} onClose={() => setResumenMovOpen(false)} />}
       {correoMovOpen && <EnviarReporteModal movs={libroView} meta={reporteMeta()} defaultEmail={actor} onClose={() => setCorreoMovOpen(false)} />}
       {modal === 'gasto' && <GastoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
       {modal === 'traslado' && <TrasladoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
@@ -1872,12 +1872,14 @@ function tasaCruzada(de: MonedaCaja, a: MonedaCaja, t: TasasMercado): number | n
 
 /* ───────── Resumen de movimientos (gráfico + drill-down + filtro por fechas) ───────── */
 type CatResumen = 'ingresos' | 'egresos' | 'gastos';
-function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: MovimientoCaja[]; onClose: () => void }) {
+function ResumenMovimientosModal({ movimientos, defaultEmail, onClose }: { movimientos: MovimientoCaja[]; defaultEmail: string; onClose: () => void }) {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const monedas = useMemo(() => Array.from(new Set(movimientos.map((m) => m.moneda))).sort(), [movimientos]);
   const [moneda, setMoneda] = useState<string>('');
   const [drill, setDrill] = useState<CatResumen | null>(null);
+  const [catAbierta, setCatAbierta] = useState<string | null>(null); // categoría de gasto expandida
+  const [movSel, setMovSel] = useState<MovimientoCaja | null>(null);  // detalle completo de un movimiento
 
   // Moneda por defecto: la de mayor cantidad de movimientos.
   useEffect(() => {
@@ -1915,9 +1917,23 @@ function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: Movimi
   ];
 
   const drillMovs = drill === 'ingresos' ? movIngresos : drill === 'egresos' ? movEgresos : drill === 'gastos' ? movGastos : [];
+
+  // Gastos agrupados por categoría (para el drill de Gastos): cada categoría se
+  // expande y muestra sus gastos; cada gasto abre su detalle completo al tocarlo.
+  const gastosPorCat = useMemo(() => {
+    const m = new Map<string, { categoria: string; total: number; movs: MovimientoCaja[] }>();
+    for (const g of movGastos) {
+      const key = (g.gasto_categoria ?? '').trim() || 'Sin categoría';
+      const e = m.get(key) ?? { categoria: key, total: 0, movs: [] };
+      e.total = round2(e.total + (Number(g.monto) || 0));
+      e.movs.push(g);
+      m.set(key, e);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total);
+  }, [movGastos]);
   const Card = ({ cat, titulo, valor, color }: { cat: CatResumen; titulo: string; valor: number; color: string }) => (
     <div className="card" style={{ margin: 0, padding: '.6rem .85rem', cursor: 'pointer', borderColor: drill === cat ? color : undefined }}
-      onClick={() => setDrill((d) => d === cat ? null : cat)} title="Ver los movimientos">
+      onClick={() => { setCatAbierta(null); setDrill((d) => d === cat ? null : cat); }} title="Ver los movimientos">
       <div className="muted" style={{ fontSize: '.68rem' }}>{titulo} 📊</div>
       <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800, color }}>{monto(valor, moneda)}</div>
     </div>
@@ -1954,13 +1970,51 @@ function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: Movimi
         <BarChart data={data} yFormatter={(v) => monto(v, moneda)} emptyMessage="Sin movimientos en el período."
           onBarClick={(_, i) => {
             const cat: CatResumen = i === 0 ? 'ingresos' : i === 1 ? 'egresos' : 'gastos';
+            setCatAbierta(null);
             setDrill((d) => d === cat ? null : cat);
           }} />
       </div>
 
-      <p className="muted" style={{ fontSize: '.74rem', margin: '0 0 .4rem' }}>📊 Tocá una barra o una tarjeta (Ingresos/Egresos/Gastos) para ver sus movimientos.</p>
+      <p className="muted" style={{ fontSize: '.74rem', margin: '0 0 .4rem' }}>📊 Tocá una barra o una tarjeta (Ingresos/Egresos/Gastos) para ver sus movimientos. Tocá un movimiento para ver <strong>todo su detalle</strong>.</p>
 
-      {drill && (
+      {/* Drill de GASTOS: agrupado por categoría, expandible; cada gasto abre su detalle. */}
+      {drill === 'gastos' && (
+        <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr><th>Categoría de gasto</th><th style={{ textAlign: 'right' }}>Gastos</th><th style={{ textAlign: 'right' }}>Total</th></tr></thead>
+            <tbody>
+              {!gastosPorCat.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin gastos.</td></tr>}
+              {gastosPorCat.map((c) => (
+                <Fragment key={c.categoria}>
+                  <tr style={{ cursor: 'pointer', background: catAbierta === c.categoria ? 'var(--bg-1)' : undefined, fontWeight: 600 }}
+                    onClick={() => setCatAbierta((k) => k === c.categoria ? null : c.categoria)}>
+                    <td>{catAbierta === c.categoria ? '▾' : '▸'} {c.categoria}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{c.movs.length}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>−{monto(c.total, moneda)}</td>
+                  </tr>
+                  {catAbierta === c.categoria && c.movs.map((m) => (
+                    <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => setMovSel(m)} title="Ver todo el detalle">
+                      <td style={{ paddingLeft: '1.6rem' }}>
+                        <span className="muted">{dateTime(m.at)}</span>
+                        {' · '}{[detalleGasto(m), m.motivo].filter(Boolean).join(' · ') || m.caja?.nombre || '—'} 🔍
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{m.gasto_correlativo != null ? `N° ${m.gasto_correlativo}` : ''}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)' }}>−{monto(m.monto, m.moneda)}</td>
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+            <tfoot><tr style={{ fontWeight: 700, borderTop: '2px solid var(--border, rgba(255,255,255,.15))' }}>
+              <td colSpan={2} style={{ textAlign: 'right' }}>Total gastos</td>
+              <td className="mono" style={{ textAlign: 'right' }}>{monto(totGastos, moneda)}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      )}
+
+      {/* Drill de INGRESOS / EGRESOS: lista plana; cada fila abre su detalle. */}
+      {drill && drill !== 'gastos' && (
         <div className="table-wrap" style={{ maxHeight: 280, overflow: 'auto' }}>
           <table className="table" style={{ fontSize: '.82rem' }}>
             <thead><tr><th>Fecha</th><th>Caja</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Monto</th></tr></thead>
@@ -1970,10 +2024,10 @@ function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: Movimi
                 const concepto = [CAT_LABEL[m.categoria ?? ''], detalleGasto(m), m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
                 const eg = esEgreso(m);
                 return (
-                  <tr key={m.id}>
+                  <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => setMovSel(m)} title="Ver todo el detalle">
                     <td>{dateTime(m.at)}</td>
                     <td>{m.caja?.nombre ?? '—'}</td>
-                    <td>{concepto}</td>
+                    <td>{concepto} 🔍</td>
                     <td className="mono" style={{ textAlign: 'right', color: eg ? 'var(--danger)' : 'var(--success)' }}>{eg ? '−' : '+'}{monto(m.monto, m.moneda)}</td>
                   </tr>
                 );
@@ -1986,6 +2040,8 @@ function ResumenMovimientosModal({ movimientos, onClose }: { movimientos: Movimi
           </table>
         </div>
       )}
+
+      {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={defaultEmail} onClose={() => setMovSel(null)} />}
     </Modal>
   );
 }
