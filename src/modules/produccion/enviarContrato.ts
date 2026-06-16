@@ -13,8 +13,8 @@ export async function enviarContratosPorCorreo(
     body: {
       pdf_base64: base64,
       nombre_archivo: nombre,
-      asunto: `Contratos de producción${meta.filtro ? ` · ${meta.filtro}` : ''}`,
-      mensaje: `Contratos de producción (${rows.length} registro(s)).`,
+      asunto: `Datos de Reporte Producción${meta.filtro ? ` · ${meta.filtro}` : ''}`,
+      mensaje: `Datos de Reporte Producción (${rows.length} registro(s)).`,
       to_emails: destinos,
     },
   });
