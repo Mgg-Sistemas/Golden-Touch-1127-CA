@@ -102,7 +102,7 @@ export function AcopioPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>📦 Centro de Acopio PERAMANAL</h1>
+          <h1>📦 Centro de Costo PERAMANAL</h1>
           <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
         <div className="actions">
