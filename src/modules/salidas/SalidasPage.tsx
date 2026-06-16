@@ -30,7 +30,7 @@ import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import {
   descargarResumenUnidadPdf, descargarResumenUnidadExcel, enviarResumenUnidadCorreo,
-  type SalidaResumenRow, type GrupoUnidad,
+  type SalidaResumenRow, type GrupoUnidad, type GrupoProducto,
 } from './resumenUnidadSalidas';
 
 type Scope = 'salidas' | 'traslados';
@@ -142,7 +142,7 @@ export function SalidasPage() {
           <p className="muted">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, el analista o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen-unidad' })}>📊 Resumen por unidad</button>
+          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen-unidad' })}>📊 Resumen de gasto (material)</button>
           {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
         </div>
       </div>
@@ -228,28 +228,39 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
 }) {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
+  const [dimension, setDimension] = useState<'unidad' | 'producto'>('unidad');
   const [drill, setDrill] = useState<string | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
   const [emails, setEmails] = useState(defaultEmail);
   const [busy, setBusy] = useState(false);
 
-  // Solo SALIDAS de MATERIAL ejecutadas = gasto real de material.
+  // SALIDAS y TRASLADOS de MATERIAL ejecutados = gasto de material (a costo PMP).
   const filas = useMemo<SalidaResumenRow[]>(() => {
     return solicitudes
-      .filter((s) => s.scope === 'salida' && s.tipo === 'material' && s.estado === 'ejecutada')
+      .filter((s) => (s.scope === 'salida' || s.scope === 'traslado') && s.tipo === 'material' && s.estado === 'ejecutada')
       .map((s) => {
         const at = s.ejecutada_en ?? s.created_at;
         const cantidad = Number(s.cantidad) || 0;
         const precio = Number(s.precio_unit) || 0;
+        const esTraslado = s.scope === 'traslado';
         return {
           unidad: (s.unidad_solicitante ?? '').trim() || 'Sin unidad',
-          at,
-          solicitante: s.solicitante || s.actor_name || s.actor || '—',
           producto: s.producto_nombre ?? '—',
+          at,
+          tipo: esTraslado ? 'Traslado' : 'Salida',
+          codigo: s.codigo ?? '',
+          solicitante: s.solicitante || s.actor_name || s.actor || '—',
+          autorizo: s.aprobada_por ?? '',
+          autorizadoEn: s.aprobada_en ?? '',
+          ejecutoPor: s.ejecutada_por ?? '',
+          origen: s.almacen_origen ?? '',
+          destinoTxt: esTraslado ? (s.almacen_destino ?? '') : (s.destino ?? ''),
+          motivo: s.motivo ?? '',
           cantidad,
+          precioUnit: precio,
           unidadMedida: '',
           monto: cantidad * precio,
-        };
+        } as SalidaResumenRow;
       })
       .filter((f) => {
         const dia = (f.at ?? '').slice(0, 10);
@@ -269,9 +280,27 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
     return [...m.values()].sort((a, b) => b.monto - a.monto);
   }, [filas]);
 
+  const gruposProd = useMemo<GrupoProducto[]>(() => {
+    const m = new Map<string, GrupoProducto>();
+    for (const f of filas) {
+      const g = m.get(f.producto) ?? { producto: f.producto, monto: 0, cantidad: 0, count: 0 };
+      g.monto += f.monto; g.cantidad += f.cantidad; g.count += 1;
+      m.set(f.producto, g);
+    }
+    return [...m.values()].sort((a, b) => b.monto - a.monto);
+  }, [filas]);
+
+  // Al cambiar de dimensión se cierra el drill-down abierto (las claves no se mezclan).
+  function cambiarDimension(d: 'unidad' | 'producto') { setDimension(d); setDrill(null); }
+
   const totalMonto = grupos.reduce((a, g) => a + g.monto, 0);
-  const data: ChartPoint[] = grupos.map((g) => ({ label: g.unidad, value: g.monto, tooltip: `${g.unidad}: ${money(g.monto)}` }));
-  const drillFilas = drill ? filas.filter((f) => f.unidad === drill).sort((a, b) => (a.at < b.at ? 1 : -1)) : [];
+  const porUnidad = dimension === 'unidad';
+  const data: ChartPoint[] = porUnidad
+    ? grupos.map((g) => ({ label: g.unidad, value: g.monto, tooltip: `${g.unidad}: ${money(g.monto)}` }))
+    : gruposProd.map((g) => ({ label: g.producto, value: g.monto, tooltip: `${g.producto}: ${money(g.monto)}` }));
+  const drillFilas = drill
+    ? filas.filter((f) => (porUnidad ? f.unidad : f.producto) === drill).sort((a, b) => (a.at < b.at ? 1 : -1))
+    : [];
   const meta = { desde: desde || null, hasta: hasta || null };
 
   async function exportar(fn: () => Promise<void>) {
@@ -283,7 +312,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
   async function enviar() {
     setBusy(true);
     try {
-      const { destinatarios } = await enviarResumenUnidadCorreo(emails.split(/[,\s;]+/), grupos, filas, meta);
+      const { destinatarios } = await enviarResumenUnidadCorreo(emails.split(/[,\s;]+/), grupos, gruposProd, filas, meta);
       toast(`Enviado a ${destinatarios.join(', ')}`, 'success');
       setEmailOpen(false);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar', 'error'); }
@@ -293,7 +322,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
   const footer = <button className="btn btn-primary" onClick={onClose}>Cerrar</button>;
 
   return (
-    <ModalUI title="📊 Gasto de material por unidad solicitante" size="lg" onClose={onClose} footer={footer}>
+    <ModalUI title="📊 Gasto de material (salidas y traslados)" size="lg" onClose={onClose} footer={footer}>
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.7rem' }}>
         <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
           Desde <input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
@@ -302,12 +331,18 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
           Hasta <input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
         </label>
         {(desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }}>✕ Fechas</button>}
-        <span className="muted" style={{ fontSize: '.78rem', marginLeft: 'auto' }}>{filas.length} salida(s) · {money(totalMonto)}</span>
+        <span className="muted" style={{ fontSize: '.78rem', marginLeft: 'auto' }}>{filas.length} movimiento(s) · {money(totalMonto)}</span>
+      </div>
+
+      {/* Dimensión del resumen: por unidad solicitante o por producto */}
+      <div className="view-toggle" role="tablist" aria-label="Agrupar por" style={{ marginBottom: '.6rem' }}>
+        <button className={porUnidad ? 'active' : ''} onClick={() => cambiarDimension('unidad')}>🏢 Por unidad solicitante</button>
+        <button className={!porUnidad ? 'active' : ''} onClick={() => cambiarDimension('producto')}>📦 Por producto</button>
       </div>
 
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
-        <button className="btn btn-sm btn-ghost" disabled={busy || !filas.length} onClick={() => void exportar(() => descargarResumenUnidadPdf(grupos, filas, meta))}>↓ PDF</button>
-        <button className="btn btn-sm btn-ghost" disabled={busy || !filas.length} onClick={() => void exportar(() => descargarResumenUnidadExcel(grupos, filas, meta))}>↓ Excel</button>
+        <button className="btn btn-sm btn-ghost" disabled={busy || !filas.length} onClick={() => void exportar(() => descargarResumenUnidadPdf(grupos, gruposProd, filas, meta))}>↓ PDF</button>
+        <button className="btn btn-sm btn-ghost" disabled={busy || !filas.length} onClick={() => void exportar(() => descargarResumenUnidadExcel(grupos, gruposProd, filas, meta))}>↓ Excel</button>
         <button className="btn btn-sm btn-ghost" disabled={busy || !filas.length} onClick={() => setEmailOpen((v) => !v)}>✉ Correo</button>
       </div>
       {emailOpen && (
@@ -317,25 +352,32 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
         </div>
       )}
 
-      {!filas.length && <EmptyState message="No hay salidas de material ejecutadas en el período." />}
+      {!filas.length && <EmptyState message="No hay salidas ni traslados de material ejecutados en el período." />}
 
       {filas.length > 0 && (
         <>
           <div className="card" style={{ padding: '.8rem', marginBottom: '.75rem' }}>
-            <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Gasto por unidad (USD)</span></div>
-            <BarChart data={data} yFormatter={(v) => money(v)} emptyMessage="Sin salidas en el período."
+            <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Gasto por {porUnidad ? 'unidad' : 'producto'} (USD)</span></div>
+            <BarChart data={data} yFormatter={(v) => money(v)} emptyMessage="Sin movimientos en el período."
               onBarClick={(p) => setDrill((d) => d === p.label ? null : p.label)} />
-            <p className="muted" style={{ fontSize: '.74rem', margin: '.4rem 0 0' }}>📊 Tocá una barra para ver el detalle de esa unidad.</p>
+            <p className="muted" style={{ fontSize: '.74rem', margin: '.4rem 0 0' }}>📊 Tocá una barra (o una fila) para ver el detalle de {porUnidad ? 'esa unidad' : 'ese producto'}.</p>
           </div>
 
-          {/* Tabla resumen por unidad (clic = drill-down) */}
+          {/* Tabla resumen (clic = drill-down) */}
           <div className="table-wrap" style={{ marginBottom: drill ? '.75rem' : 0 }}>
             <table className="table" style={{ fontSize: '.84rem' }}>
-              <thead><tr><th>Unidad solicitante</th><th style={{ textAlign: 'right' }}>Salidas</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Gasto (USD)</th></tr></thead>
+              <thead><tr><th>{porUnidad ? 'Unidad solicitante' : 'Producto'}</th><th style={{ textAlign: 'right' }}>Movs.</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Gasto (USD)</th></tr></thead>
               <tbody>
-                {grupos.map((g) => (
+                {porUnidad ? grupos.map((g) => (
                   <tr key={g.unidad} style={{ cursor: 'pointer', background: drill === g.unidad ? 'var(--bg-1)' : undefined }} onClick={() => setDrill((d) => d === g.unidad ? null : g.unidad)}>
                     <td>{g.unidad}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(g.count)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(g.cantidad)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(g.monto)}</td>
+                  </tr>
+                )) : gruposProd.map((g) => (
+                  <tr key={g.producto} style={{ cursor: 'pointer', background: drill === g.producto ? 'var(--bg-1)' : undefined }} onClick={() => setDrill((d) => d === g.producto ? null : g.producto)}>
+                    <td>{g.producto}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(g.count)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(g.cantidad)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(g.monto)}</td>
@@ -344,31 +386,42 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, onClose }: {
               </tbody>
               <tfoot><tr style={{ fontWeight: 700 }}>
                 <td style={{ textAlign: 'right' }}>TOTAL</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{num(grupos.reduce((a, g) => a + g.count, 0))}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{num(filas.length)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(grupos.reduce((a, g) => a + g.cantidad, 0))}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(totalMonto)}</td>
               </tr></tfoot>
             </table>
           </div>
 
-          {/* Drill-down: detalle de la unidad elegida */}
+          {/* Drill-down: detalle completo (cuándo salió, quién solicitó/autorizó, origen→destino) */}
           {drill && (
-            <div className="table-wrap" style={{ maxHeight: 280, overflow: 'auto' }}>
-              <div className="card-title" style={{ margin: '0 0 .35rem' }}>Detalle · {drill}</div>
-              <table className="table" style={{ fontSize: '.82rem' }}>
-                <thead><tr><th>Fecha y hora</th><th>Solicitó</th><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Gasto (USD)</th></tr></thead>
+            <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
+              <div className="card-title" style={{ margin: '0 0 .35rem' }}>Detalle · {drill} <span className="muted" style={{ fontWeight: 400 }}>({drillFilas.length} movimiento(s))</span></div>
+              <table className="table" style={{ fontSize: '.8rem' }}>
+                <thead><tr>
+                  <th>Fecha y hora</th><th>Tipo</th><th>Código</th>
+                  {porUnidad ? <th>Material</th> : <th>Unidad</th>}
+                  <th>Solicitó</th><th>Autorizó</th><th>Origen → Destino</th>
+                  <th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Costo u.</th><th style={{ textAlign: 'right' }}>Gasto (USD)</th>
+                </tr></thead>
                 <tbody>
                   {drillFilas.map((f, i) => (
                     <tr key={i}>
                       <td>{dateTime(f.at)}</td>
+                      <td>{f.tipo}</td>
+                      <td className="mono">{f.codigo}</td>
+                      <td>{porUnidad ? f.producto : f.unidad}</td>
                       <td>{f.solicitante}</td>
-                      <td>{f.producto}</td>
+                      <td title={f.autorizadoEn ? dateTime(f.autorizadoEn) : undefined}>{f.autorizo || '—'}</td>
+                      <td>{[f.origen, f.destinoTxt].filter(Boolean).join(' → ') || '—'}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{num(f.cantidad)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money(f.precioUnit)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{money(f.monto)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <p className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0' }}>Pasá el mouse sobre «Autorizó» para ver la fecha de autorización.</p>
             </div>
           )}
         </>
