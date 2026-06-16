@@ -753,6 +753,10 @@ export interface ItemSalida {
   unidad?: string | null;
   cantidad: number;
   precio_unit: number;
+  /** Almacén del que sale ESTE material. En salidas cada renglón puede salir de
+   *  un almacén distinto (se descuenta del que corresponde). En traslados todos
+   *  comparten el origen de la solicitud (queda en null). */
+  almacen?: string | null;
 }
 
 export interface SolicitudSalida {

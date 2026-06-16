@@ -160,10 +160,17 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const autorizo = sol.ejecutada_por || sol.aprobada_por || null;
   const creo = sol.actor_name || sol.actor || sol.solicitante;
 
+  // Renglones: varios (items) o uno solo (campos sueltos). Se muestran como factura.
+  const items = (sol.items && sol.items.length)
+    ? sol.items
+    : [{ producto_nombre: sol.producto_nombre || '—', producto_sku: null as string | null, unidad: null as string | null, cantidad: cant, precio_unit: precio, almacen: sol.almacen_origen ?? null }];
+  const total = items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0);
+
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
   const MARGIN = 42.52; // 1.5 cm
+  const lastY = () => (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? MARGIN;
   let y = MARGIN;
 
   // ── Encabezado: logo + título + N° ──
@@ -171,7 +178,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* opcional */ } }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
-  doc.text('ORDEN DE SALIDA', TX, y + 20);
+  doc.text(esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA', TX, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : 'Salida de material'}`, TX, y + 38);
   doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
@@ -179,73 +186,89 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
 
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 18;
+  y += 16;
   doc.setLineWidth(0.5); doc.setDrawColor(180);
 
-  // ── Emisor ──
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text('EMISOR', MARGIN, y);
-  y += 14;
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Mineral Group Guayana C.A.', MARGIN, y);
-  doc.text('Sistema de Gestión de Inventarios', MARGIN, y + 12);
-  y += 30;
+  // ── Datos en dos columnas (estilo factura): Emisor / Solicitud ──
+  const COLGAP = 22;
+  const HALF = (PAGE_W - MARGIN * 2 - COLGAP) / 2;
+  const infoY = y;
 
-  // ── Detalle de la salida ──
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text('DETALLE DE LA SALIDA', MARGIN, y);
-  y += 8;
-  const esMulti = !!(sol.items && sol.items.length);
-  const ficha: Array<[string, string]> = [
-    ...(esMulti ? [] : ([
-      ['Material a salir', sol.producto_nombre || '—'],
-      ['Cantidad', fmt.num(cant)],
-    ] as Array<[string, string]>)),
-    [esTraslado ? 'Almacén origen' : 'Almacén de salida', sol.almacen_origen || '—'],
-    [esTraslado ? 'Almacén destino' : 'Dirigido a', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
-    ...((!esMulti && precio) ? ([
-      ['Precio unitario', `${fmt.money(precio)} USD`],
-      ['Precio total', `${fmt.money(precio * cant)} USD`],
-    ] as Array<[string, string]>) : []),
-    ['Motivo de la salida', sol.motivo || '—'],
-    ['Solicitado por', sol.solicitante || '—'],
+  const izquierda: Array<[string, string]> = [
+    ['Mineral Group Guayana C.A.', ''],
+    ['Sistema de Gestión de Inventarios', ''],
+    ['Solicitado por', sol.solicitante || creo || '—'],
     ...(sol.unidad_solicitante ? [['Unidad solicitante', sol.unidad_solicitante] as [string, string]] : []),
+    [esTraslado ? 'Almacén origen' : 'Almacén de salida', sol.almacen_origen || '—'],
+    ...(esTraslado ? [['Almacén destino', sol.almacen_destino || '—'] as [string, string]] : []),
+  ];
+  const derecha: Array<[string, string]> = [
     ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
-    ['Autorizado por', autorizo || '— (pendiente de aprobación) —'],
+    ['Autorizado por', autorizo || '— (pendiente) —'],
     ...(sol.aprobada_en ? [['Aprobada el', fmt.dateTime(sol.aprobada_en)] as [string, string]] : []),
     ...(sol.ejecutada_en ? [['Ejecutada el', fmt.dateTime(sol.ejecutada_en)] as [string, string]] : []),
   ];
-  autoTable(doc, {
-    startY: y, body: ficha, theme: 'plain',
-    styles: { fontSize: 10, cellPadding: 3.5 },
-    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 170 }, 1: { cellWidth: 'auto' } },
-    margin: MARGIN,
-  });
 
-  // Tabla de materiales (solicitudes con varios renglones).
-  if (esMulti && sol.items) {
-    const itemsTotal = sol.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0);
-    // @ts-expect-error lastAutoTable lo agrega jspdf-autotable en runtime
-    const afterFichaY = (doc.lastAutoTable?.finalY ?? y) + 14;
-    autoTable(doc, {
-      startY: afterFichaY,
-      head: [['Material', 'Cantidad', 'P. unit. (USD)', 'Subtotal (USD)']],
-      body: sol.items.map((it) => [
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(120);
+  doc.text('EMISOR / SOLICITUD', MARGIN, infoY);
+  doc.text('DOCUMENTO', MARGIN + HALF + COLGAP, infoY);
+  doc.setTextColor(20);
+  autoTable(doc, {
+    startY: infoY + 6, body: izquierda, theme: 'plain',
+    styles: { fontSize: 9, cellPadding: 2 },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 120 }, 1: { cellWidth: 'auto' } },
+    margin: { left: MARGIN, right: MARGIN }, tableWidth: HALF,
+  });
+  const izqFin = lastY();
+  autoTable(doc, {
+    startY: infoY + 6, body: derecha, theme: 'plain',
+    styles: { fontSize: 9, cellPadding: 2 },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 95 }, 1: { cellWidth: 'auto' } },
+    margin: { left: MARGIN + HALF + COLGAP, right: MARGIN }, tableWidth: HALF,
+  });
+  y = Math.max(izqFin, lastY()) + 16;
+
+  // ── Tabla de productos (factura) ──
+  // En salidas se muestra el almacén de cada renglón (puede salir de varios).
+  const conAlmacen = !esTraslado && items.some((it) => it.almacen);
+  autoTable(doc, {
+    startY: y,
+    head: [conAlmacen
+      ? ['#', 'Producto', 'Almacén', 'Cantidad', 'Precio USD', 'Total USD']
+      : ['#', 'Producto', 'Cantidad', 'Precio USD', 'Total USD']],
+    body: items.map((it, i) => {
+      const base = [
+        String(i + 1),
         `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`,
+      ];
+      if (conAlmacen) base.push(it.almacen ?? sol.almacen_origen ?? '—');
+      return [
+        ...base,
         `${fmt.num(Number(it.cantidad) || 0)} ${it.unidad ?? ''}`.trim(),
         fmt.money(Number(it.precio_unit) || 0),
         fmt.money((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0)),
-      ]),
-      foot: [['', '', 'TOTAL', fmt.money(itemsTotal)]],
-      theme: 'grid',
-      headStyles: { fillColor: [255, 138, 0], textColor: 255 },
-      footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-      styles: { fontSize: 9, cellPadding: 4 },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-      margin: MARGIN,
-    });
-  }
+      ];
+    }),
+    foot: [conAlmacen ? ['', '', '', '', 'TOTAL', fmt.money(total)] : ['', '', '', 'TOTAL', fmt.money(total)]],
+    theme: 'grid',
+    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+    footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
+    styles: { fontSize: 9.5, cellPadding: 5 },
+    columnStyles: conAlmacen
+      ? { 0: { halign: 'center', cellWidth: 22 }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } }
+      : { 0: { halign: 'center', cellWidth: 26 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    margin: MARGIN,
+  });
+  y = lastY() + 18;
+
+  // ── Observaciones / notas ──
+  const notas = [sol.motivo?.trim(), sol.nota_entrega?.trim()].filter(Boolean).join(' · ') || '—';
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(120);
+  doc.text('OBSERVACIONES / NOTAS', MARGIN, y);
+  doc.setTextColor(20); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+  const notasWrap = doc.splitTextToSize(notas, PAGE_W - MARGIN * 2);
+  doc.text(notasWrap, MARGIN, y + 15);
 
   // ── Firmas al pie ──
   const fy = PAGE_H - MARGIN - 50;
@@ -263,5 +286,5 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
 
-  doc.save(`orden-salida-${sol.codigo}.pdf`);
+  doc.save(`orden-${esTraslado ? 'traslado' : 'salida'}-${sol.codigo}.pdf`);
 }

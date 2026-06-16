@@ -232,6 +232,7 @@ function normalizarItemsSalida(input: CrearSolicitudSalidaInput): ItemSalida[] {
       unidad: i.unidad ?? null,
       cantidad: Number(i.cantidad) || 0,
       precio_unit: Number(i.precio_unit) || 0,
+      almacen: i.almacen ?? null,
     }));
   }
   if (input.productoId && (Number(input.cantidad) || 0) > 0) {
@@ -242,6 +243,7 @@ function normalizarItemsSalida(input: CrearSolicitudSalidaInput): ItemSalida[] {
       unidad: null,
       cantidad: Number(input.cantidad) || 0,
       precio_unit: Number(input.precioUnit) || 0,
+      almacen: input.almacenOrigen ?? null,
     }];
   }
   return [];
@@ -254,10 +256,14 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
   if (input.tipo === 'material') {
     items = normalizarItemsSalida(input);
     if (!items.length) throw new Error('Agregá al menos un material con cantidad.');
-    if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
     if (input.scope === 'traslado') {
+      // El traslado mueve todo de un almacén origen a un destino (a nivel solicitud).
+      if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
       if (!input.almacenDestino) throw new Error('Indicá el almacén destino.');
       if (input.almacenOrigen === input.almacenDestino) throw new Error('El almacén origen y destino deben ser distintos.');
+    } else {
+      // La salida descuenta cada material de SU almacén (el de cada renglón).
+      if (items.some((i) => !i.almacen)) throw new Error('Cada material debe indicar de qué almacén sale.');
     }
     // La salida de material NO lleva destino (a quién va dirigido): solo el traslado.
   } else {
@@ -281,6 +287,12 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
     ? items[0].producto_nombre
     : `${items.length} materiales`;
   const precioProm = cantTotal > 0 ? montoTotal / cantTotal : 0;
+  // Almacén origen de cabecera: en traslado viene de la solicitud; en salida es
+  // el almacén común de los renglones (o null si salen de varios distintos).
+  const almacenesItems = [...new Set(items.map((i) => i.almacen).filter(Boolean))] as string[];
+  const almacenOrigenCab = input.scope === 'traslado'
+    ? (input.almacenOrigen ?? null)
+    : (almacenesItems.length === 1 ? almacenesItems[0] : (input.almacenOrigen ?? null));
 
   const codigo = await nextCodigoSolicitudSalida(input.scope);
   const historial = appendHistorial({ historial: [] }, 'creada', input.actor);
@@ -294,7 +306,7 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       items: esMulti ? items : null,
       producto_id: esMulti ? (items.length === 1 ? items[0].producto_id : null) : (input.productoId ?? null),
       producto_nombre: esMulti ? resumenNombre : (input.productoNombre ?? null),
-      almacen_origen: input.almacenOrigen ?? null,
+      almacen_origen: almacenOrigenCab,
       almacen_destino: input.almacenDestino ?? null,
       cantidad: esMulti ? cantTotal : (input.cantidad != null ? Number(input.cantidad) : null),
       precio_unit: esMulti ? precioProm : (input.precioUnit != null ? Number(input.precioUnit) : null),
@@ -353,18 +365,21 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   let movRef = '';
   if (s.scope === 'salida' && s.tipo === 'material') {
     if (!itemsMat.length) throw new Error('La solicitud no tiene materiales.');
+    // Cada renglón sale de SU almacén (o del de cabecera, para solicitudes viejas).
+    const almDe = (it: ItemSalida) => it.almacen || s.almacen_origen || '';
     // Pre-validación: que TODOS los renglones tengan stock antes de mover nada
     // (reduce ejecuciones a medias; la atomicidad real queda pendiente en servidor).
     for (const it of itemsMat) {
-      const ex = await getExistencia(it.producto_id, s.almacen_origen!);
+      const alm = almDe(it);
+      const ex = await getExistencia(it.producto_id, alm);
       const stock = Number(ex?.stock) || 0;
       if ((Number(it.cantidad) || 0) > stock) {
-        throw new Error(`Stock insuficiente de ${it.producto_nombre || 'un material'} en ${s.almacen_origen}. Disponible: ${stock}.`);
+        throw new Error(`Stock insuficiente de ${it.producto_nombre || 'un material'} en ${alm}. Disponible: ${stock}.`);
       }
     }
     for (const it of itemsMat) {
       const mov = await salidaMaterial({
-        productoId: it.producto_id, almacen: s.almacen_origen!, cantidad: Number(it.cantidad) || 0,
+        productoId: it.producto_id, almacen: almDe(it), cantidad: Number(it.cantidad) || 0,
         destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit,
         fechaEntrega: s.fecha_entrega, actor, actorName,
       });

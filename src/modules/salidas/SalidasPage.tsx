@@ -262,8 +262,8 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
         const esTraslado = s.scope === 'traslado';
         // Una fila por material (solicitudes multi-ítem) o una sola (legado).
         const renglones = (s.items && s.items.length)
-          ? s.items.map((it) => ({ nombre: it.producto_nombre ?? '—', cantidad: Number(it.cantidad) || 0, precio: Number(it.precio_unit) || 0, unidad: it.unidad ?? '' }))
-          : [{ nombre: s.producto_nombre ?? '—', cantidad: Number(s.cantidad) || 0, precio: Number(s.precio_unit) || 0, unidad: '' }];
+          ? s.items.map((it) => ({ nombre: it.producto_nombre ?? '—', cantidad: Number(it.cantidad) || 0, precio: Number(it.precio_unit) || 0, unidad: it.unidad ?? '', almacen: it.almacen ?? s.almacen_origen ?? '' }))
+          : [{ nombre: s.producto_nombre ?? '—', cantidad: Number(s.cantidad) || 0, precio: Number(s.precio_unit) || 0, unidad: '', almacen: s.almacen_origen ?? '' }];
         return renglones.map((r) => ({
           unidad: (s.unidad_solicitante ?? '').trim() || 'Sin unidad',
           producto: r.nombre,
@@ -274,7 +274,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
           autorizo: s.aprobada_por ? nombreDe(s.aprobada_por) : '',
           autorizadoEn: s.aprobada_en ?? '',
           ejecutoPor: s.ejecutada_por ? nombreDe(s.ejecutada_por) : '',
-          origen: s.almacen_origen ?? '',
+          origen: r.almacen,
           destinoTxt: esTraslado ? (s.almacen_destino ?? '') : (s.destino ?? ''),
           motivo: s.motivo ?? '',
           cantidad: r.cantidad,
@@ -676,18 +676,19 @@ function SolicitudDetalleModal({
                   <td className="muted">Materiales</td>
                   <td>
                     <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
-                      <thead><tr><th>Producto</th><th className="num">Cantidad</th><th className="num">P. unit.</th><th className="num">Subtotal</th></tr></thead>
+                      <thead><tr><th>Producto</th>{sol.scope !== 'traslado' && <th>Almacén</th>}<th className="num">Cantidad</th><th className="num">P. unit.</th><th className="num">Subtotal</th></tr></thead>
                       <tbody>
                         {sol.items.map((it, i) => (
                           <tr key={i}>
                             <td>{it.producto_nombre}{it.producto_sku ? ` · ${it.producto_sku}` : ''}</td>
+                            {sol.scope !== 'traslado' && <td>{it.almacen ?? sol.almacen_origen ?? '—'}</td>}
                             <td className="num mono">{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
                             <td className="num mono">{money(Number(it.precio_unit) || 0)}</td>
                             <td className="num mono">{money((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0))}</td>
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot><tr><td colSpan={3} className="num"><strong>Total</strong></td><td className="num mono"><strong>{money(sol.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0))}</strong></td></tr></tfoot>
+                      <tfoot><tr><td colSpan={sol.scope !== 'traslado' ? 4 : 3} className="num"><strong>Total</strong></td><td className="num mono"><strong>{money(sol.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0))}</strong></td></tr></tfoot>
                     </table>
                   </td>
                 </tr>
