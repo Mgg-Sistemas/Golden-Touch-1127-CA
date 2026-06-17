@@ -9,7 +9,7 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl } from './ofertas.repository';
+import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, eliminarOferta } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
@@ -63,6 +63,10 @@ export function OfertasComparativa({
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [confirmando, setConfirmando] = useState<ScoredOferta | null>(null);
+  // Detalle por ítem que se despliega al hacer click en un proveedor.
+  const [expandido, setExpandido] = useState<string | null>(null);
+  // Oferta a eliminar (confirmación).
+  const [aEliminar, setAEliminar] = useState<OfertaProveedor | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,10 +117,23 @@ export function OfertasComparativa({
     }
   }
 
+  async function confirmarEliminar(of: OfertaProveedor) {
+    try {
+      await eliminarOferta(of.id);
+      setOfertas((prev) => prev.filter((o) => o.id !== of.id));
+      if (expandido === of.id) setExpandido(null);
+      toast('Oferta eliminada', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo eliminar la oferta', 'error');
+    } finally {
+      setAEliminar(null);
+    }
+  }
+
   // Las ofertas se cargan/eligen sobre la OP ya APROBADA (etapa Orden de Compra).
   const enEtapaOc = orden.estado === 'aprobada' || orden.estado === 'desistida_proveedor';
-  // Cotizaciones: mínimo 2 para poder elegir, máximo 4 para cargar.
-  const MIN_OFERTAS = 2, MAX_OFERTAS = 4;
+  // Cotizaciones: mínimo 1 para poder elegir, máximo 6 para cargar.
+  const MIN_OFERTAS = 1, MAX_OFERTAS = 6;
   const minOk = ofertas.length >= MIN_OFERTAS;
   const puedeDecidir = canDecidir && enEtapaOc && minOk;
   const puedeAgregar = (canCrearOferta ?? canDecidir) && enEtapaOc && ofertas.length < MAX_OFERTAS;
@@ -183,17 +200,14 @@ export function OfertasComparativa({
               return (
                 <Fragment key={s.oferta.id}>
                   <tr
-                    className={seleccionable ? 'row-selectable' : undefined}
-                    onClick={seleccionable ? () => setConfirmando(s) : undefined}
-                    title={seleccionable ? 'Clic para aceptar esta oferta' : undefined}
-                    style={{
-                      background: rowBg,
-                      cursor: seleccionable ? 'pointer' : undefined,
-                      borderBottom: seleccionable ? 'none' : undefined,
-                    }}
+                    className="row-selectable"
+                    onClick={() => setExpandido((id) => (id === s.oferta.id ? null : s.oferta.id))}
+                    title="Clic para ver el detalle por ítem"
+                    style={{ background: rowBg, cursor: 'pointer', borderBottom: 'none' }}
                   >
                     <td>
                       <div>
+                        <span className="muted" style={{ marginRight: '.35rem' }}>{expandido === s.oferta.id ? '▾' : '▸'}</span>
                         <strong>{prov?.razon_social ?? '—'}</strong>{' '}
                         {recomendada && <span className="badge primary" style={{ marginLeft: '.4rem' }}>★ Recomendada</span>}
                         {aceptada && <span className="badge success" style={{ marginLeft: '.4rem' }}>Aceptada</span>}
@@ -250,6 +264,56 @@ export function OfertasComparativa({
                       {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
                     </td>
                   </tr>
+                  {expandido === s.oferta.id && (
+                    <tr style={{ background: rowBg }}>
+                      <td colSpan={9} style={{ paddingTop: 0 }}>
+                        <div style={{ padding: '.4rem .2rem .7rem' }}>
+                          <div className="card-title" style={{ fontSize: '.82rem', marginBottom: '.35rem' }}>
+                            <span>Detalle de precios por ítem · {prov?.razon_social ?? '—'}</span>
+                          </div>
+                          <table className="table" style={{ fontSize: '.82rem' }}>
+                            <thead>
+                              <tr><th>SKU</th><th>Producto</th><th className="num">Cantidad</th><th className="num">Precio unit.</th><th className="num">Subtotal</th></tr>
+                            </thead>
+                            <tbody>
+                              {s.oferta.items.map((it, i) => {
+                                const cant = Number(it.cantidad) || 0;
+                                const precio = Number(it.precio) || 0;
+                                return (
+                                  <tr key={`${it.productoId ?? it.sku ?? i}`}>
+                                    <td className="mono">{it.sku ?? '—'}</td>
+                                    <td>{it.nombre}</td>
+                                    <td className="num mono">{cant}{it.unidad ? ` ${it.unidad}` : ''}</td>
+                                    <td className="num mono">{money(precio)}</td>
+                                    <td className="num mono">{money(cant * precio)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ fontWeight: 700 }}>
+                                <td colSpan={4} style={{ textAlign: 'right' }}>Total oferta (BCV)</td>
+                                <td className="num mono">{money(s.oferta.precio_total)}</td>
+                              </tr>
+                              {s.oferta.precio_divisa != null && (
+                                <tr>
+                                  <td colSpan={4} style={{ textAlign: 'right' }} className="muted">Total si paga en divisa / efectivo</td>
+                                  <td className="num mono">{money(Number(s.oferta.precio_divisa))}</td>
+                                </tr>
+                              )}
+                            </tfoot>
+                          </table>
+                          {(canCrearOferta ?? canDecidir) && s.oferta.estado === 'pendiente' && (
+                            <div style={{ textAlign: 'right', marginTop: '.4rem' }}>
+                              <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setAEliminar(s.oferta); }}>
+                                🗑 Eliminar esta oferta
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {seleccionable && (
                     <tr
                       className="row-selectable"
@@ -273,9 +337,42 @@ export function OfertasComparativa({
         </table>
       </div>
 
+      {/* Recomendación: qué proveedor conviene por precio / calidad / score global. */}
+      {ofertas.length > 0 && (() => {
+        const mejorPrecioOf = scored.find((s) => s.mejorPrecio);
+        const mejorCalidadOf = scored.find((s) => s.mejorCalidad);
+        const recomendadaOf = scored.find((s) => s.recomendada) ?? scored[0];
+        const nombre = (s?: ScoredOferta) => (s ? (proveedorMap.get(s.oferta.proveedor_id)?.razon_social ?? '—') : '—');
+        return (
+          <div className="card" style={{ marginTop: '.8rem', background: 'var(--surface-2)' }}>
+            <div className="card-title" style={{ fontSize: '.85rem' }}><span>¿Qué proveedor seleccionar?</span></div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.6rem' }}>
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>💲 Mejor precio</div>
+                <div style={{ fontWeight: 700 }}>{nombre(mejorPrecioOf)}</div>
+                {mejorPrecioOf && <div className="mono" style={{ fontSize: '.8rem' }}>{money(mejorPrecioOf.oferta.precio_total)}{mejorPrecioOf.oferta.precio_divisa != null ? ` · divisa ${money(Number(mejorPrecioOf.oferta.precio_divisa))}` : ''}</div>}
+              </div>
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>⭐ Mejor calidad</div>
+                <div style={{ fontWeight: 700 }}>{nombre(mejorCalidadOf)}</div>
+                {mejorCalidadOf && <div className="mono" style={{ fontSize: '.8rem' }}>{mejorCalidadOf.stats.calidad_avg.toFixed(1)} / 5</div>}
+              </div>
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>🏆 Recomendada (score global)</div>
+                <div style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{nombre(recomendadaOf)}</div>
+                {recomendadaOf && <div className="mono" style={{ fontSize: '.8rem' }}>Score {(recomendadaOf.score.total * 100).toFixed(0)}</div>}
+              </div>
+            </div>
+            <div className="muted" style={{ fontSize: '.72rem', marginTop: '.5rem' }}>
+              El score combina precio, puntualidad, calidad y cumplimiento. Podés elegir por el criterio que prefieras.
+            </div>
+          </div>
+        );
+      })()}
+
       {enEtapaOc && canDecidir && !minOk && (
         <p className="muted" style={{ marginTop: '.6rem', fontSize: '.82rem' }}>
-          Cargá al menos {MIN_OFERTAS} cotizaciones (máximo {MAX_OFERTAS}) para poder elegir la oferta ganadora.
+          Cargá al menos {MIN_OFERTAS} cotización(es) (máximo {MAX_OFERTAS}) para poder elegir la oferta ganadora.
         </p>
       )}
       {enEtapaOc && !canDecidir && (
@@ -291,6 +388,17 @@ export function OfertasComparativa({
           confirmText="Elegir oferta"
           onConfirm={() => confirmarAceptacion(confirmando)}
           onCancel={() => setConfirmando(null)}
+        />
+      )}
+
+      {aEliminar && (
+        <ConfirmDialog
+          title="Eliminar oferta"
+          message={`¿Eliminar la oferta de ${proveedorMap.get(aEliminar.proveedor_id)?.razon_social ?? 'este proveedor'}? Se quita de la comparativa.`}
+          confirmText="Eliminar"
+          danger
+          onConfirm={() => confirmarEliminar(aEliminar)}
+          onCancel={() => setAEliminar(null)}
         />
       )}
     </div>
