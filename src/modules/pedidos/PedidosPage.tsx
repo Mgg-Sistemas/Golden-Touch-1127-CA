@@ -274,6 +274,9 @@ export function PedidosPage() {
   // de la OC sigue reservado al admin (regla de negocio).
   const canWrite = isAdmin || can('pedidos', 'escritura');
   const canManageProcurement = canWrite;
+  // "Full control" sobre Pedidos = puede TODO, incluida la aprobación final de OC/OP
+  // (antes reservada solo al admin). El admin siempre puede.
+  const puedeAprobarPedidos = isAdmin || can('pedidos', 'full');
 
   // Quien no gestiona compras solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
   useEffect(() => {
@@ -494,7 +497,7 @@ export function PedidosPage() {
         <OrdenesTable
           ordenes={filteredOrdenes}
           proveedorMap={proveedorMap}
-          isAdmin={isAdmin}
+          isAdmin={puedeAprobarPedidos}
           onView={(id) => setModal({ kind: 'detail', ordenId: id })}
           onApprove={(o) => setModal({ kind: 'approve', orden: o })}
         />
@@ -509,7 +512,7 @@ export function PedidosPage() {
           proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
           personaMap={personaMap}
-          isAdmin={isAdmin}
+          isAdmin={puedeAprobarPedidos}
           canManageProcurement={canManageProcurement}
           enOc={scope === 'oc'}
           actorEmail={user?.email ?? ''}
