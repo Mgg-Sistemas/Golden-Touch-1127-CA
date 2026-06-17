@@ -1661,9 +1661,11 @@ function OrdenDetailModal({
   const isFinalizada = o.estado === 'finalizada';
   // Las ofertas (añadir proveedor) se gestionan SOLO desde la pestaña Órdenes de Compra.
   const mostrarOfertas = enOc && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada'].includes(o.estado);
-  // Editar la OC: solo en la etapa «Pendiente (cargar ofertas)» y mientras no haya
-  // una oferta con precio (total = 0), para no descuadrar montos ya cotizados.
-  const puedeEditarOc = enOc && o.estado === 'aprobada' && Number(o.total) === 0 && canManageProcurement;
+  // Editar la orden: en CUALQUIER etapa previa a la aprobación de la OC por el
+  // Gerente General (firma). Una vez que el GG aprueba, queda congelada.
+  const puedeEditarOc = canManageProcurement
+    && !o.oc_aprobada_en && !o.oc_aprobada_por
+    && (['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'] as string[]).includes(o.estado);
 
   // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
   const creditoSaldadoDet = isCuentaAbierta && (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
@@ -1736,8 +1738,8 @@ function OrdenDetailModal({
         </button>
       )}
       {puedeEditarOc && (
-        <button className="btn btn-ghost" onClick={onEditarOrden} title="Modificar los ítems, cantidades, motivo y finalidad de la OC">
-          ✎ Editar OC
+        <button className="btn btn-ghost" onClick={onEditarOrden} title="Modificar ítems, cantidades, motivo y finalidad (permitido hasta que el GG apruebe la OC)">
+          ✎ Editar orden
         </button>
       )}
       {canCancel && (
@@ -2847,10 +2849,15 @@ function EditarOrdenModal({
   );
 
   return (
-    <Modal title={`Editar OC · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
+    <Modal title={`Editar orden · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.8rem' }}>
-        Modificá los ítems, cantidades, motivo y finalidad. Solo disponible antes de elegir una oferta con precio.
+        Modificá los ítems, cantidades, motivo y finalidad. Disponible hasta que el Gerente General apruebe la OC.
       </p>
+      {Number(orden.total) > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.6rem', fontSize: '.8rem' }}>
+          ⚠ Esta orden ya tiene una oferta con precio elegida. Si cambiás los ítems o cantidades, deberás <strong>volver a evaluar la oferta</strong> para recalcular el monto.
+        </div>
+      )}
 
       <div className="form-row">
         <label>Productos solicitados</label>
