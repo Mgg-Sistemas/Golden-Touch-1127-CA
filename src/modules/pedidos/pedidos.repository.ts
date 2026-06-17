@@ -199,19 +199,25 @@ export async function actualizarComprarItems(
   return data as Orden;
 }
 
+/** Estados en los que la orden todavía se puede editar: TODO el trámite antes de
+ *  que el Gerente General apruebe la OC (firma). A partir de `oc_aprobada` se congela. */
+const ESTADOS_EDITABLES_ORDEN: EstadoOrden[] = ['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'];
+
 /**
- * Modifica una OC mientras está en etapa de sourcing (sin oferta aceptada, total = 0).
- * Permite cambiar los ítems (cantidades, agregar/quitar, comprar), el motivo y la
- * finalidad. Se bloquea en cuanto hay una oferta con precio para no descuadrar montos.
+ * Modifica una orden mientras NO la haya aprobado el Gerente General. Permite cambiar
+ * los ítems (cantidades, agregar/quitar, comprar), el motivo y la finalidad en cualquier
+ * etapa previa a la firma del GG. Una vez aprobada la OC, queda congelada.
  */
 export async function actualizarOrdenEditable(
   o: Orden,
   patch: { items?: ItemOrden[]; motivo?: string | null; finalidad?: string | null },
   actorEmail: string,
 ): Promise<Orden> {
-  if (Number(o.total) > 0) throw new Error('La OC ya tiene una oferta con precio: no se puede modificar.');
-  if (!['pendiente', 'aprobada'].includes(o.estado)) {
-    throw new Error('Solo se puede modificar la OC antes de elegir una oferta (estado «cargar ofertas»).');
+  if (o.oc_aprobada_en || o.oc_aprobada_por || o.estado === 'oc_aprobada') {
+    throw new Error('La OC ya fue aprobada por el Gerente General: no se puede modificar.');
+  }
+  if (!ESTADOS_EDITABLES_ORDEN.includes(o.estado)) {
+    throw new Error('Solo se puede modificar la orden antes de que el Gerente General apruebe la OC.');
   }
   if (patch.items && !patch.items.length) throw new Error('La OC debe tener al menos un ítem.');
   if (patch.items && !patch.items.some((i) => i.comprar !== false)) {
