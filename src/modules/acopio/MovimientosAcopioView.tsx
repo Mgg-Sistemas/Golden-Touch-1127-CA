@@ -196,6 +196,11 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
   const ascFiltradas = ordenDesc ? mostradas.slice().reverse() : mostradas;
   const saldoVista = ascFiltradas.length ? ascFiltradas[ascFiltradas.length - 1].saldoKgCasiterita : 0;
 
+  // "$Usd Facturados" solo se muestra si ALGÚN movimiento trae facturación (> 0).
+  const mostrarFacturados = filas.some((f) => (f.usdFacturados ?? 0) > 0);
+  // Columnas: Fecha, Descripción, Entregado, Kg, [Facturados?], Gastos, Saldo $Usd, Saldo Kg, [acciones?].
+  const totalCols = 7 + (mostrarFacturados ? 1 : 0) + (canWrite ? 1 : 0);
+
   // El switch «Listar movimientos» de la página controla si se muestra la tabla.
   // Aunque esté oculta, el componente sigue montado para alimentar las tarjetas (onResumen).
   if (!visible) return null;
@@ -244,9 +249,8 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
                 <th>Descripción</th>
                 <th>$Usd entregado</th>
                 <th>Kg Cerrados</th>
-                <th>$Usd Facturados</th>
-                <th>Gastos GT</th>
-                <th>Nóminas GT</th>
+                {mostrarFacturados && <th>$Usd Facturados</th>}
+                <th>Gastos</th>
                 <th>Saldo en moneda $ Usd</th>
                 <th title="Saldo corrido = saldo anterior + Kg Cerrados − Kg Recibidos por MGG">Saldo en Kg de casiterita ⓘ</th>
                 {canWrite && <th></th>}
@@ -254,7 +258,7 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
             </thead>
             <tbody>
               {!mostradas.length && (
-                <tr><td colSpan={canWrite ? 10 : 9} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={totalCols} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {mostradas.map((f) => {
                 const movId = f.id.startsWith('m-') ? f.id.slice(2) : null;
@@ -277,9 +281,9 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
                   <td className="mono">{f.usdEntregado == null ? '—' : money(f.usdEntregado)}</td>
                   {/* Kg que aporta el contrato al cerrarse → resaltado */}
                   <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(f.kgCerrados)}</td>
-                  <td className="mono">{money(f.usdFacturados)}</td>
-                  <td className="mono">{f.gastosGt == null ? '—' : money(f.gastosGt)}</td>
-                  <td className="mono">{f.nominasGt == null ? '—' : money(f.nominasGt)}</td>
+                  {mostrarFacturados && <td className="mono">{money(f.usdFacturados)}</td>}
+                  {/* Gastos = Gastos GT + Nómina GT unificados */}
+                  <td className="mono">{(() => { const g = (f.gastosGt ?? 0) + (f.nominasGt ?? 0); return g === 0 && f.gastosGt == null && f.nominasGt == null ? '—' : money(g); })()}</td>
                   <td className="mono"><strong>{money(f.saldoUsd)}</strong></td>
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
@@ -300,7 +304,8 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
                 <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Totales</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--success, #45c08a)' }}>{totUsdEntregadoVista ? money(totUsdEntregadoVista) : '—'}</td>
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
-                <td colSpan={4}></td>
+                {/* Facturados (si se muestra) + Gastos + Saldo $Usd quedan vacíos en la fila de totales */}
+                <td colSpan={mostrarFacturados ? 3 : 2}></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>
                 {canWrite && <td></td>}
               </tr>

@@ -149,8 +149,7 @@ export function AcopioPage() {
         </div>
         <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
         <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
-        <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div></div>
-        <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div></div>
+        <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos + resumen.nominas)}</div><div className="muted" style={{ fontSize: '.72rem' }}>incluye nómina</div></div>
       </div>
 
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí).
@@ -202,9 +201,6 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   const [gastos, setGastos] = useState('');
   const [gastoCat, setGastoCat] = useState('');
   const [descGastos, setDescGastos] = useState('');
-  const [nominas, setNominas] = useState('');
-  const [nominaCat, setNominaCat] = useState('');
-  const [descNominas, setDescNominas] = useState('');
   const [traslado, setTraslado] = useState('');
   const [descTraslado, setDescTraslado] = useState('');
   const [kgRecibidos, setKgRecibidos] = useState('');
@@ -214,27 +210,35 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { listClasificacionesAll().then(setCats).catch(() => setCats([])); }, []);
-  const gastosCats = useMemo(() => cats.filter((c) => c.grupo === 'gastos_caja' && c.activo), [cats]);
-  const nominaCats = useMemo(() => cats.filter((c) => c.grupo === 'nomina' && c.activo), [cats]);
+  // Gastos + Nómina unificados en UNA sola lista buscable. El grupo de cada
+  // categoría se conserva para enrutar el monto al campo correcto al guardar.
+  const catsUnificadas = useMemo(
+    () => cats.filter((c) => (c.grupo === 'gastos_caja' || c.grupo === 'nomina') && c.activo),
+    [cats],
+  );
 
   // Redondeo a 2 decimales para los montos en $.
   const r2 = (s: string) => Math.round((Number(s) || 0) * 100) / 100;
 
   async function guardar() {
     setError(null);
-    const gas = r2(gastos), nom = r2(nominas), tras = r2(traslado);
+    const gas = r2(gastos), tras = r2(traslado);
     const kg = Number(kgRecibidos) || 0;
-    if (gas <= 0 && nom <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
-    if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto (Gastos GT).'); return; }
-    if (nom > 0 && !nominaCat) { setError('Elegí la categoría de la nómina.'); return; }
+    if (gas <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto.'); return; }
     setSaving(true);
     try {
       const cajaId = cajaActual?.id ?? null;
-      // Una fila por concepto: así cada monto conserva su categoría y la distribución
-      // por grupo (Gastos/Nómina/Traslado) queda correcta.
+      // Una fila por concepto. El gasto se registra en su campo según el grupo de
+      // la categoría elegida (gastos_caja o nómina), pero en la UI es un solo campo.
       const filas: CajaMovimientoInput[] = [];
-      if (gas > 0) filas.push({ fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
-      if (nom > 0) filas.push({ fecha, nominas: nom, clasif_grupo: 'nomina', clasif_valor: nominaCat, descripcion: descNominas.trim() || nominaCat, caja_id: cajaId });
+      if (gas > 0) {
+        const cat = catsUnificadas.find((c) => c.valor === gastoCat);
+        const esNomina = cat?.grupo === 'nomina';
+        filas.push(esNomina
+          ? { fecha, nominas: gas, clasif_grupo: 'nomina', clasif_valor: gastoCat, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId }
+          : { fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
+      }
       if (tras > 0) filas.push({ fecha, traslado: tras, clasif_grupo: 'traslado', descripcion: descTraslado.trim() || 'Traslado de caja', caja_id: cajaId });
       if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
@@ -275,31 +279,21 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 
       <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
 
-      {/* Gastos GT: monto + categoría + descripción */}
+      {/* Gastos (incluye nómina): monto + categoría buscable + descripción */}
       <div className="form-grid">
-        {campoUsd('$ Gastos GT', gastos, setGastos, 'mov-gastos')}
+        {campoUsd('$ Gastos', gastos, setGastos, 'mov-gastos')}
         <div className="form-row">
           <label>Categoría del gasto</label>
-          <select className="select" value={gastoCat} onChange={(e) => setGastoCat(e.target.value)}>
-            <option value="">— elegí el gasto —</option>
-            {gastosCats.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-          </select>
+          <SearchSelect
+            value={gastoCat}
+            onChange={setGastoCat}
+            options={catsUnificadas.map((c) => ({ value: c.valor, label: c.grupo === 'nomina' ? `${c.valor} · (nómina)` : c.valor }))}
+            placeholder="🔍 Buscar categoría (gasto o nómina)…"
+            emptyText="Sin categorías"
+          />
         </div>
       </div>
       {campoDesc(descGastos, setDescGastos, gastoCat || 'Descripción del gasto', 'mov-desc-gastos')}
-
-      {/* Nómina: monto + categoría + descripción */}
-      <div className="form-grid">
-        {campoUsd('$ Nómina', nominas, setNominas, 'mov-nominas')}
-        <div className="form-row">
-          <label>Categoría de nómina</label>
-          <select className="select" value={nominaCat} onChange={(e) => setNominaCat(e.target.value)}>
-            <option value="">— elegí la nómina —</option>
-            {nominaCats.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-          </select>
-        </div>
-      </div>
-      {campoDesc(descNominas, setDescNominas, nominaCat || 'Descripción de la nómina', 'mov-desc-nominas')}
 
       {/* Traslado: monto + descripción */}
       <div className="form-grid">
