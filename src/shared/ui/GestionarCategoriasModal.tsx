@@ -118,23 +118,33 @@ export function GestionarCategoriasModal({
   }
 
   async function aplicarAgregar() {
-    if (!activa.onAgregar) return;
+    if (!activa.onAgregar) { toast('No se puede agregar en esta pestaña', 'error'); return; }
     const clean = nuevo.trim();
     if (!clean) { toast(`Escribí el nombre de la ${termino}`, 'error'); return; }
     // Sin duplicados por mayúsculas/minúsculas.
-    if (activa.categorias.some((c) => c.toLowerCase() === clean.toLowerCase())) {
+    if ((activa.categorias ?? []).some((c) => c.toLowerCase() === clean.toLowerCase())) {
       toast(`La ${termino} "${clean}" ya existe`, 'warning');
       return;
     }
     setAgregando(true);
+    // 1) Persistir el alta. Si ESTO falla, mostramos el error real (y lo logueamos).
     try {
       await activa.onAgregar(clean);
-      notify(`${termino[0].toUpperCase()}${termino.slice(1)} "${clean}" agregada`, 'success', { link: '#' });
-      setNuevo('');
-      setVersionLocal((v) => v + 1);
+    } catch (e) {
+      console.error('[GestionarCategoriasModal] No se pudo agregar:', e);
+      toast(e instanceof Error ? `No se pudo agregar: ${e.message}` : 'No se pudo agregar', 'error');
+      setAgregando(false);
+      return;
+    }
+    // 2) Ya quedó agregada: feedback + refresco. Un fallo del refresco NO debe
+    //    decir "no se pudo agregar" (ya se agregó); solo se loguea.
+    notify(`${termino[0].toUpperCase()}${termino.slice(1)} "${clean}" agregada`, 'success', { link: '#' });
+    setNuevo('');
+    setVersionLocal((v) => v + 1);
+    try {
       await onCambioAplicado();
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error');
+      console.error('[GestionarCategoriasModal] error al refrescar tras agregar:', e);
     } finally {
       setAgregando(false);
     }
