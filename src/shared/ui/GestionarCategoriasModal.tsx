@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -68,11 +68,18 @@ export function GestionarCategoriasModal({
   const [guardando, setGuardando] = useState(false);
   const [aEliminar, setAEliminar] = useState<string | null>(null);
   const [versionLocal, setVersionLocal] = useState(0);
-  const [nuevo, setNuevo] = useState('');
+  // Input de alta NO controlado (ref): el DOM conserva lo tecleado aunque el modal
+  // re-renderice. Con `value` controlado, un re-render pisaba el campo y cortaba el
+  // texto a la primera letra. Leemos el valor del DOM al agregar.
+  const nuevoRef = useRef<HTMLInputElement>(null);
+  const [nuevo, setNuevo] = useState(''); // solo para habilitar/deshabilitar el botón
   const [agregando, setAgregando] = useState(false);
 
-  // Al cambiar de pestaña, limpiamos el estado de edición/filtro.
-  useEffect(() => { setEditando(null); setFiltro(''); setNuevo(''); }, [tabIdx]);
+  // Al cambiar de pestaña, limpiamos el estado de edición/filtro y el campo de alta.
+  useEffect(() => {
+    setEditando(null); setFiltro(''); setNuevo('');
+    if (nuevoRef.current) nuevoRef.current.value = '';
+  }, [tabIdx]);
 
   const ordenadas = useMemo(() => {
     const q = filtro.trim().toLowerCase();
@@ -119,7 +126,8 @@ export function GestionarCategoriasModal({
 
   async function aplicarAgregar() {
     if (!activa.onAgregar) { toast('No se puede agregar en esta pestaña', 'error'); return; }
-    const clean = nuevo.trim();
+    // Fuente de verdad: el DOM (input no controlado), no el estado React.
+    const clean = (nuevoRef.current?.value ?? nuevo).trim();
     if (!clean) { toast(`Escribí el nombre de la ${termino}`, 'error'); return; }
     // Sin duplicados por mayúsculas/minúsculas.
     if ((activa.categorias ?? []).some((c) => c.toLowerCase() === clean.toLowerCase())) {
@@ -139,6 +147,7 @@ export function GestionarCategoriasModal({
     // 2) Ya quedó agregada: feedback + refresco. Un fallo del refresco NO debe
     //    decir "no se pudo agregar" (ya se agregó); solo se loguea.
     notify(`${termino[0].toUpperCase()}${termino.slice(1)} "${clean}" agregada`, 'success', { link: '#' });
+    if (nuevoRef.current) nuevoRef.current.value = '';
     setNuevo('');
     setVersionLocal((v) => v + 1);
     try {
@@ -202,14 +211,15 @@ export function GestionarCategoriasModal({
       {activa.onAgregar && (
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.6rem' }}>
           <input
+            ref={nuevoRef}
             className="input"
             placeholder={`Nueva ${termino}…`}
-            value={nuevo}
+            defaultValue=""
             onChange={(e) => setNuevo(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void aplicarAgregar(); }}
             style={{ flex: 1 }}
           />
-          <button className="btn btn-primary" disabled={agregando || !nuevo.trim()} onClick={() => void aplicarAgregar()}>
+          <button className="btn btn-primary" disabled={agregando} onClick={() => void aplicarAgregar()}>
             {agregando ? 'Agregando…' : '+ Agregar'}
           </button>
         </div>
