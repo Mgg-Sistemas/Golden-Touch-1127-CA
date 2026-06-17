@@ -83,11 +83,28 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   const [nuevaUnid, setNuevaUnid] = useState('');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
 
-  // Producto nuevo: el SKU se genera automático e incremental según la categoría.
+  // El SKU se deriva de la categoría. Para no contaminar el prefijo con el propio
+  // SKU del producto que se edita, lo excluimos del cálculo.
+  const otrosProductos = useMemo(() => productos.filter((p) => p.id !== producto?.id), [productos, producto?.id]);
+  const skuOriginal = producto?.sku ?? '';
+  const catOriginal = producto?.categoria ?? '';
+  // SKU automático según la categoría:
+  //  · Producto NUEVO → siempre el siguiente correlativo de la categoría.
+  //  · EDICIÓN → si se cambia la categoría, se regenera el SKU con el prefijo de la
+  //    nueva categoría; si se vuelve a la categoría original, se restaura el SKU original.
   useEffect(() => {
-    if (isEdit || !form.categoria) return;
-    setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, productos) }));
-  }, [isEdit, form.categoria, productos]);
+    if (!form.categoria) return;
+    if (!isEdit) {
+      setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, otrosProductos) }));
+      return;
+    }
+    if (form.categoria === catOriginal) {
+      setForm((prev) => (prev.sku === skuOriginal ? prev : { ...prev, sku: skuOriginal }));
+    } else {
+      const nuevo = siguienteSku(form.categoria, otrosProductos);
+      setForm((prev) => (prev.sku === nuevo ? prev : { ...prev, sku: nuevo }));
+    }
+  }, [isEdit, form.categoria, otrosProductos, catOriginal, skuOriginal]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

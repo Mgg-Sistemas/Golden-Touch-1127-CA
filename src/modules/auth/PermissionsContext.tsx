@@ -60,7 +60,13 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     // Si la matriz aún no tiene fila para el rol, usamos los defaults (mismos que el panel).
     setPermisos(stored ? normalizeRolePermisos(stored, r) : defaultsFor(r));
     setLoading(false);
-  }, [user]);
+    // Dependemos del ID del usuario, NO del objeto `user`: al cambiar de pestaña y
+    // volver, Supabase refresca el token y emite onAuthStateChange con un objeto
+    // `user` NUEVO (mismo id). Si dependiéramos del objeto, `cargar` se recrearía,
+    // el efecto se re-ejecutaría con setLoading(true) y se desmontaría la página
+    // (cerrando cualquier modal abierto). Con el id estable, eso no ocurre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => {
     if (sessionLoading) return;

@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { MovimientosAcopioView, type ResumenAcopio } from './MovimientosAcopioView';
+import type { FilaMov } from './movimientosAcopioCalc';
 import { CategoriasModal } from './CategoriasModal';
+import { HistoricoCajasModal } from './HistoricoCajasModal';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { Producto, RecepcionAcopio } from '@/shared/lib/types';
@@ -22,7 +24,7 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, gastosDetalleCategoria, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { listCajas, crearMovimientoCaja, cerrarYAbrirCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, gastosDetalleCategoria, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
 import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
@@ -56,12 +58,18 @@ export function AcopioPage() {
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
   const [martillos, setMartillos] = useState(false);
+  const [historico, setHistorico] = useState(false);
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
   // Switch «Listar movimientos»: la tabla de movimientos arranca oculta y se muestra al activarlo.
   const [listar, setListar] = useState(false);
   // Resumen único que alimenta TODAS las tarjetas (misma fuente que la tabla de movimientos).
   const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0 });
+  // Filas actuales de la tabla (para tomar la foto exacta al cerrar la caja).
+  const [filasActuales, setFilasActuales] = useState<FilaMov[]>([]);
   const navigate = useNavigate();
   const onResumenAcopio = useCallback((r: ResumenAcopio) => { setResumen(r); }, []);
+  const onFilasAcopio = useCallback((f: FilaMov[]) => { setFilasActuales(f); }, []);
 
   // Tendencia de la TASA: ▲ verde si subió, ▼ rojo si bajó (vs. el último valor visto).
   const [tasaTrend, setTasaTrend] = useState<'up' | 'down' | null>(null);
@@ -100,6 +108,44 @@ export function AcopioPage() {
   // Caja a la que se asocian los movimientos nuevos (la ACTUALMENTE ABIERTA).
   const cajaActual = useMemo(() => cajas.find((c) => c.estado === 'abierta') ?? cajas[0] ?? null, [cajas]);
 
+  // CIERRE de caja: congela la caja actual (movimientos + saldos de las tarjetas) en
+  // histórico y abre una nueva que arranca con el saldo acumulado (USD como movimiento
+  // de «USD entregados»; Kg como saldo de apertura). Tasa y gastos se reinician.
+  async function cerrarCaja() {
+    setCerrando(true);
+    try {
+      const hoy = new Date().toISOString().slice(0, 10);
+      const totalKg = filasActuales.reduce((a, f) => a + f.kgCerrados, 0);
+      await cerrarYAbrirCaja({
+        cajaActual,
+        actor, actorName,
+        snapshot: {
+          numero: cajaActual?.numero ?? 'Caja',
+          nombre: cajaActual?.nombre ?? null,
+          fechaInicio: cajaActual?.fecha_inicio ?? filasActuales[0]?.fecha ?? null,
+          fechaCierre: hoy,
+          resumen: {
+            saldoUsd: resumen.saldoUsd, saldoKg: resumen.saldoKg, tasa: resumen.tasa,
+            usdEntregado: resumen.usdEntregado, gastos: resumen.gastos, nominas: resumen.nominas,
+            facturado: resumen.facturado, totalKg,
+          },
+          filas: filasActuales.map((f) => ({
+            fecha: f.fecha, descripcion: f.descripcion, usdEntregado: f.usdEntregado,
+            kgCerrados: f.kgCerrados, usdFacturados: f.usdFacturados, gastosGt: f.gastosGt,
+            nominasGt: f.nominasGt, saldoUsd: f.saldoUsd, saldoKgCasiterita: f.saldoKgCasiterita,
+          })),
+        },
+      });
+      toast('Caja cerrada · se abrió una nueva con el saldo acumulado', 'success');
+      setConfirmarCierre(false);
+      await reload();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo cerrar la caja', 'error');
+    } finally {
+      setCerrando(false);
+    }
+  }
+
   return (
     <div>
       <div className="page-head">
@@ -109,8 +155,10 @@ export function AcopioPage() {
         </div>
         <div className="actions">
           <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
+          <button className="btn btn-ghost" onClick={() => setHistorico(true)}>🗂 Histórico cierres</button>
           <button className="btn btn-ghost" onClick={() => setMartillos(true)}>🔨 Consumo Martillos</button>
           <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
+          {canWrite && <button className="btn btn-ghost" onClick={() => setConfirmarCierre(true)} title="Cierra la caja actual y abre una nueva con el saldo acumulado">🔒 Cerrar caja</button>}
           <label className="switch-inline" title="Mostrar u ocultar la lista de movimientos del centro de acopio">
             <span className="switch">
               <input type="checkbox" checked={listar} onChange={(e) => setListar(e.target.checked)} />
@@ -154,13 +202,25 @@ export function AcopioPage() {
 
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí).
           Se muestra solo con el switch «Listar movimientos»; aun oculta, alimenta las tarjetas. */}
-      <MovimientosAcopioView onResumen={onResumenAcopio} visible={listar} />
+      <MovimientosAcopioView onResumen={onResumenAcopio} onFilas={onFilasAcopio} visible={listar} caja={cajaActual} />
 
       {categorias && <CategoriasModal canWrite={canWrite} onClose={() => setCategorias(false)} />}
 
       {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} onClose={() => setResumenCaja(false)} />}
 
       {martillos && <ConsumoMartillosModal onClose={() => setMartillos(false)} />}
+
+      {historico && <HistoricoCajasModal onClose={() => setHistorico(false)} />}
+
+      {confirmarCierre && (
+        <ConfirmDialog
+          title="🔒 Cerrar caja"
+          message={`Se cerrará la caja actual (${cajaActual?.numero ?? '—'}) y se guardará en el histórico con sus movimientos y saldos. Se abrirá una caja nueva que arranca con el saldo acumulado: ${money(resumen.saldoUsd)} entra como «USD entregados» y ${num(resumen.saldoKg)} Kg como saldo de apertura. La tasa y los gastos se reinician. ¿Confirmás el cierre?`}
+          confirmText={cerrando ? 'Cerrando…' : 'Cerrar caja'}
+          onConfirm={() => { if (!cerrando) void cerrarCaja(); }}
+          onCancel={() => { if (!cerrando) setConfirmarCierre(false); }}
+        />
+      )}
 
       {movAcopio && (
         <AgregarMovimientoModal

@@ -639,11 +639,49 @@ export interface CajaCierre {
   fecha_fin?: string | null;
   estado: 'abierta' | 'cerrada';
   saldo_final?: number | null;
+  /** Saldos de APERTURA arrastrados del cierre anterior (saldo viejo). */
+  saldo_inicial_usd?: number | null;
+  saldo_inicial_kg?: number | null;
+  /** Foto congelada del cierre (saldos de las tarjetas + filas de movimientos). */
+  resumen_json?: CierreSnapshot | null;
   cerrada_por?: string | null;
   cerrada_en?: string | null;
   created_by?: string | null;
   created_at: string;
   updated_at?: string | null;
+}
+
+/** Foto congelada que se guarda en histórico al cerrar una caja de acopio. */
+export interface CierreSnapshot {
+  numero: string;
+  nombre?: string | null;
+  fechaInicio: string | null;
+  fechaCierre: string;
+  /** Saldos de las tarjetas al momento del cierre. */
+  resumen: {
+    saldoUsd: number;
+    saldoKg: number;
+    tasa: number;
+    usdEntregado: number;
+    gastos: number;
+    nominas: number;
+    facturado: number;
+    totalKg: number;
+  };
+  /** Filas de la tabla de movimientos al cierre (para mostrarlas tal cual en el histórico). */
+  filas: CierreSnapshotFila[];
+}
+
+export interface CierreSnapshotFila {
+  fecha: string;
+  descripcion: string;
+  usdEntregado: number | null;
+  kgCerrados: number;
+  usdFacturados: number;
+  gastosGt: number | null;
+  nominasGt: number | null;
+  saldoUsd: number;
+  saldoKgCasiterita: number;
 }
 
 /** Agregados de la caja (cabecera del Excel: D3,E3,F3,G3,H3,I3,J3,K3,M3). */

@@ -259,7 +259,7 @@ export function resumirCaja(movs: CajaMovimiento[]): CajaResumen {
   return { ...r, saldoUsd, saldoKg, tasa };
 }
 
-export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: string, actorName?: string | null): Promise<CajaMovimiento> {
+export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: string, actorName?: string | null, opts?: { skipDeudaMgg?: boolean }): Promise<CajaMovimiento> {
   if (!input.fecha) throw new Error('Indicá la fecha del movimiento.');
   const payload = {
     fecha: input.fecha,
@@ -288,7 +288,7 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
   // Tesorería refleja siempre el total de "USD entregados". Import dinámico para
   // no acoplar acopio ↔ tesorería en el bundle.
   const entregado = num(input.usd_entregado);
-  if (entregado > 0) {
+  if (entregado > 0 && !opts?.skipDeudaMgg) {
     try {
       const { crearCuentaPorPagar } = await import('@/modules/tesoreria/cuentasPorPagar.repository');
       await crearCuentaPorPagar({
@@ -496,6 +496,82 @@ export async function cerrarCaja(id: string, saldoFinal: number, actor: string, 
     })
     .eq('id', id);
   if (error) throw error;
+}
+
+/** Próximo número correlativo de caja a partir de los existentes ("Caja N"). */
+function siguienteNumeroCaja(cajas: CajaCierre[]): string {
+  let max = 0;
+  for (const c of cajas) {
+    const m = /(\d+)/.exec(c.numero ?? '');
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `Caja ${max + 1}`;
+}
+
+/**
+ * CIERRE de caja del Centro de Acopio. Congela la caja abierta (sus movimientos y
+ * los saldos de las tarjetas quedan en histórico, `resumen_json`) y abre una caja
+ * nueva que arranca SOLO con el saldo acumulado:
+ *   · Saldo USD → entra a la caja nueva como un movimiento de «USD entregados»
+ *     (fila «Saldo anterior»), SIN generar deuda a MGG (es arrastre interno).
+ *   · Saldo Kg  → se guarda como saldo de apertura (`saldo_inicial_kg`).
+ * Tasa, gastos, nóminas y facturado se REINICIAN: la caja nueva no arrastra esas
+ * bases; se recalculan con sus propios movimientos.
+ */
+export async function cerrarYAbrirCaja(input: {
+  cajaActual: CajaCierre | null;
+  snapshot: import('@/shared/lib/types').CierreSnapshot;
+  actor: string;
+  actorName?: string | null;
+}): Promise<CajaCierre> {
+  const { snapshot, actor, actorName } = input;
+  const hoy = hoyVE();
+  const cajas = await listCajas();
+
+  // 1) Determinar la caja a cerrar. Si no hay abierta, se crea una para cerrarla
+  //    (así los movimientos previos quedan correctamente archivados en ella).
+  let cerrando = input.cajaActual ?? cajas.find((c) => c.estado === 'abierta') ?? null;
+  if (!cerrando) {
+    cerrando = await crearCaja({ numero: siguienteNumeroCaja(cajas), fecha_inicio: snapshot.fechaInicio ?? hoy }, actor);
+  }
+
+  // 2) Congelar: los movimientos sin asignar pasan a pertenecer a la caja que se cierra.
+  await supabase.from('acopio_caja_movimientos').update({ caja_id: cerrando.id }).is('caja_id', null);
+
+  // 3) Cerrar la caja con la foto del cierre (saldos de las tarjetas + filas).
+  const { error: e1 } = await supabase.from('acopio_cajas').update({
+    estado: 'cerrada',
+    fecha_fin: hoy,
+    saldo_final: snapshot.resumen.saldoUsd,
+    resumen_json: snapshot,
+    cerrada_por: actor,
+    cerrada_en: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq('id', cerrando.id);
+  if (e1) throw e1;
+
+  // 4) Abrir la caja nueva con los saldos de apertura arrastrados.
+  const cajasTrasCerrar = [...cajas.filter((c) => c.id !== cerrando!.id), { ...cerrando }];
+  const nueva = await crearCaja({ numero: siguienteNumeroCaja(cajasTrasCerrar), fecha_inicio: hoy }, actor);
+  const { error: e2 } = await supabase.from('acopio_cajas').update({
+    saldo_inicial_usd: snapshot.resumen.saldoUsd,
+    saldo_inicial_kg: snapshot.resumen.saldoKg,
+  }).eq('id', nueva.id);
+  if (e2) throw e2;
+
+  // 5) El saldo USD entra a la caja nueva como movimiento de «USD entregados»
+  //    (fila «Saldo anterior»), sin deuda a MGG. El saldo Kg ya viaja en saldo_inicial_kg.
+  if (snapshot.resumen.saldoUsd !== 0) {
+    await crearMovimientoCaja({
+      fecha: hoy,
+      descripcion: `Saldo anterior · ${cerrando.numero} (cierre ${hoy})`,
+      usd_entregado: snapshot.resumen.saldoUsd,
+      clasif_grupo: 'movimientos_caja',
+      caja_id: nueva.id,
+    }, actor, actorName ?? null, { skipDeudaMgg: true });
+  }
+
+  return { ...nueva, saldo_inicial_usd: snapshot.resumen.saldoUsd, saldo_inicial_kg: snapshot.resumen.saldoKg };
 }
 
 export async function reabrirCaja(id: string): Promise<void> {
