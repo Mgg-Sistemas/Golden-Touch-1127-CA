@@ -62,8 +62,9 @@ const SOL_ESTADO_CLASS: Record<EstadoSolicitudSalida, string> = {
 export function SalidasPage() {
   const { can, appUser, isAdmin, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
-  // Solo admin/analista aprueban y ejecutan; el obrero solo crea solicitudes.
-  const puedeAprobar = isAdmin || role === 'analista';
+  // Aprueban y ejecutan: admin, cualquier ANALISTA (analista, analista_de_*) y
+  // cualquier JEFE/JEFA (jefe_*, jefa_*). El obrero solo crea solicitudes.
+  const puedeAprobar = isAdmin || /^(analista|jef[ae])/.test(role ?? '');
   const actor = appUser?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
@@ -714,7 +715,7 @@ function SolicitudDetalleModal({
 
       {!puedeAprobar && sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-          Solo un analista o el administrador puede aprobar y ejecutar esta solicitud.
+          Solo un analista, un jefe o el administrador puede aprobar y ejecutar esta solicitud.
         </div>
       )}
 
