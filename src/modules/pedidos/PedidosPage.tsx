@@ -2409,9 +2409,10 @@ function CrearOrdenModal({
   // Alta de unidad nueva desde el propio formulario (campo «¿No está?» + botón Añadir).
   const [nuevaUnidad, setNuevaUnidad] = useState('');
   const [addingUnidad, setAddingUnidad] = useState(false);
-  // Input no-controlado: al limpiar por estado (tras añadir) el DOM no se vacía solo.
-  // Este key se incrementa al limpiar para forzar el remonte del campo.
-  const [nuevaUnidadKey, setNuevaUnidadKey] = useState(0);
+  // Input no-controlado vía ref: el DOM conserva lo tecleado aunque el modal
+  // re-renderice. Leemos el valor del DOM al añadir y lo limpiamos por ref (sin
+  // `key` que remonte el campo, que cortaba el texto a la primera letra).
+  const nuevaUnidadRef = useRef<HTMLInputElement>(null);
 
   // Carga (y recarga, en vivo) las opciones del catálogo de la OP.
   const cargarCatalogosOP = useCallback(async () => {
@@ -2430,12 +2431,15 @@ function CrearOrdenModal({
   // En vivo: si se agregan/editan unidades o clasificaciones (acá o en el catálogo), se reflejan al instante.
   useRealtime(['pedido_catalogos'], () => { void cargarCatalogosOP(); });
 
+  const limpiarNuevaUnidad = () => { setNuevaUnidad(''); if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = ''; };
+
   // Agrega la unidad escrita al catálogo y la deja seleccionada (sin cerrar el formulario).
   async function agregarUnidadNueva() {
-    const v = nuevaUnidad.trim().toUpperCase();
+    // Fuente de verdad: el DOM (input no controlado), no el estado React.
+    const v = (nuevaUnidadRef.current?.value ?? nuevaUnidad).trim().toUpperCase();
     if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
     if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
-      setUnidadSolicitante(v); setNuevaUnidad(''); setNuevaUnidadKey((k) => k + 1);
+      setUnidadSolicitante(v); limpiarNuevaUnidad();
       toast('Esa unidad ya existía; la seleccioné', 'info');
       return;
     }
@@ -2444,8 +2448,7 @@ function CrearOrdenModal({
       await addCatalogoPedido('unidad_solicitante', v);
       await cargarCatalogosOP();
       setUnidadSolicitante(v);
-      setNuevaUnidad('');
-      setNuevaUnidadKey((k) => k + 1);
+      limpiarNuevaUnidad();
       toast('Unidad agregada al catálogo', 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error');
@@ -2567,7 +2570,7 @@ function CrearOrdenModal({
             placeholder="Departamento / unidad que solicita" />
           {/* Alta directa: si la unidad no está, se escribe y se agrega al catálogo de una vez. */}
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-            <input key={nuevaUnidadKey} className="input" name="op-nueva-unidad" defaultValue={nuevaUnidad}
+            <input ref={nuevaUnidadRef} className="input" name="op-nueva-unidad" defaultValue=""
               onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevaUnidad(e.target.value); }}
               placeholder="¿No está? Escribí la unidad nueva…"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
