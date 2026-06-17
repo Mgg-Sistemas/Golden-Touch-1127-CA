@@ -4,6 +4,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { ResumenCajaAcopio } from './caja.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const NOMBRE = 'resumen-caja-acopio';
 const fmtUsd = (v: number) => `$${v.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -114,7 +115,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
 }
 
 export async function descargarResumenCajaPdf(r: ResumenCajaAcopio): Promise<void> {
-  (await construirResumenDoc(r)).save(`${NOMBRE}-${r.fechaActualizacion}.pdf`);
+  previewPdf(await construirResumenDoc(r), `${NOMBRE}-${r.fechaActualizacion}.pdf`);
 }
 
 export async function enviarResumenCajaPorCorreo(r: ResumenCajaAcopio, destinos: string[]): Promise<{ destinatarios: string[] }> {

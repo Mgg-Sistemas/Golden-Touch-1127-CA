@@ -8,6 +8,7 @@
    salió, quién lo solicitó y quién lo autorizó, origen/destino.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 
 /** Una salida o traslado ejecutado, normalizado para el resumen. */
 export interface SalidaResumenRow {
@@ -140,7 +141,7 @@ export async function descargarResumenUnidadPdf(
   grupos: GrupoUnidad[], gruposProd: GrupoProducto[], filas: SalidaResumenRow[], meta: ResumenMeta,
 ): Promise<void> {
   const doc = await construirPdf(grupos, gruposProd, filas, meta);
-  doc.save(`gasto-material-${new Date().toISOString().slice(0, 10)}.pdf`);
+  previewPdf(doc, `gasto-material-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 export async function descargarResumenUnidadExcel(
@@ -217,7 +218,7 @@ export async function descargarResumenUnidadExcel(
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Gasto de material');
-  XLSX.writeFile(wb, `gasto-material-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  previewExcel(wb, `gasto-material-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 /** Envía el resumen (PDF) por correo vía la Edge Function genérica `enviar-reporte`. */

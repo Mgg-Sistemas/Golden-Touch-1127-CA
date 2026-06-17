@@ -4,6 +4,7 @@
    Incluye los inputs y todas las fórmulas del Excel original.
    ============================================================ */
 import type { ContratoAcopio } from '@/shared/lib/types';
+import { previewExcel } from '@/shared/lib/reportePreview';
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
@@ -66,5 +67,5 @@ export async function descargarContratosExcel(rows: ContratoAcopio[]): Promise<v
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Contratos');
-  XLSX.writeFile(wb, 'datos-reporte-produccion.xlsx');
+  previewExcel(wb, 'datos-reporte-produccion.xlsx');
 }

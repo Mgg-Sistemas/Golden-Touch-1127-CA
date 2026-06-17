@@ -1,7 +1,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoDataUrl, loadFirmaDataUrl } from '@/shared/lib/pdfLogo';
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -71,12 +72,19 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
 }
 
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
-  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap }, logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap }, logoDataUrl, firmaDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
     loadLogoDataUrl().catch(() => null),
+    loadFirmaDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
+
+  // La firma del Gerente General solo se estampa cuando la OC ya fue aprobada
+  // (confirmada). Es la aprobación de OC (oc_aprobada_*), no la del pedido.
+  const ocAprobada = Boolean(orden.oc_aprobada_en || orden.oc_aprobada_por);
+  const ocAprobPor = orden.oc_aprobada_por ?? orden.aprobada_por ?? null;
+  const ocAprobEn = orden.oc_aprobada_en ?? orden.aprobada_en ?? null;
 
   const esConsolidada = ordenes.length > 1;
   const totalGeneral = ordenes.reduce((a, o) => a + Number(o.total ?? 0), 0);
@@ -122,6 +130,20 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   y += 18;
   doc.setLineWidth(0.5);
   doc.setDrawColor(180);
+
+  // ─── Marca de ORDEN URGENTE ───
+  if (orden.urgente) {
+    const tagW = 150, tagH = 22;
+    doc.setFillColor(220, 53, 69);
+    doc.roundedRect(MARGIN, y - 4, tagW, tagH, 4, 4, 'F');
+    doc.setTextColor(255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('ORDEN: URGENTE', MARGIN + tagW / 2, y + 11, { align: 'center' });
+    doc.setTextColor(0);
+    doc.setFont('helvetica', 'normal');
+    y += tagH + 10;
+  }
 
   // ─── Banner de CANCELACIÓN (si la OC fue cancelada) ───
   const cancelEvent = (orden.historial ?? []).find((h) => h.evento === 'cancelada');
@@ -192,6 +214,50 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     ['Aprobada por', orden.aprobada_por ?? '—'],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
+  // OC por factura con IVA: desglose del 16%.
+  if (orden.comprobante_tipo === 'factura') {
+    cond.push(['Tipo de soporte', 'Factura']);
+    if (orden.iva_aplicado) {
+      const iva = Number(orden.iva_monto ?? 0);
+      const base = Number(orden.total) - iva;
+      cond.push(['Base imponible', money(base)]);
+      cond.push(['IVA (16%)', money(iva)]);
+      cond.push(['Total con IVA', money(Number(orden.total))]);
+    } else {
+      cond.push(['IVA', 'Sin IVA']);
+    }
+  }
+  // Precio en divisa/efectivo de la oferta aceptada (con diferencia y % vs BCV).
+  if (ofertaAceptada?.precio_divisa != null) {
+    const bcv = Number(ofertaAceptada.precio_total);
+    const div = Number(ofertaAceptada.precio_divisa);
+    const dif = bcv - div;
+    const pct = bcv > 0 ? (dif / bcv) * 100 : 0;
+    cond.push(['Precio BCV (referencia)', money(bcv)]);
+    cond.push(['Precio en divisa / efectivo', money(div)]);
+    cond.push(['Ahorro pagando en divisa', `${money(dif)} (${pct.toFixed(2)}%)`]);
+  }
+  // Ficha del producto ofertado por el proveedor adjudicado.
+  const f = ofertaAceptada?.ficha;
+  if (f && Object.keys(f).length) {
+    if (f.marca) cond.push(['Marca', f.marca]);
+    if (f.modelo) cond.push(['Modelo', f.modelo]);
+    if (f.procedencia) cond.push(['Procedencia', f.procedencia]);
+    if (f.nivel_calidad) cond.push(['Nivel de calidad', f.nivel_calidad]);
+    if (f.materiales) cond.push(['Materiales', f.materiales]);
+    if (f.dimensiones) cond.push(['Dimensiones', f.dimensiones]);
+    if (f.peso) cond.push(['Peso', f.peso]);
+    const log = f.logistica;
+    if (log) {
+      const lbl = (v?: string | null) => (v === 'incluido' ? 'incluido' : v === 'comprador' ? 'por cuenta del comprador' : '—');
+      const ls: string[] = [];
+      if (log.flete) ls.push(`Flete: ${lbl(log.flete)}`);
+      if (log.transporte) ls.push(`Transporte: ${lbl(log.transporte)}`);
+      if (log.embalaje) ls.push(`Embalaje: ${lbl(log.embalaje)}`);
+      if (log.seguros) ls.push(`Seguros: ${lbl(log.seguros)}`);
+      if (ls.length) cond.push(['Costos logísticos', ls.join(' · ')]);
+    }
+  }
   autoTable(doc, {
     startY: y,
     body: cond,
@@ -354,11 +420,34 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     y = MARGIN;
   }
 
+  // Firma manuscrita del Gerente General sobre la línea de "Firma autorizada"
+  // (abajo a la izquierda), únicamente si la OC ya está aprobada.
+  if (ocAprobada && firmaDataUrl) {
+    try {
+      const SIG_W = 150;
+      const SIG_H = 67; // conserva el aspecto real de firma.png (707×317 ≈ 2.23)
+      doc.addImage(firmaDataUrl, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
+    } catch {
+      /* firma opcional */
+    }
+  }
+
   doc.setDrawColor(180);
   doc.line(MARGIN, pageH - 80, MARGIN + 200, pageH - 80);
   doc.line(PAGE_W - MARGIN - 200, pageH - 80, PAGE_W - MARGIN, pageH - 80);
   doc.setFontSize(9);
   doc.text('Firma autorizada · GOLDEN TOUCH 1127 C.A.', MARGIN, pageH - 66);
+  if (ocAprobada && ocAprobPor) {
+    doc.setFontSize(7.5);
+    doc.setTextColor(120);
+    doc.text(
+      `Aprobada por ${ocAprobPor}${ocAprobEn ? ' · ' + dateTime(ocAprobEn) : ''}`,
+      MARGIN,
+      pageH - 56,
+    );
+    doc.setTextColor(0);
+    doc.setFontSize(9);
+  }
   doc.text('Recibido por proveedor', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
   doc.setFontSize(8);
   doc.setTextColor(120);
@@ -368,5 +457,5 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     pageH - 24,
   );
 
-  doc.save(`${ocLabel}.pdf`);
+  previewPdf(doc, `${ocLabel}.pdf`);
 }

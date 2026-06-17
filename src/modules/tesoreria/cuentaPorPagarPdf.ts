@@ -8,6 +8,7 @@
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { CuentaPorPagar, AbonoCxP, IngresoCxP } from './cuentasPorPagar.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -158,7 +159,7 @@ function nombreArchivo(cuenta: CuentaPorPagar): string {
 /** Descarga la cuenta por pagar (con sus ingresos y abonos) como PDF. */
 export async function descargarCuentaPorPagarPdf(cuenta: CuentaPorPagar, abonos: AbonoCxP[], ingresos: IngresoCxP[] = []): Promise<void> {
   const doc = await construirDoc(cuenta, abonos, ingresos);
-  doc.save(nombreArchivo(cuenta));
+  previewPdf(doc, nombreArchivo(cuenta));
 }
 
 /** Genera el PDF y devuelve el base64 (sin prefijo) + nombre, para el correo. */

@@ -5,6 +5,7 @@
    ============================================================ */
 import type { Produccion } from '@/shared/lib/types';
 import { getProduccionConMateriales } from './produccion.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 async function construir(prod: Produccion) {
   const [{ jsPDF }, { default: autoTable }, { dateTime, money, num }, { loadLogoDataUrl }] = await Promise.all([
@@ -99,7 +100,7 @@ export async function descargarProduccionPdf(id: string): Promise<void> {
   const prod = await getProduccionConMateriales(id);
   if (!prod) throw new Error('Producción no encontrada');
   const { doc, filename } = await construir(prod);
-  doc.save(filename);
+  previewPdf(doc, filename);
 }
 
 export async function obtenerProduccionPdfBase64(id: string): Promise<{ base64: string; filename: string }> {

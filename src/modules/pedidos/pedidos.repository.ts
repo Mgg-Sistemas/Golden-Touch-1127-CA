@@ -110,6 +110,10 @@ export interface CrearOrdenInput {
   solicitante: string | null;
   unidad_solicitante?: string | null;
   ci_solicitante: string | null;
+  /** OP marcada como urgente por el solicitante. */
+  urgente?: boolean | null;
+  /** Imagen adjunta a la OP (path en bucket `op-imagenes`). */
+  imagen_path?: string | null;
 }
 
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
@@ -136,11 +140,37 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,
     clasificacion: input.clasificacion?.length ? input.clasificacion : null,
+    urgente: input.urgente ?? false,
+    imagen_path: input.imagen_path ?? null,
     historial,
   };
   const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
   if (error) throw error;
   return data as Orden;
+}
+
+/* ── Imagen adjunta a la OP (bucket privado `op-imagenes`) ── */
+const OP_IMG_BUCKET = 'op-imagenes';
+const MAX_OP_IMG_BYTES = 10 * 1024 * 1024;
+
+/** Sube una imagen para la OP y devuelve su path en el bucket. */
+export async function subirImagenOrden(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('El archivo debe ser una imagen');
+  if (file.size > MAX_OP_IMG_BYTES) throw new Error('La imagen no puede superar 10 MB');
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-80);
+  const path = `${Date.now()}-${safeName}`;
+  const { error } = await supabase.storage
+    .from(OP_IMG_BUCKET)
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+/** Genera un signed URL (5 min) para ver la imagen de una OP. */
+export async function getImagenOrdenSignedUrl(path: string): Promise<string> {
+  const { data, error } = await supabase.storage.from(OP_IMG_BUCKET).createSignedUrl(path, 300);
+  if (error || !data) throw error ?? new Error('No se pudo generar enlace');
+  return data.signedUrl;
 }
 
 /**
@@ -387,7 +417,7 @@ export async function indicarMetodoPago(
   o: Orden,
   metodos: PagoMetodo[],
   actorEmail: string,
-  soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null },
+  soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null; conIva?: boolean },
 ): Promise<Orden> {
   // Flujo normal: confirmada_metodo → oc_aprobada. Contra entrega: tras recibir
   // (recibida) se indica el método para pagar SOLO lo recibido → oc_aprobada.
@@ -410,6 +440,10 @@ export async function indicarMetodoPago(
   // la OC queda "Confirmada pagar" (oc_aprobada) para que Tesorería pague.
   const comprobanteTipo = soporte?.comprobanteTipo ?? null;
   const retencionModo = comprobanteTipo === 'factura' ? (soporte?.retencionModo ?? null) : null;
+  // OC por factura con IVA: se suma el 16% al total. Sin IVA: no agrega nada.
+  const aplicaIva = comprobanteTipo === 'factura' && !!soporte?.conIva;
+  const baseTotal = Number(o.total) || 0;
+  const ivaMonto = aplicaIva ? Math.round(baseTotal * 0.16 * 100) / 100 : 0;
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
@@ -417,7 +451,10 @@ export async function indicarMetodoPago(
     metodo_pago_en: new Date().toISOString(),
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo }),
+    iva_aplicado: aplicaIva,
+    iva_monto: aplicaIva ? ivaMonto : null,
+    ...(aplicaIva ? { total: baseTotal + ivaMonto } : {}),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_monto: ivaMonto }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;

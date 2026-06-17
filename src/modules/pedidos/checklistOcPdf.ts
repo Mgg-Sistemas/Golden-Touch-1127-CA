@@ -3,6 +3,7 @@
    Relación de compras pendientes por pagar. Solo por botón.
    ============================================================ */
 import type { OcLoteRow } from './ocLote.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 async function construir(rows: OcLoteRow[], codigo: string) {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
@@ -68,7 +69,7 @@ async function construir(rows: OcLoteRow[], codigo: string) {
 
 export async function descargarChecklistOcPdf(rows: OcLoteRow[], codigo: string): Promise<void> {
   const { doc, filename } = await construir(rows, codigo);
-  doc.save(filename);
+  previewPdf(doc, filename);
 }
 
 export async function obtenerChecklistOcPdfBase64(rows: OcLoteRow[], codigo: string): Promise<string> {

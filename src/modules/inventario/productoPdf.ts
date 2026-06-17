@@ -3,6 +3,7 @@ import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 import { TIPOS_MOVIMIENTO } from './movimientos.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 interface Data {
   producto: Producto;
@@ -149,5 +150,5 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
     pageH - 24,
   );
 
-  doc.save(`trazabilidad-${producto.sku}.pdf`);
+  previewPdf(doc, `trazabilidad-${producto.sku}.pdf`);
 }

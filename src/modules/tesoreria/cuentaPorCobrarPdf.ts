@@ -7,6 +7,7 @@
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { CuentaPorCobrar, CargoCxC, CobroCxC } from './cuentasPorCobrar.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -155,5 +156,5 @@ function nombreArchivo(cuenta: CuentaPorCobrar): string {
 /** Descarga la cuenta por cobrar (con sus cargos y cobros) como PDF. */
 export async function descargarCuentaPorCobrarPdf(cuenta: CuentaPorCobrar, cargos: CargoCxC[], cobros: CobroCxC[]): Promise<void> {
   const doc = await construirDoc(cuenta, cargos, cobros);
-  doc.save(nombreArchivo(cuenta));
+  previewPdf(doc, nombreArchivo(cuenta));
 }

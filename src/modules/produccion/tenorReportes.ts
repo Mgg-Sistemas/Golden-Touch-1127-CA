@@ -4,6 +4,7 @@
    Columnas: N°, Fecha, Ton procesadas, Kg Casiterita, Ton×1000, Tenor %.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 
 export interface TenorRow {
   numero: string;
@@ -62,7 +63,7 @@ async function construirDoc(rows: TenorRow[], meta: TenorMeta = {}) {
 }
 
 export async function descargarTenorPdf(rows: TenorRow[], meta: TenorMeta = {}): Promise<void> {
-  (await construirDoc(rows, meta)).save(`${NOMBRE}.pdf`);
+  previewPdf(await construirDoc(rows, meta), `${NOMBRE}.pdf`);
 }
 
 export async function descargarTenorExcel(rows: TenorRow[]): Promise<void> {
@@ -86,7 +87,7 @@ export async function descargarTenorExcel(rows: TenorRow[]): Promise<void> {
   rows.forEach((_, i) => { const cell = cellAt(4 + i, 5); if (cell) cell.z = '0.00%'; });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Tenor');
-  XLSX.writeFile(wb, `${NOMBRE}.xlsx`);
+  previewExcel(wb, `${NOMBRE}.xlsx`);
 }
 
 export async function enviarTenorPorCorreo(rows: TenorRow[], destinos: string[], meta: TenorMeta = {}): Promise<{ destinatarios: string[] }> {

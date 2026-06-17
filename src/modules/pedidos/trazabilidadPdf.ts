@@ -8,6 +8,7 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 interface TrazabilidadData {
   orden: Orden;
@@ -120,6 +121,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['Solicitante', orden.solicitante ?? '—'],
     ['Correo', orden.solicitante_email],
     ['Fecha de solicitud', dateTime(orden.created_at)],
+    ['Prioridad', orden.urgente ? 'URGENTE' : 'Normal'],
     ['Estado actual', orden.estado],
     ...(orden.aprobada_en
       ? ([
@@ -176,21 +178,63 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   } else {
     autoTable(doc, {
       startY: y,
-      head: [['Proveedor', 'Precio total', 'Entrega prom.', 'Estado', 'Score']],
-      body: ofertas.map((of) => [
-        proveedoresPorId.get(of.proveedor_id)?.razon_social ?? '—',
-        money(of.precio_total),
-        of.fecha_entrega_prometida ?? '—',
-        of.estado,
-        of.score_calculado != null ? `${(of.score_calculado * 100).toFixed(0)}` : '—',
-      ]),
+      head: [['Proveedor', 'BCV', 'Divisa/efec.', 'Ahorro', 'Entrega prom.', 'Estado', 'Score']],
+      body: ofertas.map((of) => {
+        const bcv = Number(of.precio_total);
+        const div = of.precio_divisa != null ? Number(of.precio_divisa) : null;
+        const dif = div != null ? bcv - div : null;
+        const pct = div != null && bcv > 0 ? (dif! / bcv) * 100 : null;
+        return [
+          proveedoresPorId.get(of.proveedor_id)?.razon_social ?? '—',
+          money(bcv),
+          div != null ? money(div) : '—',
+          pct != null ? `${money(dif!)} (${pct.toFixed(2)}%)` : '—',
+          of.fecha_entrega_prometida ?? '—',
+          of.estado,
+          of.score_calculado != null ? `${(of.score_calculado * 100).toFixed(0)}` : '—',
+        ];
+      }),
       theme: 'grid',
       headStyles: { fillColor: [230, 230, 230], textColor: 20 },
-      styles: { fontSize: 9, cellPadding: 4 },
-      columnStyles: { 1: { halign: 'right' }, 4: { halign: 'right' } },
+      styles: { fontSize: 8.5, cellPadding: 3 },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 6: { halign: 'right' } },
       margin: MARGIN,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+
+    // Fichas de los productos ofertados (marca/modelo/… + costos logísticos).
+    const conFicha = ofertas.filter((o) => o.ficha && Object.keys(o.ficha).length);
+    if (conFicha.length) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('Fichas de los productos ofertados', MARGIN, y);
+      y += 6;
+      autoTable(doc, {
+        startY: y,
+        head: [['Proveedor', 'Marca', 'Modelo', 'Procedencia', 'Calidad', 'Materiales', 'Dim./Peso', 'Logística']],
+        body: conFicha.map((o) => {
+          const f = o.ficha!;
+          const log = f.logistica ?? {};
+          const lbl = (v?: string | null) => (v === 'incluido' ? 'incl.' : v === 'comprador' ? 'compr.' : '—');
+          const logStr = `F:${lbl(log.flete)} T:${lbl(log.transporte)} E:${lbl(log.embalaje)} S:${lbl(log.seguros)}`;
+          return [
+            proveedoresPorId.get(o.proveedor_id)?.razon_social ?? '—',
+            f.marca ?? '—',
+            f.modelo ?? '—',
+            f.procedencia ?? '—',
+            f.nivel_calidad ?? '—',
+            f.materiales ?? '—',
+            [f.dimensiones, f.peso].filter(Boolean).join(' · ') || '—',
+            logStr,
+          ];
+        }),
+        theme: 'grid',
+        headStyles: { fillColor: [230, 230, 230], textColor: 20 },
+        styles: { fontSize: 7.5, cellPadding: 2.5 },
+        margin: MARGIN,
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+    }
   }
 
   // ─── 4. Orden de compra (proveedor aceptado) ───────────
@@ -207,6 +251,12 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['RIF', proveedorFinal?.rif ?? '—'],
     ['Contacto', proveedorFinal?.contacto ?? '—'],
     ['Total de la orden', money(orden.total)],
+    ...(orden.comprobante_tipo === 'factura'
+      ? ([
+          ['Tipo de soporte', 'Factura'],
+          ['IVA', orden.iva_aplicado ? `Con IVA (16%) · ${money(Number(orden.iva_monto ?? 0))}` : 'Sin IVA'],
+        ] as Array<[string, string]>)
+      : []),
     ['Almacén destino', orden.almacen_destino ?? '—'],
     ['Fecha de aprobación', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
     ['Aprobada por', orden.aprobada_por ?? '—'],
@@ -271,7 +321,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 /** Descarga el PDF al disco del usuario. */
 export async function descargarTrazabilidadPdf(ordenId: string): Promise<void> {
   const { doc, filename } = await buildTrazabilidadPdf(ordenId);
-  doc.save(filename);
+  previewPdf(doc, filename);
 }
 
 /** Devuelve el PDF como base64 (sin el prefijo data URI). Útil para enviarlo

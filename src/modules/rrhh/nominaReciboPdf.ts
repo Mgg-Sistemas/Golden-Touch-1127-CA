@@ -6,6 +6,7 @@
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { date as fmtDate } from '@/shared/lib/format';
 import type { NominaPeriodo, NominaRenglon } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 function usd(n: number | null | undefined): string {
   return '$ ' + Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -145,5 +146,5 @@ function nombreArchivo(renglones: NominaRenglon[], meta: ReciboMeta): string {
 export async function descargarNominaReciboPdf(renglones: NominaRenglon[], meta: ReciboMeta): Promise<void> {
   if (!renglones.length) throw new Error('No hay renglones para el comprobante.');
   const doc = await construir(renglones, meta);
-  doc.save(nombreArchivo(renglones, meta));
+  previewPdf(doc, nombreArchivo(renglones, meta));
 }

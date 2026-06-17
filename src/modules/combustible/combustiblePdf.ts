@@ -3,6 +3,7 @@
    Se descarga / envía SOLO al hacer clic (regla del sistema).
    ============================================================ */
 import type { SolicitudCombustible } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const ESTADO_LABEL: Record<string, string> = {
   por_aprobar: 'Por aprobar',
@@ -60,7 +61,7 @@ async function construir(s: SolicitudCombustible) {
 
 export async function descargarSolicitudCombustiblePdf(s: SolicitudCombustible): Promise<void> {
   const { doc, filename } = await construir(s);
-  doc.save(filename);
+  previewPdf(doc, filename);
 }
 
 export async function obtenerSolicitudCombustiblePdfBase64(s: SolicitudCombustible): Promise<{ base64: string; filename: string }> {

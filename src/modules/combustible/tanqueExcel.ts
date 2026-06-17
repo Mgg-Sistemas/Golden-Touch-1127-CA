@@ -3,6 +3,7 @@
    Exporta los movimientos recibidos (respeta el filtro aplicado).
    ============================================================ */
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
+import { previewExcel } from '@/shared/lib/reportePreview';
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const litrosDe = (m: MovimientoTanque, tipo: MovimientoTanque['tipo']) => (m.tipo === tipo ? n(m.litros) : '');
@@ -66,5 +67,5 @@ export async function descargarMovimientosTanqueExcel(tanque: TanqueCombustible,
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Libro mayor');
-  XLSX.writeFile(wb, `combustible-${tanque.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}.xlsx`);
+  previewExcel(wb, `combustible-${tanque.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}.xlsx`);
 }

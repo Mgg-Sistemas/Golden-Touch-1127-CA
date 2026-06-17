@@ -11,7 +11,6 @@ export type ModuleKey =
   | 'combustible'
   | 'acopio'
   | 'tesoreria'
-  | 'retenciones'
   | 'rrhh'
   | 'maquinaria'
   | 'usuarios'
@@ -37,7 +36,6 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'combustible', label: 'Combustible' },
   { key: 'acopio',      label: 'Centro de Costo PERAMANAL' },
   { key: 'tesoreria',   label: 'Tesorería' },
-  { key: 'retenciones', label: 'Retenciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'maquinaria',  label: 'Control de Maquinaria' },
   { key: 'usuarios',    label: 'Usuarios' },
@@ -61,7 +59,6 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     });
     all.usuarios = { lectura: true, escritura: false, full: false };
     all.tesoreria = { lectura: true, escritura: false, full: false };
-    all.retenciones = { lectura: true, escritura: true, full: false };
     all.rrhh = { lectura: true, escritura: true, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };

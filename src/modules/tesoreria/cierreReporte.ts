@@ -8,6 +8,7 @@
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { CellHookData } from 'jspdf-autotable';
 import type { ReporteCierre } from './cierres.repository';
+import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 
 function montoStr(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -96,7 +97,7 @@ async function construirDoc(r: ReporteCierre) {
 }
 
 export async function descargarCierrePdf(r: ReporteCierre): Promise<void> {
-  (await construirDoc(r)).save(`Cierre-${r.periodo}.pdf`);
+  previewPdf(await construirDoc(r), `Cierre-${r.periodo}.pdf`);
 }
 
 export async function descargarCierreExcel(r: ReporteCierre): Promise<void> {
@@ -141,5 +142,5 @@ export async function descargarCierreExcel(r: ReporteCierre): Promise<void> {
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Cierre');
-  XLSX.writeFile(wb, `Cierre-${r.periodo}.xlsx`);
+  previewExcel(wb, `Cierre-${r.periodo}.xlsx`);
 }

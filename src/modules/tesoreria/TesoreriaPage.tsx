@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
@@ -12,6 +13,7 @@ import { GestionarCajasModal } from '@/modules/salidas/GestionarCajasModal';
 import {
   listRenglonesPorPagar, countRenglonesPorPagar, pagarRenglon, getRenglonById, urlComprobanteNomina, labelMotivoNomina,
 } from '@/modules/rrhh/nomina.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 import type { NominaRenglon } from '@/shared/lib/types';
 import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
@@ -37,8 +39,11 @@ import {
 } from './contrapartes.repository';
 import {
   crearCuentaPorPagar, listCuentasPorPagar, listAbonosCuenta, listIngresosCuenta, registrarAbonoCuenta,
+  pagarCuentaConProductos,
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
+import { listProductos } from '@/modules/inventario/inventario.repository';
+import type { Producto } from '@/shared/lib/types';
 import {
   listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro, crearOAcumularCuentaPorCobrar,
   type CuentaPorCobrar, type CargoCxC, type CobroCxC,
@@ -104,6 +109,18 @@ export function TesoreriaPage() {
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes' | 'retencion' | 'cierre' | 'categorias'>('none');
+  // Abrir un modal directo desde la URL (?ver=creditos), p. ej. al venir de la
+  // tarjeta "USD entregados" de Acopio → Cuentas por pagar (créditos) / deuda MGG.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const ver = searchParams.get('ver');
+    if (!ver) return;
+    const validos = ['gasto', 'traslado', 'pago', 'cajas', 'tasas', 'porpagar', 'creditos', 'cobrar', 'conversor', 'calculadora', 'grafico', 'contrapartes', 'retencion', 'cierre', 'categorias'];
+    if (validos.includes(ver)) setModal(ver as typeof modal);
+    const next = new URLSearchParams(searchParams);
+    next.delete('ver');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
@@ -2557,7 +2574,7 @@ function CalculadoraModal({ onClose }: { onClose: () => void }) {
         headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
         columnStyles: { 0: { cellWidth: 40 }, 2: { halign: 'right' } },
       });
-      doc.save('calculadora-operaciones.pdf');
+      previewPdf(doc, 'calculadora-operaciones.pdf');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
@@ -3075,6 +3092,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [correoCuentaOpen, setCorreoCuentaOpen] = useState(false);
+  const [pagarProdOpen, setPagarProdOpen] = useState(false);
   // Inputs no controlados (monto/nota): este nonce remonta los campos al
   // limpiarlos tras registrar el abono (el panel queda abierto).
   const [formKey, setFormKey] = useState(0);
@@ -3178,6 +3196,14 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
             </div>
           </div>
           <div className="badge" style={{ marginBottom: '.6rem' }}>{sel.tipo === 'proveedor' ? '🏭 Proveedor' : '👤 Cliente'}{sel.nota ? ` · ${sel.nota}` : ''}</div>
+
+          {saldo > 0 && (
+            <div style={{ marginBottom: '.6rem' }}>
+              <button className="btn btn-sm btn-ghost" onClick={() => setPagarProdOpen(true)} title="Saldar entregando productos del inventario (ej. casiterita a MGG)">
+                📦 Pagar con productos (entrega de inventario)
+              </button>
+            </div>
+          )}
 
           {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -3303,11 +3329,132 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
           {correoCuentaOpen && (
             <EnviarCuentaPorPagarModal cuenta={sel} abonos={abonos} ingresos={ingresos} defaultEmail={actor} onClose={() => setCorreoCuentaOpen(false)} />
           )}
+
+          {pagarProdOpen && (
+            <PagarConProductosModal
+              cuenta={sel}
+              actor={actor}
+              actorName={actorName}
+              onClose={() => setPagarProdOpen(false)}
+              onPagado={async () => {
+                setPagarProdOpen(false);
+                await cargar(); await onChanged();
+                await listAbonosCuenta(sel.id).then(setAbonos).catch(() => {});
+              }}
+            />
+          )}
         </>
       )}
       </>
       )}
     </>
+  );
+}
+
+/* ───────── Pagar una cuenta por pagar ENTREGANDO PRODUCTOS (descuenta inventario) ───────── */
+function PagarConProductosModal({ cuenta, actor, actorName, onClose, onPagado }: {
+  cuenta: CuentaPorPagar; actor: string; actorName: string | null; onClose: () => void; onPagado: () => void | Promise<void>;
+}) {
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [lineas, setLineas] = useState<Array<{ productoId: string; cantidad: string }>>([{ productoId: '', cantidad: '' }]);
+  const [nota, setNota] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { listProductos().then(setProductos).catch(() => setProductos([])); }, []);
+
+  const opciones = productos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre} (stock ${p.stock} ${p.unidad ?? ''} · ${monto(Number(p.precio) || 0)})` }));
+  const prodById = (id: string) => productos.find((p) => p.id === id) ?? null;
+
+  function setLinea(i: number, patch: Partial<{ productoId: string; cantidad: string }>) {
+    setLineas((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  }
+  function addLinea() { setLineas((ls) => [...ls, { productoId: '', cantidad: '' }]); }
+  function removeLinea(i: number) { setLineas((ls) => ls.filter((_, k) => k !== i)); }
+
+  const itemsValidos = lineas
+    .map((l) => { const p = prodById(l.productoId); const cant = Number(l.cantidad.replace(',', '.')); return p && cant > 0 ? { p, cant } : null; })
+    .filter((x): x is { p: Producto; cant: number } => x != null);
+  const valorTotal = round2(itemsValidos.reduce((a, { p, cant }) => a + (Number(p.precio) || 0) * cant, 0));
+  const saldo = round2(Number(cuenta.monto) - (Number(cuenta.abonado) || 0));
+
+  async function confirmar() {
+    setError(null);
+    if (!itemsValidos.length) { setError('Agregá al menos un producto con cantidad.'); return; }
+    // Validar stock disponible por producto.
+    for (const { p, cant } of itemsValidos) {
+      if (cant > (Number(p.stock) || 0)) { setError(`Stock insuficiente de ${p.sku}: hay ${p.stock}, pedís ${cant}.`); return; }
+    }
+    setSaving(true);
+    try {
+      const r = await pagarCuentaConProductos({
+        cuenta,
+        items: itemsValidos.map(({ p, cant }) => ({ productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: cant, precio: Number(p.precio) || 0, almacen: p.almacen ?? null })),
+        nota: nota.trim() || null, actor, actorName,
+      });
+      notify(`Pago con productos · ${cuenta.contraparte} · ${monto(r.valorTotal, cuenta.moneda)} descontados de inventario`, 'success', { link: '#/app/tesoreria' });
+      await onPagado();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el pago con productos'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Pagar con productos · ${cuenta.contraparte}`} size="lg" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={confirmar} disabled={saving || !itemsValidos.length}>
+          {saving ? 'Procesando…' : `Entregar y abonar ${monto(Math.min(valorTotal, saldo), cuenta.moneda)}`}
+        </button>
+      </>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        Saldás la deuda <strong>entregando productos del inventario</strong> (ej.: casiterita a MGG). Cada producto se valora a su
+        <strong> precio de inventario × cantidad</strong>, se descuenta del stock y el valor abona la cuenta. Saldo actual: <strong>{monto(saldo, cuenta.moneda)}</strong>.
+      </p>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div style={{ display: 'grid', gap: '.5rem' }}>
+        {lineas.map((l, i) => {
+          const p = prodById(l.productoId);
+          const cant = Number(l.cantidad.replace(',', '.')) || 0;
+          const subtotal = p ? (Number(p.precio) || 0) * cant : 0;
+          return (
+            <div key={i} className="card" style={{ margin: 0, padding: '.6rem' }}>
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="form-row" style={{ margin: 0, flex: '1 1 260px' }}>
+                  <label>Producto</label>
+                  <SearchSelect value={l.productoId} onChange={(v) => setLinea(i, { productoId: v })} options={opciones} placeholder="🔍 Buscar producto…" emptyText="Ningún producto coincide" />
+                </div>
+                <div className="form-row" style={{ margin: 0, width: 130 }}>
+                  <label>Cantidad {p?.unidad ? `(${p.unidad})` : ''}</label>
+                  <input className="input mono" type="number" min={0} step="any" value={l.cantidad} onChange={(e) => setLinea(i, { cantidad: e.target.value })} />
+                </div>
+                <div className="form-row" style={{ margin: 0, width: 120 }}>
+                  <label>Valor</label>
+                  <div className="mono" style={{ padding: '.45rem 0', fontWeight: 700 }}>{monto(subtotal, cuenta.moneda)}</div>
+                </div>
+                {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLinea(i)}>✕</button>}
+              </div>
+              {p && cant > (Number(p.stock) || 0) && <small style={{ color: 'var(--danger)' }}>Stock insuficiente (hay {p.stock}).</small>}
+            </div>
+          );
+        })}
+      </div>
+      <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={addLinea}>+ Agregar producto</button>
+
+      <div className="card" style={{ marginTop: '.75rem', padding: '.6rem .85rem', display: 'flex', justifyContent: 'space-between' }}>
+        <span>Valor total a entregar</span>
+        <strong className="mono">{monto(valorTotal, cuenta.moneda)}</strong>
+      </div>
+      {valorTotal > saldo + 0.01 && (
+        <small className="muted">El valor supera el saldo; solo se abonará {monto(saldo, cuenta.moneda)} (el resto no se aplica).</small>
+      )}
+
+      <div className="form-row" style={{ marginTop: '.5rem' }}>
+        <label>Nota (opcional)</label>
+        <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del traslado / entrega" />
+      </div>
+    </Modal>
   );
 }
 

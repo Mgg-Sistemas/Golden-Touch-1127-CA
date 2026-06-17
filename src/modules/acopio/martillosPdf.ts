@@ -4,6 +4,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { MartilloMovimiento } from './martillos.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const NOMBRE = 'consumo-martillos-molino-h66';
 const fmtUsd = (v: number | null | undefined) => (v == null ? '' : `$${v.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -56,7 +57,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
 }
 
 export async function descargarMartillosPdf(movs: MartilloMovimiento[]): Promise<void> {
-  (await construirDoc(movs)).save(`${NOMBRE}.pdf`);
+  previewPdf(await construirDoc(movs), `${NOMBRE}.pdf`);
 }
 
 export async function enviarMartillosPorCorreo(movs: MartilloMovimiento[], destinos: string[]): Promise<{ destinatarios: string[] }> {

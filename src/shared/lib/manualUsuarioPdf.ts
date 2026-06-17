@@ -6,6 +6,7 @@
    ============================================================ */
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 const GRIS_TEXTO: [number, number, number] = [60, 60, 60];
@@ -445,5 +446,5 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
     doc.text(`Página ${i} de ${total}`, PAGE_W - MARGIN, PAGE_H - 28, { align: 'right' });
   }
 
-  doc.save('Manual-de-Usuario-GOLDEN-TOUCH-1127-CA.pdf');
+  previewPdf(doc, 'Manual-de-Usuario-GOLDEN-TOUCH-1127-CA.pdf');
 }

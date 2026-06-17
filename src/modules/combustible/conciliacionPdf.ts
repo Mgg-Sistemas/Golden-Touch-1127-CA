@@ -6,6 +6,7 @@
 import { dateTime, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { ConciliacionCombustible } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 export interface ConciliacionRow extends ConciliacionCombustible {
   tanqueNombre: string;
@@ -80,7 +81,7 @@ async function construirDoc(rows: ConciliacionRow[], meta: ConciliacionReporteMe
 
 export async function descargarConciliacionesPdf(rows: ConciliacionRow[], meta: ConciliacionReporteMeta = {}): Promise<void> {
   const doc = await construirDoc(rows, meta);
-  doc.save(NOMBRE_ARCHIVO);
+  previewPdf(doc, NOMBRE_ARCHIVO);
 }
 
 export async function obtenerConciliacionesPdfBase64(
