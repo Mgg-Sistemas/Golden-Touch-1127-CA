@@ -5,6 +5,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 
 const NOMBRE = 'control-maquinaria';
 const fmtNum = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('es', { maximumFractionDigits: 2 }));
@@ -44,7 +45,7 @@ async function construirEquiposDoc(rows: MaquinariaEquipo[]) {
 }
 
 export async function descargarEquiposPdf(rows: MaquinariaEquipo[]): Promise<void> {
-  (await construirEquiposDoc(rows)).save(`${NOMBRE}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  previewPdf(await construirEquiposDoc(rows), `${NOMBRE}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 export async function enviarEquiposPorCorreo(rows: MaquinariaEquipo[], destinos: string[]): Promise<{ destinatarios: string[] }> {
@@ -104,5 +105,5 @@ export async function descargarEquiposExcel(rows: MaquinariaEquipo[]): Promise<v
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Equipos');
-  XLSX.writeFile(wb, `${NOMBRE}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  previewExcel(wb, `${NOMBRE}-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }

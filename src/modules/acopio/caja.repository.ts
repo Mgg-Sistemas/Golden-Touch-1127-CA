@@ -282,6 +282,21 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
   };
   const { data, error } = await supabase.from('acopio_caja_movimientos').insert(payload).select('*').single();
   if (error) throw error;
+
+  // Todo "USD entregado" del acopio es dinero que GT le debe a MGG: se acumula
+  // INCREMENTAL como cuenta por pagar (créditos) a MGG, en USD. Así la deuda en
+  // Tesorería refleja siempre el total de "USD entregados". Import dinámico para
+  // no acoplar acopio ↔ tesorería en el bundle.
+  const entregado = num(input.usd_entregado);
+  if (entregado > 0) {
+    try {
+      const { crearCuentaPorPagar } = await import('@/modules/tesoreria/cuentasPorPagar.repository');
+      await crearCuentaPorPagar({
+        tipo: 'proveedor', contraparte: 'MGG', monto: entregado, moneda: 'USD',
+        nota: 'USD entregados (Acopio) · deuda a MGG', actor, actorName: actorName ?? null,
+      });
+    } catch { /* la deuda no bloquea el registro del movimiento */ }
+  }
   return data as CajaMovimiento;
 }
 
@@ -446,6 +461,8 @@ export async function aceptarEntradaEnCajaAcopio(input: {
     clasif_grupo: 'movimientos_caja',
     caja_id: cajaId,
   }, input.actor, input.actorName ?? null);
+  // La deuda a MGG por este USD entregado la registra crearMovimientoCaja (arriba),
+  // que acumula la cuenta por pagar a MGG de forma incremental.
 
   // 2) Marca la transferencia como recibida (la caja destino va en destino_caja_*).
   const { error } = await supabase.from('transferencias_inter').update({

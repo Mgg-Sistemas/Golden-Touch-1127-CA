@@ -6,6 +6,7 @@
 import { dateTime, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { ContratoAcopio } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 export interface ContratoReporteMeta { filtro?: string }
 
@@ -81,7 +82,7 @@ async function construirDoc(rows: ContratoAcopio[], meta: ContratoReporteMeta = 
 
 export async function descargarContratosPdf(rows: ContratoAcopio[], meta: ContratoReporteMeta = {}): Promise<void> {
   const doc = await construirDoc(rows, meta);
-  doc.save(NOMBRE_ARCHIVO);
+  previewPdf(doc, NOMBRE_ARCHIVO);
 }
 
 export async function obtenerContratosPdfBase64(rows: ContratoAcopio[], meta: ContratoReporteMeta = {}): Promise<{ base64: string; nombre: string }> {

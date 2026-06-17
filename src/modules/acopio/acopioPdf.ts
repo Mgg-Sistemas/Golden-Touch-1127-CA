@@ -5,6 +5,7 @@
    ============================================================ */
 import type { RecepcionAcopio } from '@/shared/lib/types';
 import { totalesRecepcion } from './acopio.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const ESTADO_LABEL: Record<string, string> = {
   abierta: 'Abierta', cerrada: 'Cerrada', anulada: 'Anulada',
@@ -116,5 +117,5 @@ async function construir(r: RecepcionAcopio) {
 
 export async function descargarRecepcionPdf(r: RecepcionAcopio): Promise<void> {
   const { doc, filename } = await construir(r);
-  doc.save(filename);
+  previewPdf(doc, filename);
 }

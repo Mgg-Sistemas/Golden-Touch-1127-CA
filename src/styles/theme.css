@@ -364,6 +364,18 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   box-shadow: none;
 }
 .modal-lg, .modal-xl { width: 100vw; max-width: 100vw; }
+
+/* Modal COMPACTO: confirmaciones / “aceptar algo”. Pequeño y centrado (no full-screen). */
+.modal.modal-compact {
+  width: min(440px, calc(100vw - 2rem));
+  max-width: min(440px, calc(100vw - 2rem));
+  height: auto;
+  max-height: calc(100vh - 3rem);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal.modal-compact .modal-body { flex: 0 1 auto; }
 .btn-warning {
   background: rgba(245, 158, 11, 0.18);
   border: 1px solid rgba(245, 158, 11, 0.4);

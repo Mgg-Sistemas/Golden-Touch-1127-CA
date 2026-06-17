@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import type { ItemOrden, OfertaProveedor } from '@/shared/lib/types';
+import type { FichaOferta, ItemOrden, OfertaProveedor } from '@/shared/lib/types';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -21,6 +21,8 @@ export interface CrearOfertaInput {
   registrada_por_email: string;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+  /** Ficha del producto ofertado + costos logísticos. */
+  ficha?: FichaOferta | null;
 }
 
 /** Etiquetas legibles de las condiciones de pago. */
@@ -83,6 +85,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       registrada_por_email: input.registrada_por_email,
       pdf_path: input.pdf_path ?? null,
       pdf_filename: input.pdf_filename ?? null,
+      ficha: input.ficha ?? null,
     })
     .select('*')
     .single();

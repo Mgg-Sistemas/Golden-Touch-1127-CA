@@ -27,6 +27,8 @@ import {
   actualizarOrdenEditable,
   cancelarOrden,
   crearOrden,
+  subirImagenOrden,
+  getImagenOrdenSignedUrl,
   desistirProveedor,
   finalizarPedido,
   getCurrentUsuario,
@@ -283,8 +285,22 @@ export function PedidosPage() {
   useEffect(() => {
     if (!usuario || scopeDefaulted.current) return;
     scopeDefaulted.current = true;
+    // Si venimos con ?tab=… (p. ej. desde la tarjeta del Dashboard), respetarlo.
+    if (searchParams.get('tab')) return;
     if (usuario.role === 'admin') setScope('oc');
-  }, [usuario]);
+  }, [usuario, searchParams]);
+
+  // Abrir un tab directo desde la URL (?tab=oc_lote), p. ej. desde la tarjeta
+  // "Órdenes pendientes" del Dashboard → "OC por lote".
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (!tab) return;
+    scopeDefaulted.current = true; // que no lo pise el default del admin
+    setScope(tab as Scope);
+    const next = new URLSearchParams(searchParams);
+    next.delete('tab');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const filteredOrdenes = useMemo(() => {
     const q = filterText.trim().toLowerCase();
@@ -807,29 +823,13 @@ function ConfirmarOcModal({
   onClose: () => void;
   onConfirm: (almacenDestino: string) => Promise<void> | void;
 }) {
-  const [almacenes, setAlmacenes] = useState<Almacen[] | null>(null);
-  const [destino, setDestino] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    listAlmacenes()
-      .then((rows) => {
-        if (cancelled) return;
-        setAlmacenes(rows);
-        const activos = rows.filter((a) => a.estado !== 'inactivo');
-        setDestino((activos[0] ?? rows[0])?.nombre ?? 'General');
-      })
-      .catch(() => { if (!cancelled) { setAlmacenes([]); setDestino('General'); } });
-    return () => { cancelled = true; };
-  }, []);
-
-  const lista = (almacenes ?? []).filter((a) => a.estado !== 'inactivo');
-
+  // Regla: al aprobar la OC, la mercancía entra SIEMPRE al almacén General. No se
+  // elige destino aquí (luego se puede trasladar desde Inventario si hace falta).
   async function handleConfirm() {
-    if (!destino) { toast('Elegí el almacén destino', 'error'); return; }
     setSaving(true);
-    try { await onConfirm(destino); }
+    try { await onConfirm('General'); }
     finally { setSaving(false); }
   }
 
@@ -837,11 +837,12 @@ function ConfirmarOcModal({
     <Modal
       title={`Confirmar OC ${orden.oc_codigo ?? orden.codigo}`}
       size="md"
+      compact
       onClose={onClose}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="btn btn-success" onClick={handleConfirm} disabled={saving || !destino}>
+          <button className="btn btn-success" onClick={handleConfirm} disabled={saving}>
             {saving ? 'Confirmando…' : 'Confirmar OC'}
           </button>
         </>
@@ -849,25 +850,8 @@ function ConfirmarOcModal({
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Al confirmar, la OC pasa a <strong>"Confirmada (por pagar)"</strong> y queda disponible en Tesorería para el pago.
-        Indicá <strong>a qué almacén se dirige la mercancía</strong>: ahí entrará el stock al recibirla.
+        La mercancía entrará al <strong>almacén General</strong> al recibirla.
       </p>
-
-      <div className="form-row">
-        <label>Almacén destino *</label>
-        {almacenes === null ? (
-          <div className="muted">Cargando almacenes…</div>
-        ) : (
-          <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)}>
-            {!lista.length && <option value="General">General</option>}
-            {lista.map((a) => (
-              <option key={a.id} value={a.nombre}>
-                {a.nombre}{a.ubicacion ? ` · ${a.ubicacion}` : ''}
-              </option>
-            ))}
-          </select>
-        )}
-        <small className="muted">Se desglosan los almacenes existentes del módulo de inventario.</small>
-      </div>
     </Modal>
   );
 }
@@ -1042,7 +1026,7 @@ function MetodoPagoModal({
 }: {
   orden: Orden;
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean }) => Promise<void> | void;
 }) {
   const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
   const [saving, setSaving] = useState(false);
@@ -1055,6 +1039,10 @@ function MetodoPagoModal({
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
+  // OC por factura: con IVA (suma 16% al total) o sin IVA (no agrega nada).
+  const [conIva, setConIva] = useState(false);
+  const baseTotal = orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null ? orden.recibido_total : orden.total;
+  const ivaMonto = Math.round(Number(baseTotal) * 0.16 * 100) / 100;
 
   useEffect(() => {
     if (!orden.proveedor_id) return;
@@ -1086,7 +1074,7 @@ function MetodoPagoModal({
       }
     }
     setSaving(true);
-    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }); }
+    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, conIva: comprobanteTipo === 'factura' && conIva }); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -1127,6 +1115,17 @@ function MetodoPagoModal({
         </div>
         {comprobanteTipo === 'factura' && (
           <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
+            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>IVA</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.5rem', marginBottom: '.6rem' }}>
+              <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: !conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+                <input type="radio" name="iva" checked={!conIva} onChange={() => setConIva(false)} />
+                <span style={{ fontSize: '.86rem' }}><strong>Sin IVA</strong> · total {money(baseTotal)}</span>
+              </label>
+              <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+                <input type="radio" name="iva" checked={conIva} onChange={() => setConIva(true)} />
+                <span style={{ fontSize: '.86rem' }}><strong>Con IVA (16%)</strong> · +{money(ivaMonto)} = {money(Number(baseTotal) + ivaMonto)}</span>
+              </label>
+            </div>
             <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención</div>
             <div style={{ display: 'grid', gap: '.35rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
@@ -1526,9 +1525,20 @@ const KanbanCard = memo(function KanbanCard({
       onKeyDown={(e) => {
         if (e.key === 'Enter') onOpen(orden.id);
       }}
-      style={creditoPagado ? { borderColor: 'var(--success)', boxShadow: '0 0 0 1px var(--success)' } : undefined}
+      style={
+        orden.urgente
+          ? { borderColor: 'var(--danger)', boxShadow: '0 0 0 1px var(--danger)' }
+          : creditoPagado
+            ? { borderColor: 'var(--success)', boxShadow: '0 0 0 1px var(--success)' }
+            : undefined
+      }
     >
-      <div className="code">{orden.codigo}</div>
+      <div className="code">
+        {orden.codigo}
+        {orden.urgente && (
+          <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--danger)', color: '#fff', fontSize: '.6rem', padding: '.05rem .35rem', fontWeight: 700 }}>🚨 URGENTE</span>
+        )}
+      </div>
       <div className="prov">
         {proveedor?.razon_social
           ?? (orden.solicitante ? `Solicita: ${orden.solicitante}` : 'Sin proveedor asignado')}
@@ -1857,6 +1867,9 @@ function OrdenDetailModal({
         <div className="k">Estado</div>
         <div className="v">
           <StatusBadge estado={o.estado} />
+          {o.urgente && (
+            <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--danger)', color: '#fff', fontWeight: 700 }}>🚨 URGENTE</span>
+          )}
           {isCuentaAbierta && o.recibida_en && (
             <span className="badge warning" style={{ marginLeft: '.4rem' }}>📦 Recibido · pendiente por pagar</span>
           )}
@@ -1940,6 +1953,16 @@ function OrdenDetailModal({
           </div>
         </div>
       )}
+      {o.comprobante_tipo === 'factura' && (
+        <div className="detail-row">
+          <div className="k">IVA (factura)</div>
+          <div className="v">
+            {o.iva_aplicado
+              ? <>Con IVA (16%) · <span className="mono">{money(Number(o.iva_monto ?? 0))}</span> <span className="muted">incluido en el total</span></>
+              : <span className="muted">Sin IVA</span>}
+          </div>
+        </div>
+      )}
       {o.abonado_total != null && o.abonado_total > 0 && (
         <div className="detail-row">
           <div className="k">Abonado (crédito)</div>
@@ -1989,6 +2012,12 @@ function OrdenDetailModal({
         <div className="detail-row">
           <div className="k">Finalidad</div>
           <div className="v">{o.finalidad}</div>
+        </div>
+      )}
+      {o.imagen_path && (
+        <div className="detail-row">
+          <div className="k">Imagen</div>
+          <div className="v"><OpImagenAdjunta path={o.imagen_path} /></div>
         </div>
       )}
 
@@ -2266,6 +2295,22 @@ function Timeline({
   );
 }
 
+/** Imagen adjunta de una OP: resuelve el signed URL del bucket privado y la muestra. */
+function OpImagenAdjunta({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getImagenOrdenSignedUrl(path).then((u) => { if (alive) setUrl(u); }).catch(() => { /* sin permiso / expirado */ });
+    return () => { alive = false; };
+  }, [path]);
+  if (!url) return <span className="muted">Cargando imagen…</span>;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title="Ver imagen en grande">
+      <img src={url} alt="Adjunto de la OP" style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, border: '1px solid var(--border)' }} />
+    </a>
+  );
+}
+
 /* ─────────────────────────────────────────────
    Modal: Crear orden
    ───────────────────────────────────────────── */
@@ -2304,6 +2349,10 @@ function CrearOrdenModal({
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
   const [codigo, setCodigo] = useState<string>('…');
   const [submitting, setSubmitting] = useState(false);
+  // Prioridad: marca la OP como URGENTE. Se refleja en PDF y trazabilidad.
+  const [urgente, setUrgente] = useState(false);
+  // Imagen adjunta opcional (foto del repuesto/equipo solicitado).
+  const [imagenFile, setImagenFile] = useState<File | null>(null);
 
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
@@ -2463,6 +2512,8 @@ function CrearOrdenModal({
       if (unidad && !unidadOpciones.some((u) => u.toLowerCase() === unidad.toLowerCase())) {
         await addCatalogoPedido('unidad_solicitante', unidad).catch(() => { /* ya existe / sin permiso */ });
       }
+      // Si se adjuntó una imagen, se sube primero y se guarda su path en la OP.
+      const imagenPath = imagenFile ? await subirImagenOrden(imagenFile) : null;
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
         proveedor_id: null,
@@ -2471,6 +2522,8 @@ function CrearOrdenModal({
         motivo: null,
         finalidad: null,
         clasificacion: [],
+        urgente,
+        imagen_path: imagenPath,
         // El email queda como el de la cuenta que registra (auditoría); el nombre y CI
         // pueden ser los de otra persona (solicitud a su nombre).
         solicitante_email: email,
@@ -2546,6 +2599,22 @@ function CrearOrdenModal({
           placeholder="Nombre de quien solicita"
         />
       </div>
+
+      {/* Prioridad de la orden: URGENTE. Se refleja en el PDF y la trazabilidad. */}
+      <label
+        style={{
+          display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer',
+          padding: '.7rem .9rem', borderRadius: 8, marginBottom: '1rem',
+          border: `1px solid ${urgente ? 'var(--danger)' : 'var(--border)'}`,
+          background: urgente ? 'rgba(220,53,69,.12)' : 'transparent',
+        }}
+      >
+        <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} />
+        <span style={{ fontWeight: 700, letterSpacing: '.02em', color: urgente ? 'var(--danger)' : 'inherit' }}>
+          🚨 ORDEN: URGENTE
+        </span>
+        <span className="muted" style={{ fontSize: '.76rem' }}>Marca esta solicitud como prioritaria.</span>
+      </label>
 
       <div className="form-row">
         <label>Productos solicitados</label>
@@ -2686,6 +2755,20 @@ function CrearOrdenModal({
           defaultValue={notas}
           onChange={(e) => setNotas(e.target.value.toUpperCase())}
         />
+      </div>
+
+      <div className="form-row">
+        <label>Imagen <span className="muted">(opcional)</span></label>
+        <input
+          className="input"
+          type="file"
+          accept="image/*"
+          onChange={(e) => setImagenFile(e.target.files?.[0] ?? null)}
+        />
+        {imagenFile && (
+          <small className="muted">📎 {imagenFile.name} ({(imagenFile.size / 1024).toFixed(0)} KB)</small>
+        )}
+        <small className="muted">Podés adjuntar una foto del repuesto/equipo solicitado (máx. 10 MB).</small>
       </div>
 
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>

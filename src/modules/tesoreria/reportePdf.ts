@@ -8,6 +8,7 @@
 import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { MovimientoCaja } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const TIPO_LABEL: Record<string, string> = {
   ingreso: 'Ingreso', salida: 'Egreso', traslado_salida: 'Traslado (sale)',
@@ -105,7 +106,7 @@ function nombreArchivo(meta: ReporteMeta): string {
 /** Descarga el reporte de movimientos como PDF. */
 export async function descargarReportePdf(movs: MovimientoCaja[], meta: ReporteMeta): Promise<void> {
   const doc = await construirDoc(movs, meta);
-  doc.save(nombreArchivo(meta));
+  previewPdf(doc, nombreArchivo(meta));
 }
 
 /** Genera el reporte y devuelve el base64 (sin el prefijo data:) + nombre, para el correo. */

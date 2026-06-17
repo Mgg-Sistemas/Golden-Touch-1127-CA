@@ -7,6 +7,7 @@
    Saldo en moneda $ Usd, Kg Recibidos por MGG, Saldo en Kg de casiterita.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 
 export interface MovAcopioRow {
   fecha: string;
@@ -84,7 +85,7 @@ async function construirDoc(rows: MovAcopioRow[], meta: MovAcopioMeta = {}) {
 }
 
 export async function descargarMovAcopioPdf(rows: MovAcopioRow[], meta: MovAcopioMeta = {}): Promise<void> {
-  (await construirDoc(rows, meta)).save(`${NOMBRE}.pdf`);
+  previewPdf(await construirDoc(rows, meta), `${NOMBRE}.pdf`);
 }
 
 export async function descargarMovAcopioExcel(rows: MovAcopioRow[]): Promise<void> {
@@ -111,7 +112,7 @@ export async function descargarMovAcopioExcel(rows: MovAcopioRow[]): Promise<voi
   HEAD.forEach((_, c) => { const cell = cellAt(3, c); if (cell) cell.s = HEADER; });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
-  XLSX.writeFile(wb, `${NOMBRE}.xlsx`);
+  previewExcel(wb, `${NOMBRE}.xlsx`);
 }
 
 export async function enviarMovAcopioPorCorreo(rows: MovAcopioRow[], destinos: string[], meta: MovAcopioMeta = {}): Promise<{ destinatarios: string[] }> {

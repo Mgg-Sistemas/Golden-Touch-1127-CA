@@ -10,6 +10,7 @@ import { dateTime } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import type { MovimientoCaja, Orden } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const TIPO_LABEL: Record<string, string> = {
   ingreso: 'Ingreso', salida: 'Egreso', traslado_salida: 'Traslado (sale)',
@@ -130,7 +131,7 @@ function nombreArchivo(mov: MovimientoCaja, orden: Orden | null): string {
 /** Descarga el detalle del movimiento como PDF. */
 export async function descargarMovimientoDetallePdf(mov: MovimientoCaja, orden: Orden | null): Promise<void> {
   const doc = await construirDetalleDoc(mov, orden);
-  doc.save(nombreArchivo(mov, orden));
+  previewPdf(doc, nombreArchivo(mov, orden));
 }
 
 /** Genera el detalle y devuelve el base64 (sin el prefijo data:) + nombre, para el correo. */

@@ -3,6 +3,7 @@
    Exporta las conciliaciones recibidas (respeta el filtro aplicado).
    ============================================================ */
 import type { ConciliacionRow } from './conciliacionPdf';
+import { previewExcel } from '@/shared/lib/reportePreview';
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
@@ -70,5 +71,5 @@ export async function descargarConciliacionesExcel(rows: ConciliacionRow[]): Pro
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Conciliaciones');
-  XLSX.writeFile(wb, 'combustible-conciliaciones.xlsx');
+  previewExcel(wb, 'combustible-conciliaciones.xlsx');
 }

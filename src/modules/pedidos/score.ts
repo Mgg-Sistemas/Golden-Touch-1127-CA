@@ -36,7 +36,13 @@ export function scoreOfertas(
 ): ScoredOferta[] {
   if (!ofertas.length) return [];
 
-  const precios = ofertas.map((o) => o.precio_total);
+  // Precio efectivo = el que realmente costaría a la empresa: si el proveedor dio
+  // precio en divisa/efectivo (más barato), ese manda; si no, el de referencia BCV.
+  // Así el ahorro por pagar en divisa pesa en la recomendación de la mejor oferta.
+  const precioEfectivo = (o: OfertaProveedor) =>
+    o.precio_divisa != null && Number(o.precio_divisa) > 0 ? Number(o.precio_divisa) : o.precio_total;
+
+  const precios = ofertas.map(precioEfectivo);
   const minP = Math.min(...precios);
   const maxP = Math.max(...precios);
   const rangeP = maxP - minP;
@@ -54,7 +60,7 @@ export function scoreOfertas(
       total_ordenes: 0,
     };
 
-    const precio = rangeP === 0 ? 1 : 1 - (o.precio_total - minP) / rangeP;
+    const precio = rangeP === 0 ? 1 : 1 - (precioEfectivo(o) - minP) / rangeP;
     const puntualidad = clamp01(stats.puntualidad_pct);
     const calidad = clamp01(stats.calidad_avg / 5);
     const cumplimiento = clamp01(stats.cumplimiento_pct);
@@ -76,7 +82,7 @@ export function scoreOfertas(
   return enriched.map((e) => ({
     ...e,
     recomendada: e.score.total === maxTotal,
-    mejorPrecio: e.oferta.precio_total === minP,
+    mejorPrecio: precioEfectivo(e.oferta) === minP,
     masPuntual: e.stats.puntualidad_pct === bestPuntualidad && e.stats.total_evaluaciones > 0,
     mejorCalidad: e.stats.calidad_avg === bestCalidad && e.stats.total_evaluaciones > 0,
   }));

@@ -5,6 +5,7 @@
    vienen con los valores propios del almacén (PMP por almacén).
    ============================================================ */
 import type { Producto } from '@/shared/lib/types';
+import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 
 interface FilaAlmacen extends Producto { _valor?: number }
 
@@ -66,7 +67,7 @@ export async function descargarAlmacenExcel(almacen: string, rows: Producto[]): 
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Almacén');
-  XLSX.writeFile(wb, `almacen-${almacen}.xlsx`);
+  previewExcel(wb, `almacen-${almacen}.xlsx`);
 }
 
 export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Promise<void> {
@@ -106,5 +107,5 @@ export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Pr
     columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
     margin: MARGIN,
   });
-  doc.save(`almacen-${almacen}.pdf`);
+  previewPdf(doc, `almacen-${almacen}.pdf`);
 }

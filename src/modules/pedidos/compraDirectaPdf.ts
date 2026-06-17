@@ -3,6 +3,7 @@
    Se descarga SOLO al hacer clic (regla del sistema).
    ============================================================ */
 import type { CompraDirecta } from './compras.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
@@ -46,5 +47,5 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
     margin: MARGIN,
   });
-  doc.save(`compra-directa-${(compra.producto_sku ?? 'material')}-${compra.id.slice(0, 8)}.pdf`);
+  previewPdf(doc, `compra-directa-${(compra.producto_sku ?? 'material')}-${compra.id.slice(0, 8)}.pdf`);
 }

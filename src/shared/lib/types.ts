@@ -934,6 +934,13 @@ export interface Orden {
   finalidad?: string | null;
   /** Clasificación del pedido: Producción, Bienes, Servicios (multi-selección). */
   clasificacion?: string[] | null;
+  /** OP marcada como URGENTE por el solicitante. */
+  urgente?: boolean | null;
+  /** Imagen adjunta a la OP (path en el bucket `op-imagenes`). */
+  imagen_path?: string | null;
+  /** OC por factura: si se aplicó IVA (16%) sobre el monto y cuánto. */
+  iva_aplicado?: boolean | null;
+  iva_monto?: number | null;
   historial: EventoHistorial[];
   aprobada_por?: string | null;
   aprobada_en?: string | null;
@@ -1148,6 +1155,27 @@ export interface Notificacion {
 
 export type EstadoOferta = 'pendiente' | 'aceptada' | 'descartada';
 
+/** Indica si un costo logístico está incluido en el precio o corre por cuenta del comprador. */
+export type CostoLogistico = 'incluido' | 'comprador';
+
+/** Ficha técnica/comercial que el proveedor carga junto a su oferta. */
+export interface FichaOferta {
+  marca?: string | null;
+  modelo?: string | null;
+  procedencia?: string | null;
+  materiales?: string | null;
+  dimensiones?: string | null;
+  peso?: string | null;
+  nivel_calidad?: string | null;
+  /** Costos logísticos: por cada uno, si está incluido o corre por cuenta del comprador. */
+  logistica?: {
+    flete?: CostoLogistico | null;
+    transporte?: CostoLogistico | null;
+    embalaje?: CostoLogistico | null;
+    seguros?: CostoLogistico | null;
+  } | null;
+}
+
 export interface OfertaProveedor {
   id: string;
   orden_id: string;
@@ -1166,6 +1194,10 @@ export interface OfertaProveedor {
   motivo_descarte?: string | null;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+  /** Ficha del producto ofertado + costos logísticos. */
+  ficha?: FichaOferta | null;
+  /** Precio total si se paga en divisa/efectivo (precio_total es el de referencia BCV). */
+  precio_divisa?: number | null;
 }
 
 export interface EvaluacionRecepcion {

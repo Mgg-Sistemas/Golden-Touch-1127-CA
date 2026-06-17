@@ -17,6 +17,8 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 /** Categoría y unidad con que se da de alta cada combustible en el inventario. */
 const CATEGORIA_COMBUSTIBLE = 'Combustible';
 const UNIDAD_COMBUSTIBLE = 'l';
+/** Tasa (precio por litro) por defecto del combustible en inventario: $0,50/L. */
+const TASA_COMBUSTIBLE_DEFAULT = 0.5;
 
 /* ───────────── Inventario de combustible ───────────── */
 
@@ -48,7 +50,7 @@ async function ensureProductoCombustible(comb: Pick<Combustible, 'id' | 'nombre'
     unidad: UNIDAD_COMBUSTIBLE,
     stock: 0,
     stock_min: 0,
-    precio: Math.max(0, Number(comb.costo_litro) || 0),
+    precio: Math.max(0, Number(comb.costo_litro) || 0) || TASA_COMBUSTIBLE_DEFAULT,
     almacen,
     estado: 'activo',
   });
@@ -80,7 +82,10 @@ export async function crearCombustible(input: {
   const almacen = (input.almacen || '').trim();
   if (!almacen) throw new Error('Indicá el almacén donde se registra el combustible.');
   const litros = Math.max(0, Number(input.litrosIniciales) || 0);
-  const costo = Math.max(0, Number(input.costoLitro) || 0);
+  // Tasa por defecto $0,50/L si no se indica un costo explícito.
+  const costo = input.costoLitro != null && Number(input.costoLitro) > 0
+    ? Math.max(0, Number(input.costoLitro))
+    : TASA_COMBUSTIBLE_DEFAULT;
 
   // 1) Se registra PRIMERO en el inventario: alta del producto en el almacén elegido.
   const productos = await listProductos();

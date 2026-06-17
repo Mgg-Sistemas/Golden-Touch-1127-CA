@@ -8,6 +8,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarGasto } from './tesoreria.repository';
 import { crearOAcumularCuentaPorCobrar } from './cuentasPorCobrar.repository';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
 
 export type TipoCxP = 'cliente' | 'proveedor';
@@ -211,4 +212,64 @@ export async function registrarAbonoCuenta(input: {
   }
 
   return { cuenta: cu as CuentaPorPagar, abono: ab as AbonoCxP, exceso };
+}
+
+/**
+ * Paga una cuenta por pagar ENTREGANDO PRODUCTOS (no dinero). Ej.: GT salda
+ * deuda con MGG entregando casiterita. Cada producto se valora a precio de
+ * inventario × cantidad, se descuenta del almacén indicado (movimiento de
+ * salida) y el valor total abona la cuenta por pagar (sin egreso de caja).
+ */
+export async function pagarCuentaConProductos(input: {
+  cuenta: CuentaPorPagar;
+  items: Array<{ productoId: string; sku: string; nombre: string; cantidad: number; precio: number; almacen?: string | null }>;
+  nota?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<{ cuenta: CuentaPorPagar; abono: AbonoCxP; valorTotal: number }> {
+  const c = input.cuenta;
+  const items = input.items.filter((i) => i.productoId && Number(i.cantidad) > 0);
+  if (!items.length) throw new Error('Agregá al menos un producto a entregar.');
+
+  // Valor total = Σ (precio de inventario × cantidad).
+  const valorTotal = round2(items.reduce((a, i) => a + Number(i.cantidad) * Number(i.precio), 0));
+  if (valorTotal <= 0) throw new Error('El valor de los productos debe ser mayor que 0.');
+
+  const saldoPrev = round2(c.monto - (Number(c.abonado) || 0));
+  const aplicado = round2(Math.min(valorTotal, saldoPrev));
+
+  // 1) Descontar cada producto del inventario (salida), valorado a su precio.
+  for (const it of items) {
+    await registrarMovimiento({
+      producto_id: it.productoId,
+      tipo: 'salida',
+      delta: -Math.abs(Number(it.cantidad)),
+      almacen: it.almacen ?? null,
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+      ref_tipo: 'cxp_productos',
+      detalle: `Pago en producto a ${c.contraparte} · ${it.sku} ${it.nombre}`,
+    });
+  }
+
+  // 2) Abono a la cuenta por pagar por el valor entregado (sin egreso de caja).
+  const detalleProd = items.map((i) => `${i.cantidad} ${i.sku}`).join(', ');
+  const saldoRestante = round2(saldoPrev - aplicado);
+  const notaAbono = `Pago en productos (${detalleProd}) = ${valorTotal} ${c.moneda}${input.nota?.trim() ? ' · ' + input.nota.trim() : ''}`;
+  const { data: ab, error: abErr } = await supabase.from(CXP_ABONOS).insert({
+    cuenta_id: c.id, monto: aplicado, moneda: c.moneda, caja_id: null, cuenta: null,
+    caja_mov_id: null, saldo_restante: saldoRestante, nota: notaAbono,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (abErr) throw abErr;
+
+  // 3) Actualizar la cuenta por pagar (abonado + estado).
+  const nuevoAbonado = round2((Number(c.abonado) || 0) + aplicado);
+  const estado: EstadoCxP = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
+  const { data: cu, error: cuErr } = await supabase.from(CXP)
+    .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })
+    .eq('id', c.id).select('*').single();
+  if (cuErr) throw cuErr;
+
+  return { cuenta: cu as CuentaPorPagar, abono: ab as AbonoCxP, valorTotal };
 }

@@ -6,6 +6,7 @@
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 const litrosDe = (m: MovimientoTanque, tipo: MovimientoTanque['tipo']) => (m.tipo === tipo ? num(m.litros) : '');
 
@@ -85,7 +86,7 @@ export async function descargarMovimientosTanquePdf(
   tanque: TanqueCombustible, movs: MovimientoTanque[], meta: TanqueReporteMeta = {},
 ): Promise<void> {
   const doc = await construirDoc(tanque, movs, meta);
-  doc.save(nombreArchivo(tanque));
+  previewPdf(doc, nombreArchivo(tanque));
 }
 
 export async function obtenerMovimientosTanquePdfBase64(

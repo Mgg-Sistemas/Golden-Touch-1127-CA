@@ -5,7 +5,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
-import type { ItemOrden, Orden, OrigenProveedor, Proveedor } from '@/shared/lib/types';
+import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OrigenProveedor, Proveedor } from '@/shared/lib/types';
 import { crearOferta, subirPdfOferta, CONDICIONES_PAGO } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
@@ -69,10 +69,36 @@ export function AgregarOfertaModal({
     orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0 })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
+  // Precio total si se paga en divisa/efectivo (el precioTotal de la cotización es el de referencia BCV).
+  const [precioDivisa, setPrecioDivisa] = useState<string>('');
   const [condiciones, setCondiciones] = useState('');
   const [notas, setNotas] = useState('');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Ficha del producto ofertado + costos logísticos (todo opcional).
+  const [ficha, setFicha] = useState<FichaOferta>({});
+  function setFichaField(k: keyof Omit<FichaOferta, 'logistica'>, v: string) {
+    setFicha((f) => ({ ...f, [k]: v }));
+  }
+  function setLogistica(k: 'flete' | 'transporte' | 'embalaje' | 'seguros', v: CostoLogistico) {
+    setFicha((f) => ({ ...f, logistica: { ...(f.logistica ?? {}), [k]: v } }));
+  }
+  /** Devuelve la ficha solo si tiene algún dato; si no, null (no se guarda vacía). */
+  function fichaLimpia(): FichaOferta | null {
+    const base: FichaOferta = {};
+    (['marca', 'modelo', 'procedencia', 'materiales', 'dimensiones', 'peso', 'nivel_calidad'] as const).forEach((k) => {
+      const v = (ficha[k] ?? '').toString().trim();
+      if (v) base[k] = v;
+    });
+    const log = ficha.logistica ?? {};
+    const logClean: NonNullable<FichaOferta['logistica']> = {};
+    (['flete', 'transporte', 'embalaje', 'seguros'] as const).forEach((k) => {
+      if (log[k]) logClean[k] = log[k];
+    });
+    if (Object.keys(logClean).length) base.logistica = logClean;
+    return Object.keys(base).length ? base : null;
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
@@ -91,6 +117,11 @@ export function AgregarOfertaModal({
   }
 
   const precioTotal = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
+  // Comparación BCV vs divisa/efectivo: diferencia y % de ahorro (diferencia / BCV).
+  const divisaNum = Number(precioDivisa.replace(',', '.'));
+  const tieneDivisa = precioDivisa.trim() !== '' && Number.isFinite(divisaNum) && divisaNum > 0;
+  const diferencia = tieneDivisa ? precioTotal - divisaNum : 0;
+  const ahorroPct = tieneDivisa && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
   function updateItemPrecio(idx: number, precio: number) {
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precio: Math.max(0, precio) } : it)));
@@ -161,6 +192,8 @@ export function AgregarOfertaModal({
         registrada_por_email: registradoPorEmail,
         pdf_path,
         pdf_filename,
+        ficha: fichaLimpia(),
+        precio_divisa: tieneDivisa ? divisaNum : null,
       });
       notify(`Oferta registrada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
       onCreated();
@@ -384,12 +417,36 @@ export function AgregarOfertaModal({
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={4} className="num">TOTAL OFERTA</td>
+                <td colSpan={4} className="num">TOTAL OFERTA (BCV)</td>
                 <td className="num mono">{money(precioTotal)}</td>
               </tr>
             </tfoot>
           </table>
         </div>
+      </div>
+
+      {/* Comparación BCV vs divisa/efectivo: diferencia y % de ahorro por proveedor. */}
+      <div className="form-row">
+        <label>Precio total si paga en divisa / efectivo <span className="muted">(opcional)</span></label>
+        <input
+          type="number"
+          className="input mono"
+          min={0}
+          step={0.01}
+          style={{ maxWidth: 200 }}
+          value={precioDivisa}
+          onChange={(e) => setPrecioDivisa(e.target.value)}
+          placeholder="0.00"
+        />
+        {tieneDivisa && (
+          <div className="card" style={{ marginTop: '.5rem', padding: '.6rem .8rem', background: 'var(--bg-1)', display: 'flex', flexWrap: 'wrap', gap: '1.2rem', fontSize: '.86rem' }}>
+            <span>BCV: <strong className="mono">{money(precioTotal)}</strong></span>
+            <span>Divisa/efectivo: <strong className="mono">{money(divisaNum)}</strong></span>
+            <span>Diferencia: <strong className="mono" style={{ color: diferencia >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(diferencia)}</strong></span>
+            <span>Ahorro: <strong style={{ color: diferencia >= 0 ? 'var(--success)' : 'var(--danger)' }}>{ahorroPct.toFixed(2)}%</strong></span>
+          </div>
+        )}
+        <small className="muted">Se muestra la diferencia ({money(precioTotal)} − divisa) y el % (diferencia / BCV) para comparar proveedores.</small>
       </div>
 
       <div className="form-grid">
@@ -403,6 +460,40 @@ export function AgregarOfertaModal({
             <option value="">— elegir —</option>
             {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
+        </div>
+      </div>
+
+      <div className="form-row">
+        <label>Ficha del producto ofertado <span className="muted">(opcional)</span></label>
+        <div className="form-grid">
+          <input className="input" placeholder="Marca" value={ficha.marca ?? ''} onChange={(e) => setFichaField('marca', e.target.value)} />
+          <input className="input" placeholder="Modelo" value={ficha.modelo ?? ''} onChange={(e) => setFichaField('modelo', e.target.value)} />
+        </div>
+        <div className="form-grid" style={{ marginTop: '.4rem' }}>
+          <input className="input" placeholder="Procedencia" value={ficha.procedencia ?? ''} onChange={(e) => setFichaField('procedencia', e.target.value)} />
+          <input className="input" placeholder="Nivel de calidad" value={ficha.nivel_calidad ?? ''} onChange={(e) => setFichaField('nivel_calidad', e.target.value)} />
+        </div>
+        <div className="form-grid" style={{ marginTop: '.4rem' }}>
+          <input className="input" placeholder="Dimensiones" value={ficha.dimensiones ?? ''} onChange={(e) => setFichaField('dimensiones', e.target.value)} />
+          <input className="input" placeholder="Peso" value={ficha.peso ?? ''} onChange={(e) => setFichaField('peso', e.target.value)} />
+        </div>
+        <input className="input" placeholder="Materiales" value={ficha.materiales ?? ''} onChange={(e) => setFichaField('materiales', e.target.value)} style={{ marginTop: '.4rem' }} />
+      </div>
+
+      <div className="form-row">
+        <label>Costos logísticos <span className="muted">(¿incluido en el precio o por cuenta del comprador?)</span></label>
+        <div style={{ display: 'grid', gap: '.4rem' }}>
+          {([['flete', 'Flete'], ['transporte', 'Transporte'], ['embalaje', 'Embalaje'], ['seguros', 'Seguros']] as const).map(([key, label]) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '.7rem', flexWrap: 'wrap' }}>
+              <span style={{ width: 100, fontSize: '.85rem', fontWeight: 600 }}>{label}</span>
+              {([['incluido', 'Incluido'], ['comprador', 'Por cuenta del comprador']] as const).map(([val, txt]) => (
+                <label key={val} style={{ display: 'flex', alignItems: 'center', gap: '.3rem', cursor: 'pointer', fontSize: '.82rem' }}>
+                  <input type="radio" name={`log-${key}`} checked={ficha.logistica?.[key] === val} onChange={() => setLogistica(key, val)} />
+                  {txt}
+                </label>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
 

@@ -14,6 +14,30 @@ import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repo
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
 
+/** Resumen compacto de la ficha del producto para mostrar en la comparativa. */
+function resumenFicha(ficha: OfertaProveedor['ficha']): string {
+  if (!ficha) return '';
+  const partes: string[] = [];
+  if (ficha.marca) partes.push(`Marca: ${ficha.marca}`);
+  if (ficha.modelo) partes.push(`Modelo: ${ficha.modelo}`);
+  if (ficha.procedencia) partes.push(`Proc.: ${ficha.procedencia}`);
+  if (ficha.nivel_calidad) partes.push(`Calidad: ${ficha.nivel_calidad}`);
+  if (ficha.materiales) partes.push(`Mat.: ${ficha.materiales}`);
+  if (ficha.dimensiones) partes.push(`Dim.: ${ficha.dimensiones}`);
+  if (ficha.peso) partes.push(`Peso: ${ficha.peso}`);
+  const log = ficha.logistica;
+  if (log) {
+    const lbl = (v?: string | null) => (v === 'incluido' ? 'incl.' : v === 'comprador' ? 'comprador' : null);
+    const ls: string[] = [];
+    if (lbl(log.flete)) ls.push(`Flete ${lbl(log.flete)}`);
+    if (lbl(log.transporte)) ls.push(`Transp. ${lbl(log.transporte)}`);
+    if (lbl(log.embalaje)) ls.push(`Embal. ${lbl(log.embalaje)}`);
+    if (lbl(log.seguros)) ls.push(`Seg. ${lbl(log.seguros)}`);
+    if (ls.length) partes.push(ls.join(', '));
+  }
+  return partes.join(' · ');
+}
+
 interface Props {
   orden: Orden;
   proveedorMap: Map<string, Proveedor>;
@@ -135,7 +159,7 @@ export function OfertasComparativa({
           <thead>
             <tr>
               <th>Proveedor</th>
-              <th className="num">Precio total</th>
+              <th className="num">Precio (BCV / divisa)</th>
               <th>Entrega prom.</th>
               <th className="num">Puntualidad</th>
               <th className="num">Calidad</th>
@@ -179,8 +203,29 @@ export function OfertasComparativa({
                         {s.masPuntual && <span className="badge info">Más puntual</span>}
                         {s.mejorCalidad && <span className="badge info">Mejor calidad</span>}
                       </div>
+                      {resumenFicha(s.oferta.ficha) && (
+                        <div className="muted" style={{ marginTop: '.25rem', fontSize: '.72rem', lineHeight: 1.35 }}>
+                          {resumenFicha(s.oferta.ficha)}
+                        </div>
+                      )}
                     </td>
-                    <td className="num mono">{money(s.oferta.precio_total)}</td>
+                    <td className="num mono">
+                      {money(s.oferta.precio_total)}
+                      {s.oferta.precio_divisa != null && (() => {
+                        const bcv = Number(s.oferta.precio_total);
+                        const div = Number(s.oferta.precio_divisa);
+                        const dif = bcv - div;
+                        const pct = bcv > 0 ? (dif / bcv) * 100 : 0;
+                        return (
+                          <div style={{ fontSize: '.72rem', fontWeight: 400, marginTop: '.2rem' }}>
+                            <div className="muted">Divisa: {money(div)}</div>
+                            <div style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }} title="Diferencia BCV − divisa y su % sobre el BCV">
+                              {dif >= 0 ? '−' : '+'}{money(Math.abs(dif))} ({pct.toFixed(2)}%)
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="muted" style={{ fontSize: '.85rem' }}>{date(s.oferta.fecha_entrega_prometida)}</td>
                     <td className="num mono">{(s.score.puntualidad * 100).toFixed(0)}%</td>
                     <td className="num mono">{(s.stats.calidad_avg).toFixed(1)} / 5</td>

@@ -4,6 +4,7 @@
    costos de una producción (= receta para X unidades).
    ============================================================ */
 import { getProduccionConMateriales } from './produccion.repository';
+import { previewExcel } from '@/shared/lib/reportePreview';
 
 const BORDER = {
   top:    { style: 'thin', color: { rgb: '000000' } },
@@ -107,5 +108,5 @@ export async function descargarProduccionExcel(id: string): Promise<void> {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Receta');
-  XLSX.writeFile(wb, `receta-${prod.producto_nombre}-${prod.id.slice(0, 8)}.xlsx`);
+  previewExcel(wb, `receta-${prod.producto_nombre}-${prod.id.slice(0, 8)}.xlsx`);
 }

@@ -4,6 +4,7 @@
    dinero. Se descargan SOLO al hacer clic (regla del sistema).
    ============================================================ */
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
+import { previewPdf } from '@/shared/lib/reportePreview';
 
 async function nuevoDoc(titulo: string) {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
@@ -51,7 +52,7 @@ export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: bo
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 150 } },
     margin: MARGIN,
   });
-  doc.save(`${esTraslado ? 'traslado' : 'salida'}-${(prod?.sku ?? 'material')}-${mov.id.slice(0, 8)}.pdf`);
+  previewPdf(doc, `${esTraslado ? 'traslado' : 'salida'}-${(prod?.sku ?? 'material')}-${mov.id.slice(0, 8)}.pdf`);
 }
 
 /** Igual que el comprobante de salida/traslado pero devuelve el PDF en base64
@@ -115,7 +116,7 @@ export async function descargarSalidaDineroPdf(mov: MovimientoCaja): Promise<voi
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
     margin: MARGIN,
   });
-  doc.save(`salida-dinero-${mov.id.slice(0, 8)}.pdf`);
+  previewPdf(doc, `salida-dinero-${mov.id.slice(0, 8)}.pdf`);
 }
 
 /** Comprobante de traslado de dinero entre cajas (incluye nota de entrega). */
@@ -136,7 +137,7 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
     margin: MARGIN,
   });
-  doc.save(`traslado-dinero-${mov.id.slice(0, 8)}.pdf`);
+  previewPdf(doc, `traslado-dinero-${mov.id.slice(0, 8)}.pdf`);
 }
 
 /* ============================================================
@@ -286,5 +287,5 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
 
-  doc.save(`orden-${esTraslado ? 'traslado' : 'salida'}-${sol.codigo}.pdf`);
+  previewPdf(doc, `orden-${esTraslado ? 'traslado' : 'salida'}-${sol.codigo}.pdf`);
 }
