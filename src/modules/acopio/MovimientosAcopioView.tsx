@@ -7,11 +7,14 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import type { ContratoAcopio, CajaMovimiento, ClasificacionAcopio, CostoClase } from '@/shared/lib/types';
+import type { ContratoAcopio, CajaMovimiento, CajaCierre, ClasificacionAcopio, CostoClase } from '@/shared/lib/types';
 import { listContratos } from '@/modules/produccion/contratos.repository';
 import { listCajaMovimientos, listClasificaciones, listCostoClases } from './caja.repository';
 import { MovimientoCajaModal } from './MovimientoCajaModal';
 import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorreo } from './movimientosAcopioReportes';
+import { construirMovimientosAcopio, type FilaMov, type ResumenAcopio } from './movimientosAcopioCalc';
+
+export type { ResumenAcopio } from './movimientosAcopioCalc';
 
 /**
  * Lista de movimientos del Centro de Acopio (réplica del Excel «caja» de acopio).
@@ -21,35 +24,15 @@ import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorre
  * Incluye filtros (estilo Tesorería) y reportes PDF / Excel / correo.
  */
 
-interface FilaMov {
-  id: string;
-  contratoId?: string;      // ← si la fila proviene de un contrato cerrado, su id (para ir al detalle)
-  fecha: string;
-  descripcion: string;
-  usdEntregado: number | null;
-  kgCerrados: number;       // ← lo que aporta el contrato (se refleja en la caja)
-  precioUsdKg: number | null;
-  usdFacturados: number;
-  gastosGt: number | null;
-  nominasGt: number | null;
-  trasladoCaja: number | null;
-  saldoUsd: number;
-  kgRecibidosMgg: number | null;
-  saldoKgCasiterita: number; // saldo corrido
-}
-
-/** Resumen que las tarjetas de la página consumen (misma fuente que la tabla). */
-export interface ResumenAcopio {
-  saldoKg: number;
-  tasa: number;
-  usdEntregado: number;
-  saldoUsd: number;
-  gastos: number;
-  nominas: number;
-  facturado: number;
-}
-
-export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen?: (r: ResumenAcopio) => void; visible?: boolean } = {}) {
+export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja = null, esHistorico = false }: {
+  onResumen?: (r: ResumenAcopio) => void;
+  onFilas?: (filas: FilaMov[]) => void;
+  visible?: boolean;
+  /** Caja a la que se scopea la vista (la ABIERTA en la página; una cerrada en el histórico). */
+  caja?: CajaCierre | null;
+  /** true cuando se muestra una caja ya cerrada (histórico): no incluye movimientos sin asignar. */
+  esHistorico?: boolean;
+} = {}) {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can('acopio', 'escritura');
@@ -84,73 +67,13 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
   }, [recargar]);
   useRealtime(['acopio_contratos', 'acopio_caja_movimientos'], () => { void recargar(); });
 
-  // El movimiento del Centro de Acopio es la mezcla de DOS fuentes, ordenada por fecha:
-  //   1) Contratos de producción CERRADOS → aportan Kg de casiterita.
-  //   2) Movimientos de caja (acopio_caja_movimientos) → flujo en USD; aquí entra el
-  //      dinero ACEPTADO desde el otro sistema (columna $Usd entregado).
-  // Saldos corridos: Kg = anterior + Kg Cerrados − Kg MGG; USD = anterior + Entregado
-  // − Facturados − Gastos − Nóminas − Traslado.
-  const filas = useMemo<FilaMov[]>(() => {
-    type Evt = { t: 'c'; c: ContratoAcopio } | { t: 'm'; m: CajaMovimiento };
-    const evts: Evt[] = [
-      ...contratos.filter((c) => c.estado === 'cerrado').map((c) => ({ t: 'c' as const, c })),
-      ...cajaMovs.map((m) => ({ t: 'm' as const, m })),
-    ];
-    const fechaDe = (e: Evt) => (e.t === 'c' ? e.c.fecha : e.m.fecha) ?? '';
-    const seqDe = (e: Evt) => (e.t === 'c' ? e.c.seq : 0);
-    evts.sort((a, b) => fechaDe(a).localeCompare(fechaDe(b)) || (seqDe(a) - seqDe(b)));
-
-    let saldoKg = 0;
-    let saldoUsd = 0;
-    return evts.map((e): FilaMov => {
-      if (e.t === 'c') {
-        const kg = Number(e.c.kg_seco_limpio) || 0;
-        const mgg = 0; // Kg Recibidos por MGG (aún no conectado) → cuando exista se resta acá.
-        saldoKg = saldoKg + kg - mgg;
-        return {
-          id: `c-${e.c.id}`,
-          contratoId: e.c.id,
-          fecha: e.c.fecha,
-          descripcion: `CONTRATO PRODUCCIÓN GT - #${e.c.seq}`,
-          usdEntregado: null,
-          kgCerrados: kg,
-          precioUsdKg: null,
-          usdFacturados: 0,
-          gastosGt: null,
-          nominasGt: null,
-          trasladoCaja: null,
-          saldoUsd,
-          kgRecibidosMgg: mgg || null,
-          saldoKgCasiterita: saldoKg,
-        };
-      }
-      const m = e.m;
-      const entregado = Number(m.usd_entregado) || 0;
-      const facturados = Number(m.facturados) || 0;
-      const gastos = Number(m.gastos) || 0;
-      const nominas = Number(m.nominas) || 0;
-      const traslado = Number(m.traslado) || 0;
-      const kgc = Number(m.kg_cerrados) || 0;
-      const mgg = Number(m.kg_recibidos) || 0;
-      saldoUsd = saldoUsd + entregado - facturados - gastos - nominas - traslado;
-      saldoKg = saldoKg + kgc - mgg;
-      return {
-        id: `m-${m.id}`,
-        fecha: m.fecha,
-        descripcion: m.descripcion || 'Movimiento de caja',
-        usdEntregado: entregado || null,
-        kgCerrados: kgc,
-        precioUsdKg: null,
-        usdFacturados: facturados,
-        gastosGt: gastos || null,
-        nominasGt: nominas || null,
-        trasladoCaja: traslado || null,
-        saldoUsd,
-        kgRecibidosMgg: mgg || null,
-        saldoKgCasiterita: saldoKg,
-      };
-    });
-  }, [contratos, cajaMovs]);
+  // El movimiento del Centro de Acopio es la mezcla de DOS fuentes (contratos
+  // cerrados + movimientos de caja), scopeada a la caja activa. La lógica vive en
+  // `construirMovimientosAcopio` para que la vista y el cierre vean lo mismo.
+  const { filas, resumen: resumenScope } = useMemo(
+    () => construirMovimientosAcopio({ contratos, cajaMovs, caja, esHistorico }),
+    [contratos, cajaMovs, caja, esHistorico],
+  );
 
   // Vista filtrada + ordenada por fecha (mantiene el saldo corrido calculado sobre TODOS los movimientos).
   const mostradas = useMemo(() => {
@@ -168,26 +91,10 @@ export function MovimientosAcopioView({ onResumen, visible = true }: { onResumen
   const hayFiltro = !!(fTexto || fDesde || fHasta);
   const filtroTxt = () => (hayFiltro ? 'filtrado' : undefined);
 
-  // Totales y saldo/tasa generales (sobre TODOS los movimientos, no el filtro) para las tarjetas.
-  const totalKg = filas.reduce((a, f) => a + f.kgCerrados, 0);
-  const totalFacturado = filas.reduce((a, f) => a + (f.usdFacturados ?? 0), 0);
-  const totalGastos = filas.reduce((a, f) => a + (f.gastosGt ?? 0), 0);
-  const totalNominas = filas.reduce((a, f) => a + (f.nominasGt ?? 0), 0);
-  const totalUsdEntregado = filas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
-  const saldoFinal = filas.length ? filas[filas.length - 1].saldoKgCasiterita : 0;
-  // Saldo en moneda $ Usd = el saldo corrido del movimiento cronológicamente más nuevo.
-  const saldoUsdFinal = filas.length ? filas[filas.length - 1].saldoUsd : 0;
-  // TASA ACTUAL DEL MATERIAL = (Facturado + Gastos + Nóminas) ÷ Kg cerrados.
-  const tasa = totalKg !== 0 ? (totalFacturado + totalGastos + totalNominas) / totalKg : 0;
-
-  // Reflejamos en las tarjetas de la página el MISMO resumen que alimenta la tabla.
-  useEffect(() => {
-    onResumen?.({
-      saldoKg: saldoFinal, tasa,
-      usdEntregado: totalUsdEntregado, saldoUsd: saldoUsdFinal,
-      gastos: totalGastos, nominas: totalNominas, facturado: totalFacturado,
-    });
-  }, [saldoFinal, tasa, totalUsdEntregado, saldoUsdFinal, totalGastos, totalNominas, totalFacturado, onResumen]);
+  // Reflejamos en las tarjetas de la página el MISMO resumen que alimenta la tabla,
+  // y exponemos las filas (para que el cierre tome la foto exacta de lo mostrado).
+  useEffect(() => { onResumen?.(resumenScope); }, [resumenScope, onResumen]);
+  useEffect(() => { onFilas?.(filas); }, [filas, onFilas]);
 
   // Totales de la vista (para la fila de totales de la tabla, respeta el filtro).
   const totUsdEntregadoVista = mostradas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);

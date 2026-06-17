@@ -44,7 +44,7 @@ export function CorreoReporteModal({ titulo, descripcion, defaultEmail, onEnviar
   }
 
   return (
-    <Modal title={titulo} size="md" onClose={() => !enviando && onClose()} footer={
+    <Modal title={titulo} size="md" compact onClose={() => !enviando && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={enviando}>Cancelar</button>
         <button className="btn btn-primary" onClick={handleEnviar} disabled={enviando}>{enviando ? 'Enviando…' : '📧 Enviar'}</button>

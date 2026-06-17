@@ -1433,7 +1433,6 @@ function OrdenesTable({ ordenes, proveedorMap, isAdmin, onView, onApprove }: Ord
                 </td>
                 <td>
                   <div>{o.solicitante ?? '—'}</div>
-                  <div className="muted" style={{ fontSize: '.75rem' }}>{o.solicitante_email}</div>
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
@@ -1891,7 +1890,7 @@ function OrdenDetailModal({
       <div className="detail-row">
         <div className="k">Solicitante</div>
         <div className="v">
-          {o.solicitante ?? persona(o.solicitante_email, personaMap)} <span className="muted">({o.solicitante_email})</span>
+          {o.solicitante ?? persona(o.solicitante_email, personaMap)}
         </div>
       </div>
       <div className="detail-row">
