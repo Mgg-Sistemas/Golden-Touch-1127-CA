@@ -61,7 +61,8 @@ export function AjustesPage() {
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   async function handleGuardarPerfil() {
     if (!user) return;
