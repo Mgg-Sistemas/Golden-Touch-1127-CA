@@ -28,14 +28,20 @@ export function useSession() {
       setLoading(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      // Al cambiar de pestaña y volver, Supabase refresca el token y emite un
-      // objeto `session` NUEVO con el MISMO usuario. Si cambiáramos la referencia,
-      // todo el árbol re-renderiza (y según el consumidor se remonta, cerrando el
-      // modal abierto). Mantenemos la referencia previa cuando el usuario no cambió;
-      // solo actualizamos en login/logout o cambio real de usuario.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      // Al cambiar de pestaña y volver, Supabase refresca el token y emite eventos
+      // (TOKEN_REFRESHED / SIGNED_IN) con un objeto `session` NUEVO del MISMO usuario.
+      // Si cambiáramos la referencia, todo el árbol re-renderiza (y según el consumidor
+      // se remonta, cerrando el modal abierto). Reglas:
+      //  · SIGNED_OUT → null (cierre real de sesión).
+      //  · sesión nula que NO es signout → la ignoramos (null transitorio del refresh):
+      //    así ProtectedRoute no redirige a /login y no se desmonta /app.
+      //  · mismo usuario → mantenemos la referencia previa (sin re-render).
+      //  · usuario distinto / primer login → actualizamos.
       setSession((prev) => {
-        if (prev && s && prev.user?.id === s.user?.id) return prev;
+        if (event === 'SIGNED_OUT') return null;
+        if (!s) return prev;
+        if (prev && prev.user?.id === s.user?.id) return prev;
         return s;
       });
     });
