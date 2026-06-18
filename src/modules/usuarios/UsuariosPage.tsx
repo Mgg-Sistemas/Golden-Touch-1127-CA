@@ -942,11 +942,15 @@ interface NuevaTaxonomiaModalProps {
   onCrear: (nombre: string) => Promise<void>;
 }
 function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTaxonomiaModalProps) {
-  const [nombre, setNombre] = useState('');
+  // Input NO controlado (ref + defaultValue): un remount del árbol (p. ej. refresh
+  // de token) no borra lo tecleado ni desactiva el botón. `nombreLive` es solo para
+  // habilitar/deshabilitar "Crear" en vivo.
+  const nombreRef = useRef<HTMLInputElement>(null);
+  const [nombreLive, setNombreLive] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function handleCrear() {
-    const v = nombre.trim();
+    const v = (nombreRef.current?.value ?? '').trim();
     if (!v) {
       toast('El nombre no puede estar vacío', 'error');
       return;
@@ -969,7 +973,7 @@ function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTax
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleCrear} disabled={busy || !nombre.trim()}>
+          <button className="btn btn-primary" onClick={handleCrear} disabled={busy || !nombreLive.trim()}>
             {busy ? 'Creando…' : 'Crear'}
           </button>
         </>
@@ -978,9 +982,10 @@ function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTax
       <div className="form-row">
         <label>Nombre</label>
         <input
+          ref={nombreRef}
           className="input"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
+          defaultValue=""
+          onChange={(e) => setNombreLive(e.target.value)}
           placeholder={placeholder}
           disabled={busy}
           autoFocus
