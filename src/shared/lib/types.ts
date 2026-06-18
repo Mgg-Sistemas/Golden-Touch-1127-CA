@@ -935,6 +935,8 @@ export interface Movimiento {
   detalle?: string | null;
   /** A quién va dirigida la salida/traslado de material. */
   destino?: string | null;
+  /** Persona que solicitó el movimiento (salida/traslado). */
+  solicitante?: string | null;
   /** Texto de la nota de entrega (se imprime en el PDF cuando está marcada). */
   nota_entrega?: string | null;
   /** Fecha en que se entregó la salida/traslado de material al destino (YYYY-MM-DD). */

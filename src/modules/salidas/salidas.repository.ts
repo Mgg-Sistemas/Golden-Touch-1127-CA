@@ -21,6 +21,8 @@ export interface SalidaMaterialInput {
   precioUnit?: number | null;
   /** Fecha en que se entregó la salida al destino (YYYY-MM-DD). */
   fechaEntrega?: string | null;
+  /** Persona que solicitó (se guarda en el movimiento para el historial). */
+  solicitante?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -42,6 +44,7 @@ export async function salidaMaterial(input: SalidaMaterialInput): Promise<Movimi
     actor_name: input.actorName ?? null,
     ref_tipo: 'salida_modulo',
     destino: input.destino || null,
+    solicitante: input.solicitante ?? null,
     fecha_entrega: input.fechaEntrega || null,
     detalle: input.motivo || null,
     precio_unitario: input.precioUnit != null ? Number(input.precioUnit) : null,
@@ -59,6 +62,8 @@ export interface TrasladoMaterialInput {
   notaEntrega?: string | null;
   /** Fecha en que se entregó el traslado al almacén destino (YYYY-MM-DD). */
   fechaEntrega?: string | null;
+  /** Persona que solicitó (se guarda en el movimiento para el historial). */
+  solicitante?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -89,6 +94,7 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     actor_name: input.actorName ?? null,
     ref_tipo: 'traslado_modulo',
     destino: input.almacenDestino,
+    solicitante: input.solicitante ?? null,
     nota_entrega: notaEntrega,
     fecha_entrega: input.fechaEntrega || null,
     detalle: motivo ? `Traslado a ${input.almacenDestino} · ${motivo}` : `Traslado a ${input.almacenDestino}`,
@@ -104,6 +110,7 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
     actor_name: input.actorName ?? null,
     ref_tipo: 'traslado_modulo',
     destino: input.almacenDestino,
+    solicitante: input.solicitante ?? null,
     nota_entrega: notaEntrega,
     fecha_entrega: input.fechaEntrega || null,
     detalle: motivo ? `Traslado desde ${input.almacenOrigen} · ${motivo}` : `Traslado desde ${input.almacenOrigen}`,
@@ -401,7 +408,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       const mov = await salidaMaterial({
         productoId: it.producto_id, almacen: almDe(it), cantidad: Number(it.cantidad) || 0,
         destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit,
-        fechaEntrega: s.fecha_entrega, actor, actorName,
+        fechaEntrega: s.fecha_entrega, solicitante: s.solicitante, actor, actorName,
       });
       if (!movId) movId = mov.id;
     }
@@ -419,7 +426,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       const mov = await trasladoMaterial({
         productoId: it.producto_id, almacenOrigen: s.almacen_origen!, almacenDestino: s.almacen_destino!,
         cantidad: Number(it.cantidad) || 0, motivo: s.motivo, precioUnit: it.precio_unit,
-        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, actor, actorName,
+        notaEntrega: s.nota_entrega, fechaEntrega: s.fecha_entrega, solicitante: s.solicitante, actor, actorName,
       });
       if (!movId) movId = mov.id;
     }
