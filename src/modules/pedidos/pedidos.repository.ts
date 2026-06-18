@@ -305,6 +305,17 @@ export async function aprobarOrden(o: Orden, actorEmail: string): Promise<Orden>
  * de la oferta, genera el código OC y deja registro en el historial.
  * (Mantiene el nombre `aprobarOrdenConOferta` por compatibilidad con la UI.)
  */
+/**
+ * Escala los precios unitarios de los ítems para que su suma cuadre con el total
+ * con descuento (precio en divisa). Así "el precio final" queda vinculado en TODA
+ * la OC: ítems, total, Tesorería, trazabilidad y costo de inventario al recibir.
+ */
+function escalarItemsADescuento(items: ItemOrden[], totalBase: number, totalDescuento: number): ItemOrden[] {
+  if (!(totalBase > 0) || !(totalDescuento > 0) || totalBase === totalDescuento) return items;
+  const factor = totalDescuento / totalBase;
+  return items.map((it) => ({ ...it, precio: Math.round((Number(it.precio) || 0) * factor * 10000) / 10000 }));
+}
+
 export async function aprobarOrdenConOferta(
   o: Orden,
   ofertaProveedorId: string,
@@ -326,19 +337,29 @@ export async function aprobarOrdenConOferta(
     .order('registrada_en', { ascending: false })
     .limit(1)
     .maybeSingle();
+  // Si la oferta trae precio con descuento (divisa), ESE pasa a ser el precio final
+  // de la OC: se fija como total, se escalan los ítems para que cuadren y la OC queda
+  // marcada como pago en divisa desde la creación (se refleja en toda la OC y la trazabilidad).
+  const precioDivisa = (ofRow?.precio_divisa as number | null) ?? null;
+  const usaDescuento = precioDivisa != null && precioDivisa > 0 && precioDivisa !== ofertaPrecioTotal;
+  const itemsFinal = usaDescuento ? escalarItemsADescuento(ofertaItems, ofertaPrecioTotal, precioDivisa) : ofertaItems;
+  const totalFinal = usaDescuento ? precioDivisa : ofertaPrecioTotal;
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
-    items: ofertaItems,
-    total: ofertaPrecioTotal,
-    total_divisa: (ofRow?.precio_divisa as number | null) ?? null,
+    items: itemsFinal,
+    total: totalFinal,
+    total_divisa: precioDivisa,
+    pago_en_divisa: usaDescuento,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     oc_creada_por: actorEmail,
     oc_creada_en: nowIso,
     historial: appendHistorial(o, 'oc_creada', actorEmail, {
       proveedorId: ofertaProveedorId,
-      precio: ofertaPrecioTotal,
+      precio: totalFinal,
+      precio_bcv: ofertaPrecioTotal,
+      con_descuento: usaDescuento,
       score: scoreCalculado,
       oc_codigo: ocCodigo,
     }),
@@ -385,6 +406,12 @@ export async function repartirOpEntreProveedores(
   for (let i = 0; i < validos.length; i++) {
     const g = validos[i];
     const ocCodigo = await nextOcCodigo();
+    // Mismo criterio que la aceptación simple: si el grupo tiene precio con descuento
+    // (divisa), ese es el total final de la OC hija y se escalan sus ítems.
+    const gDivisa = g.totalDivisa != null ? Number(g.totalDivisa) : null;
+    const gUsaDescuento = gDivisa != null && gDivisa > 0 && gDivisa !== g.total;
+    const gItems = gUsaDescuento ? escalarItemsADescuento(g.items, g.total, gDivisa) : g.items;
+    const gTotal = gUsaDescuento ? gDivisa : g.total;
     const row = {
       codigo: `${op.codigo}-${i + 1}`,
       proveedor_id: g.proveedorId,
@@ -392,9 +419,10 @@ export async function repartirOpEntreProveedores(
       solicitante: op.solicitante ?? null,
       unidad_solicitante: op.unidad_solicitante ?? null,
       ci_solicitante: op.ci_solicitante ?? null,
-      items: g.items,
-      total: g.total,
-      total_divisa: g.totalDivisa ?? null,
+      items: gItems,
+      total: gTotal,
+      total_divisa: gDivisa,
+      pago_en_divisa: gUsaDescuento,
       estado: 'oc_creada' as EstadoOrden,
       notas: op.notas ?? null,
       motivo: op.motivo ?? null,
@@ -411,7 +439,7 @@ export async function repartirOpEntreProveedores(
       oc_creada_en: nowIso,
       historial: [
         ...(op.historial ?? []),
-        { at: nowIso, evento: 'oc_creada_reparto', actor: actorEmail, proveedorId: g.proveedorId, oc_codigo: ocCodigo, total: g.total } as EventoHistorial,
+        { at: nowIso, evento: 'oc_creada_reparto', actor: actorEmail, proveedorId: g.proveedorId, oc_codigo: ocCodigo, total: gTotal, con_descuento: gUsaDescuento } as EventoHistorial,
       ],
     };
     const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
