@@ -346,8 +346,18 @@ export function PedidosPage() {
 
   const kanbanCols = scope === 'oc' ? KANBAN_COLS_OC : KANBAN_COLS_PEDIDOS;
 
-  const currentDetail =
-    modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
+  // Detalle abierto: se deriva por id para reflejar datos en vivo. Pero retenemos el
+  // último detalle conocido (ref) para NO cerrar el modal si un refresh (realtime al
+  // cambiar de pestaña) lo deja un instante fuera de la lista. El modal solo se cierra
+  // cuando el usuario lo cierra (modal.kind deja de ser 'detail').
+  const detailRef = useRef<Orden | null>(null);
+  const detailEncontrado = modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
+  if (modal.kind === 'detail') {
+    if (detailEncontrado) detailRef.current = detailEncontrado;
+  } else {
+    detailRef.current = null;
+  }
+  const currentDetail = modal.kind === 'detail' ? (detailEncontrado ?? detailRef.current) : null;
 
   return (
     <div>
