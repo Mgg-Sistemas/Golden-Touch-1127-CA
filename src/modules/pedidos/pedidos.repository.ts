@@ -213,6 +213,7 @@ export async function actualizarOrdenEditable(
   patch: {
     items?: ItemOrden[]; motivo?: string | null; finalidad?: string | null;
     unidad_solicitante?: string | null; clasificacion?: string[] | null; urgente?: boolean;
+    solicitante?: string | null; ci_solicitante?: string | null; notas?: string | null;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -233,6 +234,9 @@ export async function actualizarOrdenEditable(
   if (patch.unidad_solicitante !== undefined) upd.unidad_solicitante = patch.unidad_solicitante?.trim() || null;
   if (patch.clasificacion !== undefined) upd.clasificacion = patch.clasificacion?.length ? patch.clasificacion : null;
   if (patch.urgente !== undefined) upd.urgente = patch.urgente;
+  if (patch.solicitante !== undefined) upd.solicitante = patch.solicitante?.trim() || null;
+  if (patch.ci_solicitante !== undefined) upd.ci_solicitante = patch.ci_solicitante?.trim() || null;
+  if (patch.notas !== undefined) upd.notas = patch.notas?.trim() || null;
   const { data, error } = await supabase
     .from(TABLE)
     .update(upd)

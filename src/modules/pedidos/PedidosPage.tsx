@@ -2836,16 +2836,39 @@ function EditarOrdenModal({
   const [items, setItems] = useState<ItemOrden[]>(() => orden.items.map((i) => ({ ...i })));
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
-  // Datos de cabecera editables de la OP: unidad solicitante, clasificación y urgencia.
+  // Datos de cabecera editables de la OP: solicitante, unidad, clasificación, urgencia y notas.
+  const [solicitante, setSolicitante] = useState(orden.solicitante ?? '');
+  const [ciSolicitante, setCiSolicitante] = useState(orden.ci_solicitante ?? '');
   const [unidadSol, setUnidadSol] = useState(orden.unidad_solicitante ?? '');
   const [clasifSel, setClasifSel] = useState<string[]>(orden.clasificacion ?? []);
   const [urgente, setUrgente] = useState(!!orden.urgente);
+  const [notas, setNotas] = useState(orden.notas ?? '');
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   const [clasifOpciones, setClasifOpciones] = useState<string[]>([]);
+  const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const [addingUnidad, setAddingUnidad] = useState(false);
   useEffect(() => {
     void listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => setUnidadOpciones([]));
     void listActivosPedido('clasificacion').then(setClasifOpciones).catch(() => setClasifOpciones([]));
   }, []);
+  async function agregarUnidadNueva() {
+    const v = nuevaUnidad.trim().toUpperCase();
+    if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
+    if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
+      setUnidadSol(v); setNuevaUnidad('');
+      toast('Esa unidad ya existía; la seleccioné', 'info');
+      return;
+    }
+    setAddingUnidad(true);
+    try {
+      await addCatalogoPedido('unidad_solicitante', v);
+      setUnidadOpciones((prev) => [...prev, v].sort());
+      setUnidadSol(v); setNuevaUnidad('');
+      toast('Unidad agregada al catálogo', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo agregar la unidad', 'error');
+    } finally { setAddingUnidad(false); }
+  }
   function toggleClasif(c: string) {
     setClasifSel((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
   }
@@ -2880,9 +2903,12 @@ function EditarOrdenModal({
         items,
         motivo: orden.motivo ?? null,
         finalidad: orden.finalidad ?? null,
+        solicitante: solicitante.trim() || null,
+        ci_solicitante: ciSolicitante.trim() || null,
         unidad_solicitante: unidadSol.trim().toUpperCase() || null,
         clasificacion: clasifSel,
         urgente,
+        notas: notas.trim() || null,
       }, actorEmail || 'sistema');
       notify(`${orden.estado === 'pendiente' ? 'Orden de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
       onSaved();
@@ -2900,7 +2926,7 @@ function EditarOrdenModal({
   return (
     <Modal title={`Editar ${esOp ? 'orden de pedido' : 'orden'} · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.8rem' }}>
-        Modificá los ítems, cantidades, motivo y finalidad. {esOp
+        Modificá solicitante, unidad, ítems, clasificación y urgencia. {esOp
           ? 'Disponible mientras la orden de pedido esté pendiente (antes de aprobarla).'
           : 'Disponible hasta que el Gerente General apruebe la OC.'}
       </p>
@@ -2910,8 +2936,47 @@ function EditarOrdenModal({
         </div>
       )}
 
+      {/* Cabecera editable de la OP: unidad, código (solo lectura), solicitante y cédula. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
+        <div className="form-row" style={{ marginBottom: 0 }}>
+          <label>Unidad solicitante</label>
+          <SearchSelect value={unidadSol} onChange={(v) => setUnidadSol(v.toUpperCase())}
+            options={unidadOpciones.map((u) => ({ value: u, label: u }))}
+            placeholder="Departamento / unidad que solicita" />
+        </div>
+        <div className="form-row" style={{ marginBottom: 0 }}>
+          <label>Código</label>
+          <input className="input mono" value={orden.oc_codigo ?? orden.codigo} readOnly disabled />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', marginTop: '.35rem' }}>
+        <input className="input" style={{ flex: 1 }} value={nuevaUnidad}
+          onChange={(e) => setNuevaUnidad(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }}
+          placeholder="¿No está? Escribí la unidad nueva…" disabled={addingUnidad} />
+        <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
+          {addingUnidad ? '…' : '+ Añadir'}
+        </button>
+      </div>
+      <small className="muted" style={{ display: 'block', marginBottom: '.6rem' }}>
+        La unidad nueva queda guardada en el catálogo (Categorías → Unidad solicitante).
+      </small>
+
+      <div className="form-row">
+        <label>Solicitante</label>
+        <input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value)}
+          placeholder="Nombre de la persona que solicita" />
+      </div>
+
+      <div className="form-row">
+        <label>Cédula del solicitante</label>
+        <input className="input mono" value={ciSolicitante} onChange={(e) => setCiSolicitante(e.target.value)}
+          placeholder="C.I. del solicitante (opcional)" />
+      </div>
+
       <div className="form-row">
         <label>Productos solicitados</label>
+        <small className="muted" style={{ marginBottom: '.35rem' }}>Marcá los artículos a comprar e indicá la finalidad de cada uno. Los desmarcados quedan en la solicitud pero no se cotizan.</small>
         <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 130px 40px' }}>
           <div title="Comprar">✓</div><div>Producto</div><div>Cantidad</div><div></div>
         </div>
@@ -2966,14 +3031,7 @@ function EditarOrdenModal({
         </div>
       </div>
 
-      {/* Datos de cabecera de la OP: unidad solicitante, clasificación y urgencia. */}
-      <div className="form-row">
-        <label>Unidad solicitante</label>
-        <SearchSelect value={unidadSol} onChange={(v) => setUnidadSol(v.toUpperCase())}
-          options={unidadOpciones.map((u) => ({ value: u, label: u }))}
-          placeholder="Departamento / unidad que solicita" />
-      </div>
-
+      {/* Clasificación y urgencia de la OP. */}
       <div className="form-row">
         <label>Clasificación</label>
         {clasifOpciones.length === 0 ? (
@@ -3002,8 +3060,14 @@ function EditarOrdenModal({
       >
         <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} />
         <span style={{ fontWeight: 700, letterSpacing: '.02em', color: urgente ? 'var(--danger)' : 'inherit' }}>🚨 ORDEN: URGENTE</span>
-        <span className="muted" style={{ fontSize: '.76rem' }}>Marca esta solicitud como prioritaria.</span>
+        <span className="muted" style={{ fontSize: '.76rem' }}>Marca la orden como prioritaria (se refleja en el PDF y en toda la trazabilidad).</span>
       </label>
+
+      <div className="form-row">
+        <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        <textarea className="input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)}
+          placeholder="Cualquier observación o aclaratoria sobre la solicitud (opcional)…" />
+      </div>
     </Modal>
   );
 }
