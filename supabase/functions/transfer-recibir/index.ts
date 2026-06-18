@@ -41,6 +41,49 @@ Deno.serve(async (req) => {
   const transfId = payload.transf_id as string | undefined;
   if (!transfId) return json({ error: 'transf_id requerido' }, 400);
 
+  const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+  // ── Cuenta por COBRAR (deuda de un centro de costo externo, p. ej. GT) ──
+  // El otro sistema (centro de acopio) nos avisa que nos entregó USD: lo
+  // registramos como cuenta por cobrar de ESE cliente, INCREMENTAL (se acumula en
+  // una sola cuenta abierta por moneda). Idempotente por transf_id (tag en la nota).
+  if ((payload.recurso as string | undefined) === 'cuenta_por_cobrar' && payload.tipo !== 'ack') {
+    const monto = round2(Number(payload.monto));
+    if (monto <= 0) return json({ ok: true, skip: 'monto<=0' });
+    const moneda = (payload.moneda as string) || 'USD';
+    const cliente = ((payload.cliente_nombre as string) || (payload.empresa_origen as string) || 'Centro de costo externo').trim();
+    const tag = `#${transfId}`;
+    // Idempotencia: si ya entró este transf_id (tag en la nota de un cargo), salir.
+    const { data: yaCargo } = await supabase.from('cuentas_por_cobrar_cargos').select('id').ilike('nota', `%${tag}%`).limit(1);
+    if (yaCargo && yaCargo.length) return json({ ok: true, dedup: true });
+    const nota = `USD entregados (centro de costo) · ${payload.empresa_origen ?? ''} ${tag}`.trim();
+    // Buscar cuenta abierta del cliente en esa moneda → acumular; si no, crear.
+    const { data: abiertas } = await supabase.from('cuentas_por_cobrar').select('*')
+      .eq('tipo', 'cliente').eq('moneda', moneda).eq('estado', 'abierta')
+      .ilike('contraparte', cliente).order('created_at', { ascending: false }).limit(1);
+    let cuenta = (abiertas?.[0] ?? null) as { id: string; monto: number; cobrado: number } | null;
+    if (cuenta) {
+      const { data: cu, error } = await supabase.from('cuentas_por_cobrar')
+        .update({ monto: round2(Number(cuenta.monto) + monto), estado: 'abierta', updated_at: new Date().toISOString() })
+        .eq('id', cuenta.id).select('*').single();
+      if (error) return json({ error: error.message }, 500);
+      cuenta = cu as typeof cuenta;
+    } else {
+      const { data: cu, error } = await supabase.from('cuentas_por_cobrar').insert({
+        tipo: 'cliente', contraparte: cliente, monto, cobrado: 0, moneda, estado: 'abierta',
+        nota, actor: payload.actor ?? null, actor_name: payload.actor_name ?? null,
+      }).select('*').single();
+      if (error) return json({ error: error.message }, 500);
+      cuenta = cu as typeof cuenta;
+    }
+    const totalAdeudado = round2(Number(cuenta!.monto) - (Number(cuenta!.cobrado) || 0));
+    await supabase.from('cuentas_por_cobrar_cargos').insert({
+      cuenta_id: cuenta!.id, monto, moneda, total_adeudado: totalAdeudado, nota,
+      actor: payload.actor ?? null, actor_name: payload.actor_name ?? null,
+    });
+    return json({ ok: true, cuenta_id: cuenta!.id });
+  }
+
   // El recurso determina la tabla destino: dinero (default) o combustible (litros).
   const recurso = (payload.recurso as string | undefined) === 'combustible' ? 'combustible' : 'dinero';
   const TABLE = recurso === 'combustible' ? 'transferencias_combustible_inter' : 'transferencias_inter';

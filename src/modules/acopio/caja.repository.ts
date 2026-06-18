@@ -296,6 +296,24 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
         nota: 'USD entregados (Acopio) · deuda a MGG', actor, actorName: actorName ?? null,
       });
     } catch { /* la deuda no bloquea el registro del movimiento */ }
+
+    // ESPEJO en el sistema MGG: la misma deuda como CUENTA POR COBRAR (GT como
+    // cliente), incremental, vía el puente inter-sistema. Gateado por env: solo se
+    // emite cuando MGG ya corre el receptor nuevo (si no, crearía un movimiento
+    // basura allá). `transf_id` = id del movimiento → idempotente.
+    if ((import.meta.env.VITE_PUENTE_CXC_MGG as string | undefined) === 'on') {
+      try {
+        await supabase.functions.invoke('transfer-enviar', {
+          body: {
+            tipo: 'transferencia', recurso: 'cuenta_por_cobrar', transf_id: (data as CajaMovimiento).id,
+            empresa_origen: (import.meta.env.VITE_EMPRESA_CODIGO as string | undefined)?.trim() || 'golden-touch',
+            empresa_destino: 'mgg', monto: entregado, moneda: 'USD',
+            cliente_nombre: 'GOLDEN TOUCH 1127 C.A.',
+            motivo: 'USD entregados (centro de costo)', actor, actor_name: actorName ?? null,
+          },
+        });
+      } catch { /* puente best-effort: no bloquea el registro local */ }
+    }
   }
   return data as CajaMovimiento;
 }
