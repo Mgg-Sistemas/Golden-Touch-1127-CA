@@ -2856,7 +2856,7 @@ function EditarOrdenModal({
     setSaving(true);
     try {
       await actualizarOrdenEditable(orden, { items, motivo: motivo.trim() || null, finalidad: finalidad.trim() || null }, actorEmail || 'sistema');
-      notify(`OC ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
+      notify(`${orden.estado === 'pendiente' ? 'Orden de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
       onSaved();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo modificar la OC', 'error'); setSaving(false); }
   }
@@ -2868,10 +2868,13 @@ function EditarOrdenModal({
     </>
   );
 
+  const esOp = orden.estado === 'pendiente';
   return (
-    <Modal title={`Editar orden · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
+    <Modal title={`Editar ${esOp ? 'orden de pedido' : 'orden'} · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.8rem' }}>
-        Modificá los ítems, cantidades, motivo y finalidad. Disponible hasta que el Gerente General apruebe la OC.
+        Modificá los ítems, cantidades, motivo y finalidad. {esOp
+          ? 'Disponible mientras la orden de pedido esté pendiente (antes de aprobarla).'
+          : 'Disponible hasta que el Gerente General apruebe la OC.'}
       </p>
       {Number(orden.total) > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.6rem', fontSize: '.8rem' }}>
