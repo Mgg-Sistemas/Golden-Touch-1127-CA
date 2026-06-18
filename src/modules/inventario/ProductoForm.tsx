@@ -34,6 +34,15 @@ interface FormState {
   restock_pct: string;
   esReceta: boolean;
   receta_fundicion: RecetaFundicion | '';
+  // Detalle del producto (opcional).
+  nombre_busqueda: string;
+  marca: string;
+  modelo: string;
+  serial: string;
+  codigo: string;
+  numero: string;
+  descripcion: string;
+  ubicacion: string;
 }
 
 function initialState(p: Producto | null, cats: string[], unids: string[]): FormState {
@@ -51,6 +60,14 @@ function initialState(p: Producto | null, cats: string[], unids: string[]): Form
     restock_pct: p?.restock_pct != null ? String(p.restock_pct) : '',
     esReceta: !!p?.receta_fundicion,
     receta_fundicion: (p?.receta_fundicion ?? '') as RecetaFundicion | '',
+    nombre_busqueda: p?.nombre_busqueda ?? '',
+    marca: p?.marca ?? '',
+    modelo: p?.modelo ?? '',
+    serial: p?.serial ?? '',
+    codigo: p?.codigo ?? '',
+    numero: p?.numero ?? '',
+    descripcion: p?.descripcion ?? '',
+    ubicacion: p?.ubicacion ?? '',
   };
 }
 
@@ -206,6 +223,15 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       // Marcar receta no se des-marca al editar (lo añade el toggle o el alta desde producción).
       es_receta: form.esReceta || (producto?.es_receta ?? false),
       es_producible: producto?.es_producible ?? false,
+      // Detalle del producto (se guardan en mayúsculas salvo descripción; vacío => null).
+      nombre_busqueda: form.nombre_busqueda.trim().toUpperCase() || null,
+      marca: form.marca.trim().toUpperCase() || null,
+      modelo: form.modelo.trim().toUpperCase() || null,
+      serial: form.serial.trim().toUpperCase() || null,
+      codigo: form.codigo.trim().toUpperCase() || null,
+      numero: form.numero.trim().toUpperCase() || null,
+      descripcion: form.descripcion.trim() || null,
+      ubicacion: form.ubicacion.trim().toUpperCase() || null,
     };
 
     setSaving(true);
@@ -478,6 +504,54 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
             </small>
           </div>
         </div>
+
+        {/* ── Detalle del producto (opcional) ── */}
+        <details style={{ marginTop: '.6rem' }} open={isEdit && !!(form.marca || form.serial || form.codigo || form.nombre_busqueda)}>
+          <summary style={{ cursor: 'pointer', fontSize: '.82rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', padding: '.3rem 0' }}>
+            Detalle del producto (marca, serial, código…)
+          </summary>
+          <div style={{ marginTop: '.5rem' }}>
+            <div className="form-row">
+              <label>Nombre de búsqueda / alias</label>
+              <input className="input" value={form.nombre_busqueda}
+                onChange={(e) => update('nombre_busqueda', e.target.value.toUpperCase())}
+                placeholder="Ej.: CLORO (para hallarlo más fácil)" />
+              <small className="muted" style={{ fontSize: '.72rem' }}>Sirve para encontrar el producto en el buscador del inventario.</small>
+            </div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Marca</label>
+                <input className="input" value={form.marca} onChange={(e) => update('marca', e.target.value.toUpperCase())} placeholder="Ej.: STIHL" />
+              </div>
+              <div className="form-row">
+                <label>Modelo</label>
+                <input className="input" value={form.modelo} onChange={(e) => update('modelo', e.target.value.toUpperCase())} placeholder="Ej.: ZH4100D" />
+              </div>
+            </div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>N°</label>
+                <input className="input mono" value={form.numero} onChange={(e) => update('numero', e.target.value.toUpperCase())} placeholder="N° de parte / activo" />
+              </div>
+              <div className="form-row">
+                <label>Serial</label>
+                <input className="input mono" value={form.serial} onChange={(e) => update('serial', e.target.value.toUpperCase())} placeholder="N° de serie" />
+              </div>
+              <div className="form-row">
+                <label>Código</label>
+                <input className="input mono" value={form.codigo} onChange={(e) => update('codigo', e.target.value.toUpperCase())} placeholder="Código de fábrica / barra" />
+              </div>
+            </div>
+            <div className="form-row">
+              <label>Ubicación física</label>
+              <input className="input" value={form.ubicacion} onChange={(e) => update('ubicacion', e.target.value.toUpperCase())} placeholder="Estante / fila / zona del almacén" />
+            </div>
+            <div className="form-row">
+              <label>Descripción / detalles</label>
+              <textarea className="input" rows={2} value={form.descripcion} onChange={(e) => update('descripcion', e.target.value)} placeholder="Características, presentación, notas…" />
+            </div>
+          </div>
+        </details>
       </form>
     </Modal>
   );

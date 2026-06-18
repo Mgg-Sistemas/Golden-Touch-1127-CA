@@ -682,7 +682,8 @@ function SolicitudDetalleModal({
                       <tbody>
                         {sol.items.map((it, i) => (
                           <tr key={i}>
-                            <td>{it.producto_nombre}{it.producto_sku ? ` · ${it.producto_sku}` : ''}</td>
+                            <td>{it.producto_nombre}{it.producto_sku ? ` · ${it.producto_sku}` : ''}
+                              {it.observacion && <div className="muted" style={{ fontSize: '.72rem' }}>📝 {it.observacion}</div>}</td>
                             {sol.scope !== 'traslado' && <td>{it.almacen ?? sol.almacen_origen ?? '—'}</td>}
                             <td className="num mono">{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
                             <td className="num mono">{money(Number(it.precio_unit) || 0)}</td>
@@ -708,6 +709,11 @@ function SolicitudDetalleModal({
             </>
           )}
           {sol.motivo && <tr><td className="muted">Motivo</td><td>{sol.motivo}</td></tr>}
+          {sol.consumo_interno && <tr><td className="muted">Tipo</td><td><span className="badge">CONSUMO INTERNO</span></td></tr>}
+          {sol.chofer_nombre && <tr><td className="muted">Chofer / responsable</td><td>{sol.chofer_nombre}{sol.chofer_cedula ? ` · C.I. ${sol.chofer_cedula}` : ''}</td></tr>}
+          {(sol.vehiculo_descripcion || sol.vehiculo_placa) && <tr><td className="muted">Vehículo</td><td>{[sol.vehiculo_descripcion, sol.vehiculo_placa].filter(Boolean).join(' · ')}</td></tr>}
+          {sol.direccion_despacho && <tr><td className="muted">Dirección de despacho</td><td>{sol.direccion_despacho}</td></tr>}
+          {sol.direccion_destino && <tr><td className="muted">Dirección de destino</td><td>{sol.direccion_destino}</td></tr>}
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
           {sol.aprobada_en && <tr><td className="muted">Autorizada por</td><td>{nombreDe(sol.aprobada_por)} · {dateTime(sol.aprobada_en)}</td></tr>}
           {sol.ejecutada_en && <tr><td className="muted">Ejecutada por</td><td>{nombreDe(sol.ejecutada_por)} · {dateTime(sol.ejecutada_en)}</td></tr>}

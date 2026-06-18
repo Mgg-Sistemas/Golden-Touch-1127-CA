@@ -198,6 +198,16 @@ export interface CrearSolicitudSalidaInput {
   unidadSolicitante?: string | null;
   destino?: string | null;
   motivo?: string | null;
+  // transporte / formato salida en tránsito
+  choferId?: string | null;
+  choferNombre?: string | null;
+  choferCedula?: string | null;
+  vehiculoId?: string | null;
+  vehiculoDescripcion?: string | null;
+  vehiculoPlaca?: string | null;
+  direccionDespacho?: string | null;
+  direccionDestino?: string | null;
+  consumoInterno?: boolean | null;
   // material
   productoId?: string | null;
   productoNombre?: string | null;
@@ -233,6 +243,7 @@ function normalizarItemsSalida(input: CrearSolicitudSalidaInput): ItemSalida[] {
       cantidad: Number(i.cantidad) || 0,
       precio_unit: Number(i.precio_unit) || 0,
       almacen: i.almacen ?? null,
+      observacion: i.observacion?.trim() || null,
     }));
   }
   if (input.productoId && (Number(input.cantidad) || 0) > 0) {
@@ -321,6 +332,15 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
       destino: input.destino?.trim() || null,
       motivo: input.motivo?.trim() || null,
+      chofer_id: input.choferId ?? null,
+      chofer_nombre: input.choferNombre?.trim() || null,
+      chofer_cedula: input.choferCedula?.trim() || null,
+      vehiculo_id: input.vehiculoId ?? null,
+      vehiculo_descripcion: input.vehiculoDescripcion?.trim() || null,
+      vehiculo_placa: input.vehiculoPlaca?.trim() || null,
+      direccion_despacho: input.direccionDespacho?.trim() || null,
+      direccion_destino: input.direccionDestino?.trim() || null,
+      consumo_interno: input.consumoInterno ?? false,
       historial,
       actor: input.actor,
       actor_name: input.actorName ?? null,

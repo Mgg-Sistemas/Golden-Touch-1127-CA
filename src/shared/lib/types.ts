@@ -795,6 +795,8 @@ export interface ItemSalida {
    *  un almacén distinto (se descuenta del que corresponde). En traslados todos
    *  comparten el origen de la solicitud (queda en null). */
   almacen?: string | null;
+  /** Observación por ítem (p. ej. "será trasladado para reparación"). */
+  observacion?: string | null;
 }
 
 export interface SolicitudSalida {
@@ -826,6 +828,17 @@ export interface SolicitudSalida {
   unidad_solicitante?: string | null;
   destino?: string | null;
   motivo?: string | null;
+  // transporte / formato salida en tránsito
+  chofer_id?: string | null;
+  chofer_nombre?: string | null;
+  chofer_cedula?: string | null;
+  vehiculo_id?: string | null;
+  vehiculo_descripcion?: string | null;
+  vehiculo_placa?: string | null;
+  direccion_despacho?: string | null;
+  direccion_destino?: string | null;
+  /** Marca la salida/traslado como consumo interno (se refleja en detalle y trazabilidad). */
+  consumo_interno?: boolean | null;
   historial: EventoHistorial[];
   aprobada_por?: string | null;
   aprobada_en?: string | null;
@@ -889,6 +902,19 @@ export interface Producto {
   /** Es un producto terminado producible (catálogo de "qué producir"). */
   es_producible?: boolean;
   en_fundicion?: boolean;
+  // Detalle del producto (todos opcionales): identificación y ficha técnica.
+  /** Nombre/alias de búsqueda (p. ej. "CLORO" para "HIPOCLORITO DE SODIO"). */
+  nombre_busqueda?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  serial?: string | null;
+  /** Código de fábrica / barra / parte. */
+  codigo?: string | null;
+  /** N° (de parte, activo, etc.). */
+  numero?: string | null;
+  descripcion?: string | null;
+  /** Ubicación física dentro del almacén (estante, fila…). */
+  ubicacion?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
