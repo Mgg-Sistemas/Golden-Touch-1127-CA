@@ -54,7 +54,7 @@ import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.reposi
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, getUnidades } from '@/modules/inventario/inventario.repository';
-import { listAlmacenes, getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { listAlmacenes, getNombresAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
@@ -1181,6 +1181,18 @@ function MetodoPagoModal({
   );
 }
 
+/** Ordena los almacenes para un desplegable: cada almacén principal seguido de
+ *  sus sub-almacenes, así el selector «une» principales y subalmacenes. */
+function almacenesOrdenados(almacenes: Almacen[]): Almacen[] {
+  const principales = almacenes.filter((a) => !a.parent_id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const hijosDe = (id: string) => almacenes.filter((a) => a.parent_id === id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const out: Almacen[] = [];
+  for (const p of principales) { out.push(p); out.push(...hijosDe(p.id)); }
+  // Subalmacenes huérfanos (padre no encontrado) al final, por si acaso.
+  out.push(...almacenes.filter((a) => a.parent_id && !almacenes.some((x) => x.id === a.parent_id)));
+  return out;
+}
+
 /* ─────────────────────────────────────────────
    Recepción parcial: confirma cuánto entró por ítem (≤ pedido) + nota
    ───────────────────────────────────────────── */
@@ -1282,12 +1294,20 @@ function RecepcionParcialModal({
       </div>
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
-        <label>Almacén destino *</label>
+        <label>Almacén / sub-almacén destino *</label>
         <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
           <option value="">— elegí el almacén —</option>
-          {almacenes.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+          {almacenesOrdenados(almacenes).map((a) => {
+            const padre = a.parent_id ? almacenes.find((x) => x.id === a.parent_id) : null;
+            const corto = nombreCortoAlmacen(a, almacenes);
+            return (
+              <option key={a.id} value={a.nombre}>
+                {padre ? `   ↳ ${padre.nombre} › ${corto}` : a.nombre}
+              </option>
+            );
+          })}
         </select>
-        <small className="muted">La mercancía entra a este almacén y queda en la trazabilidad final.</small>
+        <small className="muted">Incluye almacenes y sub-almacenes. La mercancía entra a este almacén y queda en la trazabilidad final.</small>
       </div>
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
