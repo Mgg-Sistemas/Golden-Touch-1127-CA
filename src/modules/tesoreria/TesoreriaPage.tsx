@@ -3363,7 +3363,7 @@ function PagarConProductosModal({ cuenta, actor, actorName, onClose, onPagado }:
 
   useEffect(() => { listProductos().then(setProductos).catch(() => setProductos([])); }, []);
 
-  const opciones = productos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre} (stock ${p.stock} ${p.unidad ?? ''} · ${monto(Number(p.precio) || 0)})` }));
+  const opciones = productos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre} (stock ${p.stock} ${p.unidad ?? ''} · ${monto(Number(p.precio) || 0, 'USD')})` }));
   const prodById = (id: string) => productos.find((p) => p.id === id) ?? null;
 
   function setLinea(i: number, patch: Partial<{ productoId: string; cantidad: string }>) {
