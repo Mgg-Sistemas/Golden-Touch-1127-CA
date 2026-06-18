@@ -40,6 +40,8 @@ export interface MovimientoInput {
   detalle?: string | null;
   /** A quién va dirigida la salida/traslado de material. */
   destino?: string | null;
+  /** Persona que solicitó el movimiento (salida/traslado). Se muestra en el historial. */
+  solicitante?: string | null;
   /** Texto de la nota de entrega (se imprime en el PDF cuando está marcada). */
   nota_entrega?: string | null;
   /** Fecha de entrega de la salida/traslado al destino (YYYY-MM-DD). */
@@ -157,6 +159,7 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
     proveedor_id: input.proveedor_id ?? null,
     detalle: input.detalle ?? null,
     destino: input.destino ?? null,
+    solicitante: input.solicitante ?? null,
     nota_entrega: input.nota_entrega ?? null,
     fecha_entrega: input.fecha_entrega ?? null,
     precio_unitario: precioUnit,

@@ -472,6 +472,7 @@ function Historial({
           <thead>
             <tr>
               <th>Fecha</th><th>Producto</th><th>{esTraslado ? 'Origen → Destino' : 'Origen'}</th>
+              <th>Realizado por</th>
               <th style={{ textAlign: 'right' }}>Cantidad</th>
               <th style={{ textAlign: 'right' }}>Precio unit.</th>
               <th style={{ textAlign: 'right' }}>Total</th>
@@ -480,7 +481,7 @@ function Historial({
           </thead>
           <tbody>
             {!rows.length ? (
-              <tr><td colSpan={7}><EmptyState message={esTraslado ? 'Sin traslados de material.' : 'Sin salidas de material.'} icon="📦" /></td></tr>
+              <tr><td colSpan={8}><EmptyState message={esTraslado ? 'Sin traslados de material.' : 'Sin salidas de material.'} icon="📦" /></td></tr>
             ) : rows.map((m) => {
               const cant = Math.abs(Number(m.delta) || 0);
               const precio = Number(m.precio_unitario) || 0;
@@ -489,6 +490,7 @@ function Historial({
                   <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(m.at)}</td>
                   <td><strong>{m.producto?.nombre ?? '—'}</strong><div className="muted mono" style={{ fontSize: '.7rem' }}>{m.producto?.sku}</div></td>
                   <td>{esTraslado ? <span className="mono">{m.almacen} → {m.destino}</span> : <span className="badge">{m.almacen}</span>}</td>
+                  <td>{m.solicitante || m.actor_name || m.actor || '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(cant)} {m.producto?.unidad ?? ''}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio * cant) : '—'}</td>
