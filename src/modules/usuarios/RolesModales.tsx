@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -20,13 +20,9 @@ interface NuevoRolModalProps {
   onCreated: (rol: CustomRole) => void | Promise<void>;
 }
 
-export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalProps) {
-  const [label, setLabel] = useState('');
-  const [descripcion, setDescripcion] = useState('');
-  const [color, setColor] = useState('#7c3aed');
-  const [busy, setBusy] = useState(false);
-
-  const suggestedKey = label
+/** Deriva la clave (key) a partir del nombre del rol. */
+function derivarClaveRol(nombre: string): string {
+  return nombre
     .trim()
     .toLowerCase()
     .normalize('NFD')
@@ -34,22 +30,37 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
     .replace(/[^a-z0-9_]/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 32);
+}
+
+export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalProps) {
+  // Inputs NO controlados (ref + defaultValue): un remount del árbol no borra lo
+  // tecleado. `labelLive` es solo para la vista en vivo de la clave / habilitar el botón.
+  const labelRef = useRef<HTMLInputElement>(null);
+  const descripcionRef = useRef<HTMLTextAreaElement>(null);
+  const [labelLive, setLabelLive] = useState('');
+  const [color, setColor] = useState('#7c3aed');
+  const [busy, setBusy] = useState(false);
+
+  const suggestedKey = derivarClaveRol(labelLive);
 
   async function handleSubmit() {
-    if (!label.trim()) {
+    const label = (labelRef.current?.value ?? '').trim();
+    const descripcion = (descripcionRef.current?.value ?? '').trim();
+    const key = derivarClaveRol(label);
+    if (!label) {
       toast('El nombre del rol es obligatorio', 'error');
       return;
     }
-    if (!suggestedKey) {
+    if (!key) {
       toast('No se pudo derivar la clave del rol; usá letras y números', 'error');
       return;
     }
     setBusy(true);
     try {
       const creado = await crearRol({
-        key: suggestedKey,
-        label: label.trim(),
-        descripcion: descripcion.trim(),
+        key,
+        label,
+        descripcion,
         color,
         actor: actorEmail,
       });
@@ -70,7 +81,7 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleSubmit} disabled={busy || !label.trim()}>
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={busy || !labelLive.trim()}>
             {busy ? 'Creando…' : 'Crear rol'}
           </button>
         </>
@@ -79,9 +90,10 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
       <div className="form-row">
         <label>Nombre del rol</label>
         <input
+          ref={labelRef}
           className="input"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          defaultValue=""
+          onChange={(e) => setLabelLive(e.target.value)}
           placeholder="Ej.: Supervisor de planta"
           disabled={busy}
           autoFocus
@@ -93,9 +105,9 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
       <div className="form-row">
         <label>Descripción</label>
         <textarea
+          ref={descripcionRef}
           className="input"
-          value={descripcion}
-          onChange={(e) => setDescripcion(e.target.value)}
+          defaultValue=""
           rows={2}
           placeholder="Para qué sirve este rol"
           disabled={busy}
@@ -140,8 +152,11 @@ export function GestionarRolesModal({
   onCambioAplicado,
 }: GestionarRolesModalProps) {
   const [editando, setEditando] = useState<string | null>(null);
-  const [labelEdit, setLabelEdit] = useState('');
-  const [descEdit, setDescEdit] = useState('');
+  // Nombre/descripción del rol en edición: inputs NO controlados (ref + defaultValue
+  // con key por rol) para que un remount/realtime no borre lo tecleado. El color sí
+  // es estado porque alimenta el preview del puntito.
+  const labelEditRef = useRef<HTMLInputElement>(null);
+  const descEditRef = useRef<HTMLInputElement>(null);
   const [colorEdit, setColorEdit] = useState('#7c3aed');
   const [guardando, setGuardando] = useState(false);
   const [aEliminar, setAEliminar] = useState<CustomRole | null>(null);
@@ -161,15 +176,14 @@ export function GestionarRolesModal({
   useEffect(() => {
     if (!editando) return;
     const r = roles.find((x) => x.key === editando);
-    if (r) {
-      setLabelEdit(r.label);
-      setDescEdit(r.descripcion ?? '');
-      setColorEdit(r.color);
-    }
-  }, [editando, roles]);
+    if (r) setColorEdit(r.color);
+    // El nombre/descripción se siembran vía defaultValue (key={editando}); no los
+    // pisamos acá para no borrar lo que el usuario ya esté tecleando.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editando]);
 
   async function aplicarRename(rol: CustomRole) {
-    const lbl = labelEdit.trim();
+    const lbl = (labelEditRef.current?.value ?? '').trim();
     if (!lbl) {
       toast('El nombre no puede estar vacío', 'error');
       return;
@@ -178,7 +192,7 @@ export function GestionarRolesModal({
     try {
       await actualizarRol(rol.key, {
         label: lbl,
-        descripcion: descEdit,
+        descripcion: (descEditRef.current?.value ?? '').trim(),
         color: colorEdit,
       });
       notify(`Rol actualizado: ${lbl}`, 'success', { link: '#/app/usuarios' });
@@ -261,9 +275,10 @@ export function GestionarRolesModal({
                     {enEdicion ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                         <input
+                          key={`lbl-${r.key}`}
+                          ref={labelEditRef}
                           className="input"
-                          value={labelEdit}
-                          onChange={(e) => setLabelEdit(e.target.value)}
+                          defaultValue={r.label}
                           placeholder="Nombre visible"
                           autoFocus
                           onKeyDown={(e) => {
@@ -272,9 +287,10 @@ export function GestionarRolesModal({
                           }}
                         />
                         <input
+                          key={`desc-${r.key}`}
+                          ref={descEditRef}
                           className="input"
-                          value={descEdit}
-                          onChange={(e) => setDescEdit(e.target.value)}
+                          defaultValue={r.descripcion ?? ''}
                           placeholder="Descripción"
                         />
                         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
