@@ -2835,9 +2835,20 @@ function EditarOrdenModal({
 }) {
   const [items, setItems] = useState<ItemOrden[]>(() => orden.items.map((i) => ({ ...i })));
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
-  const [motivo, setMotivo] = useState(orden.motivo ?? '');
-  const [finalidad, setFinalidad] = useState(orden.finalidad ?? '');
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
+  // Datos de cabecera editables de la OP: unidad solicitante, clasificación y urgencia.
+  const [unidadSol, setUnidadSol] = useState(orden.unidad_solicitante ?? '');
+  const [clasifSel, setClasifSel] = useState<string[]>(orden.clasificacion ?? []);
+  const [urgente, setUrgente] = useState(!!orden.urgente);
+  const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
+  const [clasifOpciones, setClasifOpciones] = useState<string[]>([]);
+  useEffect(() => {
+    void listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => setUnidadOpciones([]));
+    void listActivosPedido('clasificacion').then(setClasifOpciones).catch(() => setClasifOpciones([]));
+  }, []);
+  function toggleClasif(c: string) {
+    setClasifSel((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  }
   const [saving, setSaving] = useState(false);
   // Opciones del selector de producto: se arman SOLO cuando cambia `productos`, no
   // en cada tecleo del formulario (antes se recreaba el array completo por render).
@@ -2865,7 +2876,14 @@ function EditarOrdenModal({
     if (!items.some((i) => i.comprar !== false)) { toast('Marcá al menos un ítem a comprar.', 'error'); return; }
     setSaving(true);
     try {
-      await actualizarOrdenEditable(orden, { items, motivo: motivo.trim() || null, finalidad: finalidad.trim() || null }, actorEmail || 'sistema');
+      await actualizarOrdenEditable(orden, {
+        items,
+        motivo: orden.motivo ?? null,
+        finalidad: orden.finalidad ?? null,
+        unidad_solicitante: unidadSol.trim().toUpperCase() || null,
+        clasificacion: clasifSel,
+        urgente,
+      }, actorEmail || 'sistema');
       notify(`${orden.estado === 'pendiente' ? 'Orden de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
       onSaved();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo modificar la OC', 'error'); setSaving(false); }
@@ -2948,16 +2966,44 @@ function EditarOrdenModal({
         </div>
       </div>
 
+      {/* Datos de cabecera de la OP: unidad solicitante, clasificación y urgencia. */}
       <div className="form-row">
-        <label>Motivo por el cual</label>
-        <textarea className="textarea" name="edit-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)}
-          placeholder="¿Por qué se solicita?" />
+        <label>Unidad solicitante</label>
+        <SearchSelect value={unidadSol} onChange={(v) => setUnidadSol(v.toUpperCase())}
+          options={unidadOpciones.map((u) => ({ value: u, label: u }))}
+          placeholder="Departamento / unidad que solicita" />
       </div>
+
       <div className="form-row">
-        <label>Finalidad</label>
-        <textarea className="textarea" name="edit-finalidad" defaultValue={finalidad} onChange={(e) => setFinalidad(e.target.value)}
-          placeholder="¿Para qué se usará?" />
+        <label>Clasificación</label>
+        {clasifOpciones.length === 0 ? (
+          <small className="muted">No hay clasificaciones en el catálogo.</small>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+            {clasifOpciones.map((c) => {
+              const on = clasifSel.includes(c);
+              return (
+                <button type="button" key={c} className={`btn btn-sm ${on ? 'btn-primary' : 'btn-ghost'}`} onClick={() => toggleClasif(c)}>
+                  {on ? '✓ ' : ''}{c}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      <label
+        style={{
+          display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer',
+          padding: '.7rem .9rem', borderRadius: 8, marginBottom: '.4rem',
+          border: `1px solid ${urgente ? 'var(--danger)' : 'var(--border)'}`,
+          background: urgente ? 'rgba(220,53,69,.12)' : 'transparent',
+        }}
+      >
+        <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} />
+        <span style={{ fontWeight: 700, letterSpacing: '.02em', color: urgente ? 'var(--danger)' : 'inherit' }}>🚨 ORDEN: URGENTE</span>
+        <span className="muted" style={{ fontSize: '.76rem' }}>Marca esta solicitud como prioritaria.</span>
+      </label>
     </Modal>
   );
 }

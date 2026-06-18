@@ -210,7 +210,10 @@ const ESTADOS_EDITABLES_ORDEN: EstadoOrden[] = ['pendiente', 'aprobada', 'oc_cre
  */
 export async function actualizarOrdenEditable(
   o: Orden,
-  patch: { items?: ItemOrden[]; motivo?: string | null; finalidad?: string | null },
+  patch: {
+    items?: ItemOrden[]; motivo?: string | null; finalidad?: string | null;
+    unidad_solicitante?: string | null; clasificacion?: string[] | null; urgente?: boolean;
+  },
   actorEmail: string,
 ): Promise<Orden> {
   if (o.oc_aprobada_en || o.oc_aprobada_por || o.estado === 'oc_aprobada') {
@@ -227,6 +230,9 @@ export async function actualizarOrdenEditable(
   if (patch.items) upd.items = patch.items;
   if (patch.motivo !== undefined) upd.motivo = patch.motivo;
   if (patch.finalidad !== undefined) upd.finalidad = patch.finalidad;
+  if (patch.unidad_solicitante !== undefined) upd.unidad_solicitante = patch.unidad_solicitante?.trim() || null;
+  if (patch.clasificacion !== undefined) upd.clasificacion = patch.clasificacion?.length ? patch.clasificacion : null;
+  if (patch.urgente !== undefined) upd.urgente = patch.urgente;
   const { data, error } = await supabase
     .from(TABLE)
     .update(upd)
