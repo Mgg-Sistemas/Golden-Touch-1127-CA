@@ -13,6 +13,7 @@ import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSig
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
+import { RepartirProveedoresModal } from './RepartirProveedoresModal';
 
 /** Resumen compacto de la ficha del producto para mostrar en la comparativa. */
 function resumenFicha(ficha: OfertaProveedor['ficha']): string {
@@ -67,6 +68,8 @@ export function OfertasComparativa({
   const [expandido, setExpandido] = useState<string | null>(null);
   // Oferta a eliminar (confirmación).
   const [aEliminar, setAEliminar] = useState<OfertaProveedor | null>(null);
+  // Modal para repartir la OP entre varios proveedores (multi-proveedor).
+  const [repartir, setRepartir] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +148,11 @@ export function OfertasComparativa({
         <span className="muted mono">{scored.length}/{MAX_OFERTAS} oferta(s)</span>
         {puedeAgregar && (
           <button className="btn btn-sm btn-ghost" onClick={onAddOferta}>+ Agregar oferta</button>
+        )}
+        {puedeDecidir && ofertas.length >= 1 && (
+          <button className="btn btn-sm btn-ghost" onClick={() => setRepartir(true)} title="Comprar distintos ítems a distintos proveedores (una OC por proveedor)">
+            🔀 Repartir entre proveedores
+          </button>
         )}
       </span>
     </div>
@@ -399,6 +407,17 @@ export function OfertasComparativa({
           danger
           onConfirm={() => confirmarEliminar(aEliminar)}
           onCancel={() => setAEliminar(null)}
+        />
+      )}
+
+      {repartir && (
+        <RepartirProveedoresModal
+          orden={orden}
+          ofertas={ofertas}
+          proveedorMap={proveedorMap}
+          actorEmail={actorEmail}
+          onClose={() => setRepartir(false)}
+          onDone={() => { setRepartir(false); onAccepted(); }}
         />
       )}
     </div>

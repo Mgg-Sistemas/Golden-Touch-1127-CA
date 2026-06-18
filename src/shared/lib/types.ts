@@ -965,6 +965,12 @@ export interface Orden {
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;
+  /** Total alternativo si se paga en divisa/efectivo (precio con descuento del proveedor). */
+  total_divisa?: number | null;
+  /** Se marcó que el pago se hizo en divisa → el monto a pagar es `total_divisa`. */
+  pago_en_divisa?: boolean | null;
+  /** OC hija generada al repartir una OP entre varios proveedores (apunta a la OP madre). */
+  op_padre_id?: string | null;
   estado: EstadoOrden;
   notas?: string | null;
   /** Motivo y finalidad de la OP (el "porqué" de la solicitud). */

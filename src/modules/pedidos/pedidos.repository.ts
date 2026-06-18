@@ -321,7 +321,7 @@ export async function aprobarOrdenConOferta(
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
-    .from('ofertas_proveedor').select('condiciones_pago')
+    .from('ofertas_proveedor').select('condiciones_pago, precio_divisa')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -331,6 +331,7 @@ export async function aprobarOrdenConOferta(
     proveedor_id: ofertaProveedorId,
     items: ofertaItems,
     total: ofertaPrecioTotal,
+    total_divisa: (ofRow?.precio_divisa as number | null) ?? null,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     oc_creada_por: actorEmail,
@@ -350,6 +351,98 @@ export async function aprobarOrdenConOferta(
     .single();
   if (error) throw error;
   return data as Orden;
+}
+
+/** Un grupo del reparto: los ítems (ya con precio de la oferta de ese proveedor)
+ *  que se le compran a UN proveedor, con su total BCV y total en divisa. */
+export interface GrupoReparto {
+  proveedorId: string;
+  items: ItemOrden[];
+  total: number;
+  totalDivisa?: number | null;
+  condicionesPago?: string | null;
+}
+
+/**
+ * Reparte una OP aprobada entre VARIOS proveedores: por cada grupo crea una OC HIJA
+ * (estado `oc_creada`) con sus ítems y precios, ligada a la OP madre (`op_padre_id`).
+ * La OP madre queda `reasignada` (ya repartida). Cada OC hija sigue el flujo normal
+ * (aprobación del GG, método de pago por proveedor, Tesorería, PDF). Las ofertas de
+ * los proveedores elegidos quedan `aceptada`; el resto, `descartada`.
+ */
+export async function repartirOpEntreProveedores(
+  op: Orden,
+  grupos: GrupoReparto[],
+  actorEmail: string,
+): Promise<Orden[]> {
+  if (!['aprobada', 'desistida_proveedor'].includes(op.estado))
+    throw new Error('Solo se reparte una orden de pedido aprobada.');
+  const validos = grupos.filter((g) => g.proveedorId && g.items.length);
+  if (!validos.length) throw new Error('Asigná al menos un ítem a un proveedor.');
+  const nowIso = new Date().toISOString();
+  const hijos: Orden[] = [];
+
+  for (let i = 0; i < validos.length; i++) {
+    const g = validos[i];
+    const ocCodigo = await nextOcCodigo();
+    const row = {
+      codigo: `${op.codigo}-${i + 1}`,
+      proveedor_id: g.proveedorId,
+      solicitante_email: op.solicitante_email,
+      solicitante: op.solicitante ?? null,
+      unidad_solicitante: op.unidad_solicitante ?? null,
+      ci_solicitante: op.ci_solicitante ?? null,
+      items: g.items,
+      total: g.total,
+      total_divisa: g.totalDivisa ?? null,
+      estado: 'oc_creada' as EstadoOrden,
+      notas: op.notas ?? null,
+      motivo: op.motivo ?? null,
+      finalidad: op.finalidad ?? null,
+      clasificacion: op.clasificacion?.length ? op.clasificacion : null,
+      urgente: op.urgente ?? false,
+      imagen_path: op.imagen_path ?? null,
+      oc_codigo: ocCodigo,
+      condiciones_pago: g.condicionesPago ?? null,
+      op_padre_id: op.id,
+      aprobada_por: op.aprobada_por ?? null,
+      aprobada_en: op.aprobada_en ?? null,
+      oc_creada_por: actorEmail,
+      oc_creada_en: nowIso,
+      historial: [
+        ...(op.historial ?? []),
+        { at: nowIso, evento: 'oc_creada_reparto', actor: actorEmail, proveedorId: g.proveedorId, oc_codigo: ocCodigo, total: g.total } as EventoHistorial,
+      ],
+    };
+    const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
+    if (error) throw error;
+    hijos.push(data as Orden);
+  }
+
+  // OP madre: queda repartida (ya no avanza por sí misma).
+  await supabase.from(TABLE).update({
+    estado: 'reasignada' as EstadoOrden,
+    historial: [
+      ...(op.historial ?? []),
+      { at: nowIso, evento: 'op_repartida', actor: actorEmail, hijos: hijos.map((h) => h.oc_codigo) } as unknown as EventoHistorial,
+    ],
+    updated_at: nowIso,
+  }).eq('id', op.id);
+
+  // Ofertas: aceptar las de los proveedores elegidos; descartar el resto.
+  const provIds = validos.map((g) => g.proveedorId);
+  await supabase.from('ofertas_proveedor')
+    .update({ estado: 'aceptada', decidida_por_email: actorEmail, decidida_en: nowIso })
+    .eq('orden_id', op.id).in('proveedor_id', provIds).eq('estado', 'pendiente');
+  const { data: sobrantes } = await supabase.from('ofertas_proveedor')
+    .select('id, proveedor_id').eq('orden_id', op.id).eq('estado', 'pendiente');
+  const descartar = (sobrantes ?? []).filter((r) => !provIds.includes((r as { proveedor_id: string }).proveedor_id)).map((r) => (r as { id: string }).id);
+  if (descartar.length) {
+    await supabase.from('ofertas_proveedor')
+      .update({ estado: 'descartada', decidida_por_email: actorEmail, decidida_en: nowIso })
+      .in('id', descartar);
+  }
+  return hijos;
 }
 
 /**
@@ -446,9 +539,17 @@ export async function indicarMetodoPago(
   // la OC queda "Confirmada pagar" (oc_aprobada) para que Tesorería pague.
   const comprobanteTipo = soporte?.comprobanteTipo ?? null;
   const retencionModo = comprobanteTipo === 'factura' ? (soporte?.retencionModo ?? null) : null;
+  // Pago en divisa/efectivo: si el proveedor ofreció un precio menor en divisa
+  // (`total_divisa`) y se paga con un método/moneda en divisa, el monto a pagar (y la
+  // cuenta por pagar en Tesorería) usa ese precio con descuento, no el general (BCV).
+  const METODOS_DIVISA = ['divisas_efectivo', 'binance_usdt', 'zelle'];
+  const totalDivisa = Number(o.total_divisa) || 0;
+  const pagaEnDivisa = totalDivisa > 0 && limpios.some(
+    (m) => m.moneda === 'USD' || m.moneda === 'USDT' || METODOS_DIVISA.includes(m.metodo),
+  );
   // OC por factura con IVA: se suma el 16% al total. Sin IVA: no agrega nada.
   const aplicaIva = comprobanteTipo === 'factura' && !!soporte?.conIva;
-  const baseTotal = Number(o.total) || 0;
+  const baseTotal = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
   const ivaMonto = aplicaIva ? Math.round(baseTotal * 0.16 * 100) / 100 : 0;
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
@@ -459,8 +560,10 @@ export async function indicarMetodoPago(
     retencion_modo: retencionModo,
     iva_aplicado: aplicaIva,
     iva_monto: aplicaIva ? ivaMonto : null,
-    ...(aplicaIva ? { total: baseTotal + ivaMonto } : {}),
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_monto: ivaMonto }),
+    pago_en_divisa: pagaEnDivisa,
+    // Al pagar en divisa, el `total` de la OC pasa a ser el monto con descuento (+IVA si aplica).
+    ...(pagaEnDivisa || aplicaIva ? { total: baseTotal + ivaMonto } : {}),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_monto: ivaMonto, pago_en_divisa: pagaEnDivisa }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
