@@ -8,8 +8,9 @@ import type { Existencia, Producto, ItemSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
+import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; }
+interface LineaUI { id: number; productoId: string; cantidad: string; observacion: string; }
 
 export function TrasladoMaterialForm({
   productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
@@ -40,23 +41,25 @@ export function TrasladoMaterialForm({
   );
 
   // Carrito de renglones (varios materiales, mismo origen → destino).
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', observacion: '' }]);
   const [seq, setSeq] = useState(2);
   useEffect(() => {
-    setLineas([{ id: 1, productoId: '', cantidad: '1' }]);
+    setLineas([{ id: 1, productoId: '', cantidad: '1', observacion: '' }]);
     setSeq(2);
   }, [origen]);
 
   function setLinea(id: number, patch: Partial<LineaUI>) {
     setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
-  function addLinea() { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1' }]); setSeq((s) => s + 1); }
+  function addLinea() { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', observacion: '' }]); setSeq((s) => s + 1); }
   function quitarLinea(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
 
   const [motivo, setMotivo] = useState('');
   const [notaOn, setNotaOn] = useState(false);
   const [notaTexto, setNotaTexto] = useState('');
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
+  const [transporte, setTransporte] = useState<TransporteSeleccion>(transporteVacio);
+  const [consumoInterno, setConsumoInterno] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,6 +125,7 @@ export function TrasladoMaterialForm({
         unidad: x.producto?.unidad ?? null,
         cantidad: x.cantNum,
         precio_unit: x.precio,
+        observacion: x.l.observacion.trim() || null,
       });
     }
     const ids = items.map((i) => i.producto_id);
@@ -134,6 +138,11 @@ export function TrasladoMaterialForm({
         motivo: motivo.trim() || null,
         unidadSolicitante: unidadSolicitante.trim() || null,
         notaEntrega: notaOn ? (notaTexto.trim() || null) : null, fechaEntrega: fechaEntrega || null,
+        choferId: transporte.choferId, choferNombre: transporte.choferNombre, choferCedula: transporte.choferCedula,
+        vehiculoId: transporte.vehiculoId, vehiculoDescripcion: transporte.vehiculoDescripcion, vehiculoPlaca: transporte.vehiculoPlaca,
+        direccionDespacho: transporte.direccionDespacho || null,
+        direccionDestino: transporte.direccionDestino || null,
+        consumoInterno,
         solicitante: actorName || actor, actor, actorName,
       });
       const resumen = items.length === 1 ? `${num(items[0].cantidad)} ${items[0].unidad ?? ''} de ${items[0].producto_nombre}` : `${items.length} materiales`;
@@ -235,6 +244,12 @@ export function TrasladoMaterialForm({
                   : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && <>· queda {num(Math.max(0, stock - cantNum))} en origen</>}</small>}
               </div>
             </div>
+            <div className="form-row" style={{ marginBottom: 0, marginTop: '.4rem' }}>
+              <label>Observación</label>
+              <input className="input" value={l.observacion}
+                onChange={(e) => setLinea(l.id, { observacion: e.target.value })}
+                placeholder="Ej.: será trasladado para reparación (opcional)" />
+            </div>
           </div>
         ))}
         <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea} disabled={!productosEnOrigen.length} style={{ marginBottom: '.6rem' }}>
@@ -265,7 +280,19 @@ export function TrasladoMaterialForm({
           {notaOn && <small className="muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}
         </div>
 
-        <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: 0, display: 'flex', justifyContent: 'space-between' }}>
+        {/* Consumo interno: el material se traslada para uso interno. */}
+        <div className="form-row" style={{ marginTop: '.25rem' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={consumoInterno} onChange={(e) => setConsumoInterno(e.target.checked)} />
+            Consumo interno
+          </label>
+          <small className="muted">Se marca en el detalle y en la trazabilidad.</small>
+        </div>
+
+        {/* Transporte y direcciones (formato de salida en tránsito) */}
+        <TransporteFields value={transporte} onChange={setTransporte} actor={actor} />
+
+        <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: '.6rem 0 0', display: 'flex', justifyContent: 'space-between' }}>
           <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es) · {origen} → {destino} · lleva el costo (PMP) del origen</span>
           <span className="mono" style={{ fontSize: '.9rem', fontWeight: 700 }}>Total: {money(total)}</span>
         </div>

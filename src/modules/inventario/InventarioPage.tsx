@@ -96,7 +96,12 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   if (ui.filterStock === 'restock' && !(p._needsRestock && !p._critical)) return false;
   if (ui.filterStock === 'ok' && p._needsRestock) return false;
   if (ui.filterStock === 'sin_mov' && (p.stock ?? 0) > 0) return false;
-  if (q && !(p.sku.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q))) return false;
+  if (q) {
+    // Busca por SKU, nombre y por los detalles del producto (alias, marca, modelo,
+    // serial, código, N°), así "CLORO" encuentra el producto aunque se llame distinto.
+    const campos = [p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.serial, p.codigo, p.numero];
+    if (!campos.some((c) => (c ?? '').toString().toLowerCase().includes(q))) return false;
+  }
   return true;
 }
 

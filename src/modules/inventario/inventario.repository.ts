@@ -21,6 +21,15 @@ export interface ProductoInput {
   precio_venta?: number | null;
   es_receta?: boolean;
   es_producible?: boolean;
+  // Detalle del producto (opcional).
+  nombre_busqueda?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  serial?: string | null;
+  codigo?: string | null;
+  numero?: string | null;
+  descripcion?: string | null;
+  ubicacion?: string | null;
 }
 
 export const CATEGORIAS_DEFAULT = [

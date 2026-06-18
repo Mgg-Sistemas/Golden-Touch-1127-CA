@@ -164,7 +164,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // Renglones: varios (items) o uno solo (campos sueltos). Se muestran como factura.
   const items = (sol.items && sol.items.length)
     ? sol.items
-    : [{ producto_nombre: sol.producto_nombre || '—', producto_sku: null as string | null, unidad: null as string | null, cantidad: cant, precio_unit: precio, almacen: sol.almacen_origen ?? null }];
+    : [{ producto_nombre: sol.producto_nombre || '—', producto_sku: null as string | null, unidad: null as string | null, cantidad: cant, precio_unit: precio, almacen: sol.almacen_origen ?? null, observacion: null as string | null }];
   const total = items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -195,17 +195,24 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const HALF = (PAGE_W - MARGIN * 2 - COLGAP) / 2;
   const infoY = y;
 
+  const chofer = [sol.chofer_nombre, sol.chofer_cedula ? `C.I. ${sol.chofer_cedula}` : ''].filter(Boolean).join(' · ');
+  const vehiculo = [sol.vehiculo_descripcion, sol.vehiculo_placa].filter(Boolean).join(' · ');
   const izquierda: Array<[string, string]> = [
-    ['Mineral Group Guayana C.A.', ''],
+    ['GOLDEN TOUCH 1127 C.A.', ''],
     ['Sistema de Gestión de Inventarios', ''],
     ['Solicitado por', sol.solicitante || creo || '—'],
     ...(sol.unidad_solicitante ? [['Unidad solicitante', sol.unidad_solicitante] as [string, string]] : []),
     [esTraslado ? 'Almacén origen' : 'Almacén de salida', sol.almacen_origen || '—'],
     ...(esTraslado ? [['Almacén destino', sol.almacen_destino || '—'] as [string, string]] : []),
+    ...(sol.consumo_interno ? [['Tipo', 'CONSUMO INTERNO'] as [string, string]] : []),
+    ...(chofer ? [['Chofer / responsable', chofer] as [string, string]] : []),
+    ...(vehiculo ? [['Vehículo', vehiculo] as [string, string]] : []),
   ];
   const derecha: Array<[string, string]> = [
     ['Fecha de solicitud', fmt.dateTime(sol.created_at)],
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
+    ...(sol.direccion_despacho ? [['Dirección de despacho', sol.direccion_despacho] as [string, string]] : []),
+    ...(sol.direccion_destino ? [['Dirección de destino', sol.direccion_destino] as [string, string]] : []),
     ['Autorizado por', autorizo || '— (pendiente) —'],
     ...(sol.aprobada_en ? [['Aprobada el', fmt.dateTime(sol.aprobada_en)] as [string, string]] : []),
     ...(sol.ejecutada_en ? [['Ejecutada el', fmt.dateTime(sol.ejecutada_en)] as [string, string]] : []),
@@ -231,34 +238,46 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   y = Math.max(izqFin, lastY()) + 16;
 
   // ── Tabla de productos (factura) ──
-  // En salidas se muestra el almacén de cada renglón (puede salir de varios).
+  // Columnas dinámicas: # · Producto · [Almacén] · [Observación] · Cantidad · Precio · Total.
   const conAlmacen = !esTraslado && items.some((it) => it.almacen);
+  const conObs = items.some((it) => (it.observacion ?? '').trim());
+  const head: string[] = ['#', 'Producto'];
+  if (conAlmacen) head.push('Almacén');
+  if (conObs) head.push('Observación');
+  head.push('Cantidad', 'Precio USD', 'Total USD');
+
+  const body = items.map((it, i) => {
+    const row: string[] = [String(i + 1), `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`];
+    if (conAlmacen) row.push(it.almacen ?? sol.almacen_origen ?? '—');
+    if (conObs) row.push((it.observacion ?? '').trim() || '—');
+    row.push(
+      `${fmt.num(Number(it.cantidad) || 0)} ${it.unidad ?? ''}`.trim(),
+      fmt.money(Number(it.precio_unit) || 0),
+      fmt.money((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0)),
+    );
+    return row;
+  });
+  // Pie TOTAL: tantas celdas vacías como columnas previas a "Total".
+  const footRow = head.map(() => '');
+  footRow[head.length - 2] = 'TOTAL';
+  footRow[head.length - 1] = fmt.money(total);
+  // Alineación a la derecha de las 3 últimas columnas numéricas.
+  const numCols = head.length;
+  const colStyles: Record<number, { halign?: 'center' | 'right'; cellWidth?: number }> = { 0: { halign: 'center', cellWidth: 22 } };
+  colStyles[numCols - 3] = { halign: 'right' };
+  colStyles[numCols - 2] = { halign: 'right' };
+  colStyles[numCols - 1] = { halign: 'right' };
+
   autoTable(doc, {
     startY: y,
-    head: [conAlmacen
-      ? ['#', 'Producto', 'Almacén', 'Cantidad', 'Precio USD', 'Total USD']
-      : ['#', 'Producto', 'Cantidad', 'Precio USD', 'Total USD']],
-    body: items.map((it, i) => {
-      const base = [
-        String(i + 1),
-        `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`,
-      ];
-      if (conAlmacen) base.push(it.almacen ?? sol.almacen_origen ?? '—');
-      return [
-        ...base,
-        `${fmt.num(Number(it.cantidad) || 0)} ${it.unidad ?? ''}`.trim(),
-        fmt.money(Number(it.precio_unit) || 0),
-        fmt.money((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0)),
-      ];
-    }),
-    foot: [conAlmacen ? ['', '', '', '', 'TOTAL', fmt.money(total)] : ['', '', '', 'TOTAL', fmt.money(total)]],
+    head: [head],
+    body,
+    foot: [footRow],
     theme: 'grid',
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
     styles: { fontSize: 9.5, cellPadding: 5 },
-    columnStyles: conAlmacen
-      ? { 0: { halign: 'center', cellWidth: 22 }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } }
-      : { 0: { halign: 'center', cellWidth: 26 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    columnStyles: colStyles,
     margin: MARGIN,
   });
   y = lastY() + 18;
