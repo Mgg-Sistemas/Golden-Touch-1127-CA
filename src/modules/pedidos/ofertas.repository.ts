@@ -15,6 +15,8 @@ export interface CrearOfertaInput {
   proveedor_id: string;
   items: ItemOrden[];
   precio_total: number;
+  /** Precio con descuento en divisa (opcional). Si se indica, pasa a ser el precio final de la OC. */
+  precio_divisa?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
@@ -79,6 +81,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       proveedor_id: input.proveedor_id,
       items: input.items,
       precio_total: input.precio_total,
+      precio_divisa: input.precio_divisa ?? null,
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
       notas: input.notas ?? null,
