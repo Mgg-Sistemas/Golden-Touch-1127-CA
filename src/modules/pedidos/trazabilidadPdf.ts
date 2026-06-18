@@ -251,6 +251,9 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['RIF', proveedorFinal?.rif ?? '—'],
     ['Contacto', proveedorFinal?.contacto ?? '—'],
     ['Total de la orden', money(orden.total)],
+    ...(ofertaAceptada?.precio_divisa != null && Number(ofertaAceptada.precio_divisa) > 0 && Number(ofertaAceptada.precio_divisa) !== Number(ofertaAceptada.precio_total)
+      ? ([['Precio con descuento (divisa)', `${money(Number(ofertaAceptada.precio_divisa))} · lista BCV ${money(Number(ofertaAceptada.precio_total))}`]] as Array<[string, string]>)
+      : []),
     ...(orden.comprobante_tipo === 'factura'
       ? ([
           ['Tipo de soporte', 'Factura'],
