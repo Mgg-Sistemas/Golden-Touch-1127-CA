@@ -29,7 +29,15 @@ export function useSession() {
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
+      // Al cambiar de pestaña y volver, Supabase refresca el token y emite un
+      // objeto `session` NUEVO con el MISMO usuario. Si cambiáramos la referencia,
+      // todo el árbol re-renderiza (y según el consumidor se remonta, cerrando el
+      // modal abierto). Mantenemos la referencia previa cuando el usuario no cambió;
+      // solo actualizamos en login/logout o cambio real de usuario.
+      setSession((prev) => {
+        if (prev && s && prev.user?.id === s.user?.id) return prev;
+        return s;
+      });
     });
 
     return () => sub.subscription.unsubscribe();
