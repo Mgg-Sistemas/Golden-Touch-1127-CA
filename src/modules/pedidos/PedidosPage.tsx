@@ -2925,11 +2925,27 @@ function EditarOrdenModal({
     setClasifSel((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
   }
   const [saving, setSaving] = useState(false);
-  // Opciones del selector de producto: se arman SOLO cuando cambia `productos`, no
-  // en cada tecleo del formulario (antes se recreaba el array completo por render).
+  // Productos creados al vuelo en este modal (no existían en inventario).
+  const [extraProductos, setExtraProductos] = useState<Producto[]>([]);
+  const allProductos = useMemo(() => [...productos, ...extraProductos], [productos, extraProductos]);
+  // Alta rápida de producto nuevo (no en inventario), igual que al crear la OP.
+  const [nuevoOpen, setNuevoOpen] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState('');
+  const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
+  const [nuevoUnidad, setNuevoUnidad] = useState('und');
+  const [nuevoAlmacen, setNuevoAlmacen] = useState('General');
+  const [creandoNuevo, setCreandoNuevo] = useState(false);
+  const [unidadesList, setUnidadesList] = useState<string[]>([]);
+  const [almacenesList, setAlmacenesList] = useState<string[]>([]);
+  const nuevoNombreRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((p) => (u.includes(p) ? p : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
+    getNombresAlmacenes().then((a) => { setAlmacenesList(a); setNuevoAlmacen((p) => (a.includes(p) ? p : (a[0] ?? 'General'))); }).catch(() => setAlmacenesList(['General']));
+  }, []);
+  // Opciones del selector de producto: se arman SOLO cuando cambia la lista.
   const prodOptions = useMemo(
-    () => productos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` })),
-    [productos],
+    () => allProductos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` })),
+    [allProductos],
   );
 
   function updateItem(idx: number, patch: Partial<ItemOrden>) {
@@ -2939,11 +2955,48 @@ function EditarOrdenModal({
     setItems((prev) => prev.filter((_, k) => k !== idx));
   }
   function addItem() {
-    const p = productos.find((x) => x.id === prodSelectId);
+    const p = allProductos.find((x) => x.id === prodSelectId);
     if (!p) return;
     setItems((prev) => prev.some((i) => i.productoId === p.id)
       ? prev.map((i) => (i.productoId === p.id ? { ...i, cantidad: i.cantidad + 1 } : i))
       : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
+  }
+
+  async function crearProductoNuevo() {
+    const nombre = nuevoNombre.trim().toUpperCase();
+    if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
+    setCreandoNuevo(true);
+    try {
+      const base = nombre.replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'PROD';
+      // SKU único a prueba de colisiones (igual que en la creación de la OP).
+      let sku = '';
+      for (let intento = 0; intento < 8; intento++) {
+        const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+        const ts = Date.now().toString(36).slice(-4).toUpperCase();
+        sku = `NEW-${base}-${ts}${rnd}`;
+        if (!(await findBySku(sku))) break;
+      }
+      const creado = await createProducto({
+        sku, nombre,
+        categoria: nuevoCategoria.trim().toUpperCase() || 'GENERAL',
+        unidad: nuevoUnidad.trim() || 'und',
+        stock: 0, stock_min: 0, precio: 0,
+        almacen: nuevoAlmacen || 'General',
+        estado: 'activo',
+      });
+      setExtraProductos((prev) => [...prev, creado]);
+      setProdSelectId(creado.id);
+      setItems((prev) => prev.some((i) => i.productoId === creado.id)
+        ? prev
+        : [...prev, { productoId: creado.id, sku: creado.sku, nombre: creado.nombre, cantidad: 1, precio: 0, unidad: creado.unidad, comprar: true }]);
+      toast(`Producto "${creado.nombre}" creado y añadido · cargá otro o cerrá`, 'success');
+      setNuevoNombre('');
+      if (nuevoNombreRef.current) { nuevoNombreRef.current.value = ''; nuevoNombreRef.current.focus(); }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo crear el producto', 'error');
+    } finally {
+      setCreandoNuevo(false);
+    }
   }
 
   async function guardar() {
@@ -3098,6 +3151,45 @@ function EditarOrdenModal({
             options={prodOptions}
             placeholder="Buscar producto por nombre o SKU…" emptyText="Ningún producto coincide" />
           <button type="button" className="btn btn-ghost" onClick={addItem}>+ Añadir</button>
+        </div>
+
+        <div style={{ marginTop: '.5rem' }}>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoOpen((v) => !v)}>
+            {nuevoOpen ? '× Cerrar' : '+ Producto nuevo (no existe en inventario)'}
+          </button>
+          {nuevoOpen && (
+            <div className="card" style={{ padding: '.65rem', marginTop: '.4rem', display: 'grid', gap: '.5rem' }}>
+              <div className="muted" style={{ fontSize: '.78rem' }}>
+                Datos mínimos. Se crea en inventario y lo completás luego (stock, precio…).
+              </div>
+              <input
+                ref={nuevoNombreRef}
+                className="input"
+                name="op-edit-nuevo-nombre"
+                placeholder="Nombre del producto *"
+                defaultValue={nuevoNombre}
+                onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoNombre(e.target.value); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
+              />
+              <div className="form-grid">
+                <input className="input" name="op-edit-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoCategoria(e.target.value); }} />
+                <div className="form-row" style={{ margin: 0 }}>
+                  <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
+                    placeholder="🔍 Unidad…" options={unidadesList.map((u) => ({ value: u, label: u }))} />
+                </div>
+              </div>
+              <div className="form-row" style={{ margin: 0 }}>
+                <label style={{ fontSize: '.74rem' }}>Almacén / sub-almacén destino</label>
+                <SearchSelect value={nuevoAlmacen} onChange={setNuevoAlmacen}
+                  placeholder="🔍 Buscar almacén…" options={almacenesList.map((a) => ({ value: a, label: a }))} />
+              </div>
+              <div>
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => void crearProductoNuevo()} disabled={creandoNuevo}>
+                  {creandoNuevo ? 'Creando…' : 'Crear y añadir a la solicitud'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
