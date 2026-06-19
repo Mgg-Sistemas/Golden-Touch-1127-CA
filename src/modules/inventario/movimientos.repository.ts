@@ -100,8 +100,10 @@ export async function recomputeProductoAgg(productoId: string): Promise<void> {
   const totalStock = rows.reduce((a, r) => a + (Number(r.stock) || 0), 0);
   const valor = rows.reduce((a, r) => a + (Number(r.stock) || 0) * (Number(r.costo_promedio) || 0), 0);
   const patch: Record<string, number> = { stock: totalStock };
-  // Solo recalculamos el costo global si hay stock; si todo es 0 conservamos el último precio.
-  if (totalStock > 0) patch.precio = Math.round((valor / totalStock) * 10000) / 10000;
+  // Solo recalculamos el costo global si hay stock Y existe costo real registrado.
+  // Si ninguna existencia trae costo (valor 0), conservamos el último precio del
+  // producto: un ajuste de stock no debe borrar el costo. Redondeo a 2 decimales.
+  if (totalStock > 0 && valor > 0) patch.precio = Math.round((valor / totalStock) * 100) / 100;
   const { error: pErr } = await supabase.from('productos').update(patch).eq('id', productoId);
   if (pErr) throw pErr;
 }
