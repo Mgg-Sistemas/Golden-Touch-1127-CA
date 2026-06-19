@@ -177,7 +177,6 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('EMISOR', MARGIN, y);
   doc.text('PROVEEDOR', PAGE_W / 2, y);
   y += 14;
   doc.setFont('helvetica', 'normal');

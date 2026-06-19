@@ -291,7 +291,6 @@ export function OfertasComparativa({
                             <span>Detalle de precios por ítem · {prov?.razon_social ?? '—'}</span>
                           </div>
                           {(() => {
-                            const totalDesc = s.oferta.items.reduce((a, it) => a + (Number(it.descuento) || 0), 0);
                             const totalUsd = s.oferta.precio_divisa != null
                               ? Number(s.oferta.precio_divisa)
                               : s.oferta.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_usd) || 0), 0);
@@ -338,13 +337,6 @@ export function OfertasComparativa({
                               })}
                             </tbody>
                             <tfoot>
-                              {totalDesc > 0 && (
-                                <tr>
-                                  <td colSpan={3} style={{ textAlign: 'right' }}>DESCUENTO</td>
-                                  <td className="num mono" style={{ color: 'var(--danger)' }}>−{money(totalDesc)}</td>
-                                  <td colSpan={4}></td>
-                                </tr>
-                              )}
                               <tr style={{ fontWeight: 700 }}>
                                 <td colSpan={3} style={{ textAlign: 'right' }}>TOTAL</td>
                                 <td className="num mono">{money(s.oferta.precio_total)}</td>

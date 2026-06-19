@@ -28,7 +28,6 @@ interface Props {
 interface FormItem extends ItemOrden {
   precio: number;          // Pago en Bs a BCV (unitario, en $)
   precio_usd: number;      // Pago en USD (unitario, en $)
-  descuento: number;       // Descuento del ítem (monto $) sobre el total en Bs
 }
 
 export function AgregarOfertaModal({
@@ -69,7 +68,7 @@ export function AgregarOfertaModal({
   // Solo se cotizan los ítems marcados "comprar" en la OP (los desmarcados no se compran).
   const [items, setItems] = useState<FormItem[]>(
     orden.items.filter((i) => i.comprar !== false).map((i) => ({
-      ...i, precio: 0, precio_usd: 0, descuento: 0,
+      ...i, precio: 0, precio_usd: 0,
     })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
@@ -128,23 +127,20 @@ export function AgregarOfertaModal({
     setPdfFiles((prev) => prev.filter((_, k) => k !== idx));
   }
 
-  // Totales: el de Bs a BCV (con descuento por ítem) es el precio_total de referencia;
-  // el de USD/divisa es la suma de los precios USD por ítem.
-  const totalBcvBruto = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
-  const totalDescuento = items.reduce((a, i) => a + (i.descuento || 0), 0);
-  const precioTotal = Math.max(0, totalBcvBruto - totalDescuento);          // Pago en Bs a BCV (neto)
-  const totalUsd = items.reduce((a, i) => a + i.cantidad * i.precio_usd, 0); // Pago en USD
+  // Totales: el de Bs a BCV es el precio_total de referencia; el de USD/divisa es
+  // la suma de los precios USD por ítem.
+  const precioTotal = items.reduce((a, i) => a + i.cantidad * i.precio, 0);   // Pago en Bs a BCV
+  const totalUsd = items.reduce((a, i) => a + i.cantidad * i.precio_usd, 0);  // Pago en USD
   const tieneUsd = items.some((i) => i.precio_usd > 0);
   const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
   const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
-  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'precio' | 'precio_usd' | 'descuento'>>) {
+  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'precio' | 'precio_usd'>>) {
     setItems((prev) => prev.map((it, k) => {
       if (k !== idx) return it;
       const next = { ...it, ...patch };
       next.precio = Math.max(0, next.precio);
       next.precio_usd = Math.max(0, next.precio_usd);
-      next.descuento = Math.max(0, next.descuento);
       return next;
     }));
   }
@@ -209,7 +205,6 @@ export function AgregarOfertaModal({
       const itemsGuardar: ItemOrden[] = items.map((i) => ({
         ...i,
         precio_usd: i.precio_usd > 0 ? i.precio_usd : null,
-        descuento: i.descuento > 0 ? i.descuento : null,
       }));
       await crearOferta({
         orden_id: orden.id,
@@ -421,7 +416,6 @@ export function AgregarOfertaModal({
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant</th>
                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>Pago en Bs a BCV</th>
                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(248,113,113,.12)' }}>Pago en USD</th>
-                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Descuento</th>
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Diferencia</th>
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Variación %</th>
               </tr>
@@ -452,10 +446,6 @@ export function AgregarOfertaModal({
                         defaultValue={it.precio_usd} onChange={(e) => updateItem(idx, { precio_usd: Number(e.target.value) || 0 })} />
                     </td>
                     <td className="num mono">{money(totalU)}</td>
-                    <td className="num">
-                      <input type="number" className="input mono" style={{ width: 80, textAlign: 'right' }} min={0} step={0.01}
-                        defaultValue={it.descuento} onChange={(e) => updateItem(idx, { descuento: Number(e.target.value) || 0 })} />
-                    </td>
                     <td className="num mono" style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(dif)}</td>
                     <td className="num mono">{pct.toFixed(2)}%</td>
                   </tr>
@@ -463,19 +453,11 @@ export function AgregarOfertaModal({
               })}
             </tbody>
             <tfoot>
-              {totalDescuento > 0 && (
-                <tr>
-                  <td colSpan={3} className="num">DESCUENTO</td>
-                  <td className="num mono" style={{ color: 'var(--danger)' }}>−{money(totalDescuento)}</td>
-                  <td colSpan={4}></td>
-                </tr>
-              )}
               <tr style={{ fontWeight: 700 }}>
                 <td colSpan={3} className="num">TOTAL</td>
                 <td className="num mono">{money(precioTotal)}</td>
                 <td></td>
                 <td className="num mono">{money(totalUsd)}</td>
-                <td></td>
                 <td className="num mono" style={{ color: diferencia >= 0 ? 'var(--success)' : 'var(--danger)' }}>{tieneUsd ? money(diferencia) : '—'}</td>
                 <td className="num mono">{tieneUsd ? `${ahorroPct.toFixed(2)}%` : '—'}</td>
               </tr>
@@ -483,8 +465,8 @@ export function AgregarOfertaModal({
           </table>
         </div>
         <small className="muted">
-          <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. El <strong>Total Bs</strong> resta el descuento por ítem;
-          la <strong>Diferencia</strong> = (Bs − USD) y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
+          <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. La <strong>Diferencia</strong> = (Bs − USD)
+          y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
         </small>
       </div>
 
