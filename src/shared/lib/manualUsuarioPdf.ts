@@ -89,6 +89,7 @@ const SECCIONES: Seccion[] = [
       'Alertas de stock: el sistema marca en rojo los productos por debajo del mínimo para que sepas qué reponer.',
       'Almacenes: se pueden ver en formato lista o en tarjetas (kanban) con totales de productos, productos usados y consumo diario.',
       'Exportar: se pueden descargar los productos de cada almacén en Excel o PDF, e importar productos masivamente desde un Excel.',
+      'Reporte PDF por almacenes y subalmacenes: en la vista de Sedes, el botón "Reporte PDF (almacenes y subalmacenes)" descarga un informe completo de todo el inventario ordenado por sede, almacén y subalmacén, con stock, costo unitario (PMP) y valor por producto, subtotales por almacén y por sede, y el valor total del inventario.',
     ],
   },
   {
