@@ -2699,7 +2699,9 @@ function CrearOrdenModal({
           <div>Cantidad</div>
           <div></div>
         </div>
-        <div>
+        {/* Scroll propio: la lista puede tener muchos productos (sin tope) sin
+            empujar el buscador «+ Añadir» fuera de la vista. */}
+        <div style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: '.2rem' }}>
           {items.map((it, idx) => {
             const comprar = it.comprar !== false;
             return (
@@ -3015,7 +3017,8 @@ function EditarOrdenModal({
         <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 130px 40px' }}>
           <div title="Comprar">✓</div><div>Producto</div><div>Cantidad</div><div></div>
         </div>
-        <div>
+        {/* Scroll propio: muchos productos (sin tope) sin empujar el buscador «+ Añadir». */}
+        <div style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: '.2rem' }}>
           {!items.length && <div className="muted" style={{ fontSize: '.84rem', padding: '.4rem 0' }}>Sin ítems. Añadí al menos uno.</div>}
           {items.map((it, idx) => {
             const comprar = it.comprar !== false;
