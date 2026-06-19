@@ -958,6 +958,10 @@ export interface ItemOrden {
   nombre: string;
   cantidad: number;
   precio: number;
+  /** Precio unitario si se paga en USD/divisa (efectivo). `precio` es el de pago en Bs a BCV. */
+  precio_usd?: number | null;
+  /** Descuento (monto, en la moneda de la oferta) aplicado a este ítem sobre el total en Bs. */
+  descuento?: number | null;
   productoId?: string;
   /** Unidad de medida del producto (KG, L, und…), traída del inventario. */
   unidad?: string;
@@ -1248,6 +1252,12 @@ export interface FichaOferta {
   } | null;
 }
 
+/** Archivo adjunto a una oferta (PDF o imagen) en el bucket `ofertas-pdf`. */
+export interface AdjuntoOferta {
+  path: string;
+  filename: string;
+}
+
 export interface OfertaProveedor {
   id: string;
   orden_id: string;
@@ -1266,6 +1276,8 @@ export interface OfertaProveedor {
   motivo_descarte?: string | null;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+  /** Adjuntos (PDF o imágenes) de la cotización. Permite múltiples archivos. */
+  adjuntos?: AdjuntoOferta[] | null;
   /** Ficha del producto ofertado + costos logísticos. */
   ficha?: FichaOferta | null;
   /** Precio total si se paga en divisa/efectivo (precio_total es el de referencia BCV). */

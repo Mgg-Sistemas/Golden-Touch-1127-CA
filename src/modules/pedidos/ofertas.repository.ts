@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import type { FichaOferta, ItemOrden, OfertaProveedor } from '@/shared/lib/types';
+import type { AdjuntoOferta, FichaOferta, ItemOrden, OfertaProveedor } from '@/shared/lib/types';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -23,6 +23,8 @@ export interface CrearOfertaInput {
   registrada_por_email: string;
   pdf_path?: string | null;
   pdf_filename?: string | null;
+  /** Adjuntos (PDF o imágenes) de la cotización. */
+  adjuntos?: AdjuntoOferta[] | null;
   /** Ficha del producto ofertado + costos logísticos. */
   ficha?: FichaOferta | null;
 }
@@ -54,6 +56,19 @@ export async function subirPdfOferta(
     .upload(path, file, { contentType: file.type || 'application/pdf', upsert: false });
   if (error) throw error;
   return { path, filename: file.name };
+}
+
+/** Sube varios adjuntos (PDF o imágenes) de una oferta y devuelve sus paths. */
+export async function subirAdjuntosOferta(
+  ordenId: string,
+  proveedorId: string,
+  files: File[],
+): Promise<AdjuntoOferta[]> {
+  const out: AdjuntoOferta[] = [];
+  for (const file of files) {
+    out.push(await subirPdfOferta(ordenId, proveedorId, file));
+  }
+  return out;
 }
 
 /** Genera un signed URL de 5 min para descargar un PDF de oferta. */
@@ -88,6 +103,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       registrada_por_email: input.registrada_por_email,
       pdf_path: input.pdf_path ?? null,
       pdf_filename: input.pdf_filename ?? null,
+      adjuntos: input.adjuntos ?? [],
       ficha: input.ficha ?? null,
     })
     .select('*')

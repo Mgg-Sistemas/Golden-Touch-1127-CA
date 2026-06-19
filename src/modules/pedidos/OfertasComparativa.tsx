@@ -254,17 +254,28 @@ export function OfertasComparativa({
                     <td className="num mono">{(s.score.cumplimiento * 100).toFixed(0)}%</td>
                     <td className="num mono"><strong>{(s.score.total * 100).toFixed(0)}</strong></td>
                     <td>
-                      {s.oferta.pdf_path ? (
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          onClick={(e) => { e.stopPropagation(); abrirPdf(s.oferta.pdf_path!); }}
-                          title={s.oferta.pdf_filename ?? 'Ver PDF de la oferta'}
-                        >
-                          📎 Ver
-                        </button>
-                      ) : (
-                        <span className="muted" style={{ fontSize: '.78rem' }}>—</span>
-                      )}
+                      {(() => {
+                        // Adjuntos: usa la lista nueva; si no, cae al pdf_path legado.
+                        const adj = (s.oferta.adjuntos && s.oferta.adjuntos.length)
+                          ? s.oferta.adjuntos
+                          : (s.oferta.pdf_path ? [{ path: s.oferta.pdf_path, filename: s.oferta.pdf_filename ?? 'Adjunto' }] : []);
+                        if (!adj.length) return <span className="muted" style={{ fontSize: '.78rem' }}>—</span>;
+                        return (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem' }}>
+                            {adj.map((a, i) => (
+                              <button
+                                key={a.path}
+                                className="btn btn-sm btn-ghost"
+                                onClick={(e) => { e.stopPropagation(); abrirPdf(a.path); }}
+                                title={a.filename}
+                                style={{ padding: '0 .4rem' }}
+                              >
+                                📎 {adj.length > 1 ? i + 1 : 'Ver'}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td>
                       {s.oferta.estado === 'pendiente' && <span className="badge warning">Pendiente</span>}
@@ -279,38 +290,73 @@ export function OfertasComparativa({
                           <div className="card-title" style={{ fontSize: '.82rem', marginBottom: '.35rem' }}>
                             <span>Detalle de precios por ítem · {prov?.razon_social ?? '—'}</span>
                           </div>
-                          <table className="table" style={{ fontSize: '.82rem' }}>
+                          {(() => {
+                            const totalDesc = s.oferta.items.reduce((a, it) => a + (Number(it.descuento) || 0), 0);
+                            const totalUsd = s.oferta.precio_divisa != null
+                              ? Number(s.oferta.precio_divisa)
+                              : s.oferta.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_usd) || 0), 0);
+                            const hayUsd = s.oferta.items.some((it) => Number(it.precio_usd) > 0) || s.oferta.precio_divisa != null;
+                            const difTotal = s.oferta.precio_total - totalUsd;
+                            const pctTotal = s.oferta.precio_total > 0 ? (difTotal / s.oferta.precio_total) * 100 : 0;
+                            return (
+                          <table className="table" style={{ fontSize: '.8rem' }}>
                             <thead>
-                              <tr><th>SKU</th><th>Producto</th><th className="num">Cantidad</th><th className="num">Precio unit.</th><th className="num">Subtotal</th></tr>
+                              <tr>
+                                <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Descripción</th>
+                                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant</th>
+                                <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>Pago en Bs a BCV</th>
+                                <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(248,113,113,.12)' }}>Pago en USD</th>
+                                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Diferencia</th>
+                                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Variación %</th>
+                              </tr>
+                              <tr>
+                                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Precio</th>
+                                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Total</th>
+                                <th className="num" style={{ background: 'rgba(248,113,113,.12)' }}>Precio</th>
+                                <th className="num" style={{ background: 'rgba(248,113,113,.12)' }}>Total</th>
+                              </tr>
                             </thead>
                             <tbody>
                               {s.oferta.items.map((it, i) => {
                                 const cant = Number(it.cantidad) || 0;
                                 const precio = Number(it.precio) || 0;
+                                const precioU = Number(it.precio_usd) || 0;
+                                const dif = (precio - precioU) * cant;
+                                const pct = precio > 0 ? ((precio - precioU) / precio) * 100 : 0;
                                 return (
                                   <tr key={`${it.productoId ?? it.sku ?? i}`}>
-                                    <td className="mono">{it.sku ?? '—'}</td>
-                                    <td>{it.nombre}</td>
+                                    <td>{it.nombre}<div className="muted mono" style={{ fontSize: '.7rem' }}>{it.sku ?? ''}</div></td>
                                     <td className="num mono">{cant}{it.unidad ? ` ${it.unidad}` : ''}</td>
                                     <td className="num mono">{money(precio)}</td>
                                     <td className="num mono">{money(cant * precio)}</td>
+                                    <td className="num mono">{precioU > 0 ? money(precioU) : '—'}</td>
+                                    <td className="num mono">{precioU > 0 ? money(cant * precioU) : '—'}</td>
+                                    <td className="num mono" style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }}>{precioU > 0 ? money(dif) : '—'}</td>
+                                    <td className="num mono">{precioU > 0 ? `${pct.toFixed(2)}%` : '—'}</td>
                                   </tr>
                                 );
                               })}
                             </tbody>
                             <tfoot>
-                              <tr style={{ fontWeight: 700 }}>
-                                <td colSpan={4} style={{ textAlign: 'right' }}>Total oferta (BCV)</td>
-                                <td className="num mono">{money(s.oferta.precio_total)}</td>
-                              </tr>
-                              {s.oferta.precio_divisa != null && (
+                              {totalDesc > 0 && (
                                 <tr>
-                                  <td colSpan={4} style={{ textAlign: 'right' }} className="muted">Total si paga en divisa / efectivo</td>
-                                  <td className="num mono">{money(Number(s.oferta.precio_divisa))}</td>
+                                  <td colSpan={3} style={{ textAlign: 'right' }}>DESCUENTO</td>
+                                  <td className="num mono" style={{ color: 'var(--danger)' }}>−{money(totalDesc)}</td>
+                                  <td colSpan={4}></td>
                                 </tr>
                               )}
+                              <tr style={{ fontWeight: 700 }}>
+                                <td colSpan={3} style={{ textAlign: 'right' }}>TOTAL</td>
+                                <td className="num mono">{money(s.oferta.precio_total)}</td>
+                                <td></td>
+                                <td className="num mono">{hayUsd ? money(totalUsd) : '—'}</td>
+                                <td className="num mono" style={{ color: difTotal >= 0 ? 'var(--success)' : 'var(--danger)' }}>{hayUsd ? money(difTotal) : '—'}</td>
+                                <td className="num mono">{hayUsd ? `${pctTotal.toFixed(2)}%` : '—'}</td>
+                              </tr>
                             </tfoot>
                           </table>
+                            );
+                          })()}
                           {(canCrearOferta ?? canDecidir) && s.oferta.estado === 'pendiente' && (
                             <div style={{ textAlign: 'right', marginTop: '.4rem' }}>
                               <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setAEliminar(s.oferta); }}>

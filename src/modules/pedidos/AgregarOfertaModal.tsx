@@ -6,7 +6,7 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OrigenProveedor, Proveedor } from '@/shared/lib/types';
-import { crearOferta, subirPdfOferta, CONDICIONES_PAGO } from './ofertas.repository';
+import { crearOferta, subirAdjuntosOferta, CONDICIONES_PAGO } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 
@@ -26,7 +26,9 @@ interface Props {
 }
 
 interface FormItem extends ItemOrden {
-  precio: number;
+  precio: number;          // Pago en Bs a BCV (unitario, en $)
+  precio_usd: number;      // Pago en USD (unitario, en $)
+  descuento: number;       // Descuento del ítem (monto $) sobre el total en Bs
 }
 
 export function AgregarOfertaModal({
@@ -66,14 +68,15 @@ export function AgregarOfertaModal({
 
   // Solo se cotizan los ítems marcados "comprar" en la OP (los desmarcados no se compran).
   const [items, setItems] = useState<FormItem[]>(
-    orden.items.filter((i) => i.comprar !== false).map((i) => ({ ...i, precio: 0 })),
+    orden.items.filter((i) => i.comprar !== false).map((i) => ({
+      ...i, precio: 0, precio_usd: 0, descuento: 0,
+    })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
-  // Precio total si se paga en divisa/efectivo (el precioTotal de la cotización es el de referencia BCV).
-  const [precioDivisa, setPrecioDivisa] = useState<string>('');
   const [condiciones, setCondiciones] = useState('');
   const [notas, setNotas] = useState('');
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  // Adjuntos: PDF o varias imágenes de la cotización (multi-archivo).
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   // Ficha del producto ofertado + costos logísticos (todo opcional).
@@ -101,30 +104,49 @@ export function AgregarOfertaModal({
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] ?? null;
-    if (!f) { setPdfFile(null); return; }
-    if (f.type !== 'application/pdf' && !f.type.startsWith('image/')) {
-      toast('El archivo debe ser PDF o imagen', 'error');
-      e.target.value = '';
-      return;
+    const elegidos = Array.from(e.target.files ?? []);
+    e.target.value = ''; // permite volver a elegir el mismo archivo y acumular
+    if (!elegidos.length) return;
+    const validos: File[] = [];
+    for (const f of elegidos) {
+      if (f.type !== 'application/pdf' && !f.type.startsWith('image/')) {
+        toast(`"${f.name}": debe ser PDF o imagen`, 'error'); continue;
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        toast(`"${f.name}": no puede superar 10 MB`, 'error'); continue;
+      }
+      validos.push(f);
     }
-    if (f.size > 10 * 1024 * 1024) {
-      toast('El archivo no puede superar 10 MB', 'error');
-      e.target.value = '';
-      return;
-    }
-    setPdfFile(f);
+    // Acumula con lo ya elegido, evitando duplicados por nombre+tamaño.
+    setPdfFiles((prev) => {
+      const clave = (f: File) => `${f.name}-${f.size}`;
+      const vistos = new Set(prev.map(clave));
+      return [...prev, ...validos.filter((f) => !vistos.has(clave(f)))];
+    });
+  }
+  function quitarArchivo(idx: number) {
+    setPdfFiles((prev) => prev.filter((_, k) => k !== idx));
   }
 
-  const precioTotal = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
-  // Comparación BCV vs divisa/efectivo: diferencia y % de ahorro (diferencia / BCV).
-  const divisaNum = Number(precioDivisa.replace(',', '.'));
-  const tieneDivisa = precioDivisa.trim() !== '' && Number.isFinite(divisaNum) && divisaNum > 0;
-  const diferencia = tieneDivisa ? precioTotal - divisaNum : 0;
-  const ahorroPct = tieneDivisa && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
+  // Totales: el de Bs a BCV (con descuento por ítem) es el precio_total de referencia;
+  // el de USD/divisa es la suma de los precios USD por ítem.
+  const totalBcvBruto = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
+  const totalDescuento = items.reduce((a, i) => a + (i.descuento || 0), 0);
+  const precioTotal = Math.max(0, totalBcvBruto - totalDescuento);          // Pago en Bs a BCV (neto)
+  const totalUsd = items.reduce((a, i) => a + i.cantidad * i.precio_usd, 0); // Pago en USD
+  const tieneUsd = items.some((i) => i.precio_usd > 0);
+  const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
+  const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
-  function updateItemPrecio(idx: number, precio: number) {
-    setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, precio: Math.max(0, precio) } : it)));
+  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'precio' | 'precio_usd' | 'descuento'>>) {
+    setItems((prev) => prev.map((it, k) => {
+      if (k !== idx) return it;
+      const next = { ...it, ...patch };
+      next.precio = Math.max(0, next.precio);
+      next.precio_usd = Math.max(0, next.precio_usd);
+      next.descuento = Math.max(0, next.descuento);
+      return next;
+    }));
   }
 
   async function handleSubmit() {
@@ -171,20 +193,28 @@ export function AgregarOfertaModal({
         return;
       }
 
-      // 2) Subir PDF (si lo hay)
+      // 2) Subir adjuntos (PDF y/o varias imágenes). El primero queda también en
+      //    pdf_path/pdf_filename para compatibilidad con vistas/PDF que leen ese campo.
       let pdf_path: string | null = null;
       let pdf_filename: string | null = null;
-      if (pdfFile) {
-        const uploaded = await subirPdfOferta(orden.id, provId, pdfFile);
-        pdf_path = uploaded.path;
-        pdf_filename = uploaded.filename;
+      let adjuntos: { path: string; filename: string }[] = [];
+      if (pdfFiles.length) {
+        adjuntos = await subirAdjuntosOferta(orden.id, provId, pdfFiles);
+        pdf_path = adjuntos[0]?.path ?? null;
+        pdf_filename = adjuntos[0]?.filename ?? null;
       }
 
-      // 3) Crear oferta
+      // 3) Crear oferta. Cada ítem guarda precio (Bs a BCV), precio_usd y descuento.
+      //    precio_total = total Bs neto (con descuento); precio_divisa = total USD.
+      const itemsGuardar: ItemOrden[] = items.map((i) => ({
+        ...i,
+        precio_usd: i.precio_usd > 0 ? i.precio_usd : null,
+        descuento: i.descuento > 0 ? i.descuento : null,
+      }));
       await crearOferta({
         orden_id: orden.id,
         proveedor_id: provId,
-        items,
+        items: itemsGuardar,
         precio_total: precioTotal,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
@@ -192,8 +222,9 @@ export function AgregarOfertaModal({
         registrada_por_email: registradoPorEmail,
         pdf_path,
         pdf_filename,
+        adjuntos,
         ficha: fichaLimpia(),
-        precio_divisa: tieneDivisa ? divisaNum : null,
+        precio_divisa: tieneUsd ? totalUsd : null,
       });
       notify(`Oferta registrada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
       onCreated();
@@ -381,72 +412,80 @@ export function AgregarOfertaModal({
       )}
 
       <div className="form-row">
-        <label>Cotización por ítem</label>
+        <label>Cotización por ítem · Pago en Bs (BCV) vs Pago en USD</label>
         <div className="table-wrap">
-          <table className="items-table">
+          <table className="items-table" style={{ fontSize: '.84rem' }}>
             <thead>
               <tr>
-                <th>SKU</th>
-                <th>Producto</th>
-                <th className="num">Cantidad</th>
-                <th className="num">Precio unit.</th>
-                <th className="num">Subtotal</th>
+                <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Descripción</th>
+                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant</th>
+                <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>Pago en Bs a BCV</th>
+                <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(248,113,113,.12)' }}>Pago en USD</th>
+                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Descuento</th>
+                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Diferencia</th>
+                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Variación %</th>
+              </tr>
+              <tr>
+                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Precio</th>
+                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Total</th>
+                <th className="num" style={{ background: 'rgba(248,113,113,.12)' }}>Precio</th>
+                <th className="num" style={{ background: 'rgba(248,113,113,.12)' }}>Total</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((it, idx) => (
-                <tr key={`${it.sku}-${idx}`}>
-                  <td className="mono">{it.sku}</td>
-                  <td>{it.nombre}</td>
-                  <td className="num">{it.cantidad}</td>
-                  <td className="num">
-                    <input
-                      type="number"
-                      className="input mono"
-                      name={`item-precio-${idx}`}
-                      style={{ width: 110, textAlign: 'right' }}
-                      min={0}
-                      step={0.01}
-                      defaultValue={it.precio}
-                      onChange={(e) => updateItemPrecio(idx, Number(e.target.value) || 0)}
-                    />
-                  </td>
-                  <td className="num mono">{money(it.cantidad * it.precio)}</td>
-                </tr>
-              ))}
+              {items.map((it, idx) => {
+                const totalBs = it.cantidad * it.precio;
+                const totalU = it.cantidad * it.precio_usd;
+                const dif = (it.precio - it.precio_usd) * it.cantidad;
+                const pct = it.precio > 0 ? ((it.precio - it.precio_usd) / it.precio) * 100 : 0;
+                return (
+                  <tr key={`${it.sku}-${idx}`}>
+                    <td>{it.nombre}<div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div></td>
+                    <td className="num">{it.cantidad}</td>
+                    <td className="num">
+                      <input type="number" className="input mono" style={{ width: 90, textAlign: 'right' }} min={0} step={0.01}
+                        defaultValue={it.precio} onChange={(e) => updateItem(idx, { precio: Number(e.target.value) || 0 })} />
+                    </td>
+                    <td className="num mono">{money(totalBs)}</td>
+                    <td className="num">
+                      <input type="number" className="input mono" style={{ width: 90, textAlign: 'right' }} min={0} step={0.01}
+                        defaultValue={it.precio_usd} onChange={(e) => updateItem(idx, { precio_usd: Number(e.target.value) || 0 })} />
+                    </td>
+                    <td className="num mono">{money(totalU)}</td>
+                    <td className="num">
+                      <input type="number" className="input mono" style={{ width: 80, textAlign: 'right' }} min={0} step={0.01}
+                        defaultValue={it.descuento} onChange={(e) => updateItem(idx, { descuento: Number(e.target.value) || 0 })} />
+                    </td>
+                    <td className="num mono" style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(dif)}</td>
+                    <td className="num mono">{pct.toFixed(2)}%</td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
-              <tr>
-                <td colSpan={4} className="num">TOTAL OFERTA (BCV)</td>
+              {totalDescuento > 0 && (
+                <tr>
+                  <td colSpan={3} className="num">DESCUENTO</td>
+                  <td className="num mono" style={{ color: 'var(--danger)' }}>−{money(totalDescuento)}</td>
+                  <td colSpan={4}></td>
+                </tr>
+              )}
+              <tr style={{ fontWeight: 700 }}>
+                <td colSpan={3} className="num">TOTAL</td>
                 <td className="num mono">{money(precioTotal)}</td>
+                <td></td>
+                <td className="num mono">{money(totalUsd)}</td>
+                <td></td>
+                <td className="num mono" style={{ color: diferencia >= 0 ? 'var(--success)' : 'var(--danger)' }}>{tieneUsd ? money(diferencia) : '—'}</td>
+                <td className="num mono">{tieneUsd ? `${ahorroPct.toFixed(2)}%` : '—'}</td>
               </tr>
             </tfoot>
           </table>
         </div>
-      </div>
-
-      {/* Comparación BCV vs divisa/efectivo: diferencia y % de ahorro por proveedor. */}
-      <div className="form-row">
-        <label>Precio total si paga en divisa / efectivo <span className="muted">(opcional)</span></label>
-        <input
-          type="number"
-          className="input mono"
-          min={0}
-          step={0.01}
-          style={{ maxWidth: 200 }}
-          value={precioDivisa}
-          onChange={(e) => setPrecioDivisa(e.target.value)}
-          placeholder="0.00"
-        />
-        {tieneDivisa && (
-          <div className="card" style={{ marginTop: '.5rem', padding: '.6rem .8rem', background: 'var(--bg-1)', display: 'flex', flexWrap: 'wrap', gap: '1.2rem', fontSize: '.86rem' }}>
-            <span>BCV: <strong className="mono">{money(precioTotal)}</strong></span>
-            <span>Divisa/efectivo: <strong className="mono">{money(divisaNum)}</strong></span>
-            <span>Diferencia: <strong className="mono" style={{ color: diferencia >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(diferencia)}</strong></span>
-            <span>Ahorro: <strong style={{ color: diferencia >= 0 ? 'var(--success)' : 'var(--danger)' }}>{ahorroPct.toFixed(2)}%</strong></span>
-          </div>
-        )}
-        <small className="muted">Se muestra la diferencia ({money(precioTotal)} − divisa) y el % (diferencia / BCV) para comparar proveedores.</small>
+        <small className="muted">
+          <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. El <strong>Total Bs</strong> resta el descuento por ítem;
+          la <strong>Diferencia</strong> = (Bs − USD) y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
+        </small>
       </div>
 
       <div className="form-grid">
@@ -503,15 +542,23 @@ export function AgregarOfertaModal({
       </div>
 
       <div className="form-row">
-        <label>Cargue la cotización del proveedor (opcional)</label>
-        <input type="file" className="input" accept="application/pdf,image/*" onChange={handleFileChange} />
-        {pdfFile && (
-          <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
-            ✓ {pdfFile.name} ({(pdfFile.size / 1024).toFixed(0)} KB)
+        <label>Cargue la cotización del proveedor (opcional · varios archivos)</label>
+        <input type="file" className="input" accept="application/pdf,image/*" multiple onChange={handleFileChange} />
+        {pdfFiles.length > 0 && (
+          <div style={{ display: 'grid', gap: '.25rem', marginTop: '.4rem' }}>
+            {pdfFiles.map((f, i) => (
+              <div key={`${f.name}-${f.size}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.78rem' }}>
+                <span className="muted">{f.type.startsWith('image/') ? '🖼' : '📄'}</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <span className="muted mono">{(f.size / 1024).toFixed(0)} KB</span>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => quitarArchivo(i)} title="Quitar">✕</button>
+              </div>
+            ))}
+            <div className="muted" style={{ fontSize: '.74rem' }}>{pdfFiles.length} archivo(s) seleccionado(s).</div>
           </div>
         )}
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-          PDF o imagen · máximo 10 MB. El jefe podrá descargarlo para validar la oferta antes de aprobar.
+          PDF o imágenes · máximo 10 MB c/u. Podés seleccionar varias fotos de la cotización; el jefe podrá verlas todas antes de aprobar.
         </div>
       </div>
     </Modal>
