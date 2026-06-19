@@ -29,6 +29,7 @@ import {
   crearOrden,
   subirImagenOrden,
   getImagenOrdenSignedUrl,
+  eliminarImagenOrden,
   desistirProveedor,
   finalizarPedido,
   getCurrentUsuario,
@@ -2364,15 +2365,23 @@ function Timeline({
   );
 }
 
-/** Imagen adjunta de una OP: resuelve el signed URL del bucket privado y la muestra. */
+/** Adjunto de una OP (imagen o PDF): resuelve el signed URL del bucket privado y lo muestra. */
 function OpImagenAdjunta({ path }: { path: string }) {
   const [url, setUrl] = useState<string | null>(null);
+  const esPdf = path.toLowerCase().endsWith('.pdf');
   useEffect(() => {
     let alive = true;
     getImagenOrdenSignedUrl(path).then((u) => { if (alive) setUrl(u); }).catch(() => { /* sin permiso / expirado */ });
     return () => { alive = false; };
   }, [path]);
-  if (!url) return <span className="muted">Cargando imagen…</span>;
+  if (!url) return <span className="muted">Cargando adjunto…</span>;
+  if (esPdf) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="btn btn-sm btn-ghost" title="Abrir PDF adjunto">
+        📄 Ver PDF adjunto
+      </a>
+    );
+  }
   return (
     <a href={url} target="_blank" rel="noreferrer" title="Ver imagen en grande">
       <img src={url} alt="Adjunto de la OP" style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, border: '1px solid var(--border)' }} />
@@ -2847,17 +2856,17 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row">
-        <label>Imagen <span className="muted">(opcional)</span></label>
+        <label>Imagen / PDF <span className="muted">(opcional)</span></label>
         <input
           className="input"
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf"
           onChange={(e) => setImagenFile(e.target.files?.[0] ?? null)}
         />
         {imagenFile && (
           <small className="muted">📎 {imagenFile.name} ({(imagenFile.size / 1024).toFixed(0)} KB)</small>
         )}
-        <small className="muted">Podés adjuntar una foto del repuesto/equipo solicitado (máx. 10 MB).</small>
+        <small className="muted">Podés adjuntar una foto o un PDF del repuesto/equipo solicitado (máx. 10 MB).</small>
       </div>
 
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>
@@ -2895,6 +2904,10 @@ function EditarOrdenModal({
   const [clasifSel, setClasifSel] = useState<string[]>(orden.clasificacion ?? []);
   const [urgente, setUrgente] = useState(!!orden.urgente);
   const [notas, setNotas] = useState(orden.notas ?? '');
+  // Adjunto (imagen o PDF) de la OP: el actual + uno nuevo para reemplazar + quitar.
+  const imagenPathActual = orden.imagen_path ?? null;
+  const [imagenFile, setImagenFile] = useState<File | null>(null);
+  const [quitarImagen, setQuitarImagen] = useState(false);
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   const [clasifOpciones, setClasifOpciones] = useState<string[]>([]);
   const [nuevaUnidad, setNuevaUnidad] = useState('');
@@ -3007,6 +3020,12 @@ function EditarOrdenModal({
     try {
       // Nombres normalizados (trim). Se sincronizan con el inventario abajo.
       const itemsFinal = items.map((i) => ({ ...i, nombre: (i.nombre ?? '').trim() }));
+      // Adjunto: si hay archivo nuevo lo subimos; si se pidió quitar, va a null;
+      // si no se tocó, queda undefined (sin cambios). Limpiamos el anterior luego.
+      let imagenPatch: string | null | undefined = undefined;
+      if (imagenFile) imagenPatch = await subirImagenOrden(imagenFile);
+      else if (quitarImagen && imagenPathActual) imagenPatch = null;
+
       await actualizarOrdenEditable(orden, {
         items: itemsFinal,
         motivo: orden.motivo ?? null,
@@ -3017,7 +3036,13 @@ function EditarOrdenModal({
         clasificacion: clasifSel,
         urgente,
         notas: notas.trim() || null,
+        imagen_path: imagenPatch,
       }, actorEmail || 'sistema');
+
+      // Si reemplazamos o quitamos, borramos el archivo anterior del bucket (best-effort).
+      if (imagenPatch !== undefined && imagenPathActual && imagenPathActual !== imagenPatch) {
+        await eliminarImagenOrden(imagenPathActual);
+      }
 
       // Sincroniza con el inventario el nombre de los productos que cambiaron.
       const origPorPid = new Map(orden.items.map((i) => [i.productoId, i.nombre]));
@@ -3229,6 +3254,38 @@ function EditarOrdenModal({
         <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
         <textarea className="input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)}
           placeholder="Cualquier observación o aclaratoria sobre la solicitud (opcional)…" />
+      </div>
+
+      {/* Adjunto de la OP (imagen o PDF): ver el actual, reemplazarlo o quitarlo. */}
+      <div className="form-row">
+        <label>Imagen / PDF adjunto <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+        {imagenPathActual && !imagenFile && !quitarImagen && (
+          <div style={{ marginBottom: '.4rem', display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+            <OpImagenAdjunta path={imagenPathActual} />
+            <button type="button" className="btn btn-sm btn-danger" onClick={() => setQuitarImagen(true)}>Quitar adjunto</button>
+          </div>
+        )}
+        {quitarImagen && !imagenFile && (
+          <div style={{ marginBottom: '.4rem', display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+            <span className="muted" style={{ fontSize: '.82rem' }}>Se quitará el adjunto al guardar.</span>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setQuitarImagen(false)}>Deshacer</button>
+          </div>
+        )}
+        <input
+          className="input"
+          type="file"
+          accept="image/*,application/pdf"
+          onChange={(e) => { setImagenFile(e.target.files?.[0] ?? null); setQuitarImagen(false); }}
+        />
+        {imagenFile && (
+          <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
+            📎 {imagenFile.name} ({(imagenFile.size / 1024).toFixed(0)} KB){imagenPathActual ? ' · reemplazará al adjunto actual' : ''}
+            {' '}<button type="button" className="btn btn-sm btn-ghost" onClick={() => setImagenFile(null)}>Cancelar</button>
+          </small>
+        )}
+        <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>
+          Imagen o PDF · máximo 10 MB. {imagenPathActual ? 'Subir uno nuevo reemplaza el actual.' : 'Sin adjunto por ahora.'}
+        </small>
       </div>
     </Modal>
   );
