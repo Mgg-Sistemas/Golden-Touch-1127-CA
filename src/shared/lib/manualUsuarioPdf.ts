@@ -118,6 +118,8 @@ const SECCIONES: Seccion[] = [
     puntos: [
       'Registro de cada proveedor con sus datos de contacto.',
       'Comparación de ofertas: el sistema ayuda a elegir la mejor opción combinando criterios (precio, tiempo de entrega, condiciones y otros).',
+      'Comparación por producto (Bs vs USD): en cada oferta se cargan dos precios en $ por producto — Pago en Bs a BCV y Pago en USD — más un descuento por producto; el sistema calcula el total de cada columna, la diferencia (Bs − USD) y la variación %. Se ve al cargar y al desplegar la oferta, y en el PDF de trazabilidad.',
+      'Adjuntos de la oferta: se pueden subir varios archivos (PDF y/o varias fotos de la cotización, máx. 10 MB c/u); el jefe puede verlos todos desde la comparativa.',
       'Detalle de cada proveedor con su historial.',
       'Desde el buscador general o desde una orden se puede llegar directo a la ficha del proveedor.',
     ],

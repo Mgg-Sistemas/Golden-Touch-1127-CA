@@ -202,6 +202,43 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
 
+    // Comparativa por producto (Pago en Bs a BCV vs Pago en USD) de la oferta elegida,
+    // o de la primera oferta si aún no se eligió. Los ítems de la oferta NO están escalados.
+    const ofComparar = ofertas.find((o) => o.estado === 'aceptada') ?? ofertas[0];
+    if (ofComparar && ofComparar.items.some((it) => Number(it.precio_usd) > 0)) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(`Comparativa por producto · ${proveedoresPorId.get(ofComparar.proveedor_id)?.razon_social ?? ''}`.trim(), MARGIN, y);
+      y += 6;
+      const totalBs = ofComparar.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0);
+      const totalU = ofComparar.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_usd) || 0), 0);
+      const difT = totalBs - totalU;
+      const pctT = totalBs > 0 ? (difT / totalBs) * 100 : 0;
+      autoTable(doc, {
+        startY: y,
+        head: [['Producto', 'Cant', 'Bs Precio', 'Bs Total', 'USD Precio', 'USD Total', 'Diferencia', 'Var %']],
+        body: ofComparar.items.map((it) => {
+          const cant = Number(it.cantidad) || 0;
+          const precio = Number(it.precio) || 0;
+          const precioU = Number(it.precio_usd) || 0;
+          const dif = (precio - precioU) * cant;
+          const pct = precio > 0 ? ((precio - precioU) / precio) * 100 : 0;
+          return [
+            it.nombre, num(cant), money(precio), money(cant * precio),
+            precioU > 0 ? money(precioU) : '—', precioU > 0 ? money(cant * precioU) : '—',
+            precioU > 0 ? money(dif) : '—', precioU > 0 ? `${pct.toFixed(2)}%` : '—',
+          ];
+        }),
+        foot: [['TOTAL', '', '', money(totalBs), '', money(totalU), money(difT), `${pctT.toFixed(2)}%`]],
+        theme: 'grid',
+        headStyles: { fillColor: [230, 230, 230], textColor: 20 },
+        styles: { fontSize: 8, cellPadding: 3 },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
+        margin: MARGIN,
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+    }
+
     // Fichas de los productos ofertados (marca/modelo/… + costos logísticos).
     const conFicha = ofertas.filter((o) => o.ficha && Object.keys(o.ficha).length);
     if (conFicha.length) {
