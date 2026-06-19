@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
 
   const { data: orden, error: oe } = await supabase
     .from('ordenes')
-    .select('codigo, solicitante, total, estado')
+    .select('codigo, oc_codigo, solicitante, unidad_solicitante, ci_solicitante, total, estado, created_at, aprobada_en, oc_emitida_en')
     .eq('id', orden_id)
     .single();
   if (oe || !orden) return json({ error: 'Orden no encontrada' }, 404);
@@ -88,17 +88,35 @@ Deno.serve(async (req) => {
   }
 
   const totalFmt = `$ ${Number(orden.total).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fechaFmt = (iso?: string | null): string => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString('es-VE', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        timeZone: 'America/Caracas',
+      });
+    } catch { return String(iso); }
+  };
+  const ref = orden.oc_codigo ? `${orden.codigo} · OC ${orden.oc_codigo}` : orden.codigo;
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;color:#1a1a1a">
       <h2 style="border-bottom:3px solid #ff8a00;padding-bottom:8px;margin-top:0">
-        Trazabilidad de orden ${escapeHtml(orden.codigo)}
+        Trazabilidad de orden ${escapeHtml(ref)}
       </h2>
       <p>Hola,</p>
       <p>Adjunto el reporte de trazabilidad completo de la orden <strong>${escapeHtml(orden.codigo)}</strong>.</p>
       <table style="border-collapse:collapse;width:100%;margin:1rem 0;font-size:14px">
-        <tr><td style="padding:6px 12px;background:#f5f5f5;width:160px"><strong>Solicitante</strong></td>
-            <td style="padding:6px 12px">${escapeHtml(orden.solicitante ?? '—')}</td></tr>
+        <tr><td style="padding:6px 12px;background:#f5f5f5;width:190px"><strong>Unidad solicitante</strong></td>
+            <td style="padding:6px 12px">${escapeHtml(orden.unidad_solicitante ?? '—')}</td></tr>
+        <tr><td style="padding:6px 12px;background:#f5f5f5"><strong>Solicitado por</strong></td>
+            <td style="padding:6px 12px">${escapeHtml(orden.solicitante ?? '—')}${orden.ci_solicitante ? ` · C.I. ${escapeHtml(orden.ci_solicitante)}` : ''}</td></tr>
+        <tr><td style="padding:6px 12px;background:#f5f5f5"><strong>Fecha de solicitud (OP)</strong></td>
+            <td style="padding:6px 12px">${fechaFmt(orden.created_at)}</td></tr>
+        <tr><td style="padding:6px 12px;background:#f5f5f5"><strong>OP aprobada el</strong></td>
+            <td style="padding:6px 12px">${fechaFmt(orden.aprobada_en)}</td></tr>
+        <tr><td style="padding:6px 12px;background:#f5f5f5"><strong>OC emitida el</strong></td>
+            <td style="padding:6px 12px">${fechaFmt(orden.oc_emitida_en)}</td></tr>
         <tr><td style="padding:6px 12px;background:#f5f5f5"><strong>Estado actual</strong></td>
             <td style="padding:6px 12px">${escapeHtml(orden.estado)}</td></tr>
         <tr><td style="padding:6px 12px;background:#f5f5f5"><strong>Total</strong></td>
