@@ -28,6 +28,8 @@ interface Props {
 interface FormItem extends ItemOrden {
   precio: number;          // Pago en Bs a BCV (unitario, en $)
   precio_usd: number;      // Pago en USD (unitario, en $)
+  marca: string;           // Marca ofertada para este producto (variante)
+  modelo: string;          // Modelo ofertado
 }
 
 export function AgregarOfertaModal({
@@ -68,7 +70,7 @@ export function AgregarOfertaModal({
   // Solo se cotizan los ítems marcados "comprar" en la OP (los desmarcados no se compran).
   const [items, setItems] = useState<FormItem[]>(
     orden.items.filter((i) => i.comprar !== false).map((i) => ({
-      ...i, precio: 0, precio_usd: 0,
+      ...i, precio: 0, precio_usd: 0, marca: '', modelo: '',
     })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
@@ -135,7 +137,7 @@ export function AgregarOfertaModal({
   const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
   const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
-  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'precio' | 'precio_usd'>>) {
+  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'precio' | 'precio_usd' | 'marca' | 'modelo'>>) {
     setItems((prev) => prev.map((it, k) => {
       if (k !== idx) return it;
       const next = { ...it, ...patch };
@@ -143,6 +145,26 @@ export function AgregarOfertaModal({
       next.precio_usd = Math.max(0, next.precio_usd);
       return next;
     }));
+  }
+
+  // Agrega otra variante (misma producto, otra marca/modelo) justo debajo de la fila.
+  function addVariante(idx: number) {
+    setItems((prev) => {
+      const base = prev[idx];
+      if (!base) return prev;
+      const variante: FormItem = { ...base, precio: 0, precio_usd: 0, marca: '', modelo: '' };
+      const copy = [...prev];
+      copy.splice(idx + 1, 0, variante);
+      return copy;
+    });
+  }
+  // Quita una fila (variante). Se permite mientras quede al menos una.
+  function removeItem(idx: number) {
+    setItems((prev) => (prev.length <= 1 ? prev : prev.filter((_, k) => k !== idx)));
+  }
+  // ¿Cuántas filas hay de este mismo producto (sku)? Para saber si se puede quitar.
+  function countSku(sku: string): number {
+    return items.filter((i) => i.sku === sku).length;
   }
 
   async function handleSubmit() {
@@ -205,6 +227,8 @@ export function AgregarOfertaModal({
       const itemsGuardar: ItemOrden[] = items.map((i) => ({
         ...i,
         precio_usd: i.precio_usd > 0 ? i.precio_usd : null,
+        marca: i.marca.trim() || null,
+        modelo: i.modelo.trim() || null,
       }));
       await crearOferta({
         orden_id: orden.id,
@@ -434,7 +458,24 @@ export function AgregarOfertaModal({
                 const pct = it.precio > 0 ? ((it.precio - it.precio_usd) / it.precio) * 100 : 0;
                 return (
                   <tr key={`${it.sku}-${idx}`}>
-                    <td>{it.nombre}<div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div></td>
+                    <td>
+                      {it.nombre}
+                      <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                      <div style={{ display: 'flex', gap: '.3rem', marginTop: '.25rem' }}>
+                        <input className="input" style={{ fontSize: '.74rem', padding: '.2rem .4rem' }} placeholder="Marca"
+                          value={it.marca} onChange={(e) => updateItem(idx, { marca: e.target.value })} />
+                        <input className="input" style={{ fontSize: '.74rem', padding: '.2rem .4rem' }} placeholder="Modelo"
+                          value={it.modelo} onChange={(e) => updateItem(idx, { modelo: e.target.value })} />
+                      </div>
+                      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.2rem' }}>
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', fontSize: '.72rem' }}
+                          onClick={() => addVariante(idx)} title="Cotizar este mismo producto en otra marca/modelo">+ Otra marca/modelo</button>
+                        {countSku(it.sku) > 1 && (
+                          <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', fontSize: '.72rem', color: 'var(--danger)' }}
+                            onClick={() => removeItem(idx)} title="Quitar esta variante">✕</button>
+                        )}
+                      </div>
+                    </td>
                     <td className="num">{it.cantidad}</td>
                     <td className="num">
                       <input type="number" className="input mono" style={{ width: 90, textAlign: 'right' }} min={0} step={0.01}
@@ -467,6 +508,7 @@ export function AgregarOfertaModal({
         <small className="muted">
           <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. La <strong>Diferencia</strong> = (Bs − USD)
           y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
+          Si el proveedor ofrece el <strong>mismo producto en varias marcas/modelos</strong>, usá <strong>+ Otra marca/modelo</strong> para cargar cada variante con su precio.
         </small>
       </div>
 

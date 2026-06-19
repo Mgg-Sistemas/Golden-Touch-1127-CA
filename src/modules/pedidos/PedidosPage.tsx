@@ -59,6 +59,8 @@ import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
+import { ChatOrden } from './ChatOrden';
+import { noLeidosPorOrden } from './ordenChat.repository';
 import { descargarTrazabilidadPdf } from './trazabilidadPdf';
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
@@ -188,6 +190,8 @@ export function PedidosPage() {
   const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
   const [categoriasOpen, setCategoriasOpen] = useState(false);
   const [offersReloadKey, setOffersReloadKey] = useState(0);
+  // Mensajes de chat NO leídos por orden (chip 💬 N en tarjetas/filas).
+  const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
 
   const refresh = useCallback(async () => {
     try {
@@ -211,6 +215,18 @@ export function PedidosPage() {
 
   // Realtime multiusuario: las órdenes/compras se reflejan al instante entre usuarios.
   useRealtime(['ordenes', 'productos'], () => { void refresh(); });
+
+  // No leídos del chat por orden (para el chip 💬). Se recalcula al cambiar las
+  // órdenes y en vivo cuando entra/se lee un mensaje.
+  const refreshNoLeidos = useCallback(async () => {
+    if (!user?.id || !user?.email || !ordenes.length) { setNoLeidos(new Map()); return; }
+    try {
+      const m = await noLeidosPorOrden(ordenes.map((o) => o.id), user.id, user.email);
+      setNoLeidos(m);
+    } catch { /* best-effort */ }
+  }, [ordenes, user?.id, user?.email]);
+  useEffect(() => { void refreshNoLeidos(); }, [refreshNoLeidos]);
+  useRealtime(['orden_mensajes'], () => { void refreshNoLeidos(); });
 
   useEffect(() => {
     let cancelled = false;
@@ -502,6 +518,7 @@ export function PedidosPage() {
           proveedorMap={proveedorMap}
           cols={kanbanCols}
           onOpen={openDetail}
+          noLeidos={noLeidos}
         />
       ) : (
         <OrdenesTable
@@ -510,6 +527,7 @@ export function PedidosPage() {
           isAdmin={puedeAprobarPedidos}
           onView={(id) => setModal({ kind: 'detail', ordenId: id })}
           onApprove={(o) => setModal({ kind: 'approve', orden: o })}
+          noLeidos={noLeidos}
         />
       )}
       </>
@@ -1424,8 +1442,9 @@ interface OrdenesTableProps {
   isAdmin: boolean;
   onView: (id: string) => void;
   onApprove: (o: Orden) => void;
+  noLeidos?: Map<string, number>;
 }
-function OrdenesTable({ ordenes, proveedorMap, isAdmin, onView, onApprove }: OrdenesTableProps) {
+function OrdenesTable({ ordenes, proveedorMap, isAdmin, onView, onApprove, noLeidos }: OrdenesTableProps) {
   if (!ordenes.length) {
     return (
       <div className="card">
@@ -1455,7 +1474,12 @@ function OrdenesTable({ ordenes, proveedorMap, isAdmin, onView, onApprove }: Ord
             const cambios = (o.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
             return (
               <tr key={o.id}>
-                <td className="mono">{o.codigo}</td>
+                <td className="mono">
+                  {o.codigo}
+                  {!!noLeidos?.get(o.id) && (
+                    <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--brand, #ff8a00)', color: '#111', fontSize: '.62rem', fontWeight: 700, padding: '.05rem .35rem' }} title="Mensajes sin leer en la conversación">💬 {noLeidos.get(o.id)}</span>
+                  )}
+                </td>
                 <td>
                   <div>{prov?.razon_social ?? '—'}</div>
                   {cambios > 0 && (
@@ -1494,8 +1518,9 @@ interface KanbanBoardProps {
   proveedorMap: Map<string, Proveedor>;
   cols: { key: EstadoOrden; label: string }[];
   onOpen: (id: string) => void;
+  noLeidos?: Map<string, number>;
 }
-function KanbanBoard({ ordenes, proveedorMap, cols, onOpen }: KanbanBoardProps) {
+function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBoardProps) {
   const byState = useMemo(() => {
     const map = new Map<EstadoOrden, Orden[]>();
     cols.forEach((c) => map.set(c.key, []));
@@ -1526,6 +1551,7 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen }: KanbanBoardProps) 
                     orden={o}
                     proveedor={o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null}
                     onOpen={onOpen}
+                    noLeidos={noLeidos?.get(o.id) ?? 0}
                   />
                 ))
               )}
@@ -1541,10 +1567,12 @@ const KanbanCard = memo(function KanbanCard({
   orden,
   proveedor,
   onOpen,
+  noLeidos = 0,
 }: {
   orden: Orden;
   proveedor: Proveedor | null;
   onOpen: (id: string) => void;
+  noLeidos?: number;
 }) {
   const changes = (orden.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
   // Crédito pagado en su totalidad (cuenta abierta saldada) → tarjeta resaltada.
@@ -1569,6 +1597,9 @@ const KanbanCard = memo(function KanbanCard({
         {orden.codigo}
         {orden.urgente && (
           <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--danger)', color: '#fff', fontSize: '.6rem', padding: '.05rem .35rem', fontWeight: 700 }}>🚨 URGENTE</span>
+        )}
+        {noLeidos > 0 && (
+          <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--brand, #ff8a00)', color: '#111', fontSize: '.6rem', padding: '.05rem .35rem', fontWeight: 700 }} title="Mensajes sin leer en la conversación">💬 {noLeidos}</span>
         )}
       </div>
       <div className="prov">
@@ -2147,6 +2178,10 @@ function OrdenDetailModal({
       </table>
         );
       })()}
+
+      <div style={{ marginTop: '1.25rem' }}>
+        <ChatOrden ordenId={o.id} ordenLabel={o.oc_codigo ?? o.codigo} autorNombre={persona(actorEmail, personaMap)} />
+      </div>
 
       <h4 style={{ marginTop: '1.25rem' }}>Historial</h4>
       <Timeline historial={o.historial ?? []} proveedorMap={proveedorMap} personaMap={personaMap} />

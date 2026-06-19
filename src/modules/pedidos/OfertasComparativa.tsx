@@ -323,8 +323,14 @@ export function OfertasComparativa({
                                 const dif = (precio - precioU) * cant;
                                 const pct = precio > 0 ? ((precio - precioU) / precio) * 100 : 0;
                                 return (
-                                  <tr key={`${it.productoId ?? it.sku ?? i}`}>
-                                    <td>{it.nombre}<div className="muted mono" style={{ fontSize: '.7rem' }}>{it.sku ?? ''}</div></td>
+                                  <tr key={`${it.productoId ?? it.sku ?? i}-${i}`}>
+                                    <td>
+                                      {it.nombre}
+                                      {(it.marca || it.modelo) && (
+                                        <div style={{ fontSize: '.72rem', fontWeight: 600 }}>{[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>
+                                      )}
+                                      <div className="muted mono" style={{ fontSize: '.7rem' }}>{it.sku ?? ''}</div>
+                                    </td>
                                     <td className="num mono">{cant}{it.unidad ? ` ${it.unidad}` : ''}</td>
                                     <td className="num mono">{money(precio)}</td>
                                     <td className="num mono">{money(cant * precio)}</td>

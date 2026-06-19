@@ -223,8 +223,11 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
           const precioU = Number(it.precio_usd) || 0;
           const dif = (precio - precioU) * cant;
           const pct = precio > 0 ? ((precio - precioU) / precio) * 100 : 0;
+          const nombreVar = (it.marca || it.modelo)
+            ? `${it.nombre} (${[it.marca, it.modelo].filter(Boolean).join(' · ')})`
+            : it.nombre;
           return [
-            it.nombre, num(cant), money(precio), money(cant * precio),
+            nombreVar, num(cant), money(precio), money(cant * precio),
             precioU > 0 ? money(precioU) : '—', precioU > 0 ? money(cant * precioU) : '—',
             precioU > 0 ? money(dif) : '—', precioU > 0 ? `${pct.toFixed(2)}%` : '—',
           ];

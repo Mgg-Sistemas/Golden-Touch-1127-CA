@@ -962,6 +962,10 @@ export interface ItemOrden {
   precio_usd?: number | null;
   /** Descuento (monto, en la moneda de la oferta) aplicado a este ítem sobre el total en Bs. */
   descuento?: number | null;
+  /** Marca/modelo ofertado para este producto. Un proveedor puede cotizar el MISMO
+   *  producto en varias marcas/modelos (varias filas con el mismo sku) y su precio. */
+  marca?: string | null;
+  modelo?: string | null;
   productoId?: string;
   /** Unidad de medida del producto (KG, L, und…), traída del inventario. */
   unidad?: string;
