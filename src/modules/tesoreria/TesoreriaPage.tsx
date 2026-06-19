@@ -2788,19 +2788,23 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Órdenes de compra confirmadas (aprobadas en lote). Hacé clic en una para ver el detalle completo y registrar el pago.
+        Órdenes de compra aprobadas por el Gerente General. Las marcadas <strong>⏳ Esperando método</strong> ya están
+        aprobadas y muestran su monto, pero <strong>Compras aún no indicó el método de pago</strong>; cuando lo indique se
+        habilitan para pagar automáticamente. Hacé clic en una lista para ver el detalle y registrar el pago.
       </p>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead><tr>
             <th>N°ODC</th><th>OP</th><th>Proveedor</th><th>Condición</th>
-            <th style={{ textAlign: 'right' }}>A pagar $</th><th>OC creada</th><th>Confirmada</th><th></th>
+            <th style={{ textAlign: 'right' }}>A pagar $</th><th>OC creada</th><th>Confirmada GG</th><th></th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={8}><EmptyState message="No hay órdenes confirmadas por pagar" icon="✅" /></td></tr>}
-            {!loading && rows.map((r) => (
-              <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel(r)}>
+            {!loading && !rows.length && <tr><td colSpan={8}><EmptyState message="No hay órdenes aprobadas por pagar" icon="✅" /></td></tr>}
+            {!loading && rows.map((r) => {
+              const espera = r.esperandoMetodo;
+              return (
+              <tr key={r.orden.id} className={espera ? undefined : 'row-selectable'} style={{ cursor: espera ? 'default' : 'pointer', opacity: espera ? 0.78 : 1 }} onClick={() => { if (!espera) setSel(r); }}>
                 <td className="mono">{r.orden.oc_codigo ?? '—'}</td>
                 <td className="mono">{r.orden.codigo}</td>
                 <td>{r.proveedorNombre}</td>
@@ -2813,9 +2817,16 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                 </td>
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
                 <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
-                <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>Ver / Pagar</button></td>
+                <td style={{ textAlign: 'right' }}>
+                  {espera ? (
+                    <span className="badge warning" title="Aprobada por el Gerente General. Esperando que Compras indique el método de pago.">⏳ Esperando método</span>
+                  ) : (
+                    <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>Ver / Pagar</button>
+                  )}
+                </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
