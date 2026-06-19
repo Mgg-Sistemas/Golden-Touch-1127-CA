@@ -283,20 +283,12 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
   const { data, error } = await supabase.from('acopio_caja_movimientos').insert(payload).select('*').single();
   if (error) throw error;
 
-  // Todo "USD entregado" del acopio es dinero que GT le debe a MGG: se acumula
-  // INCREMENTAL como cuenta por pagar (créditos) a MGG, en USD. Así la deuda en
-  // Tesorería refleja siempre el total de "USD entregados". Import dinámico para
-  // no acoplar acopio ↔ tesorería en el bundle.
+  // La deuda a MGG por "USD entregados" la mantiene SINCRONIZADA un trigger en la
+  // base (sync_deuda_mgg_acopio): la cuenta por pagar a MGG siempre vale el total
+  // de USD entregados (= la tarjeta), sin importar inserciones/ediciones/bajas. Por
+  // eso aquí ya NO se crea/acumula manualmente (evita duplicar el monto).
   const entregado = num(input.usd_entregado);
   if (entregado > 0 && !opts?.skipDeudaMgg) {
-    try {
-      const { crearCuentaPorPagar } = await import('@/modules/tesoreria/cuentasPorPagar.repository');
-      await crearCuentaPorPagar({
-        tipo: 'proveedor', contraparte: 'MGG', monto: entregado, moneda: 'USD',
-        nota: 'USD entregados (Acopio) · deuda a MGG', actor, actorName: actorName ?? null,
-      });
-    } catch { /* la deuda no bloquea el registro del movimiento */ }
-
     // ESPEJO en el sistema MGG: la misma deuda como CUENTA POR COBRAR (GT como
     // cliente), incremental, vía el puente inter-sistema. Gateado por env: solo se
     // emite cuando MGG ya corre el receptor nuevo (si no, crearía un movimiento

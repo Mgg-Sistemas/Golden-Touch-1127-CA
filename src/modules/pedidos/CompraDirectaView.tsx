@@ -16,7 +16,7 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { saldosDeCaja, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import {
-  crearCompraDirecta, finalizarCompraDirecta, listComprasDirectas,
+  crearCompraDirecta, finalizarCompraDirecta, eliminarCompraDirecta, listComprasDirectas,
   urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
 } from './compras.repository';
 
@@ -74,6 +74,16 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
+  async function handleEliminar(c: CompraDirecta) {
+    const etiqueta = c.items.length > 1 ? `${c.items.length} materiales` : c.producto_nombre;
+    if (!window.confirm(`¿Eliminar la compra directa "${etiqueta}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      await eliminarCompraDirecta(c);
+      notify('Compra directa eliminada', 'success', { link: '#/app/pedidos' });
+      await reload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar la compra directa', 'error'); }
+  }
+
   return (
     <div>
       <div className="filterbar" style={{ justifyContent: 'space-between' }}>
@@ -96,7 +106,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
                   <CompraCard key={c.id} compra={c}
-                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} />
+                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onEliminar={() => handleEliminar(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -122,6 +132,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Descargar detalle en PDF">↓ PDF</button>
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
+                    {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => handleEliminar(c)} title="Eliminar compra directa">🗑 Eliminar</button>}
                   </td>
                 </tr>
               ))}
@@ -143,8 +154,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   );
 }
 
-function CompraCard({ compra, onFinalizar, onPdf }: {
-  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void;
+function CompraCard({ compra, onFinalizar, onPdf, onEliminar }: {
+  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void; onEliminar: () => void;
 }) {
   return (
     <div className="card" style={{ margin: 0 }}>
@@ -173,6 +184,7 @@ function CompraCard({ compra, onFinalizar, onPdf }: {
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Descargar detalle en PDF">↓ PDF</button>
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
+        {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
     </div>
   );
@@ -496,6 +508,24 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
             options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(c.saldo, c.moneda)}` }))} />
           <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
         </div>
+
+        {/* 👛 Billetera de la caja elegida: muestra el/los saldo(s) disponibles. */}
+        {caja && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>👛 Billetera · {caja.nombre}</div>
+            {saldosCaja.length ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+                {saldosCaja.map((s) => (
+                  <span key={s.id} className="badge" style={{ fontSize: '.82rem', padding: '.3rem .55rem' }}>
+                    {s.moneda}{cuentaLabel(s.cuenta)}: <strong className="mono">{montoCaja(Number(s.saldo), s.moneda)}</strong>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div>Disponible: <strong className="mono">{montoCaja(Number(caja.saldo), caja.moneda)}</strong></div>
+            )}
+          </div>
+        )}
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>

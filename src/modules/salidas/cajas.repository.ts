@@ -132,6 +132,47 @@ export async function ingresarDinero(
   if (error) throw error;
 }
 
+/* ───────────── Egreso simple sincronizado con el saldo VISIBLE de la caja ─────────────
+   Descuenta el `cajas.saldo` (el saldo que se ve en el selector de caja y en el módulo
+   de Cajas) y, si la caja además lleva un saldo multimoneda (caja_saldos) en su moneda,
+   lo espeja para que ambos queden alineados. Se usa en Compra Directa: el gasto SIEMPRE
+   debe reflejarse en el saldo de la caja de la que sale el dinero. */
+export async function egresarGastoCaja(input: {
+  cajaId: string; monto: number; concepto: string; categoria?: string;
+  actor: string; actorName?: string | null;
+}): Promise<MovimientoCaja> {
+  const monto = round2(Number(input.monto) || 0);
+  if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+  if (!input.concepto.trim()) throw new Error('Indicá el concepto del gasto.');
+  const caja = await getCaja(input.cajaId);
+  const saldoAntes = Number(caja.saldo) || 0;
+  if (monto > saldoAntes)
+    throw new Error(`Saldo insuficiente en ${caja.nombre}. Disponible: ${saldoAntes} ${caja.moneda}.`);
+  const saldoDespues = round2(saldoAntes - monto);
+
+  const { data, error } = await supabase.from(LIBRO).insert({
+    caja_id: input.cajaId, tipo: 'salida', monto, moneda: caja.moneda,
+    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    motivo: input.concepto.trim(), categoria: input.categoria ?? 'gasto',
+    actor: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+
+  const { error: uErr } = await supabase.from(TABLE).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
+  if (uErr) throw uErr;
+
+  // Espejo opcional: si la caja lleva saldo multimoneda en su propia moneda (cuenta general),
+  // se descuenta también para que el saldo visible y el multimoneda no se desincronicen.
+  const { data: s } = await supabase.from('caja_saldos')
+    .select('id, saldo').eq('caja_id', input.cajaId).eq('cuenta', 'general').eq('moneda', caja.moneda).maybeSingle();
+  if (s) {
+    await supabase.from('caja_saldos')
+      .update({ saldo: round2((Number((s as { saldo: number }).saldo) || 0) - monto), updated_at: new Date().toISOString() })
+      .eq('id', (s as { id: string }).id);
+  }
+  return data as MovimientoCaja;
+}
+
 /* ───────────── Salida de dinero (anticipo · queda pendiente) ───────────── */
 
 export interface SalidaDineroInput {

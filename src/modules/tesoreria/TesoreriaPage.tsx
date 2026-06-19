@@ -39,10 +39,11 @@ import {
 } from './contrapartes.repository';
 import {
   crearCuentaPorPagar, listCuentasPorPagar, listAbonosCuenta, listIngresosCuenta, registrarAbonoCuenta,
-  pagarCuentaConProductos,
+  pagarCuentaConProductos, abonarCuentaConProductoRecibido,
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
-import { listProductos } from '@/modules/inventario/inventario.repository';
+import { listProductos, createProducto, findBySku, getUnidades } from '@/modules/inventario/inventario.repository';
+import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
   listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro, crearOAcumularCuentaPorCobrar,
@@ -3168,6 +3169,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
   const [error, setError] = useState<string | null>(null);
   const [correoCuentaOpen, setCorreoCuentaOpen] = useState(false);
   const [pagarProdOpen, setPagarProdOpen] = useState(false);
+  const [abonarProdRecibidoOpen, setAbonarProdRecibidoOpen] = useState(false);
   // Inputs no controlados (monto/nota): este nonce remonta los campos al
   // limpiarlos tras registrar el abono (el panel queda abierto).
   const [formKey, setFormKey] = useState(0);
@@ -3276,6 +3278,10 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
             <div style={{ marginBottom: '.6rem' }}>
               <button className="btn btn-sm btn-ghost" onClick={() => setPagarProdOpen(true)} title="Saldar entregando productos del inventario (ej. casiterita a MGG)">
                 📦 Pagar con productos (entrega de inventario)
+              </button>
+              <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.4rem' }} onClick={() => setAbonarProdRecibidoOpen(true)}
+                title="La contraparte salda entregando producto: entra al inventario y su valor al cambio (USD) abona la deuda">
+                💱 Abonar con producto recibido (al cambio)
               </button>
             </div>
           )}
@@ -3418,6 +3424,20 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
               }}
             />
           )}
+
+          {abonarProdRecibidoOpen && (
+            <AbonarConProductoRecibidoModal
+              cuenta={sel}
+              actor={actor}
+              actorName={actorName}
+              onClose={() => setAbonarProdRecibidoOpen(false)}
+              onAbonado={async () => {
+                setAbonarProdRecibidoOpen(false);
+                await cargar(); await onChanged();
+                await listAbonosCuenta(sel.id).then(setAbonos).catch(() => {});
+              }}
+            />
+          )}
         </>
       )}
       </>
@@ -3529,6 +3549,142 @@ function PagarConProductosModal({ cuenta, actor, actorName, onClose, onPagado }:
         <label>Nota (opcional)</label>
         <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Referencia del traslado / entrega" />
       </div>
+    </Modal>
+  );
+}
+
+/* ───────── Abonar una cuenta por pagar RECIBIENDO PRODUCTO (al cambio · entra al inventario) ───────── */
+function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onAbonado }: {
+  cuenta: CuentaPorPagar; actor: string; actorName: string | null; onClose: () => void; onAbonado: () => void | Promise<void>;
+}) {
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [almacenes, setAlmacenes] = useState<string[]>([]);
+  const [unidades, setUnidades] = useState<string[]>([]);
+  const [noRegistrado, setNoRegistrado] = useState(false);
+  const [productoId, setProductoId] = useState('');
+  const [nuevoNombre, setNuevoNombre] = useState('');
+  const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
+  const [nuevoUnidad, setNuevoUnidad] = useState('und');
+  const [almacen, setAlmacen] = useState('');
+  const [cantidad, setCantidad] = useState('');
+  const [valorUsd, setValorUsd] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listProductos().then(setProductos).catch(() => setProductos([]));
+    getNombresAlmacenes().then((a) => { setAlmacenes(a); setAlmacen((p) => p || a[0] || 'General'); }).catch(() => setAlmacenes(['General']));
+    getUnidades().then((u) => { setUnidades(u); setNuevoUnidad((p) => (u.includes(p) ? p : (u[0] ?? 'und'))); }).catch(() => setUnidades(['und']));
+  }, []);
+
+  const opciones = productos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` }));
+  const saldo = round2(Number(cuenta.monto) - (Number(cuenta.abonado) || 0));
+  const valor = round2(Number(valorUsd.replace(',', '.')) || 0);
+  const saldoTras = round2(saldo - Math.min(valor, saldo));
+
+  async function confirmar() {
+    setError(null);
+    const cant = Number(cantidad.replace(',', '.')) || 0;
+    if (cant <= 0) { setError('Indicá la cantidad recibida.'); return; }
+    if (valor <= 0) { setError('Indicá el valor del producto al cambio (USD).'); return; }
+    if (!almacen) { setError('Elegí el almacén destino.'); return; }
+    if (!noRegistrado && !productoId) { setError('Elegí el producto recibido (o marcá «producto no registrado»).'); return; }
+    if (noRegistrado && !nuevoNombre.trim()) { setError('Escribí el nombre del producto nuevo.'); return; }
+    setSaving(true);
+    try {
+      let pid = productoId;
+      if (noRegistrado) {
+        const nombre = nuevoNombre.trim().toUpperCase();
+        const base = nombre.replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'PROD';
+        let sku = '';
+        for (let i = 0; i < 8; i++) {
+          const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+          const ts = Date.now().toString(36).slice(-4).toUpperCase();
+          sku = `NEW-${base}-${ts}${rnd}`;
+          if (!(await findBySku(sku))) break;
+        }
+        const creado = await createProducto({
+          sku, nombre, categoria: nuevoCategoria.trim().toUpperCase() || 'GENERAL',
+          unidad: nuevoUnidad.trim() || 'und', stock: 0, stock_min: 0, precio: 0,
+          almacen: almacen || 'General', estado: 'activo',
+        });
+        pid = creado.id;
+      }
+      await abonarCuentaConProductoRecibido({
+        cuenta, productoId: pid, almacen, cantidad: cant, valorUsd: valor, actor, actorName,
+      });
+      notify(`Abono en producto (al cambio) · ${cuenta.contraparte} · ${monto(Math.min(valor, saldo), cuenta.moneda)} · entró al inventario`, 'success', { link: '#/app/tesoreria' });
+      await onAbonado();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo registrar el abono con producto'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Abonar con producto (al cambio) · ${cuenta.contraparte}`} size="lg" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={confirmar} disabled={saving}>
+          {saving ? 'Procesando…' : `Recibir y abonar ${monto(Math.min(valor, saldo), cuenta.moneda)}`}
+        </button>
+      </>
+    }>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        La contraparte salda entregando producto: <strong>entra al inventario</strong> y su <strong>valor al cambio (USD)</strong> abona la deuda. No entra dinero a caja. Saldo actual: <strong>{monto(saldo, cuenta.moneda)}</strong>.
+      </p>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.6rem', cursor: 'pointer' }}>
+        <input type="checkbox" checked={noRegistrado} onChange={(e) => setNoRegistrado(e.target.checked)} />
+        <span style={{ fontWeight: 600 }}>Producto no registrado (lo creo ahora)</span>
+      </label>
+
+      {noRegistrado ? (
+        <div className="card" style={{ margin: 0, padding: '.6rem', marginBottom: '.6rem', display: 'grid', gap: '.5rem' }}>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label>Nombre del producto *</label>
+            <input className="input" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())} placeholder="Ej.: CASITERITA" />
+          </div>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <div className="form-row" style={{ margin: 0, flex: '1 1 160px' }}>
+              <label>Categoría</label>
+              <input className="input" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+            </div>
+            <div className="form-row" style={{ margin: 0, flex: '1 1 120px' }}>
+              <label>Unidad</label>
+              <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad} options={unidades.map((u) => ({ value: u, label: u }))} placeholder="🔍 Unidad…" />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="form-row">
+          <label>Producto recibido</label>
+          <SearchSelect value={productoId} onChange={setProductoId} options={opciones} placeholder="🔍 Buscar producto…" emptyText="Ningún producto coincide" />
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+        <div className="form-row" style={{ flex: '1 1 220px' }}>
+          <label>Almacén destino</label>
+          <SearchSelect value={almacen} onChange={setAlmacen} options={almacenes.map((a) => ({ value: a, label: a }))} placeholder="🔍 Buscar almacén…" />
+        </div>
+        <div className="form-row" style={{ width: 160 }}>
+          <label>Cantidad recibida</label>
+          <input className="input mono" type="number" min={0} step="any" value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder="Ej.: 500" />
+        </div>
+      </div>
+
+      <div className="form-row">
+        <label>Valor del producto al cambio (USD)</label>
+        <input className="input mono" type="number" min={0} step="any" value={valorUsd} onChange={(e) => setValorUsd(e.target.value)} placeholder="Ej.: 10241" />
+      </div>
+
+      <div className="card" style={{ marginTop: '.4rem', padding: '.6rem .85rem', display: 'flex', justifyContent: 'space-between' }}>
+        <span>Saldo tras abonar</span>
+        <strong className="mono">{monto(saldoTras, cuenta.moneda)}</strong>
+      </div>
+      {valor > saldo + 0.01 && (
+        <small className="muted">El valor supera el saldo; solo se abonará {monto(saldo, cuenta.moneda)} (el resto no se aplica).</small>
+      )}
     </Modal>
   );
 }

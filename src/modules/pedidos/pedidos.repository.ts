@@ -627,6 +627,38 @@ export async function indicarMetodoPago(
   return data as Orden;
 }
 
+/**
+ * Cambia el proveedor de una OC mientras se está indicando el método de pago
+ * (estado `confirmada_metodo`). Como cambia el proveedor adjudicado, la OC
+ * VUELVE A APROBACIÓN DEL GERENTE: pasa a `oc_creada` y se limpia la aprobación
+ * previa (oc_aprobada_por/en). No cambian ítems ni total. Queda en el historial.
+ */
+export async function cambiarProveedorOrden(
+  o: Orden,
+  nuevoProveedorId: string,
+  actorEmail: string,
+): Promise<Orden> {
+  if (!nuevoProveedorId) throw new Error('Elegí el proveedor.');
+  if (nuevoProveedorId === o.proveedor_id) return o;
+  const esContraEntregaRecibida = o.estado === 'recibida' && o.condiciones_pago === 'contra_entrega';
+  if (o.estado !== 'confirmada_metodo' && !esContraEntregaRecibida) {
+    throw new Error('Solo se puede cambiar el proveedor mientras se indica el método de pago.');
+  }
+  const { data, error } = await supabase.from(TABLE).update({
+    proveedor_id: nuevoProveedorId,
+    // Vuelve a aprobación del Gerente General.
+    estado: 'oc_creada' as EstadoOrden,
+    oc_aprobada_por: null,
+    oc_aprobada_en: null,
+    historial: appendHistorial(o, 'proveedor_cambiado', actorEmail, {
+      proveedorAnteriorId: o.proveedor_id, proveedorId: nuevoProveedorId,
+      nota: 'Cambio de proveedor al indicar método de pago · vuelve a aprobación del Gerente General',
+    }),
+  }).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 export async function rechazarOrden(
   o: Orden,
   actorEmail: string,
