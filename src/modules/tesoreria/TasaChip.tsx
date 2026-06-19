@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { TasaHoy } from '@/shared/lib/types';
-import { getTasaHoy, getTasasMercado, type TasasMercado } from './tasas.repository';
+import { getTasaHoy, getTasasMercado, bustTasasCache, type TasasMercado } from './tasas.repository';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { HistorialTasasModal } from './HistorialTasasModal';
 
 /** Tasa (Bs por unidad) con 2 decimales, es-VE. */
@@ -23,12 +24,18 @@ export function TasaChip() {
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
+  const cargar = useCallback(() => {
     let cancelled = false;
     getTasaHoy().then((t) => { if (!cancelled) setTasa(t); }).catch(() => { /* offline / sin desplegar */ });
     getTasasMercado().then((m) => { if (!cancelled) setMercado(m); }).catch(() => { /* sin función desplegada */ });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => cargar(), [cargar]);
+
+  // En vivo: cuando entra una tasa nueva (BCV/Binance/COP), el chip se refresca
+  // para no quedar mostrando un valor viejo respecto a la Vista de Tasas.
+  useRealtime(['tasa_snapshot', 'tasa_cambio', 'config'], () => { bustTasasCache(); cargar(); });
 
   if (!tasa || tasa.usd == null) return null;
 
