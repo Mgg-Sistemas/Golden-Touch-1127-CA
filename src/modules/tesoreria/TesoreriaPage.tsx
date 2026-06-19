@@ -850,34 +850,43 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
     e.preventDefault(); setError(null);
     if ((Number(montoStr) || 0) <= 0) { setError('El monto debe ser mayor que 0.'); return; }
     if (moneda !== 'Bs' && (Number(tasaStr) || 0) <= 0) { setError('Indicá la tasa de compra (Bs por unidad).'); return; }
-    if (!origenTipo) { setError('Indicá si el origen es Cliente o Proveedor.'); return; }
-    if (!origen.trim()) { setError(origenTipo === 'proveedor' ? 'Indicá la razón social del proveedor.' : 'Indicá el nombre del cliente.'); return; }
+    // El cliente/proveedor es OPCIONAL: si se eligió un tipo, exigimos el nombre;
+    // si no se elige ninguno, el ingreso es solo un movimiento de caja (sin cuenta).
+    if (origenTipo && !origen.trim()) { setError(origenTipo === 'proveedor' ? 'Indicá la razón social del proveedor.' : 'Indicá el nombre del cliente.'); return; }
+    const generaCuenta = !!origenTipo && !!origen.trim();
     setSaving(true);
     try {
-      const origenStr = `${origenTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${origen.trim()}`;
+      const origenStr = generaCuenta
+        ? `${origenTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${origen.trim()}`
+        : 'Ingreso de caja';
       const montoNum = Number(montoStr) || 0;
       await ingresarDivisa({
         cajaId: caja.id, cuenta, moneda, monto: montoNum,
         tasaBs: moneda === 'Bs' ? 1 : Number(tasaStr) || 0,
         origen: origenStr, actor, actorName,
       });
-      // El ingreso manual genera una cuenta por pagar (por el mismo monto) que se
-      // salda con abonos. Aplica a cliente y proveedor.
-      await crearCuentaPorPagar({
-        tipo: origenTipo, contraparte: origen.trim(), monto: montoNum, moneda, cuenta,
-        cajaId: caja.id, nota: `Ingreso ${moneda} en ${caja.nombre}`, actor, actorName,
-      });
-      // Si el cliente/proveedor es nuevo, se guarda en el directorio para próximos
-      // pagos (queda disponible en la búsqueda y en "Clientes / Proveedores").
-      const yaGuardado = contrapartes.some(
-        (c) => c.tipo === origenTipo && c.nombre.trim().toUpperCase() === origen.trim().toUpperCase(),
-      );
-      if (!yaGuardado) {
-        try { await crearContraparte({ tipo: origenTipo, nombre: origen.trim() }); reloadContrapartes(); }
-        catch { /* duplicado u otra causa: no bloquea el ingreso */ }
+      // Solo con datos del cliente/proveedor se genera una cuenta por pagar (por el
+      // mismo monto) que se salda con abonos. Sin datos → solo el movimiento de caja.
+      if (generaCuenta) {
+        await crearCuentaPorPagar({
+          tipo: origenTipo as 'cliente' | 'proveedor', contraparte: origen.trim(), monto: montoNum, moneda, cuenta,
+          cajaId: caja.id, nota: `Ingreso ${moneda} en ${caja.nombre}`, actor, actorName,
+        });
+        // Si el cliente/proveedor es nuevo, se guarda en el directorio para próximos
+        // pagos (queda disponible en la búsqueda y en "Clientes / Proveedores").
+        const yaGuardado = contrapartes.some(
+          (c) => c.tipo === origenTipo && c.nombre.trim().toUpperCase() === origen.trim().toUpperCase(),
+        );
+        if (!yaGuardado) {
+          try { await crearContraparte({ tipo: origenTipo as 'cliente' | 'proveedor', nombre: origen.trim() }); reloadContrapartes(); }
+          catch { /* duplicado u otra causa: no bloquea el ingreso */ }
+        }
       }
       const etiqueta = moneda === 'Bs' ? `Bs · ${cuenta}` : moneda;
-      notify(`Ingreso ${etiqueta} · ${monto(montoNum, moneda)} · ${origenStr} · genera cuenta por pagar`, 'success', { link: '#/app/tesoreria' });
+      notify(
+        `Ingreso ${etiqueta} · ${monto(montoNum, moneda)} · ${origenStr}${generaCuenta ? ' · genera cuenta por pagar' : ' · movimiento de caja'}`,
+        'success', { link: '#/app/tesoreria' },
+      );
       setMontoStr(''); setTasaStr(''); setOrigen(''); setOrigenTipo('');
       setIngresoKey((k) => k + 1);
       await reload(); await onChanged();
@@ -1041,23 +1050,30 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
               </div>
             )}
             <div className="form-row">
-              <label>Origen del dinero</label>
+              <label>Origen del dinero <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
               <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem' }}>
-                {(['cliente', 'proveedor'] as const).map((t) => {
-                  const sel = origenTipo === t;
+                {([
+                  { v: '' as const, label: '— Solo movimiento' },
+                  { v: 'cliente' as const, label: '👤 Cliente' },
+                  { v: 'proveedor' as const, label: '🏭 Proveedor' },
+                ]).map(({ v, label }) => {
+                  const sel = origenTipo === v;
                   return (
-                    <label key={t} style={{
+                    <label key={v || 'ninguno'} style={{
                       display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer',
                       padding: '.4rem .7rem', borderRadius: 'var(--r-md)',
                       border: `1px solid ${sel ? 'var(--primary)' : 'var(--border)'}`,
                       background: sel ? 'rgba(255,138,0,0.10)' : 'transparent', flex: 1, justifyContent: 'center',
                     }}>
-                      <input type="radio" name="origen-tipo" checked={sel} onChange={() => { setOrigenTipo(t); setOrigen(''); }} />
-                      <span style={{ fontWeight: 600 }}>{t === 'cliente' ? '👤 Cliente' : '🏭 Proveedor'}</span>
+                      <input type="radio" name="origen-tipo" checked={sel} onChange={() => { setOrigenTipo(v); setOrigen(''); }} />
+                      <span style={{ fontWeight: 600 }}>{label}</span>
                     </label>
                   );
                 })}
               </div>
+              {!origenTipo && (
+                <small className="muted">Sin cliente/proveedor el ingreso es <strong>solo un movimiento de caja</strong>. Elegí Cliente o Proveedor para que además genere una <strong>cuenta por pagar</strong>.</small>
+              )}
               {origenTipo && (() => {
                 const guardados = contrapartes.filter((c) => c.tipo === origenTipo);
                 const existe = guardados.some((c) => c.nombre.trim().toUpperCase() === origen.trim().toUpperCase());
