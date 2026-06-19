@@ -10,7 +10,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { registrarGasto } from '@/modules/tesoreria/tesoreria.repository';
+import { egresarGastoCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
 
@@ -152,6 +152,18 @@ export async function crearCompraDirecta(
   return normalizar(data as Record<string, unknown>);
 }
 
+/**
+ * Elimina una compra directa que todavía está EN PROCESO (no movió caja ni inventario).
+ * Las FINALIZADAS no se borran desde acá: ya descontaron dinero y dieron entrada al
+ * inventario, así que revertirlas requeriría deshacer esos movimientos.
+ */
+export async function eliminarCompraDirecta(compra: CompraDirecta): Promise<void> {
+  if (compra.estado !== 'en_proceso')
+    throw new Error('Solo se pueden eliminar compras directas que estén En proceso.');
+  const { error } = await supabase.from('compras_directas').delete().eq('id', compra.id);
+  if (error) throw error;
+}
+
 /* ───────── Adjunto en Storage ───────── */
 
 export async function subirAdjuntoCompra(compraId: string, file: File): Promise<string> {
@@ -218,7 +230,9 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     if (!primero) throw new Error('Indicá cuánto pagar en al menos una moneda.');
     movCajaId = primero;
   } else {
-    const movCaja = await registrarGasto({
+    // Caja de una sola moneda: descuenta el saldo VISIBLE de la caja (cajas.saldo) para
+    // que el gasto se sincronice con el saldo que se ve en el selector y en Cajas.
+    const movCaja = await egresarGastoCaja({
       cajaId: input.cajaId, monto: total,
       concepto, categoria: 'compra_directa',
       actor: input.actor, actorName: input.actorName ?? null,

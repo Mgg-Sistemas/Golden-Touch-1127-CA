@@ -273,3 +273,61 @@ export async function pagarCuentaConProductos(input: {
 
   return { cuenta: cu as CuentaPorPagar, abono: ab as AbonoCxP, valorTotal };
 }
+
+/**
+ * Abona una cuenta por pagar RECIBIENDO PRODUCTO de la contraparte (ej.: MGG rinde
+ * la deuda de "USD entregados" entregando casiterita). El producto ENTRA al
+ * inventario (entrada, valuado a valorUsd/cantidad) y su valor al cambio (USD)
+ * abona la deuda. No entra dinero a caja.
+ */
+export async function abonarCuentaConProductoRecibido(input: {
+  cuenta: CuentaPorPagar;
+  productoId: string;
+  almacen: string;
+  cantidad: number;
+  valorUsd: number;            // valor al cambio (USD) que abona la deuda
+  nota?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<{ cuenta: CuentaPorPagar; abono: AbonoCxP }> {
+  const c = input.cuenta;
+  const valor = round2(input.valorUsd);
+  const cant = Number(input.cantidad) || 0;
+  if (cant <= 0) throw new Error('La cantidad recibida debe ser mayor que 0.');
+  if (valor <= 0) throw new Error('El valor del producto (al cambio) debe ser mayor que 0.');
+
+  // 1) El producto ENTRA al inventario (entrada con costo = valor / cantidad). Sin caja.
+  await registrarMovimiento({
+    producto_id: input.productoId,
+    tipo: 'entrada',
+    delta: Math.abs(cant),
+    almacen: input.almacen,
+    precio_unitario: round2(valor / cant),
+    actor: input.actor,
+    actor_name: input.actorName ?? null,
+    ref_tipo: 'cxp_productos',
+    detalle: `Abono en producto (al cambio) · deuda ${c.contraparte}`,
+  });
+
+  // 2) Abono por el valor al cambio (sin egreso de caja).
+  const saldoPrev = round2(c.monto - (Number(c.abonado) || 0));
+  const aplicado = round2(Math.min(valor, saldoPrev));
+  const saldoRestante = round2(saldoPrev - aplicado);
+  const { data: ab, error: abErr } = await supabase.from(CXP_ABONOS).insert({
+    cuenta_id: c.id, monto: aplicado, moneda: c.moneda, caja_id: null, cuenta: null,
+    caja_mov_id: null, saldo_restante: saldoRestante,
+    nota: `Abono en producto (al cambio): ${cant} und = ${valor} ${c.moneda}${input.nota?.trim() ? ' · ' + input.nota.trim() : ''}`,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (abErr) throw abErr;
+
+  // 3) Actualiza la cuenta (abonado + estado).
+  const nuevoAbonado = round2((Number(c.abonado) || 0) + aplicado);
+  const estado: EstadoCxP = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
+  const { data: cu, error: cuErr } = await supabase.from(CXP)
+    .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })
+    .eq('id', c.id).select('*').single();
+  if (cuErr) throw cuErr;
+
+  return { cuenta: cu as CuentaPorPagar, abono: ab as AbonoCxP };
+}
