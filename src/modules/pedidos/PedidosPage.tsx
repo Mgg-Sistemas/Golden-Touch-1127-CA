@@ -53,7 +53,7 @@ import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto, getUnidades } from '@/modules/inventario/inventario.repository';
+import { createProducto, updateProducto, getUnidades, findBySku } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, getNombresAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
@@ -2430,6 +2430,9 @@ function CrearOrdenModal({
   const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
   const [creandoNuevo, setCreandoNuevo] = useState(false);
+  // Ref al input de nombre: tras crear, lo limpiamos y re-enfocamos SIN cerrar el
+  // formulario, para poder cargar varios productos nuevos seguidos.
+  const nuevoNombreRef = useRef<HTMLInputElement>(null);
 
   async function crearProductoNuevo() {
     const nombre = nuevoNombre.trim().toUpperCase();
@@ -2437,9 +2440,18 @@ function CrearOrdenModal({
     setCreandoNuevo(true);
     try {
       const base = nombre.replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'PROD';
-      const sufijo = Math.floor(performance.now() % 100000).toString(36).toUpperCase();
+      // SKU único a prueba de colisiones: nombres parecidos ("FILTRO…") truncan a
+      // la misma base, así que el sufijo debe ser único. Genero uno con alta
+      // entropía y verifico contra inventario; reintento si ya existe.
+      let sku = '';
+      for (let intento = 0; intento < 8; intento++) {
+        const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+        const ts = Date.now().toString(36).slice(-4).toUpperCase();
+        sku = `NEW-${base}-${ts}${rnd}`;
+        if (!(await findBySku(sku))) break;
+      }
       const creado = await createProducto({
-        sku: `NEW-${base}-${sufijo}`,
+        sku,
         nombre,
         categoria: nuevoCategoria.trim().toUpperCase() || 'GENERAL',
         unidad: nuevoUnidad.trim() || 'und',
@@ -2455,9 +2467,10 @@ function CrearOrdenModal({
       setItems((prev) => prev.some((i) => i.productoId === creado.id)
         ? prev
         : [...prev, { productoId: creado.id, sku: creado.sku, nombre: creado.nombre, cantidad: 1, precio: 0, unidad: creado.unidad, comprar: true }]);
-      toast(`Producto "${creado.nombre}" creado en inventario · completá el resto luego`, 'success');
+      toast(`Producto "${creado.nombre}" creado y añadido · cargá otro o cerrá`, 'success');
+      // Limpiamos el campo y mantenemos el formulario abierto para añadir más.
       setNuevoNombre('');
-      setNuevoOpen(false);
+      if (nuevoNombreRef.current) { nuevoNombreRef.current.value = ''; nuevoNombreRef.current.focus(); }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo crear el producto', 'error');
     } finally {
@@ -2790,11 +2803,13 @@ function CrearOrdenModal({
                 Datos mínimos. Se crea en inventario y lo completás luego (stock, precio…).
               </div>
               <input
+                ref={nuevoNombreRef}
                 className="input"
                 name="op-nuevo-nombre"
                 placeholder="Nombre del producto *"
                 defaultValue={nuevoNombre}
                 onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoNombre(e.target.value); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
               />
               <div className="form-grid">
                 <input className="input" name="op-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoCategoria(e.target.value); }} />
@@ -2934,10 +2949,13 @@ function EditarOrdenModal({
   async function guardar() {
     if (!items.length) { toast('La OC debe tener al menos un ítem.', 'error'); return; }
     if (!items.some((i) => i.comprar !== false)) { toast('Marcá al menos un ítem a comprar.', 'error'); return; }
+    if (items.some((i) => !(i.nombre ?? '').trim())) { toast('El nombre del producto no puede quedar vacío.', 'error'); return; }
     setSaving(true);
     try {
+      // Nombres normalizados (trim). Se sincronizan con el inventario abajo.
+      const itemsFinal = items.map((i) => ({ ...i, nombre: (i.nombre ?? '').trim() }));
       await actualizarOrdenEditable(orden, {
-        items,
+        items: itemsFinal,
         motivo: orden.motivo ?? null,
         finalidad: orden.finalidad ?? null,
         solicitante: solicitante.trim() || null,
@@ -2947,6 +2965,16 @@ function EditarOrdenModal({
         urgente,
         notas: notas.trim() || null,
       }, actorEmail || 'sistema');
+
+      // Sincroniza con el inventario el nombre de los productos que cambiaron.
+      const origPorPid = new Map(orden.items.map((i) => [i.productoId, i.nombre]));
+      const cambiados = itemsFinal.filter((i) => i.productoId && i.nombre && i.nombre !== origPorPid.get(i.productoId));
+      if (cambiados.length) {
+        const res = await Promise.allSettled(cambiados.map((i) => updateProducto(i.productoId!, { nombre: i.nombre })));
+        const fallos = res.filter((r) => r.status === 'rejected').length;
+        if (fallos) toast(`OC actualizada, pero ${fallos} nombre(s) no se pudo sincronizar con inventario.`, 'error');
+        else toast(`Nombre sincronizado con inventario (${cambiados.length}).`, 'success');
+      }
       notify(`${orden.estado === 'pendiente' ? 'Orden de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
       onSaved();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo modificar la OC', 'error'); setSaving(false); }
@@ -3028,8 +3056,12 @@ function EditarOrdenModal({
                   <input type="checkbox" checked={comprar} title={comprar ? 'Se comprará' : 'No se comprará'}
                     onChange={(e) => updateItem(idx, { comprar: e.target.checked })} style={{ alignSelf: 'center' }} />
                   <div>
-                    <div>{it.nombre}</div>
-                    <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                    {/* Nombre editable: al guardar se sincroniza con el inventario. */}
+                    <input className="input" style={{ width: '100%', fontSize: '.84rem' }}
+                      value={it.nombre}
+                      title="Editar nombre del producto (se actualiza también en el inventario)"
+                      onChange={(e) => updateItem(idx, { nombre: e.target.value })} />
+                    <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.15rem' }}>{it.sku}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
                     <input className="input mono" type="number" min={0} step="any" style={{ flex: 1, minWidth: 0 }}
