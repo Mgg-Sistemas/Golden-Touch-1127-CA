@@ -197,6 +197,30 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   provLines.forEach((t, i) => doc.text(t, PAGE_W / 2, y + i * 12));
   y += Math.max(emisorLines.length, provLines.length) * 12 + 16;
 
+  // ─── SOLICITUD: unidad, quién solicitó y fechas ───
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('SOLICITUD', MARGIN, y);
+  y += 12;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  const solicitud: Array<[string, string]> = [
+    ['Unidad solicitante', orden.unidad_solicitante || '—'],
+    ['Solicitado por', orden.solicitante || orden.solicitante_email || '—'],
+    ...(orden.ci_solicitante ? ([['Cédula del solicitante', orden.ci_solicitante]] as Array<[string, string]>) : []),
+    ['Fecha de solicitud (OP)', orden.created_at ? dateTime(orden.created_at) : '—'],
+    ['OP aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
+  ];
+  autoTable(doc, {
+    startY: y,
+    body: solicitud,
+    theme: 'plain',
+    styles: { fontSize: 9, cellPadding: 3 },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180 }, 1: { cellWidth: 'auto' } },
+    margin: MARGIN,
+  });
+  y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16;
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.text('CONDICIONES', MARGIN, y);
