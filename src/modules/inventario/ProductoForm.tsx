@@ -214,8 +214,9 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       unidad: form.unidad,
       stock: Number(form.stock) || 0,
       stock_min: Number(form.stock_min) || 0,
-      precio: Number(form.precio) || 0,
-      precio_venta: form.precio_venta.trim() === '' ? null : Math.max(0, Number(form.precio_venta)),
+      // Costo y precio de venta siempre a 2 decimales (la moneda no maneja más).
+      precio: Math.round((Number(form.precio) || 0) * 100) / 100,
+      precio_venta: form.precio_venta.trim() === '' ? null : Math.round(Math.max(0, Number(form.precio_venta)) * 100) / 100,
       almacen: form.almacen.trim() || 'General',
       estado: form.estado,
       restock_pct: restockRaw === '' ? null : Math.max(0, Number(restockRaw)),
