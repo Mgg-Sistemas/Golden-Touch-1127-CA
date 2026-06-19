@@ -8,10 +8,32 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 
+/** Tipos de mantenimiento (trazabilidad): catálogo fijo con etiqueta legible. */
+export const TIPOS_MANTENIMIENTO: ReadonlyArray<{ value: string; label: string; icon: string }> = [
+  { value: 'cambio_aceite', label: 'Cambio de aceite', icon: '🛢' },
+  { value: 'cambio_pieza', label: 'Cambio de pieza', icon: '🔩' },
+  { value: 'cambio_filtro', label: 'Cambio de filtro', icon: '🧯' },
+  { value: 'servicio', label: 'Servicio / preventivo', icon: '🔧' },
+  { value: 'reparacion', label: 'Reparación', icon: '🛠' },
+  { value: 'inspeccion', label: 'Inspección', icon: '🔍' },
+  { value: 'lectura', label: 'Lectura de horómetro', icon: '⏱' },
+  { value: 'otro', label: 'Otro', icon: '•' },
+];
+
+/** Etiqueta legible (con ícono) de un tipo de mantenimiento; '—' si no tiene. */
+export function etiquetaTipoMant(tipo?: string | null): string {
+  const t = TIPOS_MANTENIMIENTO.find((x) => x.value === tipo);
+  return t ? `${t.icon} ${t.label}` : '—';
+}
+
 export interface MantenimientoMaquinaria {
   id: string;
   equipo_id: string;
   fecha: string;
+  /** Tipo de mantenimiento (cambio_aceite, cambio_pieza, …). */
+  tipo: string | null;
+  /** Pieza cambiada cuando tipo = cambio_pieza (ej. MOTOR). */
+  pieza: string | null;
   horometro: number | null;
   aceite_lts: number | null;
   refrigerante_lts: number | null;
@@ -70,6 +92,8 @@ function sanitize(input: MantenimientoInput): Record<string, unknown> {
   return {
     equipo_id: input.equipo_id,
     fecha: input.fecha || new Date().toISOString().slice(0, 10),
+    tipo: v(input.tipo),
+    pieza: v(input.pieza),
     horometro: num(input.horometro),
     aceite_lts: num(input.aceite_lts),
     refrigerante_lts: num(input.refrigerante_lts),
