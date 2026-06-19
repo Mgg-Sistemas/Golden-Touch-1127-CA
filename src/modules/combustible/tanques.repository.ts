@@ -765,7 +765,9 @@ export async function actualizarMovimientoTanque(
   if (patch.tasaUsdLitro != null) upd.tasa_usd_litro = round(num(patch.tasaUsdLitro), 4);
 
   const { data, error } = await supabase.from('combustible_tanque_movimientos')
-    .update(upd).eq('id', id).select('tanque_id, equipo').single();
+    .update(upd).eq('id', id)
+    .select('tanque_id, equipo, mov_vinculado_id, fecha, hora, autorizado_por, ubicacion, observacion, litros, tasa_usd_litro')
+    .single();
   if (error) throw error;
   const tanqueId = (data as { tanque_id: string }).tanque_id;
   const equipoNuevo = (data as { equipo: string | null }).equipo;
@@ -776,6 +778,36 @@ export async function actualizarMovimientoTanque(
   await reencadenarContadorTanque(tanqueId);
   await reencadenarHorometroEquipo(equipoNuevo);
   if (equipoViejo && equipoViejo !== equipoNuevo) await reencadenarHorometroEquipo(equipoViejo);
+
+  // TRASLADO entre tanques: si este movimiento tiene contraparte vinculada, propagamos
+  // los datos COMPARTIDOS (fecha, hora, autorizado, ubicación, observación, litros, tasa)
+  // a la otra pata y recomputamos su tanque. Antes la contraparte quedaba desincronizada
+  // (p. ej. se cambiaba la hora en un tanque y en el otro no).
+  const vinculadoId = (data as { mov_vinculado_id: string | null }).mov_vinculado_id;
+  if (vinculadoId) {
+    const d = data as {
+      fecha: string | null; hora: string | null; autorizado_por: string | null;
+      ubicacion: string | null; observacion: string | null; litros: number | null; tasa_usd_litro: number | null;
+    };
+    const compartidos: Record<string, unknown> = {
+      fecha: d.fecha, hora: d.hora, autorizado_por: d.autorizado_por,
+      ubicacion: d.ubicacion, observacion: d.observacion,
+      updated_at: new Date().toISOString(),
+    };
+    // Las dos patas mueven los mismos litros (y misma tasa): se sincronizan si cambiaron.
+    if (patch.litros != null) compartidos.litros = num(patch.litros);
+    if (patch.tasaUsdLitro != null) compartidos.tasa_usd_litro = round(num(patch.tasaUsdLitro), 4);
+
+    const { data: cp } = await supabase.from('combustible_tanque_movimientos')
+      .update(compartidos).eq('id', vinculadoId).select('tanque_id, equipo').single();
+    if (cp) {
+      const cpTanque = (cp as { tanque_id: string }).tanque_id;
+      const cpEquipo = (cp as { equipo: string | null }).equipo;
+      if (afectaSaldo) await recomputarTanque(cpTanque);
+      await reencadenarContadorTanque(cpTanque);
+      if (cpEquipo) await reencadenarHorometroEquipo(cpEquipo);
+    }
+  }
 }
 
 export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<void> {

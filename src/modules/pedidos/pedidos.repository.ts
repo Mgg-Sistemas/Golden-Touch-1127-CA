@@ -153,24 +153,32 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
 const OP_IMG_BUCKET = 'op-imagenes';
 const MAX_OP_IMG_BYTES = 10 * 1024 * 1024;
 
-/** Sube una imagen para la OP y devuelve su path en el bucket. */
+/** Sube un adjunto (imagen o PDF) para la OP y devuelve su path en el bucket. */
 export async function subirImagenOrden(file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new Error('El archivo debe ser una imagen');
-  if (file.size > MAX_OP_IMG_BYTES) throw new Error('La imagen no puede superar 10 MB');
+  const esImagen = file.type.startsWith('image/');
+  const esPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  if (!esImagen && !esPdf) throw new Error('El archivo debe ser una imagen o un PDF');
+  if (file.size > MAX_OP_IMG_BYTES) throw new Error('El archivo no puede superar 10 MB');
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-80);
   const path = `${Date.now()}-${safeName}`;
   const { error } = await supabase.storage
     .from(OP_IMG_BUCKET)
-    .upload(path, file, { contentType: file.type, upsert: false });
+    .upload(path, file, { contentType: file.type || (esPdf ? 'application/pdf' : 'application/octet-stream'), upsert: false });
   if (error) throw error;
   return path;
 }
 
-/** Genera un signed URL (5 min) para ver la imagen de una OP. */
+/** Genera un signed URL (5 min) para ver el adjunto (imagen/PDF) de una OP. */
 export async function getImagenOrdenSignedUrl(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(OP_IMG_BUCKET).createSignedUrl(path, 300);
   if (error || !data) throw error ?? new Error('No se pudo generar enlace');
   return data.signedUrl;
+}
+
+/** Elimina un adjunto de la OP del bucket (best-effort, al reemplazar o quitar). */
+export async function eliminarImagenOrden(path: string): Promise<void> {
+  if (!path) return;
+  await supabase.storage.from(OP_IMG_BUCKET).remove([path]).catch(() => { /* best-effort */ });
 }
 
 /**
@@ -214,6 +222,7 @@ export async function actualizarOrdenEditable(
     items?: ItemOrden[]; motivo?: string | null; finalidad?: string | null;
     unidad_solicitante?: string | null; clasificacion?: string[] | null; urgente?: boolean;
     solicitante?: string | null; ci_solicitante?: string | null; notas?: string | null;
+    imagen_path?: string | null;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -237,6 +246,7 @@ export async function actualizarOrdenEditable(
   if (patch.solicitante !== undefined) upd.solicitante = patch.solicitante?.trim() || null;
   if (patch.ci_solicitante !== undefined) upd.ci_solicitante = patch.ci_solicitante?.trim() || null;
   if (patch.notas !== undefined) upd.notas = patch.notas?.trim() || null;
+  if (patch.imagen_path !== undefined) upd.imagen_path = patch.imagen_path;
   const { data, error } = await supabase
     .from(TABLE)
     .update(upd)
