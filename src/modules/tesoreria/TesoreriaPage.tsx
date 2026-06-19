@@ -77,6 +77,25 @@ const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
 };
 
+/** ¿El movimiento resta del saldo (egreso)? Mismo criterio que usa el render. */
+function esEgresoMov(m: MovimientoCaja): boolean {
+  return m.tipo === 'salida' || m.tipo === 'traslado_salida'
+    || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
+}
+
+/** Total NETO (ingresos − egresos) de la columna Monto, agrupado por moneda.
+ *  Las monedas no se mezclan: una línea de total por cada una. */
+function netoMontoPorMoneda(movs: MovimientoCaja[]): Array<{ moneda: string; total: number }> {
+  const map = new Map<string, number>();
+  for (const m of movs) {
+    const v = (esEgresoMov(m) ? -1 : 1) * (Number(m.monto) || 0);
+    map.set(m.moneda, (map.get(m.moneda) || 0) + v);
+  }
+  return [...map.entries()]
+    .map(([moneda, total]) => ({ moneda, total: Math.round(total * 100) / 100 }))
+    .sort((a, b) => (a.moneda < b.moneda ? -1 : 1));
+}
+
 /** Detalle del gasto etiquetado: "N° 12 · Recepción · Flete" (lo que aplique). */
 function detalleGasto(m: MovimientoCaja): string {
   return [
@@ -474,8 +493,24 @@ export function TesoreriaPage() {
                     );
                   })}
                 </tbody>
+                {!loading && libroView.length > 0 && (
+                  <tfoot>
+                    {netoMontoPorMoneda(libroView).map(({ moneda, total }) => (
+                      <tr key={moneda}>
+                        <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL {moneda} (neto)</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: total < 0 ? 'var(--danger)' : 'var(--success)' }}>
+                          {total < 0 ? '−' : '+'}{monto(Math.abs(total), moneda)}
+                        </td>
+                        <td></td><td></td>
+                      </tr>
+                    ))}
+                  </tfoot>
+                )}
               </table>
             </div>
+            <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
+              Total neto = ingresos − egresos del Monto, por moneda (no se mezclan monedas). Respeta los filtros y la búsqueda aplicados.
+            </small>
           </div>
       </>
       )}
@@ -1158,6 +1193,19 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 );
               })}
             </tbody>
+            {!loading && movs.length > 0 && (
+              <tfoot>
+                {netoMontoPorMoneda(movs).map(({ moneda, total }) => (
+                  <tr key={moneda}>
+                    <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL {moneda} (neto)</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: total < 0 ? 'var(--danger)' : 'var(--success)' }}>
+                      {total < 0 ? '−' : '+'}{monto(Math.abs(total), moneda)}
+                    </td>
+                    <td></td>
+                  </tr>
+                ))}
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
