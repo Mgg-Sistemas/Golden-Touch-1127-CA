@@ -13,6 +13,8 @@ interface OcData {
   ofertas: OfertaProveedor[];
   /** Proveedores referenciados por id (oferentes / desistidos). */
   proveedoresMap: Map<string, Proveedor>;
+  /** email (minúsculas) -> "Nombre Apellido" de quienes intervinieron (aprobaron / registraron). */
+  personasMap: Map<string, string>;
 }
 
 async function cargarDatosOc(ordenId: string): Promise<OcData> {
@@ -61,6 +63,27 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
     (provs ?? []).forEach((p) => proveedoresMap.set((p as Proveedor).id, p as Proveedor));
   }
 
+  // Personas que intervinieron: se guardan por correo (aprobaciones, actores del
+  // historial). Resolvemos a "Nombre Apellido" para mostrar en el PDF.
+  const o = orden as Orden;
+  const emails = new Set<string>();
+  const addEmail = (e?: string | null) => { if (e && e.includes('@')) emails.add(e.toLowerCase()); };
+  addEmail(o.aprobada_por);
+  addEmail(o.oc_aprobada_por);
+  addEmail(o.solicitante_email);
+  (o.historial ?? []).forEach((h) => addEmail(h.actor));
+  const personasMap = new Map<string, string>();
+  if (emails.size) {
+    const { data: us } = await supabase
+      .from('usuarios')
+      .select('email, nombre, apellido')
+      .in('email', Array.from(emails));
+    (us ?? []).forEach((u: { email: string; nombre?: string | null; apellido?: string | null }) => {
+      const nombre = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
+      if (u.email && nombre) personasMap.set(u.email.toLowerCase(), nombre);
+    });
+  }
+
   return {
     ordenes,
     orden: orden as Orden,
@@ -68,11 +91,18 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
     ofertaAceptada,
     ofertas,
     proveedoresMap,
+    personasMap,
   };
 }
 
+/** Nombre legible de un correo; si no se resolvió, devuelve el correo tal cual. */
+function nombrePersona(email: string | null | undefined, map: Map<string, string>): string {
+  if (!email) return '—';
+  return map.get(email.toLowerCase()) ?? email;
+}
+
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
-  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap }, logoDataUrl, firmaDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personasMap }, logoDataUrl, firmaDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
     loadLogoDataUrl().catch(() => null),
     loadFirmaDataUrl().catch(() => null),
@@ -162,7 +192,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
     doc.text(
-      `Cancelada por ${cancelEvent.actor ?? '—'} · ${dateTime(cancelEvent.at)}`,
+      `Cancelada por ${nombrePersona(cancelEvent.actor, personasMap)} · ${dateTime(cancelEvent.at)}`,
       PAGE_W - MARGIN - 12,
       y + 18,
       { align: 'right' },
@@ -206,7 +236,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setFontSize(9);
   const solicitud: Array<[string, string]> = [
     ['Unidad solicitante', orden.unidad_solicitante || '—'],
-    ['Solicitado por', orden.solicitante || orden.solicitante_email || '—'],
+    ['Solicitado por', orden.solicitante || nombrePersona(orden.solicitante_email, personasMap)],
     ...(orden.ci_solicitante ? ([['Cédula del solicitante', orden.ci_solicitante]] as Array<[string, string]>) : []),
     ['Fecha de solicitud (OP)', orden.created_at ? dateTime(orden.created_at) : '—'],
     ['OP aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
@@ -234,7 +264,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
     ['Documentos', documentosOc.length ? documentosOc.join(' · ') : '—'],
-    ['Aprobada por', orden.aprobada_por ?? '—'],
+    ['Aprobada por (OP)', nombrePersona(orden.aprobada_por, personasMap)],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
   // OC por factura con IVA: desglose del 16%.
@@ -340,7 +370,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         ['Oferta · Condiciones de pago', oferta?.condiciones_pago ?? '—'],
         ['Desistió (fecha y hora)', dateTime(h.at)],
         ['Motivo', (h as { motivo?: string }).motivo ?? '—'],
-        ['Registró', h.actor ?? '—'],
+        ['Registró', nombrePersona(h.actor, personasMap)],
       ];
       autoTable(doc, {
         startY: y,
@@ -369,7 +399,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       doc.setFontSize(8);
       doc.setTextColor(120);
       doc.text(
-        `Solicitante: ${o.solicitante ?? o.solicitante_email}`,
+        `Solicitante: ${o.solicitante ?? nombrePersona(o.solicitante_email, personasMap)}`,
         PAGE_W - MARGIN,
         y + 12,
         { align: 'right' },
@@ -464,7 +494,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setFontSize(7.5);
     doc.setTextColor(120);
     doc.text(
-      `Aprobada por ${ocAprobPor}${ocAprobEn ? ' · ' + dateTime(ocAprobEn) : ''}`,
+      `Aprobada por ${nombrePersona(ocAprobPor, personasMap)}${ocAprobEn ? ' · ' + dateTime(ocAprobEn) : ''}`,
       MARGIN,
       pageH - 56,
     );
