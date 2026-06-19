@@ -232,12 +232,18 @@ export async function getTasasMercado(): Promise<TasasMercado> {
 }
 
 async function _resolverTasasMercado(): Promise<TasasMercado> {
-  const [bcv, usdt, cop] = await Promise.all([
+  // Binance USDT/VES: la fuente de verdad es el ÚLTIMO snapshot en vivo
+  // (par USDT_VES, por timestamp), el MISMO que muestra la Vista de Tasas.
+  // Así el chip del navbar y la tarjeta "Promedio" nunca se desincronizan.
+  // Fallback: el valor del día en `tasa_cambio` (por fecha) y, si no hay nada,
+  // se dispara el Edge Function.
+  const [bcv, usdtSnap, usdtDia, cop] = await Promise.all([
     getTasaHoy().catch(() => ({ usd: null, eur: null, fecha: null } as TasaHoy)),
+    ultimoSnapshot('USDT_VES'),
     ultimaTasaMoneda('USDT'),
     ultimaTasaMoneda('COP'),
   ]);
-  let usdtVes = usdt?.tasa ?? null;
+  let usdtVes = usdtSnap?.tasa ?? usdtDia?.tasa ?? null;
   if (usdtVes == null) {
     try { usdtVes = (await refrescarBinanceP2P()).promedio; } catch { /* sin función desplegada */ }
   }
@@ -249,7 +255,7 @@ async function _resolverTasasMercado(): Promise<TasasMercado> {
     bcvUsd: bcv.usd,
     usdtVes,
     copUsd,
-    fecha: bcv.fecha ?? usdt?.fecha ?? cop?.fecha ?? null,
+    fecha: bcv.fecha ?? usdtDia?.fecha ?? cop?.fecha ?? null,
   };
 }
 
