@@ -95,7 +95,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.text('Trazabilidad de orden de pedido', TEXT_X, y + 18);
+  doc.text('Trazabilidad de solicitud de pedido', TEXT_X, y + 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.text(

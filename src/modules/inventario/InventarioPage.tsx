@@ -81,6 +81,7 @@ const INITIAL_UI: UiState = {
   filterStock: '',
   filterEstado: 'activo',
   filterFundicion: '',
+  filterAlmacen: '',
 };
 
 /** Predicado de filtros compartido por inventario general y el detalle de almacén. */
@@ -217,10 +218,30 @@ export function InventarioPage() {
     [productos],
   );
 
-  const filtered = useMemo<ProductoDecorado[]>(
-    () => decorated.filter((p) => coincideFiltros(p, ui)),
-    [decorated, ui],
-  );
+  const filtered = useMemo<ProductoDecorado[]>(() => {
+    // Filtro por almacén: muestra solo los productos con existencia en ese almacén,
+    // con el stock y el costo (PMP) propios del almacén elegido.
+    if (ui.filterAlmacen) {
+      const prodMap = new Map(productos.map((p) => [p.id, p]));
+      const virtuales = existencias
+        .filter((e) => e.almacen === ui.filterAlmacen)
+        .map((e) => {
+          const p = prodMap.get(e.producto_id);
+          return p ? ({ ...p, stock: e.stock, precio: e.costo_promedio, almacen: ui.filterAlmacen } as Producto) : null;
+        })
+        .filter((p): p is Producto => p !== null);
+      return decorate(virtuales, DEFAULT_POLICY).filter((p) => coincideFiltros(p, ui));
+    }
+    return decorated.filter((p) => coincideFiltros(p, ui));
+  }, [decorated, ui, existencias, productos]);
+
+  // Nombres de almacenes (con existencias) para el filtro por almacén del inventario general.
+  const almacenNombres = useMemo<string[]>(() => {
+    const set = new Set<string>();
+    existencias.forEach((e) => { if (e.almacen) set.add(e.almacen); });
+    almacenes.forEach((a) => { if (a.nombre) set.add(a.nombre); });
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [existencias, almacenes]);
 
   // Valor por almacén (desde existencias: stock × costo propio del almacén).
   const valoresAlm = useMemo<Record<string, AlmacenValor>>(() => agruparValores(existencias), [existencias]);
@@ -693,7 +714,12 @@ export function InventarioPage() {
         })()
       ) : (
         <>
-          <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} />
+          <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} almacenes={almacenNombres} />
+          {ui.filterAlmacen && (
+            <div className="muted" style={{ fontSize: '.82rem', margin: '-.35rem 0 .6rem' }}>
+              Mostrando stock y costo del almacén <strong style={{ color: 'var(--text)' }}>{ui.filterAlmacen}</strong>.
+            </div>
+          )}
           {loading ? (
             <EmptyState message="Cargando productos…" icon="◔" />
           ) : (

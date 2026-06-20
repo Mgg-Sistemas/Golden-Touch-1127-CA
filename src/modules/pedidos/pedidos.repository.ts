@@ -88,7 +88,7 @@ export async function getCurrentUsuario(): Promise<Usuario | null> {
   return (data ?? null) as Usuario | null;
 }
 
-/** Genera el siguiente código OP-YYYY-#### contando órdenes existentes. */
+/** Genera el siguiente código SP-YYYY-#### (Solicitud de Pedido) contando órdenes existentes. */
 export async function nextCodigo(): Promise<string> {
   const year = new Date().getFullYear();
   const { count, error } = await supabase
@@ -96,7 +96,7 @@ export async function nextCodigo(): Promise<string> {
     .select('id', { count: 'exact', head: true });
   if (error) throw error;
   const n = (count ?? 0) + 1;
-  return `OP-${year}-${String(n).padStart(4, '0')}`;
+  return `SP-${year}-${String(n).padStart(4, '0')}`;
 }
 
 export interface CrearOrdenInput {
@@ -417,7 +417,7 @@ export async function repartirOpEntreProveedores(
   actorEmail: string,
 ): Promise<Orden[]> {
   if (!['aprobada', 'desistida_proveedor'].includes(op.estado))
-    throw new Error('Solo se reparte una orden de pedido aprobada.');
+    throw new Error('Solo se reparte una solicitud de pedido aprobada.');
   const validos = grupos.filter((g) => g.proveedorId && g.items.length);
   if (!validos.length) throw new Error('Asigná al menos un ítem a un proveedor.');
   const nowIso = new Date().toISOString();

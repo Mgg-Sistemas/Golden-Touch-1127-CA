@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { dosDecimales } from '@/shared/lib/format';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import {
@@ -462,26 +463,25 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
             <label>Precio unitario / costo (USD)</label>
             <input
               className="input mono"
-              type="number"
-              min={0}
-              step="0.01"
+              type="text"
+              inputMode="decimal"
+              placeholder="0,00"
               value={form.precio}
-              onChange={(e) => update('precio', e.target.value)}
+              onChange={(e) => update('precio', dosDecimales(e.target.value))}
               required
             />
             <small className="muted" style={{ fontSize: '.72rem' }}>
-              Costo. Al comprar/recibir se mantiene como precio promedio ponderado (PMP).
+              Costo (admite decimales, ej. 0,35). Al comprar/recibir se mantiene como precio promedio ponderado (PMP).
             </small>
           </div>
           <div className="form-row">
             <label>Posible precio de venta (USD, opcional)</label>
             <input
               className="input mono"
-              type="number"
-              min={0}
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={form.precio_venta}
-              onChange={(e) => update('precio_venta', e.target.value)}
+              onChange={(e) => update('precio_venta', dosDecimales(e.target.value))}
               placeholder="para calcular ganancia en producción"
             />
             <small className="muted" style={{ fontSize: '.72rem' }}>
