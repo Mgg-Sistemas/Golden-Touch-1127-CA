@@ -29,6 +29,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   const costoUnit = gasto != null && cant > 0 ? gasto / cant : null;
 
   const ficha: Array<[string, string]> = [
+    ['Código', compra.codigo || '—'],
     ['Material', compra.producto_sku ? `${compra.producto_sku} — ${compra.producto_nombre}` : compra.producto_nombre],
     ['Proveedor', compra.proveedor_nombre || '—'],
     ['Almacén destino', compra.almacen || '—'],

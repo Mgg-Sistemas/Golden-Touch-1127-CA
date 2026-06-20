@@ -12,16 +12,20 @@ export interface FilterValues {
   filterStock: StockFilter;
   filterEstado: EstadoFilter;
   filterFundicion: FundicionFilter;
+  /** Nombre del almacén por el que filtrar (vacío = todos). Solo en el inventario general. */
+  filterAlmacen: string;
 }
 
 interface InventarioFilterbarProps {
   values: FilterValues;
   categorias: string[];
   onChange: (key: keyof FilterValues, value: string) => void;
+  /** Nombres de almacenes para el filtro por almacén. Si se omite, no se muestra (ej. en el detalle de un almacén). */
+  almacenes?: string[];
 }
 
-/** Barra de filtros reutilizable de inventario (búsqueda + categoría/producción/ABC/stock/estado). */
-export function InventarioFilterbar({ values, categorias, onChange }: InventarioFilterbarProps) {
+/** Barra de filtros reutilizable de inventario (búsqueda + categoría/producción/ABC/stock/estado/almacén). */
+export function InventarioFilterbar({ values, categorias, onChange, almacenes }: InventarioFilterbarProps) {
   return (
     <div className="filterbar">
       <input
@@ -30,6 +34,20 @@ export function InventarioFilterbar({ values, categorias, onChange }: Inventario
         value={values.filterText}
         onChange={(e) => onChange('filterText', e.target.value)}
       />
+      {almacenes && almacenes.length > 0 && (
+        <select
+          className="select"
+          style={{ maxWidth: 200 }}
+          value={values.filterAlmacen}
+          onChange={(e) => onChange('filterAlmacen', e.target.value)}
+          title="Filtrar por almacén"
+        >
+          <option value="">Todos los almacenes</option>
+          {almacenes.map((a) => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+      )}
       <select
         className="select"
         style={{ maxWidth: 180 }}

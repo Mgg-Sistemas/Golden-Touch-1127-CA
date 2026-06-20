@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
-import { money, num } from '@/shared/lib/format';
+import { money, num, dosDecimales } from '@/shared/lib/format';
 import type { Existencia, Producto, TipoMovimiento } from '@/shared/lib/types';
 import { calcularPMP, type MovimientoInput } from './movimientos.repository';
 
@@ -227,14 +227,14 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
               <label>Costo unitario del proveedor (USD)</label>
               <input
                 className="input mono"
-                type="number"
-                min={0}
-                step="0.01"
+                type="text"
+                inputMode="decimal"
+                placeholder="0,00"
                 value={costoUnit}
-                onChange={(e) => setCostoUnit(e.target.value)}
+                onChange={(e) => setCostoUnit(dosDecimales(e.target.value))}
               />
               <small className="muted" style={{ fontSize: '.72rem' }}>
-                Precio pagado en esta compra. Se promedia con el costo del almacén (PMP).
+                Precio pagado en esta compra (admite decimales, ej. 0,35). Se promedia con el costo del almacén (PMP).
               </small>
             </div>
           )}

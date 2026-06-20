@@ -425,9 +425,9 @@ export function PedidosPage() {
           <button
             className={scope === 'pedidos' ? 'active' : ''}
             onClick={() => switchScope('pedidos')}
-            title="Ver órdenes de pedido"
+            title="Ver solicitudes de pedido"
           >
-            ✉ Órdenes de Pedido
+            ✉ Solicitud de Pedido
           </button>
           <button
             className={scope === 'oc' ? 'active' : ''}
@@ -1824,8 +1824,8 @@ function OrdenDetailModal({
     <>
       {/* Etapa OP: solo Aprobar / Rechazar Orden de Pedido + PDF de la OP. */}
       {isPendiente && (
-        <button className="btn btn-ghost" onClick={handleDownloadPdf} title="Descargar la Orden de Pedido en PDF">
-          ↓ PDF de la OP
+        <button className="btn btn-ghost" onClick={handleDownloadPdf} title="Descargar la Solicitud de Pedido en PDF">
+          ↓ PDF de la SP
         </button>
       )}
       {puedeTrazabilidad && (
@@ -1957,8 +1957,8 @@ function OrdenDetailModal({
         </button>
       )}
       {canApprove && (
-        <button className="btn btn-success" onClick={onApprove} title="Aprobar la Orden de Pedido">
-          Aprobar Orden de Pedido
+        <button className="btn btn-success" onClick={onApprove} title="Aprobar la Solicitud de Pedido">
+          Aprobar Solicitud de Pedido
         </button>
       )}
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
@@ -2427,7 +2427,7 @@ function OpImagenAdjunta({ path }: { path: string }) {
   }
   return (
     <a href={url} target="_blank" rel="noreferrer" title="Ver imagen en grande">
-      <img src={url} alt="Adjunto de la OP" style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, border: '1px solid var(--border)' }} />
+      <img src={url} alt="Adjunto de la SP" style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, border: '1px solid var(--border)' }} />
     </a>
   );
 }
@@ -2556,7 +2556,7 @@ function CrearOrdenModal({
   }, []);
 
   useEffect(() => {
-    nextCodigo().then(setCodigo).catch(() => setCodigo('OP-?'));
+    nextCodigo().then(setCodigo).catch(() => setCodigo('SP-?'));
     getNombresAlmacenes()
       .then((a) => { setAlmacenesList(a); setNuevoAlmacen((prev) => (a.includes(prev) ? prev : (a[0] ?? 'General'))); })
       .catch(() => setAlmacenesList(['General']));
@@ -2668,7 +2668,7 @@ function CrearOrdenModal({
         unidad_solicitante: unidadSolicitante.trim() || null,
         ci_solicitante: null,
       });
-      notify(`Nueva orden de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
+      notify(`Nueva solicitud de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
     } catch (e) {
       // Los errores de Supabase no son instancias de Error: igual traen `.message`.
@@ -2681,7 +2681,7 @@ function CrearOrdenModal({
 
   return (
     <Modal
-      title="Nueva orden de pedido"
+      title="Nueva solicitud de pedido"
       size="lg"
       onClose={onClose}
       footer={
@@ -3096,7 +3096,7 @@ function EditarOrdenModal({
         if (fallos) toast(`OC actualizada, pero ${fallos} nombre(s) no se pudo sincronizar con inventario.`, 'error');
         else toast(`Nombre sincronizado con inventario (${cambiados.length}).`, 'success');
       }
-      notify(`${orden.estado === 'pendiente' ? 'Orden de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
+      notify(`${orden.estado === 'pendiente' ? 'Solicitud de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
       onSaved();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo modificar la OC', 'error'); setSaving(false); }
   }
@@ -3110,10 +3110,10 @@ function EditarOrdenModal({
 
   const esOp = orden.estado === 'pendiente';
   return (
-    <Modal title={`Editar ${esOp ? 'orden de pedido' : 'orden'} · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
+    <Modal title={`Editar ${esOp ? 'solicitud de pedido' : 'orden'} · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.8rem' }}>
         Modificá solicitante, unidad, ítems, clasificación y urgencia. {esOp
-          ? 'Disponible mientras la orden de pedido esté pendiente (antes de aprobarla).'
+          ? 'Disponible mientras la solicitud de pedido esté pendiente (antes de aprobarla).'
           : 'Disponible hasta que el Gerente General apruebe la OC.'}
       </p>
       {Number(orden.total) > 0 && (

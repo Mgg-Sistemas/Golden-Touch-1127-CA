@@ -238,8 +238,8 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     ['Unidad solicitante', orden.unidad_solicitante || '—'],
     ['Solicitado por', orden.solicitante || nombrePersona(orden.solicitante_email, personasMap)],
     ...(orden.ci_solicitante ? ([['Cédula del solicitante', orden.ci_solicitante]] as Array<[string, string]>) : []),
-    ['Fecha de solicitud (OP)', orden.created_at ? dateTime(orden.created_at) : '—'],
-    ['OP aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
+    ['Fecha de solicitud (SP)', orden.created_at ? dateTime(orden.created_at) : '—'],
+    ['SP aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
   autoTable(doc, {
     startY: y,
@@ -264,7 +264,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
     ['Documentos', documentosOc.length ? documentosOc.join(' · ') : '—'],
-    ['Aprobada por (OP)', nombrePersona(orden.aprobada_por, personasMap)],
+    ['Aprobada por (SP)', nombrePersona(orden.aprobada_por, personasMap)],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
   // OC por factura con IVA: desglose del 16%.

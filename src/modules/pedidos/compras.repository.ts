@@ -32,6 +32,8 @@ export interface CompraDirectaItem {
 
 export interface CompraDirecta {
   id: string;
+  /** Correlativo de la compra directa (CD-AAAA-####). */
+  codigo: string | null;
   producto_id: string | null;
   producto_nombre: string;
   producto_sku: string | null;
@@ -68,6 +70,18 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
     }];
   }
   return { ...r, items };
+}
+
+/** Genera el siguiente correlativo CD-AAAA-#### (Compra Directa) por año. */
+export async function nextCodigoCompraDirecta(): Promise<string> {
+  const year = new Date().getFullYear();
+  const { count, error } = await supabase
+    .from('compras_directas')
+    .select('id', { count: 'exact', head: true })
+    .like('codigo', `CD-${year}-%`);
+  if (error) throw error;
+  const n = (count ?? 0) + 1;
+  return `CD-${year}-${String(n).padStart(4, '0')}`;
 }
 
 export async function listComprasDirectas(): Promise<CompraDirecta[]> {
@@ -130,10 +144,12 @@ export async function crearCompraDirecta(
 
   const totalCantidad = items.reduce((a, i) => a + i.cantidad, 0);
   const resumen = items.length === 1 ? items[0].producto_nombre : `${items.length} materiales`;
+  const codigo = await nextCodigoCompraDirecta();
 
   const { data, error } = await supabase
     .from('compras_directas')
     .insert({
+      codigo,
       producto_id: items.length === 1 ? items[0].producto_id : null,
       producto_nombre: resumen,
       producto_sku: items.length === 1 ? items[0].producto_sku : null,

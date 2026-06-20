@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -45,6 +45,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [vista, setVista] = useState<Vista>('kanban');
   const [crear, setCrear] = useState(false);
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
+  const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
     const [cs, pds, alms, cats, unis, cjs, provs] = await Promise.all([
@@ -74,12 +75,13 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
-  async function handleEliminar(c: CompraDirecta) {
-    const etiqueta = c.items.length > 1 ? `${c.items.length} materiales` : c.producto_nombre;
-    if (!window.confirm(`¿Eliminar la compra directa "${etiqueta}"? Esta acción no se puede deshacer.`)) return;
+  async function confirmarEliminar() {
+    const c = eliminar;
+    if (!c) return;
     try {
       await eliminarCompraDirecta(c);
       notify('Compra directa eliminada', 'success', { link: '#/app/pedidos' });
+      setEliminar(null);
       await reload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar la compra directa', 'error'); }
   }
@@ -106,7 +108,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
                   <CompraCard key={c.id} compra={c}
-                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onEliminar={() => handleEliminar(c)} />
+                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -116,10 +118,11 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       ) : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Material(es)</th><th>Proveedor</th><th>Almacén</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
+            <thead><tr><th>Código</th><th>Material(es)</th><th>Proveedor</th><th>Almacén</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
             <tbody>
               {compras.map((c) => (
                 <tr key={c.id}>
+                  <td className="mono">{c.codigo ?? '—'}</td>
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : (c.producto_sku ? <span className="muted"> · {c.producto_sku}</span> : null)}</td>
                   <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td>{c.almacen}</td>
@@ -132,7 +135,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Descargar detalle en PDF">↓ PDF</button>
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
-                    {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => handleEliminar(c)} title="Eliminar compra directa">🗑 Eliminar</button>}
+                    {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑 Eliminar</button>}
                   </td>
                 </tr>
               ))}
@@ -150,6 +153,17 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
         <FinalizarCompraModal compra={finalizar} cajas={cajas} actor={actor} actorName={actorName}
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
       )}
+
+      {eliminar && (
+        <ConfirmDialog
+          title="Eliminar compra directa"
+          message={`¿Eliminar la compra directa "${eliminar.items.length > 1 ? `${eliminar.items.length} materiales` : eliminar.producto_nombre}"? Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onConfirm={confirmarEliminar}
+          onCancel={() => setEliminar(null)}
+        />
+      )}
     </div>
   );
 }
@@ -163,6 +177,7 @@ function CompraCard({ compra, onFinalizar, onPdf, onEliminar }: {
         <strong>{compra.producto_nombre}</strong>
         <span className="badge">{num(compra.cantidad)}</span>
       </div>
+      {compra.codigo && <div className="mono" style={{ fontSize: '.74rem', color: 'var(--brand, #ff8a00)', marginTop: '.15rem' }}>{compra.codigo}</div>}
       <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>→ {compra.almacen}</div>
       {compra.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem' }}>🏷 {compra.proveedor_nombre}</div>}
       {compra.items.length > 1 && (
@@ -278,8 +293,8 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
         proveedorIdFinal = proveedorId;
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
-      await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName }, productos);
-      notify(`Compra directa creada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
+      const creada = await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName }, productos);
+      notify(`Compra directa ${creada.codigo ?? ''} creada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear la compra directa.'); setSaving(false); }
   }
