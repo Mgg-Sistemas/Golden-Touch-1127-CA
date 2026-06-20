@@ -683,17 +683,16 @@ export async function rechazarOrden(
   return data as Orden;
 }
 
-/** Genera el siguiente código OC-YYYY-#### contando OCs ÚNICAS ya emitidas. */
+/**
+ * Genera el siguiente código OC-YYYY-#### con un correlativo ATÓMICO en la base
+ * (función `next_correlativo`): nunca retrocede ni reutiliza, aunque se cancelen o
+ * borren OCs, y es seguro entre varios usuarios a la vez (sin colisiones de número).
+ */
 export async function nextOcCodigo(): Promise<string> {
   const year = new Date().getFullYear();
-  // Cuenta códigos distintos (multiples OPs pueden compartir un mismo oc_codigo).
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select('oc_codigo')
-    .not('oc_codigo', 'is', null);
+  const { data, error } = await supabase.rpc('next_correlativo', { p_clave: `oc-${year}` });
   if (error) throw error;
-  const unique = new Set((data ?? []).map((r) => r.oc_codigo as string));
-  const seq = String(unique.size + 1).padStart(4, '0');
+  const seq = String(Number(data) || 1).padStart(4, '0');
   return `OC-${year}-${seq}`;
 }
 

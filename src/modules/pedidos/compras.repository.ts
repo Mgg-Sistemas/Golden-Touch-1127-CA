@@ -72,16 +72,17 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
   return { ...r, items };
 }
 
-/** Genera el siguiente correlativo CD-AAAA-#### (Compra Directa) por año. */
+/**
+ * Genera el siguiente correlativo CD-AAAA-#### (Compra Directa) con un contador
+ * ATÓMICO en la base (`next_correlativo`): nunca retrocede ni reutiliza aunque se
+ * borren compras, y es seguro entre varios usuarios a la vez.
+ */
 export async function nextCodigoCompraDirecta(): Promise<string> {
   const year = new Date().getFullYear();
-  const { count, error } = await supabase
-    .from('compras_directas')
-    .select('id', { count: 'exact', head: true })
-    .like('codigo', `CD-${year}-%`);
+  const { data, error } = await supabase.rpc('next_correlativo', { p_clave: `cd-${year}` });
   if (error) throw error;
-  const n = (count ?? 0) + 1;
-  return `CD-${year}-${String(n).padStart(4, '0')}`;
+  const seq = String(Number(data) || 1).padStart(4, '0');
+  return `CD-${year}-${String(seq).padStart(4, '0')}`;
 }
 
 export async function listComprasDirectas(): Promise<CompraDirecta[]> {
