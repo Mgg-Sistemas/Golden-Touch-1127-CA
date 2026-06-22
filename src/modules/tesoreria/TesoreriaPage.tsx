@@ -58,6 +58,8 @@ import {
   getOrdenById, urlAdjuntoOc,
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
+import { ChatOrden } from '@/modules/pedidos/ChatOrden';
+import { noLeidosPorOrden } from '@/modules/pedidos/ordenChat.repository';
 import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
 import { descargarReportePdf, type ReporteMeta } from './reportePdf';
@@ -2803,6 +2805,9 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [pagarVarias, setPagarVarias] = useState<OrdenPorPagar[] | null>(null);
 
+  const { user } = useSession();
+  const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
+
   const reload = useCallback(async () => {
     setLoading(true);
     try { setRows(await listOrdenesPorPagar()); }
@@ -2810,6 +2815,14 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+
+  // Chat interno: mensajes no leídos por OC (chip 💬) para Tesorería. En vivo.
+  const recalcNoLeidos = useCallback(() => {
+    if (!user?.id || !user?.email || !rows.length) { setNoLeidos(new Map()); return; }
+    noLeidosPorOrden(rows.map((r) => r.orden.id), user.id, user.email).then(setNoLeidos).catch(() => setNoLeidos(new Map()));
+  }, [rows, user?.id, user?.email]);
+  useEffect(() => { recalcNoLeidos(); }, [recalcNoLeidos]);
+  useRealtime(['orden_mensajes'], () => { recalcNoLeidos(); });
 
   // Filas seleccionadas, proveedor "bloqueado" (el de la primera marcada) y total.
   const seleccionadas = useMemo(() => rows.filter((r) => seleccion.has(r.orden.id)), [rows, seleccion]);
@@ -2871,7 +2884,12 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                     title={checkDisabled(r) ? `Solo se pueden pagar juntas las OC de ${provNombreSel}` : 'Seleccionar para pago múltiple (mismo proveedor)'}
                     onChange={() => toggleSel(r)} />
                 </td>
-                <td className="mono">{r.orden.oc_codigo ?? '—'}</td>
+                <td className="mono">{r.orden.oc_codigo ?? '—'}
+                  {(noLeidos.get(r.orden.id) ?? 0) > 0 && (
+                    <span className="badge" style={{ marginLeft: '.35rem', background: '#ff8a00', color: '#111', fontWeight: 700 }}
+                      title="Mensajes sin leer en el chat de esta OC">💬 {noLeidos.get(r.orden.id)}</span>
+                  )}
+                </td>
                 <td className="mono">{r.orden.codigo}</td>
                 <td>{r.proveedorNombre}</td>
                 <td style={{ fontSize: '.78rem' }}>{labelCondicionPago(r.orden.condiciones_pago)}</td>
@@ -2900,7 +2918,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       {sel && (
         <PagarOrdenModal
           row={sel} cajas={cajas} actor={actor} actorName={actorName}
-          onClose={() => setSel(null)}
+          onClose={() => { setSel(null); recalcNoLeidos(); }}
           onPaid={async () => { setSel(null); await reload(); onPaid(); }}
         />
       )}
@@ -4625,6 +4643,10 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
 
         <AnclarGastoFields categoria={gastoCat} subcategoria={gastoSub} onChange={(c, s) => { setGastoCat(c); setGastoSub(s); }} />
       </form>
+
+      {/* Chat interno con Compras (mismo hilo que la OC en Pedidos): coordinar el método
+          de pago / aclarar la orden sin salir de Tesorería. */}
+      <ChatOrden ordenId={o.id} ordenLabel={o.oc_codigo ?? o.codigo} autorNombre={actorName ?? actor} />
     </Modal>
   );
 }
