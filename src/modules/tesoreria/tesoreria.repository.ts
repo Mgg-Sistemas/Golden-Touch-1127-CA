@@ -146,6 +146,9 @@ export async function pagarPersonal(input: {
 
 export async function pagarOrden(input: {
   cajaId: string; ordenId: string; monto: number; concepto?: string;
+  // Opcional: anclar el pago a una categoría/subcategoría de GASTO (catálogo jerárquico),
+  // para que aparezca etiquetado en el resumen de gastos además de como pago de OC.
+  gastoCategoria?: string | null; gastoSubcategoria?: string | null;
   actor: string; actorName?: string | null;
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
@@ -159,6 +162,8 @@ export async function pagarOrden(input: {
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: caja.moneda,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto?.trim() || 'Pago de compra', categoria: 'pago_oc',
+    gasto_categoria: input.gastoCategoria?.trim() || null,
+    gasto_subcategoria: input.gastoSubcategoria?.trim() || null,
     ref_orden_id: input.ordenId,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();

@@ -50,6 +50,8 @@ import {
   type CuentaPorCobrar, type CargoCxC, type CobroCxC,
 } from './cuentasPorCobrar.repository';
 import { descargarCuentaPorCobrarPdf } from './cuentaPorCobrarPdf';
+import { descargarOrdenesPorPagarPdf } from './ordenesPorPagarPdf';
+import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMulti, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg,
@@ -2092,8 +2094,30 @@ function LibroMayorDetalleModal({ moneda, movimientos, onSelMov, onClose }: {
   const ordenados = [...movimientos].sort((a, b) => (a.at < b.at ? 1 : -1));
   const totDebe = round2(ordenados.filter(entra).reduce((a, m) => a + (Number(m.monto) || 0), 0));
   const totHaber = round2(ordenados.filter((m) => !entra(m)).reduce((a, m) => a + (Number(m.monto) || 0), 0));
+  const neto = round2(totDebe - totHaber);
+
+  function descargarPdf() {
+    const rows = ordenados.map((m) => {
+      const e = entra(m);
+      const concepto = [CAT_LABEL[m.categoria ?? ''], detalleGasto(m)].filter(Boolean).join(' · ') || (TIPO_MOV_LABEL[m.tipo] ?? m.tipo);
+      const beneficiario = [m.beneficiario, m.motivo].filter(Boolean).join(' · ') || '—';
+      return {
+        fecha: dateTime(m.at), caja: m.caja?.nombre ?? '—', concepto, beneficiario,
+        debe: e ? monto(m.monto, m.moneda) : '', haber: !e ? monto(m.monto, m.moneda) : '',
+        saldo: m.saldo_despues != null ? monto(m.saldo_despues, m.moneda) : '',
+      };
+    });
+    descargarLibroMayorPdf({ moneda, rows, totDebe: monto(totDebe, moneda), totHaber: monto(totHaber, moneda), neto: monto(neto, moneda) })
+      .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'));
+  }
+
   return (
-    <Modal title={`📒 Movimientos en ${moneda}`} size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+    <Modal title={`📒 Movimientos en ${moneda}`} size="lg" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" disabled={!ordenados.length} onClick={descargarPdf} title="Reporte PDF del libro mayor (vista previa)">↓ PDF</button>
+        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      </>
+    }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.78rem' }}>{ordenados.length} movimiento(s). Tocá uno para ver <strong>todo su detalle</strong> (fecha, motivo, beneficiario, cuenta, etc.).</p>
       <div className="table-wrap" style={{ maxHeight: 440, overflow: 'auto' }}>
         <table className="table" style={{ fontSize: '.82rem' }}>
@@ -2775,6 +2799,9 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const [rows, setRows] = useState<OrdenPorPagar[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<OrdenPorPagar | null>(null);
+  // Selección múltiple (tipo check) para pagar varias OC del MISMO proveedor a la vez.
+  const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
+  const [pagarVarias, setPagarVarias] = useState<OrdenPorPagar[] | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -2784,28 +2811,66 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   }, []);
   useEffect(() => { void reload(); }, [reload]);
 
+  // Filas seleccionadas, proveedor "bloqueado" (el de la primera marcada) y total.
+  const seleccionadas = useMemo(() => rows.filter((r) => seleccion.has(r.orden.id)), [rows, seleccion]);
+  const provSel = seleccionadas[0]?.orden.proveedor_id ?? null;
+  const provNombreSel = seleccionadas[0]?.proveedorNombre ?? '';
+  const totalSel = round2(seleccionadas.reduce((a, r) => a + Number(r.montoAPagar || 0), 0));
+  function toggleSel(r: OrdenPorPagar) {
+    setSeleccion((prev) => {
+      const n = new Set(prev);
+      if (n.has(r.orden.id)) n.delete(r.orden.id); else n.add(r.orden.id);
+      return n;
+    });
+  }
+  // Se puede marcar cualquier OC (incluso "esperando método") siempre que sea del MISMO
+  // proveedor que la primera marcada. Al pagar varias del mismo proveedor, las que aún no
+  // tenían método de pago se pagan igual (no hace falta esperar a Compras).
+  const checkDisabled = (r: OrdenPorPagar) => provSel != null && r.orden.proveedor_id !== provSel;
+
   return (
     <Modal title="Órdenes pendientes por pagar" size="xl" onClose={onClose} footer={
-      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <>
+        <button className="btn btn-ghost" disabled={!rows.length}
+          onClick={() => descargarOrdenesPorPagarPdf(rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}
+          title="Resumen en PDF de las OC por pagar (N°ODC, proveedor, finalidad y monto)">↓ Resumen PDF</button>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      </>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Órdenes de compra aprobadas por el Gerente General. Las marcadas <strong>⏳ Esperando método</strong> ya están
         aprobadas y muestran su monto, pero <strong>Compras aún no indicó el método de pago</strong>; cuando lo indique se
-        habilitan para pagar automáticamente. Hacé clic en una lista para ver el detalle y registrar el pago.
+        habilitan para pagar automáticamente. Hacé clic en una fila para ver el detalle y registrar el pago, o <strong>marcá
+        varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>.
       </p>
+      {seleccionadas.length > 0 && (
+        <div className="card" style={{ marginBottom: '.6rem', padding: '.55rem .85rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
+          <strong>{seleccionadas.length}</strong> OC de <strong>{provNombreSel}</strong> · total <strong className="mono">{monto(totalSel, 'USD')}</strong>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem' }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSeleccion(new Set())}>Limpiar</button>
+            <button className="btn btn-sm btn-primary" onClick={() => setPagarVarias(seleccionadas)}>💳 Pagar {seleccionadas.length} seleccionadas</button>
+          </div>
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead><tr>
+            <th style={{ width: 34 }}></th>
             <th>N°ODC</th><th>OP</th><th>Proveedor</th><th>Condición</th>
             <th style={{ textAlign: 'right' }}>A pagar $</th><th>OC creada</th><th>Confirmada GG</th><th></th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={8}><EmptyState message="No hay órdenes aprobadas por pagar" icon="✅" /></td></tr>}
+            {loading && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={9}><EmptyState message="No hay órdenes aprobadas por pagar" icon="✅" /></td></tr>}
             {!loading && rows.map((r) => {
               const espera = r.esperandoMetodo;
               return (
               <tr key={r.orden.id} className={espera ? undefined : 'row-selectable'} style={{ cursor: espera ? 'default' : 'pointer', opacity: espera ? 0.78 : 1 }} onClick={() => { if (!espera) setSel(r); }}>
+                <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+                  <input type="checkbox" checked={seleccion.has(r.orden.id)} disabled={checkDisabled(r)}
+                    title={checkDisabled(r) ? `Solo se pueden pagar juntas las OC de ${provNombreSel}` : 'Seleccionar para pago múltiple (mismo proveedor)'}
+                    onChange={() => toggleSel(r)} />
+                </td>
                 <td className="mono">{r.orden.oc_codigo ?? '—'}</td>
                 <td className="mono">{r.orden.codigo}</td>
                 <td>{r.proveedorNombre}</td>
@@ -2839,6 +2904,136 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
           onPaid={async () => { setSel(null); await reload(); onPaid(); }}
         />
       )}
+
+      {pagarVarias && (
+        <PagarVariasOcModal
+          rows={pagarVarias} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={() => setPagarVarias(null)}
+          onPaid={async () => { setPagarVarias(null); setSeleccion(new Set()); await reload(); onPaid(); }}
+        />
+      )}
+    </Modal>
+  );
+}
+
+/* ───────────── Pagar VARIAS OC del mismo proveedor (pago por lote) ───────────── */
+
+function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
+  rows: OrdenPorPagar[]; cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
+}) {
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [factura, setFactura] = useState<File | null>(null);
+  const [motivoPago, setMotivoPago] = useState('');
+  const [gastoCat, setGastoCat] = useState('');
+  const [gastoSub, setGastoSub] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [progreso, setProgreso] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const caja = cajas.find((c) => c.id === cajaId) ?? null;
+  const moneda = caja?.moneda ?? 'USD';
+  const provNombre = rows[0]?.proveedorNombre ?? '';
+
+  const totalUsd = round2(rows.reduce((a, r) => a + Number(r.montoAPagar || 0), 0));
+  // El comprobante solo es obligatorio si alguna OC NO es en efectivo.
+  const comprobanteOpcional = rows.every((r) => pagoSinComprobante(r.orden.metodo_pago));
+
+  const [tasa, setTasa] = useState<number>(0);
+  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
+  const totalEnMoneda = moneda === 'Bs' ? (tasa > 0 ? aBs(totalUsd, tasa) : 0) : totalUsd;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
+    if (moneda === 'Bs' && !(tasa > 0)) { setError('Indicá la tasa BCV (Bs por $) para convertir el pago.'); return; }
+    if (!comprobanteOpcional && !factura) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
+    if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
+      setError('El comprobante debe ser un PDF o una imagen.'); return;
+    }
+    setSaving(true);
+    try {
+      let pagadas = 0;
+      for (const r of rows) {
+        setProgreso(`Pagando ${r.orden.oc_codigo ?? r.orden.codigo}… (${pagadas + 1}/${rows.length})`);
+        const usd = Number(r.montoAPagar || 0);
+        const montoOc = moneda === 'Bs' ? aBs(usd, tasa) : usd;
+        await pagarOrdenCompra({
+          orden: r.orden, cajaId, monto: montoOc,
+          factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
+          actorEmail: actor, actorName,
+        });
+        pagadas++;
+      }
+      notify(`${pagadas} OC de ${provNombre} pagadas · ${monto(totalEnMoneda, moneda)}`, 'success', { link: '#/app/tesoreria' });
+      onPaid();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo completar el pago por lote.');
+      setSaving(false); setProgreso(null);
+    }
+  }
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="pagar-varias" className="btn btn-primary" disabled={saving}>
+        {saving ? (progreso ?? 'Pagando…') : `PAGAR ${rows.length} OC · ${monto(totalEnMoneda, moneda)}`}
+      </button>
+    </>
+  );
+
+  return (
+    <Modal title={`Pagar ${rows.length} OC · ${provNombre}`} size="lg" onClose={onClose} footer={footer}>
+      <form id="pagar-varias" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        <div className="card" style={{ marginBottom: '.75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>Órdenes a pagar · {provNombre}</div>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>N°ODC</th><th>OP</th><th>Condición</th><th style={{ textAlign: 'right' }}>Monto $</th></tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.orden.id}>
+                    <td className="mono">{r.orden.oc_codigo ?? '—'}</td>
+                    <td className="mono">{r.orden.codigo}</td>
+                    <td style={{ fontSize: '.78rem' }}>{labelCondicionPago(r.orden.condiciones_pago)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(r.montoAPagar || 0), 'USD')}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr><td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(totalUsd, 'USD')}</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div className="form-row">
+          <label>Caja (de dónde sale el dinero)</label>
+          <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 340 }}
+            placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+            options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${monto(c.saldo, c.moneda)}` }))} />
+          <small className="muted">Cada OC se paga por separado desde esta caja (un egreso por orden en Tesorería).</small>
+        </div>
+
+        {moneda === 'Bs' && (
+          <div className="form-row" style={{ maxWidth: 220 }}>
+            <label>Tasa BCV (Bs por $)</label>
+            <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" />
+            <small className="muted">Total en Bs: <strong className="mono">{monto(totalEnMoneda, 'Bs')}</strong></small>
+          </div>
+        )}
+
+        <div className="form-row">
+          <label>Comprobante {comprobanteOpcional ? <span className="muted">(opcional · efectivo)</span> : '· PDF o imagen'}</label>
+          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} />
+          {factura && <small className="muted">{factura.name} · se adjunta a cada OC</small>}
+        </div>
+
+        <div className="form-row">
+          <label>Motivo del pago <span className="muted">(opcional, se aplica a todas)</span></label>
+          <input className="input" value={motivoPago} onChange={(e) => setMotivoPago(e.target.value)} placeholder="Ej.: pago consolidado del proveedor" />
+        </div>
+
+        <AnclarGastoFields categoria={gastoCat} subcategoria={gastoSub} onChange={(c, s) => { setGastoCat(c); setGastoSub(s); }} />
+      </form>
     </Modal>
   );
 }
@@ -3942,6 +4137,39 @@ function EnviarCuentaPorPagarModal({ cuenta, abonos, ingresos, defaultEmail, onC
   );
 }
 
+/* Selector opcional para anclar un pago a un GASTO (categoría → subcategoría, ambas
+   buscables/filtrables). Devuelve los NOMBRES elegidos al contenedor. */
+function AnclarGastoFields({ categoria, subcategoria, onChange }: {
+  categoria: string; subcategoria: string; onChange: (cat: string, sub: string) => void;
+}) {
+  const [rows, setRows] = useState<CategoriaGasto[]>([]);
+  useEffect(() => { listCategoriasGasto(true).then(setRows).catch(() => setRows([])); }, []);
+  const catOpts = useMemo(() => soloCategorias(rows).map((c) => c.nombre), [rows]);
+  const catSel = useMemo(() => soloCategorias(rows).find((c) => c.nombre.toLowerCase() === categoria.trim().toLowerCase()) ?? null, [rows, categoria]);
+  const subOpts = useMemo(() => (catSel ? subcategoriasDe(rows, catSel.id).map((s) => s.nombre) : []), [rows, catSel]);
+  return (
+    <div className="card" style={{ marginBottom: '.75rem' }}>
+      <div className="card-title" style={{ marginBottom: '.4rem' }}>Anclar a un gasto <span className="muted">(opcional)</span></div>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Categoría de gasto</label>
+          <SearchSelect value={categoria} onChange={(v) => onChange(v, '')}
+            placeholder={catOpts.length ? '🔍 Buscar categoría…' : '— sin categorías —'}
+            options={catOpts.map((c) => ({ value: c, label: c }))} />
+        </div>
+        <div className="form-row">
+          <label>Subcategoría</label>
+          <SearchSelect value={subcategoria} onChange={(v) => onChange(categoria, v)} disabled={!catSel}
+            placeholder={catSel ? (subOpts.length ? '🔍 Buscar subcategoría…' : '— sin subcategorías —') : 'Elegí una categoría primero'}
+            options={subOpts.map((s) => ({ value: s, label: s }))} />
+        </div>
+      </div>
+      {categoria && <small className="muted">El pago se etiqueta como gasto: <strong>{categoria}{subcategoria ? ` · ${subcategoria}` : ''}</strong> (además de pago de OC).</small>}
+      {categoria && <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.3rem' }} onClick={() => onChange('', '')}>✕ Quitar gasto</button>}
+    </div>
+  );
+}
+
 function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   row: OrdenPorPagar; cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
 }) {
@@ -3953,6 +4181,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [montoStr, setMontoStr] = useState(String(baseUsd));
   const [factura, setFactura] = useState<File | null>(null);
   const [motivoPago, setMotivoPago] = useState('');
+  // Anclaje opcional a un gasto (categoría → subcategoría).
+  const [gastoCat, setGastoCat] = useState('');
+  const [gastoSub, setGastoSub] = useState('');
   // Seriales de billetes entregados (solo cuando se paga con USD físico).
   const [seriales, setSeriales] = useState<string[]>([]);
   const [serialInput, setSerialInput] = useState('');
@@ -4102,7 +4333,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); setSaving(false); return; }
         if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName });
+        await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName });
         notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(sumUsdMulti, 'USD')}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
@@ -4110,7 +4341,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       if (excedeTotalSimple) { setError(`No podés pagar más que el total de la OC (${monto(totalUsd, 'USD')}). El monto ingresado equivale a ${monto(montoUsdSimple, 'USD')}.`); setSaving(false); return; }
       await pagarOrdenCompra({
         orden: o, cajaId, monto: Number(montoStr) || 0,
-        factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName,
+        factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
+        seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName,
       });
       notify(`OC ${o.oc_codigo ?? o.codigo} pagada · ${monto(Number(montoStr) || 0, moneda)}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
@@ -4138,6 +4370,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <div><span className="muted">N°ODC:</span> <strong className="mono">{o.oc_codigo ?? '—'}</strong></div>
             <div><span className="muted">Proveedor:</span> {row.proveedorNombre}</div>
             <div><span className="muted">Solicitante:</span> {o.solicitante || o.solicitante_email}</div>
+            <div><span className="muted">Unidad solicitante:</span> {o.unidad_solicitante?.trim() || <span className="muted">—</span>}</div>
             <div><span className="muted">Creada (OP):</span> {dateTime(o.created_at)}</div>
             <div><span className="muted">Aprobada (OP):</span> {o.aprobada_en ? dateTime(o.aprobada_en) : '—'}</div>
             <div><span className="muted">OC creada:</span> {o.oc_creada_en ? dateTime(o.oc_creada_en) : '—'}</div>
@@ -4147,6 +4380,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 {o.condiciones_pago ? labelCondicionPago(o.condiciones_pago) : 'Contado / anticipado'}
               </span>
             </div>
+            <div style={{ gridColumn: '1 / -1' }}><span className="muted">Finalidad:</span> {
+              o.finalidad?.trim()
+              || Array.from(new Set((o.items ?? []).map((it) => (it.finalidad ?? '').trim()).filter(Boolean))).join(' · ')
+              || <span className="muted">—</span>
+            }</div>
+            <div style={{ gridColumn: '1 / -1' }}><span className="muted">Motivo:</span> {o.motivo?.trim() || <span className="muted">—</span>}</div>
+            <div style={{ gridColumn: '1 / -1' }}><span className="muted">Nota (OP):</span> {o.notas?.trim() || <span className="muted">—</span>}</div>
           </div>
         </div>
 
@@ -4382,6 +4622,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <small className="muted">Se suma al motivo de la OP en el registro de movimientos.</small>
           </div>
         </div>
+
+        <AnclarGastoFields categoria={gastoCat} subcategoria={gastoSub} onChange={(c, s) => { setGastoCat(c); setGastoSub(s); }} />
       </form>
     </Modal>
   );
