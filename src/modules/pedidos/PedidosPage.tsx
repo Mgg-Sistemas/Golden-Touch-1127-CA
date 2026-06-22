@@ -1109,8 +1109,13 @@ function MetodoPagoModal({
   function addLeg() { setLegs((ls) => [...ls, { metodo: 'transferencia', moneda: monedaPorMetodo('transferencia'), monto: 0, datos: datosGuardados['transferencia'] ?? {} }]); }
   function removeLeg(i: number) { setLegs((ls) => ls.filter((_, k) => k !== i)); }
 
-  // El monto lo define Tesorería al pagar; acá solo se eligen método(s) y moneda(s).
   const validos = legs.filter((l) => l.metodo && l.moneda);
+  // Multipago: Compras puede repartir el total por método/moneda (montos en $).
+  // Con un solo método no hace falta (Tesorería paga el total).
+  const esMultipago = validos.length > 1;
+  const sumMontos = Math.round(validos.reduce((a, l) => a + (Number(l.monto) || 0), 0) * 100) / 100;
+  const hayMontos = validos.some((l) => (Number(l.monto) || 0) > 0);
+  const repartoOk = !esMultipago || !hayMontos || Math.abs(sumMontos - Number(baseTotal)) <= 0.01;
 
   async function handleSend() {
     setError(null);
@@ -1123,6 +1128,10 @@ function MetodoPagoModal({
       return;
     }
     if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
+    // Multipago con reparto: si se cargó algún monto, todos deben sumar el total.
+    if (esMultipago && hayMontos && !repartoOk) {
+      setError(`El reparto por moneda ($${money(sumMontos)}) debe sumar el total de la OC ($${money(Number(baseTotal))}).`); return;
+    }
     if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
     // Validar datos del proveedor en los métodos que los requieren.
     for (const l of validos) {
@@ -1154,7 +1163,7 @@ function MetodoPagoModal({
         Indicá <strong>con qué método(s)</strong> se va a pagar la OC ({orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null
           ? <>recibido <strong>{money(orden.recibido_total)}</strong></>
           : <>total <strong>{money(orden.total)}</strong></>}). Podés combinar
-        varios (<strong>multipago</strong>). El <strong>monto lo define Tesorería</strong> al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
+        varios (<strong>multipago</strong>) y repartir el total <strong>por moneda</strong> (cuánto en $ por cada uno); si lo dejás en 0, el <strong>monto lo define Tesorería</strong> al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -1226,6 +1235,15 @@ function MetodoPagoModal({
                   {METODOS_PAGO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                 </select>
               </div>
+              {/* Multipago: cuánto del total ($) va por este método/moneda. */}
+              {legs.length > 1 && (
+                <div className="form-row" style={{ margin: 0, flex: '0 1 170px' }}>
+                  <label>Monto ($) en {l.moneda}</label>
+                  <input className="input mono" type="number" min={0} step="any"
+                    value={l.monto ? String(l.monto) : ''} placeholder="0,00"
+                    onChange={(e) => setLeg(i, { monto: Math.round((Number(e.target.value) || 0) * 100) / 100 })} />
+                </div>
+              )}
               {legs.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeLeg(i)}>✕ Quitar</button>}
             </div>
             {requiereDatos(l.metodo) && (
@@ -1238,6 +1256,24 @@ function MetodoPagoModal({
         ))}
       </div>
       <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={addLeg}>+ Agregar método (multipago)</button>
+      {/* Reparto del total por moneda (multipago): cuánto se paga con cada método. */}
+      {esMultipago && (
+        <div className="card" style={{ margin: '.6rem 0 0', padding: '.55rem .8rem', borderColor: hayMontos ? (repartoOk ? 'var(--success)' : 'var(--danger)') : 'var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.86rem', gap: '.5rem', flexWrap: 'wrap' }}>
+            <span className="muted">Reparto por moneda (opcional)</span>
+            <strong className="mono" style={{ color: hayMontos ? (repartoOk ? 'var(--success)' : 'var(--danger)') : undefined }}>
+              ${money(sumMontos)} / ${money(Number(baseTotal))}
+            </strong>
+          </div>
+          <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
+            {!hayMontos
+              ? 'Dejá los montos en 0 y Tesorería define cuánto va por cada uno, o indicá acá cuánto pagar por cada método (en $).'
+              : repartoOk
+              ? '✓ El reparto suma el total. Tesorería verá cuánto pagar por cada moneda.'
+              : <span style={{ color: 'var(--danger)' }}>⚠ Los montos deben sumar el total de la OC (${money(Number(baseTotal))}).</span>}
+          </small>
+        </div>
+      )}
       {esContraEntrega && (
         <label className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', marginTop: '.6rem', padding: '.55rem .7rem', cursor: 'pointer', borderColor: notaEntrega ? 'var(--success)' : 'var(--warning)' }}>
           <input type="checkbox" checked={notaEntrega} onChange={(e) => setNotaEntrega(e.target.checked)} style={{ marginTop: '.2rem' }} />
@@ -2055,7 +2091,7 @@ function OrdenDetailModal({
           <div className="v">
             {o.metodo_pago.map((m, i) => (
               <div key={i} className="mono" style={{ fontSize: '.86rem' }}>
-                {labelMetodoPago(m.metodo)} · {m.monto > 0 ? `${money(m.monto)} ${m.moneda}` : m.moneda}
+                {labelMetodoPago(m.metodo)} · {m.monto > 0 ? `$${money(m.monto)} en ${m.moneda}` : m.moneda}
               </div>
             ))}
             {o.metodo_pago_en && <span className="muted" style={{ fontSize: '.74rem' }}>indicado {dateTime(o.metodo_pago_en)} por {persona(o.metodo_pago_por, personaMap)}</span>}

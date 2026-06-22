@@ -4308,24 +4308,68 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   // usuario ve de una vez lo que debe pagar sin teclear el monto en Bs a mano.
   // Solo prellena cuando aún no se cargó nada (no pisa lo que el usuario edite).
   const saldosKey = saldosCaja.map((s) => s.id).join('|');
+  // Objetivo por moneda indicado desde la OC (Compras puede repartir el total por
+  // moneda; los montos vienen en USD). Si trae reparto, el prellenado lo respeta.
+  const indicKey = JSON.stringify((o.metodo_pago ?? []).map((m) => [m.moneda, m.monto]));
   useEffect(() => {
     if (!saldosCaja.length || totalUsd <= 0) return;
     // Si hay cuentas en Bs/COP, esperar a tener la tasa para poder convertir.
     if (saldosCaja.some((s) => s.moneda === 'Bs') && !(tasa > 0)) return;
     if (saldosCaja.some((s) => s.moneda === 'COP') && !mercado?.copUsd) return;
-    let restante = totalUsd;
+
+    // Reparto por moneda que indicó Compras en la OC (montos en USD).
+    const objetivo: Record<string, number> = {};
+    let indicUsd = 0;
+    for (const m of o.metodo_pago ?? []) {
+      const u = round2(Number(m.monto) || 0);
+      if (u <= 0) continue;
+      objetivo[m.moneda] = round2((objetivo[m.moneda] || 0) + u);
+      indicUsd = round2(indicUsd + u);
+    }
+    const usarIndic = indicUsd > 0.01;
+
+    // Disponible (en USD) de cada cuenta y cuánto le vamos asignando.
+    const capUsd = (s: CajaSaldo) => legUsd(s.moneda, Number(s.saldo));
+    const asignadoUsd: Record<string, number> = {};
+    // Paso 1: por cada moneda indicada, repartir su USD entre las cuentas de esa
+    // moneda (de mayor a menor saldo).
+    if (usarIndic) {
+      for (const [mon, usdObj] of Object.entries(objetivo)) {
+        let rest = usdObj;
+        const legsMon = saldosCaja.filter((s) => s.moneda === mon).sort((a, b) => capUsd(b) - capUsd(a));
+        for (const s of legsMon) {
+          if (rest <= 0.01) break;
+          const space = round2(capUsd(s) - (asignadoUsd[s.id] || 0));
+          const use = Math.min(rest, space);
+          if (use <= 0) continue;
+          asignadoUsd[s.id] = round2((asignadoUsd[s.id] || 0) + use);
+          rest = round2(rest - use);
+        }
+      }
+    }
+    // Paso 2: completar el total que falte (sin reparto, o monedas sin cuenta) de
+    // mayor a menor saldo entre las cuentas con espacio libre.
+    let totalAsig = round2(Object.values(asignadoUsd).reduce((a, b) => a + b, 0));
+    let restante = round2(totalUsd - totalAsig);
+    if (restante > 0.01) {
+      const ordenadas = [...saldosCaja].sort((a, b) => capUsd(b) - capUsd(a));
+      for (const s of ordenadas) {
+        if (restante <= 0.01) break;
+        const space = round2(capUsd(s) - (asignadoUsd[s.id] || 0));
+        const use = Math.min(restante, space);
+        if (use <= 0) continue;
+        asignadoUsd[s.id] = round2((asignadoUsd[s.id] || 0) + use);
+        restante = round2(restante - use);
+      }
+    }
     const next: Record<string, string> = {};
-    const ordenadas = [...saldosCaja].sort((a, b) => legUsd(b.moneda, Number(b.saldo)) - legUsd(a.moneda, Number(a.saldo)));
-    for (const s of ordenadas) {
-      if (restante <= 0.01) break;
-      const dispUsd = legUsd(s.moneda, Number(s.saldo));
-      const usaUsd = Math.min(restante, dispUsd);
-      next[s.id] = dosDecimales(String(montoDesdeUsd(s.moneda, usaUsd)));
-      restante = round2(restante - usaUsd);
+    for (const s of saldosCaja) {
+      const u = asignadoUsd[s.id] || 0;
+      if (u > 0) next[s.id] = dosDecimales(String(montoDesdeUsd(s.moneda, u)));
     }
     setLegMontos(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saldosKey, tasa, mercado, totalUsd]);
+  }, [saldosKey, tasa, mercado, totalUsd, indicKey]);
 
   // ¿El pago entrega USD físico (efectivo)? Solo entonces se piden los seriales de
   // los billetes. Simple: caja en USD. Multimoneda: pata USD con monto cargado.
@@ -4453,7 +4497,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
               <div key={i} style={{ padding: '.15rem 0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem' }}>
                   <span>{labelMetodoPago(m.metodo)}</span>
-                  <strong className="mono">{m.monto > 0 ? monto(m.monto, m.moneda) : m.moneda}</strong>
+                  <strong className="mono">{m.monto > 0 ? <>{monto(m.monto, 'USD')} <span className="muted" style={{ fontWeight: 400 }}>en {m.moneda}</span></> : m.moneda}</strong>
                 </div>
                 {m.datos && Object.keys(m.datos).length > 0 && (
                   <div className="muted" style={{ fontSize: '.74rem', paddingLeft: '.3rem' }}>↳ {resumenDatosPago(m.metodo, m.datos)}</div>
