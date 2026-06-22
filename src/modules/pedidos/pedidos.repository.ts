@@ -855,6 +855,9 @@ export interface PagarOcInput {
   retencion?: File | null;
   motivoPago?: string | null;
   seriales?: string[] | null;   // seriales de billetes (USD físico)
+  // Opcional: anclar el pago a un GASTO (categoría → subcategoría del catálogo).
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -887,8 +890,11 @@ function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, s
  */
 export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   const { orden: o } = input;
-  if (o.estado !== 'oc_aprobada')
-    throw new Error('Solo se pagan órdenes de compra confirmadas (aprobadas en lote).');
+  // Se paga una OC ya aprobada por el GG. Se admite además `confirmada_metodo`
+  // (aún sin método indicado por Compras): Tesorería puede pagarla igual, sobre todo
+  // al pagar varias del MISMO proveedor juntas.
+  if (o.estado !== 'oc_aprobada' && o.estado !== 'confirmada_metodo')
+    throw new Error('Solo se pagan órdenes de compra aprobadas por el Gerente General.');
   if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
   const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
   if (monto <= 0) throw new Error('Indicá el monto a pagar.');
@@ -898,6 +904,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   const mov = await pagarOrden({
     cajaId: input.cajaId, ordenId: o.id, monto,
     concepto: conceptoPagoOc(o, input.motivoPago, undefined, seriales),
+    gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
     actor: input.actorEmail, actorName: input.actorName ?? null,
   });
 
@@ -939,6 +946,8 @@ export interface PagarOcMultiInput {
   factura?: File | null;
   motivoPago?: string | null;
   seriales?: string[] | null;   // seriales de billetes (pata USD físico)
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -966,6 +975,7 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     const mov = await egresarDivisa({
       cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
       concepto: conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg), categoria: 'pago_oc', refOrdenId: o.id,
+      gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
     movIds.push(mov.id);
