@@ -11,7 +11,7 @@ import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCa
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
 
 // `key` = `${producto_id}|${almacen}` (identifica una existencia concreta).
-interface LineaUI { id: number; key: string; cantidad: string; observacion: string; }
+interface LineaUI { id: number; key: string; cantidad: string; }
 
 export function SalidaMaterialForm({
   productos, existencias, actor, actorName, onClose, onSaved,
@@ -45,13 +45,13 @@ export function SalidaMaterialForm({
   }, [existencias, activos]);
 
   // Carrito de renglones (varios materiales, cada uno de su almacén).
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, key: '', cantidad: '1', observacion: '' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, key: '', cantidad: '1' }]);
   const [seq, setSeq] = useState(2);
 
   function setLinea(id: number, patch: Partial<LineaUI>) {
     setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
-  function addLinea() { setLineas((ls) => [...ls, { id: seq, key: '', cantidad: '1', observacion: '' }]); setSeq((s) => s + 1); }
+  function addLinea() { setLineas((ls) => [...ls, { id: seq, key: '', cantidad: '1' }]); setSeq((s) => s + 1); }
   function quitarLinea(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
 
   const [motivo, setMotivo] = useState('');
@@ -129,7 +129,7 @@ export function SalidaMaterialForm({
         cantidad: x.cantNum,
         precio_unit: x.precio,
         almacen: x.alm,
-        observacion: x.l.observacion.trim() || null,
+        observacion: null,
       });
     }
     // Mismo material+almacén repetido en dos renglones → uniría a sumas inválidas.
@@ -237,12 +237,6 @@ export function SalidaMaterialForm({
                   ? <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>
                   : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && l.key && <>· queda {num(Math.max(0, stock - cantNum))}</>}</small>}
               </div>
-            </div>
-            <div className="form-row" style={{ marginBottom: 0, marginTop: '.4rem' }}>
-              <label>Observación</label>
-              <input className="input" value={l.observacion}
-                onChange={(e) => setLinea(l.id, { observacion: e.target.value })}
-                placeholder="Ej.: será trasladado para reparación (opcional)" />
             </div>
           </div>
         ))}

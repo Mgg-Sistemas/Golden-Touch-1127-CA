@@ -1476,6 +1476,29 @@ create policy "ordenes write auth" on public.ordenes for all
   using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
 
+-- ...PERO APROBAR una orden queda reservado al ADMINISTRADOR. El escritura libre
+-- de arriba deja crear/recibir/finalizar a analistas y obreros; este trigger
+-- bloquea, a nivel de base, marcar la aprobación (la firma de la Solicitud de
+-- Pedido: aprobada_por, o la firma de la OC del gerente: oc_aprobada_por) si el
+-- actor no es admin. No se dispara al LIMPIAR esos campos (cambio de proveedor)
+-- ni en el paso de método de pago (mueve estado a oc_aprobada sin tocar
+-- oc_aprobada_por). Contextos de servicio (auth.uid() null) quedan exentos.
+create or replace function public.enforce_admin_aprueba_orden()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if (new.aprobada_por is distinct from old.aprobada_por and new.aprobada_por is not null)
+     or (new.oc_aprobada_por is distinct from old.oc_aprobada_por and new.oc_aprobada_por is not null) then
+    if not (public.is_admin() or auth.uid() is null) then
+      raise exception 'Solo un administrador puede aprobar órdenes de compra.';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_enforce_admin_aprueba_orden on public.ordenes;
+create trigger trg_enforce_admin_aprueba_orden
+  before update on public.ordenes
+  for each row execute function public.enforce_admin_aprueba_orden();
+
 -- Tablas exclusivas del ciclo de compras: escritura para STAFF (admin o analista).
 do $$
 declare t text;
