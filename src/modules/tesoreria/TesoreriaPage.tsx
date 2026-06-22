@@ -2947,9 +2947,15 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
   const [saving, setSaving] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // OC cuyo detalle está desplegado (clic sobre la fila).
+  const [detalle, setDetalle] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
   const moneda = caja?.moneda ?? 'USD';
   const provNombre = rows[0]?.proveedorNombre ?? '';
+  const finalidadDe = (o: Orden): string =>
+    o.finalidad?.trim()
+    || Array.from(new Set((o.items ?? []).map((it) => (it.finalidad ?? '').trim()).filter(Boolean))).join(' · ')
+    || '—';
 
   const totalUsd = round2(rows.reduce((a, r) => a + Number(r.montoAPagar || 0), 0));
   // El comprobante solo es obligatorio si alguna OC NO es en efectivo.
@@ -3009,14 +3015,35 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
             <table className="table" style={{ fontSize: '.82rem' }}>
               <thead><tr><th>N°ODC</th><th>OP</th><th>Condición</th><th style={{ textAlign: 'right' }}>Monto $</th></tr></thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.orden.id}>
-                    <td className="mono">{r.orden.oc_codigo ?? '—'}</td>
-                    <td className="mono">{r.orden.codigo}</td>
-                    <td style={{ fontSize: '.78rem' }}>{labelCondicionPago(r.orden.condiciones_pago)}</td>
+                {rows.map((r) => {
+                  const o = r.orden;
+                  const abierto = detalle === o.id;
+                  return (
+                  <Fragment key={o.id}>
+                  <tr className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setDetalle(abierto ? null : o.id)} title="Ver/ocultar el detalle de esta OC">
+                    <td className="mono">{abierto ? '▾ ' : '▸ '}{o.oc_codigo ?? '—'}</td>
+                    <td className="mono">{o.codigo}</td>
+                    <td style={{ fontSize: '.78rem' }}>{labelCondicionPago(o.condiciones_pago)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(r.montoAPagar || 0), 'USD')}</td>
                   </tr>
-                ))}
+                  {abierto && (
+                    <tr>
+                      <td colSpan={4} style={{ background: 'var(--bg-1)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.3rem .9rem', fontSize: '.8rem', padding: '.3rem .15rem' }}>
+                          <div><span className="muted">Solicitante:</span> {o.solicitante || o.solicitante_email || '—'}</div>
+                          <div><span className="muted">Unidad solicitante:</span> {o.unidad_solicitante?.trim() || '—'}</div>
+                          <div><span className="muted">Creada (OP):</span> {dateTime(o.created_at)}</div>
+                          <div><span className="muted">Aprobada (OP):</span> {o.aprobada_en ? dateTime(o.aprobada_en) : '—'}</div>
+                          <div style={{ gridColumn: '1 / -1' }}><span className="muted">Finalidad:</span> {finalidadDe(o)}</div>
+                          <div style={{ gridColumn: '1 / -1' }}><span className="muted">Motivo:</span> {o.motivo?.trim() || '—'}</div>
+                          <div style={{ gridColumn: '1 / -1' }}><span className="muted">Nota (OP):</span> {o.notas?.trim() || '—'}</div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
               </tbody>
               <tfoot><tr><td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(totalUsd, 'USD')}</td></tr></tfoot>
             </table>
