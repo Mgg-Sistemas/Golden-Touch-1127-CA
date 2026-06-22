@@ -292,9 +292,10 @@ export function PedidosPage() {
   // de la OC sigue reservado al admin (regla de negocio).
   const canWrite = isAdmin || can('pedidos', 'escritura');
   const canManageProcurement = canWrite;
-  // "Full control" sobre Pedidos = puede TODO, incluida la aprobación final de OC/OP
-  // (antes reservada solo al admin). El admin siempre puede.
-  const puedeAprobarPedidos = isAdmin || can('pedidos', 'full');
+  // APROBAR una orden (la Solicitud de Pedido y la firma de la OC) queda
+  // reservado EXCLUSIVAMENTE al rol Administrador (regla de negocio, reforzada
+  // además por un trigger en la base: trg_enforce_admin_aprueba_orden).
+  const puedeAprobarPedidos = isAdmin;
 
   // Quien no gestiona compras solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
   useEffect(() => {
@@ -1768,9 +1769,9 @@ function OrdenDetailModal({
   usuarioRole,
 }: OrdenDetailModalProps) {
   const isPendiente = o.estado === 'pendiente';
-  // La OP la aprueba quien gestiona compras (admin o analista); al aprobarla pasa a
-  // Órdenes de Compra. La elección de la oferta ganadora sí queda solo para el jefe/admin.
-  const canApprove = canManageProcurement && isPendiente;  // Aprobar Orden de Pedido
+  // Aprobar la Solicitud de Pedido queda reservado al Administrador (igual que la
+  // firma de la OC). El analista gestiona el resto (ofertas, emitir/recibir).
+  const canApprove = isAdmin && isPendiente;  // Aprobar Orden de Pedido (solo admin)
   const isOcCreada = o.estado === 'oc_creada';      // oferta elegida, sin confirmar
   const isConfirmadaMetodo = o.estado === 'confirmada_metodo'; // gerente confirmó → falta método de pago
   const isOcAprobada = o.estado === 'oc_aprobada';  // método indicado → Tesorería

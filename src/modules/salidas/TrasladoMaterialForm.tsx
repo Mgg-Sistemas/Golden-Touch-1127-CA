@@ -10,7 +10,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; observacion: string; }
+interface LineaUI { id: number; productoId: string; cantidad: string; }
 
 export function TrasladoMaterialForm({
   productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
@@ -41,17 +41,17 @@ export function TrasladoMaterialForm({
   );
 
   // Carrito de renglones (varios materiales, mismo origen → destino).
-  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1', observacion: '' }]);
+  const [lineas, setLineas] = useState<LineaUI[]>([{ id: 1, productoId: '', cantidad: '1' }]);
   const [seq, setSeq] = useState(2);
   useEffect(() => {
-    setLineas([{ id: 1, productoId: '', cantidad: '1', observacion: '' }]);
+    setLineas([{ id: 1, productoId: '', cantidad: '1' }]);
     setSeq(2);
   }, [origen]);
 
   function setLinea(id: number, patch: Partial<LineaUI>) {
     setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
-  function addLinea() { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1', observacion: '' }]); setSeq((s) => s + 1); }
+  function addLinea() { setLineas((ls) => [...ls, { id: seq, productoId: '', cantidad: '1' }]); setSeq((s) => s + 1); }
   function quitarLinea(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
 
   const [motivo, setMotivo] = useState('');
@@ -125,7 +125,7 @@ export function TrasladoMaterialForm({
         unidad: x.producto?.unidad ?? null,
         cantidad: x.cantNum,
         precio_unit: x.precio,
-        observacion: x.l.observacion.trim() || null,
+        observacion: null,
       });
     }
     const ids = items.map((i) => i.producto_id);
@@ -243,12 +243,6 @@ export function TrasladoMaterialForm({
                   ? <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>
                   : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && <>· queda {num(Math.max(0, stock - cantNum))} en origen</>}</small>}
               </div>
-            </div>
-            <div className="form-row" style={{ marginBottom: 0, marginTop: '.4rem' }}>
-              <label>Observación</label>
-              <input className="input" value={l.observacion}
-                onChange={(e) => setLinea(l.id, { observacion: e.target.value })}
-                placeholder="Ej.: será trasladado para reparación (opcional)" />
             </div>
           </div>
         ))}
