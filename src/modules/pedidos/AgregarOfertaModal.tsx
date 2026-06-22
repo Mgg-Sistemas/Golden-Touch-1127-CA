@@ -26,10 +26,19 @@ interface Props {
 }
 
 interface FormItem extends ItemOrden {
+  /** Id estable de la fila (clave de React): NO depende del sku ni del índice, para
+   *  que agregar/quitar variantes no remonte ni revuelva las demás filas. */
+  uid: string;
   precio: number;          // Pago en Bs a BCV (unitario, en $)
   precio_usd: number;      // Pago en USD (unitario, en $)
   marca: string;           // Marca ofertada para este producto (variante)
   modelo: string;          // Modelo ofertado
+}
+
+let _ofertaUidSeq = 0;
+function nuevoUid(): string {
+  _ofertaUidSeq += 1;
+  return `fi-${_ofertaUidSeq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function AgregarOfertaModal({
@@ -70,7 +79,7 @@ export function AgregarOfertaModal({
   // Solo se cotizan los ítems marcados "comprar" en la OP (los desmarcados no se compran).
   const [items, setItems] = useState<FormItem[]>(
     orden.items.filter((i) => i.comprar !== false).map((i) => ({
-      ...i, precio: 0, precio_usd: 0, marca: '', modelo: '',
+      ...i, uid: nuevoUid(), precio: 0, precio_usd: 0, marca: '', modelo: '',
     })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>('');
@@ -152,7 +161,7 @@ export function AgregarOfertaModal({
     setItems((prev) => {
       const base = prev[idx];
       if (!base) return prev;
-      const variante: FormItem = { ...base, precio: 0, precio_usd: 0, marca: '', modelo: '' };
+      const variante: FormItem = { ...base, uid: nuevoUid(), precio: 0, precio_usd: 0, marca: '', modelo: '' };
       const copy = [...prev];
       copy.splice(idx + 1, 0, variante);
       return copy;
@@ -457,7 +466,7 @@ export function AgregarOfertaModal({
                 const dif = (it.precio - it.precio_usd) * it.cantidad;
                 const pct = it.precio > 0 ? ((it.precio - it.precio_usd) / it.precio) * 100 : 0;
                 return (
-                  <tr key={`${it.sku}-${idx}`}>
+                  <tr key={it.uid}>
                     <td>
                       {it.nombre}
                       <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
