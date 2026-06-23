@@ -39,7 +39,7 @@ import {
 } from './contrapartes.repository';
 import {
   crearCuentaPorPagar, listCuentasPorPagar, listAbonosCuenta, listIngresosCuenta, registrarAbonoCuenta,
-  pagarCuentaConProductos, abonarCuentaConProductoRecibido,
+  pagarCuentaConProductos, abonarCuentaConProductoRecibido, recibirDineroDeMGG,
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
 import { listProductos, createProducto, findBySku, getUnidades } from '@/modules/inventario/inventario.repository';
@@ -132,14 +132,14 @@ export function TesoreriaPage() {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [libro, setLibro] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes' | 'retencion' | 'cierre' | 'categorias'>('none');
+  const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes' | 'retencion' | 'cierre' | 'categorias' | 'recibir_mgg'>('none');
   // Abrir un modal directo desde la URL (?ver=creditos), p. ej. al venir de la
   // tarjeta "USD entregados" de Acopio → Cuentas por pagar (créditos) / deuda MGG.
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     const ver = searchParams.get('ver');
     if (!ver) return;
-    const validos = ['gasto', 'traslado', 'pago', 'cajas', 'tasas', 'porpagar', 'creditos', 'cobrar', 'conversor', 'calculadora', 'grafico', 'contrapartes', 'retencion', 'cierre', 'categorias'];
+    const validos = ['gasto', 'traslado', 'pago', 'cajas', 'tasas', 'porpagar', 'creditos', 'cobrar', 'conversor', 'calculadora', 'grafico', 'contrapartes', 'retencion', 'cierre', 'categorias', 'recibir_mgg'];
     if (validos.includes(ver)) setModal(ver as typeof modal);
     const next = new URLSearchParams(searchParams);
     next.delete('ver');
@@ -332,6 +332,9 @@ export function TesoreriaPage() {
                 </button>
                 <button className="btn btn-primary" onClick={() => setModal('cobrar')} title="Lo que clientes/proveedores le deben a la empresa">
                   💰 CUENTAS POR COBRAR
+                </button>
+                <button className="btn btn-primary" onClick={() => setModal('recibir_mgg')} title="Recibir dinero de MGG directo en una caja (crea deuda a MGG, se salda con producto o abonos)">
+                  💵 RECIBIR DINERO DE MGG
                 </button>
                 <button className={nominaCount > 0 ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModal('pago')}>
                   {nominaCount > 0 ? `💸 PAGAR NÓMINA (${nominaCount})` : '👥 Pago a personal'}
@@ -552,6 +555,7 @@ export function TesoreriaPage() {
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'cobrar' && <CuentasPorCobrarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'contrapartes' && <ContrapartesModal onClose={() => setModal('none')} />}
+      {modal === 'recibir_mgg' && <RecibirDineroMggModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={cerrarYRecargar} />}
       {cajaSel && <CajaDetalleModal caja={cajaSel} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCajaSel(null)} onChanged={async () => { await reload(); }} />}
     </div>
   );
@@ -1527,6 +1531,103 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
           <label>Concepto</label>
           <input className="input" name="g-concepto" defaultValue={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
           <small className="muted">Categoría y subcategoría son obligatorias (podés crearlas escribiéndolas). El gasto queda etiquetado y aparece en el registro de movimientos.</small>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ───────────── Recibir dinero de MGG (directo a una caja → deuda MGG) ─────────────
+   Igual que la entrada de dinero en Acopio, pero el dinero entra DIRECTO a la caja
+   elegida (sube su saldo) y queda anclado como una CUENTA POR PAGAR a MGG en la
+   moneda de la caja, que después se salda con producto o abonos. */
+function RecibirDineroMggModal({ cajas, actor, actorName, onClose, onSaved }: {
+  cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+}) {
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [montoStr, setMontoStr] = useState('');
+  const [nota, setNota] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const caja = cajas.find((c) => c.id === cajaId) ?? null;
+  const moneda = caja?.moneda ?? 'USD';
+
+  // Billetera de la caja elegida (saldo visible + multimoneda si aplica).
+  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  useEffect(() => {
+    if (!cajaId) { setSaldosCaja([]); return; }
+    saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
+  }, [cajaId]);
+
+  const montoNum = Number(montoStr) || 0;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!cajaId) { setError('Elegí la caja a la que entra el dinero.'); return; }
+    if (montoNum <= 0) { setError('Indicá el monto recibido (mayor que 0).'); return; }
+    setSaving(true);
+    try {
+      await recibirDineroDeMGG({ cajaId, monto: montoNum, nota: nota.trim() || null, actor, actorName });
+      notify(`Recibido de MGG: ${monto(montoNum, moneda)} → ${caja?.nombre ?? 'caja'} · deuda a MGG`, 'success', { link: '#/app/tesoreria' });
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); setSaving(false); }
+  }
+
+  return (
+    <Modal title="💵 Recibir dinero de MGG" size="md" onClose={() => !saving && onClose()} footer={
+      <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="recibir-mgg" className="btn btn-primary" disabled={saving}>{saving ? 'Registrando…' : `Recibir ${montoNum > 0 ? monto(montoNum, moneda) : ''}`.trim()}</button></>
+    }>
+      <form id="recibir-mgg" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {/* Explicación: a dónde va el dinero. */}
+        <div className="card" style={{ marginBottom: '.85rem', borderColor: 'var(--brand, #ff8a00)', background: 'var(--bg-1)' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>¿A dónde va este dinero?</div>
+          <div style={{ fontSize: '.86rem', display: 'grid', gap: '.35rem' }}>
+            <div>1️⃣ <strong>Entra a la caja</strong> que elijas abajo: <strong>sube su saldo</strong> (el mismo que se ve en Cajas), en la moneda de la caja.</div>
+            <div>2️⃣ Queda anclado como una <strong>cuenta por pagar a MGG</strong> (deuda): «<strong>MGG · directo</strong>», en la moneda de la caja.</div>
+            <div>3️⃣ Esa deuda se <strong>salda después</strong> desde <strong>💳 Cuentas por pagar</strong>: con <strong>abonos</strong> o entregando <strong>producto</strong> (igual que las demás).</div>
+            <small className="muted">Es una cuenta <strong>aparte</strong> de la deuda «MGG» que se sincroniza desde Acopio (no se mezclan).</small>
+          </div>
+        </div>
+
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Caja (a dónde entra el dinero)</label>
+            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length}
+              placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+              options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
+          </div>
+          <div className="form-row">
+            <label>Monto recibido ({moneda})</label>
+            <input className="input mono" type="number" min={0} step="any" value={montoStr}
+              onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required autoFocus />
+          </div>
+        </div>
+
+        {/* Billetera de la caja elegida. */}
+        {caja && (
+          <div className="card" style={{ margin: '0 0 .85rem', padding: '.6rem .8rem' }}>
+            <div className="muted" style={{ fontSize: '.72rem', marginBottom: '.25rem' }}>Billetera de {caja.nombre}</div>
+            {saldosCaja.length > 0 ? (
+              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                {saldosCaja.map((s) => (
+                  <span key={s.id} className="badge mono" style={{ background: 'var(--bg-2)' }}>
+                    {monto(Number(s.saldo), s.moneda)}{s.cuenta !== 'general' ? ` · ${s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}` : ''}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <strong className="mono">{monto(Number(caja.saldo) || 0, caja.moneda)}</strong>
+            )}
+          </div>
+        )}
+
+        <div className="form-row">
+          <label>Nota (opcional)</label>
+          <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: para operar, ref., etc." />
+          <small className="muted">Queda en el movimiento de caja y en la cuenta por pagar a MGG.</small>
         </div>
       </form>
     </Modal>

@@ -1499,6 +1499,37 @@ create trigger trg_enforce_admin_aprueba_orden
   before update on public.ordenes
   for each row execute function public.enforce_admin_aprueba_orden();
 
+-- Renombrar un almacén/subalmacén PROPAGANDO el nuevo nombre a todas las tablas
+-- que lo guardan por NOMBRE (el stock se indexa por nombre), para que no quede
+-- huérfano. Atómico. p_nombre_final ya viene único desde el cliente.
+create or replace function public.renombrar_almacen(p_id uuid, p_nombre_final text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_old text;
+  v_new text := nullif(btrim(p_nombre_final), '');
+begin
+  if not (public.is_staff() or auth.uid() is null) then
+    raise exception 'No autorizado para renombrar almacenes.';
+  end if;
+  if v_new is null then raise exception 'El nombre del almacén no puede estar vacío.'; end if;
+  select nombre into v_old from public.almacenes where id = p_id;
+  if v_old is null then raise exception 'Almacén no encontrado.'; end if;
+  if v_old = v_new then return; end if;
+  if exists (select 1 from public.almacenes where nombre = v_new and id <> p_id) then
+    raise exception 'Ya existe un almacén con ese nombre.';
+  end if;
+  update public.almacenes              set nombre = v_new, updated_at = now() where id = p_id;
+  update public.existencias            set almacen = v_new            where almacen = v_old;
+  update public.productos              set almacen = v_new            where almacen = v_old;
+  update public.movimientos            set almacen = v_new            where almacen = v_old;
+  update public.produccion             set almacen_destino = v_new    where almacen_destino = v_old;
+  update public.produccion_materiales  set almacen = v_new            where almacen = v_old;
+  update public.compras_directas       set almacen = v_new            where almacen = v_old;
+  update public.solicitudes_salida     set almacen_origen = v_new     where almacen_origen = v_old;
+  update public.solicitudes_salida     set almacen_destino = v_new    where almacen_destino = v_old;
+  update public.ordenes                set almacen_destino = v_new    where almacen_destino = v_old;
+end $$;
+
 -- Tablas exclusivas del ciclo de compras: escritura para STAFF (admin o analista).
 do $$
 declare t text;
