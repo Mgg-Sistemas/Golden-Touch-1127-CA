@@ -294,10 +294,13 @@ export function PedidosPage() {
   // de la OC sigue reservado al admin (regla de negocio).
   const canWrite = isAdmin || can('pedidos', 'escritura');
   const canManageProcurement = canWrite;
-  // APROBAR una orden (la Solicitud de Pedido y la firma de la OC) queda
-  // reservado EXCLUSIVAMENTE al rol Administrador (regla de negocio, reforzada
-  // además por un trigger en la base: trg_enforce_admin_aprueba_orden).
-  const puedeAprobarPedidos = isAdmin;
+  // APROBAR la Solicitud de Pedido (pendiente → aprobada) la hace COMPRAS
+  // (analista). La firma final de la OC (oc_creada → oc_aprobada) queda
+  // reservada EXCLUSIVAMENTE al rol Administrador (regla de negocio, reforzada
+  // además por un trigger en la base: trg_enforce_admin_aprueba_orden, que solo
+  // gatea oc_aprobada_por).
+  const puedeAprobarSolicitud = canManageProcurement; // SP: Compras (analista/admin)
+  const puedeAprobarPedidos = isAdmin;                // OC: solo Administrador
 
   // Quien no gestiona compras solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
   useEffect(() => {
@@ -529,7 +532,7 @@ export function PedidosPage() {
         <OrdenesTable
           ordenes={filteredOrdenes}
           proveedorMap={proveedorMap}
-          isAdmin={puedeAprobarPedidos}
+          canApproveSolicitud={puedeAprobarSolicitud}
           onView={(id) => setModal({ kind: 'detail', ordenId: id })}
           onApprove={(o) => setModal({ kind: 'approve', orden: o })}
           noLeidos={noLeidos}
@@ -1546,12 +1549,13 @@ function AbonosModal({
 interface OrdenesTableProps {
   ordenes: Orden[];
   proveedorMap: Map<string, Proveedor>;
-  isAdmin: boolean;
+  /** Aprobar la Solicitud de Pedido (pendiente → aprobada): Compras (analista/admin). */
+  canApproveSolicitud: boolean;
   onView: (id: string) => void;
   onApprove: (o: Orden) => void;
   noLeidos?: Map<string, number>;
 }
-function OrdenesTable({ ordenes, proveedorMap, isAdmin, onView, onApprove, noLeidos }: OrdenesTableProps) {
+function OrdenesTable({ ordenes, proveedorMap, canApproveSolicitud, onView, onApprove, noLeidos }: OrdenesTableProps) {
   if (!ordenes.length) {
     return (
       <div className="card">
@@ -1577,7 +1581,7 @@ function OrdenesTable({ ordenes, proveedorMap, isAdmin, onView, onApprove, noLei
         <tbody>
           {ordenes.map((o) => {
             const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
-            const canApprove = isAdmin && o.estado === 'pendiente';
+            const canApprove = canApproveSolicitud && o.estado === 'pendiente';
             const cambios = (o.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
             return (
               <tr key={o.id}>
@@ -1797,9 +1801,9 @@ function OrdenDetailModal({
   usuarioRole,
 }: OrdenDetailModalProps) {
   const isPendiente = o.estado === 'pendiente';
-  // Aprobar la Solicitud de Pedido queda reservado al Administrador (igual que la
-  // firma de la OC). El analista gestiona el resto (ofertas, emitir/recibir).
-  const canApprove = isAdmin && isPendiente;  // Aprobar Orden de Pedido (solo admin)
+  // Aprobar la Solicitud de Pedido la hace Compras (analista/admin). La firma de
+  // la OC (✔ Aprobar OC, más abajo) sí queda reservada al Administrador (isAdmin).
+  const canApprove = canManageProcurement && isPendiente;  // Aprobar Solicitud de Pedido (Compras)
   const isOcCreada = o.estado === 'oc_creada';      // oferta elegida, sin confirmar
   const isConfirmadaMetodo = o.estado === 'confirmada_metodo'; // gerente confirmó → falta método de pago
   const isOcAprobada = o.estado === 'oc_aprobada';  // método indicado → Tesorería

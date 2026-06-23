@@ -1478,18 +1478,18 @@ create policy "ordenes write auth" on public.ordenes for all
 
 -- ...PERO APROBAR una orden queda reservado al ADMINISTRADOR. El escritura libre
 -- de arriba deja crear/recibir/finalizar a analistas y obreros; este trigger
--- bloquea, a nivel de base, marcar la aprobación (la firma de la Solicitud de
--- Pedido: aprobada_por, o la firma de la OC del gerente: oc_aprobada_por) si el
--- actor no es admin. No se dispara al LIMPIAR esos campos (cambio de proveedor)
--- ni en el paso de método de pago (mueve estado a oc_aprobada sin tocar
--- oc_aprobada_por). Contextos de servicio (auth.uid() null) quedan exentos.
+-- bloquea, a nivel de base, marcar la FIRMA DE LA OC del gerente (oc_aprobada_por)
+-- si el actor no es admin. La aprobación de la Solicitud de Pedido (aprobada_por)
+-- la hace Compras (analista) y NO se gatea acá. No se dispara al LIMPIAR
+-- oc_aprobada_por (cambio de proveedor) ni en el paso de método de pago (mueve
+-- estado a oc_aprobada sin tocar oc_aprobada_por). Contextos de servicio
+-- (auth.uid() null) quedan exentos.
 create or replace function public.enforce_admin_aprueba_orden()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  if (new.aprobada_por is distinct from old.aprobada_por and new.aprobada_por is not null)
-     or (new.oc_aprobada_por is distinct from old.oc_aprobada_por and new.oc_aprobada_por is not null) then
+  if (new.oc_aprobada_por is distinct from old.oc_aprobada_por and new.oc_aprobada_por is not null) then
     if not (public.is_admin() or auth.uid() is null) then
-      raise exception 'Solo un administrador puede aprobar órdenes de compra.';
+      raise exception 'Solo un administrador puede aprobar la orden de compra.';
     end if;
   end if;
   return new;
@@ -1528,6 +1528,34 @@ begin
   update public.solicitudes_salida     set almacen_origen = v_new     where almacen_origen = v_old;
   update public.solicitudes_salida     set almacen_destino = v_new    where almacen_destino = v_old;
   update public.ordenes                set almacen_destino = v_new    where almacen_destino = v_old;
+end $$;
+
+-- ─────────── Control de Alimentación (Cocina) ───────────
+-- Cada movimiento es un consumo de VÍVERES por tipo de comida, con correlativo,
+-- fecha/hora, nº de platos y valor (precios del inventario). Los víveres se
+-- descuentan del inventario aparte (movimientos); acá queda el registro de cocina.
+create table if not exists public.cocina_movimientos (
+  id           uuid primary key default gen_random_uuid(),
+  codigo       text,
+  tipo_comida  text not null check (tipo_comida in ('desayuno','almuerzo','cena')),
+  platos       integer not null default 0,
+  items        jsonb not null default '[]'::jsonb,
+  valor_total  numeric not null default 0,
+  nota         text,
+  actor        text,
+  actor_name   text,
+  at           timestamptz not null default now(),
+  created_at   timestamptz not null default now()
+);
+create index if not exists cocina_mov_at_idx on public.cocina_movimientos (at desc);
+create index if not exists cocina_mov_tipo_idx on public.cocina_movimientos (tipo_comida);
+alter table public.cocina_movimientos enable row level security;
+drop policy if exists "cocina read auth"  on public.cocina_movimientos;
+drop policy if exists "cocina write staff" on public.cocina_movimientos;
+create policy "cocina read auth"  on public.cocina_movimientos for select using (auth.role() = 'authenticated');
+create policy "cocina write staff" on public.cocina_movimientos for all using (public.is_staff()) with check (public.is_staff());
+do $$ begin
+  begin alter publication supabase_realtime add table public.cocina_movimientos; exception when duplicate_object then null; end;
 end $$;
 
 -- Tablas exclusivas del ciclo de compras: escritura para STAFF (admin o analista).
