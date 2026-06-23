@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { TasaHoy } from '@/shared/lib/types';
-import { getTasaHoy, getTasasMercado, bustTasasCache, type TasasMercado } from './tasas.repository';
+import { getTasaHoy, getTasasMercado, bustTasasCache, refrescarTasasSiVencido, type TasasMercado } from './tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { HistorialTasasModal } from './HistorialTasasModal';
 
@@ -32,6 +32,16 @@ export function TasaChip() {
   }, []);
 
   useEffect(() => cargar(), [cargar]);
+
+  // Actualización automática del navbar CADA HORA: intenta refrescar las tasas
+  // (BCV/Binance) si están vencidas y vuelve a leer para mostrar lo último.
+  useEffect(() => {
+    const id = setInterval(() => {
+      void refrescarTasasSiVencido().catch(() => { /* sin función / offline */ })
+        .finally(() => { bustTasasCache(); cargar(); });
+    }, 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [cargar]);
 
   // En vivo: cuando entra una tasa nueva (BCV/Binance/COP), el chip se refresca
   // para no quedar mostrando un valor viejo respecto a la Vista de Tasas.

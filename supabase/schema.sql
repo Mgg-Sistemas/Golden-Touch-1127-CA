@@ -1544,6 +1544,30 @@ begin
 end $$;
 grant execute on function public.latido_sesion() to authenticated;
 
+-- ─────────────────────────────────────────────────────────────
+-- Alerta de Cocina → Compras: "hay que restablecer el mercado".
+-- (En la base productiva el insert/update gatea además con puede('cocina') /
+--  puede('pedidos'); aquí se documenta con is_staff()/is_admin().)
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.alertas_mercado (
+  id                uuid primary key default gen_random_uuid(),
+  nota              text,
+  estado            text not null default 'pendiente',   -- pendiente | atendida
+  creada_por        text,
+  creada_por_nombre text,
+  creada_en         timestamptz not null default now(),
+  atendida_por      text,
+  atendida_en       timestamptz
+);
+create index if not exists idx_alertas_mercado_estado on public.alertas_mercado(estado);
+alter table public.alertas_mercado enable row level security;
+drop policy if exists alertas_mercado_select on public.alertas_mercado;
+create policy alertas_mercado_select on public.alertas_mercado for select using (public.is_staff());
+drop policy if exists alertas_mercado_insert on public.alertas_mercado;
+create policy alertas_mercado_insert on public.alertas_mercado for insert with check (public.is_staff());
+drop policy if exists alertas_mercado_update on public.alertas_mercado;
+create policy alertas_mercado_update on public.alertas_mercado for update using (public.is_staff()) with check (public.is_staff());
+
 -- Directorio mínimo de usuarios activos (id, nombre, apellido, cargo) legible por
 -- cualquier autenticado. La tabla usuarios tiene RLS de "solo tu fila"; esta
 -- función SECURITY DEFINER expone solo datos no sensibles para elegir destinatario

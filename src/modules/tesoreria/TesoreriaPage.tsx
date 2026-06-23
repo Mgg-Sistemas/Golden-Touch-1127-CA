@@ -2730,7 +2730,20 @@ function CalculadoraModal({ onClose }: { onClose: () => void }) {
   const [historial, setHistorial] = useState<{ expr: string; res: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Conversor $ → Bs: compara BCV vs Binance y muestra el margen de ahorro.
+  const [mercadoCalc, setMercadoCalc] = useState<TasasMercado | null>(null);
+  const [montoUsd, setMontoUsd] = useState('');
+  useEffect(() => { getTasasMercado().then(setMercadoCalc).catch(() => setMercadoCalc(null)); }, []);
+  const bcvCalc = mercadoCalc?.bcvUsd ?? null;
+  const binCalc = mercadoCalc?.usdtVes ?? null;
+  const montoUsdNum = Number(montoUsd.replace(',', '.')) || 0;
+  const aBcv = bcvCalc != null ? montoUsdNum * bcvCalc : null;
+  const aBin = binCalc != null ? montoUsdNum * binCalc : null;
+  const difBs = aBcv != null && aBin != null ? aBin - aBcv : null;       // Bs de más a Binance
+  const margenPct = bcvCalc != null && binCalc != null && binCalc > 0 ? ((binCalc - bcvCalc) / binCalc) * 100 : null;
+
   const fmt = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 6 });
+  const fmtBs = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   function push(s: string) { setError(null); setExpr((e) => e + s); }
   function limpiar() { setExpr(''); setResultado(''); setError(null); }
@@ -2785,6 +2798,33 @@ function CalculadoraModal({ onClose }: { onClose: () => void }) {
         <div className="mono" style={{ textAlign: 'right', fontSize: '1.7rem', fontWeight: 800, marginTop: '.3rem', minHeight: '2rem' }}>
           {error ? <span style={{ color: 'var(--danger)', fontSize: '1rem' }}>{error}</span> : (resultado || '0')}
         </div>
+      </div>
+
+      {/* Conversor $ → Bs: BCV vs Binance + margen de ahorro */}
+      <div className="card" style={{ padding: '.7rem .8rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)' }}>
+        <div className="card-title" style={{ marginBottom: '.4rem' }}><span>💵 Convertir $ a Bs (BCV vs Binance)</span></div>
+        <div className="form-row" style={{ margin: 0 }}>
+          <label style={{ fontSize: '.74rem' }}>Monto en USD</label>
+          <input className="input mono" inputMode="decimal" value={montoUsd} onChange={(e) => setMontoUsd(e.target.value)} placeholder="ej. 9,5" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem', marginTop: '.5rem' }}>
+          <div className="card" style={{ padding: '.5rem .6rem', textAlign: 'center' }}>
+            <div style={{ color: 'var(--brand, #ff8a00)', fontWeight: 800, fontSize: '.78rem' }}>BCV</div>
+            <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800 }}>{aBcv != null ? `Bs ${fmtBs(aBcv)}` : '—'}</div>
+            <div className="muted" style={{ fontSize: '.68rem' }}>tasa {bcvCalc != null ? fmtBs(bcvCalc) : '—'}</div>
+          </div>
+          <div className="card" style={{ padding: '.5rem .6rem', textAlign: 'center' }}>
+            <div style={{ color: '#f3ba2f', fontWeight: 800, fontSize: '.78rem' }}>BINANCE</div>
+            <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800 }}>{aBin != null ? `Bs ${fmtBs(aBin)}` : '—'}</div>
+            <div className="muted" style={{ fontSize: '.68rem' }}>tasa {binCalc != null ? fmtBs(binCalc) : '—'}</div>
+          </div>
+        </div>
+        {difBs != null && margenPct != null && montoUsdNum > 0 && (
+          <div style={{ marginTop: '.5rem', textAlign: 'center', fontSize: '.85rem' }}>
+            <span className="muted">Margen de ahorro pagando a BCV: </span>
+            <strong className="mono" style={{ color: '#16c784' }}>Bs {fmtBs(Math.abs(difBs))} · {Math.abs(margenPct).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</strong>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.4rem' }}>

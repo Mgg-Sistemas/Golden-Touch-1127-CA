@@ -6,7 +6,7 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, OrigenProveedor, Proveedor } from '@/shared/lib/types';
-import { crearOferta, actualizarOferta, subirAdjuntosOferta, CONDICIONES_PAGO } from './ofertas.repository';
+import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 
@@ -100,7 +100,17 @@ export function AgregarOfertaModal({
   const [notas, setNotas] = useState(ofertaEditar?.notas ?? '');
   // Adjuntos: PDF o varias imágenes de la cotización (multi-archivo).
   const [pdfFiles, setPdfFiles] = useState<File[]>([]);
+  // Al EDITAR: adjuntos ya guardados que se conservan (se pueden quitar uno a uno).
+  const [adjuntosExistentes, setAdjuntosExistentes] = useState<{ path: string; filename: string }[]>(ofertaEditar?.adjuntos ?? []);
   const [submitting, setSubmitting] = useState(false);
+
+  function quitarAdjuntoExistente(idx: number) {
+    setAdjuntosExistentes((prev) => prev.filter((_, k) => k !== idx));
+  }
+  async function verAdjunto(path: string) {
+    try { window.open(await getPdfOfertaSignedUrl(path), '_blank', 'noopener'); }
+    catch { toast('No se pudo abrir el adjunto', 'error'); }
+  }
 
   // Ficha del producto ofertado + costos logísticos (todo opcional).
   const [ficha, setFicha] = useState<FichaOferta>(ofertaEditar?.ficha ?? {});
@@ -253,8 +263,10 @@ export function AgregarOfertaModal({
         modelo: i.modelo.trim() || null,
       }));
       if (editando) {
-        // Al editar se conservan los adjuntos previos y se agregan los nuevos.
-        const adjuntosFinal = [...(ofertaEditar!.adjuntos ?? []), ...adjuntos];
+        // Al editar: los adjuntos CONSERVADOS (los que no se quitaron) + los nuevos.
+        const adjuntosFinal = [...adjuntosExistentes, ...adjuntos];
+        // El pdf_path/filename de compatibilidad sigue al primer adjunto resultante.
+        const primero = adjuntosFinal[0] ?? null;
         await actualizarOferta(ofertaEditar!.id, {
           proveedor_id: provId,
           items: itemsGuardar,
@@ -265,8 +277,8 @@ export function AgregarOfertaModal({
           notas: notas.trim() || null,
           ficha: fichaLimpia(),
           adjuntos: adjuntosFinal,
-          pdf_path: ofertaEditar!.pdf_path ?? pdf_path,
-          pdf_filename: ofertaEditar!.pdf_filename ?? pdf_filename,
+          pdf_path: primero?.path ?? null,
+          pdf_filename: primero?.filename ?? null,
         });
         notify(`Oferta actualizada · ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
         onCreated();
@@ -609,6 +621,26 @@ export function AgregarOfertaModal({
 
       <div className="form-row">
         <label>Cargue la cotización del proveedor (opcional · varios archivos)</label>
+        {editando && (
+          <div style={{ marginBottom: '.5rem' }}>
+            {adjuntosExistentes.length > 0 ? (
+              <div style={{ display: 'grid', gap: '.25rem' }}>
+                <div className="muted" style={{ fontSize: '.74rem' }}>Adjuntos actuales (tocá ✕ para quitar; podés agregar más abajo):</div>
+                {adjuntosExistentes.map((a, i) => (
+                  <div key={a.path} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.78rem' }}>
+                    <span className="muted">📎</span>
+                    <button type="button" className="btn btn-sm btn-ghost" style={{ flex: 1, justifyContent: 'flex-start', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => void verAdjunto(a.path)} title="Ver">
+                      {a.filename || `Adjunto ${i + 1}`}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => quitarAdjuntoExistente(i)} title="Quitar este adjunto">✕</button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="muted" style={{ fontSize: '.74rem' }}>Sin adjuntos guardados. Podés cargar nuevos abajo.</div>
+            )}
+          </div>
+        )}
         <input type="file" className="input" accept="application/pdf,image/*" multiple onChange={handleFileChange} />
         {pdfFiles.length > 0 && (
           <div style={{ display: 'grid', gap: '.25rem', marginTop: '.4rem' }}>

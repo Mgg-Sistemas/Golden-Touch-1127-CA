@@ -138,7 +138,7 @@ const SECCIONES: Seccion[] = [
       'Comparación de ofertas: el sistema ayuda a elegir la mejor opción combinando criterios (precio, tiempo de entrega, condiciones y otros).',
       'Comparación por producto (Bs vs USD): en cada oferta se cargan dos precios en $ por producto — Pago en Bs a BCV y Pago en USD — más un descuento por producto; el sistema calcula el total de cada columna, la diferencia (Bs − USD) y la variación %. Se ve al cargar y al desplegar la oferta, y en el PDF de trazabilidad.',
       'Adjuntos de la oferta: se pueden subir varios archivos (PDF y/o varias fotos de la cotización, máx. 10 MB c/u); el jefe puede verlos todos desde la comparativa.',
-      'Editar una oferta cargada: mientras la oferta esté Pendiente (no aceptada), al desplegarla en la comparativa aparece "Editar oferta", que abre el formulario prellenado para corregir proveedor, marca, modelo, cantidad y montos (Bs/USD), condiciones, ficha y notas, y agregar más adjuntos.',
+      'Editar una oferta cargada: mientras la oferta esté Pendiente (no aceptada), al desplegarla en la comparativa aparece "Editar oferta", que abre el formulario prellenado para corregir proveedor, marca, modelo, cantidad y montos (Bs/USD), condiciones, ficha y notas. En los adjuntos, al editar se ven los actuales con opción de ver y quitar cada uno, y se pueden agregar nuevos; queda la lista resultante.',
       'Mismo producto en varias marcas/modelos: con "+ Otra marca/modelo" el proveedor puede cotizar el mismo producto en distintas marcas/modelos, cada una con su precio (Bs y USD); se ven con su marca/modelo en la comparativa y el PDF.',
       'Conversación por orden (chat interno): dentro del detalle de cada orden hay un hilo de seguimiento entre compras y el Gerente General, en tiempo real, con aviso de mensajes sin leer (chip y notificación).',
       'Detalle de cada proveedor con su historial.',
@@ -244,6 +244,7 @@ const SECCIONES: Seccion[] = [
       'Descuento de stock: al registrar el movimiento, cada víver se DESCUENTA del inventario (consumo). No deja consumir más de lo disponible.',
       'Tabla de movimientos: lista cada movimiento con tipo de comida, fecha/hora, correlativo, platos y valor. Es filtrable por fecha (desde/hasta), tipo de comida y una búsqueda general (código, producto, nota, fecha/hora). Se descarga en PDF con vista previa.',
       'Consumo / Resumen: botón con el consumo diario, semanal, mensual o por rango de fechas, con BARRAS de los víveres más consumidos y del consumo por tipo de comida. Muestra un resumen tipo "Día 23/06/2026 · 24 platos · consumo total $300 · promedio por plato $12,50" y el STOCK DISPONIBLE de víveres. Todo se puede descargar en PDF con vista previa.',
+      'Alerta a Restablecer: botón con el que la cocina avisa a Compras que hay que montar el mercado (con nota opcional). Aparece como una tarjeta en Pedidos: el analista toca "Montar mercado" (abre la SP con MERCADO activado) o "Marcar atendida".',
     ],
   },
   {

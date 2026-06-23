@@ -16,6 +16,7 @@ import {
   type CocinaMovimiento, type CocinaItem, type TipoComida, type ResumenCocina,
 } from './cocina.repository';
 import { descargarCocinaPdf } from './cocinaPdf';
+import { crearAlertaMercado } from './alertasMercado.repository';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 function hoyISO(): string { return new Date().toISOString().slice(0, 10); }
@@ -33,8 +34,24 @@ export function CocinaPage() {
   const [movs, setMovs] = useState<CocinaMovimiento[]>([]);
   const [viveres, setViveres] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'add' | 'resumen'>('none');
+  const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta'>('none');
   const [aEliminar, setAEliminar] = useState<CocinaMovimiento | null>(null);
+  const [notaAlerta, setNotaAlerta] = useState('');
+  const [enviandoAlerta, setEnviandoAlerta] = useState(false);
+
+  async function enviarAlertaMercado() {
+    setEnviandoAlerta(true);
+    try {
+      await crearAlertaMercado({ nota: notaAlerta || null, actor, actorName });
+      notify('Alerta enviada a Compras: hay que restablecer el mercado', 'success', { link: '#/app/pedidos' });
+      setNotaAlerta('');
+      setModal('none');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo enviar la alerta', 'error');
+    } finally {
+      setEnviandoAlerta(false);
+    }
+  }
 
   // Filtros de la tabla.
   const [fDesde, setFDesde] = useState('');
@@ -94,6 +111,7 @@ export function CocinaPage() {
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
+          {canWrite && <button className="btn btn-warning" onClick={() => setModal('alerta')} title="Avisar a Compras que hay que montar el mercado">🔔 Alerta a Restablecer</button>}
           {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>➕ Añadir Movimiento</button>}
         </div>
       </div>
@@ -192,6 +210,22 @@ export function CocinaPage() {
       )}
       {modal === 'resumen' && (
         <ResumenModal viveres={viveres} onClose={() => setModal('none')} />
+      )}
+      {modal === 'alerta' && (
+        <Modal title="🔔 Alerta a Restablecer el mercado" size="md" onClose={() => !enviandoAlerta && setModal('none')} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setModal('none')} disabled={enviandoAlerta}>Cancelar</button>
+            <button className="btn btn-warning" onClick={() => void enviarAlertaMercado()} disabled={enviandoAlerta}>{enviandoAlerta ? 'Enviando…' : '🔔 Enviar alerta a Compras'}</button>
+          </>
+        }>
+          <p style={{ marginTop: 0 }}>
+            Esto le avisa a <strong>Compras</strong> que hay que <strong>montar el mercado</strong>. Aparece como una <strong>tarjeta en Pedidos</strong> para que el analista cree la Solicitud de Pedido de <strong>MERCADO</strong>.
+          </p>
+          <div className="form-row">
+            <label>Nota para Compras <span className="muted">(opcional)</span></label>
+            <textarea className="textarea" value={notaAlerta} onChange={(e) => setNotaAlerta(e.target.value)} placeholder="Ej.: falta arroz, pollo y aceite; urge para mañana…" rows={3} />
+          </div>
+        </Modal>
       )}
       {aEliminar && (
         <ConfirmDialog title="Eliminar movimiento de cocina"

@@ -8,6 +8,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
@@ -158,7 +159,7 @@ function eventClass(ev: string): string {
 type ModalKind =
   | { kind: 'none' }
   | { kind: 'detail'; ordenId: string }
-  | { kind: 'create' }
+  | { kind: 'create'; mercado?: boolean }
   | { kind: 'approve'; orden: Orden }
   | { kind: 'confirm-oc'; orden: Orden }
   | { kind: 'metodo-pago'; orden: Orden }
@@ -198,6 +199,8 @@ export function PedidosPage() {
   const [offersReloadKey, setOffersReloadKey] = useState(0);
   // Mensajes de chat NO leídos por orden (chip 💬 N en tarjetas/filas).
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
+  // Alertas de Cocina: "hay que restablecer el mercado" (tarjeta para Compras).
+  const [alertasMercado, setAlertasMercado] = useState<AlertaMercado[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -308,6 +311,20 @@ export function PedidosPage() {
   useEffect(() => {
     if (!canManageProcurement && scope !== 'pedidos') setScope('pedidos');
   }, [canManageProcurement, scope]);
+
+  // Alertas de Cocina (restablecer el mercado): solo le importan a Compras.
+  const refreshAlertas = useCallback(async () => {
+    if (!canManageProcurement) { setAlertasMercado([]); return; }
+    try { setAlertasMercado(await listAlertasMercadoPendientes()); }
+    catch { /* best-effort */ }
+  }, [canManageProcurement]);
+  useEffect(() => { void refreshAlertas(); }, [refreshAlertas]);
+  useRealtime(['alertas_mercado'], () => { void refreshAlertas(); });
+
+  async function atenderAlerta(id: string) {
+    try { await marcarAlertaAtendida(id, user?.email ?? 'sistema'); await refreshAlertas(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo marcar', 'error'); }
+  }
 
   // El admin arranca directo en Órdenes de Compra (una sola vez, al cargar su perfil).
   const scopeDefaulted = useRef(false);
@@ -421,6 +438,32 @@ export function PedidosPage() {
           )}
         </div>
       </div>
+
+      {/* Alerta de Cocina: hay que montar el mercado. Tarjeta para el analista. */}
+      {canManageProcurement && alertasMercado.length > 0 && (
+        <div style={{ display: 'grid', gap: '.5rem', marginBottom: '1rem' }}>
+          {alertasMercado.map((a) => (
+            <div key={a.id} className="card" style={{
+              padding: '.8rem 1rem', borderLeft: '4px solid var(--brand, #ff8a00)',
+              background: 'rgba(255,138,0,.08)', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ fontWeight: 800 }}>🛒 Cocina solicita restablecer el mercado</div>
+                <div className="muted" style={{ fontSize: '.82rem' }}>
+                  {dateTime(a.creada_en)} · por {a.creada_por_nombre || a.creada_por || '—'}
+                  {a.nota ? <> · <em>{a.nota}</em></> : null}
+                </div>
+              </div>
+              <button className="btn btn-primary" onClick={() => setModal({ kind: 'create', mercado: true })} title="Crear la Solicitud de Pedido de MERCADO">
+                🛒 Montar mercado
+              </button>
+              <button className="btn btn-ghost" onClick={() => void atenderAlerta(a.id)} title="Marcar como atendida (quitar la alerta)">
+                ✓ Marcar atendida
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Solo quien gestiona compras ve las pestañas de OC / lote / compra directa. */}
       {canManageProcurement && (
@@ -592,6 +635,7 @@ export function PedidosPage() {
           productos={productos}
           usuario={usuario}
           authEmail={user?.email ?? ''}
+          mercadoInicial={modal.mercado}
           onClose={() => setModal({ kind: 'none' })}
           onCreated={async () => {
             setModal({ kind: 'none' });
@@ -2511,6 +2555,8 @@ interface CrearOrdenModalProps {
   productos: Producto[];
   usuario: Usuario | null;
   authEmail: string;
+  /** Si viene true, abre con MERCADO ya activado (desde la alerta de Cocina). */
+  mercadoInicial?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -2518,6 +2564,7 @@ function CrearOrdenModal({
   productos,
   usuario,
   authEmail,
+  mercadoInicial,
   onClose,
   onCreated,
 }: CrearOrdenModalProps) {
@@ -2569,6 +2616,9 @@ function CrearOrdenModal({
       finally { setMercadoLoading(false); }
     }
   }
+  // Si se abre desde la alerta de Cocina, activamos MERCADO de una vez.
+  useEffect(() => { if (mercadoInicial) void toggleMercado(true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
   function toggleMercadoSel(sku: string) {
     setMercadoSel((s) => { const n = new Set(s); if (n.has(sku)) n.delete(sku); else n.add(sku); return n; });
   }
