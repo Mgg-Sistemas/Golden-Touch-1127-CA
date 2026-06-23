@@ -226,17 +226,26 @@ export async function actualizarOrdenEditable(
   },
   actorEmail: string,
 ): Promise<Orden> {
-  if (o.oc_aprobada_en || o.oc_aprobada_por || o.estado === 'oc_aprobada') {
-    throw new Error('La OC ya fue aprobada por el Gerente General: no se puede modificar.');
-  }
   if (!ESTADOS_EDITABLES_ORDEN.includes(o.estado)) {
-    throw new Error('Solo se puede modificar la orden antes de que el Gerente General apruebe la OC.');
+    throw new Error('Solo se puede modificar la orden hasta indicar el método de pago; una vez enviada a pagar queda congelada.');
   }
   if (patch.items && !patch.items.length) throw new Error('La OC debe tener al menos un ítem.');
   if (patch.items && !patch.items.some((i) => i.comprar !== false)) {
     throw new Error('Marcá al menos un ítem a comprar.');
   }
-  const upd: Record<string, unknown> = { historial: appendHistorial(o, 'orden_modificada', actorEmail) };
+  // Si ya estaba FIRMADA por el GG (confirmada_metodo: pendiente por cargar el
+  // método de pago), cualquier modificación la DEVUELVE a aprobación del Gerente
+  // General: vuelve a `oc_creada` y se limpia la firma previa (oc_aprobada_por/en).
+  const vuelveAGerente = o.estado === 'confirmada_metodo';
+  const upd: Record<string, unknown> = {
+    historial: appendHistorial(o, 'orden_modificada', actorEmail,
+      vuelveAGerente ? { nota: 'Modificada tras la firma · vuelve a aprobación del Gerente General' } : {}),
+  };
+  if (vuelveAGerente) {
+    upd.estado = 'oc_creada' as EstadoOrden;
+    upd.oc_aprobada_por = null;
+    upd.oc_aprobada_en = null;
+  }
   if (patch.items) upd.items = patch.items;
   if (patch.motivo !== undefined) upd.motivo = patch.motivo;
   if (patch.finalidad !== undefined) upd.finalidad = patch.finalidad;

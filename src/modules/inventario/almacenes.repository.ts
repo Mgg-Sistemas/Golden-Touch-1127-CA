@@ -156,6 +156,24 @@ export async function renombrarAlmacen(almacen: Almacen, nuevoNombre: string): P
   return nombreFinal;
 }
 
+/**
+ * Renombra una SEDE (la agrupación de la vista de Almacenes): actualiza el campo
+ * `sede` en TODOS los almacenes/subalmacenes que la tengan. La sede es solo una
+ * etiqueta de agrupación (el stock se indexa por nombre de almacén), así que no
+ * toca existencias ni productos. Devuelve cuántos almacenes se actualizaron.
+ */
+export async function renombrarSede(sedeActual: string, nuevoNombre: string): Promise<number> {
+  const nueva = nuevoNombre.trim();
+  if (!nueva) throw new Error('El nombre de la sede no puede estar vacío');
+  if (nueva === sedeActual) return 0;
+  const { data, error } = await supabase.from(TABLE)
+    .update({ sede: nueva, updated_at: new Date().toISOString() })
+    .eq('sede', sedeActual)
+    .select('id');
+  if (error) throw error;
+  return (data ?? []).length;
+}
+
 export async function eliminarAlmacen(id: string, nombre: string): Promise<void> {
   // Bloquea si hay existencias con stock en este almacén.
   const { data, error: cErr } = await supabase

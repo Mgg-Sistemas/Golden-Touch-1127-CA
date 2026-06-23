@@ -17,7 +17,8 @@ import {
   findBySku,
   getCategorias,
   listProductos,
-  listRecepcionesPendientes,
+  listRecepcionesFinalizadas,
+  contarRecepcionesPorMarcar,
   renombrarCategoria,
   setEstadoProducto,
   updateProducto,
@@ -61,6 +62,7 @@ import {
   crearAlmacen,
   actualizarAlmacen,
   renombrarAlmacen,
+  renombrarSede,
   eliminarAlmacen,
   nombreCortoAlmacen,
   type AlmacenInput,
@@ -118,6 +120,7 @@ type ModalState =
   | { kind: 'import'; analisis: AnalisisImport }
   | { kind: 'almacenCrear'; parentId?: string | null; sede?: string | null }
   | { kind: 'almacenEditar'; almacen: Almacen }
+  | { kind: 'sedeEditar'; sede: string }
   | { kind: 'almacenEliminar'; almacen: Almacen };
 
 export function InventarioPage() {
@@ -126,6 +129,8 @@ export function InventarioPage() {
   const canWrite = can('inventario', 'escritura');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [recepciones, setRecepciones] = useState<Orden[]>([]);
+  // Cuántas órdenes están pendientes por marcar la recepción (lo que cuenta el botón).
+  const [recepcionesPorMarcar, setRecepcionesPorMarcar] = useState(0);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenSel, setAlmacenSel] = useState<string | null>(null);
@@ -177,15 +182,17 @@ export function InventarioPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prods, ords, alms, exs, nEnProduccion] = await Promise.all([
+      const [prods, ords, porMarcar, alms, exs, nEnProduccion] = await Promise.all([
         listProductos(),
-        listRecepcionesPendientes().catch(() => [] as Orden[]),
+        listRecepcionesFinalizadas().catch(() => [] as Orden[]),
+        contarRecepcionesPorMarcar().catch(() => 0),
         listAlmacenes().catch(() => [] as Almacen[]),
         listExistencias().catch(() => [] as Existencia[]),
         contarProduccionEnProceso().catch(() => 0),
       ]);
       setProductos(prods);
       setRecepciones(ords);
+      setRecepcionesPorMarcar(porMarcar);
       setAlmacenes(alms);
       setExistencias(exs);
       setEnProduccion(nEnProduccion);
@@ -446,6 +453,13 @@ export function InventarioPage() {
     await reload();
   }
 
+  async function handleRenombrarSede(sedeActual: string, nuevoNombre: string) {
+    const n = await renombrarSede(sedeActual, nuevoNombre);
+    if (sedeSel === sedeActual) setSedeSel(nuevoNombre.trim());
+    notify(`Sede renombrada: ${sedeActual} → ${nuevoNombre.trim()} (${n} almacén/es)`, 'success', { link: '#/app/inventario' });
+    await reload();
+  }
+
   async function handleEliminarAlmacen(a: Almacen) {
     try {
       await eliminarAlmacen(a.id, a.nombre);
@@ -486,7 +500,7 @@ export function InventarioPage() {
             className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setUi((prev) => ({ ...prev, view: 'recepciones' }))}
           >
-            Recepciones {recepciones.length > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepciones.length}</span>}
+            Recepciones {recepcionesPorMarcar > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepcionesPorMarcar}</span>}
           </button>
           {canWrite && (
             <button
@@ -644,7 +658,9 @@ export function InventarioPage() {
             {loading ? (
               <EmptyState message="Cargando almacenes…" icon="◔" />
             ) : (
-              <SedesView almacenes={almacenes} valores={valoresAlm} onSelectSede={(s) => { setSedeSel(s); setAlmacenNavId(null); }} />
+              <SedesView almacenes={almacenes} valores={valoresAlm}
+                onSelectSede={(s) => { setSedeSel(s); setAlmacenNavId(null); }}
+                onEditarSede={(s) => setModal({ kind: 'sedeEditar', sede: s })} />
             )}
           </>
         ) : (() => {
@@ -821,6 +837,13 @@ export function InventarioPage() {
           onSubmit={(data) => handleEditarAlmacen(modal.almacen.id, data)}
         />
       )}
+      {modal.kind === 'sedeEditar' && (
+        <RenombrarSedeModal
+          sede={modal.sede}
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={async (nuevo) => { await handleRenombrarSede(modal.sede, nuevo); setModal({ kind: 'none' }); }}
+        />
+      )}
       {modal.kind === 'almacenEliminar' && (
         <EliminarAlmacenDialog
           almacen={modal.almacen}
@@ -913,6 +936,44 @@ function EliminarAlmacenDialog({ almacen, onCancel, onConfirm }: {
         {texto.trim() !== '' && !ok && (
           <small className="muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────── Renombrar sede (agrupación de almacenes) ───────── */
+function RenombrarSedeModal({ sede, onClose, onSubmit }: {
+  sede: string; onClose: () => void; onSubmit: (nuevo: string) => Promise<void> | void;
+}) {
+  const [nombre, setNombre] = useState(sede);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const limpio = nombre.trim();
+  const ok = limpio !== '' && limpio !== sede;
+  async function guardar() {
+    if (!ok || saving) return;
+    setSaving(true); setError(null);
+    try { await onSubmit(limpio); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo renombrar la sede.'); setSaving(false); }
+  }
+  return (
+    <Modal title="Renombrar sede" size="md" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={guardar} disabled={!ok || saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      <p style={{ marginTop: 0 }}>
+        Cambiá el nombre de la sede <strong>«{sede}»</strong>. Se actualiza en <strong>todos sus almacenes y subalmacenes</strong>;
+        no afecta el stock (que se guarda por almacén).
+      </p>
+      <div className="form-row">
+        <label>Nombre de la sede</label>
+        <input className="input" autoFocus value={nombre}
+          onChange={(e) => setNombre(e.target.value.toUpperCase())}
+          onKeyDown={(e) => { if (e.key === 'Enter' && ok) guardar(); }}
+          placeholder="Ej: PERAMANAL" />
       </div>
     </Modal>
   );

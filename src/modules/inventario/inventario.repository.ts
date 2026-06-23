@@ -289,9 +289,9 @@ export async function _setStockRaw(id: string, nuevoStock: number): Promise<void
 
 /**
  * Recepciones finalizadas: órdenes ya cerradas (estado 'finalizada').
- * Se muestran como tarjetas en el módulo de inventario.
+ * Se muestran como tarjetas (historial) en el módulo de inventario.
  */
-export async function listRecepcionesPendientes(): Promise<Orden[]> {
+export async function listRecepcionesFinalizadas(): Promise<Orden[]> {
   const { data, error } = await supabase
     .from('ordenes')
     .select('*')
@@ -299,4 +299,20 @@ export async function listRecepcionesPendientes(): Promise<Orden[]> {
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as Orden[];
+}
+
+/**
+ * Cuántas órdenes están PENDIENTES por marcar la recepción (desde Pedidos/Compras):
+ * contra entrega lista para recibir (`por_recibir`) o ya pagada y aún sin recibir
+ * (`pagada` con `recibida_en` nulo). Es el número que se muestra en el botón de
+ * Recepciones; las finalizadas NO cuentan.
+ */
+export async function contarRecepcionesPorMarcar(): Promise<number> {
+  const { count, error } = await supabase
+    .from('ordenes')
+    .select('id', { count: 'exact', head: true })
+    .is('recibida_en', null)
+    .in('estado', ['por_recibir', 'pagada']);
+  if (error) throw error;
+  return count ?? 0;
 }
