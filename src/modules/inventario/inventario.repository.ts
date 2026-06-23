@@ -78,8 +78,10 @@ export function prefijoCategoria(categoria: string, productos: Producto[] = []):
   return norm.slice(0, 3) || 'GEN';
 }
 
-/** Siguiente SKU correlativo para la categoría dada (p.ej. "LUB-003"),
- *  tomando el mayor número ya existente para ese prefijo + 1. */
+/** Siguiente SKU correlativo (CLIENTE, sin persistencia): mayor número + 1.
+ *  ⚠ Reutiliza el número si se borra el SKU más alto. Solo se usa como
+ *  estimación local de respaldo; la asignación real va por `nextSku`/`peekSku`,
+ *  que usan un contador PERSISTENTE en la base (no reutiliza números). */
 export function siguienteSku(categoria: string, productos: Producto[] = []): string {
   const prefijo = prefijoCategoria(categoria, productos);
   const re = new RegExp(`^${prefijo}[-_]?(\\d+)$`, 'i');
@@ -89,6 +91,35 @@ export function siguienteSku(categoria: string, productos: Producto[] = []): str
     if (m) max = Math.max(max, parseInt(m[1], 10));
   });
   return `${prefijo}-${String(max + 1).padStart(3, '0')}`;
+}
+
+const fmtSku = (prefijo: string, n: number) => `${prefijo}-${String(n).padStart(3, '0')}`;
+
+/** Previsualiza el próximo SKU SIN reservarlo (para mostrarlo en el formulario).
+ *  Refleja el contador persistente: no reutiliza números aunque se borre el más alto. */
+export async function peekSku(categoria: string, productos: Producto[] = []): Promise<string> {
+  const prefijo = prefijoCategoria(categoria, productos);
+  const { data, error } = await supabase.rpc('peek_sku', { p_prefijo: prefijo });
+  if (error) throw error;
+  return fmtSku(prefijo, Number(data) || 1);
+}
+
+/** Reserva (atómico) y devuelve el próximo SKU correlativo. Úsese al CREAR. */
+export async function nextSku(categoria: string, productos: Producto[] = []): Promise<string> {
+  const prefijo = prefijoCategoria(categoria, productos);
+  const { data, error } = await supabase.rpc('next_sku', { p_prefijo: prefijo, p_n: 1 });
+  if (error) throw error;
+  return fmtSku(prefijo, Number(data) || 1);
+}
+
+/** Reserva N SKUs correlativos de una categoría (un solo viaje) y los devuelve. */
+export async function reservarSkus(categoria: string, n: number, productos: Producto[] = []): Promise<string[]> {
+  if (n <= 0) return [];
+  const prefijo = prefijoCategoria(categoria, productos);
+  const { data, error } = await supabase.rpc('next_sku', { p_prefijo: prefijo, p_n: n });
+  if (error) throw error;
+  const start = Number(data) || 1;
+  return Array.from({ length: n }, (_, i) => fmtSku(prefijo, start + i));
 }
 
 /* Catálogos compartidos: persistidos en Supabase (tabla `taxonomias`) +

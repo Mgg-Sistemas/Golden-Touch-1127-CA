@@ -27,6 +27,8 @@ import {
   actualizarOrdenEditable,
   cancelarOrden,
   crearOrden,
+  getUltimaCompraMercado,
+  FINALIDAD_MERCADO,
   subirImagenOrden,
   getImagenOrdenSignedUrl,
   eliminarImagenOrden,
@@ -2545,6 +2547,48 @@ function CrearOrdenModal({
   // Imagen adjunta opcional (foto del repuesto/equipo solicitado).
   const [imagenFile, setImagenFile] = useState<File | null>(null);
 
+  // MERCADO: pedido para restablecer el mercado (reposición de víveres). Al
+  // activarlo trae la ÚLTIMA compra de mercado para re-seleccionar qué comprar,
+  // y fija la finalidad general "PEDIDO PARA RESTABLECER EL MERCADO".
+  const [mercado, setMercado] = useState(false);
+  const [ultimaMercado, setUltimaMercado] = useState<Orden | null>(null);
+  const [mercadoLoading, setMercadoLoading] = useState(false);
+  const [mercadoSel, setMercadoSel] = useState<Set<string>>(new Set());
+  const mercadoCargado = useRef(false);
+
+  async function toggleMercado(on: boolean) {
+    setMercado(on);
+    if (on && !mercadoCargado.current) {
+      mercadoCargado.current = true;
+      setMercadoLoading(true);
+      try {
+        const u = await getUltimaCompraMercado();
+        setUltimaMercado(u);
+        setMercadoSel(new Set((u?.items ?? []).map((i) => i.sku))); // todos pre-marcados (por SKU)
+      } catch { setUltimaMercado(null); }
+      finally { setMercadoLoading(false); }
+    }
+  }
+  function toggleMercadoSel(sku: string) {
+    setMercadoSel((s) => { const n = new Set(s); if (n.has(sku)) n.delete(sku); else n.add(sku); return n; });
+  }
+  // Añade a la solicitud los productos marcados de la última compra (sin duplicar, por SKU).
+  function agregarMercadoSeleccionados() {
+    const elegidos = (ultimaMercado?.items ?? []).filter((i) => mercadoSel.has(i.sku));
+    if (!elegidos.length) { toast('Seleccioná al menos un producto de la última compra', 'error'); return; }
+    let añadidos = 0;
+    setItems((prev) => {
+      const next = [...prev];
+      for (const it of elegidos) {
+        if (next.some((x) => x.sku === it.sku)) continue;
+        next.push({ productoId: it.productoId, sku: it.sku, nombre: it.nombre, cantidad: it.cantidad || 1, precio: 0, unidad: it.unidad, comprar: true, finalidad: FINALIDAD_MERCADO });
+        añadidos++;
+      }
+      return next;
+    });
+    toast(añadidos ? `${añadidos} producto(s) añadidos desde la última compra` : 'Esos productos ya estaban en la solicitud', añadidos ? 'success' : 'info');
+  }
+
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
   const [nuevoOpen, setNuevoOpen] = useState(false);
@@ -2575,7 +2619,9 @@ function CrearOrdenModal({
       const creado = await createProducto({
         sku,
         nombre,
-        categoria: nuevoCategoria.trim().toUpperCase() || 'GENERAL',
+        // En MERCADO los productos nuevos entran SIEMPRE como VÍVERES (para que
+        // queden disponibles en Cocina); fuera de MERCADO, la categoría elegida.
+        categoria: mercado ? 'VÍVERES' : (nuevoCategoria.trim().toUpperCase() || 'GENERAL'),
         unidad: nuevoUnidad.trim() || 'und',
         stock: 0,
         stock_min: 0,
@@ -2709,7 +2755,10 @@ function CrearOrdenModal({
     const notaFinal = ((notaDom?.value ?? notas) || '').trim();
     const itemsFinal = items.map((it, idx) => {
       const dom = finDoms.find((d) => d.dataset.finIdx === String(idx));
-      return dom ? { ...it, finalidad: dom.value } : it;
+      const base = dom ? { ...it, finalidad: dom.value } : it;
+      // En MERCADO, si no se escribió finalidad puntual, se hereda la general.
+      if (mercado && !base.finalidad?.trim()) return { ...base, finalidad: FINALIDAD_MERCADO };
+      return base;
     });
     setSubmitting(true);
     try {
@@ -2727,7 +2776,7 @@ function CrearOrdenModal({
         items: itemsFinal,
         notas: notaFinal || null,
         motivo: null,
-        finalidad: null,
+        finalidad: mercado ? FINALIDAD_MERCADO : null,
         clasificacion: [],
         urgente,
         imagen_path: imagenPath,
@@ -2822,6 +2871,67 @@ function CrearOrdenModal({
         </span>
         <span className="muted" style={{ fontSize: '.76rem' }}>Marca esta solicitud como prioritaria.</span>
       </label>
+
+      {/* MERCADO: reposición de víveres. Trae la última compra para re-seleccionar
+          qué comprar y fija la finalidad general automática. */}
+      <label
+        style={{
+          display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer',
+          padding: '.7rem .9rem', borderRadius: 8, marginBottom: mercado ? '.6rem' : '1rem',
+          border: `1px solid ${mercado ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
+          background: mercado ? 'rgba(255,138,0,.12)' : 'transparent',
+        }}
+      >
+        <input type="checkbox" checked={mercado} onChange={(e) => void toggleMercado(e.target.checked)} />
+        <span style={{ fontWeight: 700, letterSpacing: '.02em', color: mercado ? 'var(--brand, #ff8a00)' : 'inherit' }}>
+          🛒 MERCADO
+        </span>
+        <span className="muted" style={{ fontSize: '.76rem' }}>Pedido para restablecer el mercado: trae la última compra para re-seleccionar.</span>
+      </label>
+
+      {mercado && (
+        <div className="card" style={{ padding: '.7rem', marginBottom: '1rem', display: 'grid', gap: '.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem' }}>
+            <strong style={{ fontSize: '.85rem' }}>
+              Última compra de mercado
+              {ultimaMercado && <span className="muted mono" style={{ fontWeight: 400 }}> · {ultimaMercado.codigo} · {dateTime(ultimaMercado.created_at)}</span>}
+            </strong>
+            <span className="badge" style={{ background: 'var(--brand,#ff8a00)', color: '#111', fontSize: '.66rem', fontWeight: 700 }}>
+              Finalidad: {FINALIDAD_MERCADO}
+            </span>
+          </div>
+          {mercadoLoading ? (
+            <div className="muted" style={{ fontSize: '.82rem' }}>Cargando última compra…</div>
+          ) : !ultimaMercado || !ultimaMercado.items?.length ? (
+            <div className="muted" style={{ fontSize: '.82rem' }}>
+              No hay una compra de mercado anterior. Agregá los productos abajo (buscador o «+ Producto nuevo»).
+            </div>
+          ) : (
+            <>
+              <div className="muted" style={{ fontSize: '.74rem' }}>Marcá lo que vas a volver a comprar y tocá «Añadir seleccionados».</div>
+              <div style={{ maxHeight: 'min(32vh, 260px)', overflowY: 'auto', display: 'grid', gap: '.25rem' }}>
+                {ultimaMercado.items.map((it) => {
+                  const yaEsta = items.some((x) => x.sku === it.sku);
+                  const sel = mercadoSel.has(it.sku);
+                  return (
+                    <label key={it.sku} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.3rem .4rem', borderRadius: 6, opacity: yaEsta ? 0.55 : 1 }}>
+                      <input type="checkbox" checked={sel} disabled={yaEsta} onChange={() => toggleMercadoSel(it.sku)} />
+                      <span style={{ flex: 1 }}>{it.nombre} <span className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</span></span>
+                      <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{it.cantidad} {it.unidad}</span>
+                      {yaEsta && <span className="badge" style={{ fontSize: '.6rem' }}>ya añadido</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              <div>
+                <button type="button" className="btn btn-sm btn-primary" onClick={agregarMercadoSeleccionados}>
+                  + Añadir seleccionados ({[...mercadoSel].filter((sku) => !items.some((x) => x.sku === sku)).length})
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="form-row">
         <label>Productos solicitados</label>
@@ -2934,7 +3044,11 @@ function CrearOrdenModal({
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
               />
               <div className="form-grid">
-                <input className="input" name="op-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoCategoria(e.target.value); }} />
+                {mercado ? (
+                  <input className="input" value="VÍVERES" disabled title="En MERCADO los productos nuevos entran como VÍVERES y quedan disponibles en Cocina" />
+                ) : (
+                  <input className="input" name="op-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoCategoria(e.target.value); }} />
+                )}
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
                     placeholder="🔍 Unidad…"

@@ -1,7 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
-import { getCategorias, getUnidades } from './inventario.repository';
+import { getCategorias, getUnidades, nextSku } from './inventario.repository';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 
 /* ──────────── Estilos compartidos para los Excel ──────────── */
@@ -181,7 +181,8 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
 
     const sumCol = (col: string) => { errorPorColumna[col] = (errorPorColumna[col] ?? 0) + 1; };
 
-    if (!sku) { errores.push('SKU vacío'); sumCol('sku'); }
+    // El SKU NO se carga en la plantilla: el sistema lo asigna solo (correlativo
+    // por categoría) al importar. Solo se respeta si el archivo trae la columna.
     if (!nombre) { errores.push('Nombre vacío'); sumCol('nombre'); }
 
     const precio = toNum(norm.precio);
@@ -292,6 +293,29 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
     return map.get(k)!;
   };
 
+  // SKU automático e incremental: la plantilla ya NO pide SKU. Para asignarlo,
+  // cargamos los productos existentes (para el correlativo por categoría y para
+  // reconocer por NOMBRE los que ya están, y así actualizarlos en vez de duplicar).
+  const { data: existentesFull } = await supabase.from('productos').select('sku, nombre, categoria');
+  const skuPorNombre = new Map<string, string>();   // nombre (minúsc.) → sku ya existente
+  const runningProd: Array<{ sku: string; categoria: string }> = [];
+  (existentesFull ?? []).forEach((p) => {
+    if (p.nombre) skuPorNombre.set(String(p.nombre).toLowerCase(), String(p.sku));
+    runningProd.push({ sku: String(p.sku), categoria: String(p.categoria ?? '') });
+  });
+  // Resuelve el SKU de una fila: 1) el del Excel si lo trae; 2) el del producto con
+  // ese mismo nombre (actualización); 3) uno nuevo correlativo PERSISTENTE por
+  // categoría (contador en la base: atómico y sin reutilizar números).
+  async function resolverSku(nombre: string, categoria: string, skuExcel: string): Promise<string> {
+    if (skuExcel) return skuExcel;
+    const k = nombre.toLowerCase();
+    const ya = skuPorNombre.get(k);
+    if (ya) return ya;
+    const nuevo = await nextSku(categoria, runningProd as unknown as Producto[]);
+    skuPorNombre.set(k, nuevo);
+    return nuevo;
+  }
+
   // 1) Construir los payloads válidos (las filas con error nunca se importan).
   interface Preparada { fila: number; sku: string; almacen: string; stock: number; precio: number; payload: Record<string, unknown>; }
   const preparadas: Preparada[] = [];
@@ -319,13 +343,16 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
     // canónica de la tabla `almacenes` (ej. "General", "Almacén 1") para que
     // coincidan con las existencias y la vista de producción.
     const almacen = toStr(r.almacen).trim() || 'General';
+    const categoria = canon(canonCat, toStr(r.categoria).toUpperCase() || 'GENERAL');
+    // SKU: incremental por categoría desde el sistema (o el del Excel si viene).
+    const sku = await resolverSku(f.nombre, categoria, toStr(r.sku).toUpperCase());
 
     preparadas.push({
-      fila: f.fila, sku: f.sku, almacen, stock, precio,
+      fila: f.fila, sku, almacen, stock, precio,
       payload: {
-        sku: f.sku,
+        sku,
         nombre: f.nombre,
-        categoria: canon(canonCat, toStr(r.categoria).toUpperCase() || 'GENERAL'),
+        categoria,
         unidad: canon(canonUni, toStr(r.unidad).trim() || 'und'),
         stock,
         stock_min: stockMin,
@@ -392,15 +419,14 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     ['1. ESTRUCTURA DEL ARCHIVO'],
     ['• Trabajá exclusivamente sobre la hoja "Productos". No renombres columnas.'],
     ['• Una fila por producto. La fila 1 es el encabezado; los datos arrancan en la fila 2.'],
-    ['• Podés agregar tantas filas como necesites; el sistema procesa hasta el último renglón con SKU.'],
+    ['• El SKU NO se carga: el sistema lo asigna solo, incremental por categoría (correlativo).'],
     [''],
     ['2. COLUMNAS Y FORMATO'],
-    ['• sku (texto): obligatorio, único, sin espacios. Se guarda siempre en MAYÚSCULAS. Ej: LUB-001.'],
     ['• nombre (texto): obligatorio, descripción corta del producto. Se guarda en MAYÚSCULAS.'],
-    ['• categoria (texto): opcional. Si la dejás vacía se asigna "GENERAL".'],
+    ['• categoria (texto): opcional. Si la dejás vacía se asigna "GENERAL". Define el PREFIJO del SKU.'],
     ['• unidad (texto): opcional (und, kg, tambor, caja, …). Por defecto "und".'],
-    ['• stock (número entero ≥ 0): no acepta letras ni decimales negativos. Vacío = 0.'],
-    ['• stock_min (número entero ≥ 0): umbral de reabastecimiento. Vacío = 0.'],
+    ['• stock (número ≥ 0): no acepta letras ni negativos. Vacío = 0.'],
+    ['• stock_min (número ≥ 0): umbral de reabastecimiento. Vacío = 0.'],
     ['• precio (número ≥ 0): puede tener decimales. No acepta letras ni negativos. (Precio UND).'],
     ['• precio_venta (número ≥ 0): opcional. Posible precio de venta del producto.'],
     ['• almacen (texto): opcional. Por defecto "GENERAL". Define en qué almacén entra el stock.'],
@@ -409,20 +435,24 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     ['• es_receta (SI/NO): opcional. Marca el producto como insumo de receta (producción).'],
     ['• es_producible (SI/NO): opcional. Marca el producto como producible (producto terminado).'],
     [''],
-    ['3. VALIDACIONES QUE EL SISTEMA APLICA'],
+    ['3. CÓMO SE ASIGNA EL SKU (AUTOMÁTICO)'],
+    ['• El sistema genera el SKU solo, con el formato PREFIJO-NNN (ej. VIV-001, LUB-003).'],
+    ['• El prefijo se hereda de la categoría (el que ya se viene usando) o se arma con sus 3 primeras letras.'],
+    ['• El número es correlativo por prefijo: toma el último usado y suma 1. No hay que escribirlo.'],
+    [''],
+    ['4. VALIDACIONES QUE EL SISTEMA APLICA'],
     ['❌ Precio, stock o stock mínimo en negativo → ERROR (no se importa).'],
     ['❌ Precio, stock o stock mínimo con letras → ERROR (no se importa).'],
     ['❌ Estado distinto de "activo" / "inactivo" → ERROR.'],
-    ['❌ SKU o nombre vacíos → ERROR.'],
-    ['⚠ SKU repetido dentro del archivo o ya presente en el sistema → DUPLICADO.'],
-    ['⚠ Nombre repetido dentro del archivo o ya presente en el sistema → DUPLICADO.'],
+    ['❌ Nombre vacío → ERROR.'],
+    ['⚠ Nombre repetido en el archivo o ya presente en el sistema → DUPLICADO (se actualiza ese producto).'],
     [''],
-    ['4. RESULTADO DE LA IMPORTACIÓN'],
+    ['5. RESULTADO DE LA IMPORTACIÓN'],
     ['• VALIDADO: todas las filas pasan, importación directa.'],
-    ['• DUPLICADOS: el sistema te muestra qué filas son duplicadas y te pregunta si querés continuar. Los SKU existentes se actualizan; los nuevos se insertan.'],
+    ['• DUPLICADOS: el sistema te muestra las filas duplicadas y te pregunta si querés continuar. Los nombres existentes se ACTUALIZAN; los nuevos se insertan con un SKU nuevo.'],
     ['• ERROR: existen filas con datos inválidos. La importación queda bloqueada hasta corregirlas. Las filas con error nunca se importan, ni siquiera si confirmás.'],
     [''],
-    ['5. RECOMENDACIONES'],
+    ['6. RECOMENDACIONES'],
     ['• Usá puntos decimales (1234.56), no comas.'],
     ['• Evitá fórmulas en columnas numéricas; pegá valores planos.'],
     ['• Verificá categorías y almacenes con la nomenclatura ya usada en el sistema (mayúsculas).'],
@@ -435,7 +465,7 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
   const refStr = ws['!ref'];
   if (refStr) {
     const range = XLSX.utils.decode_range(refStr);
-    const sectionRows = new Set([2, 7, 22, 30, 36]);
+    const sectionRows = new Set([2, 7, 21, 26, 33, 38]);
     for (let r = range.s.r; r <= range.e.r; r++) {
       const addr = XLSX.utils.encode_cell({ r, c: 0 });
       const cell = ws[addr] as { s?: unknown } | undefined;
@@ -468,9 +498,10 @@ export async function descargarPlantillaExcel(): Promise<void> {
   XLSXMod.utils.book_append_sheet(wb, wsInstr, 'Instrucciones');
 
   // Hoja "Productos" vacía: solo el encabezado para que el usuario cargue sus filas.
-  const headers = ['sku', 'nombre', 'categoria', 'unidad', 'stock', 'stock_min', 'precio', 'precio_venta', 'almacen', 'estado', 'restock_pct', 'es_receta', 'es_producible'];
+  // SIN columna "sku": el sistema lo asigna solo (correlativo por categoría) al importar.
+  const headers = ['nombre', 'categoria', 'unidad', 'stock', 'stock_min', 'precio', 'precio_venta', 'almacen', 'estado', 'restock_pct', 'es_receta', 'es_producible'];
   const wsProd = XLSXMod.utils.aoa_to_sheet([headers]);
-  stylize(wsProd as WsSheet, XLSXMod, [14, 32, 18, 12, 10, 12, 12, 14, 16, 12, 12, 12, 14]);
+  stylize(wsProd as WsSheet, XLSXMod, [32, 18, 12, 10, 12, 12, 14, 16, 12, 12, 12, 14]);
   XLSXMod.utils.book_append_sheet(wb, wsProd, 'Productos');
   previewExcel(wb, 'plantilla-productos.xlsx');
 }

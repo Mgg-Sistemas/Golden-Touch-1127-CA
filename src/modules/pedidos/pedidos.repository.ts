@@ -43,6 +43,24 @@ export async function getOrdenById(id: string): Promise<Orden | null> {
   return (data ?? null) as Orden | null;
 }
 
+/** Finalidad general fija de los pedidos de MERCADO (reposición de víveres).
+ *  Sirve además como marcador para reconocer la "última compra de mercado". */
+export const FINALIDAD_MERCADO = 'PEDIDO PARA RESTABLECER EL MERCADO';
+
+/** Última Solicitud de Pedido de MERCADO: la SP más reciente con la finalidad de
+ *  mercado, para repetir/re-seleccionar su lista al "restablecer el mercado". */
+export async function getUltimaCompraMercado(): Promise<Orden | null> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .eq('finalidad', FINALIDAD_MERCADO)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data ?? null) as Orden | null;
+}
+
 export async function listProveedoresActivos(): Promise<Proveedor[]> {
   const { data, error } = await supabase
     .from('proveedores')

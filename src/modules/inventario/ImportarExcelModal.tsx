@@ -217,7 +217,7 @@ function FilaTr({ fila }: { fila: FilaAnalizada }) {
     return (
       <tr>
         <td className="mono">{fila.fila}</td>
-        <td className="mono">{fila.sku || '—'}</td>
+        <td className="mono">{fila.sku || <span className="muted">auto</span>}</td>
         <td>{fila.nombre || '—'}</td>
         <td><span className="badge success">Válida</span></td>
         <td className="muted">OK</td>

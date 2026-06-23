@@ -42,6 +42,10 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const [almacen, setAlmacen] = useState(almacenInicial);
   const [tipo, setTipo] = useState<TipoManual>('entrada');
   const [cantidad, setCantidad] = useState('1');
+  // Carga por CAJA/BULTO: la "cantidad" se ingresa en cajas/bultos y se multiplica
+  // por las unidades por bulto → el stock se mueve en UNIDADES (ej. 2 × 20 = 40 und).
+  const [porBulto, setPorBulto] = useState(false);
+  const [undPorBulto, setUndPorBulto] = useState('');
   const [almacenDestino, setAlmacenDestino] = useState('');
   const [signoAjuste, setSignoAjuste] = useState<'pos' | 'neg'>('pos');
   const [detalle, setDetalle] = useState('');
@@ -62,7 +66,10 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const [costoUnit, setCostoUnit] = useState(String(costoAlmacen || producto.precio || 0));
 
   const opcion = OPCIONES.find((o) => o.value === tipo)!;
-  const cantidadNum = Number(cantidad) || 0;
+  const cantidadRaw = Number(cantidad) || 0;           // cajas/bultos si porBulto; si no, unidades
+  const undXBulto = Number(undPorBulto) || 0;
+  // Cantidad efectiva EN UNIDADES (lo que mueve el stock).
+  const cantidadNum = porBulto && undXBulto > 0 ? cantidadRaw * undXBulto : cantidadRaw;
   const delta =
     opcion.sign === 'zero'
       ? 0
@@ -95,6 +102,10 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
     e.preventDefault();
     setError(null);
 
+    if (!isFundicion && porBulto && undXBulto <= 0) {
+      setError('Indicá cuántas unidades trae cada caja/bulto.');
+      return;
+    }
     if (!isFundicion && cantidadNum <= 0) {
       setError('La cantidad debe ser mayor que 0.');
       return;
@@ -214,19 +225,53 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           </div>
         </div>
 
+        {!isFundicion && (
+          <label
+            style={{
+              display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer',
+              padding: '.55rem .8rem', borderRadius: 8, marginBottom: '.75rem',
+              border: `1px solid ${porBulto ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
+              background: porBulto ? 'rgba(255,138,0,.10)' : 'transparent',
+            }}
+          >
+            <input type="checkbox" checked={porBulto} onChange={(e) => setPorBulto(e.target.checked)} />
+            <span style={{ fontWeight: 700, color: porBulto ? 'var(--brand, #ff8a00)' : 'inherit' }}>📦 Ingresar por caja / bulto</span>
+            <span className="muted" style={{ fontSize: '.74rem' }}>La cantidad se multiplica por las unidades por bulto y el stock se mueve en unidades.</span>
+          </label>
+        )}
+
         <div className="form-grid">
           {!isFundicion && (
             <div className="form-row">
-              <label>Cantidad ({producto.unidad})</label>
+              <label>{porBulto ? 'Cantidad de cajas / bultos' : `Cantidad (${producto.unidad})`}</label>
               <input
                 className="input mono"
                 type="number"
-                min={1}
+                min={porBulto ? 0 : 1}
                 step="any"
                 value={cantidad}
                 onChange={(e) => setCantidad(e.target.value)}
                 required={!isFundicion}
               />
+            </div>
+          )}
+          {!isFundicion && porBulto && (
+            <div className="form-row">
+              <label>Unidades por caja / bulto</label>
+              <input
+                className="input mono"
+                type="number"
+                min={0}
+                step="any"
+                value={undPorBulto}
+                onChange={(e) => setUndPorBulto(e.target.value)}
+                placeholder="ej. 20"
+              />
+              <small className="muted" style={{ fontSize: '.72rem' }}>
+                {undXBulto > 0
+                  ? <>{cantidadRaw} caja{cantidadRaw === 1 ? '' : 's'} × {undXBulto} = <strong>{num(cantidadNum)} {producto.unidad}</strong></>
+                  : <>Indicá cuántas unidades trae cada caja/bulto.</>}
+              </small>
             </div>
           )}
           {esEntradaConCosto && (
