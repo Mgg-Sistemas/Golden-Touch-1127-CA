@@ -31,7 +31,14 @@ const OPCIONES: { value: TipoManual; label: string; sign: 'pos' | 'neg' | 'any' 
 ];
 
 export function MovimientoForm({ producto, existencias, almacenesList, fixedAlmacen, actorEmail, actorName, onClose, onSubmit }: MovimientoFormProps) {
-  const almacenInicial = fixedAlmacen || producto.almacen || almacenesList[0] || 'General';
+  // Por defecto se abre en el almacén que TIENE stock (el de mayor existencia); así
+  // un ajuste no apunta a un almacén vacío mientras el stock está en otro (ej. el
+  // producto dice "LOS PINOS" pero el stock entró a "General" por la recepción).
+  const almacenConStock = useMemo(() => {
+    const conStock = existencias.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock));
+    return conStock[0]?.almacen ?? null;
+  }, [existencias]);
+  const almacenInicial = fixedAlmacen || almacenConStock || producto.almacen || almacenesList[0] || 'General';
   const [almacen, setAlmacen] = useState(almacenInicial);
   const [tipo, setTipo] = useState<TipoManual>('entrada');
   const [cantidad, setCantidad] = useState('1');
