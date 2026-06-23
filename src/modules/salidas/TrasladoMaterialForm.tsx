@@ -55,8 +55,6 @@ export function TrasladoMaterialForm({
   function quitarLinea(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
 
   const [motivo, setMotivo] = useState('');
-  const [notaOn, setNotaOn] = useState(false);
-  const [notaTexto, setNotaTexto] = useState('');
   const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().slice(0, 10));
   const [transporte, setTransporte] = useState<TransporteSeleccion>(transporteVacio);
   const [consumoInterno, setConsumoInterno] = useState(false);
@@ -137,7 +135,7 @@ export function TrasladoMaterialForm({
         items, almacenOrigen: origen, almacenDestino: destino,
         motivo: motivo.trim() || null,
         unidadSolicitante: unidadSolicitante.trim() || null,
-        notaEntrega: notaOn ? (notaTexto.trim() || null) : null, fechaEntrega: fechaEntrega || null,
+        notaEntrega: null, fechaEntrega: fechaEntrega || null,
         choferId: transporte.choferId, choferNombre: transporte.choferNombre, choferCedula: transporte.choferCedula,
         vehiculoId: transporte.vehiculoId, vehiculoDescripcion: transporte.vehiculoDescripcion, vehiculoPlaca: transporte.vehiculoPlaca,
         direccionDespacho: transporte.direccionDespacho || null,
@@ -260,18 +258,6 @@ export function TrasladoMaterialForm({
             <input className="input" type="date" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} />
             <small className="muted">Fecha en que se entregó al almacén destino.</small>
           </div>
-        </div>
-
-        <div className="form-row" style={{ marginTop: '.25rem' }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
-            <input type="checkbox" checked={notaOn} onChange={(e) => setNotaOn(e.target.checked)} />
-            Nota de entrega
-          </label>
-          {notaOn && (
-            <textarea className="input" name="tm-nota" rows={2} defaultValue={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
-              placeholder="Escribí el motivo / detalle de la nota de entrega…" style={{ marginTop: '.4rem' }} />
-          )}
-          {notaOn && <small className="muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}
         </div>
 
         {/* Consumo interno: el material se traslada para uso interno. */}

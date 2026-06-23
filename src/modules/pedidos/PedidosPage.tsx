@@ -1803,10 +1803,10 @@ function OrdenDetailModal({
   const isFinalizada = o.estado === 'finalizada';
   // Las ofertas (añadir proveedor) se gestionan SOLO desde la pestaña Órdenes de Compra.
   const mostrarOfertas = enOc && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada'].includes(o.estado);
-  // Editar la orden: en CUALQUIER etapa previa a la aprobación de la OC por el
-  // Gerente General (firma). Una vez que el GG aprueba, queda congelada.
+  // Editar la orden: en cualquier etapa hasta indicar el método de pago. Si ya está
+  // FIRMADA por el GG (confirmada_metodo), igual se puede modificar, pero al guardar
+  // la OC VUELVE A APROBACIÓN del Gerente General. Tras enviarla a pagar, se congela.
   const puedeEditarOc = canManageProcurement
-    && !o.oc_aprobada_en && !o.oc_aprobada_por
     && (['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'] as string[]).includes(o.estado);
 
   // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
@@ -1880,7 +1880,7 @@ function OrdenDetailModal({
         </button>
       )}
       {puedeEditarOc && (
-        <button className="btn btn-ghost" onClick={onEditarOrden} title="Modificar ítems, cantidades, motivo y finalidad (permitido hasta que el GG apruebe la OC)">
+        <button className="btn btn-ghost" onClick={onEditarOrden} title="Modificar ítems, cantidades, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.">
           ✎ Editar orden
         </button>
       )}
@@ -3133,7 +3133,11 @@ function EditarOrdenModal({
         if (fallos) toast(`OC actualizada, pero ${fallos} nombre(s) no se pudo sincronizar con inventario.`, 'error');
         else toast(`Nombre sincronizado con inventario (${cambiados.length}).`, 'success');
       }
-      notify(`${orden.estado === 'pendiente' ? 'Solicitud de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
+      if (orden.estado === 'confirmada_metodo') {
+        notify(`OC ${orden.codigo} modificada · vuelve a aprobación del Gerente General`, 'warning', { link: '#/app/pedidos' });
+      } else {
+        notify(`${orden.estado === 'pendiente' ? 'Solicitud de pedido' : 'OC'} ${orden.codigo} modificada`, 'success', { link: '#/app/pedidos' });
+      }
       onSaved();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo modificar la OC', 'error'); setSaving(false); }
   }

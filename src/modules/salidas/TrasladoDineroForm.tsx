@@ -27,8 +27,6 @@ export function TrasladoDineroForm({
   const [destinoId, setDestinoId] = useState(destinos[0]?.id ?? '');
   const [monto, setMonto] = useState('0');
   const [motivo, setMotivo] = useState('');
-  const [notaOn, setNotaOn] = useState(false);
-  const [notaTexto, setNotaTexto] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +48,7 @@ export function TrasladoDineroForm({
         scope: 'traslado', tipo: 'dinero',
         cajaId: origenId, cajaDestinoId: destinoValido, monto: montoNum, moneda: origen?.moneda ?? null,
         destino: dest?.nombre ?? null, motivo: motivo.trim() || null,
-        notaEntrega: notaOn ? (notaTexto.trim() || null) : null,
+        notaEntrega: null,
         solicitante: actorName || actor, actor, actorName,
       });
       notify(`Solicitud de traslado de dinero creada: ${money(montoNum)} ${origen?.moneda} · ${origen?.nombre} → ${dest?.nombre} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
@@ -102,18 +100,6 @@ export function TrasladoDineroForm({
             <label>Motivo (opcional)</label>
             <input className="input" name="traslado-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del traslado…" />
           </div>
-        </div>
-
-        <div className="form-row">
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
-            <input type="checkbox" checked={notaOn} onChange={(e) => setNotaOn(e.target.checked)} />
-            Nota de entrega
-          </label>
-          {notaOn && (
-            <textarea className="input" name="traslado-nota" rows={2} defaultValue={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
-              placeholder="Escribí el motivo / detalle de la nota de entrega…" style={{ marginTop: '.4rem' }} />
-          )}
-          {notaOn && <small className="muted">Este texto se imprime en el PDF del traslado como “Nota de entrega”.</small>}
         </div>
       </form>
     </Modal>
