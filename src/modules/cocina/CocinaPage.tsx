@@ -327,7 +327,7 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>¿Cuántos platos se realizaron?</label>
-            <input className="input mono" type="number" min={1} step={1} value={platos} onChange={(e) => setPlatos(e.target.value)} placeholder="Ej.: 24" required />
+            <input className="input mono" type="number" min={0} step="any" value={platos} onChange={(e) => setPlatos(e.target.value)} placeholder="Ej.: 24" required />
           </div>
           <div className="form-row">
             <label>Nota (opcional)</label>

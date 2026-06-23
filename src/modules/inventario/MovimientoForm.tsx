@@ -247,7 +247,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
               <input
                 className="input mono"
                 type="number"
-                min={porBulto ? 0 : 1}
+                min={0}
                 step="any"
                 value={cantidad}
                 onChange={(e) => setCantidad(e.target.value)}
