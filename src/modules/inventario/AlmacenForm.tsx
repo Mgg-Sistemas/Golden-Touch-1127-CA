@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import type { Almacen } from '@/shared/lib/types';
-import { listSedes, type AlmacenInput } from './almacenes.repository';
+import { listSedes, nombreCortoAlmacen, type AlmacenInput } from './almacenes.repository';
 
 interface AlmacenFormProps {
   almacen?: Almacen | null; // null/undefined => crear
@@ -30,7 +30,9 @@ function idsDescendientes(rootId: string, almacenes: Almacen[]): Set<string> {
 
 export function AlmacenForm({ almacen, almacenes = [], parentPreset, sedePreset, onClose, onSubmit }: AlmacenFormProps) {
   const isEdit = !!almacen;
-  const [nombre, setNombre] = useState(almacen?.nombre ?? '');
+  // Al editar un subalmacén se muestra el nombre CORTO (sin el sufijo interno
+  // " · <padre>" que se usa para mantenerlo único); al guardar se recalcula.
+  const [nombre, setNombre] = useState(almacen ? nombreCortoAlmacen(almacen, almacenes) : '');
   const [ubicacion, setUbicacion] = useState(almacen?.ubicacion ?? '');
   const [parentId, setParentId] = useState<string>(almacen?.parent_id ?? parentPreset ?? '');
   const [sede, setSede] = useState(almacen?.sede ?? sedePreset ?? '');

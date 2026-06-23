@@ -60,6 +60,7 @@ import {
   consumoPorProductoEnAlmacen,
   crearAlmacen,
   actualizarAlmacen,
+  renombrarAlmacen,
   eliminarAlmacen,
   nombreCortoAlmacen,
   type AlmacenInput,
@@ -430,7 +431,17 @@ export function InventarioPage() {
   }
 
   async function handleEditarAlmacen(id: string, data: AlmacenInput) {
-    await actualizarAlmacen(id, data);
+    const actual = almacenes.find((a) => a.id === id) ?? null;
+    // Campos que no son el nombre se actualizan directo (no afectan al stock).
+    await actualizarAlmacen(id, { ubicacion: data.ubicacion, sede: data.sede, parent_id: data.parent_id });
+    // El nombre se cambia por la cascada (propaga a existencias/productos/etc.),
+    // así el stock del almacén no queda huérfano al renombrarlo. Se compara contra
+    // el nombre CORTO (lo que ve el usuario) para no renombrar de gusto.
+    if (actual && data.nombre.trim() && data.nombre.trim() !== nombreCortoAlmacen(actual, almacenes)) {
+      const nombreFinal = await renombrarAlmacen(actual, data.nombre.trim());
+      // Si el almacén renombrado estaba seleccionado, mover la selección al nuevo nombre.
+      if (almacenSel === actual.nombre) setAlmacenSel(nombreFinal);
+    }
     notify(`Almacén actualizado: ${data.nombre}`, 'success', { link: '#/app/inventario' });
     await reload();
   }

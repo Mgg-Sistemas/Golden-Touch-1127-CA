@@ -130,6 +130,32 @@ export async function actualizarAlmacen(id: string, patch: Partial<AlmacenInput>
   return data as Almacen;
 }
 
+/**
+ * Renombra un almacén/subalmacén PROPAGANDO el nuevo nombre a todas las tablas que
+ * lo guardan por nombre (existencias, productos, movimientos, etc.), vía la función
+ * `renombrar_almacen` (atómica en la base). Así el stock no queda huérfano.
+ * `nuevoNombre` es el nombre visible que tecleó el usuario; para subalmacenes se
+ * resuelve el nombre único guardado (con sufijo de la sede/padre si hace falta).
+ */
+export async function renombrarAlmacen(almacen: Almacen, nuevoNombre: string): Promise<string> {
+  const base = nuevoNombre.trim();
+  if (!base) throw new Error('El nombre del almacén no puede estar vacío');
+
+  let nombreFinal = base;
+  if (almacen.parent_id) {
+    const { data: padre } = await supabase.from(TABLE).select('nombre').eq('id', almacen.parent_id).single();
+    const padreNombre = (padre as { nombre?: string } | null)?.nombre ?? 'sede';
+    nombreFinal = await nombreUnicoSubalmacen(base, padreNombre, almacen.id);
+  } else if (await nombreOcupado(base, almacen.id)) {
+    throw new Error('Ya existe un almacén con ese nombre');
+  }
+  if (nombreFinal === almacen.nombre) return almacen.nombre; // sin cambios reales
+
+  const { error } = await supabase.rpc('renombrar_almacen', { p_id: almacen.id, p_nombre_final: nombreFinal });
+  if (error) throw error;
+  return nombreFinal;
+}
+
 export async function eliminarAlmacen(id: string, nombre: string): Promise<void> {
   // Bloquea si hay existencias con stock en este almacén.
   const { data, error: cErr } = await supabase

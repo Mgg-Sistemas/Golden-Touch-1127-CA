@@ -8,8 +8,14 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarGasto } from './tesoreria.repository';
 import { crearOAcumularCuentaPorCobrar } from './cuentasPorCobrar.repository';
+import { ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import type { CuentaCaja } from '@/shared/lib/types';
+import type { CuentaCaja, MovimientoCaja } from '@/shared/lib/types';
+
+/** Nombre de la contraparte de la deuda a MGG recibida DIRECTO en Tesorería.
+ *  Distinto de 'MGG' a propósito: la deuda de Acopio ('MGG') la sincroniza un
+ *  trigger; usar otro nombre evita que el trigger pise estos ingresos manuales. */
+export const MGG_DIRECTO = 'MGG · directo';
 
 export type TipoCxP = 'cliente' | 'proveedor';
 export type EstadoCxP = 'abierta' | 'saldada';
@@ -330,4 +336,42 @@ export async function abonarCuentaConProductoRecibido(input: {
   if (cuErr) throw cuErr;
 
   return { cuenta: cu as CuentaPorPagar, abono: ab as AbonoCxP };
+}
+
+/**
+ * RECIBIR DINERO DE MGG (directo en Tesorería). Hace lo mismo que la entrada de
+ * dinero en Acopio, pero el dinero entra DIRECTO a la caja elegida (sube su saldo
+ * visible) y queda anclado como una CUENTA POR PAGAR a MGG ("MGG · directo"), en
+ * la MONEDA de la caja. Esa deuda se salda después con abonos o entregando
+ * producto (igual que las demás cuentas por pagar). Es una cuenta APARTE de la
+ * deuda "MGG" de Acopio (que la sincroniza un trigger), por eso no colisionan.
+ */
+export async function recibirDineroDeMGG(input: {
+  cajaId: string;
+  monto: number;
+  nota?: string | null;
+  actor: string;
+  actorName?: string | null;
+}): Promise<{ cuenta: CuentaPorPagar; mov: MovimientoCaja }> {
+  const monto = round2(input.monto);
+  if (monto <= 0) throw new Error('El monto a recibir debe ser mayor que 0.');
+  const detalle = input.nota?.trim() ? ` · ${input.nota.trim()}` : '';
+
+  // 1) El dinero ENTRA a la caja (sube el saldo visible + espejo multimoneda).
+  const mov = await ingresarDineroCaja({
+    cajaId: input.cajaId, monto,
+    concepto: `Recibido de MGG${detalle}`, categoria: 'recibido_mgg',
+    actor: input.actor, actorName: input.actorName,
+  });
+
+  // 2) Deuda a MGG (cuenta por pagar APARTE, en la moneda de la caja), anclada a
+  //    la caja y al movimiento. Si ya hay una abierta en esa moneda, se acumula.
+  const cuenta = await crearCuentaPorPagar({
+    tipo: 'proveedor', contraparte: MGG_DIRECTO, monto, moneda: mov.moneda,
+    cajaId: input.cajaId, cajaMovId: mov.id,
+    nota: `Recibido directo de MGG${detalle}`,
+    actor: input.actor, actorName: input.actorName,
+  });
+
+  return { cuenta, mov };
 }
