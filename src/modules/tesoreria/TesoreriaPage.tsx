@@ -53,7 +53,7 @@ import { descargarCuentaPorCobrarPdf } from './cuentaPorCobrarPdf';
 import { descargarOrdenesPorPagarPdf } from './ordenesPorPagarPdf';
 import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
-  listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMulti, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
+  listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg,
   getOrdenById, urlAdjuntoOc,
 } from '@/modules/pedidos/pedidos.repository';
@@ -4339,14 +4339,40 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const moneda = caja?.moneda ?? 'USD';
 
   // Saldos multimoneda de la caja elegida (para el multipago por cuenta).
-  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  const [primarySaldos, setPrimarySaldos] = useState<CajaSaldo[]>([]);
   const [legMontos, setLegMontos] = useState<Record<string, string>>({});
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
+  // Multipago ENTRE CAJAS: además de la caja primaria se pueden añadir otras cajas
+  // para completar el total. Cada caja aporta sus cuentas/monedas con saldo.
+  const [cajasExtra, setCajasExtra] = useState<string[]>([]);
+  const [extraSaldos, setExtraSaldos] = useState<CajaSaldo[]>([]);
   useEffect(() => {
-    if (!cajaId) { setSaldosCaja([]); return; }
-    saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
+    if (!cajaId) { setPrimarySaldos([]); return; }
+    saldosDeCaja(cajaId).then((rows) => setPrimarySaldos(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setPrimarySaldos([]));
     setLegMontos({});
+    setCajasExtra([]);
   }, [cajaId]);
+  // Carga (y sintetiza, para cajas legadas sin caja_saldos) los saldos de las cajas extra.
+  useEffect(() => {
+    const ids = cajasExtra.filter((id) => id && id !== cajaId);
+    if (!ids.length) { setExtraSaldos([]); return; }
+    Promise.all(ids.map((id) => saldosDeCaja(id).then((rows) => ({ id, rows: rows.filter((r) => Number(r.saldo) > 0) })).catch(() => ({ id, rows: [] as CajaSaldo[] }))))
+      .then((res) => {
+        const out: CajaSaldo[] = [];
+        for (const { id, rows } of res) {
+          if (rows.length) { out.push(...rows); continue; }
+          // Caja sin saldos multimoneda: usar su saldo visible (legado) como una cuenta.
+          const cj = cajas.find((c) => c.id === id);
+          if (cj && Number(cj.saldo) > 0) {
+            out.push({ id: `legacy:${id}`, caja_id: id, cuenta: 'general', moneda: cj.moneda, saldo: Number(cj.saldo), tasa_prom: null } as unknown as CajaSaldo);
+          }
+        }
+        setExtraSaldos(out);
+      }).catch(() => setExtraSaldos([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cajasExtra.join('|'), cajaId]);
+  // Lista combinada de cuentas disponibles para el multipago (primaria + extra).
+  const saldosCaja = useMemo(() => [...primarySaldos, ...extraSaldos], [primarySaldos, extraSaldos]);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
   // Si la caja maneja saldos por cuenta/moneda (caja_saldos), se paga eligiendo
   // de qué cuentas sale el dinero — aunque tenga una sola moneda con saldo.
@@ -4517,13 +4543,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     setSaving(true);
     try {
       if (esMultimoneda) {
+        // Una pata por cuenta, cada una con SU caja (multipago entre cajas).
         const legs = saldosCaja
-          .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, montoUsd: legUsd(s.moneda, Number(legMontos[s.id]) || 0) }))
+          .map((s) => ({ cajaId: s.caja_id, cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 }))
           .filter((l) => l.monto > 0);
-        if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); setSaving(false); return; }
+        if (!legs.length) { setError('Indicá cuánto pagar en al menos una cuenta.'); setSaving(false); return; }
         if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        await pagarOrdenCompraMulti({ orden: o, cajaId, legs, factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName });
+        await pagarOrdenCompraMultiCajas({ orden: o, legs, factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName });
         notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(sumUsdMulti, 'USD')}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
@@ -4721,17 +4748,19 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         {/* Multipago por cuenta: repartí el total entre las monedas de la caja Multimoneda. */}
         {esMultimoneda && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
-            <div className="card-title" style={{ marginBottom: '.4rem' }}>Multipago por cuenta · ¿cuánto sale de cada moneda?</div>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>Multipago por cuenta · ¿cuánto sale de cada caja/moneda?</div>
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.84rem' }}>
-                <thead><tr><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar (en su moneda)</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
+                <thead><tr><th>Caja</th><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar (en su moneda)</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
                 <tbody>
                   {saldosCaja.map((s) => {
                     const n = Number(legMontos[s.id]) || 0;
                     const excede = n > Number(s.saldo);
                     const etiquetaCuenta = s.cuenta === 'general' ? '' : s.cuenta === 'juridica' ? ' · Jurídica' : ' · Personal';
+                    const cajaNombre = cajas.find((c) => c.id === s.caja_id)?.nombre ?? '—';
                     return (
                       <tr key={s.id}>
+                        <td>{cajaNombre}</td>
                         <td><span className="badge">{s.moneda}</span>{etiquetaCuenta}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(s.saldo), s.moneda)}</td>
                         <td style={{ textAlign: 'right' }}>
@@ -4747,13 +4776,33 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
+                    <td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
                       {monto(sumUsdMulti, 'USD')} / {monto(totalUsd, 'USD')}
                     </td>
                   </tr>
                 </tfoot>
               </table>
+            </div>
+            {/* Añadir otra caja para completar el total (multipago entre cajas). */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+              <span className="muted" style={{ fontSize: '.8rem' }}>¿No alcanza una sola caja?</span>
+              <div style={{ minWidth: 220 }}>
+                <SearchSelect value="" onChange={(id) => { if (id) setCajasExtra((xs) => (xs.includes(id) ? xs : [...xs, id])); }}
+                  placeholder="+ Añadir otra caja…"
+                  options={cajas.filter((c) => c.id !== cajaId && !cajasExtra.includes(c.id)).map((c) => ({ value: c.id, label: c.nombre }))} />
+              </div>
+              {cajasExtra.length > 0 && (
+                <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
+                  {cajasExtra.map((id) => (
+                    <span key={id} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', background: 'var(--bg-1)' }}>
+                      {cajas.find((c) => c.id === id)?.nombre ?? id}
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .25rem', lineHeight: 1 }} title="Quitar caja"
+                        onClick={() => setCajasExtra((xs) => xs.filter((x) => x !== id))}>✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
               {excedeTotalMulti

@@ -48,6 +48,8 @@ interface Props {
   reloadKey?: number;
   onAccepted: () => void;
   onAddOferta: () => void;
+  /** Editar una oferta pendiente (proveedor, marca/modelo, cantidad, precio…). */
+  onEditarOferta?: (o: OfertaProveedor) => void;
 }
 
 export function OfertasComparativa({
@@ -59,6 +61,7 @@ export function OfertasComparativa({
   reloadKey,
   onAccepted,
   onAddOferta,
+  onEditarOferta,
 }: Props) {
   const [ofertas, setOfertas] = useState<OfertaProveedor[]>([]);
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
@@ -356,7 +359,12 @@ export function OfertasComparativa({
                             );
                           })()}
                           {(canCrearOferta ?? canDecidir) && s.oferta.estado === 'pendiente' && (
-                            <div style={{ textAlign: 'right', marginTop: '.4rem' }}>
+                            <div style={{ textAlign: 'right', marginTop: '.4rem', display: 'flex', gap: '.4rem', justifyContent: 'flex-end' }}>
+                              {onEditarOferta && (
+                                <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); onEditarOferta(s.oferta); }}>
+                                  ✎ Editar oferta
+                                </button>
+                              )}
                               <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setAEliminar(s.oferta); }}>
                                 🗑 Eliminar esta oferta
                               </button>
