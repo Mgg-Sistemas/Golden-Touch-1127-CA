@@ -229,7 +229,13 @@ export async function transferir(input: TransferirInput): Promise<void> {
     .maybeSingle();
   const stockOrigen = Number(exOrigen?.stock) || 0;
   if (cantidad > stockOrigen) throw new Error(`Stock insuficiente en ${input.almacenOrigen}. Disponible: ${stockOrigen}.`);
-  const costoOrigen = Number(exOrigen?.costo_promedio) || 0;
+  // Costo que viaja al destino: el PMP del origen; si esa existencia no tiene
+  // costo (0), se usa el PRECIO del producto en inventario (productos.precio).
+  let costoOrigen = Number(exOrigen?.costo_promedio) || 0;
+  if (costoOrigen <= 0) {
+    const prod = await findProducto(input.producto_id);
+    costoOrigen = Number(prod?.precio) || 0;
+  }
 
   const extra = input.detalle ? ` · ${input.detalle}` : '';
   // Salida en origen

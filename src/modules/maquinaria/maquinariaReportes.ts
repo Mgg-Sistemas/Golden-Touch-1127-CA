@@ -23,7 +23,7 @@ async function construirEquiposDoc(rows: MaquinariaEquipo[]) {
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 58 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('Control de Maquinaria · Equipos', tx, y + 16);
+  doc.text('Control de Maquinaria y Vehículos · Equipos', tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())} · ${rows.length} equipo(s)`, PAGE_W - MARGIN, y + 16, { align: 'right' });
   y += 54;
@@ -54,7 +54,7 @@ export async function enviarEquiposPorCorreo(rows: MaquinariaEquipo[], destinos:
     body: {
       pdf_base64: base64,
       nombre_archivo: `${NOMBRE}-${new Date().toISOString().slice(0, 10)}.pdf`,
-      asunto: 'Control de Maquinaria · Equipos',
+      asunto: 'Control de Maquinaria y Vehículos · Equipos',
       mensaje: `Registro de equipos de maquinaria (${rows.length}).`,
       to_emails: destinos,
     },

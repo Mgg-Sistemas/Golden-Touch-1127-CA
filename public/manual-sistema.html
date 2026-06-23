@@ -249,7 +249,7 @@
       <li><a href="#scomb">Combustible</a></li>
       <li><a href="#sacopio">Centro de Acopio PERAMANAL</a></li>
       <li><a href="#scocina">Control de Alimentación (Cocina)</a></li>
-      <li><a href="#smaq">Control de Maquinaria</a></li>
+      <li><a href="#smaq">Control de Maquinaria y Vehículos</a></li>
       <li><a href="#s9">Usuarios</a></li>
       <li><a href="#s10">Ajustes</a></li>
       <li><a href="#srespaldo">Respaldo de Data</a></li>
@@ -309,6 +309,8 @@
       <li><strong>Subalmacenes (un almacén dentro de otro):</strong> al crear o editar un almacén se puede elegir un <strong>almacén padre</strong>; si se elige, queda como <strong>subalmacén</strong>. También hay un botón <strong>+ Sub</strong> en cada almacén para crearle uno adentro. En la vista se muestran <strong>anidados</strong> bajo su padre (con ↳), y cada padre indica cuántos subalmacenes tiene. Un almacén con subalmacenes no se puede eliminar hasta mover o eliminar los subalmacenes.</li>
       <li><strong>Renombrar almacenes y subalmacenes (sin perder el stock):</strong> con el botón <strong>✎ Editar</strong> de cada almacén se puede <strong>cambiar el nombre</strong>. Como el inventario se indexa por el nombre del almacén, al renombrarlo el sistema <strong>propaga el nombre nuevo</strong> automáticamente a todo lo asociado (existencias/stock, productos, movimientos, recepciones, salidas, traslados, compras directas y producción), de forma <strong>atómica</strong>: el almacén conserva <strong>todo su stock e historial</strong>, solo cambia el nombre. Si el nombre ya existe en otro almacén, avisa; en subalmacenes el nombre se mantiene único de forma transparente.</li>
       <li><strong>📊 Consumo por almacén:</strong> cada almacén tiene un botón <strong>Consumo</strong> que abre una gráfica del <strong>consumo de cada producto SOLO de ese almacén</strong> (salidas y consumo de fundición). Se filtra por período (<strong>hoy, 7 días, 15 días, este mes o rango personalizado</strong>) y muestra, por producto, la <strong>cantidad consumida</strong> y su <strong>equivalente en $</strong> (con el costo del movimiento), más una tabla con totales.</li>
+      <li><strong>📊 Resumen:</strong> botón que desglosa —al estilo de Acopio— el <strong>valor total por almacenes y sub-almacenes</strong>, cuántos <strong>productos nuevos</strong> entraron, y cuántas <strong>entradas, salidas y traslados</strong> se hicieron con su <strong>total en $</strong> (por rango de fechas). Al <strong>tocar</strong> un indicador (ej. «Salidas 12 · $350») se ve el <strong>detalle de qué productos</strong> fueron. Exporta a <strong>PDF con vista previa</strong> y por <strong>correo</strong>.</li>
+      <li><strong>Traslado entre almacenes:</strong> al mover un producto a otro almacén, <strong>se lleva el precio/costo (PMP) que tiene en el inventario</strong>; si esa existencia no tenía costo, usa el <strong>precio del producto</strong>, para que el almacén destino quede valorizado.</li>
       <li><strong>Exportar/Importar:</strong> productos de cada almacén en <strong>Excel</strong> o <strong>PDF</strong>, e importación masiva desde Excel. La <strong>plantilla de carga</strong> <strong>ya no pide el SKU</strong> (lo asigna el sistema, correlativo por categoría); sí se carga la <strong>categoría</strong> (define el prefijo del SKU). Al importar, los nombres ya existentes se <strong>actualizan</strong> y los nuevos se insertan con un <strong>SKU nuevo</strong>.</li>
       <li><strong>Reporte PDF por almacenes y subalmacenes:</strong> en la vista de <strong>Sedes</strong> (al entrar a Almacenes) el botón <strong>«↓ Reporte PDF (almacenes y subalmacenes)»</strong> descarga un informe completo de todo el inventario, ordenado por <strong>sede → almacén → subalmacén</strong>, con stock, costo unitario (PMP) y valor de cada producto, <strong>subtotales por almacén y por sede</strong>, y el <strong>valor total del inventario</strong>.</li>
       <li><strong>Recepciones (botón del inventario):</strong> el <strong>número</strong> del botón cuenta solo las órdenes <strong>pendientes por marcar la recepción</strong> (contra entrega lista para recibir, o ya pagadas y aún sin recibir). Cuando la recepción se <strong>finaliza</strong>, deja de contar: las finalizadas se siguen viendo en la lista (historial), pero <strong>sin sumar al número del botón</strong>.</li>
@@ -548,7 +550,7 @@
   </section>
 
   <section class="modulo" id="smaq">
-    <h2>🚜 Control de Maquinaria</h2>
+    <h2>🚜 Control de Maquinaria y Vehículos</h2>
     <p>Registro y control de la maquinaria y equipos de la empresa: ficha técnica, bitácora de horómetro/mantenimiento, alertas de mantenimiento preventivo y reportes. Replica el «Control de Mantenimiento Preventivo de Maquinarias y Equipos».</p>
     <ul>
       <li><strong>Catálogo (botón 🏷):</strong> dividido en <strong>3 pestañas</strong> — <strong>Tipo de maquinaria</strong> (CAMIÓN, EXCAVADORA, MARTILLO, GRÚA…), <strong>Propietario</strong> (MINERAL GROUP GUAYANA, GOLDEN TOUCH 1127…) y <strong>Status</strong> (ACTIVO, MANTENIMIENTO, FUERA DE SERVICIO, INACTIVO). En cada pestaña se puede <strong>agregar, filtrar, editar (✎), desactivar/activar y eliminar</strong>. Los nombres se guardan en <strong>MAYÚSCULA</strong> y no se permiten duplicados.</li>
@@ -570,6 +572,7 @@
       <li>Alta y edición de usuarios con nombre, cargo y departamento.</li>
       <li><strong>Roles y permisos:</strong> define, por rol, a qué módulos entra cada persona y si puede solo ver o también modificar. Los cambios en la matriz <strong>se guardan automáticamente</strong>. Los roles nuevos aparecen al instante en el selector de "Crear usuario".</li>
       <li>Cambio de clave de los usuarios.</li>
+      <li><strong>📊 Resumen de Actividad (supervisión):</strong> botón que abre una vista de <strong>quién está conectado ahora</strong> y <strong>cuánto tiempo lleva en el sistema</strong> (presencia en vivo, se actualiza sola), más el <strong>tiempo por usuario</strong> y el <strong>detalle de sesiones</strong> por rango de fechas. Sirve para supervisar el uso del sistema. Se descarga en <strong>PDF con vista previa</strong>. <em>(La presencia se registra con un latido automático cada minuto mientras la app está abierta.)</em></li>
     </ul>
   </section>
 

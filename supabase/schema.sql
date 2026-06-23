@@ -1501,6 +1501,49 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (select 1 from public.usuarios where id = auth.uid());
 $$;
 
+-- ─────────────────────────────────────────────────────────────
+-- Supervisión de actividad: sesiones de usuario (conexión + tiempo).
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.sesiones_usuario (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  email         text,
+  nombre        text,
+  inicio        timestamptz not null default now(),
+  ultimo_latido timestamptz not null default now()
+);
+create index if not exists idx_sesiones_usuario_user   on public.sesiones_usuario(user_id);
+create index if not exists idx_sesiones_usuario_latido on public.sesiones_usuario(ultimo_latido);
+
+alter table public.sesiones_usuario enable row level security;
+drop policy if exists sesiones_select on public.sesiones_usuario;
+create policy sesiones_select on public.sesiones_usuario for select
+  using (public.is_staff() or public.is_admin() or auth.uid() = user_id);
+-- La escritura va SOLO por la función latido_sesion() (SECURITY DEFINER).
+
+-- Heartbeat: si hay una sesión activa reciente (<5 min) la prolonga; si no, abre
+-- una nueva. Así la "sesión" se autosegmenta cuando el usuario estuvo ausente.
+create or replace function public.latido_sesion()
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_email text;
+  v_nombre text;
+  v_id uuid;
+begin
+  if v_uid is null then return; end if;
+  select email, nombre into v_email, v_nombre from public.usuarios where id = v_uid;
+  select id into v_id from public.sesiones_usuario
+    where user_id = v_uid and ultimo_latido > now() - interval '5 minutes'
+    order by ultimo_latido desc limit 1;
+  if v_id is null then
+    insert into public.sesiones_usuario (user_id, email, nombre) values (v_uid, v_email, v_nombre);
+  else
+    update public.sesiones_usuario set ultimo_latido = now() where id = v_id;
+  end if;
+end $$;
+grant execute on function public.latido_sesion() to authenticated;
+
 -- Directorio mínimo de usuarios activos (id, nombre, apellido, cargo) legible por
 -- cualquier autenticado. La tabla usuarios tiene RLS de "solo tu fila"; esta
 -- función SECURITY DEFINER expone solo datos no sensibles para elegir destinatario

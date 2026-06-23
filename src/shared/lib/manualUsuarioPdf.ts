@@ -85,6 +85,8 @@ const SECCIONES: Seccion[] = [
       'Nuevo producto: al crearlo, el SKU se genera solo y de forma correlativa según la categoría (por ejemplo LUB-001, LUB-002 para Lubricantes). No hace falta inventarlo a mano. El correlativo es persistente: el número nunca se reutiliza aunque se borre el producto con el número más alto.',
       'Carga por caja/bulto: al crear un producto en caja o bulto aparece el campo "Unidades por caja/bulto" y el stock inicial (en cajas) se convierte a unidades (ej. 2 cajas × 20 = 40 und). Igual en Movimiento → Entrada con el check "Ingresar por caja/bulto".',
       'Importar desde Excel: la plantilla ya NO pide el SKU (lo asigna el sistema, correlativo por categoría); sí se carga la categoría (define el prefijo). Los nombres ya existentes se actualizan y los nuevos se insertan con un SKU nuevo.',
+      'Resumen (botón 📊): desglosa el valor por almacenes y sub-almacenes, los productos nuevos, y las entradas, salidas y traslados con su total en $ (por rango). Al tocar un indicador (ej. Salidas) se ve qué productos fueron. Exporta a PDF con vista previa y por correo.',
+      'Traslado entre almacenes: el producto se mueve llevando el precio/costo (PMP) que tiene en el inventario; si esa existencia no tenía costo, usa el precio del producto, para que el almacén destino quede valorizado.',
       'Detalle del producto (opcional): al crear/editar se pueden cargar nombre de búsqueda/alias (ej.: CLORO), marca, modelo, N°, serial, código, ubicación y descripción. El buscador encuentra el producto también por estos datos y todos se ven en su detalle.',
       'Cada producto guarda su stock por almacén y su costo promedio ponderado (PMP), que se actualiza automáticamente con cada compra o entrada. Los campos de precio/costo admiten decimales menores a 1 (ej. 0,35) y aceptan coma o punto como separador.',
       'Movimientos: se pueden registrar entradas, salidas, transferencias y ajustes; el sistema lleva el historial completo (kardex) de cada producto.',
@@ -246,7 +248,7 @@ const SECCIONES: Seccion[] = [
   },
   {
     icono: '🚜',
-    titulo: 'Control de Maquinaria',
+    titulo: 'Control de Maquinaria y Vehículos',
     intro:
       'Registro y control de la maquinaria y equipos: ficha técnica, bitácora de horómetro/mantenimiento, alertas de mantenimiento preventivo y reportes.',
     puntos: [
@@ -270,6 +272,7 @@ const SECCIONES: Seccion[] = [
       'Alta y edición de usuarios con su nombre, cargo y departamento.',
       'Roles y permisos: se define, por rol, a qué módulos puede entrar cada persona y si puede solo ver o también modificar.',
       'Cambio de clave de los usuarios.',
+      'Resumen de Actividad (supervisión): muestra quién está conectado ahora y cuánto tiempo lleva en el sistema (en vivo), el tiempo por usuario y el detalle de sesiones por rango de fechas. Se descarga en PDF con vista previa.',
       'Esto garantiza que cada quien acceda solo a lo que le corresponde.',
     ],
   },

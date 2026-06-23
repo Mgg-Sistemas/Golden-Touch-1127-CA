@@ -45,6 +45,7 @@ import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ImportarExcelModal } from './ImportarExcelModal';
+import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
@@ -117,6 +118,7 @@ type ModalState =
   | { kind: 'movimiento'; producto: Producto }
   | { kind: 'confirmToggle'; producto: Producto }
   | { kind: 'export' }
+  | { kind: 'resumen' }
   | { kind: 'import'; analisis: AnalisisImport }
   | { kind: 'almacenCrear'; parentId?: string | null; sede?: string | null }
   | { kind: 'almacenEditar'; almacen: Almacen }
@@ -537,6 +539,9 @@ export function InventarioPage() {
               />
             </>
           )}
+          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen: valor por almacén, productos nuevos, entradas, salidas y traslados">
+            📊 Resumen
+          </button>
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
             ↓ Exportar
           </button>
@@ -810,6 +815,12 @@ export function InventarioPage() {
       {modal.kind === 'export' && (
         <ExportInventarioModal
           productos={productos}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+      {modal.kind === 'resumen' && (
+        <ResumenInventarioModal
+          defaultEmail={appUser?.email ?? user?.email ?? ''}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}

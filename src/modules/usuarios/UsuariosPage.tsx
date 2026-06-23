@@ -29,6 +29,7 @@ import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
+import { ResumenActividadModal } from './ResumenActividadModal';
 
 type View = 'creacion' | 'roles';
 
@@ -37,6 +38,7 @@ type ModalKind =
   | { kind: 'create' }
   | { kind: 'edit'; usuario: Usuario }
   | { kind: 'detail'; usuario: Usuario }
+  | { kind: 'actividad' }
   | { kind: 'reset-confirm'; usuario: Usuario }
   | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' };
 
@@ -210,11 +212,18 @@ export function UsuariosPage() {
           <option value="activo">Activos</option>
           <option value="inactivo">Deshabilitados</option>
         </select>
+        <button
+          className="btn btn-ghost"
+          onClick={() => setModal({ kind: 'actividad' })}
+          style={{ marginLeft: 'auto' }}
+          title="Supervisión: usuarios conectados y tiempo en el sistema"
+        >
+          📊 Resumen de Actividad
+        </button>
         {canWrite && (
           <button
             className="btn btn-primary"
             onClick={() => setModal({ kind: 'create' })}
-            style={{ marginLeft: 'auto' }}
           >
             + Agregar usuario
           </button>
@@ -381,6 +390,10 @@ export function UsuariosPage() {
           }
           onEdit={() => setModal({ kind: 'edit', usuario: modal.usuario })}
         />
+      )}
+
+      {modal.kind === 'actividad' && (
+        <ResumenActividadModal onClose={() => setModal({ kind: 'none' })} />
       )}
 
       {modal.kind === 'reset-confirm' && (

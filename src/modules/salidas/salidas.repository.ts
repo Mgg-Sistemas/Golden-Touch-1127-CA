@@ -10,6 +10,7 @@ import type {
 } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
+import { findProducto } from '@/modules/inventario/inventario.repository';
 import { salidaDinero, trasladoDinero } from './cajas.repository';
 
 export interface SalidaMaterialInput {
@@ -79,8 +80,14 @@ export async function trasladoMaterial(input: TrasladoMaterialInput): Promise<Mo
   const exOrigen = await getExistencia(input.productoId, input.almacenOrigen);
   const stockOrigen = Number(exOrigen?.stock) || 0;
   if (cantidad > stockOrigen) throw new Error(`Stock insuficiente en ${input.almacenOrigen}. Disponible: ${stockOrigen}.`);
-  const costoOrigen = Number(exOrigen?.costo_promedio) || 0;
-  const precio = input.precioUnit != null ? Number(input.precioUnit) : null;
+  // Costo que viaja al destino: el PMP del almacén de origen; si esa existencia
+  // no tiene costo (0), se usa el PRECIO del producto en inventario (productos.precio).
+  let costoOrigen = Number(exOrigen?.costo_promedio) || 0;
+  if (costoOrigen <= 0) {
+    const prod = await findProducto(input.productoId);
+    costoOrigen = Number(prod?.precio) || 0;
+  }
+  const precio = input.precioUnit != null ? Number(input.precioUnit) : (costoOrigen || null);
   const motivo = input.motivo?.trim() || null;
   const notaEntrega = input.notaEntrega?.trim() || null;
 
