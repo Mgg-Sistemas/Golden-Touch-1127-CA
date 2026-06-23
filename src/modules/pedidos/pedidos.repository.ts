@@ -1013,6 +1013,117 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
   return data as Orden;
 }
 
+/** Egreso "legado" de una OC: descuenta el saldo visible de la caja (cajas.saldo)
+ *  y espeja caja_saldos general si existe. Para cajas sin saldos multimoneda. */
+async function egresarLegacyOC(input: {
+  cajaId: string; monto: number; concepto: string; refOrdenId: string;
+  gastoCategoria?: string | null; gastoSubcategoria?: string | null;
+  actor: string; actorName?: string | null;
+}): Promise<{ id: string }> {
+  const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
+  const { data: caja, error: cErr } = await supabase.from('cajas').select('id, nombre, moneda, saldo').eq('id', input.cajaId).single();
+  if (cErr || !caja) throw new Error('Caja no encontrada.');
+  const saldoAntes = Number((caja as { saldo: number }).saldo) || 0;
+  const cajaMon = (caja as { moneda: string }).moneda;
+  if (monto > saldoAntes) throw new Error(`Saldo insuficiente en ${(caja as { nombre: string }).nombre}. Disponible: ${saldoAntes} ${cajaMon}.`);
+  const saldoDespues = Math.round((saldoAntes - monto) * 100) / 100;
+  const { data: mov, error: mErr } = await supabase.from('movimientos_caja').insert({
+    caja_id: input.cajaId, tipo: 'salida', monto, moneda: cajaMon,
+    saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    motivo: input.concepto, categoria: 'pago_oc', ref_orden_id: input.refOrdenId,
+    gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+    actor: input.actor, actor_name: input.actorName ?? null,
+  }).select('id').single();
+  if (mErr) throw mErr;
+  await supabase.from('cajas').update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
+  const { data: s } = await supabase.from('caja_saldos').select('id, saldo').eq('caja_id', input.cajaId).eq('cuenta', 'general').eq('moneda', cajaMon).maybeSingle();
+  if (s) {
+    await supabase.from('caja_saldos').update({ saldo: Math.round(((Number((s as { saldo: number }).saldo) || 0) - monto) * 100) / 100, updated_at: new Date().toISOString() }).eq('id', (s as { id: string }).id);
+  }
+  return mov as { id: string };
+}
+
+export interface PagarOcMultiCajasLeg {
+  cajaId: string;
+  cuenta: CuentaCaja;
+  moneda: string;
+  monto: number;   // EN SU PROPIA MONEDA
+}
+export interface PagarOcMultiCajasInput {
+  orden: Orden;
+  legs: PagarOcMultiCajasLeg[];
+  factura?: File | null;
+  motivoPago?: string | null;
+  seriales?: string[] | null;
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+  actorEmail: string;
+  actorName?: string | null;
+}
+
+/**
+ * Paga una OC confirmada combinando VARIAS CAJAS (multipago entre cajas): cada
+ * pata indica de qué caja + cuenta/moneda sale el dinero. Las cuentas con saldo
+ * multimoneda (caja_saldos) se descuentan con egresarDivisa; las cajas sin esos
+ * saldos descuentan su saldo visible (legado). Un egreso por pata, casado a la
+ * orden. Deja la OC en `pagada`.
+ */
+export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput): Promise<Orden> {
+  const { orden: o } = input;
+  if (o.estado !== 'oc_aprobada')
+    throw new Error('Solo se pagan órdenes de compra confirmadas (aprobadas en lote).');
+  const legs = (input.legs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
+  if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');
+  const seriales = limpiarSeriales(input.seriales);
+
+  const movIds: string[] = [];
+  for (const leg of legs) {
+    const serLeg = leg.moneda === 'USD' ? seriales : null;
+    const concepto = conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg);
+    // ¿La caja maneja este saldo en caja_saldos? Si sí, egreso multimoneda; si no, legado.
+    const { data: row } = await supabase.from('caja_saldos').select('id')
+      .eq('caja_id', leg.cajaId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
+    if (row) {
+      const mov = await egresarDivisa({
+        cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+        concepto, categoria: 'pago_oc', refOrdenId: o.id,
+        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+        actor: input.actorEmail, actorName: input.actorName ?? null,
+      });
+      movIds.push(mov.id);
+    } else {
+      const mov = await egresarLegacyOC({
+        cajaId: leg.cajaId, monto: leg.monto, concepto, refOrdenId: o.id,
+        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+        actor: input.actorEmail, actorName: input.actorName ?? null,
+      });
+      movIds.push(mov.id);
+    }
+  }
+
+  let facturaPath: string | null = null, facturaNombre: string | null = null;
+  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+
+  const patch = {
+    estado: 'pagada' as EstadoOrden,
+    pagada_por: input.actorEmail,
+    pagada_en: new Date().toISOString(),
+    caja_id: legs[0].cajaId,
+    caja_mov_id: movIds[0] ?? null,
+    factura_path: facturaPath, factura_nombre: facturaNombre,
+    ...(seriales.length ? { seriales_billetes: seriales } : {}),
+    ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
+    historial: appendHistorial(o, 'pagada', input.actorEmail, {
+      oc_codigo: o.oc_codigo,
+      multipago: legs.map((l) => ({ cajaId: l.cajaId, moneda: l.moneda, cuenta: l.cuenta, monto: l.monto })),
+      ...(seriales.length ? { seriales } : {}),
+    }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 /**
  * Cierra el ciclo: el analista/obrero confirma que el pedido fue
  * recibido correctamente. Solo aplicable post-recepción.

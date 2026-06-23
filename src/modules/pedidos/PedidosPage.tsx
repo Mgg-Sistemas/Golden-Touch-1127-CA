@@ -59,6 +59,7 @@ import { createProducto, updateProducto, getUnidades, findBySku } from '@/module
 import { listAlmacenes, getNombresAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
+import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ChatOrden } from './ChatOrden';
@@ -166,7 +167,8 @@ type ModalKind =
   | { kind: 'finalizar'; orden: Orden }
   | { kind: 'price-history'; sku: string; nombre: string }
   | { kind: 'edit-orden'; orden: Orden }
-  | { kind: 'add-offer'; orden: Orden };
+  | { kind: 'add-offer'; orden: Orden }
+  | { kind: 'edit-offer'; orden: Orden; oferta: OfertaProveedor };
 
 export function PedidosPage() {
   const { user } = useSession();
@@ -549,6 +551,7 @@ export function PedidosPage() {
           actorEmail={user?.email ?? ''}
           offersReloadKey={offersReloadKey}
           onAddOffer={() => setModal({ kind: 'add-offer', orden: currentDetail })}
+          onEditarOferta={(of) => setModal({ kind: 'edit-offer', orden: currentDetail, oferta: of })}
           onEditarOrden={() => setModal({ kind: 'edit-orden', orden: currentDetail })}
           onAcceptedOffer={async () => {
             await refresh();
@@ -613,6 +616,21 @@ export function PedidosPage() {
           orden={modal.orden}
           proveedores={proveedores}
           registradoPorEmail={user?.email ?? ''}
+          onClose={() => setModal({ kind: 'detail', ordenId: modal.orden.id })}
+          onCreated={() => {
+            setOffersReloadKey((k) => k + 1);
+            setModal({ kind: 'detail', ordenId: modal.orden.id });
+          }}
+        />
+      )}
+
+      {/* Modal: editar oferta (mismos campos que agregar, prellenados) */}
+      {modal.kind === 'edit-offer' && (
+        <AddOfferGate
+          orden={modal.orden}
+          proveedores={proveedores}
+          registradoPorEmail={user?.email ?? ''}
+          ofertaEditar={modal.oferta}
           onClose={() => setModal({ kind: 'detail', ordenId: modal.orden.id })}
           onCreated={() => {
             setOffersReloadKey((k) => k + 1);
@@ -824,12 +842,14 @@ function AddOfferGate({
   orden,
   proveedores,
   registradoPorEmail,
+  ofertaEditar,
   onClose,
   onCreated,
 }: {
   orden: Orden;
   proveedores: Proveedor[];
   registradoPorEmail: string;
+  ofertaEditar?: OfertaProveedor | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -838,10 +858,15 @@ function AddOfferGate({
   useEffect(() => {
     let cancelled = false;
     listOfertasByOrden(orden.id)
-      .then((rows) => { if (!cancelled) setYa(new Set(rows.map((r) => r.proveedor_id))); })
+      .then((rows) => {
+        if (cancelled) return;
+        // Al editar, el proveedor de la propia oferta no cuenta como "ya ofertado".
+        const ids = rows.map((r) => r.proveedor_id).filter((id) => id !== ofertaEditar?.proveedor_id);
+        setYa(new Set(ids));
+      })
       .catch(() => { if (!cancelled) setYa(new Set()); });
     return () => { cancelled = true; };
-  }, [orden.id]);
+  }, [orden.id, ofertaEditar]);
 
   if (!ya) return null;
   return (
@@ -850,6 +875,7 @@ function AddOfferGate({
       proveedores={proveedores}
       proveedoresYaOfertados={ya}
       registradoPorEmail={registradoPorEmail}
+      ofertaEditar={ofertaEditar}
       onClose={onClose}
       onCreated={onCreated}
     />
@@ -1737,6 +1763,7 @@ interface OrdenDetailModalProps {
   onFinalizar: () => void;
   onSeePriceHistory: (sku: string, nombre: string) => void;
   onAddOffer: () => void;
+  onEditarOferta: (o: OfertaProveedor) => void;
   onAcceptedOffer: () => void;
   onEditarOrden: () => void;
   offersReloadKey: number;
@@ -1763,6 +1790,7 @@ function OrdenDetailModal({
   onFinalizar,
   onSeePriceHistory,
   onAddOffer,
+  onEditarOferta,
   onAcceptedOffer,
   onEditarOrden,
   offersReloadKey,
@@ -2177,6 +2205,7 @@ function OrdenDetailModal({
           reloadKey={offersReloadKey}
           onAccepted={onAcceptedOffer}
           onAddOferta={onAddOffer}
+          onEditarOferta={onEditarOferta}
         />
       )}
 

@@ -114,7 +114,10 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
 
 export async function actualizarOferta(
   id: string,
-  patch: Partial<Pick<CrearOfertaInput, 'precio_total' | 'fecha_entrega_prometida' | 'condiciones_pago' | 'notas'>>
+  patch: Partial<Pick<CrearOfertaInput,
+    'proveedor_id' | 'items' | 'precio_total' | 'precio_divisa' |
+    'fecha_entrega_prometida' | 'condiciones_pago' | 'notas' | 'ficha' | 'adjuntos' |
+    'pdf_path' | 'pdf_filename'>>
 ): Promise<OfertaProveedor> {
   const { data, error } = await supabase
     .from(TABLE)
