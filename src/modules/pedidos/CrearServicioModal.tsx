@@ -1,0 +1,237 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
+import { toast } from '@/shared/ui/Toast';
+import { notify } from '@/shared/lib/notify';
+import type { ItemOrden, Usuario } from '@/shared/lib/types';
+import { crearOrden } from './pedidos.repository';
+import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
+import {
+  CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO,
+  listServiciosActivos, addServicioCatalogo, type ServicioCatalogo,
+} from './servicios.repository';
+import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+
+/**
+ * Solicitud de Servicio (SS). Mismo procedimiento que la SP de productos, pero
+ * en vez de productos de inventario se piden SERVICIOS (recargas, mantenimientos…)
+ * tomados de un catálogo gestionable. Al adjudicar la oferta se convierte en
+ * Control de Servicio (CS). Cuando la categoría es MANTENIMIENTO, el servicio se
+ * casa con un equipo de Control de Maquinaria.
+ */
+export function CrearServicioModal({
+  usuario, authEmail, onClose, onCreated,
+}: {
+  usuario: Usuario | null;
+  authEmail: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [items, setItems] = useState<ItemOrden[]>([]);
+  const [notas, setNotas] = useState('');
+  const [urgente, setUrgente] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Solicitante (persona) y unidad: por defecto los del usuario, pero editables.
+  const solicitanteRef = useRef<HTMLInputElement>(null);
+  const [unidadSolicitante, setUnidadSolicitante] = useState((usuario?.departamento ?? '').toUpperCase());
+  const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
+
+  // Catálogo de servicios + equipos de maquinaria.
+  const [catalogo, setCatalogo] = useState<ServicioCatalogo[]>([]);
+  const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+
+  // Builder del ítem de servicio.
+  const [categoria, setCategoria] = useState<string>(CATEGORIAS_SERVICIO[0]);
+  const [servicio, setServicio] = useState('');
+  const [equipoId, setEquipoId] = useState('');
+  const [cantidad, setCantidad] = useState('1');
+
+  useEffect(() => {
+    listServiciosActivos().then(setCatalogo).catch(() => setCatalogo([]));
+    listEquipos().then((e) => setEquipos(e.filter((x) => x.activo))).catch(() => setEquipos([]));
+    listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => setUnidadOpciones([]));
+  }, []);
+
+  const esMantenimiento = categoria === CATEGORIA_MANTENIMIENTO;
+  // Servicios del catálogo para la categoría elegida (nombres), para el desplegable.
+  const serviciosCat = useMemo(
+    () => catalogo.filter((s) => s.categoria === categoria).map((s) => s.nombre),
+    [catalogo, categoria],
+  );
+  const equipoOptions = useMemo(
+    () => equipos.map((e) => ({ value: e.id, label: e.placa ? `${e.equipo} · ${e.placa}` : e.equipo })),
+    [equipos],
+  );
+
+  async function addServicioItem() {
+    const nom = servicio.trim();
+    if (!nom) { toast('Elegí o escribí el servicio', 'error'); return; }
+    const cant = Number(String(cantidad).replace(',', '.')) || 0;
+    if (cant <= 0) { toast('La cantidad debe ser mayor a 0', 'error'); return; }
+    let equipoNombre: string | null = null;
+    if (esMantenimiento) {
+      if (!equipoId) { toast('Seleccioná la máquina/vehículo del mantenimiento', 'error'); return; }
+      equipoNombre = equipos.find((e) => e.id === equipoId)?.equipo ?? null;
+    }
+    // Si el servicio no existe en el catálogo, lo guardamos para reutilizarlo.
+    if (!serviciosCat.some((s) => s.toLowerCase() === nom.toLowerCase())) {
+      try {
+        const nuevo = await addServicioCatalogo(categoria, nom, usuario?.email ?? authEmail);
+        setCatalogo((prev) => [...prev, nuevo]);
+      } catch { /* si ya existe o no se pudo, seguimos igual */ }
+    }
+    const sku = `SRV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    const nombreItem = equipoNombre ? `${nom} · ${equipoNombre}` : nom;
+    setItems((prev) => [...prev, {
+      sku, nombre: nombreItem, cantidad: cant, precio: 0, comprar: true,
+      es_servicio: true, categoria_servicio: categoria,
+      equipo_id: esMantenimiento ? equipoId : null,
+      equipo_nombre: equipoNombre,
+    }]);
+    // Reset del builder (conserva la categoría para cargar varios del mismo tipo).
+    setServicio(''); setEquipoId(''); setCantidad('1');
+  }
+
+  function quitarItem(idx: number) {
+    setItems((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  async function handleSubmit() {
+    if (!items.length) { toast('Añadí al menos un servicio', 'error'); return; }
+    const solicitanteFinal = (solicitanteRef.current?.value ?? (usuario?.nombre ?? authEmail)).toUpperCase().trim();
+    const unidad = unidadSolicitante.trim();
+    setSubmitting(true);
+    try {
+      const email = usuario?.email ?? authEmail;
+      // Guardar unidad nueva en el catálogo si no existe.
+      if (unidad && !unidadOpciones.some((u) => u.toLowerCase() === unidad.toLowerCase())) {
+        await addCatalogoPedido('unidad_solicitante', unidad).catch(() => {});
+      }
+      const saved = await crearOrden({
+        tipo: 'servicio',
+        proveedor_id: null,
+        items,
+        notas: notas.trim() || null,
+        motivo: null,
+        finalidad: null,
+        clasificacion: ['Servicios'],
+        urgente,
+        imagen_path: null,
+        solicitante_email: email,
+        solicitante: solicitanteFinal || null,
+        unidad_solicitante: unidad || null,
+        ci_solicitante: null,
+      });
+      notify(`Nueva solicitud de servicio ${saved.codigo} enviada para aprobación`, 'success',
+        { link: '#/app/pedidos', destino: 'admin' });
+      toast(`Solicitud de servicio ${saved.codigo} creada`, 'success');
+      onCreated();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo crear la solicitud', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="🔧 Nueva Solicitud de Servicio"
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={submitting}>Cancelar</button>
+          <button className="btn btn-primary" onClick={() => void handleSubmit()} disabled={submitting || !items.length}>
+            {submitting ? 'Creando…' : 'Crear solicitud'}
+          </button>
+        </>
+      }
+    >
+      <div style={{ display: 'grid', gap: '.75rem' }}>
+        {/* Solicitante / unidad */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.6rem' }}>
+          <div>
+            <label className="label">Solicitante</label>
+            <input ref={solicitanteRef} className="input" name="ss-solicitante"
+              defaultValue={(usuario?.nombre ?? authEmail).toUpperCase()}
+              onChange={(e) => { e.target.value = e.target.value.toUpperCase(); }} />
+          </div>
+          <div>
+            <label className="label">Unidad solicitante</label>
+            <SearchCreateSelect options={unidadOpciones} value={unidadSolicitante}
+              onChange={(v) => setUnidadSolicitante(v.toUpperCase())} placeholder="Unidad / área…" />
+          </div>
+        </div>
+
+        {/* Builder de servicio */}
+        <div className="card" style={{ padding: '.75rem', display: 'grid', gap: '.6rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '.9rem' }}>Agregar servicio</div>
+          <div style={{ display: 'grid', gridTemplateColumns: esMantenimiento ? '1fr 1fr' : '1fr 1fr', gap: '.6rem' }}>
+            <div>
+              <label className="label">Categoría</label>
+              <select className="select" value={categoria}
+                onChange={(e) => { setCategoria(e.target.value); setServicio(''); setEquipoId(''); }}>
+                {CATEGORIAS_SERVICIO.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Servicio</label>
+              <SearchCreateSelect options={serviciosCat} value={servicio} onChange={setServicio}
+                placeholder="Elegí o escribí un servicio…" emptyText="Sin servicios en esta categoría" />
+            </div>
+          </div>
+          {esMantenimiento && (
+            <div>
+              <label className="label">Máquina / Vehículo (Control de Maquinaria)</label>
+              <SearchSelect value={equipoId} onChange={setEquipoId} options={equipoOptions}
+                placeholder="🔍 Buscar equipo…" emptyText="Sin equipos" />
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end' }}>
+            <div style={{ width: 120 }}>
+              <label className="label">Cantidad</label>
+              <input className="input" value={cantidad} inputMode="decimal"
+                onChange={(e) => setCantidad(e.target.value)} />
+            </div>
+            <button className="btn btn-primary" onClick={() => void addServicioItem()}>+ Añadir</button>
+          </div>
+          {esMantenimiento && (
+            <div className="muted" style={{ fontSize: '.78rem' }}>
+              🛠 El mantenimiento queda casado a la máquina seleccionada de Control de Maquinaria.
+            </div>
+          )}
+        </div>
+
+        {/* Lista de servicios añadidos */}
+        {items.length > 0 && (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.85rem' }}>
+              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cant.</th><th></th></tr></thead>
+              <tbody>
+                {items.map((it, i) => (
+                  <tr key={it.sku}>
+                    <td>{it.nombre}</td>
+                    <td>{it.categoria_servicio || '—'}</td>
+                    <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
+                    <td style={{ textAlign: 'right' }}>{it.cantidad}</td>
+                    <td><button className="btn btn-sm btn-ghost" title="Quitar" onClick={() => quitarItem(i)}>✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div>
+          <label className="label">Nota / observación (opcional)</label>
+          <textarea className="input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)}
+            placeholder="Detalle del servicio requerido…" />
+        </div>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}>
+          <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} /> 🚨 Marcar URGENTE
+        </label>
+      </div>
+    </Modal>
+  );
+}

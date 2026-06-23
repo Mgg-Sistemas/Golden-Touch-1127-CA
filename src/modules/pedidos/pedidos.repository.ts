@@ -132,10 +132,13 @@ export interface CrearOrdenInput {
   urgente?: boolean | null;
   /** Imagen adjunta a la OP (path en bucket `op-imagenes`). */
   imagen_path?: string | null;
+  /** Tipo de orden: 'producto' (default) o 'servicio' (Solicitud de Servicio). */
+  tipo?: 'producto' | 'servicio';
 }
 
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
-  const codigo = await nextCodigo();
+  const esServicio = input.tipo === 'servicio';
+  const codigo = esServicio ? await nextCodigoServicio() : await nextCodigo();
   const total = input.items.reduce((a, i) => a + i.cantidad * i.precio, 0);
   const historial: EventoHistorial[] = [
     {
@@ -146,6 +149,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
   ];
   const row = {
     codigo,
+    tipo: esServicio ? 'servicio' : 'producto',
     proveedor_id: input.proveedor_id,
     solicitante_email: input.solicitante_email,
     solicitante: input.solicitante,
@@ -373,7 +377,7 @@ export async function aprobarOrdenConOferta(
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
-  const ocCodigo = o.oc_codigo ?? (await nextOcCodigo());
+  const ocCodigo = o.oc_codigo ?? (o.tipo === 'servicio' ? await nextCsCodigo() : await nextOcCodigo());
   const nowIso = new Date().toISOString();
   // Copiamos las condiciones de pago de la oferta elegida a la orden.
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
@@ -723,6 +727,24 @@ export async function nextOcCodigo(): Promise<string> {
   return `OC-${year}-${seq}`;
 }
 
+/** Siguiente código SS-YYYY-#### (Solicitud de Servicio) con correlativo atómico propio. */
+export async function nextCodigoServicio(): Promise<string> {
+  const year = new Date().getFullYear();
+  const { data, error } = await supabase.rpc('next_correlativo', { p_clave: `ss-${year}` });
+  if (error) throw error;
+  const seq = String(Number(data) || 1).padStart(4, '0');
+  return `SS-${year}-${seq}`;
+}
+
+/** Siguiente código CS-YYYY-#### (Control de Servicio, equivalente a la OC para servicios). */
+export async function nextCsCodigo(): Promise<string> {
+  const year = new Date().getFullYear();
+  const { data, error } = await supabase.rpc('next_correlativo', { p_clave: `cs-${year}` });
+  if (error) throw error;
+  const seq = String(Number(data) || 1).padStart(4, '0');
+  return `CS-${year}-${seq}`;
+}
+
 /** Lista las OPs aprobadas de un proveedor (excluyendo opcionalmente una específica). */
 export async function listAprobadasDeProveedor(proveedorId: string, exceptOrdenId?: string): Promise<Orden[]> {
   let q = supabase
@@ -786,7 +808,7 @@ export async function emitirOrdenCompraGrupo(
 export async function emitirOrdenCompra(o: Orden, actorEmail: string): Promise<Orden> {
   if (o.estado !== 'aprobada') throw new Error('Solo se emite OC sobre órdenes aprobadas');
   if (!o.proveedor_id) throw new Error('La orden no tiene proveedor adjudicado');
-  const ocCodigo = o.oc_codigo ?? (await nextOcCodigo());
+  const ocCodigo = o.oc_codigo ?? (o.tipo === 'servicio' ? await nextCsCodigo() : await nextOcCodigo());
   const patch = {
     estado: 'oc_emitida' as EstadoOrden,
     oc_codigo: ocCodigo,
