@@ -977,6 +977,13 @@ export interface ItemOrden {
   area?: string | null;
   /** Cantidad realmente recibida (recepción parcial). Si falta = aún no recibido. */
   cantidad_recibida?: number;
+  /** SERVICIOS: este ítem es un servicio (no un producto de inventario). */
+  es_servicio?: boolean;
+  /** SERVICIOS: categoría del servicio (RECARGA / MANTENIMIENTO / OTRO…). */
+  categoria_servicio?: string | null;
+  /** SERVICIOS: equipo de Control de Maquinaria casado al servicio (cuando es MANTENIMIENTO). */
+  equipo_id?: string | null;
+  equipo_nombre?: string | null;
 }
 
 export interface EventoHistorial {
@@ -991,6 +998,8 @@ export interface EventoHistorial {
 export interface Orden {
   id: string;
   codigo: string;
+  /** Tipo de orden: 'producto' (compra normal, SP→OC) | 'servicio' (Solicitud→Control de Servicio, SS→CS). */
+  tipo?: 'producto' | 'servicio' | null;
   oc_codigo?: string | null;
   proveedor_id: string | null;
   solicitante_email: string;

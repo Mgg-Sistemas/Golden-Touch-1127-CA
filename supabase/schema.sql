@@ -618,6 +618,8 @@ create table if not exists public.ordenes (
   solicitante_email  text not null,
   solicitante        text,           -- nombre de la persona solicitante
   unidad_solicitante text,           -- unidad/área que solicita
+  -- tipo: 'producto' (compra normal SP→OC) | 'servicio' (Solicitud→Control de Servicio SS→CS).
+  tipo               text not null default 'producto' check (tipo in ('producto','servicio')),
   items              jsonb not null default '[]',
   total              numeric not null default 0,
   estado             estado_orden not null default 'pendiente',
@@ -637,6 +639,26 @@ create table if not exists public.ordenes (
 
 create index if not exists idx_ordenes_proveedor on public.ordenes(proveedor_id);
 create index if not exists idx_ordenes_estado    on public.ordenes(estado);
+create index if not exists idx_ordenes_tipo      on public.ordenes(tipo);
+
+-- Catálogo de SERVICIOS contratables (recargas, mantenimientos…) para la
+-- Solicitud de Servicio (SS) → Control de Servicio (CS). categoria = RECARGA /
+-- MANTENIMIENTO / OTRO (extensible). RLS: lectura auth; escritura is_operativo().
+create table if not exists public.servicios_catalogo (
+  id         uuid primary key default gen_random_uuid(),
+  categoria  text not null,
+  nombre     text not null,
+  activo     boolean not null default true,
+  orden      int not null default 999,
+  created_by text,
+  created_at timestamptz not null default now(),
+  unique (categoria, nombre)
+);
+alter table public.servicios_catalogo enable row level security;
+drop policy if exists "servicios_cat read auth" on public.servicios_catalogo;
+drop policy if exists "servicios_cat write op" on public.servicios_catalogo;
+create policy "servicios_cat read auth" on public.servicios_catalogo for select using (auth.role()='authenticated');
+create policy "servicios_cat write op"  on public.servicios_catalogo for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- Catálogo gestionable de la OP: clasificaciones del pedido y unidades solicitantes
 -- (mismo patrón que acopio_catalogos: tipo + valor + activo, con activar/desactivar).

@@ -73,6 +73,7 @@ import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { CompraDirectaView } from './CompraDirectaView';
 import { OcPorLoteView } from './OcPorLoteView';
 import { CategoriasModal } from './CategoriasModal';
+import { CrearServicioModal } from './CrearServicioModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 
 /* ============================================================
@@ -160,6 +161,7 @@ type ModalKind =
   | { kind: 'none' }
   | { kind: 'detail'; ordenId: string }
   | { kind: 'create'; mercado?: boolean }
+  | { kind: 'create_servicio' }
   | { kind: 'approve'; orden: Orden }
   | { kind: 'confirm-oc'; orden: Orden }
   | { kind: 'metodo-pago'; orden: Orden }
@@ -428,6 +430,15 @@ export function PedidosPage() {
               🗂 Categorías
             </button>
           )}
+          {canWrite && scope === 'pedidos' && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => setModal({ kind: 'create_servicio' })}
+              title="Solicitud de Servicio (recargas, mantenimientos…) → Control de Servicio"
+            >
+              🔧 Nuevo servicio
+            </button>
+          )}
           {canWrite && scope !== 'compra_directa' && scope !== 'oc_lote' && (
             <button
               className="btn btn-primary"
@@ -636,6 +647,19 @@ export function PedidosPage() {
           usuario={usuario}
           authEmail={user?.email ?? ''}
           mercadoInicial={modal.mercado}
+          onClose={() => setModal({ kind: 'none' })}
+          onCreated={async () => {
+            setModal({ kind: 'none' });
+            await refresh();
+          }}
+        />
+      )}
+
+      {/* Modal: crear Solicitud de Servicio (SS → CS) */}
+      {modal.kind === 'create_servicio' && (
+        <CrearServicioModal
+          usuario={usuario}
+          authEmail={user?.email ?? ''}
           onClose={() => setModal({ kind: 'none' })}
           onCreated={async () => {
             setModal({ kind: 'none' });
@@ -1633,6 +1657,9 @@ function OrdenesTable({ ordenes, proveedorMap, canApproveSolicitud, onView, onAp
               <tr key={o.id}>
                 <td className="mono">
                   {o.codigo}
+                  {o.tipo === 'servicio' && (
+                    <span className="badge" style={{ marginLeft: '.4rem', background: '#0ea5e9', color: '#fff', fontSize: '.62rem', fontWeight: 700, padding: '.05rem .35rem' }} title="Solicitud / Control de Servicio">🔧</span>
+                  )}
                   {!!noLeidos?.get(o.id) && (
                     <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--brand, #ff8a00)', color: '#111', fontSize: '.62rem', fontWeight: 700, padding: '.05rem .35rem' }} title="Mensajes sin leer en la conversación">💬 {noLeidos.get(o.id)}</span>
                   )}
@@ -1752,6 +1779,9 @@ const KanbanCard = memo(function KanbanCard({
     >
       <div className="code">
         {orden.codigo}
+        {orden.tipo === 'servicio' && (
+          <span className="badge" style={{ marginLeft: '.4rem', background: '#0ea5e9', color: '#fff', fontSize: '.6rem', padding: '.05rem .35rem', fontWeight: 700 }}>🔧 Servicio</span>
+        )}
         {orden.urgente && (
           <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--danger)', color: '#fff', fontSize: '.6rem', padding: '.05rem .35rem', fontWeight: 700 }}>🚨 URGENTE</span>
         )}
@@ -2091,6 +2121,9 @@ function OrdenDetailModal({
         <div className="k">Estado</div>
         <div className="v">
           <StatusBadge estado={o.estado} />
+          {o.tipo === 'servicio' && (
+            <span className="badge" style={{ marginLeft: '.4rem', background: '#0ea5e9', color: '#fff', fontWeight: 700 }}>🔧 Servicio</span>
+          )}
           {o.urgente && (
             <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--danger)', color: '#fff', fontWeight: 700 }}>🚨 URGENTE</span>
           )}
