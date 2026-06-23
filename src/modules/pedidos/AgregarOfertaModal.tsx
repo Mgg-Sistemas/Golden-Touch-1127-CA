@@ -200,8 +200,10 @@ export function AgregarOfertaModal({
   }
 
   async function handleSubmit() {
-    if (precioTotal <= 0) {
-      toast('El precio total debe ser mayor a cero', 'error');
+    // El proveedor puede cotizar SOLO en Bs (BCV) o SOLO en $: basta con que uno
+    // de los dos totales sea mayor a cero.
+    if (precioTotal <= 0 && totalUsd <= 0) {
+      toast('Ingresá el precio en Bs (BCV) o en USD (al menos uno)', 'error');
       return;
     }
     if (!condiciones.trim()) {
@@ -255,13 +257,22 @@ export function AgregarOfertaModal({
       }
 
       // 3) Crear oferta. Cada ítem guarda precio (Bs a BCV), precio_usd y descuento.
-      //    precio_total = total Bs neto (con descuento); precio_divisa = total USD.
-      const itemsGuardar: ItemOrden[] = items.map((i) => ({
-        ...i,
-        precio_usd: i.precio_usd > 0 ? i.precio_usd : null,
-        marca: i.marca.trim() || null,
-        modelo: i.modelo.trim() || null,
-      }));
+      //    Si el proveedor cotizó SOLO en $ (Bs en blanco), usamos ese valor en $ como
+      //    el precio canónico del ítem (ambos están en $), para que el ranking, la OC y
+      //    la recepción a inventario tengan un costo válido.
+      const itemsGuardar: ItemOrden[] = items.map((i) => {
+        const soloUsd = (!i.precio || i.precio <= 0) && i.precio_usd > 0;
+        return {
+          ...i,
+          precio: soloUsd ? i.precio_usd : i.precio,
+          precio_usd: i.precio_usd > 0 ? i.precio_usd : null,
+          marca: i.marca.trim() || null,
+          modelo: i.modelo.trim() || null,
+        };
+      });
+      // Total de referencia (Bs a BCV, en $) recalculado tras la copia: para una oferta
+      // solo-$ queda igual al total en USD; para Bs o mixtas, igual que antes.
+      const precioTotalGuardar = itemsGuardar.reduce((a, i) => a + i.cantidad * (Number(i.precio) || 0), 0);
       if (editando) {
         // Al editar: los adjuntos CONSERVADOS (los que no se quitaron) + los nuevos.
         const adjuntosFinal = [...adjuntosExistentes, ...adjuntos];
@@ -270,7 +281,7 @@ export function AgregarOfertaModal({
         await actualizarOferta(ofertaEditar!.id, {
           proveedor_id: provId,
           items: itemsGuardar,
-          precio_total: precioTotal,
+          precio_total: precioTotalGuardar,
           precio_divisa: tieneUsd ? totalUsd : null,
           fecha_entrega_prometida: fechaEntrega || null,
           condiciones_pago: condiciones.trim() || null,
@@ -288,7 +299,7 @@ export function AgregarOfertaModal({
         orden_id: orden.id,
         proveedor_id: provId,
         items: itemsGuardar,
-        precio_total: precioTotal,
+        precio_total: precioTotalGuardar,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         notas: notas.trim() || null,
@@ -485,7 +496,7 @@ export function AgregarOfertaModal({
       )}
 
       <div className="form-row">
-        <label>Cotización por ítem · Pago en Bs (BCV) vs Pago en USD</label>
+        <label>Cotización por ítem · Pago en Bs (BCV) vs Pago en USD <span className="muted" style={{ fontWeight: 400 }}>(podés llenar solo una columna si el proveedor cotiza en una sola moneda)</span></label>
         <div className="table-wrap">
           <table className="items-table" style={{ fontSize: '.84rem' }}>
             <thead>
@@ -560,7 +571,7 @@ export function AgregarOfertaModal({
           </table>
         </div>
         <small className="muted">
-          <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. La <strong>Diferencia</strong> = (Bs − USD)
+          <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. Si el proveedor cotiza en una sola moneda, <strong>llená solo esa columna</strong> (la otra puede quedar en blanco). La <strong>Diferencia</strong> = (Bs − USD)
           y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
           Si el proveedor ofrece el <strong>mismo producto en varias marcas/modelos</strong>, usá <strong>+ Otra marca/modelo</strong> para cargar cada variante con su precio.
         </small>
