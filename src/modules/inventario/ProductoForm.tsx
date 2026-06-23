@@ -10,6 +10,8 @@ import {
   getCategorias,
   getUnidades,
   siguienteSku,
+  peekSku,
+  nextSku,
   type ProductoInput,
 } from './inventario.repository';
 import { getNombresAlmacenes, crearAlmacen } from './almacenes.repository';
@@ -100,6 +102,13 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaUnid, setNuevaUnid] = useState('');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
+  // Carga por CAJA/BULTO: si la unidad es caja o bulto, el stock inicial se ingresa
+  // en cajas/bultos y se multiplica por las unidades por bulto → se guarda en UNIDADES.
+  const [undPorBulto, setUndPorBulto] = useState('');
+  const esBulto = /caja|bulto/i.test(form.unidad);
+  const stockBultos = Number(form.stock) || 0;
+  const undXBulto = Number(undPorBulto) || 0;
+  const totalUnidades = stockBultos * undXBulto;
 
   // El SKU se deriva de la categoría. Para no contaminar el prefijo con el propio
   // SKU del producto que se edita, lo excluimos del cálculo.
@@ -112,16 +121,18 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   //    nueva categoría; si se vuelve a la categoría original, se restaura el SKU original.
   useEffect(() => {
     if (!form.categoria) return;
-    if (!isEdit) {
-      setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, otrosProductos) }));
+    // En edición, si se mantiene la categoría original, se conserva el SKU original.
+    if (isEdit && form.categoria === catOriginal) {
+      setForm((prev) => (prev.sku === skuOriginal ? prev : { ...prev, sku: skuOriginal }));
       return;
     }
-    if (form.categoria === catOriginal) {
-      setForm((prev) => (prev.sku === skuOriginal ? prev : { ...prev, sku: skuOriginal }));
-    } else {
-      const nuevo = siguienteSku(form.categoria, otrosProductos);
-      setForm((prev) => (prev.sku === nuevo ? prev : { ...prev, sku: nuevo }));
-    }
+    // Previsualización desde el contador PERSISTENTE (no reutiliza números). Si la
+    // red falla, cae a la estimación local para no dejar el campo vacío.
+    let cancel = false;
+    peekSku(form.categoria, otrosProductos)
+      .then((s) => { if (!cancel) setForm((prev) => (prev.sku === s ? prev : { ...prev, sku: s })); })
+      .catch(() => { if (!cancel) setForm((prev) => ({ ...prev, sku: siguienteSku(prev.categoria, otrosProductos) })); });
+    return () => { cancel = true; };
   }, [isEdit, form.categoria, otrosProductos, catOriginal, skuOriginal]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,12 +219,18 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
     }
     const restockRaw = form.restock_pct.trim();
 
+    // CAJA/BULTO → UNIDADES: en alta, si la unidad es caja/bulto y se indicó cuántas
+    // unidades trae, el stock inicial (en cajas) se multiplica y se guarda en "und".
+    const convierteBulto = !isEdit && esBulto && undXBulto > 0;
+    const stockFinal = convierteBulto ? stockBultos * undXBulto : (Number(form.stock) || 0);
+    const unidadFinal = convierteBulto ? 'und' : form.unidad;
+
     const payload: ProductoInput = {
       sku,
       nombre,
       categoria: form.categoria,
-      unidad: form.unidad,
-      stock: Number(form.stock) || 0,
+      unidad: unidadFinal,
+      stock: stockFinal,
       stock_min: Number(form.stock_min) || 0,
       // Costo y precio de venta siempre a 2 decimales (la moneda no maneja más).
       precio: Math.round((Number(form.precio) || 0) * 100) / 100,
@@ -238,6 +255,12 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
 
     setSaving(true);
     try {
+      // Producto NUEVO: reservamos el SKU correlativo REAL (atómico, persistente)
+      // en el momento de crear, para que no se reutilicen números tras un borrado.
+      if (!isEdit) {
+        try { payload.sku = await nextSku(form.categoria, otrosProductos); }
+        catch { /* sin red: se usa el SKU previsualizado */ }
+      }
       await onSubmit(payload);
       onClose();
     } catch (err) {
@@ -426,7 +449,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
 
         <div className="form-grid">
           <div className="form-row">
-            <label>{isEdit ? 'Stock total (todos los almacenes)' : 'Stock inicial'}</label>
+            <label>{isEdit ? 'Stock total (todos los almacenes)' : (esBulto ? `Stock inicial (en ${form.unidad}s)` : 'Stock inicial')}</label>
             <input
               className="input mono"
               type="number"
@@ -439,9 +462,30 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
             <small className="muted" style={{ fontSize: '.72rem' }}>
               {isEdit
                 ? 'El stock es por almacén. Ajustalo desde “Movimiento” (entrada/salida/ajuste) en cada almacén.'
-                : 'Ingresa al almacén seleccionado arriba. Luego se ajusta por movimientos.'}
+                : esBulto
+                  ? `Cantidad de ${form.unidad}s. Se convierte a unidades con el campo de la derecha.`
+                  : 'Ingresa al almacén seleccionado arriba. Luego se ajusta por movimientos.'}
             </small>
           </div>
+          {!isEdit && esBulto && (
+            <div className="form-row">
+              <label>Unidades por {form.unidad}</label>
+              <input
+                className="input mono"
+                type="number"
+                min={0}
+                step="any"
+                value={undPorBulto}
+                onChange={(e) => setUndPorBulto(e.target.value)}
+                placeholder="ej. 20"
+              />
+              <small className="muted" style={{ fontSize: '.72rem' }}>
+                {undXBulto > 0
+                  ? <>Se guardará en unidades: <strong>{stockBultos} {form.unidad}{stockBultos === 1 ? '' : 's'} × {undXBulto} = {totalUnidades} und</strong>.</>
+                  : <>Indicá cuántas unidades trae cada {form.unidad} (ej. 20). El stock se guardará en unidades.</>}
+              </small>
+            </div>
+          )}
           <div className="form-row">
             <label>Stock mínimo</label>
             <input

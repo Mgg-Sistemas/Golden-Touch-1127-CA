@@ -8,7 +8,7 @@
    (costo = gasto/cant → PMP).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
+import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { egresarGastoCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -134,7 +134,7 @@ export async function crearCompraDirecta(
       const nom = l.nombre.trim().toUpperCase();
       if (!nom) throw new Error('Indicá el nombre del material nuevo.');
       const nuevo = await createProducto({
-        sku: siguienteSku(l.categoria, productosExistentes),
+        sku: await nextSku(l.categoria, productosExistentes),
         nombre: nom, categoria: l.categoria, unidad: l.unidad,
         stock: 0, stock_min: 0, precio: 0, almacen, estado: 'activo',
       });

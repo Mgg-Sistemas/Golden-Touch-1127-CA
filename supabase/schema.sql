@@ -113,6 +113,55 @@ create index if not exists idx_productos_categoria on public.productos(categoria
 create index if not exists idx_productos_almacen   on public.productos(almacen);
 create index if not exists idx_productos_estado    on public.productos(estado);
 
+-- Correlativo de SKU PERSISTENTE por prefijo: el número NUNCA se reutiliza,
+-- aunque se borre el producto con el número más alto (regla de correlativo).
+create table if not exists public.sku_correlativos (
+  prefijo text primary key,
+  ultimo  integer not null default 0
+);
+alter table public.sku_correlativos enable row level security;
+-- Sin políticas: solo las funciones SECURITY DEFINER de abajo tocan esta tabla.
+
+-- Próximo número para un prefijo SIN reservarlo (previsualización del SKU).
+create or replace function public.peek_sku(p_prefijo text)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  v_pre text := upper(trim(coalesce(p_prefijo, '')));
+  v_max integer;
+  v_stored integer;
+begin
+  if v_pre = '' then v_pre := 'GEN'; end if;
+  select coalesce(max((regexp_match(sku, '^' || v_pre || '[-_]?(\d+)$', 'i'))[1]::int), 0)
+    into v_max from public.productos where sku ~* ('^' || v_pre || '[-_]?\d+$');
+  select coalesce(ultimo, 0) into v_stored from public.sku_correlativos where prefijo = v_pre;
+  return greatest(coalesce(v_stored, 0), coalesce(v_max, 0)) + 1;
+end $$;
+
+-- Reserva N números (atómico) y devuelve el PRIMERO asignado. El contador solo
+-- sube (greatest con el máximo real evita colisiones con SKUs ya existentes).
+create or replace function public.next_sku(p_prefijo text, p_n integer default 1)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  v_pre text := upper(trim(coalesce(p_prefijo, '')));
+  v_cnt integer := greatest(coalesce(p_n, 1), 1);
+  v_max integer;
+  v_end integer;
+begin
+  if v_pre = '' then v_pre := 'GEN'; end if;
+  insert into public.sku_correlativos (prefijo, ultimo) values (v_pre, 0)
+    on conflict (prefijo) do nothing;
+  select coalesce(max((regexp_match(sku, '^' || v_pre || '[-_]?(\d+)$', 'i'))[1]::int), 0)
+    into v_max from public.productos where sku ~* ('^' || v_pre || '[-_]?\d+$');
+  update public.sku_correlativos
+     set ultimo = greatest(ultimo, coalesce(v_max, 0)) + v_cnt
+   where prefijo = v_pre
+   returning ultimo into v_end;
+  return v_end - v_cnt + 1;
+end $$;
+
+grant execute on function public.peek_sku(text) to authenticated, anon;
+grant execute on function public.next_sku(text, integer) to authenticated, anon;
+
 -- ─────────────────────────────────────────────────────────────
 -- 5. movimientos (kardex)
 -- ─────────────────────────────────────────────────────────────

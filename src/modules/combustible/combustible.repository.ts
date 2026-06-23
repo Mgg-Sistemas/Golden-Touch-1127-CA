@@ -11,7 +11,7 @@ import type {
   MovimientoCombustible,
   SolicitudCombustible,
 } from '@/shared/lib/types';
-import { createProducto, listProductos, siguienteSku } from '@/modules/inventario/inventario.repository';
+import { createProducto, listProductos, nextSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 
 /** Categoría y unidad con que se da de alta cada combustible en el inventario. */
@@ -42,7 +42,7 @@ export async function listCombustibles(): Promise<Combustible[]> {
 async function ensureProductoCombustible(comb: Pick<Combustible, 'id' | 'nombre' | 'producto_id' | 'costo_litro'>, almacen: string): Promise<string> {
   if (comb.producto_id) return comb.producto_id;
   const productos = await listProductos();
-  const sku = siguienteSku(CATEGORIA_COMBUSTIBLE, productos);
+  const sku = await nextSku(CATEGORIA_COMBUSTIBLE, productos);
   const prod = await createProducto({
     sku,
     nombre: comb.nombre,
@@ -89,7 +89,7 @@ export async function crearCombustible(input: {
 
   // 1) Se registra PRIMERO en el inventario: alta del producto en el almacén elegido.
   const productos = await listProductos();
-  const sku = siguienteSku(CATEGORIA_COMBUSTIBLE, productos);
+  const sku = await nextSku(CATEGORIA_COMBUSTIBLE, productos);
   const prod = await createProducto({
     sku,
     nombre,
