@@ -39,7 +39,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'cocina',      label: 'Control de Alimentación (Cocina)' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
-  { key: 'maquinaria',  label: 'Control de Maquinaria' },
+  { key: 'maquinaria',  label: 'Control de Maquinaria y Vehículos' },
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
 ];

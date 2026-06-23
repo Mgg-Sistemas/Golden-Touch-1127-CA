@@ -15,6 +15,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
+import { supabase } from '@/shared/lib/supabase';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -94,6 +95,23 @@ export function AppShell() {
 
   // Inicializa el contexto de audio (se "desbloquea" en el primer click/tecla).
   useEffect(() => { initSound(); }, []);
+
+  // Latido de sesión (supervisión de actividad): mientras la app esté abierta y el
+  // usuario autenticado, marca presencia cada 60 s. La RPC prolonga la sesión
+  // activa o abre una nueva si hubo ausencia. No late con la pestaña oculta.
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    const beat = () => {
+      if (document.visibilityState === 'hidden') return;
+      void supabase.rpc('latido_sesion').then(() => {}, () => {});
+    };
+    beat();
+    const id = setInterval(() => { if (alive) beat(); }, 60_000);
+    const onVis = () => { if (document.visibilityState === 'visible') beat(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { alive = false; clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
+  }, [user]);
 
   // Precalienta en segundo plano (cuando el navegador está ocioso) las librerías
   // pesadas de PDF/Excel y el logo. Así el PRIMER clic en un botón de reporte ya
@@ -251,7 +269,7 @@ export function AppShell() {
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación (Cocina)" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria" />}
+          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
         </nav>
 
         {showSistema && <div className="sidebar-section">Sistema</div>}

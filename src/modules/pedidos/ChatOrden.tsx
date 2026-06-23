@@ -20,6 +20,7 @@ export function ChatOrden({ ordenId, ordenLabel, autorNombre }: {
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [cargaError, setCargaError] = useState(false);
   const finRef = useRef<HTMLDivElement>(null);
 
   const marcar = useCallback(() => {
@@ -27,12 +28,16 @@ export function ChatOrden({ ordenId, ordenLabel, autorNombre }: {
   }, [ordenId, user?.id]);
 
   const cargar = useCallback(async () => {
+    if (!ordenId) { setLoading(false); return; }   // sin orden válida no se consulta
     try {
       const rows = await listMensajes(ordenId);
       setMsgs(rows);
+      setCargaError(false);
       marcar();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo cargar la conversación', 'error');
+    } catch {
+      // El chat es un panel secundario: si falla la carga NO interrumpimos el flujo
+      // (p. ej. cargar ofertas) con un error global; se muestra inline con reintento.
+      setCargaError(true);
     } finally {
       setLoading(false);
     }
@@ -86,7 +91,13 @@ export function ChatOrden({ ordenId, ordenLabel, autorNombre }: {
         }}
       >
         {loading && <div className="muted" style={{ fontSize: '.84rem', textAlign: 'center' }}>Cargando…</div>}
-        {!loading && !msgs.length && (
+        {!loading && cargaError && (
+          <div className="muted" style={{ fontSize: '.82rem', textAlign: 'center', padding: '.6rem 0' }}>
+            No se pudo cargar el chat.{' '}
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setLoading(true); void cargar(); }}>↻ Reintentar</button>
+          </div>
+        )}
+        {!loading && !cargaError && !msgs.length && (
           <div className="muted" style={{ fontSize: '.84rem', textAlign: 'center', padding: '.6rem 0' }}>
             Sin mensajes. Iniciá la conversación de seguimiento de esta orden.
           </div>
