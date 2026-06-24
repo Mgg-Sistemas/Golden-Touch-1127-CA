@@ -1174,7 +1174,13 @@ function MetodoPagoModal({
   onClose: () => void;
   onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean }, nuevoProveedorId: string | null) => Promise<void> | void;
 }) {
-  const [legs, setLegs] = useState<PagoMetodo[]>([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
+  // Al CAMBIAR el método (OC ya "Confirmada pagar") precargamos el/los método(s) ya
+  // indicados; si es la primera vez, arranca con un método por defecto.
+  const [legs, setLegs] = useState<PagoMetodo[]>(
+    orden.metodo_pago && orden.metodo_pago.length
+      ? orden.metodo_pago.map((m) => ({ ...m }))
+      : [{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }],
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Cambio de proveedor (opcional): la OC sigue aprobada, solo se cambia el proveedor.
@@ -1186,10 +1192,10 @@ function MetodoPagoModal({
   const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
   const [notaEntrega, setNotaEntrega] = useState(false);
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
-  const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
-  const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
+  const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>(orden.comprobante_tipo ?? 'nota_entrega');
+  const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>(orden.retencion_modo ?? 'se_paga_despues');
   // OC por factura: con IVA (suma 16% al total) o sin IVA (no agrega nada).
-  const [conIva, setConIva] = useState(false);
+  const [conIva, setConIva] = useState(!!orden.iva_aplicado);
   const baseTotal = orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null ? orden.recibido_total : orden.total;
   const ivaMonto = Math.round(Number(baseTotal) * 0.16 * 100) / 100;
 
@@ -2027,9 +2033,17 @@ function OrdenDetailModal({
           </button>
         </>
       )}
-      {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar. */}
+      {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar.
+          Mientras no se haya pagado, Compras puede CAMBIAR el método de pago indicado. */}
       {isOcAprobada && (
-        <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+        <>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          {canManageProcurement && (
+            <button className="btn btn-primary" onClick={onEnviarPagar} title="Cambiar el método de pago indicado (antes de que Tesorería pague)">
+              💳 Cambiar método de pago
+            </button>
+          )}
+        </>
       )}
       {/* Crédito · cuenta abierta. Los abonos se registran en TESORERÍA; acá el
           analista hace seguimiento y mueve la orden según corresponda. */}

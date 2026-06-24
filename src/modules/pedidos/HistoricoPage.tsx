@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
+import { Modal } from '@/shared/ui/Modal';
+import { toast } from '@/shared/ui/Toast';
 import { dateTime, money } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
 import { listOrdenes, listProveedoresActivos } from './pedidos.repository';
+import { descargarTrazabilidadPdf } from './trazabilidadPdf';
+import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
 
 type FechaCampo = 'created_at' | 'aprobada_en' | 'oc_emitida_en' | 'finalizada_en';
@@ -42,6 +46,21 @@ export function HistoricoPage() {
   const [hasta, setHasta] = useState('');
   const [sortDesc, setSortDesc] = useState(true);
   const [demandaOpen, setDemandaOpen] = useState(false);
+  // Detalle de una orden del histórico (clic en la fila) + impresión PDF con vista previa.
+  const [detalle, setDetalle] = useState<Orden | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function imprimirPdf(o: Orden, tipo: 'trazabilidad' | 'oc') {
+    setPdfBusy(true);
+    try {
+      if (tipo === 'oc') await descargarOrdenCompraPdf(o.id);
+      else await descargarTrazabilidadPdf(o.id);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   const cargar = useCallback(async () => {
     try {
@@ -249,7 +268,7 @@ export function HistoricoPage() {
               {filtered.map((o) => {
                 const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : null;
                 return (
-                  <tr key={o.id}>
+                  <tr key={o.id} onClick={() => setDetalle(o)} style={{ cursor: 'pointer' }} title="Ver detalle e imprimir PDF">
                     <td className="mono"><strong>{o.codigo}</strong></td>
                     <td className="mono">
                       {o.oc_codigo
@@ -278,6 +297,67 @@ export function HistoricoPage() {
       {demandaOpen && (
         <MaterialesDemandaModal ordenes={ordenes} onClose={() => setDemandaOpen(false)} />
       )}
+
+      {detalle && (() => {
+        const o = detalle;
+        const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : null;
+        const esServicio = o.tipo === 'servicio';
+        const fila = (k: string, v: ReactNode) => (
+          <div className="detail-row"><div className="k">{k}</div><div className="v">{v}</div></div>
+        );
+        return (
+          <Modal
+            title={`${esServicio ? 'Servicio' : 'Pedido'} · ${o.codigo}${o.oc_codigo ? ` · ${o.oc_codigo}` : ''}`}
+            size="lg"
+            onClose={() => setDetalle(null)}
+            footer={
+              <>
+                <button className="btn btn-ghost" onClick={() => setDetalle(null)} disabled={pdfBusy}>Cerrar</button>
+                {o.oc_codigo && (
+                  <button className="btn btn-ghost" onClick={() => void imprimirPdf(o, 'oc')} disabled={pdfBusy} title="Imprimir la Orden de Compra (vista previa)">
+                    📄 {esServicio ? 'Control de Servicio' : 'OC'} PDF
+                  </button>
+                )}
+                <button className="btn btn-primary" onClick={() => void imprimirPdf(o, 'trazabilidad')} disabled={pdfBusy} title="Imprimir la trazabilidad completa (vista previa)">
+                  {pdfBusy ? 'Generando…' : '🧾 Imprimir PDF'}
+                </button>
+              </>
+            }
+          >
+            <div style={{ display: 'grid', gap: '.15rem', marginBottom: '.75rem' }}>
+              {fila('Estado', <StatusBadge estado={o.estado} />)}
+              {fila('Solicitante', `${o.solicitante ?? '—'}${o.solicitante_email ? ` · ${o.solicitante_email}` : ''}`)}
+              {o.unidad_solicitante && fila('Unidad', o.unidad_solicitante)}
+              {fila('Proveedor', prov?.razon_social ?? '—')}
+              {fila('Total', <strong className="mono">{money(o.total)}</strong>)}
+              {o.finalidad && fila('Finalidad', o.finalidad)}
+              {o.motivo && fila('Motivo', o.motivo)}
+              {o.notas && fila('Nota', o.notas)}
+              {fila('Fecha solicitud', dateTime(o.created_at))}
+              {o.aprobada_en && fila('Aprobada', dateTime(o.aprobada_en))}
+              {o.oc_aprobada_en && fila('OC firmada', dateTime(o.oc_aprobada_en))}
+              {o.recibida_en && fila('Recibida', dateTime(o.recibida_en))}
+              {o.finalizada_en && fila('Finalizada', dateTime(o.finalizada_en))}
+            </div>
+
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead><tr><th>{esServicio ? 'Servicio' : 'Producto'}</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
+                <tbody>
+                  {o.items.map((it, i) => (
+                    <tr key={`${it.sku}-${i}`}>
+                      <td>{it.nombre}{it.marca ? ` · ${it.marca}` : ''}{it.equipo_nombre ? ` · ${it.equipo_nombre}` : ''}<div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div></td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{it.cantidad}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money(it.precio)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
