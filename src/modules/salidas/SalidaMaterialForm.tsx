@@ -5,13 +5,15 @@ import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto, ItemSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { updateProducto } from '@/modules/inventario/inventario.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
 
 // `key` = `${producto_id}|${almacen}` (identifica una existencia concreta).
-interface LineaUI { id: number; key: string; cantidad: string; }
+// `precio` = costo unitario EDITABLE (si se deja vacío usa el PMP/costo del inventario).
+interface LineaUI { id: number; key: string; cantidad: string; precio?: string; }
 
 export function SalidaMaterialForm({
   productos, existencias, actor, actorName, onClose, onSaved,
@@ -104,10 +106,14 @@ export function SalidaMaterialForm({
     const producto = activos.find((p) => p.id === pid) ?? null;
     const ex = l.key ? exMap.get(l.key) : undefined;
     const stock = Number(ex?.stock) || 0;
-    const precio = (Number(ex?.costo_promedio) || 0) || (producto?.precio ?? 0) || 0;
+    // Costo sugerido del inventario (PMP o precio del producto) y el costo EFECTIVO:
+    // el editado por el usuario si lo cargó, si no el sugerido.
+    const precioDefault = (Number(ex?.costo_promedio) || 0) || (producto?.precio ?? 0) || 0;
+    const precio = l.precio !== undefined && l.precio !== '' ? (Number(l.precio) || 0) : precioDefault;
+    const precioCambiado = !!producto && l.precio !== undefined && l.precio !== '' && Math.abs(precio - (producto.precio ?? 0)) > 0.0001;
     const cantNum = Number(l.cantidad) || 0;
     const excede = cantNum > stock;
-    return { l, pid, alm, producto, stock, precio, cantNum, subtotal: precio * cantNum, excede };
+    return { l, pid, alm, producto, stock, precio, precioDefault, precioCambiado, cantNum, subtotal: precio * cantNum, excede };
   });
   const total = lineasCalc.reduce((a, x) => a + x.subtotal, 0);
   const hayInvalida = !opciones.length || lineasCalc.some((x) => !x.l.key || x.cantNum <= 0 || x.excede);
@@ -150,6 +156,15 @@ export function SalidaMaterialForm({
         consumoInterno,
         solicitante: actorName || actor, actor, actorName,
       });
+      // Vincular con inventario: si se editó el costo de algún material, se actualiza
+      // el costo del producto (productos.precio) para que el inventario quede alineado.
+      const cambios = lineasCalc.filter((x) => x.precioCambiado && x.pid);
+      if (cambios.length) {
+        const res = await Promise.allSettled(cambios.map((x) => updateProducto(x.pid, { precio: x.precio })));
+        const fallos = res.filter((r) => r.status === 'rejected').length;
+        if (fallos) toast(`Salida creada, pero ${fallos} costo(s) no se pudo sincronizar con inventario.`, 'error');
+        else toast(`Costo sincronizado con inventario (${cambios.length}).`, 'success');
+      }
       const resumen = items.length === 1 ? `${num(items[0].cantidad)} ${items[0].unidad ?? ''} de ${items[0].producto_nombre}` : `${items.length} materiales`;
       notify(`Solicitud de salida creada: ${resumen} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
@@ -205,17 +220,17 @@ export function SalidaMaterialForm({
         <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.4rem 0 .35rem' }}>
           Materiales
         </label>
-        {lineasCalc.map(({ l, producto, alm, stock, precio, cantNum, subtotal, excede }, idx) => (
+        {lineasCalc.map(({ l, producto, alm, stock, precio, precioDefault, cantNum, subtotal, excede }, idx) => (
           <div key={l.id} className="card" style={{ margin: '0 0 .5rem', padding: '.6rem .7rem', background: 'var(--bg-1)' }}>
             <div className="form-grid">
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Material #{idx + 1}</label>
-                <SearchSelect value={l.key} onChange={(v) => setLinea(l.id, { key: v })} disabled={!opciones.length}
+                <SearchSelect value={l.key} onChange={(v) => setLinea(l.id, { key: v, precio: undefined })} disabled={!opciones.length}
                   placeholder={opciones.length ? '🔍 Buscar producto (todos los almacenes)…' : '— no hay materiales con stock —'}
                   options={opciones.map((o) => ({ value: o.value, label: o.label }))} />
                 <small className="muted">
                   {l.key
-                    ? <>Almacén: <strong>{alm}</strong> · Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precio)}</strong></>
+                    ? <>Almacén: <strong>{alm}</strong> · Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precioDefault)}</strong></>
                     : 'Elegí el producto; se descuenta del almacén donde está.'}
                 </small>
               </div>
@@ -238,6 +253,21 @@ export function SalidaMaterialForm({
                   : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && l.key && <>· queda {num(Math.max(0, stock - cantNum))}</>}</small>}
               </div>
             </div>
+            {/* Costo unitario editable: si se cambia, se usa en la salida y se
+                actualiza el costo del producto en el inventario. */}
+            {l.key && (
+              <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem', maxWidth: 260 }}>
+                <label>Costo unitario $</label>
+                <input className="input mono" type="number" min={0} step="any"
+                  title="Costo unitario. Si lo cambiás, se usa en esta salida y se actualiza el costo del producto en el inventario."
+                  value={l.precio !== undefined ? l.precio : String(precioDefault)}
+                  onChange={(e) => setLinea(l.id, { precio: e.target.value })} />
+                <small className="muted">
+                  Sugerido (inventario): <strong className="mono">{money(precioDefault)}</strong>
+                  {Math.abs(precio - precioDefault) > 0.0001 && <> · se actualizará el costo en inventario a <strong className="mono">{money(precio)}</strong></>}
+                </small>
+              </div>
+            )}
           </div>
         ))}
         <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea} disabled={!opciones.length} style={{ marginBottom: '.6rem' }}>

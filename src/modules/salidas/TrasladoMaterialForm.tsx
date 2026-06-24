@@ -6,11 +6,13 @@ import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto, ItemSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { updateProducto } from '@/modules/inventario/inventario.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
 
-interface LineaUI { id: number; productoId: string; cantidad: string; }
+// `precio` = costo unitario EDITABLE (si se deja vacío usa el PMP/costo del inventario).
+interface LineaUI { id: number; productoId: string; cantidad: string; precio?: string; }
 
 export function TrasladoMaterialForm({
   productos, existencias, almacenesList, actor, actorName, onClose, onSaved,
@@ -97,10 +99,12 @@ export function TrasladoMaterialForm({
     const producto = activos.find((p) => p.id === l.productoId) ?? null;
     const ex = exMap.get(`${l.productoId}|${origen}`);
     const stock = Number(ex?.stock) || 0;
-    const precio = (Number(ex?.costo_promedio) || 0) || (producto?.precio ?? 0) || 0;
+    const precioDefault = (Number(ex?.costo_promedio) || 0) || (producto?.precio ?? 0) || 0;
+    const precio = l.precio !== undefined && l.precio !== '' ? (Number(l.precio) || 0) : precioDefault;
+    const precioCambiado = !!producto && l.precio !== undefined && l.precio !== '' && Math.abs(precio - (producto.precio ?? 0)) > 0.0001;
     const cantNum = Number(l.cantidad) || 0;
     const excede = cantNum > stock;
-    return { l, producto, stock, precio, cantNum, subtotal: precio * cantNum, excede };
+    return { l, producto, stock, precio, precioDefault, precioCambiado, cantNum, subtotal: precio * cantNum, excede };
   });
   const total = lineasCalc.reduce((a, x) => a + x.subtotal, 0);
   const mismoAlmacen = origen === destino;
@@ -143,6 +147,15 @@ export function TrasladoMaterialForm({
         consumoInterno,
         solicitante: actorName || actor, actor, actorName,
       });
+      // Vincular con inventario: si se editó el costo de algún material, se actualiza
+      // el costo del producto (productos.precio) para alinear el inventario.
+      const cambios = lineasCalc.filter((x) => x.precioCambiado && x.l.productoId);
+      if (cambios.length) {
+        const res = await Promise.allSettled(cambios.map((x) => updateProducto(x.l.productoId, { precio: x.precio })));
+        const fallos = res.filter((r) => r.status === 'rejected').length;
+        if (fallos) toast(`Traslado creado, pero ${fallos} costo(s) no se pudo sincronizar con inventario.`, 'error');
+        else toast(`Costo sincronizado con inventario (${cambios.length}).`, 'success');
+      }
       const resumen = items.length === 1 ? `${num(items[0].cantidad)} ${items[0].unidad ?? ''} de ${items[0].producto_nombre}` : `${items.length} materiales`;
       notify(`Solicitud de traslado creada: ${resumen} · ${origen} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
@@ -213,15 +226,15 @@ export function TrasladoMaterialForm({
         <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.4rem 0 .35rem' }}>
           Materiales a trasladar
         </label>
-        {lineasCalc.map(({ l, producto, stock, precio, cantNum, subtotal, excede }, idx) => (
+        {lineasCalc.map(({ l, producto, stock, precio, precioDefault, cantNum, subtotal, excede }, idx) => (
           <div key={l.id} className="card" style={{ margin: '0 0 .5rem', padding: '.6rem .7rem', background: 'var(--bg-1)' }}>
             <div className="form-grid">
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Material #{idx + 1}</label>
-                <SearchSelect value={l.productoId} onChange={(v) => setLinea(l.id, { productoId: v })} disabled={!productosEnOrigen.length}
+                <SearchSelect value={l.productoId} onChange={(v) => setLinea(l.id, { productoId: v, precio: undefined })} disabled={!productosEnOrigen.length}
                   placeholder={productosEnOrigen.length ? '🔍 Buscar producto…' : '— el almacén de origen no tiene materiales —'}
                   options={productosEnOrigen.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
-                <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precio)}</strong></small>
+                <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precioDefault)}</strong></small>
               </div>
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
@@ -242,6 +255,20 @@ export function TrasladoMaterialForm({
                   : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && <>· queda {num(Math.max(0, stock - cantNum))} en origen</>}</small>}
               </div>
             </div>
+            {/* Costo unitario editable: si se cambia, se actualiza el costo del producto en inventario. */}
+            {l.productoId && (
+              <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem', maxWidth: 260 }}>
+                <label>Costo unitario $</label>
+                <input className="input mono" type="number" min={0} step="any"
+                  title="Costo unitario. Si lo cambiás, se actualiza el costo del producto en el inventario."
+                  value={l.precio !== undefined ? l.precio : String(precioDefault)}
+                  onChange={(e) => setLinea(l.id, { precio: e.target.value })} />
+                <small className="muted">
+                  Sugerido (inventario): <strong className="mono">{money(precioDefault)}</strong>
+                  {Math.abs(precio - precioDefault) > 0.0001 && <> · se actualizará el costo en inventario a <strong className="mono">{money(precio)}</strong></>}
+                </small>
+              </div>
+            )}
           </div>
         ))}
         <button type="button" className="btn btn-sm btn-ghost" onClick={addLinea} disabled={!productosEnOrigen.length} style={{ marginBottom: '.6rem' }}>
