@@ -232,7 +232,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   const [nuevaUni, setNuevaUni] = useState<Record<number, string>>({});
   const nuevaLinea = (id: number): LineaUI => ({
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
-    nombre: '', categoria: cats[0] ?? '', unidad: unis[0] ?? 'und', cantidad: '1',
+    nombre: '', categoria: cats[0] ?? '', unidad: activos[0]?.unidad || unis[0] || 'und', cantidad: '1',
   });
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
   const [almacen, setAlmacen] = useState(alms[0]);
@@ -304,7 +304,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (l.modo === 'existente') {
         if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
-        payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant });
+        payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant, unidad: l.unidad });
       } else {
         if (!l.nombre.trim()) { setError('Indicá el nombre del material nuevo.'); return; }
         payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: l.categoria, unidad: l.unidad, cantidad: cant });
@@ -439,9 +439,20 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
               <div className="form-grid">
                 <div className="form-row">
                   <label>Material #{idx + 1}</label>
-                  <SearchSelect value={l.productoId} onChange={(v) => set(l.id, { productoId: v })} disabled={!activos.length}
+                  <SearchSelect value={l.productoId} onChange={(v) => { const p = activos.find((x) => x.id === v); set(l.id, { productoId: v, unidad: p?.unidad || l.unidad }); }} disabled={!activos.length}
                     placeholder={activos.length ? '🔍 Buscar material…' : '— sin materiales —'}
                     options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
+                </div>
+                <div className="form-row">
+                  <label>Unidad / medida</label>
+                  <select className="select" value={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })} disabled={!l.productoId}>{unis.map((u) => <option key={u} value={u}>{u}</option>)}</select>
+                  <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+                    <input className="input" style={{ flex: 1 }} placeholder="Nueva medida…" value={nuevaUni[l.id] ?? ''}
+                      onChange={(e) => setNuevaUni((m) => ({ ...m, [l.id]: e.target.value.toUpperCase() }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddUnidad(l.id); } }} maxLength={20} disabled={!l.productoId} />
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => handleAddUnidad(l.id)} disabled={!l.productoId}>+ Añadir</button>
+                  </div>
+                  <small className="muted">Si cambia, se actualiza la medida del producto en inventario.</small>
                 </div>
                 <div className="form-row">
                   <label>Cantidad</label>
