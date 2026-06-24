@@ -411,13 +411,18 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     autoTable(doc, {
       startY: y,
       head: [['SKU', 'Descripción', 'Cantidad', 'Precio unit.', 'Subtotal']],
-      body: o.items.map((it) => [
-        it.sku,
-        it.nombre,
-        num(it.cantidad),
-        money(it.precio),
-        money(it.cantidad * it.precio),
-      ]),
+      body: o.items.map((it) => {
+        // Marca/modelo cargados por el usuario (en la oferta) se muestran bajo el nombre.
+        const ficha = [it.marca && `Marca: ${it.marca}`, it.modelo && `Modelo: ${it.modelo}`]
+          .filter(Boolean).join('   ');
+        return [
+          it.sku,
+          ficha ? `${it.nombre}\n${ficha}` : it.nombre,
+          num(it.cantidad),
+          money(it.precio),
+          money(it.cantidad * it.precio),
+        ];
+      }),
       foot: [['', '', '', esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL', money(o.total)]],
       theme: 'grid',
       headStyles: { fillColor: [255, 138, 0], textColor: 255 },

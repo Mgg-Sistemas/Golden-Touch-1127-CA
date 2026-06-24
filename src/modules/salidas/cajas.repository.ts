@@ -139,6 +139,7 @@ export async function ingresarDinero(
    debe reflejarse en el saldo de la caja de la que sale el dinero. */
 export async function egresarGastoCaja(input: {
   cajaId: string; monto: number; concepto: string; categoria?: string;
+  gastoCategoria?: string | null; gastoSubcategoria?: string | null;
   actor: string; actorName?: string | null;
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
@@ -154,6 +155,8 @@ export async function egresarGastoCaja(input: {
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: caja.moneda,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto.trim(), categoria: input.categoria ?? 'gasto',
+    gasto_categoria: input.gastoCategoria?.trim() || null,
+    gasto_subcategoria: input.gastoSubcategoria?.trim() || null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) throw error;
