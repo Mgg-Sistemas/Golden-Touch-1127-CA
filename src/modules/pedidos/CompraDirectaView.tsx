@@ -8,7 +8,7 @@ import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
 import { descargarCompraDirectaPdf } from './compraDirectaPdf';
 import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
-import { getCategorias, getUnidades, listProductos } from '@/modules/inventario/inventario.repository';
+import { getCategorias, getUnidades, listProductos, addCategoria } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
@@ -225,9 +225,12 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   const alms = almacenes.length ? almacenes : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const provActivos = useMemo(() => proveedores.filter((p) => p.estado === 'activo'), [proveedores]);
+  // Categorías editable: se pueden dar de alta nuevas en el momento (igual que en inventario).
+  const [cats, setCats] = useState<string[]>(categorias);
+  const [nuevaCat, setNuevaCat] = useState<Record<number, string>>({});
   const nuevaLinea = (id: number): LineaUI => ({
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
-    nombre: '', categoria: categorias[0] ?? '', unidad: unidades[0] ?? 'und', cantidad: '1',
+    nombre: '', categoria: cats[0] ?? '', unidad: unidades[0] ?? 'und', cantidad: '1',
   });
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
   const [almacen, setAlmacen] = useState(alms[0]);
@@ -248,6 +251,27 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   function set(id: number, patch: Partial<LineaUI>) { setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l))); }
   function add() { setLineas((ls) => [...ls, nuevaLinea(seq)]); setSeq((s) => s + 1); }
   function quitar(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
+
+  // Alta de categoría en línea (se guarda en el catálogo de inventario y queda seleccionada en el renglón).
+  async function handleAddCategoria(lineId: number) {
+    const clean = (nuevaCat[lineId] ?? '').trim();
+    if (!clean) { toast('Escribe un nombre para la categoría', 'error'); return; }
+    const existente = cats.find((c) => c.toLowerCase() === clean.toLowerCase());
+    if (existente) {
+      set(lineId, { categoria: existente });
+      setNuevaCat((m) => ({ ...m, [lineId]: '' }));
+      toast(`La categoría "${existente}" ya existe — seleccionada`, 'info');
+      return;
+    }
+    try {
+      const added = await addCategoria(clean);
+      if (!added) return;
+      setCats((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
+      set(lineId, { categoria: added });
+      setNuevaCat((m) => ({ ...m, [lineId]: '' }));
+      toast(`Categoría "${added}" añadida`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir la categoría', 'error'); }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -410,7 +434,13 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
                 </div>
                 <div className="form-grid">
                   <div className="form-row"><label>Categoría</label>
-                    <select className="select" value={l.categoria} onChange={(e) => set(l.id, { categoria: e.target.value })}>{categorias.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
+                    <select className="select" value={l.categoria} onChange={(e) => set(l.id, { categoria: e.target.value })}>{cats.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+                    <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+                      <input className="input" style={{ flex: 1 }} placeholder="Nueva categoría…" value={nuevaCat[l.id] ?? ''}
+                        onChange={(e) => setNuevaCat((m) => ({ ...m, [l.id]: e.target.value.toUpperCase() }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCategoria(l.id); } }} maxLength={40} />
+                      <button type="button" className="btn btn-sm btn-ghost" onClick={() => handleAddCategoria(l.id)}>+ Añadir</button>
+                    </div></div>
                   <div className="form-row"><label>Unidad</label>
                     <select className="select" value={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })}>{unidades.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
                   <div className="form-row"><label>Cantidad</label>
