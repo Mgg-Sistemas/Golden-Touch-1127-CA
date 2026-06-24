@@ -135,6 +135,8 @@ const SECCIONES: Seccion[] = [
       'Finalización: al finalizar la OC se evalúa la recepción (calidad, puntualidad, comentario) y hay un botón "Cargar factura" para adjuntar la factura del proveedor (PDF o imagen); luego se ve con el botón Factura en el detalle de la orden.',
       'Lista de Pedidos/Compras: en modo Lista, al hacer clic en cualquier fila se abre el detalle de la orden (además del botón Ver).',
       'Retenciones (módulo): al cargar la factura del proveedor (al finalizar la OC) o cuando el soporte es Factura, la OC se vincula al módulo Retenciones. En "Por realizar", la persona de retenciones ve la OC y la factura (Ver factura) y sube su comprobante: Retención por IVA, ISLR y/o Municipal (al menos uno). Al finalizar queda registrada y pasa a "Realizadas"; se refleja en Tesorería y al pagar la OC se marca como pagada.',
+      'Compra Directa · categoría/subcategoría de gasto: al cargar la factura y precios se elige la categoría y subcategoría de gasto (mismo catálogo que Tesorería). El egreso queda etiquetado y el movimiento en Tesorería se refleja por categoría y subcategoría, igual que un gasto manual.',
+      'PDF de la OC: muestra por ítem la marca y el modelo cuando el usuario los cargó en la oferta (bajo la descripción del producto).',
       'Todas las órdenes se pueden descargar en PDF (orden de compra y trazabilidad).',
     ],
   },

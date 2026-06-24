@@ -216,6 +216,9 @@ export interface FinalizarCompraInput {
   /** Si la caja es Multimoneda: cuánto sale de cada moneda/cuenta (en su moneda).
    *  Cuando viene, el egreso descuenta cada saldo real (no la caja legacy). */
   legs?: PagoLeg[];
+  /** Categoría y subcategoría de gasto (Tesorería) que se etiqueta en el movimiento. */
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
   file?: File | null;
   actor: string;
   actorName?: string | null;
@@ -246,7 +249,9 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     for (const leg of legs) {
       const r = await egresarDivisa({
         cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
-        concepto, categoria: 'compra_directa', actor: input.actor, actorName: input.actorName ?? null,
+        concepto, categoria: 'compra_directa',
+        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+        actor: input.actor, actorName: input.actorName ?? null,
       });
       if (!primero) primero = r.id;
     }
@@ -258,6 +263,7 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     const movCaja = await egresarGastoCaja({
       cajaId: input.cajaId, monto: total,
       concepto, categoria: 'compra_directa',
+      gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actor, actorName: input.actorName ?? null,
     });
     movCajaId = movCaja.id;

@@ -16,6 +16,7 @@ import { list as listProveedores, insert as crearProveedor } from '@/modules/pro
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
+import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
   crearCompraDirecta, finalizarCompraDirecta, eliminarCompraDirecta, listComprasDirectas,
   urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
@@ -507,6 +508,13 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
   const [gastos, setGastos] = useState<Record<number, string>>({});
   const [file, setFile] = useState<File | null>(null);
+  // Categoría / subcategoría de gasto (Tesorería): etiqueta el movimiento del egreso.
+  const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
+  const [catId, setCatId] = useState('');
+  const [subId, setSubId] = useState('');
+  useEffect(() => { listCategoriasGasto().then(setCatsGasto).catch(() => setCatsGasto([])); }, []);
+  const catNombre = catsGasto.find((c) => c.id === catId)?.nombre ?? null;
+  const subNombre = catsGasto.find((c) => c.id === subId)?.nombre ?? null;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
@@ -565,6 +573,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
+    if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
     let legs: PagoLeg[] | undefined;
     if (esMultimoneda) {
@@ -584,7 +593,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
     const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await finalizarCompraDirecta({ compra, items, cajaId, legs, file, actor, actorName });
+      await finalizarCompraDirecta({ compra, items, cajaId, legs, file, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre });
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
       notify(`Compra finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
       onSaved();
@@ -610,6 +619,26 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
             options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
           <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
         </div>
+
+        {/* Categoría / subcategoría de gasto: etiqueta el movimiento en Tesorería,
+            igual que el registro de gasto manual. Así el egreso se refleja por
+            categoría y subcategoría en los reportes de Tesorería. */}
+        {catsGasto.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
+            <div className="form-row">
+              <label>Categoría de gasto</label>
+              <SearchSelect value={catId} onChange={(v) => { setCatId(v); setSubId(''); }}
+                placeholder="🔍 Categoría…" emptyText="Sin categorías"
+                options={soloCategorias(catsGasto).map((c) => ({ value: c.id, label: c.nombre }))} />
+            </div>
+            <div className="form-row">
+              <label>Subcategoría</label>
+              <SearchSelect value={subId} onChange={setSubId} disabled={!catId}
+                placeholder={catId ? '🔍 Subcategoría…' : '— elegí primero la categoría —'} emptyText="Sin subcategorías"
+                options={(catId ? subcategoriasDe(catsGasto, catId) : []).map((c) => ({ value: c.id, label: c.nombre }))} />
+            </div>
+          </div>
+        )}
 
         {/* 👛 Billetera de la caja elegida: muestra el/los saldo(s) disponibles. */}
         {caja && (
