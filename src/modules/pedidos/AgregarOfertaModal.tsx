@@ -528,10 +528,13 @@ export function AgregarOfertaModal({
                       {it.nombre}
                       <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
                       <div style={{ display: 'flex', gap: '.3rem', marginTop: '.25rem' }}>
+                        {/* No controlado (defaultValue) como los precios: así un re-render
+                            por realtime no borra lo que se está tecleando. La key={it.uid}
+                            del <tr> conserva el DOM por variante. */}
                         <input className="input" style={{ fontSize: '.74rem', padding: '.2rem .4rem' }} placeholder="Marca"
-                          value={it.marca} onChange={(e) => updateItem(idx, { marca: e.target.value })} />
+                          defaultValue={it.marca} onChange={(e) => updateItem(idx, { marca: e.target.value })} />
                         <input className="input" style={{ fontSize: '.74rem', padding: '.2rem .4rem' }} placeholder="Modelo"
-                          value={it.modelo} onChange={(e) => updateItem(idx, { modelo: e.target.value })} />
+                          defaultValue={it.modelo} onChange={(e) => updateItem(idx, { modelo: e.target.value })} />
                       </div>
                       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.2rem' }}>
                         <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', fontSize: '.72rem' }}
