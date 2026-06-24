@@ -2016,7 +2016,7 @@ function OrdenDetailModal({
         </button>
       )}
       {puedeEditarOc && (
-        <button className="btn btn-ghost" onClick={onEditarOrden} title="Modificar ítems, cantidades, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.">
+        <button className="btn btn-ghost" onClick={onEditarOrden} title="Modificar ítems, cantidades, costo de los productos, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.">
           ✎ Editar orden
         </button>
       )}
@@ -3247,7 +3247,16 @@ function EditarOrdenModal({
 }) {
   const [items, setItems] = useState<ItemOrden[]>(() => orden.items.map((i) => ({ ...i })));
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
+  const [precioEdit, setPrecioEdit] = useState<Record<string, string>>({});
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
+  // El costo de los productos solo se edita cuando la OC ya tiene oferta/precio elegido
+  // (oc_creada o confirmada_metodo). Si se está esperando el método de pago (firmada por
+  // el GG), al guardar la OC vuelve a aprobación del Gerente General (ver `guardar`).
+  const editarPrecios = ['oc_creada', 'confirmada_metodo'].includes(orden.estado) && Number(orden.total) > 0;
+  const totalEditado = items.reduce(
+    (a, it) => a + (it.comprar !== false ? (Number(it.cantidad) || 0) * (Number(it.precio) || 0) : 0),
+    0,
+  );
   // Datos de cabecera editables de la OP: solicitante, unidad, clasificación, urgencia y notas.
   const [solicitante, setSolicitante] = useState(orden.solicitante ?? '');
   const [ciSolicitante, setCiSolicitante] = useState(orden.ci_solicitante ?? '');
@@ -3379,6 +3388,7 @@ function EditarOrdenModal({
 
       await actualizarOrdenEditable(orden, {
         items: itemsFinal,
+        total: editarPrecios ? Math.round(totalEditado * 100) / 100 : undefined,
         motivo: orden.motivo ?? null,
         finalidad: orden.finalidad ?? null,
         solicitante: solicitante.trim() || null,
@@ -3430,7 +3440,9 @@ function EditarOrdenModal({
       </p>
       {Number(orden.total) > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.6rem', fontSize: '.8rem' }}>
-          ⚠ Esta orden ya tiene una oferta con precio elegida. Si cambiás los ítems o cantidades, deberás <strong>volver a evaluar la oferta</strong> para recalcular el monto.
+          {editarPrecios
+            ? <>⚠ Podés <strong>editar el costo unitario</strong> de cada producto acá abajo. Al guardar, el total se recalcula y la OC <strong>vuelve a aprobación del Gerente General</strong>.</>
+            : <>⚠ Esta orden ya tiene una oferta con precio elegida. Si cambiás los ítems o cantidades, deberás <strong>volver a evaluar la oferta</strong> para recalcular el monto.</>}
         </div>
       )}
 
@@ -3517,6 +3529,29 @@ function EditarOrdenModal({
                 </div>
                 {comprar && (
                   <div style={{ marginLeft: 34, display: 'grid', gap: '.3rem', marginTop: '.3rem' }}>
+                    {editarPrecios && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                        <span className="muted" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>Costo unitario $</span>
+                        <input className="input mono" type="number" min={0} step="any" style={{ width: 130 }}
+                          title="Costo unitario del producto. Al cambiarlo se recalcula el total y la OC vuelve a aprobación del Gerente General."
+                          value={precioEdit[it.sku] ?? String(it.precio ?? 0)}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setPrecioEdit((m) => ({ ...m, [it.sku]: raw }));
+                            const n = Number(raw.replace(',', '.'));
+                            if (raw !== '' && Number.isFinite(n) && n >= 0) updateItem(idx, { precio: n });
+                          }}
+                          onBlur={() => {
+                            const n = Number((precioEdit[it.sku] ?? String(it.precio ?? 0)).replace(',', '.'));
+                            const val = Number.isFinite(n) && n >= 0 ? n : 0;
+                            updateItem(idx, { precio: val });
+                            setPrecioEdit((m) => ({ ...m, [it.sku]: String(val) }));
+                          }} />
+                        <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                          = {money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}
+                        </span>
+                      </div>
+                    )}
                     <input className="input" style={{ width: '100%', fontSize: '.82rem' }}
                       placeholder="Finalidad de este producto (¿para qué se compra?)"
                       defaultValue={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
@@ -3526,6 +3561,15 @@ function EditarOrdenModal({
             );
           })}
         </div>
+        {editarPrecios && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '.5rem', marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px dashed var(--border, #334)' }}>
+            <span className="muted" style={{ fontSize: '.82rem' }}>Total de la OC</span>
+            <strong className="mono" style={{ fontSize: '1rem' }}>{money(totalEditado)}</strong>
+            {Math.abs(totalEditado - Number(orden.total)) > 0.01 && (
+              <span className="muted mono" style={{ fontSize: '.76rem', textDecoration: 'line-through' }}>{money(Number(orden.total))}</span>
+            )}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>
           <SearchSelect style={{ flex: 1 }} value={prodSelectId} onChange={setProdSelectId}
             options={prodOptions}
