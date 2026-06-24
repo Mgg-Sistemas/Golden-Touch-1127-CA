@@ -5,8 +5,16 @@ export interface SearchOption {
   label: string;
 }
 
-/** Normaliza para buscar: minúsculas y SIN acentos (así "peramanal" encuentra "Peramanál"). */
-const normBusqueda = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+/** Normaliza para buscar: minúsculas y SIN acentos (así "peramanal" encuentra "Peramanál").
+ *  Se usa \p{Diacritic} (propiedad Unicode) en vez de un rango con caracteres
+ *  combinantes literales, para que ningún paso del bundler/encoding lo altere. */
+const normBusqueda = (s: string): string => {
+  try {
+    return (s ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
+  } catch {
+    return (s ?? '').toLowerCase().trim();
+  }
+};
 
 /** Estilos compartidos del panel desplegable (mismos en SearchSelect y SearchCreateSelect). */
 const PANEL_STYLE: CSSProperties = {
