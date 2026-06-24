@@ -164,7 +164,7 @@
 }
 .page-head h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
 .page-head p { margin: 0; font-size: .9rem; }
-.page-head .actions { display: flex; gap: .5rem; }
+.page-head .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 
 /* Dashboard KPIs */
 .kpi-grid {
@@ -604,7 +604,7 @@ tr.row-selectable:active { transform: scale(0.998); }
    ============================================================ */
 @media (max-width: 900px) {
   .page-head { flex-direction: column; align-items: stretch; }
-  .page-head .actions { justify-content: flex-end; }
+  .page-head .actions { justify-content: flex-start; flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr !important; }
   .detail-row { grid-template-columns: 130px 1fr; font-size: .85rem; }
   .kanban {
@@ -676,7 +676,9 @@ tr.row-selectable:active { transform: scale(0.998); }
 
   .page-head h1 { font-size: 1.2rem; }
   .page-head p { font-size: .8rem; }
-  .page-head .actions .btn { font-size: .8rem; padding: .45rem .7rem; }
+  /* Barra de acciones en filas ordenadas que llenan el ancho (no se desbordan). */
+  .page-head .actions { width: 100%; }
+  .page-head .actions .btn { font-size: .8rem; padding: .45rem .7rem; flex: 1 1 auto; }
 
   .kpi-grid { grid-template-columns: 1fr 1fr; gap: .65rem; }
   .kpi { padding: .85rem .95rem; }

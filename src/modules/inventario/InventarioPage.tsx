@@ -102,10 +102,17 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   if (ui.filterStock === 'ok' && p._needsRestock) return false;
   if (ui.filterStock === 'sin_mov' && (p.stock ?? 0) > 0) return false;
   if (q) {
-    // Busca por SKU, nombre y por los detalles del producto (alias, marca, modelo,
-    // serial, código, N°), así "CLORO" encuentra el producto aunque se llame distinto.
-    const campos = [p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.serial, p.codigo, p.numero];
-    if (!campos.some((c) => (c ?? '').toString().toLowerCase().includes(q))) return false;
+    // Todos los datos del producto unidos en un solo texto: nombre + detalle (alias,
+    // marca, modelo, serial, código, N°), la MEDIDA/unidad, la categoría, la descripción
+    // y la ubicación. Así el detalle queda VINCULADO al producto en la búsqueda.
+    const haystack = [
+      p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.serial, p.codigo, p.numero,
+      p.unidad, p.categoria, p.descripcion, p.ubicacion,
+    ].map((c) => (c ?? '').toString().toLowerCase()).join(' ');
+    // Cada palabra del término debe aparecer en algún dato: "clavo media pulgada"
+    // encuentra el clavo cuya medida/detalle es "media pulgada" (aunque el nombre sea solo "CLAVO").
+    const tokens = q.split(/\s+/).filter(Boolean);
+    if (!tokens.every((t) => haystack.includes(t))) return false;
   }
   return true;
 }
