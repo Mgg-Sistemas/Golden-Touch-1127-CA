@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import { notify } from '@/shared/lib/notify';
 import { money, num, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -189,7 +190,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
   }
 
   async function descargar(path: string) {
-    try { window.open(await urlRetencion(path), '_blank', 'noopener'); }
+    try { previewArchivo(await urlRetencion(path), path.split('/').pop() || 'comprobante'); }
     catch { toast('No se pudo abrir el comprobante', 'error'); }
   }
 

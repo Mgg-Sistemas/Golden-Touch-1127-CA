@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
 import type {
@@ -97,7 +98,7 @@ export function OfertasComparativa({
   async function abrirPdf(path: string) {
     try {
       const url = await getPdfOfertaSignedUrl(path);
-      window.open(url, '_blank', 'noopener');
+      previewArchivo(url, path.split('/').pop() || 'oferta.pdf');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo abrir el PDF', 'error');
     }

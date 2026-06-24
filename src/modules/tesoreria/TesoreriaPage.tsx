@@ -13,7 +13,7 @@ import { GestionarCajasModal } from '@/modules/salidas/GestionarCajasModal';
 import {
   listRenglonesPorPagar, countRenglonesPorPagar, pagarRenglon, getRenglonById, urlComprobanteNomina, labelMotivoNomina,
 } from '@/modules/rrhh/nomina.repository';
-import { previewPdf } from '@/shared/lib/reportePreview';
+import { previewPdf, previewArchivo } from '@/shared/lib/reportePreview';
 import type { NominaRenglon } from '@/shared/lib/types';
 import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
@@ -600,7 +600,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: Movimient
     setAbriendo(true);
     try {
       const url = await urlAdjuntoOc(path);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      previewArchivo(url, path.split('/').pop() || 'comprobante');
     } catch { toast('No se pudo abrir el comprobante', 'error'); }
     finally { setAbriendo(false); }
   }
@@ -608,7 +608,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: Movimient
     setAbriendo(true);
     try {
       const url = await urlComprobanteNomina(path);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      previewArchivo(url, path.split('/').pop() || 'comprobante');
     } catch { toast('No se pudo abrir el comprobante', 'error'); }
     finally { setAbriendo(false); }
   }
@@ -2447,7 +2447,7 @@ function RetencionesTesoreriaModal({ onClose }: { onClose: () => void }) {
   const selLive = sel ? (items.find((i) => i.orden.id === sel.orden.id) ?? sel) : null;
 
   async function descargar(path: string) {
-    try { window.open(await urlRetencion(path), '_blank', 'noopener'); }
+    try { previewArchivo(await urlRetencion(path), path.split('/').pop() || 'comprobante'); }
     catch { toast('No se pudo abrir el comprobante', 'error'); }
   }
 
@@ -4631,7 +4631,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     setDescargando(id);
     try {
       const url = await getPdfOfertaSignedUrl(path);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      previewArchivo(url, path.split('/').pop() || 'oferta.pdf');
     } catch { toast('No se pudo abrir el archivo', 'error'); }
     finally { setDescargando(null); }
   }
@@ -4751,7 +4751,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 {comprobantesDeOrden(o).map((c) => (
                   <div key={c.tipo} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', fontSize: '.82rem' }}>
                     <span><span className="badge">{c.label}</span> <span className="muted">{c.nombre}</span></span>
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => urlRetencion(c.path).then((u) => window.open(u, '_blank', 'noopener')).catch(() => toast('No se pudo abrir el comprobante', 'error'))}>📎 Descargar</button>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => urlRetencion(c.path).then((u) => previewArchivo(u, c.nombre || (c.path.split('/').pop() ?? 'comprobante'))).catch(() => toast('No se pudo abrir el comprobante', 'error'))}>📎 Ver</button>
                   </div>
                 ))}
               </div>

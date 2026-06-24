@@ -59,6 +59,7 @@ const SECCIONES: Seccion[] = [
       'Buscador general: escribí cualquier producto, proveedor u orden y el sistema lo encuentra en todo el sistema; al hacer clic en un resultado te lleva directo a su detalle.',
       'Campana de notificaciones (◔): te avisa, por ejemplo, cuando un producto está por agotarse. El número rojo indica cuántos avisos sin leer tenés.',
       'Tiempo real: el sistema es multiusuario y se actualiza solo. Lo que registra un usuario (una entrada, una orden, un movimiento de caja, etc.) aparece automáticamente en la pantalla de los demás, sin necesidad de recargar.',
+      'Vista previa de PDF / Excel: en todo el sistema, al generar un reporte (PDF o Excel) primero se abre una vista previa dentro del sistema y solo se baja el archivo si pulsás Descargar. Lo mismo con los adjuntos (facturas, comprobantes de retención, ofertas en PDF, adjuntos de compra directa): se ven en un visor embebido sin salir del sistema, con Descargar y Abrir en pestaña. Se cierra con Cerrar o la tecla Esc.',
     ],
   },
   {
