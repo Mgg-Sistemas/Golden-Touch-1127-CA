@@ -46,6 +46,7 @@ import {
   enviarCreditoARecepcion,
   listAbonos,
   urlAdjuntoOc,
+  adjuntarFacturaRecepcion,
   indicarMetodoPago,
   cambiarProveedorOrden,
   METODOS_PAGO,
@@ -874,7 +875,7 @@ export function PedidosPage() {
           orden={modal.orden}
           rolEvaluador={usuario?.role === 'obrero' ? 'almacenista' : 'jefe'}
           onClose={() => setModal({ kind: 'none' })}
-          onConfirm={async ({ calidad, puntualidadDias, comentario }) => {
+          onConfirm={async ({ calidad, puntualidadDias, comentario, factura }) => {
             const actor = usuario?.email ?? user?.email ?? 'sistema';
             // Registrar la evaluación (queda en la trazabilidad PDF y en el correo).
             if (modal.orden.proveedor_id) {
@@ -888,6 +889,8 @@ export function PedidosPage() {
                 evaluado_por_rol: usuario?.role === 'obrero' ? 'almacenista' : 'jefe',
               });
             }
+            // Factura del proveedor (si se cargó al finalizar).
+            if (factura) await adjuntarFacturaRecepcion(modal.orden.id, factura);
             await finalizarPedido(modal.orden, actor);
             notify(`Pedido finalizado · ${modal.orden.codigo}`, 'success', { link: '#/app/pedidos' });
             setModal({ kind: 'none' });
@@ -1012,9 +1015,10 @@ function FinalizarPedidoModal({
   orden: Orden;
   rolEvaluador: 'almacenista' | 'jefe';
   onClose: () => void;
-  onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string }) => Promise<void>;
+  onConfirm: (data: { calidad: number; puntualidadDias: number; comentario: string; factura: File | null }) => Promise<void>;
 }) {
   const [calidad, setCalidad] = useState(5);
+  const [factura, setFactura] = useState<File | null>(null);
   const [puntualidad, setPuntualidad] = useState<'por_fecha' | 'en_fecha' | 'adelantado' | 'atrasado'>('por_fecha');
   const [dias, setDias] = useState('1');
   const [comentario, setComentario] = useState('');
@@ -1060,9 +1064,12 @@ function FinalizarPedidoModal({
       const d = Math.max(0, Math.floor(Number(dias) || 0));
       puntualidadDias = puntualidad === 'en_fecha' ? 0 : puntualidad === 'adelantado' ? d : -d;
     }
+    if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
+      setError('La factura debe ser un PDF o una imagen.'); return;
+    }
     setSaving(true);
     try {
-      await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim() });
+      await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim(), factura });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo finalizar');
       setSaving(false);
@@ -1147,6 +1154,12 @@ function FinalizarPedidoModal({
         <label>Comentario adicional (opcional)</label>
         <textarea className="input" rows={3} name="fin-comentario" defaultValue={comentario} onChange={(e) => setComentario(e.target.value)}
           placeholder="Observaciones de la recepción…" />
+      </div>
+
+      <div className="form-row">
+        <label>Cargar factura</label>
+        <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} />
+        {factura && <small className="muted">📎 {factura.name}</small>}
       </div>
       <small className="muted">Evaluador: {rolEvaluador === 'jefe' ? 'Jefe / analista' : 'Almacenista'}.</small>
     </Modal>
@@ -1660,7 +1673,7 @@ function OrdenesTable({ ordenes, proveedorMap, canApproveSolicitud, onView, onAp
             const canApprove = canApproveSolicitud && o.estado === 'pendiente';
             const cambios = (o.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
             return (
-              <tr key={o.id}>
+              <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => onView(o.id)} title="Ver detalle">
                 <td className="mono">
                   {o.codigo}
                   {o.tipo === 'servicio' && (
@@ -1685,7 +1698,7 @@ function OrdenesTable({ ordenes, proveedorMap, canApproveSolicitud, onView, onAp
                 <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
                 <td><StatusBadge estado={o.estado} /></td>
                 <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(o.created_at)}</td>
-                <td className="actions">
+                <td className="actions" onClick={(e) => e.stopPropagation()}>
                   <button className="btn btn-sm btn-ghost" onClick={() => onView(o.id)}>Ver</button>
                   {canApprove && (
                     <button className="btn btn-sm btn-success" onClick={() => onApprove(o)}>Aprobar</button>
@@ -1970,6 +1983,15 @@ function OrdenDetailModal({
       toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error');
     }
   }
+  async function handleFacturaRecepcion() {
+    if (!o.factura_recepcion_path) return;
+    try {
+      const url = await urlAdjuntoOc(o.factura_recepcion_path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir la factura', 'error');
+    }
+  }
 
   const buttons = (
     <>
@@ -2084,6 +2106,11 @@ function OrdenDetailModal({
       {o.factura_path && (
         <button className="btn btn-ghost" onClick={handleComprobante} title={o.factura_nombre ?? 'Comprobante de pago'}>
           ↓ Comprobante de pago
+        </button>
+      )}
+      {o.factura_recepcion_path && (
+        <button className="btn btn-ghost" onClick={handleFacturaRecepcion} title={o.factura_recepcion_nombre ?? 'Factura del proveedor'}>
+          🧾 Factura
         </button>
       )}
       {/* OC pagada y aún no recibida (anticipado/contado): ya se puede recibir.
