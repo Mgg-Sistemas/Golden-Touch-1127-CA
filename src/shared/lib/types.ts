@@ -1056,6 +1056,9 @@ export interface Orden {
   caja_mov_id?: string | null;
   factura_path?: string | null;
   factura_nombre?: string | null;
+  /** Factura del proveedor adjuntada al finalizar la OC (bucket compras-oc). */
+  factura_recepcion_path?: string | null;
+  factura_recepcion_nombre?: string | null;
   retencion_path?: string | null;
   retencion_nombre?: string | null;
   /** Retenciones fiscales (módulo Retenciones): comprobantes por tipo + estado. */

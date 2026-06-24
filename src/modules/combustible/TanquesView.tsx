@@ -1177,6 +1177,7 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
+  const [borrarItem, setBorrarItem] = useState<CatalogoCombustible | null>(null);
   const items = useMemo(() => catalogos.filter((c) => c.tipo === tab), [catalogos, tab]);
   const TABS: { key: TipoCatalogoCombustible; label: string }[] = [
     { key: 'equipo', label: 'Equipos' }, { key: 'autorizado', label: 'Autorizados' }, { key: 'ubicacion', label: 'Ubicaciones' },
@@ -1198,7 +1199,6 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
   async function borrar(id: string) {
-    if (!window.confirm('¿Eliminar este elemento del catálogo?')) return;
     try { await eliminarCatalogo(id); await onChanged(); toast('Eliminado', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
@@ -1236,7 +1236,7 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
                     <>
                       <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => { setEditId(c.id); setEditValor(c.valor); }}>✎</button>
                       <button className="btn btn-sm btn-ghost" onClick={() => toggle(c.id, c.activo)}>{c.activo ? 'Desactivar' : 'Activar'}</button>
-                      <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void borrar(c.id)}>🗑</button>
+                      <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => setBorrarItem(c)}>🗑</button>
                     </>
                   )}
                 </td>
@@ -1245,6 +1245,16 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
           </tbody>
         </table>
       </div>
+      {borrarItem && (
+        <ConfirmDialog
+          title="Eliminar del catálogo"
+          message={`¿Eliminar "${borrarItem.valor}" del catálogo? Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onCancel={() => setBorrarItem(null)}
+          onConfirm={() => { const id = borrarItem.id; setBorrarItem(null); void borrar(id); }}
+        />
+      )}
     </Modal>
   );
 }

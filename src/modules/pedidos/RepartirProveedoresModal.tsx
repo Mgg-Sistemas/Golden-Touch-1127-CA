@@ -76,15 +76,24 @@ export function RepartirProveedoresModal({
   }, [asig, itemsCompra, ofertas]);
 
   const sinAsignar = itemsCompra.filter((it) => !asig[keyItem(it)]);
+  // Ítems asignados pero con precio 0 (sin oferta real): también vuelven a la SP madre como pendientes.
+  const sinPrecio = itemsCompra.filter((it) => {
+    const ofId = asig[keyItem(it)];
+    if (!ofId) return false;
+    const of = ofertas.find((o) => o.id === ofId);
+    return of ? precioEn(it, of) <= 0 : false;
+  });
+  const pendientes = [...sinAsignar, ...sinPrecio];
+  const hayConPrecio = grupos.some((g) => g.items.some((i) => i.precio > 0));
   const totalGeneral = grupos.reduce((a, g) => a + g.total, 0);
 
   async function confirmar() {
-    if (!grupos.length) { toast('Asigná al menos un ítem a un proveedor.', 'error'); return; }
+    if (!hayConPrecio) { toast('Asigná al menos un ítem con precio a un proveedor.', 'error'); return; }
     setSaving(true);
     try {
       const hijos = await repartirOpEntreProveedores(orden, grupos, actorEmail);
-      const extra = sinAsignar.length
-        ? ` · ${sinAsignar.length} ítem(s) quedaron en ${orden.codigo} (Pendiente cargar ofertas)`
+      const extra = pendientes.length
+        ? ` · ${pendientes.length} ítem(s) quedaron en ${orden.codigo} (Pendiente cargar ofertas)`
         : '';
       notify(`OP repartida en ${hijos.length} orden(es) de compra · pendiente(s) por aprobación del GG${extra}`, 'success', { link: '#/app/pedidos' });
       onDone();
@@ -97,8 +106,8 @@ export function RepartirProveedoresModal({
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving || !grupos.length}>
-        {saving ? 'Creando…' : `Crear ${grupos.length} OC(s)`}
+      <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving || !hayConPrecio}>
+        {saving ? 'Creando…' : `Crear ${grupos.filter((g) => g.items.some((i) => i.precio > 0)).length} OC(s)`}
       </button>
     </>
   );
@@ -174,9 +183,9 @@ export function RepartirProveedoresModal({
           </table>
         )}
       </div>
-      {sinAsignar.length > 0 && (
+      {pendientes.length > 0 && (
         <p style={{ color: 'var(--warning, #f59e0b)', fontSize: '.8rem', marginBottom: 0 }}>
-          ⚠ {sinAsignar.length} ítem(s) sin asignar: <strong>{sinAsignar.map((it) => it.nombre).join(', ')}</strong>.
+          ⚠ {pendientes.length} ítem(s) {sinPrecio.length ? 'sin asignar o en $0' : 'sin asignar'}: <strong>{pendientes.map((it) => it.nombre).join(', ')}</strong>.
           Al crear las OC, esos ítems <strong>quedan en {orden.codigo}</strong> en «Pendiente (cargar ofertas)» para cotizarlos y repartirlos aparte.
         </p>
       )}

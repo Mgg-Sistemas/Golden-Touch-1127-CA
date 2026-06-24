@@ -449,8 +449,16 @@ export async function repartirOpEntreProveedores(
 ): Promise<Orden[]> {
   if (!['aprobada', 'desistida_proveedor'].includes(op.estado))
     throw new Error('Solo se reparte una solicitud de pedido aprobada.');
-  const validos = grupos.filter((g) => g.proveedorId && g.items.length);
-  if (!validos.length) throw new Error('Asigná al menos un ítem a un proveedor.');
+  // Solo entran a la OC los ítems CON precio (> 0). Los que queden en 0 (sin oferta real)
+  // se consideran pendientes y vuelven a la SP madre para cotizarlos.
+  const validos = grupos
+    .map((g) => {
+      const items = g.items.filter((it) => (Number(it.precio) || 0) > 0);
+      const total = Math.round(items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0) * 100) / 100;
+      return { ...g, items, total };
+    })
+    .filter((g) => g.proveedorId && g.items.length);
+  if (!validos.length) throw new Error('Asigná al menos un ítem con precio a un proveedor.');
   const nowIso = new Date().toISOString();
   const hijos: Orden[] = [];
 
@@ -867,6 +875,20 @@ export async function urlAdjuntoOc(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET_OC).createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
+}
+
+/** Adjunta la factura del proveedor al finalizar la OC (bucket compras-oc). */
+export async function adjuntarFacturaRecepcion(ordenId: string, file: File): Promise<void> {
+  const safe = file.name.replace(/[^\w.-]+/g, '_');
+  const path = `${ordenId}/factura-recepcion-${safe}`;
+  const { error: upErr } = await supabase.storage.from(BUCKET_OC).upload(path, file, {
+    upsert: true, contentType: file.type || 'application/pdf',
+  });
+  if (upErr) throw upErr;
+  const { error } = await supabase.from(TABLE)
+    .update({ factura_recepcion_path: path, factura_recepcion_nombre: file.name })
+    .eq('id', ordenId);
+  if (error) throw error;
 }
 
 export interface OrdenPorPagar {
