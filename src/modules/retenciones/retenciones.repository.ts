@@ -37,13 +37,14 @@ async function mapProveedores(): Promise<Map<string, string>> {
   return new Map((data ?? []).map((p) => [p.id as string, p.razon_social as string]));
 }
 
-/** Retenciones por realizar: OC con soporte Factura aún sin finalizar la retención. */
+/** Retenciones por realizar: OC con soporte Factura O con factura del proveedor cargada
+ *  (al finalizar la OC), aún sin finalizar la retención. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
   const [{ data, error }, pm] = await Promise.all([
     supabase.from(TABLE).select('*')
-      .eq('comprobante_tipo', 'factura')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
-      .order('metodo_pago_en', { ascending: true }),
+      .order('created_at', { ascending: true }),
     mapProveedores(),
   ]);
   if (error) throw error;
@@ -66,7 +67,7 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
 export async function contarRetencionesPendientes(): Promise<number> {
   const { count, error } = await supabase.from(TABLE)
     .select('id', { count: 'exact', head: true })
-    .eq('comprobante_tipo', 'factura')
+    .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
     .or('retencion_finalizada.is.null,retencion_finalizada.eq.false');
   if (error) throw error;
   return count ?? 0;
