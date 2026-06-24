@@ -29,6 +29,11 @@ export function RepartirProveedoresModal({
   // Precio de un ítem en una oferta (0 si la oferta no lo cotiza).
   const precioEn = (it: ItemOrden, of: OfertaProveedor) =>
     Number(of.items.find((x) => keyItem(x) === keyItem(it))?.precio) || 0;
+  // Marca/modelo que ESE proveedor ofertó para el ítem (para mostrar el detalle al elegirlo).
+  const fichaEn = (it: ItemOrden, of: OfertaProveedor): string => {
+    const x = of.items.find((y) => keyItem(y) === keyItem(it));
+    return [x?.marca, x?.modelo].map((v) => (v ?? '').toString().trim()).filter(Boolean).join(' · ');
+  };
   // Proveedores (ofertas) que cotizan cada ítem.
   const ofertasDe = (it: ItemOrden) => ofertas.filter((of) => of.items.some((x) => keyItem(x) === keyItem(it)));
 
@@ -115,7 +120,11 @@ export function RepartirProveedoresModal({
               const sub = of ? it.cantidad * precioEn(it, of) : 0;
               return (
                 <tr key={keyItem(it)}>
-                  <td>{it.nombre}<div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div></td>
+                  <td>{it.nombre}<div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                    {of && fichaEn(it, of) && (
+                      <div style={{ fontSize: '.72rem', fontWeight: 600, color: 'var(--brand, #ff8a00)', marginTop: '.15rem' }}>🏷 {fichaEn(it, of)}</div>
+                    )}
+                  </td>
                   <td className="num mono">{it.cantidad}{it.unidad ? ` ${it.unidad}` : ''}</td>
                   <td>
                     {!ofs.length ? (
@@ -123,11 +132,14 @@ export function RepartirProveedoresModal({
                     ) : (
                       <select className="select" value={ofId ?? ''} onChange={(e) => setAsig((p) => ({ ...p, [keyItem(it)]: e.target.value }))}>
                         <option value="">— elegir —</option>
-                        {ofs.slice().sort((a, b) => precioEn(it, a) - precioEn(it, b)).map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {proveedorMap.get(o.proveedor_id)?.razon_social ?? '—'} · {money(precioEn(it, o))}
-                          </option>
-                        ))}
+                        {ofs.slice().sort((a, b) => precioEn(it, a) - precioEn(it, b)).map((o) => {
+                          const f = fichaEn(it, o);
+                          return (
+                            <option key={o.id} value={o.id}>
+                              {proveedorMap.get(o.proveedor_id)?.razon_social ?? '—'} · {money(precioEn(it, o))}{f ? ` · ${f}` : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                     )}
                   </td>
