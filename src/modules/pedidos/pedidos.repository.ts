@@ -244,7 +244,7 @@ export async function actualizarOrdenEditable(
     items?: ItemOrden[]; motivo?: string | null; finalidad?: string | null;
     unidad_solicitante?: string | null; clasificacion?: string[] | null; urgente?: boolean;
     solicitante?: string | null; ci_solicitante?: string | null; notas?: string | null;
-    imagen_path?: string | null;
+    imagen_path?: string | null; total?: number;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -269,6 +269,14 @@ export async function actualizarOrdenEditable(
     upd.oc_aprobada_en = null;
   }
   if (patch.items) upd.items = patch.items;
+  // Si se editó el costo de los productos, recalculamos el total de la OC (y el
+  // total en divisa cuando aplica) para que precio·cantidad cuadre en TODA la OC:
+  // tarjeta, PDF, Tesorería y costo de inventario al recibir.
+  if (patch.total !== undefined) {
+    const nuevoTotal = Math.round((Number(patch.total) || 0) * 100) / 100;
+    upd.total = nuevoTotal;
+    if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = nuevoTotal;
+  }
   if (patch.motivo !== undefined) upd.motivo = patch.motivo;
   if (patch.finalidad !== undefined) upd.finalidad = patch.finalidad;
   if (patch.unidad_solicitante !== undefined) upd.unidad_solicitante = patch.unidad_solicitante?.trim() || null;
