@@ -600,8 +600,11 @@ export async function indicarMetodoPago(
   // Flujo normal: confirmada_metodo → oc_aprobada. Contra entrega: tras recibir
   // (recibida) se indica el método para pagar SOLO lo recibido → oc_aprobada.
   const esContraEntregaRecibida = o.estado === 'recibida' && o.condiciones_pago === 'contra_entrega';
-  if (o.estado !== 'confirmada_metodo' && !esContraEntregaRecibida)
-    throw new Error('La OC debe estar en "Confirmada (indicar método de pago)".');
+  // Re-indicación: la OC ya está "Confirmada pagar" (oc_aprobada) pero todavía NO se
+  // pagó en Tesorería → se permite CAMBIAR el método de pago. Queda en el mismo estado.
+  const esReindicar = o.estado === 'oc_aprobada';
+  if (o.estado !== 'confirmada_metodo' && !esContraEntregaRecibida && !esReindicar)
+    throw new Error('La OC debe estar en "Confirmada (indicar método de pago)" o "Confirmada pagar".');
   // El monto lo define Tesorería al pagar; acá solo se registran método(s), moneda(s)
   // y los datos del proveedor para pagarle (pago móvil / transferencia / zelle / binance).
   const limpios = (metodos ?? [])

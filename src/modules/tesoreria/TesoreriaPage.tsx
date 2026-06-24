@@ -2993,10 +2993,10 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       </>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Órdenes de compra aprobadas por el Gerente General. Las marcadas <strong>⏳ Esperando método</strong> ya están
-        aprobadas y muestran su monto, pero <strong>Compras aún no indicó el método de pago</strong>; cuando lo indique se
-        habilitan para pagar automáticamente. Hacé clic en una fila para ver el detalle y registrar el pago, o <strong>marcá
-        varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>.
+        Órdenes de compra aprobadas por el Gerente. Hacé clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
+        compra y registrar el pago, o <strong>marcá varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>
+        (un egreso por OC). Se pueden incluir las que están <strong>⏳ Esperando método de pago</strong>: Tesorería las paga
+        directo eligiendo la caja, aunque el analista todavía no haya indicado el método.
       </p>
       {seleccionadas.length > 0 && (
         <div className="card" style={{ marginBottom: '.6rem', padding: '.55rem .85rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
@@ -3020,7 +3020,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
             {!loading && rows.map((r) => {
               const espera = r.esperandoMetodo;
               return (
-              <tr key={r.orden.id} className={espera ? undefined : 'row-selectable'} style={{ cursor: espera ? 'default' : 'pointer', opacity: espera ? 0.78 : 1 }} onClick={() => { if (!espera) setSel(r); }}>
+              <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel(r)}>
                 <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
                   <input type="checkbox" checked={seleccion.has(r.orden.id)} disabled={checkDisabled(r)}
                     title={checkDisabled(r) ? `Solo se pueden pagar juntas las OC de ${provNombreSel}` : 'Seleccionar para pago múltiple (mismo proveedor)'}
@@ -3034,7 +3034,14 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                 </td>
                 <td className="mono">{r.orden.codigo}</td>
                 <td>{r.proveedorNombre}</td>
-                <td style={{ fontSize: '.78rem' }}>{labelCondicionPago(r.orden.condiciones_pago)}</td>
+                <td style={{ fontSize: '.78rem' }}>
+                  {labelCondicionPago(r.orden.condiciones_pago)}
+                  {espera && (
+                    <div style={{ marginTop: '.25rem' }}>
+                      <span className="badge warning" title="Aprobada por el Gerente. Compras aún no indicó el método de pago; Tesorería igual puede pagarla eligiendo la caja.">⏳ Esperando método de pago</span>
+                    </div>
+                  )}
+                </td>
                 <td className="mono" style={{ textAlign: 'right' }}>
                   {monto(r.montoAPagar, 'USD')}
                   {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
@@ -3044,11 +3051,9 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
                 <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
                 <td style={{ textAlign: 'right' }}>
-                  {espera ? (
-                    <span className="badge warning" title="Aprobada por el Gerente General. Esperando que Compras indique el método de pago.">⏳ Esperando método</span>
-                  ) : (
-                    <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>Ver / Pagar</button>
-                  )}
+                  <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>
+                    {espera ? 'Ver' : 'Ver / Pagar'}
+                  </button>
                 </td>
               </tr>
               );
