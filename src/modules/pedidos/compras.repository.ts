@@ -8,7 +8,7 @@
    (costo = gasto/cant → PMP).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
+import { createProducto, nextSku, updateProducto } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { egresarGastoCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -96,7 +96,7 @@ export async function listComprasDirectas(): Promise<CompraDirecta[]> {
 
 /* ───────── Alta (varios materiales) ───────── */
 
-export interface LineaExistente { modo: 'existente'; productoId: string; cantidad: number }
+export interface LineaExistente { modo: 'existente'; productoId: string; cantidad: number; unidad?: string }
 export interface LineaNueva { modo: 'nuevo'; nombre: string; categoria: string; unidad: string; cantidad: number }
 export type LineaCompra = LineaExistente | LineaNueva;
 
@@ -129,6 +129,12 @@ export async function crearCompraDirecta(
     if (l.modo === 'existente') {
       if (!l.productoId) throw new Error('Elegí el material en cada renglón.');
       const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
+      // Si se cambió la medida del producto existente, se actualiza en el inventario.
+      const nuevaUnidad = (l.unidad ?? '').trim();
+      if (p && nuevaUnidad && nuevaUnidad !== (p.unidad ?? '')) {
+        await updateProducto(p.id, { unidad: nuevaUnidad });
+        p.unidad = nuevaUnidad;
+      }
       items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
     } else {
       const nom = l.nombre.trim().toUpperCase();
