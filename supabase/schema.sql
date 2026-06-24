@@ -660,6 +660,40 @@ drop policy if exists "servicios_cat write op" on public.servicios_catalogo;
 create policy "servicios_cat read auth" on public.servicios_catalogo for select using (auth.role()='authenticated');
 create policy "servicios_cat write op"  on public.servicios_catalogo for all using (public.is_operativo()) with check (public.is_operativo());
 
+-- Login con huella (WebAuthn / passkeys): login rápido por dispositivo (opt-in),
+-- la contraseña sigue como respaldo. Las Edge Functions (service role) registran
+-- y verifican; el cliente solo lista/borra SUS dispositivos.
+create table if not exists public.webauthn_credentials (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  credential_id text not null unique,
+  public_key    text not null,
+  counter       bigint not null default 0,
+  transports    text[],
+  device_label  text,
+  created_at    timestamptz not null default now(),
+  last_used_at  timestamptz
+);
+create index if not exists idx_webauthn_cred_user on public.webauthn_credentials(user_id);
+alter table public.webauthn_credentials enable row level security;
+drop policy if exists "webauthn cred select own" on public.webauthn_credentials;
+drop policy if exists "webauthn cred delete own" on public.webauthn_credentials;
+create policy "webauthn cred select own" on public.webauthn_credentials for select using (auth.uid() = user_id);
+create policy "webauthn cred delete own" on public.webauthn_credentials for delete using (auth.uid() = user_id);
+
+-- Retos efímeros de cada ceremonia. RLS habilitado SIN políticas: solo service role.
+create table if not exists public.webauthn_challenges (
+  id         uuid primary key default gen_random_uuid(),
+  email      text,
+  user_id    uuid,
+  challenge  text not null,
+  kind       text not null check (kind in ('register','login')),
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null
+);
+create index if not exists idx_webauthn_chal_email on public.webauthn_challenges(email);
+alter table public.webauthn_challenges enable row level security;
+
 -- Catálogo gestionable de la OP: clasificaciones del pedido y unidades solicitantes
 -- (mismo patrón que acopio_catalogos: tipo + valor + activo, con activar/desactivar).
 create table if not exists public.pedido_catalogos (
