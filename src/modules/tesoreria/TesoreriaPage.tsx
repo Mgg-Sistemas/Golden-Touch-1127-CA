@@ -68,6 +68,7 @@ import { CategoriasGastoModal } from './CategoriasGastoModal';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, ensureCategoriaGasto, categoriaLlevaCorrelativo, type CategoriaGasto } from './categoriasGasto.repository';
 import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
 import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
+import { descargarResumenCuentasPdf } from './resumenCuentasPdf';
 import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo } from './enviarReporte';
 import type { AbonoCredito } from '@/shared/lib/types';
 import { descargarOrdenCompraPdf } from '@/modules/pedidos/ordenCompraPdf';
@@ -3410,7 +3411,26 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
       {!loading && ordenes.length > 0 && (
         <>
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
-            <label>Cuenta a crédito ({ordenes.length})</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
+              <label style={{ margin: 0 }}>Cuenta a crédito ({ordenes.length})</label>
+              <button className="btn btn-sm btn-ghost" title="Resumen de compras a crédito en PDF (vista previa)"
+                onClick={async () => {
+                  try {
+                    await descargarResumenCuentasPdf('Resumen de Compras a Crédito', ordenes.map((x) => {
+                      const tot = Number(x.orden.total) || 0;
+                      const ab = Number(x.orden.abonado_total) || 0;
+                      return {
+                        concepto: x.orden.oc_codigo ?? x.orden.codigo,
+                        contraparte: x.proveedorNombre,
+                        moneda: 'USD',
+                        total: tot, pagado: ab, saldo: round2(tot - ab),
+                        estado: 'A CRÉDITO',
+                        fecha: x.orden.oc_aprobada_en ?? x.orden.oc_creada_en ?? x.orden.created_at ?? null,
+                      };
+                    }), 'ABONADO');
+                  } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+                }}>📄 Resumen</button>
+            </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={ordenes.map((x) => ({ value: x.orden.id, label: `${x.orden.oc_codigo ?? x.orden.codigo} · ${x.proveedorNombre} · saldo ${monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}` }))} />
           </div>
@@ -3632,7 +3652,26 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
         : (
       <>
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
-        <label>Cuenta por pagar ({lista.length})</label>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
+          <label style={{ margin: 0 }}>Cuenta por pagar ({lista.length})</label>
+          <button className="btn btn-sm btn-ghost" title="Resumen de cuentas por pagar en PDF (vista previa)"
+            onClick={async () => {
+              try {
+                await descargarResumenCuentasPdf('Resumen de Cuentas por Pagar', lista.map((c) => {
+                  const tot = Number(c.monto) || 0;
+                  const ab = Number(c.abonado) || 0;
+                  return {
+                    concepto: c.tipo === 'proveedor' ? 'PROVEEDOR' : 'CLIENTE',
+                    contraparte: c.contraparte,
+                    moneda: c.moneda,
+                    total: tot, pagado: ab, saldo: round2(tot - ab),
+                    estado: (c.estado || '').toUpperCase(),
+                    fecha: c.created_at ?? null,
+                  };
+                }), 'ABONADO');
+              } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+            }}>📄 Resumen</button>
+        </div>
         <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
           options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}` }))} />
       </div>
@@ -4151,7 +4190,26 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
       ) : (
         <>
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
-            <label>Cuenta por cobrar ({lista.length})</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
+              <label style={{ margin: 0 }}>Cuenta por cobrar ({lista.length})</label>
+              <button className="btn btn-sm btn-ghost" title="Resumen de cuentas por cobrar en PDF (vista previa)"
+                onClick={async () => {
+                  try {
+                    await descargarResumenCuentasPdf('Resumen de Cuentas por Cobrar', lista.map((c) => {
+                      const tot = Number(c.monto) || 0;
+                      const co = Number(c.cobrado) || 0;
+                      return {
+                        concepto: c.tipo === 'proveedor' ? 'PROVEEDOR' : 'CLIENTE',
+                        contraparte: c.contraparte,
+                        moneda: c.moneda,
+                        total: tot, pagado: co, saldo: round2(tot - co),
+                        estado: (c.estado || '').toUpperCase(),
+                        fecha: c.created_at ?? null,
+                      };
+                    }), 'COBRADO');
+                  } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+                }}>📄 Resumen</button>
+            </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
               options={lista.map((c) => ({ value: c.id, label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${monto(round2(Number(c.monto) - (Number(c.cobrado) || 0)), c.moneda)}` }))} />
           </div>

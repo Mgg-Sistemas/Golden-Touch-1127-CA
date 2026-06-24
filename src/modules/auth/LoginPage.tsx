@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signIn, signOutLocal } from './authStore';
 import { isSupabaseConfigured } from '@/shared/lib/supabase';
+import { isWebAuthnSupported, huellaHint, loginConHuella } from './webauthn.repository';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -9,6 +10,11 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Login con huella (WebAuthn): solo si el navegador lo soporta. Si este equipo
+  // ya tiene una huella enrolada, prellenamos el correo y lo ofrecemos primero.
+  const [huellaBusy, setHuellaBusy] = useState(false);
+  const soportaHuella = isWebAuthnSupported();
+  const hint = huellaHint();
 
   // Forzar logout al abrir el login: el usuario debe autenticarse siempre.
   const didCleanRef = useRef(false);
@@ -18,7 +24,23 @@ export function LoginPage() {
     if (isSupabaseConfigured) {
       signOutLocal().catch(() => {});
     }
-  }, []);
+    if (hint) setEmail(hint);
+  }, [hint]);
+
+  async function handleHuella() {
+    const correo = (email || hint || '').trim();
+    if (!correo) { setError('Escribí tu correo para entrar con huella.'); return; }
+    setError(null);
+    setHuellaBusy(true);
+    try {
+      await loginConHuella(correo);
+      navigate('/app');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo entrar con huella.');
+    } finally {
+      setHuellaBusy(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -116,9 +138,34 @@ export function LoginPage() {
             </div>
           )}
 
-          <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={submitting}>
+          <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={submitting || huellaBusy}>
             {submitting ? 'Ingresando…' : 'Ingresar'}
           </button>
+
+          {soportaHuella && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', margin: '.9rem 0', color: 'var(--muted, #888)', fontSize: '.78rem' }}>
+                <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                o
+                <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'center', gap: '.5rem' }}
+                onClick={() => void handleHuella()}
+                disabled={submitting || huellaBusy}
+                title="Entrar con la huella registrada en este equipo"
+              >
+                🔒 {huellaBusy ? 'Verificando…' : 'Entrar con huella'}
+              </button>
+              <div className="login-help" style={{ marginTop: '.4rem' }}>
+                {hint
+                  ? <>Huella activa en este equipo para <strong>{hint}</strong>.</>
+                  : <>Para usar huella, primero entrá con tu clave y activala desde tu sesión.</>}
+              </div>
+            </>
+          )}
 
           <div className="login-help">
             ¿Sin cuenta? Pídele al administrador que te dé acceso.

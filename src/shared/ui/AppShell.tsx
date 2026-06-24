@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { HuellaModal } from '@/modules/auth/HuellaModal';
+import { isWebAuthnSupported } from '@/modules/auth/webauthn.repository';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
@@ -203,6 +205,7 @@ export function AppShell() {
 
   // Respaldo manual: al hacer clic se elige Descargar o Enviar por correo.
   const [respaldoOpen, setRespaldoOpen] = useState(false);
+  const [huellaOpen, setHuellaOpen] = useState(false);
   async function handleRespaldoDescargar() {
     if (descargandoBackup) return;
     setDescargandoBackup(true);
@@ -336,6 +339,11 @@ export function AppShell() {
               <div className="name">{user?.email ?? '—'}</div>
               <div className="role">{role ?? 'Sesión activa'}</div>
             </div>
+            {isWebAuthnSupported() && (
+              <button onClick={() => setHuellaOpen(true)} className="btn btn-icon btn-ghost" title="Entrar con huella (activar en este equipo)">
+                🔒
+              </button>
+            )}
             <button onClick={handleLogout} className="btn btn-icon btn-ghost" title="Cerrar sesión">
               ⎋
             </button>
@@ -417,6 +425,8 @@ export function AppShell() {
         onClose={() => { setNotifOpen(false); void refreshUnread(); }}
         onAllRead={handleAllRead}
       />
+
+      {huellaOpen && <HuellaModal onClose={() => setHuellaOpen(false)} />}
 
       {respaldoOpen && (
         <Modal
