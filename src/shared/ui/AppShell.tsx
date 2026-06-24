@@ -271,6 +271,7 @@ export function AppShell() {
           {can('acopio') && <NavItem to="/app/acopio" icon="📦" label="Centro de Costo PERAMANAL" />}
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación (Cocina)" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
+          {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
         </nav>

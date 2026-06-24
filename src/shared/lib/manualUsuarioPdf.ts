@@ -133,6 +133,7 @@ const SECCIONES: Seccion[] = [
       'Compra directa - medida de un material existente: al elegir un material del inventario se muestra su unidad/medida actual y se puede cambiar (otra existente o una nueva con + Añadir). Si se cambia, se actualiza la medida del producto en el inventario.',
       'Finalización: al finalizar la OC se evalúa la recepción (calidad, puntualidad, comentario) y hay un botón "Cargar factura" para adjuntar la factura del proveedor (PDF o imagen); luego se ve con el botón Factura en el detalle de la orden.',
       'Lista de Pedidos/Compras: en modo Lista, al hacer clic en cualquier fila se abre el detalle de la orden (además del botón Ver).',
+      'Retenciones (módulo): al cargar la factura del proveedor (al finalizar la OC) o cuando el soporte es Factura, la OC se vincula al módulo Retenciones. En "Por realizar", la persona de retenciones ve la OC y la factura (Ver factura) y sube su comprobante: Retención por IVA, ISLR y/o Municipal (al menos uno). Al finalizar queda registrada y pasa a "Realizadas"; se refleja en Tesorería y al pagar la OC se marca como pagada.',
       'Todas las órdenes se pueden descargar en PDF (orden de compra y trazabilidad).',
     ],
   },
