@@ -2366,7 +2366,14 @@ function OrdenDetailModal({
           {o.items.map((it, idx) => (
             <tr key={`${it.sku}-${idx}`} style={{ opacity: !conPrecio && it.comprar === false ? 0.5 : 1 }}>
               <td className="mono">{it.sku}</td>
-              <td>{it.nombre}</td>
+              <td>
+                {it.nombre}
+                {(it.marca?.trim() || it.modelo?.trim()) && (
+                  <div className="muted" style={{ fontSize: '.74rem', marginTop: '.1rem' }}>
+                    🏷 {[it.marca?.trim() && `Marca: ${it.marca.trim()}`, it.modelo?.trim() && `Modelo: ${it.modelo.trim()}`].filter(Boolean).join(' · ')}
+                  </div>
+                )}
+              </td>
               <td style={{ fontSize: '.84rem' }}>{it.finalidad?.trim() ? it.finalidad : <span className="muted">—</span>}</td>
               <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
               {conPrecio ? (
