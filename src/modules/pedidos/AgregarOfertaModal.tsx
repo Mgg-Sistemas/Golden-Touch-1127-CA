@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
@@ -108,7 +109,7 @@ export function AgregarOfertaModal({
     setAdjuntosExistentes((prev) => prev.filter((_, k) => k !== idx));
   }
   async function verAdjunto(path: string) {
-    try { window.open(await getPdfOfertaSignedUrl(path), '_blank', 'noopener'); }
+    try { previewArchivo(await getPdfOfertaSignedUrl(path), path.split('/').pop() || 'adjunto'); }
     catch { toast('No se pudo abrir el adjunto', 'error'); }
   }
 

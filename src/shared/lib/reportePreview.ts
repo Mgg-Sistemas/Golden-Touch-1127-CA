@@ -75,6 +75,54 @@ export function previewPdf(doc: JsPDFType, filename: string): void {
   ui.onClose(() => URL.revokeObjectURL(url));
 }
 
+/**
+ * Vista previa de un ARCHIVO ya subido (factura, comprobante, oferta…) a partir de
+ * su URL firmada. Lo muestra DENTRO del sistema (overlay), no en una pestaña nueva:
+ *  · PDF / imagen → visor embebido (iframe).
+ *  · botón ⬇ Descargar (baja el archivo) y ↗ Abrir en pestaña (fallback).
+ * Reemplaza a `window.open(url, '_blank')`.
+ */
+export function previewArchivo(url: string, filename = 'archivo'): void {
+  const ui = buildOverlay(filename);
+  const esImagen = /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(url) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename);
+  if (esImagen) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:1rem;overflow:auto;';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = filename;
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;background:#fff;';
+    wrap.appendChild(img);
+    ui.body.appendChild(wrap);
+  } else {
+    const iframe = document.createElement('iframe');
+    iframe.src = url;
+    iframe.title = filename;
+    iframe.style.cssText = 'width:100%;height:100%;border:0;background:#fff;';
+    ui.body.appendChild(iframe);
+  }
+  // ↗ Abrir en pestaña, junto al ⬇ Descargar (por si el visor embebido falla).
+  const btnTab = document.createElement('a');
+  btnTab.textContent = '↗ Abrir en pestaña';
+  btnTab.href = url; btnTab.target = '_blank'; btnTab.rel = 'noopener noreferrer';
+  btnTab.style.cssText = 'text-decoration:none;background:transparent;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.5rem .9rem;font:600 .9rem system-ui;cursor:pointer;';
+  ui.btnDl.insertAdjacentElement('beforebegin', btnTab);
+  // ⬇ Descargar: baja el blob para forzar la descarga con el nombre correcto.
+  ui.btnDl.onclick = async () => {
+    try {
+      const resp = await fetch(url);
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+    } catch {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+}
+
 /** Muestra una vista previa (primera hoja como tabla) del Excel; descarga solo si el usuario lo pide. */
 export async function previewExcel(wbInput: WorkBook | unknown, filename: string): Promise<void> {
   // Los generadores castean su instancia de xlsx-js-style a un tipo local, por lo que

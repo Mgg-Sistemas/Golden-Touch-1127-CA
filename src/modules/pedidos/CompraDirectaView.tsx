@@ -3,6 +3,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
@@ -208,7 +209,7 @@ function CompraCard({ compra, onFinalizar, onPdf, onEliminar }: {
 function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
   if (!compra.adjunto_path) return <span className="muted">—</span>;
   async function abrir() {
-    try { window.open(await urlAdjuntoCompra(compra.adjunto_path as string), '_blank', 'noopener'); }
+    try { previewArchivo(await urlAdjuntoCompra(compra.adjunto_path as string), compra.adjunto_nombre || ((compra.adjunto_path as string).split('/').pop() ?? 'adjunto')); }
     catch { toast('No se pudo abrir el adjunto', 'error'); }
   }
   return <button className="btn btn-sm btn-ghost" onClick={abrir} title={compra.adjunto_nombre ?? 'Adjunto'}>📎 PDF</button>;

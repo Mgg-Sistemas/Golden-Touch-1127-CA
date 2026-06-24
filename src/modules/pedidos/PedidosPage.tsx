@@ -6,6 +6,7 @@ import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import { dateTime, money, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
@@ -737,10 +738,11 @@ export function PedidosPage() {
       {modal.kind === 'cancel' && (
         <MotivoModal
           title={`Cancelar ${modal.orden.codigo}`}
-          confirmText="Cancelar orden"
+          confirmText="Sí, cancelar"
           danger
           intro="Cancelar la orden. Útil cuando el cliente solicita cancelar o la empresa desiste del proyecto."
           label="Motivo"
+          confirmacion={`¿Seguro que querés cancelar ${modal.orden.oc_codigo ?? modal.orden.codigo}? Esta acción no se puede deshacer.`}
           onClose={() => setModal({ kind: 'none' })}
           onConfirm={async (motivo) => {
             try {
@@ -1978,7 +1980,7 @@ function OrdenDetailModal({
     if (!o.factura_path) return;
     try {
       const url = await urlAdjuntoOc(o.factura_path);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      previewArchivo(url, o.factura_nombre || (o.factura_path.split('/').pop() ?? 'comprobante'));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error');
     }
@@ -1987,7 +1989,7 @@ function OrdenDetailModal({
     if (!o.factura_recepcion_path) return;
     try {
       const url = await urlAdjuntoOc(o.factura_recepcion_path);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      previewArchivo(url, o.factura_recepcion_nombre || (o.factura_recepcion_path.split('/').pop() ?? 'factura'));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo abrir la factura', 'error');
     }
@@ -3700,6 +3702,9 @@ interface MotivoModalProps {
   intro?: string;
   placeholder?: string;
   danger?: boolean;
+  /** Si se pasa, antes de ejecutar se pide una confirmación extra con este texto
+   *  (evita cancelaciones por error). */
+  confirmacion?: string;
   onClose: () => void;
   onConfirm: (motivo: string) => void | Promise<void>;
 }
@@ -3710,11 +3715,23 @@ function MotivoModal({
   intro,
   placeholder,
   danger,
+  confirmacion,
   onClose,
   onConfirm,
 }: MotivoModalProps) {
   const [motivo, setMotivo] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [pidiendoConfirm, setPidiendoConfirm] = useState(false);
+
+  async function ejecutar() {
+    setSubmitting(true);
+    try {
+      await onConfirm(motivo.trim());
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <Modal
       title={title}
@@ -3725,14 +3742,7 @@ function MotivoModal({
           <button
             className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
             disabled={submitting || !motivo.trim()}
-            onClick={async () => {
-              setSubmitting(true);
-              try {
-                await onConfirm(motivo.trim());
-              } finally {
-                setSubmitting(false);
-              }
-            }}
+            onClick={() => { if (confirmacion) setPidiendoConfirm(true); else void ejecutar(); }}
           >
             {confirmText}
           </button>
@@ -3751,6 +3761,16 @@ function MotivoModal({
           required
         />
       </div>
+      {pidiendoConfirm && confirmacion && (
+        <ConfirmDialog
+          title="Confirmar"
+          message={confirmacion}
+          confirmText={confirmText}
+          danger={danger}
+          onConfirm={() => { setPidiendoConfirm(false); void ejecutar(); }}
+          onCancel={() => setPidiendoConfirm(false)}
+        />
+      )}
     </Modal>
   );
 }
