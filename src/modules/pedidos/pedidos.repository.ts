@@ -498,15 +498,37 @@ export async function repartirOpEntreProveedores(
     hijos.push(data as Orden);
   }
 
-  // OP madre: queda repartida (ya no avanza por sí misma).
-  await supabase.from(TABLE).update({
-    estado: 'reasignada' as EstadoOrden,
-    historial: [
-      ...(op.historial ?? []),
-      { at: nowIso, evento: 'op_repartida', actor: actorEmail, hijos: hijos.map((h) => h.oc_codigo) } as unknown as EventoHistorial,
-    ],
-    updated_at: nowIso,
-  }).eq('id', op.id);
+  // Ítems que NO se asignaron a ningún proveedor (reparto parcial): vuelven a la SP madre.
+  const keyOf = (it: ItemOrden) => it.productoId ?? it.sku ?? it.nombre;
+  const asignados = new Set(validos.flatMap((g) => g.items.map(keyOf)));
+  const sobranteItems = (op.items ?? []).filter((it) => it.comprar !== false && !asignados.has(keyOf(it)));
+
+  if (sobranteItems.length) {
+    // Reparto PARCIAL: la SP madre se queda en «Pendiente (cargar ofertas)» con solo
+    // los ítems que faltan, para cotizarlos y crear su(s) OC aparte.
+    await supabase.from(TABLE).update({
+      estado: 'aprobada' as EstadoOrden,
+      items: sobranteItems,
+      total: 0,
+      total_divisa: null,
+      pago_en_divisa: false,
+      historial: [
+        ...(op.historial ?? []),
+        { at: nowIso, evento: 'op_repartida_parcial', actor: actorEmail, hijos: hijos.map((h) => h.oc_codigo), items_pendientes: sobranteItems.length } as unknown as EventoHistorial,
+      ],
+      updated_at: nowIso,
+    }).eq('id', op.id);
+  } else {
+    // OP madre: queda repartida (ya no avanza por sí misma).
+    await supabase.from(TABLE).update({
+      estado: 'reasignada' as EstadoOrden,
+      historial: [
+        ...(op.historial ?? []),
+        { at: nowIso, evento: 'op_repartida', actor: actorEmail, hijos: hijos.map((h) => h.oc_codigo) } as unknown as EventoHistorial,
+      ],
+      updated_at: nowIso,
+    }).eq('id', op.id);
+  }
 
   // Ofertas: aceptar las de los proveedores elegidos; descartar el resto.
   const provIds = validos.map((g) => g.proveedorId);

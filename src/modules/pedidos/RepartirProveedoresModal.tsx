@@ -79,11 +79,14 @@ export function RepartirProveedoresModal({
   const totalGeneral = grupos.reduce((a, g) => a + g.total, 0);
 
   async function confirmar() {
-    if (sinAsignar.length) { toast('Asigná todos los ítems a un proveedor.', 'error'); return; }
+    if (!grupos.length) { toast('Asigná al menos un ítem a un proveedor.', 'error'); return; }
     setSaving(true);
     try {
       const hijos = await repartirOpEntreProveedores(orden, grupos, actorEmail);
-      notify(`OP repartida en ${hijos.length} orden(es) de compra · pendiente(s) por aprobación del GG`, 'success', { link: '#/app/pedidos' });
+      const extra = sinAsignar.length
+        ? ` · ${sinAsignar.length} ítem(s) quedaron en ${orden.codigo} (Pendiente cargar ofertas)`
+        : '';
+      notify(`OP repartida en ${hijos.length} orden(es) de compra · pendiente(s) por aprobación del GG${extra}`, 'success', { link: '#/app/pedidos' });
       onDone();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo repartir la orden', 'error');
@@ -94,7 +97,7 @@ export function RepartirProveedoresModal({
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving || !!sinAsignar.length}>
+      <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving || !grupos.length}>
         {saving ? 'Creando…' : `Crear ${grupos.length} OC(s)`}
       </button>
     </>
@@ -173,7 +176,8 @@ export function RepartirProveedoresModal({
       </div>
       {sinAsignar.length > 0 && (
         <p style={{ color: 'var(--warning, #f59e0b)', fontSize: '.8rem', marginBottom: 0 }}>
-          Faltan {sinAsignar.length} ítem(s) por asignar.
+          ⚠ {sinAsignar.length} ítem(s) sin asignar: <strong>{sinAsignar.map((it) => it.nombre).join(', ')}</strong>.
+          Al crear las OC, esos ítems <strong>quedan en {orden.codigo}</strong> en «Pendiente (cargar ofertas)» para cotizarlos y repartirlos aparte.
         </p>
       )}
     </Modal>
