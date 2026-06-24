@@ -13,7 +13,7 @@ import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
-import { saldosDeCaja, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
+import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import {
   crearCompraDirecta, finalizarCompraDirecta, eliminarCompraDirecta, listComprasDirectas,
@@ -518,6 +518,16 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
 
   // Saldos multimoneda de la caja elegida (para pagar repartiendo por cuenta/moneda).
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  // Billetera de TODAS las cajas (para mostrar el saldo real en el selector; cajas.saldo suele estar en 0).
+  const [saldosTodas, setSaldosTodas] = useState<CajaSaldo[]>([]);
+  useEffect(() => { listSaldos().then(setSaldosTodas).catch(() => setSaldosTodas([])); }, []);
+  // Saldo a mostrar de una caja: su billetera (en la moneda de la caja), o cajas.saldo si no tiene billetera.
+  const saldoMostrar = (c: Caja): number => {
+    const rows = saldosTodas.filter((s) => s.caja_id === c.id);
+    if (!rows.length) return Number(c.saldo) || 0;
+    const enMoneda = rows.filter((r) => r.moneda === c.moneda).reduce((a, r) => a + Number(r.saldo), 0);
+    return enMoneda || rows.reduce((a, r) => a + Number(r.saldo), 0);
+  };
   const [legMontos, setLegMontos] = useState<Record<string, string>>({});
   const [tasa, setTasa] = useState<number>(0);
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
@@ -563,6 +573,12 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
       if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
       if (excedeTotalMulti) { setError(`No podés pagar más que el total de la compra. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(total, 'USD')} (te pasaste por ${montoCaja(round2(sumUsdMulti - total), 'USD')}).`); return; }
       if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
+    } else if (saldosCaja.length === 1) {
+      // Caja de UNA sola moneda con billetera: el dinero vive en caja_saldos (no en cajas.saldo),
+      // así que el egreso sale de la billetera real por ese único saldo.
+      const s = saldosCaja[0];
+      if (total > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
+      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: total }];
     }
     const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
@@ -590,7 +606,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
           <label>Caja (de dónde sale el dinero)</label>
           <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 320 }}
             placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
-            options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(c.saldo, c.moneda)}` }))} />
+            options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
           <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
         </div>
 
