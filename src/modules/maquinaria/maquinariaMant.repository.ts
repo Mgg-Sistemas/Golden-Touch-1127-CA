@@ -121,6 +121,41 @@ export async function eliminarMantenimiento(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Consumos acumulados de la bitácora (en un rango opcional de fechas), por equipo. */
+export interface ConsumoMant {
+  aceite: number;        // Σ aceite_lts
+  refrigerante: number;  // Σ refrigerante_lts
+  gasoil: number;        // Σ gasoil_lts
+  filtros: number;       // Σ filtros_cant
+  registros: number;     // cantidad de registros
+}
+
+const ceroConsumo = (): ConsumoMant => ({ aceite: 0, refrigerante: 0, gasoil: 0, filtros: 0, registros: 0 });
+
+/**
+ * Suma por equipo el aceite, refrigerante, gasoil y filtros registrados en la bitácora,
+ * acotado por fechas (inclusive). Una sola consulta; se agrupa en memoria por equipo_id.
+ * Lo usa el Resumen del submódulo Servicio de Mantenimiento.
+ */
+export async function consumosPorEquipo(desde?: string, hasta?: string): Promise<Map<string, ConsumoMant>> {
+  let q = supabase.from(TABLE).select('equipo_id, aceite_lts, refrigerante_lts, gasoil_lts, filtros_cant, fecha');
+  if (desde) q = q.gte('fecha', desde);
+  if (hasta) q = q.lte('fecha', hasta);
+  const { data, error } = await q;
+  if (error) throw error;
+  const out = new Map<string, ConsumoMant>();
+  for (const r of (data ?? []) as Array<{ equipo_id: string; aceite_lts: number | null; refrigerante_lts: number | null; gasoil_lts: number | null; filtros_cant: number | null }>) {
+    const c = out.get(r.equipo_id) ?? ceroConsumo();
+    c.aceite += num(r.aceite_lts) ?? 0;
+    c.refrigerante += num(r.refrigerante_lts) ?? 0;
+    c.gasoil += num(r.gasoil_lts) ?? 0;
+    c.filtros += num(r.filtros_cant) ?? 0;
+    c.registros += 1;
+    out.set(r.equipo_id, c);
+  }
+  return out;
+}
+
 /** Resumen del estado de horómetro de un equipo a partir de su bitácora. */
 export interface ResumenHorometro {
   ultimoHorometro: number | null;   // lectura más reciente
