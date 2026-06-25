@@ -87,7 +87,7 @@ import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.reposito
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
-type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote';
+type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicios';
 
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
@@ -110,6 +110,24 @@ const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
   { key: 'finalizada', label: 'Finalizada' },
   { key: 'desistida_proveedor', label: 'Proveedor desistió' },
   { key: 'cancelada', label: 'Cancelada' },
+];
+
+// Columnas del kanban de SERVICIOS. Mismo procedimiento/flujo que la OC
+// (solicitud con correlativo → aprobar → cotizar → aprueba Gerente General →
+// Tesorería), solo cambian las etiquetas para el contexto de servicios.
+const KANBAN_COLS_SERVICIOS: { key: EstadoOrden; label: string }[] = [
+  { key: 'pendiente', label: 'Solicitado' },                                  // SS creada → espera aprobación para cotizar
+  { key: 'aprobada', label: 'Aprobado (cotizar)' },                           // aprobada → cargar cotizaciones
+  { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' },  // oferta elegida → espera aprobación
+  { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },             // a crédito → abonos hasta saldar
+  { key: 'confirmada_metodo', label: 'Confirmado (indicar método de pago)' }, // gerente confirmó → falta método
+  { key: 'oc_aprobada', label: 'Confirmado pagar' },                          // método indicado → Tesorería
+  { key: 'por_recibir', label: 'Pendiente por realizar' },                    // pagado/crédito saldado → ejecutar servicio
+  { key: 'pagada', label: 'Pagado' },
+  { key: 'recibida', label: 'Servicio realizado' },
+  { key: 'finalizada', label: 'Finalizado' },
+  { key: 'desistida_proveedor', label: 'Proveedor desistió' },
+  { key: 'cancelada', label: 'Cancelado' },
 ];
 
 // Etiqueta y clase visual de cada evento del historial (igual al demo).
@@ -355,6 +373,13 @@ export function PedidosPage() {
   const filteredOrdenes = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     return ordenes.filter((o) => {
+      // Los servicios viven en su propia pestaña: se muestran SOLO en "Servicios"
+      // y se excluyen del resto (Solicitud de Pedido / Órdenes de Compra). Para
+      // quien NO ve pestañas (solo lectura, sin acceso a "Servicios") se siguen
+      // mostrando en su vista para no perder visibilidad.
+      const esServicio = o.tipo === 'servicio';
+      if (scope === 'servicios') { if (!esServicio) return false; }
+      else if (esServicio && canManageProcurement) return false;
       if (viewMode === 'lista' && filterEstado && o.estado !== filterEstado) return false;
       if (q) {
         const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
@@ -371,7 +396,7 @@ export function PedidosPage() {
       }
       return true;
     });
-  }, [ordenes, filterText, filterEstado, viewMode, proveedorMap]);
+  }, [ordenes, filterText, filterEstado, viewMode, proveedorMap, scope, canManageProcurement]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -391,7 +416,8 @@ export function PedidosPage() {
     }
   }
 
-  const kanbanCols = scope === 'oc' ? KANBAN_COLS_OC : KANBAN_COLS_PEDIDOS;
+  const kanbanCols =
+    scope === 'servicios' ? KANBAN_COLS_SERVICIOS : scope === 'oc' ? KANBAN_COLS_OC : KANBAN_COLS_PEDIDOS;
 
   // Detalle abierto: se deriva por id para reflejar datos en vivo. Pero retenemos el
   // último detalle conocido (ref) para NO cerrar el modal si un refresh (realtime al
@@ -410,7 +436,7 @@ export function PedidosPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'oc_lote' ? 'OC por lote' : 'Órdenes'}</h1>
+          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicios' ? 'Servicios' : 'Órdenes'}</h1>
           <p className="muted">
             {scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
@@ -418,6 +444,8 @@ export function PedidosPage() {
                 ? 'Checklist de órdenes de compra pendientes por confirmar. Aprobá en lote, imprimí o enviá por correo.'
               : scope === 'compra_directa'
                 ? 'Compras sin proveedor. En proceso → Finalizada: al finalizar, el material entra al inventario.'
+              : scope === 'servicios'
+                ? 'Solicitudes de servicio (recargas, mantenimientos…). Mismo flujo que una OC: se solicita, se aprueba, se cotiza, lo aprueba el Gerente General y va a Tesorería.'
                 : canManageProcurement
                   ? 'Solicitudes de pedido generadas por analistas. Aprobá la mejor oferta antes de emitir la OC.'
                   : 'Crea solicitudes de pedido. El administrador aprueba antes de emitir la orden de compra.'}
@@ -432,16 +460,16 @@ export function PedidosPage() {
               🗂 Categorías
             </button>
           )}
-          {canWrite && scope === 'pedidos' && (
+          {canWrite && (scope === 'pedidos' || scope === 'servicios') && (
             <button
-              className="btn btn-ghost"
+              className={scope === 'servicios' ? 'btn btn-primary' : 'btn btn-ghost'}
               onClick={() => setModal({ kind: 'create_servicio' })}
               title="Solicitud de Servicio (recargas, mantenimientos…) → Control de Servicio"
             >
               🔧 Nuevo servicio
             </button>
           )}
-          {canWrite && scope !== 'compra_directa' && scope !== 'oc_lote' && (
+          {canWrite && scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicios' && (
             <button
               className="btn btn-primary"
               onClick={() => setModal({ kind: 'create' })}
@@ -513,6 +541,13 @@ export function PedidosPage() {
             title="Compras sin proveedor"
           >
             🛒 Compra Directa
+          </button>
+          <button
+            className={scope === 'servicios' ? 'active' : ''}
+            onClick={() => switchScope('servicios')}
+            title="Solicitudes de servicio (recargas, mantenimientos…) · mismo flujo que una OC"
+          >
+            🔧 Servicios
           </button>
         </div>
       )}
@@ -608,7 +643,7 @@ export function PedidosPage() {
           personaMap={personaMap}
           isAdmin={puedeAprobarPedidos}
           canManageProcurement={canManageProcurement}
-          enOc={scope === 'oc'}
+          enOc={scope === 'oc' || scope === 'servicios'}
           actorEmail={user?.email ?? ''}
           offersReloadKey={offersReloadKey}
           onAddOffer={() => setModal({ kind: 'add-offer', orden: currentDetail })}
