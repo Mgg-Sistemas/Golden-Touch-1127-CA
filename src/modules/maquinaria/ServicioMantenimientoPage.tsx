@@ -7,7 +7,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMantenimientoModal } from './ResumenMantenimientoModal';
-import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type GrupoMantenimiento } from './maquinariaEquipos.repository';
+import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
 
@@ -34,6 +34,9 @@ const GRUPO_ICON: Record<string, string> = {
   'VEHÍCULOS DE CARGA': '🚚',
   'PLANTAS ELÉCTRICAS': '⚡',
 };
+
+/** Switch virtual para los equipos que aún no tienen grupo asignado en su ficha. */
+const SIN_GRUPO = '__sin_grupo__';
 
 /**
  * HRS restantes hasta el próximo mantenimiento (cada N horas de horómetro):
@@ -62,7 +65,7 @@ export function ServicioMantenimientoPage() {
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map());
   const [solMap, setSolMap] = useState<Map<string, SolicitudServicioEquipo[]>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [grupo, setGrupo] = useState<GrupoMantenimiento>(GRUPOS_MANTENIMIENTO[0]);
+  const [grupo, setGrupo] = useState<string>(GRUPOS_MANTENIMIENTO[0]);
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
   const [resumenOpen, setResumenOpen] = useState(false);
   const [solDe, setSolDe] = useState<MaquinariaEquipo | null>(null);
@@ -96,20 +99,23 @@ export function ServicioMantenimientoPage() {
     return m;
   }, [equipos, horometros, bitMap]);
 
-  // Conteo por grupo + equipos sin clasificar.
+  // Conteo por grupo + lista de equipos sin clasificar (para que igual se vean acá,
+  // aunque no tengan un grupo asignado en su ficha — así "sincronizan" con Control
+  // de Maquinaria sin obligar a clasificarlos primero).
   const porGrupo = useMemo(() => {
     const m = new Map<string, MaquinariaEquipo[]>();
     for (const g of GRUPOS_MANTENIMIENTO) m.set(g, []);
-    let sinGrupo = 0;
+    const sinGrupoList: MaquinariaEquipo[] = [];
     for (const e of equipos) {
       const g = (e.grupo_mantenimiento ?? '').trim();
       if (g && m.has(g)) m.get(g)!.push(e);
-      else sinGrupo += 1;
+      else sinGrupoList.push(e);
     }
-    return { m, sinGrupo };
+    return { m, sinGrupoList, sinGrupo: sinGrupoList.length };
   }, [equipos]);
 
-  const lista = porGrupo.m.get(grupo) ?? [];
+  const lista = grupo === SIN_GRUPO ? porGrupo.sinGrupoList : (porGrupo.m.get(grupo) ?? []);
+  const grupoLabel = grupo === SIN_GRUPO ? 'SIN CLASIFICAR' : grupo;
   const enAlerta = lista.filter((e) => e.activo && infoEquipo.get(e.id)?.alerta);
 
   return (
@@ -122,7 +128,7 @@ export function ServicioMantenimientoPage() {
           </p>
         </div>
         <div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" onClick={() => setResumenOpen(true)}>📊 Resumen de {grupo}</button>
+          <button className="btn btn-primary" onClick={() => setResumenOpen(true)}>📊 Resumen de {grupoLabel}</button>
         </div>
       </div>
 
@@ -133,11 +139,16 @@ export function ServicioMantenimientoPage() {
             {GRUPO_ICON[g] ?? '🔧'} {g} <span className="badge" style={{ marginLeft: '.35rem' }}>{porGrupo.m.get(g)?.length ?? 0}</span>
           </button>
         ))}
+        {porGrupo.sinGrupo > 0 && (
+          <button role="tab" aria-selected={grupo === SIN_GRUPO} className={grupo === SIN_GRUPO ? 'active' : ''} onClick={() => setGrupo(SIN_GRUPO)}>
+            🗂 SIN CLASIFICAR <span className="badge" style={{ marginLeft: '.35rem' }}>{porGrupo.sinGrupo}</span>
+          </button>
+        )}
       </div>
 
-      {porGrupo.sinGrupo > 0 && (
+      {porGrupo.sinGrupo > 0 && grupo !== SIN_GRUPO && (
         <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.6rem' }}>
-          ℹ️ {porGrupo.sinGrupo} equipo(s) sin grupo asignado — clasificálos en su ficha (Control de Maquinaria → ✎ → «Grupo · Servicio de Mantenimiento») para que aparezcan acá.
+          ℹ️ {porGrupo.sinGrupo} equipo(s) sin grupo asignado — están en la pestaña <strong>🗂 SIN CLASIFICAR</strong>. Asignáles un grupo en su ficha (Control de Maquinaria → ✎ → «Grupo · Servicio de Mantenimiento») para ordenarlos por flota.
         </div>
       )}
 
@@ -150,7 +161,7 @@ export function ServicioMantenimientoPage() {
       {loading ? (
         <EmptyState message="Cargando…" />
       ) : !lista.length ? (
-        <EmptyState message={`Sin equipos en «${grupo}». Asigná este grupo a los equipos desde su ficha.`} icon="🔧" />
+        <EmptyState message={`Sin equipos en «${grupoLabel}». Asigná este grupo a los equipos desde su ficha.`} icon="🔧" />
       ) : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
@@ -213,7 +224,7 @@ export function ServicioMantenimientoPage() {
       {bitacora && <BitacoraModal equipo={bitacora} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setBitacora(null)} />}
       {resumenOpen && (
         <ResumenMantenimientoModal
-          grupo={grupo}
+          grupo={grupoLabel}
           equipos={lista}
           infoEquipo={infoEquipo}
           onClose={() => setResumenOpen(false)}
