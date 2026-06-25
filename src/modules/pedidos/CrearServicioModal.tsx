@@ -34,8 +34,16 @@ export function CrearServicioModal({
   const [submitting, setSubmitting] = useState(false);
 
   // Solicitante (persona): nombre y apellido del usuario (NO el correo). Editable.
+  // Campo CONTROLADO (estado): así no se borra lo tecleado en un re-render (realtime),
+  // a diferencia de un input no controlado con defaultValue.
   const nombreSolicitante = [usuario?.nombre, usuario?.apellido].filter(Boolean).join(' ').toUpperCase().trim();
-  const solicitanteRef = useRef<HTMLInputElement>(null);
+  const [solicitante, setSolicitante] = useState(nombreSolicitante);
+  // Si los datos del usuario llegan después de montar, precargamos el nombre una sola
+  // vez (solo si el campo sigue vacío y el usuario aún no escribió nada).
+  const solicitanteTocado = useRef(false);
+  useEffect(() => {
+    if (!solicitanteTocado.current && !solicitante && nombreSolicitante) setSolicitante(nombreSolicitante);
+  }, [nombreSolicitante, solicitante]);
   const [unidadSolicitante, setUnidadSolicitante] = useState((usuario?.departamento ?? '').toUpperCase());
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
 
@@ -140,7 +148,7 @@ export function CrearServicioModal({
         return;
       }
     }
-    const solicitanteFinal = (solicitanteRef.current?.value ?? nombreSolicitante).toUpperCase().trim();
+    const solicitanteFinal = (solicitante || nombreSolicitante).toUpperCase().trim();
     const unidad = unidadSolicitante.trim();
     setSubmitting(true);
     try {
@@ -194,10 +202,10 @@ export function CrearServicioModal({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.6rem' }}>
           <div>
             <label className="label">Solicitante</label>
-            <input ref={solicitanteRef} className="input" name="ss-solicitante"
-              defaultValue={nombreSolicitante}
+            <input className="input" name="ss-solicitante"
+              value={solicitante}
               placeholder="Nombre y apellido del solicitante"
-              onChange={(e) => { e.target.value = e.target.value.toUpperCase(); }} />
+              onChange={(e) => { solicitanteTocado.current = true; setSolicitante(e.target.value.toUpperCase()); }} />
           </div>
           <div>
             <label className="label">Unidad solicitante</label>
