@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
@@ -46,6 +46,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   const [crear, setCrear] = useState(false);
   const [finalizar, setFinalizar] = useState<ServicioDirecto | null>(null);
   const [eliminar, setEliminar] = useState<ServicioDirecto | null>(null);
+  const [ver, setVer] = useState<ServicioDirecto | null>(null);
 
   const reload = useCallback(async () => {
     const [sd, cjs, provs, eqs] = await Promise.all([
@@ -106,7 +107,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
               <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((s) => (
-                  <ServicioCard key={s.id} servicio={s} onFinalizar={() => setFinalizar(s)} onEliminar={() => setEliminar(s)} onPdf={() => handlePdf(s)} />
+                  <ServicioCard key={s.id} servicio={s} onFinalizar={() => setFinalizar(s)} onEliminar={() => setEliminar(s)} onPdf={() => handlePdf(s)} onVer={() => setVer(s)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -119,7 +120,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
             <thead><tr><th>Código</th><th>Servicio(s)</th><th>Proveedor</th><th>Equipo</th><th>Estado</th><th>Monto</th><th>Generó</th><th>Creado</th><th>Pagado</th><th></th></tr></thead>
             <tbody>
               {servicios.map((s) => (
-                <tr key={s.id}>
+                <tr key={s.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setVer(s)} title="Ver detalle">
                   <td className="mono">{s.codigo ?? '—'}</td>
                   <td>{s.descripcion}{s.items.length > 1 ? <span className="muted"> · {s.items.length} ítems</span> : null}</td>
                   <td>{s.proveedor_nombre || <span className="muted">—</span>}</td>
@@ -129,7 +130,8 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                   <td>{s.actor_name || s.actor || '—'}</td>
                   <td className="muted">{dateTime(s.created_at)}</td>
                   <td className="muted">{s.finalizada_at ? dateTime(s.finalizada_at) : '—'}</td>
-                  <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                  <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setVer(s)} title="Ver detalle">👁 Ver</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(s)} title="Ver/descargar detalle en PDF">↓ PDF</button>
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑 Eliminar</button>}
@@ -152,6 +154,8 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
       )}
 
+      {ver && <ServicioDetalleModal servicio={ver} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)} />}
+
       {eliminar && (
         <ConfirmDialog
           title="Eliminar servicio directo"
@@ -166,8 +170,8 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   );
 }
 
-function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf }: {
-  servicio: ServicioDirecto; onFinalizar: () => void; onEliminar: () => void; onPdf: () => void;
+function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
+  servicio: ServicioDirecto; onFinalizar: () => void; onEliminar: () => void; onPdf: () => void; onVer: () => void;
 }) {
   return (
     <div className="card" style={{ margin: 0 }}>
@@ -195,6 +199,7 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf }: {
         </div>
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+        <button className="btn btn-sm btn-ghost" onClick={onVer} title="Ver detalle">👁 Ver</button>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar servicio directo">🗑 Eliminar</button>}
@@ -210,6 +215,57 @@ function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
     catch { toast('No se pudo abrir el adjunto', 'error'); }
   }
   return <button className="btn btn-sm btn-ghost" onClick={abrir} title={servicio.adjunto_nombre ?? 'Adjunto'}>📎 Factura</button>;
+}
+
+/* ───────── Modal: detalle del servicio directo ───────── */
+
+function ServicioDetalleModal({ servicio, onClose, onPdf }: {
+  servicio: ServicioDirecto; onClose: () => void; onPdf: () => void;
+}) {
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <button className="btn btn-primary" onClick={onPdf}>↓ PDF</button>
+    </>
+  );
+  const fila = (k: string, v: ReactNode) => (
+    <div className="detail-row"><div className="k">{k}</div><div className="v">{v}</div></div>
+  );
+  return (
+    <Modal title={`🔧 Servicio Directo ${servicio.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
+      {fila('Código', <span className="mono">{servicio.codigo ?? '—'}</span>)}
+      {fila('Estado', servicio.estado === 'finalizada' ? '🏁 Finalizada (pagada)' : '⏳ En proceso')}
+      {fila('Proveedor', servicio.proveedor_nombre || '—')}
+      {fila('Equipo', servicio.equipo_nombre || '—')}
+      {fila('Generó', servicio.actor_name || servicio.actor || '—')}
+      {fila('Creado', dateTime(servicio.created_at))}
+      {servicio.estado === 'finalizada' && fila('Pagado', servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—')}
+      {fila('Monto total', servicio.gasto != null ? money(servicio.gasto) : '—')}
+      {servicio.adjunto_path && fila('Factura', <AdjuntoLink servicio={servicio} />)}
+
+      <div className="table-wrap" style={{ marginTop: '.6rem' }}>
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr>
+            <th>Servicio</th><th>Categoría</th><th>Equipo</th>
+            <th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th style={{ textAlign: 'right' }}>Monto</th>
+          </tr></thead>
+          <tbody>
+            {servicio.items.map((it, i) => (
+              <tr key={i}>
+                <td>{it.descripcion}</td>
+                <td>{it.categoria || <span className="muted">—</span>}</td>
+                <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{it.bombonas ? num(it.bombonas) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{it.kg_recarga ? num(it.kg_recarga) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{it.gasto != null ? money(it.gasto) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
 }
 
 /* ───────── Modal: nuevo servicio (categoría + tipo + equipo por renglón) ───────── */
