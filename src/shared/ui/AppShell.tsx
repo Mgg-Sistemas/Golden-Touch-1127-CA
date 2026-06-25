@@ -7,6 +7,7 @@ import { isWebAuthnSupported } from '@/modules/auth/webauthn.repository';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
+import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { AvisoMantenimientoBanner } from '@/shared/ui/AvisoMantenimientoBanner';
 import { AvisoCombustibleBajo } from '@/shared/ui/AvisoCombustibleBajo';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
@@ -417,6 +418,7 @@ export function AppShell() {
       </header>
 
       <main className="main">
+        <AvisoActualizacion />
         <AvisoMantenimientoBanner />
         <AvisoCombustibleBajo />
         <Outlet />

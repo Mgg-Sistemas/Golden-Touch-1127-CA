@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -12,7 +13,7 @@ import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { ConfirmDialog } from '@/shared/ui/Modal';
-import { horasUltimoPorEquipo } from './maquinariaMant.repository';
+import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
 import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
 
@@ -41,9 +42,13 @@ function hrsRestantes(frecuencia: number | null, horometro: number | null): numb
   return ((frecuencia - (horometro % frecuencia)) % frecuencia);
 }
 
+/** Vista activa según la tarjeta de estado seleccionada. */
+type VistaMaq = 'activa' | 'critico';
+
 export function MaquinariaPage() {
   const { can, appUser } = usePermissions();
   const { user } = useSession();
+  const navigate = useNavigate();
   const canWrite = can('maquinaria', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -51,6 +56,8 @@ export function MaquinariaPage() {
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [horometros, setHorometros] = useState<Map<string, number>>(new Map());     // combustible: nombre→horómetro
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map()); // bitácora: equipo_id→…
+  const [solMap, setSolMap] = useState<Map<string, SolicitudServicioEquipo[]>>(new Map()); // solicitudes de servicio por equipo
+  const [vista, setVista] = useState<VistaMaq>('activa');
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState('');
   const [verInactivos, setVerInactivos] = useState(false);
@@ -64,19 +71,22 @@ export function MaquinariaPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, bit] = await Promise.all([
+      const [eqs, horos, bit, sol] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
+        solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
       ]);
       setEquipos(eqs);
       setHorometros(horos);
       setBitMap(bit);
+      setSolMap(sol);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
-  // También vigila los movimientos de combustible: el horómetro vigente sale de ahí.
-  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'combustible_tanque_movimientos'], () => { void cargar(); });
+  // También vigila los movimientos de combustible (horómetro vigente) y las órdenes
+  // (solicitudes de servicio que casan a un equipo).
+  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes'], () => { void cargar(); });
 
   // HRS restantes + alerta por equipo. Horómetro vigente: el de Combustible (si está
   // vinculado), si no el último de la bitácora.
@@ -92,21 +102,36 @@ export function MaquinariaPage() {
     return m;
   }, [equipos, horometros, bitMap]);
 
-  const lista = useMemo(() => {
-    const q = normTxt(filtro.trim());
-    return equipos.filter((e) => {
-      if (!verInactivos && !e.activo) return false;
-      if (!q) return true;
-      return [e.equipo, e.tipo, e.propietario, e.status, e.ubicacion, e.serial, e.placa, e.marca, e.modelo]
-        .some((v) => normTxt(v ?? '').includes(q));
-    });
-  }, [equipos, filtro, verInactivos]);
-
   // Equipos activos que requieren mantenimiento pronto (≤ 250 HRS).
   const enAlerta = useMemo(
     () => equipos.filter((e) => e.activo && infoEquipo.get(e.id)?.alerta),
     [equipos, infoEquipo],
   );
+
+  // ── Tarjetas de estado (Control de Maquinaria) ──
+  // ACTIVA: equipos operativos. MANTENIMIENTO: equipos con al menos una solicitud de
+  // servicio registrada (vínculo con Pedidos → Servicios). CRÍTICO: alerta de
+  // mantenimiento próximo o equipo FUERA DE SERVICIO.
+  const activos = useMemo(() => equipos.filter((e) => e.activo), [equipos]);
+  const enMantenimiento = useMemo(
+    () => equipos.filter((e) => (solMap.get(e.id) ?? []).length > 0),
+    [equipos, solMap],
+  );
+  const criticos = useMemo(
+    () => equipos.filter((e) => e.activo && (infoEquipo.get(e.id)?.alerta || e.status === 'FUERA DE SERVICIO')),
+    [equipos, infoEquipo],
+  );
+
+  const lista = useMemo(() => {
+    const q = normTxt(filtro.trim());
+    const base = vista === 'critico' ? criticos : equipos;
+    return base.filter((e) => {
+      if (vista !== 'critico' && !verInactivos && !e.activo) return false;
+      if (!q) return true;
+      return [e.equipo, e.tipo, e.propietario, e.status, e.ubicacion, e.serial, e.placa, e.marca, e.modelo]
+        .some((v) => normTxt(v ?? '').includes(q));
+    });
+  }, [equipos, criticos, vista, filtro, verInactivos]);
 
   async function toggleActivo(e: MaquinariaEquipo) {
     try { await setEquipoActivo(e.id, !e.activo); await cargar(); }
@@ -132,6 +157,24 @@ export function MaquinariaPage() {
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void descargarEquiposExcel(lista)}>↓ Excel</button>
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
         </div>
+      </div>
+
+      {/* 3 tarjetas: ACTIVA · MANTENIMIENTO · ESTADO CRÍTICO. La de mantenimiento
+          lleva al submódulo Servicio de Mantenimiento (vínculo con las solicitudes
+          de servicio); ACTIVA/CRÍTICO filtran la tabla de abajo. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.75rem', marginBottom: '1rem' }}>
+        <EstadoCard
+          activa={vista === 'activa'} onClick={() => setVista('activa')}
+          icon="✅" titulo="Vehículos / Maquinaria ACTIVA" total={activos.length} color="var(--success)"
+          hint="Equipos operativos · ver el detalle" />
+        <EstadoCard
+          activa={false} onClick={() => navigate('/app/maquinaria/servicio-mantenimiento')}
+          icon="🔧" titulo="En MANTENIMIENTO" total={enMantenimiento.length} color="var(--warning)"
+          hint="Con solicitud de servicio · ir al control de mantenimiento" />
+        <EstadoCard
+          activa={vista === 'critico'} onClick={() => setVista('critico')}
+          icon="⛔" titulo="En ESTADO CRÍTICO" total={criticos.length} color="var(--danger)"
+          hint="Mantenimiento vencido / fuera de servicio" />
       </div>
 
       {enAlerta.length > 0 && (
@@ -221,5 +264,22 @@ export function MaquinariaPage() {
         />
       )}
     </div>
+  );
+}
+
+/** Tarjeta de estado (ACTIVA / MANTENIMIENTO / CRÍTICO): muestra el total y al tocar abre su detalle. */
+function EstadoCard({ activa, onClick, icon, titulo, total, color, hint }: {
+  activa: boolean; onClick: () => void; icon: string; titulo: string; total: number; color: string; hint: string;
+}) {
+  return (
+    <button type="button" onClick={onClick} className="card" style={{
+      textAlign: 'left', cursor: 'pointer', margin: 0, padding: '.85rem 1rem', width: '100%',
+      borderColor: activa ? color : 'var(--border)', borderWidth: activa ? 2 : 1, borderStyle: 'solid',
+      background: activa ? 'var(--surface-2)' : undefined,
+    }}>
+      <div className="muted" style={{ fontSize: '.74rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>{icon} {titulo}</div>
+      <div className="mono" style={{ fontSize: '2rem', fontWeight: 800, color }}>{total}</div>
+      <div className="muted" style={{ fontSize: '.72rem' }}>{hint}</div>
+    </button>
   );
 }
