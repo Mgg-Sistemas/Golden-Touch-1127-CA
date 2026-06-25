@@ -80,3 +80,43 @@ export async function eliminarServicioCatalogo(id: string): Promise<void> {
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
 }
+
+/** Una solicitud/Control de Servicio de mantenimiento casado a un equipo de Maquinaria. */
+export interface ServicioDeEquipo {
+  id: string;
+  codigo: string;
+  oc_codigo: string | null;
+  estado: string;
+  total: number | null;
+  created_at: string;
+  /** Ítems de servicio de ESTE equipo (tipo de servicio + cantidad). */
+  servicios: { nombre: string; cantidad: number }[];
+}
+
+/**
+ * Solicitudes / Controles de Servicio (tipo='servicio') que tienen al menos un ítem
+ * casado al equipo dado (`equipo_id`). Sirve para el SEGUIMIENTO desde Control de
+ * Maquinaria: ver qué mantenimientos se pidieron/cotizaron para ese equipo.
+ */
+export async function listServiciosDeEquipo(equipoId: string): Promise<ServicioDeEquipo[]> {
+  if (!equipoId) return [];
+  const { data, error } = await supabase
+    .from('ordenes')
+    .select('id, codigo, oc_codigo, estado, total, created_at, items')
+    .eq('tipo', 'servicio')
+    .contains('items', JSON.stringify([{ equipo_id: equipoId }]))
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((o) => {
+    const items = (Array.isArray(o.items) ? o.items : []) as Array<{ nombre?: string; cantidad?: number; equipo_id?: string | null }>;
+    return {
+      id: o.id as string,
+      codigo: o.codigo as string,
+      oc_codigo: (o.oc_codigo as string | null) ?? null,
+      estado: o.estado as string,
+      total: o.total != null ? Number(o.total) : null,
+      created_at: o.created_at as string,
+      servicios: items.filter((it) => it.equipo_id === equipoId).map((it) => ({ nombre: it.nombre ?? '—', cantidad: Number(it.cantidad) || 0 })),
+    };
+  });
+}
