@@ -73,6 +73,7 @@ import { descargarTrazabilidadPdf } from './trazabilidadPdf';
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { CompraDirectaView } from './CompraDirectaView';
+import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
@@ -87,7 +88,7 @@ import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.reposito
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
 type ViewMode = 'kanban' | 'lista';
-type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicios';
+type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicios' | 'servicio_directo';
 
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
 const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
@@ -436,7 +437,7 @@ export function PedidosPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicios' ? 'Servicios' : 'Órdenes'}</h1>
+          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicios' ? 'Servicios' : 'Órdenes'}</h1>
           <p className="muted">
             {scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
@@ -444,6 +445,8 @@ export function PedidosPage() {
                 ? 'Checklist de órdenes de compra pendientes por confirmar. Aprobá en lote, imprimí o enviá por correo.'
               : scope === 'compra_directa'
                 ? 'Compras sin proveedor. En proceso → Finalizada: al finalizar, el material entra al inventario.'
+              : scope === 'servicio_directo'
+                ? 'Servicios sin trámite (mano de obra, mantenimientos…). En proceso → Finalizada: al finalizar se carga la factura, el monto y la caja (egreso en Tesorería). Se puede vincular a un equipo de Maquinaria.'
               : scope === 'servicios'
                 ? 'Solicitudes de servicio (recargas, mantenimientos…). Mismo flujo que una OC: se solicita, se aprueba, se cotiza, lo aprueba el Gerente General y va a Tesorería.'
                 : canManageProcurement
@@ -469,7 +472,7 @@ export function PedidosPage() {
               🔧 Nuevo servicio
             </button>
           )}
-          {canWrite && scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicios' && (
+          {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && (
             <button
               className="btn btn-primary"
               onClick={() => setModal({ kind: 'create' })}
@@ -549,6 +552,13 @@ export function PedidosPage() {
           >
             🔧 Servicios
           </button>
+          <button
+            className={scope === 'servicio_directo' ? 'active' : ''}
+            onClick={() => switchScope('servicio_directo')}
+            title="Servicios sin trámite · igual que Compra Directa pero como servicio"
+          >
+            🔧 Servicio Directo
+          </button>
         </div>
       )}
 
@@ -562,6 +572,11 @@ export function PedidosPage() {
         <OcPorLoteView />
       ) : scope === 'compra_directa' ? (
         <CompraDirectaView
+          actor={usuario?.email ?? user?.email ?? 'sistema'}
+          actorName={usuario?.nombre ?? null}
+        />
+      ) : scope === 'servicio_directo' ? (
+        <ServicioDirectoView
           actor={usuario?.email ?? user?.email ?? 'sistema'}
           actorName={usuario?.nombre ?? null}
         />

@@ -5,6 +5,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
 import { listMantenimientos, etiquetaTipoMant, type MantenimientoCalc } from './maquinariaMant.repository';
 import { listServiciosDeEquipo, type ServicioDeEquipo } from '@/modules/pedidos/servicios.repository';
+import { listServiciosDirectosDeEquipo, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import { descargarMovimientosEquipoPdf, type MovimientoEquipoRow } from './servicioMantenimientoPdf';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
@@ -30,6 +31,7 @@ function detalleBitacora(r: MantenimientoCalc): string {
 export function EquipoMovimientosModal({ equipo, onClose }: { equipo: MaquinariaEquipo; onClose: () => void }) {
   const [bitacora, setBitacora] = useState<MantenimientoCalc[]>([]);
   const [servicios, setServicios] = useState<ServicioDeEquipo[]>([]);
+  const [directos, setDirectos] = useState<ServicioDirecto[]>([]);
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [loading, setLoading] = useState(true);
@@ -37,15 +39,16 @@ export function EquipoMovimientosModal({ equipo, onClose }: { equipo: Maquinaria
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const [b, s] = await Promise.all([
+      const [b, s, d] = await Promise.all([
         listMantenimientos(equipo.id).catch(() => [] as MantenimientoCalc[]),
         listServiciosDeEquipo(equipo.id).catch(() => [] as ServicioDeEquipo[]),
+        listServiciosDirectosDeEquipo(equipo.id).catch(() => [] as ServicioDirecto[]),
       ]);
-      setBitacora(b); setServicios(s);
+      setBitacora(b); setServicios(s); setDirectos(d);
     } finally { setLoading(false); }
   }, [equipo.id]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_mantenimientos', 'ordenes'], () => { void cargar(); });
+  useRealtime(['maquinaria_mantenimientos', 'ordenes', 'servicios_directos'], () => { void cargar(); });
 
   // Timeline unificado (bitácora + solicitudes de servicio), ordenado por fecha desc.
   const rows: MovimientoEquipoRow[] = useMemo(() => {
@@ -57,8 +60,12 @@ export function EquipoMovimientosModal({ equipo, onClose }: { equipo: Maquinaria
       const detalle = (s.servicios ?? []).map((x) => `${x.nombre}${x.cantidad ? ` ×${x.cantidad}` : ''}`).join(', ') || '—';
       out.push({ fecha: s.created_at, origen: 'Servicio', tipo: `${s.codigo}${s.estado ? ` (${s.estado})` : ''}`, detalle });
     }
+    for (const d of directos) {
+      const detalle = (d.items ?? []).map((x) => `${x.descripcion}${x.cantidad ? ` ×${fmtNum(x.cantidad)}` : ''}`).join(', ') || d.descripcion;
+      out.push({ fecha: d.finalizada_at ?? d.created_at, origen: 'Servicio', tipo: `${d.codigo ?? 'Servicio directo'}${d.estado ? ` (${d.estado === 'finalizada' ? 'pagado' : 'en proceso'})` : ''}`, detalle });
+    }
     return out.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
-  }, [bitacora, servicios]);
+  }, [bitacora, servicios, directos]);
 
   const rowsFiltradas = useMemo(() => rows.filter((r) => {
     const f = (r.fecha || '').slice(0, 10);

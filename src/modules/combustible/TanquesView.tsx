@@ -21,7 +21,7 @@ import type {
 import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
-  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoContadorTanque,
+  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoKilometrajeEquipo, ultimoContadorTanque,
   actualizarMovimientoTanque,
   crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
@@ -713,6 +713,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   // Medidores del equipo (integrados al movimiento, ya no en un modal aparte).
   const [hi, setHi] = useState('');
   const [hf, setHf] = useState('');
+  const [km, setKm] = useState('');         // kilometraje (odómetro) del vehículo
   const [ci, setCi] = useState('');
   const [cf, setCf] = useState('');
   // Cuando el HI / contador inicial se traen del último del equipo, quedan BLOQUEADOS (no se modifican).
@@ -729,6 +730,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     ultimoHorometroEquipo(equipo).then((ult) => {
       if (ult != null) { setHi(String(ult)); setHiAuto(true); } else { setHiAuto(false); }
     }).catch(() => {});
+    // KILOMETRAJE: precarga la última lectura del odómetro del equipo (editable; el chofer la sube).
+    ultimoKilometrajeEquipo(equipo).then((ult) => { if (ult != null) setKm(String(ult)); }).catch(() => {});
   }, [equipo]);
   useEffect(() => { cargarHi(); }, [cargarHi]);
 
@@ -762,6 +765,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     const campos = {
       fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
       horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
+      kilometraje: km === '' ? null : Number(km),
       contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
     };
     setSaving(true);
@@ -874,6 +878,12 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
             <input className="input mono" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula automáticamente"
               style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
           </div>
+          <div className="form-row">
+            <label>Kilometraje (odómetro, km)</label>
+            <input className="input mono" type="number" step="any" value={km} onChange={(e) => setKm(e.target.value)}
+              placeholder="lectura del odómetro del vehículo" />
+            <small className="muted">Para vehículos: la lectura del odómetro. Alimenta la alerta de «Próximos a mantenimiento» de Control de Maquinaria.</small>
+          </div>
           <div className="form-grid">
             <div className="form-row">
               <label>Contador global inicial</label>
@@ -914,6 +924,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
   const [tasa, setTasa] = useState(s(mov.tasa_usd_litro));
   const [hi, setHi] = useState(s(mov.horometro_ini));
   const [hf, setHf] = useState(s(mov.horometro_fin));
+  const [km, setKm] = useState(s(mov.kilometraje));
   const [ci, setCi] = useState(s(mov.contador_global_ini));
   const [cf, setCf] = useState(s(mov.contador_global_fin));
   const [saving, setSaving] = useState(false);
@@ -932,6 +943,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
         fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
         tipo, litros: Number(litros), tasaUsdLitro: tasa === '' ? 0 : Number(tasa),
         horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
+        kilometraje: km === '' ? null : Number(km),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
       });
       toast('Movimiento actualizado', 'success');
@@ -1011,6 +1023,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
       <div className="form-grid">
         <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" name="det-hi" defaultValue={hi} onChange={(e) => setHi(e.target.value)} disabled={!canWrite} /></div>
         <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" name="det-hf" defaultValue={hf} onChange={(e) => setHf(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Kilometraje (km)</label><input className="input mono" type="number" step="any" name="det-km" defaultValue={km} onChange={(e) => setKm(e.target.value)} disabled={!canWrite} /></div>
       </div>
       <div className="form-row">
         <label>Horas utilizadas (HRS = HF − HI)</label>

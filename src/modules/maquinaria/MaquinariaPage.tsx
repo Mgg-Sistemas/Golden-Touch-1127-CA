@@ -14,7 +14,7 @@ import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
-import { horometrosVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
+import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
 import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -42,6 +42,13 @@ function hrsRestantes(frecuencia: number | null, horometro: number | null): numb
   return ((frecuencia - (horometro % frecuencia)) % frecuencia);
 }
 
+/** Km restantes hasta el próximo mantenimiento (misma lógica que las HRS, pero por
+ *  kilometraje): el servicio toca cada N km; restantes = N − (km mod N). */
+function kmRestantes(frecuencia: number | null, kilometraje: number | null): number | null {
+  if (!frecuencia || frecuencia <= 0 || kilometraje == null) return null;
+  return ((frecuencia - (kilometraje % frecuencia)) % frecuencia);
+}
+
 /** Vista activa según la tarjeta de estado seleccionada. */
 type VistaMaq = 'activa' | 'critico' | 'proximos';
 
@@ -55,6 +62,7 @@ export function MaquinariaPage() {
 
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [horometros, setHorometros] = useState<Map<string, number>>(new Map());     // combustible: nombre→horómetro
+  const [kilometrajes, setKilometrajes] = useState<Map<string, number>>(new Map()); // combustible: nombre→kilometraje
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map()); // bitácora: equipo_id→…
   const [solMap, setSolMap] = useState<Map<string, SolicitudServicioEquipo[]>>(new Map()); // solicitudes de servicio por equipo
   const [vista, setVista] = useState<VistaMaq>('activa');
@@ -71,14 +79,16 @@ export function MaquinariaPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, bit, sol] = await Promise.all([
+      const [eqs, horos, kms, bit, sol] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
+        kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
       ]);
       setEquipos(eqs);
       setHorometros(horos);
+      setKilometrajes(kms);
       setBitMap(bit);
       setSolMap(sol);
     } finally { setLoading(false); }
@@ -88,19 +98,30 @@ export function MaquinariaPage() {
   // (solicitudes de servicio que casan a un equipo).
   useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes'], () => { void cargar(); });
 
-  // HRS restantes + alerta por equipo. Horómetro vigente: el de Combustible (si está
-  // vinculado), si no el último de la bitácora.
+  // HRS / KM restantes + alerta por equipo. Las lecturas vigentes (horómetro y
+  // kilometraje) se traen de Combustible por el equipo vinculado (combustible_equipo);
+  // el horómetro cae a la bitácora si no hay dato de Combustible. La alerta de
+  // «Próximo a mantenimiento» salta si el horómetro O el kilometraje están cerca
+  // (≤ 10%) de su próximo servicio.
   const infoEquipo = useMemo(() => {
-    const m = new Map<string, { restantes: number | null; alerta: boolean; horometro: number | null }>();
+    const m = new Map<string, {
+      restantes: number | null; alerta: boolean; alertaHrs: boolean; horometro: number | null;
+      km: number | null; restantesKm: number | null; alertaKm: boolean;
+    }>();
     for (const e of equipos) {
-      const horo = (e.combustible_equipo ? horometros.get(e.combustible_equipo.trim()) : undefined)
-        ?? bitMap.get(e.id)?.ultimoHorometro ?? null;
+      const vinc = e.combustible_equipo ? e.combustible_equipo.trim() : null;
+      const horo = (vinc ? horometros.get(vinc) : undefined) ?? bitMap.get(e.id)?.ultimoHorometro ?? null;
+      const km = (vinc ? kilometrajes.get(vinc) : undefined) ?? null;
       const restantes = hrsRestantes(e.mantenimiento_cada_hrs, horo);
       const margen = e.mantenimiento_cada_hrs ? e.mantenimiento_cada_hrs * MARGEN_ALERTA_PCT : 0;
-      m.set(e.id, { restantes, horometro: horo, alerta: restantes != null && restantes <= margen });
+      const alertaHrs = restantes != null && restantes <= margen;
+      const restantesKm = kmRestantes(e.mantenimiento_cada_km, km);
+      const margenKm = e.mantenimiento_cada_km ? e.mantenimiento_cada_km * MARGEN_ALERTA_PCT : 0;
+      const alertaKm = restantesKm != null && restantesKm <= margenKm;
+      m.set(e.id, { restantes, horometro: horo, alerta: alertaHrs || alertaKm, alertaHrs, km, restantesKm, alertaKm });
     }
     return m;
-  }, [equipos, horometros, bitMap]);
+  }, [equipos, horometros, kilometrajes, bitMap]);
 
   // Equipos activos que requieren mantenimiento pronto (≤ 250 HRS).
   const enAlerta = useMemo(
@@ -183,7 +204,7 @@ export function MaquinariaPage() {
 
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
-          ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (cerca de cumplir sus horas de servicio): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
+          ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (cerca de cumplir sus horas u horas/km de servicio, según el horómetro y el kilometraje de Combustible): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
         </div>
       )}
 
@@ -204,7 +225,7 @@ export function MaquinariaPage() {
           <table className="table" style={{ fontSize: '.85rem' }}>
             <thead><tr>
               <th>Equipo</th><th>Tipo</th><th>Propietario</th><th>Status</th><th>Ubicación</th>
-              <th style={{ textAlign: 'right' }}>Mantt. cada (h)</th><th style={{ textAlign: 'right' }}>HRS acumuladas</th><th></th>
+              <th style={{ textAlign: 'right' }}>Mantt. cada (h)</th><th style={{ textAlign: 'right' }}>Horómetro / Kilometraje</th><th></th>
             </tr></thead>
             <tbody>
               {lista.map((e) => {
@@ -218,14 +239,28 @@ export function MaquinariaPage() {
                   <td>{e.ubicacion ?? '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{e.mantenimiento_cada_hrs != null ? fmtNum(e.mantenimiento_cada_hrs) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {info?.horometro == null
-                      ? <span className="muted" title="Sin horómetro registrado (se toma el acumulado de HRS de Combustible o la bitácora)">—</span>
+                    {info?.horometro == null && info?.km == null
+                      ? <span className="muted" title="Sin horómetro ni kilometraje registrado en Combustible (ni bitácora)">—</span>
                       : <>
-                          <div title="Horas acumuladas (suma de HRS)">{fmtNum(info.horometro)} h</div>
-                          {info.restantes != null && (
-                            info.alerta
-                              ? <div style={{ color: 'var(--warning)', fontWeight: 700, fontSize: '.72rem' }} title={`Faltan ${fmtNum(info.restantes)} h para el próximo mantenimiento`}>⚠️ faltan {fmtNum(info.restantes)} h</div>
-                              : <div className="muted" style={{ fontSize: '.72rem' }}>faltan {fmtNum(info.restantes)} h</div>
+                          {info?.horometro != null && (
+                            <>
+                              <div title="Horas acumuladas (horómetro de Combustible)">{fmtNum(info.horometro)} h</div>
+                              {info.restantes != null && (
+                                info.alertaHrs
+                                  ? <div style={{ color: 'var(--warning)', fontWeight: 700, fontSize: '.72rem' }} title={`Faltan ${fmtNum(info.restantes)} h para el próximo mantenimiento`}>⚠️ faltan {fmtNum(info.restantes)} h</div>
+                                  : <div className="muted" style={{ fontSize: '.72rem' }}>faltan {fmtNum(info.restantes)} h</div>
+                              )}
+                            </>
+                          )}
+                          {info?.km != null && (
+                            <>
+                              <div title="Kilometraje vigente (odómetro de Combustible)">{fmtNum(info.km)} km</div>
+                              {info.restantesKm != null && (
+                                info.alertaKm
+                                  ? <div style={{ color: 'var(--warning)', fontWeight: 700, fontSize: '.72rem' }} title={`Faltan ${fmtNum(info.restantesKm)} km para el próximo mantenimiento`}>⚠️ faltan {fmtNum(info.restantesKm)} km</div>
+                                  : <div className="muted" style={{ fontSize: '.72rem' }}>faltan {fmtNum(info.restantesKm)} km</div>
+                              )}
+                            </>
                           )}
                         </>}
                   </td>

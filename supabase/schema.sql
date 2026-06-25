@@ -373,6 +373,38 @@ create index if not exists idx_compra_directa_estado on public.compras_directas(
 -- (Ver migración aplicada; políticas: compra_directa read/write + cd_obj_* en storage.objects.)
 
 -- ─────────────────────────────────────────────────────────────
+-- 5b-bis. servicios_directos — como compras_directas pero para SERVICIOS
+--   (mano de obra, mantenimientos…). NO entra a inventario. EN PROCESO →
+--   FINALIZADA: al finalizar se carga factura + monto y la caja (egreso en
+--   Tesorería). Se puede vincular a un equipo de maquinaria_equipos para
+--   sincronizar su historial. Adjuntos en el bucket 'servicios-directos'.
+--   RLS: lectura auth, escritura is_operativo(). (Ver migración aplicada.)
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.servicios_directos (
+  id               uuid primary key default gen_random_uuid(),
+  codigo           text,
+  descripcion      text not null,
+  items            jsonb not null default '[]',
+  estado           text not null default 'en_proceso' check (estado in ('en_proceso','finalizada')),
+  gasto            numeric,
+  proveedor_id     uuid references public.proveedores(id) on delete set null,
+  proveedor_nombre text,
+  equipo_id        uuid references public.maquinaria_equipos(id) on delete set null,
+  equipo_nombre    text,
+  caja_id          uuid references public.cajas(id) on delete set null,
+  caja_mov_id      uuid,
+  adjunto_path     text,
+  adjunto_nombre   text,
+  actor            text,
+  actor_name       text,
+  created_at       timestamptz not null default now(),
+  finalizada_at    timestamptz,
+  updated_at       timestamptz not null default now()
+);
+create index if not exists idx_servicio_directo_estado on public.servicios_directos(estado, created_at desc);
+create index if not exists idx_servicio_directo_equipo on public.servicios_directos(equipo_id);
+
+-- ─────────────────────────────────────────────────────────────
 -- 5c. combustible — inventario por tipo (litros + costo PMP por litro)
 --   y solicitudes de salida (por_aprobar → aprobada → finalizada).
 --   El ingreso suma litros al instante; finalizar descuenta litros.
