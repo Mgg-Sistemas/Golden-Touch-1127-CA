@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { date as fmtDate, num as fmtNum } from '@/shared/lib/format';
+import { date as fmtDate, num as fmtNum, money } from '@/shared/lib/format';
+import { listServiciosDeEquipo, type ServicioDeEquipo } from '@/modules/pedidos/servicios.repository';
 import {
   listMantenimientos, addMantenimiento, eliminarMantenimiento, resumenHorometro,
   TIPOS_MANTENIMIENTO, etiquetaTipoMant,
@@ -20,6 +21,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 }) {
   const [rows, setRows] = useState<MantenimientoCalc[]>([]);
   const [comb, setComb] = useState<DatosCombustibleEquipo | null>(null);
+  const [servicios, setServicios] = useState<ServicioDeEquipo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [borrarId, setBorrarId] = useState<string | null>(null);
@@ -39,15 +41,16 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 
   const cargar = useCallback(async () => {
     try {
-      const [m, c] = await Promise.all([
+      const [m, c, sv] = await Promise.all([
         listMantenimientos(equipo.id),
         datosCombustibleDeEquipo(equipo.combustible_equipo).catch(() => null),
+        listServiciosDeEquipo(equipo.id).catch(() => [] as ServicioDeEquipo[]),
       ]);
-      setRows(m); setComb(c);
+      setRows(m); setComb(c); setServicios(sv);
     } finally { setLoading(false); }
   }, [equipo.id, equipo.combustible_equipo]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos'], () => { void cargar(); });
+  useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes'], () => { void cargar(); });
 
   const res = useMemo(() => resumenHorometro(rows), [rows]);
   // Mantenimiento preventivo: horas del último período vs frecuencia del equipo.
@@ -112,6 +115,27 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
       {alerta && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.75rem', padding: '.55rem .85rem' }}>
           ⚠️ <strong>Mantenimiento preventivo:</strong> el último período acumuló <strong>{fmtNum(horasUlt)} h</strong> y supera la frecuencia de <strong>{fmtNum(freq!)} h</strong>. Conviene programar servicio.
+        </div>
+      )}
+
+      {/* Vínculo con Solicitudes de Servicio: mantenimientos pedidos/cotizados para este equipo. */}
+      {servicios.length > 0 && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.6rem .8rem', background: 'var(--bg-1)' }}>
+          <div style={{ fontWeight: 700, fontSize: '.85rem', marginBottom: '.4rem' }}>🔧 Solicitudes de servicio de este equipo <span className="badge" style={{ marginLeft: '.3rem' }}>{servicios.length}</span></div>
+          <div style={{ display: 'grid', gap: '.3rem' }}>
+            {servicios.map((s) => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', fontSize: '.8rem', borderTop: '1px dashed var(--border, #334)', paddingTop: '.3rem' }}>
+                <span className="mono"><strong>{s.oc_codigo ?? s.codigo}</strong></span>
+                <span className="badge">{s.estado}</span>
+                <span className="muted">{fmtDate(s.created_at)}</span>
+                <span style={{ flex: 1, minWidth: 120 }}>{s.servicios.map((it) => `${it.nombre}${it.cantidad > 1 ? ` ×${it.cantidad}` : ''}`).join(' · ') || '—'}</span>
+                {s.total != null && s.total > 0 && <span className="mono">{money(s.total)}</span>}
+              </div>
+            ))}
+          </div>
+          <p className="muted" style={{ fontSize: '.7rem', margin: '.4rem 0 0' }}>
+            Vienen de <strong>Pedidos → Nuevo servicio</strong> (mantenimiento casado a este equipo). Acá registrás el seguimiento real (litros, filtros, trabajo…) en la bitácora.
+          </p>
         </div>
       )}
 

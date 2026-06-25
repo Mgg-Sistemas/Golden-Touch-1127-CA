@@ -33,7 +33,8 @@ export function CrearServicioModal({
   const [urgente, setUrgente] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Solicitante (persona) y unidad: por defecto los del usuario, pero editables.
+  // Solicitante (persona): nombre y apellido del usuario (NO el correo). Editable.
+  const nombreSolicitante = [usuario?.nombre, usuario?.apellido].filter(Boolean).join(' ').toUpperCase().trim();
   const solicitanteRef = useRef<HTMLInputElement>(null);
   const [unidadSolicitante, setUnidadSolicitante] = useState((usuario?.departamento ?? '').toUpperCase());
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
@@ -106,7 +107,7 @@ export function CrearServicioModal({
 
   async function handleSubmit() {
     if (!items.length) { toast('Añadí al menos un servicio', 'error'); return; }
-    const solicitanteFinal = (solicitanteRef.current?.value ?? (usuario?.nombre ?? authEmail)).toUpperCase().trim();
+    const solicitanteFinal = (solicitanteRef.current?.value ?? nombreSolicitante).toUpperCase().trim();
     const unidad = unidadSolicitante.trim();
     setSubmitting(true);
     try {
@@ -161,7 +162,8 @@ export function CrearServicioModal({
           <div>
             <label className="label">Solicitante</label>
             <input ref={solicitanteRef} className="input" name="ss-solicitante"
-              defaultValue={(usuario?.nombre ?? authEmail).toUpperCase()}
+              defaultValue={nombreSolicitante}
+              placeholder="Nombre y apellido del solicitante"
               onChange={(e) => { e.target.value = e.target.value.toUpperCase(); }} />
           </div>
           <div>
