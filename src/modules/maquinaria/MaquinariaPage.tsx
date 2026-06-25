@@ -43,7 +43,7 @@ function hrsRestantes(frecuencia: number | null, horometro: number | null): numb
 }
 
 /** Vista activa según la tarjeta de estado seleccionada. */
-type VistaMaq = 'activa' | 'critico';
+type VistaMaq = 'activa' | 'critico' | 'proximos';
 
 export function MaquinariaPage() {
   const { can, appUser } = usePermissions();
@@ -124,14 +124,14 @@ export function MaquinariaPage() {
 
   const lista = useMemo(() => {
     const q = normTxt(filtro.trim());
-    const base = vista === 'critico' ? criticos : equipos;
+    const base = vista === 'critico' ? criticos : vista === 'proximos' ? enAlerta : equipos;
     return base.filter((e) => {
-      if (vista !== 'critico' && !verInactivos && !e.activo) return false;
+      if (vista === 'activa' && !verInactivos && !e.activo) return false;
       if (!q) return true;
       return [e.equipo, e.tipo, e.propietario, e.status, e.ubicacion, e.serial, e.placa, e.marca, e.modelo]
         .some((v) => normTxt(v ?? '').includes(q));
     });
-  }, [equipos, criticos, vista, filtro, verInactivos]);
+  }, [equipos, criticos, enAlerta, vista, filtro, verInactivos]);
 
   async function toggleActivo(e: MaquinariaEquipo) {
     try { await setEquipoActivo(e.id, !e.activo); await cargar(); }
@@ -171,6 +171,10 @@ export function MaquinariaPage() {
           activa={false} onClick={() => navigate('/app/maquinaria/servicio-mantenimiento')}
           icon="🔧" titulo="En MANTENIMIENTO" total={enMantenimiento.length} color="var(--warning)"
           hint="Con solicitud de servicio · ir al control de mantenimiento" />
+        <EstadoCard
+          activa={vista === 'proximos'} onClick={() => setVista('proximos')}
+          icon="🔧" titulo="Próximos a Mantenimiento" total={enAlerta.length} color="var(--brand, #ff8a00)"
+          hint="Según kilometraje / horómetro (cerca del próximo servicio)" />
         <EstadoCard
           activa={vista === 'critico'} onClick={() => setVista('critico')}
           icon="⛔" titulo="En ESTADO CRÍTICO" total={criticos.length} color="var(--danger)"
