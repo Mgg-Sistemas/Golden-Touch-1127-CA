@@ -5,6 +5,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { num as fmtNum } from '@/shared/lib/format';
 import { consumosPorEquipo, type ConsumoMant } from './maquinariaMant.repository';
 import { descargarResumenMantenimientoPdf, type ResumenMantRow } from './servicioMantenimientoPdf';
+import { EquipoMovimientosModal } from './EquipoMovimientosModal';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
 const CERO: ConsumoMant = { aceite: 0, refrigerante: 0, gasoil: 0, filtros: 0, registros: 0 };
@@ -24,6 +25,7 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
   const [hasta, setHasta] = useState('');
   const [consumos, setConsumos] = useState<Map<string, ConsumoMant>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [verEquipo, setVerEquipo] = useState<MaquinariaEquipo | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -104,8 +106,8 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
           <tbody>
             {!rows.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Sin equipos en este grupo.</td></tr>}
             {rows.map((r, i) => (
-              <tr key={i}>
-                <td><strong>{r.equipo}</strong></td>
+              <tr key={i} className="row-selectable" style={{ cursor: 'pointer' }} title="Ver todos los movimientos del equipo" onClick={() => setVerEquipo(equipos[i])}>
+                <td><strong>{r.equipo}</strong> <span className="muted" style={{ fontSize: '.7rem' }}>🔍</span></td>
                 <td>{r.status}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.horometro != null ? fmtNum(r.horometro) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{r.restantes != null ? `${fmtNum(r.restantes)} h` : '—'}</td>
@@ -120,7 +122,10 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
       </div>
       <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>
         Los consumos (aceite / gasoil / refrigerante / filtros) se suman de la bitácora de cada equipo en el período elegido.
+        <strong> Hacé clic en un equipo</strong> para ver todos sus movimientos y descargar su historial en PDF por fechas.
       </p>
+
+      {verEquipo && <EquipoMovimientosModal equipo={verEquipo} onClose={() => setVerEquipo(null)} />}
     </Modal>
   );
 }

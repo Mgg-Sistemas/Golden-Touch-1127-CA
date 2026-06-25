@@ -46,6 +46,10 @@ export interface MantenimientoMaquinaria {
   /** Pieza cambiada cuando tipo = cambio_pieza (ej. MOTOR). */
   pieza: string | null;
   horometro: number | null;
+  /** Kilometraje (lectura del odómetro) registrado en este servicio. */
+  kilometraje: number | null;
+  /** Km al que se quiere recibir alerta de próximo mantenimiento (lo indica el usuario). */
+  alerta_km: number | null;
   aceite_lts: number | null;
   refrigerante_lts: number | null;
   gasoil_lts: number | null;
@@ -106,6 +110,8 @@ function sanitize(input: MantenimientoInput): Record<string, unknown> {
     tipo: v(input.tipo),
     pieza: v(input.pieza),
     horometro: num(input.horometro),
+    kilometraje: num(input.kilometraje),
+    alerta_km: num(input.alerta_km),
     aceite_lts: num(input.aceite_lts),
     refrigerante_lts: num(input.refrigerante_lts),
     gasoil_lts: num(input.gasoil_lts),
@@ -203,6 +209,42 @@ export async function horasUltimoPorEquipo(): Promise<Map<string, { horasUltimo:
     const ultimoHorometro = lect[0] ?? null;
     const horasUltimo = lect.length >= 2 ? Math.round((lect[0] - lect[1]) * 100) / 100 : null;
     out.set(eq, { horasUltimo, ultimoHorometro });
+  }
+  return out;
+}
+
+/** Estado de alerta por KILOMETRAJE de un equipo. */
+export interface AlertaKmEquipo {
+  ultimoKm: number | null;   // última lectura de odómetro registrada
+  alertaKm: number | null;   // km al que el usuario pidió la alerta
+  restante: number | null;   // alertaKm − ultimoKm (negativo = ya pasó)
+  alerta: boolean;           // está dentro del 10% (o ya alcanzó/pasó) el km de alerta
+}
+
+/**
+ * Por equipo: último kilometraje registrado y el último km de alerta indicado en la
+ * bitácora. Marca `alerta` cuando el equipo está PRÓXIMO (dentro del 10%) o ya alcanzó
+ * el km de alerta. Una sola consulta a toda la bitácora; se agrupa en memoria.
+ */
+export async function kmAlertaPorEquipo(): Promise<Map<string, AlertaKmEquipo>> {
+  const { data, error } = await supabase.from(TABLE)
+    .select('equipo_id, kilometraje, alerta_km, fecha, created_at')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, AlertaKmEquipo>();
+  // data viene de más nuevo a más viejo: el primer no-nulo de cada campo es el vigente.
+  for (const r of (data ?? []) as { equipo_id: string; kilometraje: number | null; alerta_km: number | null }[]) {
+    const cur = out.get(r.equipo_id) ?? { ultimoKm: null, alertaKm: null, restante: null, alerta: false };
+    if (cur.ultimoKm == null && r.kilometraje != null) cur.ultimoKm = Number(r.kilometraje);
+    if (cur.alertaKm == null && r.alerta_km != null) cur.alertaKm = Number(r.alerta_km);
+    out.set(r.equipo_id, cur);
+  }
+  for (const v of out.values()) {
+    if (v.alertaKm != null && v.alertaKm > 0 && v.ultimoKm != null) {
+      v.restante = Math.round((v.alertaKm - v.ultimoKm) * 100) / 100;
+      v.alerta = v.restante <= v.alertaKm * 0.1; // dentro del 10% o ya alcanzado/pasado
+    }
   }
   return out;
 }

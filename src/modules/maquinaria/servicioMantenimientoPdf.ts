@@ -98,3 +98,72 @@ export async function descargarResumenMantenimientoPdf(
 
   previewPdf(doc, `mantenimiento-${grupo.toLowerCase().replace(/\s+/g, '-')}.pdf`);
 }
+
+/* ───────── Movimientos / consumos de UN equipo (timeline por fechas) ───────── */
+
+export interface MovimientoEquipoRow {
+  fecha: string;       // ISO o yyyy-mm-dd
+  origen: string;      // 'Bitácora' | 'Servicio'
+  tipo: string;        // etiqueta del tipo / código del servicio
+  detalle: string;     // qué se consumió/hizo (ej. "Cambio de cauchos ×6")
+}
+
+/**
+ * PDF del historial de movimientos/consumos de un equipo en un rango de fechas:
+ * qué se hizo y cuándo (ej. "25/06 · Cambio de cauchos ×6"). Une la bitácora y las
+ * solicitudes de servicio del equipo.
+ */
+export async function descargarMovimientosEquipoPdf(
+  equipo: string,
+  rows: MovimientoEquipoRow[],
+  rango: { desde: string; hasta: string },
+): Promise<void> {
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+    import('@/shared/lib/format'),
+    import('@/shared/lib/pdfLogo'),
+  ]);
+  const logo = await loadLogoDataUrl().catch(() => null);
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  const W = doc.internal.pageSize.getWidth();
+  const MARGIN = 42.52;
+  let y = MARGIN;
+  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
+
+  doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+  doc.text('HISTORIAL DE MANTENIMIENTO', W / 2 + 28, y + 18, { align: 'center' });
+  doc.setFontSize(11); doc.setTextColor(60, 60, 60);
+  doc.text(equipo, W / 2 + 28, y + 36, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+  y += 56;
+
+  const rangoTxt = rango.desde || rango.hasta
+    ? `Período: ${rango.desde ? fmt.date(rango.desde) : '…'} — ${rango.hasta ? fmt.date(rango.hasta) : 'hoy'}`
+    : 'Período: todo el histórico';
+  doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+  doc.text(rangoTxt, MARGIN, y); y += 14;
+  doc.setTextColor(0, 0, 0);
+
+  const body = rows.map((r) => [fmt.date(r.fecha), r.origen, r.tipo, r.detalle]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['FECHA', 'ORIGEN', 'TIPO', 'DETALLE / CONSUMO']],
+    body: body.length ? body : [['—', '—', '—', 'Sin movimientos en el período.']],
+    styles: { fontSize: 8.5, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
+    headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
+    columnStyles: {
+      0: { cellWidth: 70 },
+      1: { cellWidth: 70 },
+      2: { cellWidth: 130 },
+      3: { cellWidth: 'auto' },
+    },
+    margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+  });
+
+  doc.setFontSize(8); doc.setTextColor(120, 120, 120);
+  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${rows.length} movimiento(s) · ${equipo} · Golden Touch 1127 C.A.`, MARGIN, doc.internal.pageSize.getHeight() - 16);
+
+  previewPdf(doc, `movimientos-${equipo.toLowerCase().replace(/\s+/g, '-')}.pdf`);
+}

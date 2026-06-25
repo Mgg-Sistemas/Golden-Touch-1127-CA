@@ -8,7 +8,7 @@ import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMantenimientoModal } from './ResumenMantenimientoModal';
 import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
+import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, kmAlertaPorEquipo, type SolicitudServicioEquipo, type AlertaKmEquipo } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
 
 /** Etiqueta del estado de un servicio (alineada con la pestaña Servicios de Pedidos). */
@@ -87,6 +87,7 @@ export function ServicioMantenimientoPage() {
   const [horometros, setHorometros] = useState<Map<string, number>>(new Map());
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map());
   const [solMap, setSolMap] = useState<Map<string, SolicitudServicioEquipo[]>>(new Map());
+  const [kmMap, setKmMap] = useState<Map<string, AlertaKmEquipo>>(new Map());
   const [loading, setLoading] = useState(true);
   const [grupo, setGrupo] = useState<string>(GRUPOS_MANTENIMIENTO[0]);
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
@@ -95,16 +96,18 @@ export function ServicioMantenimientoPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, bit, sol] = await Promise.all([
+      const [eqs, horos, bit, sol, km] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
+        kmAlertaPorEquipo().catch(() => new Map<string, AlertaKmEquipo>()),
       ]);
       setEquipos(eqs);
       setHorometros(horos);
       setBitMap(bit);
       setSolMap(sol);
+      setKmMap(km);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -141,6 +144,12 @@ export function ServicioMantenimientoPage() {
   const lista = grupo === SIN_GRUPO ? porGrupo.sinGrupoList : (porGrupo.m.get(grupo) ?? []);
   const grupoLabel = grupo === SIN_GRUPO ? 'SIN CLASIFICAR' : grupo;
   const enAlerta = lista.filter((e) => e.activo && infoEquipo.get(e.id)?.alerta);
+
+  // Equipos de este grupo próximos (o que ya alcanzaron) su km de alerta.
+  const enAlertaKm = useMemo(
+    () => lista.filter((e) => e.activo && kmMap.get(e.id)?.alerta).map((e) => ({ e, km: kmMap.get(e.id)! })),
+    [lista, kmMap],
+  );
 
   return (
     <div>
@@ -179,6 +188,23 @@ export function ServicioMantenimientoPage() {
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
           ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (≤ {UMBRAL_ALERTA_HRS} HRS): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
+        </div>
+      )}
+
+      {/* Alerta por KILOMETRAJE: equipos que ya alcanzaron / están próximos al km indicado en la bitácora. */}
+      {enAlertaKm.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--danger)', background: 'rgba(239,68,68,.08)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
+          <div style={{ fontWeight: 700, marginBottom: '.25rem' }}>🛞 {enAlertaKm.length} equipo(s) próximos a mantenimiento por kilometraje</div>
+          <div style={{ display: 'grid', gap: '.15rem' }}>
+            {enAlertaKm.map(({ e, km }) => (
+              <div key={e.id} style={{ fontSize: '.82rem' }}>
+                <strong>{e.equipo}</strong>: va en <strong className="mono">{fmtNum(km.ultimoKm ?? 0)} km</strong> · alerta en <strong className="mono">{fmtNum(km.alertaKm ?? 0)} km</strong>
+                {km.restante != null && (km.restante > 0
+                  ? <> — faltan <strong className="mono">{fmtNum(km.restante)} km</strong></>
+                  : <> — <strong style={{ color: 'var(--danger)' }}>¡alcanzado! ({fmtNum(Math.abs(km.restante))} km pasados)</strong></>)}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
