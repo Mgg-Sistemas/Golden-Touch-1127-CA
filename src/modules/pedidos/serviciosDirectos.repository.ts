@@ -20,8 +20,13 @@ const BUCKET = 'servicios-directos';
 export type EstadoServicioDirecto = 'en_proceso' | 'finalizada';
 
 export interface ServicioDirectoItem {
-  /** Descripción del servicio (texto libre). */
+  /** Categoría del servicio (ej. MANTENIMIENTO DE VEHÍCULOS). */
+  categoria?: string | null;
+  /** Tipo de servicio (ej. «🛞 Cambio de cauchos»). */
   descripcion: string;
+  /** Equipo de Control de Maquinaria casado a este renglón (opcional). */
+  equipo_id?: string | null;
+  equipo_nombre?: string | null;
   cantidad: number;
   unidad?: string | null;
   /** Monto del renglón (se carga al finalizar). */
@@ -74,13 +79,14 @@ export async function listServiciosDirectos(): Promise<ServicioDirecto[]> {
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
-/** Servicios directos casados a un equipo de Maquinaria (para su historial). */
+/** Servicios directos casados a un equipo de Maquinaria (para su historial). Toma tanto
+ *  los que tienen el equipo a nivel de cabecera como los que lo tienen en algún renglón. */
 export async function listServiciosDirectosDeEquipo(equipoId: string): Promise<ServicioDirecto[]> {
   if (!equipoId) return [];
   const { data, error } = await supabase
     .from('servicios_directos')
     .select('*')
-    .eq('equipo_id', equipoId)
+    .or(`equipo_id.eq.${equipoId},items.cs.${JSON.stringify([{ equipo_id: equipoId }])}`)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
@@ -88,14 +94,19 @@ export async function listServiciosDirectosDeEquipo(equipoId: string): Promise<S
 
 /* ───────── Alta (varios servicios) ───────── */
 
-export interface LineaServicio { descripcion: string; cantidad: number; unidad?: string | null }
+export interface LineaServicio {
+  categoria?: string | null;
+  /** Tipo de servicio (ej. «🛞 Cambio de cauchos»). */
+  descripcion: string;
+  equipoId?: string | null;
+  equipoNombre?: string | null;
+  cantidad: number;
+}
 
 export interface CrearServicioDirectoInput {
   lineas: LineaServicio[];
   proveedorId?: string | null;
   proveedorNombre?: string | null;
-  equipoId?: string | null;
-  equipoNombre?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -103,12 +114,23 @@ export interface CrearServicioDirectoInput {
 /** Crea un servicio directo EN PROCESO con uno o varios servicios (sin monto). */
 export async function crearServicioDirecto(input: CrearServicioDirectoInput): Promise<ServicioDirecto> {
   const lineas = input.lineas
-    .map((l) => ({ descripcion: l.descripcion.trim(), cantidad: Number(l.cantidad) || 0, unidad: (l.unidad ?? '').trim() || null }))
+    .map((l) => ({
+      categoria: (l.categoria ?? '').trim() || null,
+      descripcion: l.descripcion.trim(),
+      equipoId: l.equipoId ?? null,
+      equipoNombre: (l.equipoNombre ?? '').trim() || null,
+      cantidad: Number(l.cantidad) || 0,
+    }))
     .filter((l) => l.descripcion && l.cantidad > 0);
   if (!lineas.length) throw new Error('Agregá al menos un servicio con cantidad.');
 
-  const items: ServicioDirectoItem[] = lineas.map((l) => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad }));
+  const items: ServicioDirectoItem[] = lineas.map((l) => ({
+    categoria: l.categoria, descripcion: l.descripcion,
+    equipo_id: l.equipoId, equipo_nombre: l.equipoNombre, cantidad: l.cantidad,
+  }));
   const resumen = items.length === 1 ? items[0].descripcion : `${items.length} servicios`;
+  // Equipo de cabecera = el primero de los renglones que tenga equipo (para la columna de la lista).
+  const conEquipo = lineas.find((l) => l.equipoId);
   const codigo = await nextCodigoServicioDirecto();
 
   const { data, error } = await supabase
@@ -119,8 +141,8 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       items,
       proveedor_id: input.proveedorId ?? null,
       proveedor_nombre: input.proveedorNombre?.trim() || null,
-      equipo_id: input.equipoId ?? null,
-      equipo_nombre: input.equipoNombre?.trim() || null,
+      equipo_id: conEquipo?.equipoId ?? null,
+      equipo_nombre: conEquipo?.equipoNombre ?? null,
       estado: 'en_proceso',
       actor: input.actor,
       actor_name: input.actorName ?? null,
