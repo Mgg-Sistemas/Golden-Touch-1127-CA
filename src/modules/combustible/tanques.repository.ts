@@ -367,6 +367,8 @@ export interface MovimientoTanqueCampos {
   contadorGlobalFin?: number | null;
   horometroIni?: number | null;
   horometroFin?: number | null;
+  /** Kilometraje (odómetro) del vehículo: lectura absoluta del momento. */
+  kilometraje?: number | null;
 }
 
 async function insertarMovimiento(payload: Record<string, unknown>): Promise<MovimientoTanque> {
@@ -387,6 +389,7 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
     contador_global_fin: c.contadorGlobalFin ?? null,
     horometro_ini: c.horometroIni ?? null,
     horometro_fin: c.horometroFin ?? null,
+    kilometraje: c.kilometraje ?? null,
   };
 }
 
@@ -1100,6 +1103,43 @@ export async function horometrosVigentesPorEquipo(): Promise<Map<string, number>
     if (!out.has(eq)) out.set(eq, num(r.horometro_fin)); // orden desc: el primero es el vigente
   }
   return out;
+}
+
+/** Kilometraje vigente (última lectura de odómetro) de TODOS los equipos, en una sola
+ *  consulta. Devuelve Map<nombreEquipo, kilometraje>. El odómetro es absoluto: el último
+ *  registrado (por created_at) es el vigente. Lo usa Maquinaria para la alerta por km. */
+export async function kilometrajesVigentesPorEquipo(): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('equipo, kilometraje, created_at')
+    .not('kilometraje', 'is', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, number>();
+  for (const r of (data ?? []) as Array<{ equipo: string | null; kilometraje: number | null }>) {
+    const eq = (r.equipo ?? '').trim();
+    if (!eq || r.kilometraje == null) continue;
+    if (!out.has(eq)) out.set(eq, num(r.kilometraje)); // orden desc: el primero es el vigente
+  }
+  return out;
+}
+
+/** Último kilometraje (odómetro) registrado para un equipo. Sirve para autocargar la
+ *  próxima lectura en el surtidor (el odómetro solo crece). */
+export async function ultimoKilometrajeEquipo(equipo: string): Promise<number | null> {
+  const e = equipo.trim();
+  if (!e) return null;
+  const { data, error } = await supabase
+    .from('combustible_tanque_movimientos')
+    .select('kilometraje, created_at')
+    .eq('equipo', e)
+    .not('kilometraje', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  const v = (data as { kilometraje?: number | null } | null)?.kilometraje;
+  return v == null ? null : num(v);
 }
 
 /* ───────────── Medidores por equipo (horómetro / contador) ───────────── */

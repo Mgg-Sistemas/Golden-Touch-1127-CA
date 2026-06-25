@@ -1,0 +1,626 @@
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { toast } from '@/shared/ui/Toast';
+import { previewArchivo } from '@/shared/lib/reportePreview';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { notify } from '@/shared/lib/notify';
+import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
+import type { Caja, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
+import { listCajasActivas } from '@/modules/salidas/cajas.repository';
+import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
+import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
+import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
+import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
+import {
+  crearServicioDirecto, finalizarServicioDirecto, eliminarServicioDirecto, listServiciosDirectos,
+  urlAdjuntoServicio, type ServicioDirecto, type ServicioDirectoItem, type LineaServicio, type PagoLeg,
+} from './serviciosDirectos.repository';
+
+type Vista = 'kanban' | 'lista';
+
+const COLS: { key: ServicioDirecto['estado']; label: string }[] = [
+  { key: 'en_proceso', label: 'En proceso' },
+  { key: 'finalizada', label: 'Finalizada' },
+];
+const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', finalizada: '🏁 Finalizada' };
+
+function montoCaja(n: number | null | undefined, moneda: string): string {
+  const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
+}
+
+export function ServicioDirectoView({ actor, actorName }: { actor: string; actorName?: string | null }) {
+  const [servicios, setServicios] = useState<ServicioDirecto[]>([]);
+  const [cajas, setCajas] = useState<Caja[]>([]);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [vista, setVista] = useState<Vista>('kanban');
+  const [crear, setCrear] = useState(false);
+  const [finalizar, setFinalizar] = useState<ServicioDirecto | null>(null);
+  const [eliminar, setEliminar] = useState<ServicioDirecto | null>(null);
+
+  const reload = useCallback(async () => {
+    const [sd, cjs, provs, eqs] = await Promise.all([
+      listServiciosDirectos(), listCajasActivas(), listProveedores(), listEquipos().catch(() => [] as MaquinariaEquipo[]),
+    ]);
+    setServicios(sd); setCajas(cjs); setProveedores(provs); setEquipos(eqs);
+  }, []);
+
+  useEffect(() => {
+    let cancel = false;
+    setLoading(true);
+    reload().catch(() => { /* RLS/red */ }).finally(() => { if (!cancel) setLoading(false); });
+    return () => { cancel = true; };
+  }, [reload]);
+
+  useRealtime(['servicios_directos', 'proveedores'], () => { void reload(); });
+
+  const porEstado = useMemo(() => {
+    const m: Record<string, ServicioDirecto[]> = { en_proceso: [], finalizada: [] };
+    servicios.forEach((s) => { (m[s.estado] ??= []).push(s); });
+    return m;
+  }, [servicios]);
+
+  async function confirmarEliminar() {
+    const s = eliminar;
+    if (!s) return;
+    try {
+      await eliminarServicioDirecto(s);
+      notify('Servicio directo eliminado', 'success', { link: '#/app/pedidos' });
+      setEliminar(null);
+      await reload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar el servicio directo', 'error'); }
+  }
+
+  return (
+    <div>
+      <div className="filterbar" style={{ justifyContent: 'space-between' }}>
+        <button className="btn btn-primary" onClick={() => setCrear(true)}>+ Nuevo servicio directo</button>
+        <div className="view-toggle" role="tablist" aria-label="Modo de vista">
+          <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>▦ Kanban</button>
+          <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>☰ Lista</button>
+        </div>
+      </div>
+
+      {loading ? (
+        <EmptyState message="Cargando servicios directos..." icon="◔" />
+      ) : !servicios.length ? (
+        <EmptyState message="Sin servicios directos. Creá el primero con “+ Nuevo servicio directo”." icon="🔧" />
+      ) : vista === 'kanban' ? (
+        <div className="kanban">
+          {COLS.map((col) => (
+            <div key={col.key} className="kanban-col">
+              <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
+              <div className="kanban-col-body">
+                {(porEstado[col.key] ?? []).map((s) => (
+                  <ServicioCard key={s.id} servicio={s} onFinalizar={() => setFinalizar(s)} onEliminar={() => setEliminar(s)} />
+                ))}
+                {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Código</th><th>Servicio(s)</th><th>Proveedor</th><th>Equipo</th><th>Estado</th><th>Monto</th><th>Generó</th><th>Creado</th><th>Pagado</th><th></th></tr></thead>
+            <tbody>
+              {servicios.map((s) => (
+                <tr key={s.id}>
+                  <td className="mono">{s.codigo ?? '—'}</td>
+                  <td>{s.descripcion}{s.items.length > 1 ? <span className="muted"> · {s.items.length} ítems</span> : null}</td>
+                  <td>{s.proveedor_nombre || <span className="muted">—</span>}</td>
+                  <td>{s.equipo_nombre || <span className="muted">—</span>}</td>
+                  <td>{ESTADO_LABEL[s.estado] ?? s.estado}</td>
+                  <td className="mono">{s.gasto != null ? money(s.gasto) : '—'}</td>
+                  <td>{s.actor_name || s.actor || '—'}</td>
+                  <td className="muted">{dateTime(s.created_at)}</td>
+                  <td className="muted">{s.finalizada_at ? dateTime(s.finalizada_at) : '—'}</td>
+                  <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                    {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
+                    {s.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑 Eliminar</button>}
+                    {s.estado === 'finalizada' && <AdjuntoLink servicio={s} />}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {crear && (
+        <CrearServicioModal proveedores={proveedores} equipos={equipos}
+          actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await reload(); }} />
+      )}
+
+      {finalizar && (
+        <FinalizarServicioModal servicio={finalizar} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
+      )}
+
+      {eliminar && (
+        <ConfirmDialog
+          title="Eliminar servicio directo"
+          message={`¿Eliminar el servicio directo "${eliminar.descripcion}"? Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onConfirm={confirmarEliminar}
+          onCancel={() => setEliminar(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ServicioCard({ servicio, onFinalizar, onEliminar }: {
+  servicio: ServicioDirecto; onFinalizar: () => void; onEliminar: () => void;
+}) {
+  return (
+    <div className="card" style={{ margin: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
+        <strong>{servicio.descripcion}</strong>
+        <span className="badge">🔧</span>
+      </div>
+      {servicio.codigo && <div className="mono" style={{ fontSize: '.74rem', color: 'var(--brand, #ff8a00)', marginTop: '.15rem' }}>{servicio.codigo}</div>}
+      {servicio.equipo_nombre && <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>🚜 {servicio.equipo_nombre}</div>}
+      {servicio.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem' }}>🏷 {servicio.proveedor_nombre}</div>}
+      {servicio.items.length > 1 && (
+        <ul className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0', paddingLeft: '1rem' }}>
+          {servicio.items.map((it, i) => <li key={i}>{it.descripcion} · {num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</li>)}
+        </ul>
+      )}
+      <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', lineHeight: 1.5 }}>
+        <div>Generó: <strong style={{ color: 'var(--text)' }}>{servicio.actor_name || servicio.actor || '—'}</strong></div>
+        <div>Creado: {dateTime(servicio.created_at)}</div>
+        {servicio.estado === 'finalizada' && <div>Pagado: {servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—'}</div>}
+      </div>
+      {servicio.estado === 'finalizada' && (
+        <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
+          <div>Monto: <strong className="mono">{servicio.gasto != null ? money(servicio.gasto) : '—'}</strong></div>
+          <div className="muted"><AdjuntoLink servicio={servicio} /></div>
+        </div>
+      )}
+      {servicio.estado === 'en_proceso' && (
+        <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>
+          <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar servicio directo">🗑 Eliminar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
+  if (!servicio.adjunto_path) return <span className="muted">—</span>;
+  async function abrir() {
+    try { previewArchivo(await urlAdjuntoServicio(servicio.adjunto_path as string), servicio.adjunto_nombre || ((servicio.adjunto_path as string).split('/').pop() ?? 'adjunto')); }
+    catch { toast('No se pudo abrir el adjunto', 'error'); }
+  }
+  return <button className="btn btn-sm btn-ghost" onClick={abrir} title={servicio.adjunto_nombre ?? 'Adjunto'}>📎 Factura</button>;
+}
+
+/* ───────── Modal: nuevo servicio (varios renglones) ───────── */
+
+interface LineaUI { id: number; descripcion: string; cantidad: string; unidad: string }
+
+function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, onSaved }: {
+  proveedores: Proveedor[]; equipos: MaquinariaEquipo[];
+  actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+}) {
+  const provActivos = useMemo(() => proveedores.filter((p) => p.estado === 'activo'), [proveedores]);
+  const equiposActivos = useMemo(() => equipos.filter((e) => e.activo), [equipos]);
+  const nuevaLinea = (id: number): LineaUI => ({ id, descripcion: '', cantidad: '1', unidad: 'servicio' });
+  const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
+  const [seq, setSeq] = useState(2);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Equipo (opcional): sincroniza el servicio con Control de Maquinaria.
+  const [equipoId, setEquipoId] = useState('');
+
+  // Proveedor (opcional): directorio + alta en línea.
+  const [proveedorId, setProveedorId] = useState('');
+  const [nuevoProveedor, setNuevoProveedor] = useState(false);
+  const [provRazon, setProvRazon] = useState('');
+  const [provRif, setProvRif] = useState('J-');
+  const [provTelefono, setProvTelefono] = useState('');
+  const [provEmail, setProvEmail] = useState('');
+  const [provOrigen, setProvOrigen] = useState<OrigenProveedor>('nacional');
+  const rifPartes = partirRif(provRif);
+
+  function set(id: number, patch: Partial<LineaUI>) { setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l))); }
+  function add() { setLineas((ls) => [...ls, nuevaLinea(seq)]); setSeq((s) => s + 1); }
+  function quitar(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    const payload: LineaServicio[] = [];
+    for (const l of lineas) {
+      const cant = Number(l.cantidad) || 0;
+      if (!l.descripcion.trim()) { setError('Indicá la descripción de cada servicio.'); return; }
+      if (cant <= 0) { setError('Cada servicio debe tener cantidad mayor que 0.'); return; }
+      payload.push({ descripcion: l.descripcion, cantidad: cant, unidad: l.unidad });
+    }
+    if (nuevoProveedor) {
+      if (!provRazon.trim() || !rifPartes.numero) { setError('Razón social y RIF (con número) son obligatorios para el nuevo proveedor.'); return; }
+      const emailClean = provEmail.trim();
+      if (emailClean && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)) { setError('El correo del proveedor no tiene un formato válido.'); return; }
+    }
+    setSaving(true);
+    try {
+      let proveedorIdFinal: string | null = null;
+      let proveedorNombreFinal: string | null = null;
+      if (nuevoProveedor) {
+        const creado = await crearProveedor({
+          razon_social: provRazon.trim().toUpperCase(),
+          rif: `${rifPartes.letra}-${rifPartes.numero}`,
+          contacto: null, telefono: provTelefono.trim() || null, email: provEmail.trim() || null,
+          direccion: null, categorias: [], origen: provOrigen, estado: 'activo',
+        });
+        proveedorIdFinal = creado.id;
+        proveedorNombreFinal = creado.razon_social;
+        notify(`Proveedor "${creado.razon_social}" registrado`, 'success', { link: '#/app/proveedores' });
+      } else if (proveedorId) {
+        proveedorIdFinal = proveedorId;
+        proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
+      }
+      const equipoSel = equiposActivos.find((e) => e.id === equipoId) ?? null;
+      const creado = await crearServicioDirecto({
+        lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal,
+        equipoId: equipoSel?.id ?? null, equipoNombre: equipoSel?.equipo ?? null, actor, actorName,
+      });
+      notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear el servicio directo.'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="sd-form" className="btn btn-primary" disabled={saving}>{saving ? 'Creando…' : 'Crear servicio directo'}</button>
+    </>
+  );
+
+  return (
+    <Modal title="Nuevo servicio directo" size="lg" onClose={onClose} footer={footer}>
+      <form id="sd-form" onSubmit={handleSubmit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {/* Equipo (opcional): vincula el servicio a Control de Maquinaria. */}
+        <div className="form-row">
+          <label>Equipo / vehículo <span className="muted">(opcional · Control de Maquinaria)</span></label>
+          <SearchSelect value={equipoId} onChange={setEquipoId} style={{ maxWidth: 360 }}
+            placeholder={equiposActivos.length ? '🔍 Buscar equipo…' : '— sin equipos —'}
+            options={equiposActivos.map((e) => ({ value: e.id, label: `${e.equipo}${e.placa ? ` · ${e.placa}` : ''}` }))} />
+          <small className="muted">{equipoId ? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setEquipoId('')}>✕ Quitar equipo</button> : 'Al vincularlo, el servicio aparece en el historial del equipo (Maquinaria → Bitácora / Resumen).'}</small>
+        </div>
+
+        {/* Proveedor (opcional): buscador del directorio + alta en línea. */}
+        <div className="form-row">
+          <label>Proveedor <span className="muted">(opcional)</span></label>
+          {!nuevoProveedor ? (
+            <>
+              <SearchSelect value={proveedorId} onChange={setProveedorId} style={{ maxWidth: 360 }}
+                placeholder={provActivos.length ? '🔍 Buscar proveedor…' : '— sin proveedores —'}
+                options={provActivos.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}` }))} />
+              <small className="muted">
+                {proveedorId
+                  ? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setProveedorId('')}>✕ Quitar proveedor</button>
+                  : <>¿No está? <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setNuevoProveedor(true)}>＋ Agregar proveedor nuevo</button> (se guarda en el directorio)</>}
+              </small>
+            </>
+          ) : (
+            <div className="card" style={{ background: 'var(--bg-2)', padding: '.85rem', marginTop: '.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
+                <strong style={{ fontSize: '.88rem' }}>Nuevo proveedor</strong>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoProveedor(false)} title="Elegir uno existente">↩ Elegir existente</button>
+              </div>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Razón social *</label>
+                  <input className="input" name="prov-razon" defaultValue={provRazon} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setProvRazon(e.target.value); }} placeholder="Nombre del proveedor" />
+                </div>
+                <div className="form-row">
+                  <label>RIF *</label>
+                  <div style={{ display: 'flex', gap: '.4rem' }}>
+                    <select className="select" value={rifPartes.letra} onChange={(e) => setProvRif(`${e.target.value}-${rifPartes.numero}`)}
+                      style={{ width: 'auto', flex: '0 0 auto' }} aria-label="Tipo de RIF">
+                      {PREFIJOS_RIF.map((p) => <option key={p.letra} value={p.letra}>{p.letra} · {p.desc}</option>)}
+                    </select>
+                    <input className="input mono" name="prov-rif-num" defaultValue={rifPartes.numero}
+                      onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 10); e.target.value = v; setProvRif(`${rifPartes.letra}-${v}`); }}
+                      placeholder="40778442" inputMode="numeric" style={{ flex: 1 }} />
+                  </div>
+                </div>
+              </div>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Teléfono</label>
+                  <input className="input" name="prov-telefono" inputMode="numeric" defaultValue={provTelefono}
+                    onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 15); e.target.value = v; setProvTelefono(v); }} maxLength={15} placeholder="Solo dígitos" />
+                </div>
+                <div className="form-row">
+                  <label>Email</label>
+                  <input className="input" type="email" name="prov-email" defaultValue={provEmail} onChange={(e) => setProvEmail(e.target.value)} placeholder="correo@dominio.com" />
+                </div>
+                <div className="form-row">
+                  <label>Origen</label>
+                  <select className="select" value={provOrigen} onChange={(e) => setProvOrigen(e.target.value as OrigenProveedor)}>
+                    <option value="nacional">Nacional</option>
+                    <option value="internacional">Internacional</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {lineas.map((l, idx) => (
+          <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
+              <strong style={{ fontSize: '.85rem' }}>Servicio #{idx + 1}</strong>
+              {lineas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => quitar(l.id)} title="Quitar servicio">✕</button>}
+            </div>
+            <div className="form-row">
+              <label>Descripción del servicio</label>
+              <input className="input" name={`linea-desc-${l.id}`} defaultValue={l.descripcion} onChange={(e) => set(l.id, { descripcion: e.target.value })} placeholder="Ej. Cambio de aceite y filtros, soldadura, alineación…" />
+            </div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Cantidad</label>
+                <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
+              </div>
+              <div className="form-row">
+                <label>Unidad / medida</label>
+                <input className="input" name={`linea-uni-${l.id}`} defaultValue={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })} placeholder="servicio, h, und…" />
+              </div>
+            </div>
+          </div>
+        ))}
+
+        <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar servicio</button>
+        <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan montos al crear. El monto por servicio, la factura y la caja se indican al finalizar.</p>
+      </form>
+    </Modal>
+  );
+}
+
+/* ───────── Modal: finalizar (monto por servicio + caja + factura) ───────── */
+
+function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, onSaved }: {
+  servicio: ServicioDirecto; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+}) {
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [gastos, setGastos] = useState<Record<number, string>>({});
+  const [file, setFile] = useState<File | null>(null);
+  const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
+  const [catId, setCatId] = useState('');
+  const [subId, setSubId] = useState('');
+  useEffect(() => { listCategoriasGasto().then(setCatsGasto).catch(() => setCatsGasto([])); }, []);
+  const catNombre = catsGasto.find((c) => c.id === catId)?.nombre ?? null;
+  const subNombre = catsGasto.find((c) => c.id === subId)?.nombre ?? null;
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const caja = cajas.find((c) => c.id === cajaId) ?? null;
+  const moneda = caja?.moneda ?? 'USD';
+
+  const total = useMemo(
+    () => Math.round(servicio.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100,
+    [gastos, servicio.items],
+  );
+
+  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  const [saldosTodas, setSaldosTodas] = useState<CajaSaldo[]>([]);
+  useEffect(() => { listSaldos().then(setSaldosTodas).catch(() => setSaldosTodas([])); }, []);
+  const saldoMostrar = (c: Caja): number => {
+    const rows = saldosTodas.filter((s) => s.caja_id === c.id);
+    if (!rows.length) return Number(c.saldo) || 0;
+    const enMoneda = rows.filter((r) => r.moneda === c.moneda).reduce((a, r) => a + Number(r.saldo), 0);
+    return enMoneda || rows.reduce((a, r) => a + Number(r.saldo), 0);
+  };
+  const [legMontos, setLegMontos] = useState<Record<string, string>>({});
+  const [tasa, setTasa] = useState<number>(0);
+  const [mercado, setMercado] = useState<TasasMercado | null>(null);
+  useEffect(() => {
+    if (!cajaId) { setSaldosCaja([]); return; }
+    saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
+    setLegMontos({});
+  }, [cajaId]);
+  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
+  useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
+
+  const esMultimoneda = saldosCaja.length >= 2;
+  function legUsd(monedaLeg: string, n: number): number {
+    if (!n || n <= 0) return 0;
+    if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(n);
+    if (monedaLeg === 'Bs') return tasa > 0 ? round2(n / tasa) : 0;
+    if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
+    return round2(n);
+  }
+  const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
+  const cubreTotalMulti = sumUsdMulti >= total - 0.01;
+  const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
+  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
+
+  const totalUsd = moneda === 'Bs' ? (tasa > 0 ? round2(total / tasa) : 0) : total;
+  const totalBs = moneda === 'Bs' ? total : (tasa > 0 ? round2(total * tasa) : 0);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
+    if (total <= 0) { setError('Indicá cuánto costó cada servicio.'); return; }
+    if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
+    if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
+    let legs: PagoLeg[] | undefined;
+    if (esMultimoneda) {
+      legs = saldosCaja
+        .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 }))
+        .filter((l) => l.monto > 0);
+      if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
+      if (excedeTotalMulti) { setError(`No podés pagar más que el total del servicio. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(total, 'USD')}.`); return; }
+      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
+    } else if (saldosCaja.length === 1) {
+      const s = saldosCaja[0];
+      if (total > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
+      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: total }];
+    }
+    const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
+    setSaving(true);
+    try {
+      await finalizarServicioDirecto({ servicio, items, cajaId, legs, file, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre });
+      const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
+      notify(`Servicio finalizado · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/tesoreria' });
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar el servicio.'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+      <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Finalizando…' : excedeTotalMulti ? 'Excede el total' : `Finalizar · ${montoCaja(total, moneda)}`}</button>
+    </>
+  );
+
+  return (
+    <Modal title="Cargar factura y monto" size="lg" onClose={onClose} footer={footer}>
+      <form id="sd-fin-form" onSubmit={handleSubmit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {servicio.equipo_nombre && (
+          <div className="card" style={{ marginBottom: '.75rem' }}>🚜 Servicio del equipo <strong>{servicio.equipo_nombre}</strong> — se reflejará en su historial de Control de Maquinaria.</div>
+        )}
+
+        <div className="form-row">
+          <label>Caja (de dónde sale el dinero)</label>
+          <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 320 }}
+            placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+            options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
+          <small className="muted">El monto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
+        </div>
+
+        {catsGasto.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
+            <div className="form-row">
+              <label>Categoría de gasto</label>
+              <SearchSelect value={catId} onChange={(v) => { setCatId(v); setSubId(''); }}
+                placeholder="🔍 Categoría…" emptyText="Sin categorías"
+                options={soloCategorias(catsGasto).map((c) => ({ value: c.id, label: c.nombre }))} />
+            </div>
+            <div className="form-row">
+              <label>Subcategoría</label>
+              <SearchSelect value={subId} onChange={setSubId} disabled={!catId}
+                placeholder={catId ? '🔍 Subcategoría…' : '— elegí primero la categoría —'} emptyText="Sin subcategorías"
+                options={(catId ? subcategoriasDe(catsGasto, catId) : []).map((c) => ({ value: c.id, label: c.nombre }))} />
+            </div>
+          </div>
+        )}
+
+        {caja && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>👛 Billetera · {caja.nombre}</div>
+            {saldosCaja.length ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+                {saldosCaja.map((s) => (
+                  <span key={s.id} className="badge" style={{ fontSize: '.82rem', padding: '.3rem .55rem' }}>
+                    {s.moneda}{cuentaLabel(s.cuenta)}: <strong className="mono">{montoCaja(Number(s.saldo), s.moneda)}</strong>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div>Disponible: <strong className="mono">{montoCaja(Number(caja.saldo), caja.moneda)}</strong></div>
+            )}
+          </div>
+        )}
+
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.85rem' }}>
+            <thead><tr><th>Servicio</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ width: 160 }}>Monto</th><th style={{ textAlign: 'right' }}>Costo unit.</th></tr></thead>
+            <tbody>
+              {servicio.items.map((it, i) => {
+                const g = Number(gastos[i]) || 0;
+                const cu = it.cantidad > 0 && g > 0 ? g / it.cantidad : 0;
+                return (
+                  <tr key={i}>
+                    <td>{it.descripcion}{it.unidad ? <span className="muted"> · {it.unidad}</span> : null}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                    <td><input className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="card" style={{ margin: '.5rem 0' }}>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong></div>
+
+        {cajaId && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Total en USD</div>
+              <strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda !== 'Bs' ? montoCaja(totalUsd, 'USD') : '—'}</strong>
+            </div>
+            <div className="muted" style={{ fontSize: '1.1rem' }}>⇄</div>
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs (BCV)</div>
+              <strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda === 'Bs' ? montoCaja(totalBs, 'Bs') : '—'}</strong>
+            </div>
+            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 150, margin: 0 }}>
+              <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs por $)</label>
+              <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
+                onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" />
+            </div>
+          </div>
+        )}
+
+        {esMultimoneda && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead><tr><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar (en su moneda)</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
+                <tbody>
+                  {saldosCaja.map((s) => {
+                    const n = Number(legMontos[s.id]) || 0;
+                    const excede = n > Number(s.saldo);
+                    return (
+                      <tr key={s.id}>
+                        <td><span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(Number(s.saldo), s.moneda)}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <input className="input mono" name={`leg-${s.id}`} type="number" min={0} max={Number(s.saldo)} step="any"
+                            defaultValue={legMontos[s.id] ?? ''} placeholder="0,00"
+                            onChange={(e) => { e.target.value = dosDecimales(e.target.value); setLegMontos((m) => ({ ...m, [s.id]: e.target.value })); }}
+                            style={{ width: 130, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{n > 0 ? montoCaja(legUsd(s.moneda, n), 'USD') : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
+                      {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(total, 'USD')}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div className="form-row">
+          <label>Adjuntar factura / comprobante · PDF o imagen (opcional)</label>
+          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          {file && <small className="muted">{file.name}</small>}
+        </div>
+      </form>
+    </Modal>
+  );
+}

@@ -8,8 +8,11 @@ import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMantenimientoModal } from './ResumenMantenimientoModal';
 import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, kmAlertaPorEquipo, type SolicitudServicioEquipo, type AlertaKmEquipo } from './maquinariaMant.repository';
-import { horometrosVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
+import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
+import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
+
+/** % de margen para avisar «próximo a mantenimiento» (10% del intervalo). */
+const MARGEN_ALERTA_PCT = 0.1;
 
 /** Etiqueta del estado de un servicio (alineada con la pestaña Servicios de Pedidos). */
 const SERVICIO_ESTADO_LABEL: Record<string, string> = {
@@ -70,6 +73,12 @@ function hrsRestantes(frecuencia: number | null, horometro: number | null): numb
   return ((frecuencia - (horometro % frecuencia)) % frecuencia);
 }
 
+/** Km restantes hasta el próximo mantenimiento (cada N km): N − (km mod N). */
+function kmRestantes(frecuencia: number | null, kilometraje: number | null): number | null {
+  if (!frecuencia || frecuencia <= 0 || kilometraje == null) return null;
+  return ((frecuencia - (kilometraje % frecuencia)) % frecuencia);
+}
+
 /**
  * Submódulo «Servicio de Mantenimiento» de Control de Maquinaria. Los equipos se
  * agrupan en switches (FLOTA PESADA / VEHÍCULOS DE CARGA / PLANTAS ELÉCTRICAS) según
@@ -87,7 +96,7 @@ export function ServicioMantenimientoPage() {
   const [horometros, setHorometros] = useState<Map<string, number>>(new Map());
   const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map());
   const [solMap, setSolMap] = useState<Map<string, SolicitudServicioEquipo[]>>(new Map());
-  const [kmMap, setKmMap] = useState<Map<string, AlertaKmEquipo>>(new Map());
+  const [kilometrajes, setKilometrajes] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [grupo, setGrupo] = useState<string>(GRUPOS_MANTENIMIENTO[0]);
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
@@ -96,18 +105,18 @@ export function ServicioMantenimientoPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, bit, sol, km] = await Promise.all([
+      const [eqs, horos, kms, bit, sol] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
+        kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
-        kmAlertaPorEquipo().catch(() => new Map<string, AlertaKmEquipo>()),
       ]);
       setEquipos(eqs);
       setHorometros(horos);
+      setKilometrajes(kms);
       setBitMap(bit);
       setSolMap(sol);
-      setKmMap(km);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -145,10 +154,20 @@ export function ServicioMantenimientoPage() {
   const grupoLabel = grupo === SIN_GRUPO ? 'SIN CLASIFICAR' : grupo;
   const enAlerta = lista.filter((e) => e.activo && infoEquipo.get(e.id)?.alerta);
 
-  // Equipos de este grupo próximos (o que ya alcanzaron) su km de alerta.
+  // Equipos de este grupo próximos a su mantenimiento por KILOMETRAJE. El km vigente se
+  // trae de Combustible (equipo vinculado) y el intervalo de la ficha (mantenimiento_cada_km):
+  // alerta si faltan ≤ 10% del intervalo (o ya se pasó) para el próximo múltiplo.
   const enAlertaKm = useMemo(
-    () => lista.filter((e) => e.activo && kmMap.get(e.id)?.alerta).map((e) => ({ e, km: kmMap.get(e.id)! })),
-    [lista, kmMap],
+    () => lista.flatMap((e) => {
+      if (!e.activo) return [];
+      const ultimoKm = (e.combustible_equipo ? kilometrajes.get(e.combustible_equipo.trim()) : undefined) ?? null;
+      const restante = kmRestantes(e.mantenimiento_cada_km, ultimoKm);
+      if (restante == null || ultimoKm == null) return [];
+      const margen = (e.mantenimiento_cada_km ?? 0) * MARGEN_ALERTA_PCT;
+      if (restante > margen) return [];
+      return [{ e, km: { ultimoKm, alertaKm: ultimoKm + restante, restante } }];
+    }),
+    [lista, kilometrajes],
   );
 
   return (

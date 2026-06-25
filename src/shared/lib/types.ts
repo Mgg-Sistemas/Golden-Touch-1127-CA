@@ -372,6 +372,8 @@ export interface MovimientoTanque {
   horometro_ini?: number | null;
   horometro_fin?: number | null;
   horas_utilizadas?: number | null;
+  /** Kilometraje (odómetro) del vehículo al momento del movimiento. Lectura absoluta. */
+  kilometraje?: number | null;
   tasa_usd_litro: number;
   monto_usd?: number | null;
   orden: number;

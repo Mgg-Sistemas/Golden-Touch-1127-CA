@@ -32,6 +32,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     combustible: equipo?.combustible ?? 'GASOIL',
     litros_consume: equipo?.litros_consume ?? null,
     mantenimiento_cada_hrs: equipo?.mantenimiento_cada_hrs ?? null,
+    mantenimiento_cada_km: equipo?.mantenimiento_cada_km ?? null,
     combustible_equipo: equipo?.combustible_equipo ?? null,
     grupo_mantenimiento: equipo?.grupo_mantenimiento ?? null,
     documentacion: equipo?.documentacion ?? null,
@@ -168,7 +169,12 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           <div className="form-row">
             <label>Mantenimiento cada (hrs)</label>
             <input name="f-mantenimiento_cada_hrs" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_hrs ?? ''} onChange={(e) => set('mantenimiento_cada_hrs', numField(e.target.value))} placeholder="Ej. 250" />
-            <small className="muted">Frecuencia para la alerta de mantenimiento preventivo.</small>
+            <small className="muted">Frecuencia (por horómetro) para la alerta de mantenimiento. Maquinaria pesada / plantas.</small>
+          </div>
+          <div className="form-row">
+            <label>Mantenimiento cada (km)</label>
+            <input name="f-mantenimiento_cada_km" className="input mono" type="number" step="any" defaultValue={f.mantenimiento_cada_km ?? ''} onChange={(e) => set('mantenimiento_cada_km', numField(e.target.value))} placeholder="Ej. 10000" />
+            <small className="muted">Frecuencia (por kilometraje) para la alerta. Vehículos. El km vigente se trae de Combustible.</small>
           </div>
         </div>
 
