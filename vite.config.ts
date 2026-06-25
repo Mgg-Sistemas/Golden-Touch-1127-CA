@@ -1,12 +1,37 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
+
+// Identificador de versión del build = hash corto del commit desplegado. Se hornea
+// en el cliente (import.meta.env.VITE_APP_VERSION) y se emite en `version.json`. El
+// cliente compara ambos para detectar un despliegue real y avisar al usuario.
+function appVersion(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return `b${Date.now()}`; // fallback si no hay git disponible en el build
+  }
+}
+const APP_VERSION = appVersion();
+
+// Plugin que escribe dist/version.json al construir (lo sirve nginx).
+const versionJsonPlugin = {
+  name: 'gt-version-json',
+  generateBundle() {
+    // @ts-expect-error this.emitFile existe en el contexto de Rollup
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: APP_VERSION }) });
+  },
+};
 
 export default defineConfig(({ command }) => ({
   // Servir desde la raíz del dominio (Droplet/Nginx). Si algún despliegue necesitara
   // un subpath, se pasa VITE_BASE_PATH (ej. '/proyecto/') al hacer el build.
   base: command === 'build' ? (process.env.VITE_BASE_PATH ?? '/') : '/',
-  plugins: [react()],
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
+  },
+  plugins: [react(), versionJsonPlugin],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

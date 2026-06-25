@@ -1566,8 +1566,12 @@ export async function desistirProveedor(
   actorEmail: string,
   motivo: string
 ): Promise<Orden> {
-  if (o.estado !== 'aprobada')
-    throw new Error('Solo se registra desistimiento sobre órdenes aprobadas');
+  // Se permite registrar el desistimiento (y reasignar proveedor) tanto sobre la OP
+  // aprobada (ofertas cargadas) como sobre la OC ya creada que está PENDIENTE POR
+  // APROBACIÓN DEL GERENTE GENERAL (oc_creada): si el proveedor no cumple o se eligió
+  // mal, se reabren las ofertas para re-elegir antes de que el GG firme.
+  if (!['aprobada', 'oc_creada'].includes(o.estado))
+    throw new Error('Solo se registra desistimiento sobre órdenes aprobadas o pendientes por aprobación del Gerente General');
   if (!motivo.trim()) throw new Error('Debes indicar por qué no cumplió el proveedor');
 
   // 1) Reabrir las ofertas previamente descartadas para que el jefe pueda re-elegir.

@@ -206,3 +206,59 @@ export async function horasUltimoPorEquipo(): Promise<Map<string, { horasUltimo:
   }
   return out;
 }
+
+/* ───────── Vínculo con la Solicitud de Servicio (Pedidos → 🔧 Servicios) ───────── */
+
+/** Estados en los que la solicitud de servicio ya NO está en curso. */
+const ESTADOS_SERVICIO_CERRADO = new Set(['finalizada', 'cancelada', 'anulada', 'rechazada', 'desistida_proveedor', 'reasignada']);
+
+/** Una solicitud de servicio (orden tipo='servicio') casada a un equipo. */
+export interface SolicitudServicioEquipo {
+  id: string;              // id de la orden (servicio)
+  codigo: string;          // SS/SV-AAAA-NNNN
+  estado: string;
+  created_at: string;
+  solicitante: string | null;          // unidad solicitante
+  solicitante_persona: string | null;  // persona que pidió el servicio
+  equipo_id: string;
+  equipo_nombre: string | null;
+  descripcion: string;     // nombre del ítem (categoría · equipo · tipo)
+  abierta: boolean;        // sigue en curso (no finalizada/cancelada…)
+}
+
+/**
+ * Solicitudes de servicio (órdenes tipo='servicio') agrupadas por equipo. Sirve al
+ * submódulo «Servicio de Mantenimiento»: desde Pedidos se pide/cotiza el servicio y
+ * acá, en la tarjeta del equipo, se ve y se le da seguimiento. Una sola consulta;
+ * se agrupa en memoria por equipo_id (un renglón por equipo por orden).
+ */
+export async function solicitudesServicioPorEquipo(): Promise<Map<string, SolicitudServicioEquipo[]>> {
+  const { data, error } = await supabase
+    .from('ordenes')
+    .select('id, codigo, estado, created_at, solicitante, unidad_solicitante, items')
+    .eq('tipo', 'servicio')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const out = new Map<string, SolicitudServicioEquipo[]>();
+  for (const o of (data ?? []) as Array<{ id: string; codigo: string; estado: string; created_at: string; solicitante: string | null; unidad_solicitante: string | null; items: unknown }>) {
+    const items = Array.isArray(o.items)
+      ? (o.items as Array<{ equipo_id?: string | null; equipo_nombre?: string | null; nombre?: string | null }>)
+      : [];
+    const vistos = new Set<string>();
+    for (const it of items) {
+      const eqId = it.equipo_id ?? null;
+      if (!eqId || vistos.has(eqId)) continue; // un renglón por equipo por orden
+      vistos.add(eqId);
+      const fila: SolicitudServicioEquipo = {
+        id: o.id, codigo: o.codigo, estado: o.estado, created_at: o.created_at,
+        solicitante: o.unidad_solicitante ?? null, solicitante_persona: o.solicitante ?? null,
+        equipo_id: eqId, equipo_nombre: it.equipo_nombre ?? null,
+        descripcion: it.nombre ?? o.codigo, abierta: !ESTADOS_SERVICIO_CERRADO.has(o.estado),
+      };
+      const arr = out.get(eqId) ?? [];
+      arr.push(fila);
+      out.set(eqId, arr);
+    }
+  }
+  return out;
+}
