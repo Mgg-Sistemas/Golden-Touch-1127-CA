@@ -1427,11 +1427,15 @@ export async function registrarAbono(
   if (abErr) throw abErr;
 
   const saldado = acumulado >= Number(o.total) - 0.01;
-  // No se cambia de estado automáticamente al saldar (ver registrarAbonoMulti).
-  const patch = {
+  // Al SALDAR el crédito, la orden sale de "cuenta abierta" (pendiente) y avanza
+  // sola: si la mercancía ya llegó → 'recibida' (lista para finalizar); si no →
+  // 'por_recibir' (Pendiente por recepción). Así se sincroniza sin paso manual.
+  const nuevoEstado: EstadoOrden | null = saldado ? (o.recibida_en ? 'recibida' : 'por_recibir') : null;
+  const patch: Record<string, unknown> = {
     abonado_total: acumulado,
-    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', actorEmail, { monto: m, saldo_restante: saldoRestante }),
+    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', actorEmail, { monto: m, saldo_restante: saldoRestante, ...(nuevoEstado ? { enviada_a: nuevoEstado } : {}) }),
   };
+  if (nuevoEstado) patch.estado = nuevoEstado;
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
   return { orden: data as Orden, abono: ab as AbonoCredito };
@@ -1500,13 +1504,15 @@ export async function registrarAbonoMulti(input: RegistrarAbonoMultiInput): Prom
   if (abErr) throw abErr;
 
   const saldado = acumulado >= Number(o.total) - 0.01;
-  // No saltamos de estado automáticamente: el crédito queda saldado pero la
-  // orden sigue como `cuenta_abierta` (resaltada en Compras). El analista decide
-  // enviarla a recepción o finalizarla (si ya llegó) desde el detalle.
-  const patch = {
+  // Al SALDAR el crédito, la orden sale de "cuenta abierta" (pendiente) y avanza
+  // sola: si la mercancía ya llegó → 'recibida' (lista para finalizar); si no →
+  // 'por_recibir' (Pendiente por recepción). Así se sincroniza sin paso manual.
+  const nuevoEstado: EstadoOrden | null = saldado ? (o.recibida_en ? 'recibida' : 'por_recibir') : null;
+  const patch: Record<string, unknown> = {
     abonado_total: acumulado,
-    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', input.actorEmail, { monto: abonoUsd, saldo_restante: saldoRestante, multipago: legs.map((l) => ({ moneda: l.moneda, monto: l.monto })) }),
+    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', input.actorEmail, { monto: abonoUsd, saldo_restante: saldoRestante, multipago: legs.map((l) => ({ moneda: l.moneda, monto: l.monto })), ...(nuevoEstado ? { enviada_a: nuevoEstado } : {}) }),
   };
+  if (nuevoEstado) patch.estado = nuevoEstado;
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
   return { orden: data as Orden, abono: ab as AbonoCredito };
@@ -1574,6 +1580,12 @@ export async function desistirProveedor(
     throw new Error('Solo se registra desistimiento sobre órdenes aprobadas o pendientes por aprobación del Gerente General');
   if (!motivo.trim()) throw new Error('Debes indicar por qué no cumplió el proveedor');
 
+  // CASO ORDEN HIJA (reparto multiproveedor): en vez de quedar como "desistida"
+  // suelta, sus ítems VUELVEN A LA OP MADRE (con todos sus proveedores/ofertas) y la
+  // madre se reabre en "aprobada" (cargar ofertas) para re-cotizar. La hija se marca
+  // como reasignada (vuelve a la madre) y deja de aparecer en el tablero.
+  if (o.op_padre_id) return desistirHijaVolverAPadre(o, actorEmail, motivo);
+
   // 1) Reabrir las ofertas previamente descartadas para que el jefe pueda re-elegir.
   const { error: reopenErr } = await supabase
     .from('ofertas_proveedor')
@@ -1608,6 +1620,58 @@ export async function desistirProveedor(
     .eq('id', o.id)
     .select('*')
     .single();
+  if (error) throw error;
+  return data as Orden;
+}
+
+/**
+ * Desistimiento de una OC HIJA (reparto multiproveedor): devuelve sus ítems a la OP
+ * MADRE, reabre TODAS las ofertas de la madre (todos los proveedores vuelven a estar
+ * disponibles) y deja la madre en `aprobada` (cargar ofertas) para re-cotizar todos
+ * los productos. La hija se marca `reasignada` (volvió a la madre) y sale del tablero.
+ * Devuelve la OP MADRE ya actualizada.
+ */
+async function desistirHijaVolverAPadre(hija: Orden, actorEmail: string, motivo: string): Promise<Orden> {
+  const nowIso = new Date().toISOString();
+  // 1) Traer la OP madre.
+  const { data: padreRow, error: padreErr } = await supabase.from(TABLE).select('*').eq('id', hija.op_padre_id!).single();
+  if (padreErr) throw padreErr;
+  const padre = padreRow as Orden;
+
+  // 2) Fusionar los ítems de la hija de vuelta en la madre (sin duplicar por clave).
+  const keyOf = (it: ItemOrden) => it.productoId ?? it.sku ?? it.nombre;
+  const itemsPadre = Array.isArray(padre.items) ? [...padre.items] : [];
+  const vistos = new Set(itemsPadre.map(keyOf));
+  for (const it of (Array.isArray(hija.items) ? hija.items : [])) {
+    if (!vistos.has(keyOf(it))) { itemsPadre.push(it); vistos.add(keyOf(it)); }
+  }
+
+  // 3) Marcar la hija como reasignada (volvió a la madre) — sale del tablero.
+  const { error: hijaErr } = await supabase.from(TABLE).update({
+    estado: 'reasignada' as EstadoOrden,
+    historial: appendHistorial(hija, 'desistida_proveedor', actorEmail, { motivo, proveedorAnteriorId: hija.proveedor_id, volvio_a_padre: padre.codigo }),
+    updated_at: nowIso,
+  }).eq('id', hija.id);
+  if (hijaErr) throw hijaErr;
+
+  // 4) Reabrir TODAS las ofertas de la madre (aceptadas/descartadas → pendiente) para
+  //    re-elegir proveedor de todos los productos.
+  const { error: reopenErr } = await supabase.from('ofertas_proveedor')
+    .update({ estado: 'pendiente', motivo_descarte: null, decidida_por_email: null, decidida_en: null })
+    .eq('orden_id', padre.id).in('estado', ['aceptada', 'descartada']);
+  if (reopenErr) throw reopenErr;
+
+  // 5) Dejar la madre en "aprobada" (cargar ofertas) con todos los ítems de vuelta.
+  const patch = {
+    estado: 'aprobada' as EstadoOrden,
+    items: itemsPadre,
+    total: 0,
+    total_divisa: null,
+    pago_en_divisa: false,
+    historial: appendHistorial(padre, 'desistida_proveedor', actorEmail, { motivo, hija_revertida: hija.oc_codigo ?? hija.codigo, items_devueltos: (hija.items ?? []).length }),
+    updated_at: nowIso,
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', padre.id).select('*').single();
   if (error) throw error;
   return data as Orden;
 }

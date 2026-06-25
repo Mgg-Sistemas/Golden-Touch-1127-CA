@@ -82,6 +82,15 @@ export function AvisoMantenimientoBanner() {
           <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--warning)' }}>{formatRestante(restante!)}</div>
         </div>
       )}
+      {/* Botón para forzar el refresco: recarga la página y trae la última versión. */}
+      <button
+        className="btn btn-primary"
+        style={{ whiteSpace: 'nowrap' }}
+        title="Recargar el sistema ahora para tomar la última versión"
+        onClick={() => window.location.reload()}
+      >
+        🔄 Actualizar ahora
+      </button>
     </div>
   );
 }
