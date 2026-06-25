@@ -11,7 +11,7 @@ import type { Caja, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
-import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, type ServicioCatalogo } from './servicios.repository';
+import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, TIPOS_RECARGA, type ServicioCatalogo } from './servicios.repository';
 import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -238,10 +238,11 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
   }, [catalogo]);
   // Tipos de servicio para una categoría: tipos de mantenimiento + lo cargado en el catálogo.
   const tiposDe = (categoria: string): string[] => {
-    const tipos = TIPOS_MANTENIMIENTO.map((t) => `${t.icon} ${t.label}`);
-    const vistos = new Set(tipos.map((t) => t.toLowerCase()));
+    // En recargas (gas/oxígeno/extintores) los tipos son GAS / OXÍGENO / EXTINTORES.
+    const base = esRecargaGas(categoria) ? [...TIPOS_RECARGA] : TIPOS_MANTENIMIENTO.map((t) => `${t.icon} ${t.label}`);
+    const vistos = new Set(base.map((t) => t.toLowerCase()));
     const delCatalogo = catalogo.filter((s) => !categoria || s.categoria === categoria).map((s) => s.nombre);
-    return [...tipos, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
+    return [...base, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
   };
 
   const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '' });
@@ -415,21 +416,22 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
                   placeholder="Elegí el tipo (caucho, aceite, pintura…)" emptyText="Escribí para crear un tipo" />
               </div>
             </div>
-            <div className="form-grid">
-              <div className="form-row">
-                <label>Equipo (Control de Maquinaria)</label>
-                <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })} options={equipoOptions}
-                  placeholder={equipoOptions.length ? '🔍 Buscá el equipo / vehículo…' : '— sin equipos —'} emptyText="Sin equipos" />
-                <small className="muted">Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
-              </div>
-              {/* En recargas (gas / oxígeno / extintores) solo se piden Cantidad (bombonas) y KG, igual que en SS. */}
-              {!esRecargaGas(l.categoria, l.tipo) && (
+            {/* En recargas (gas / oxígeno / extintores) NO se pide equipo ni cantidad:
+                solo Cantidad de bombonas y KG. En el resto, equipo + cantidad. */}
+            {!esRecargaGas(l.categoria, l.tipo) && (
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Equipo (Control de Maquinaria)</label>
+                  <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })} options={equipoOptions}
+                    placeholder={equipoOptions.length ? '🔍 Buscá el equipo / vehículo…' : '— sin equipos —'} emptyText="Sin equipos" />
+                  <small className="muted">Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
+                </div>
                 <div className="form-row">
                   <label>Cantidad</label>
                   <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
                 </div>
-              )}
-            </div>
+              </div>
+            )}
             {esRecargaGas(l.categoria, l.tipo) && (
               <div className="form-grid">
                 <div className="form-row">

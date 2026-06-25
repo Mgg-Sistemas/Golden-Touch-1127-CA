@@ -7,7 +7,7 @@ import type { ItemOrden, Usuario } from '@/shared/lib/types';
 import { crearOrden } from './pedidos.repository';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import {
-  CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas,
+  CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas, TIPOS_RECARGA,
   listServiciosActivos, addServicioCatalogo, type ServicioCatalogo,
 } from './servicios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
@@ -75,6 +75,12 @@ export function CrearServicioModal({
   // servicio/preventivo, reparación…) + lo que ya se haya cargado en el catálogo.
   const serviciosCat = useMemo(() => {
     const delCatalogo = catalogo.filter((s) => s.categoria === categoria).map((s) => s.nombre);
+    // En RECARGA los tipos son GAS / OXÍGENO / EXTINTORES.
+    if (esRecargaGas(categoria)) {
+      const tipos = [...TIPOS_RECARGA] as string[];
+      const vistos = new Set(tipos.map((t) => t.toLowerCase()));
+      return [...tipos, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
+    }
     if (!esMantenimiento) return delCatalogo;
     const tipos = TIPOS_MANTENIMIENTO.map((t) => `${t.icon} ${t.label}`);
     const vistos = new Set(tipos.map((t) => t.toLowerCase()));
