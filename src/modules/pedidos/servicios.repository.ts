@@ -15,6 +15,16 @@ export type CategoriaServicio = (typeof CATEGORIAS_SERVICIO)[number] | string;
 /** Categoría que exige seleccionar la máquina/vehículo casado. */
 export const CATEGORIA_MANTENIMIENTO = 'MANTENIMIENTO';
 
+/**
+ * Servicios de RECARGA de gas / oxígeno / extintores: para estos se piden, además,
+ * la CANTIDAD DE BOMBONAS y los KG A RECARGAR. Detecta por el texto de la categoría
+ * y/o el tipo de servicio (tolerante a acentos).
+ */
+export function esRecargaGas(...textos: Array<string | null | undefined>): boolean {
+  const t = textos.filter(Boolean).join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return /\b(gas|oxigeno|extintor)/.test(t);
+}
+
 export interface ServicioCatalogo {
   id: string;
   categoria: string;

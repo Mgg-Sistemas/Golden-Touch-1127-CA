@@ -29,6 +29,9 @@ export interface ServicioDirectoItem {
   equipo_nombre?: string | null;
   cantidad: number;
   unidad?: string | null;
+  /** Recarga de gas/oxígeno/extintores: cantidad de bombonas y KG a recargar. */
+  bombonas?: number | null;
+  kg_recarga?: number | null;
   /** Monto del renglón (se carga al finalizar). */
   gasto?: number | null;
 }
@@ -101,6 +104,8 @@ export interface LineaServicio {
   equipoId?: string | null;
   equipoNombre?: string | null;
   cantidad: number;
+  bombonas?: number | null;
+  kg_recarga?: number | null;
 }
 
 export interface CrearServicioDirectoInput {
@@ -120,6 +125,8 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       equipoId: l.equipoId ?? null,
       equipoNombre: (l.equipoNombre ?? '').trim() || null,
       cantidad: Number(l.cantidad) || 0,
+      bombonas: l.bombonas != null && Number(l.bombonas) > 0 ? Number(l.bombonas) : null,
+      kg_recarga: l.kg_recarga != null && Number(l.kg_recarga) > 0 ? Number(l.kg_recarga) : null,
     }))
     .filter((l) => l.descripcion && l.cantidad > 0);
   if (!lineas.length) throw new Error('Agregá al menos un servicio con cantidad.');
@@ -127,6 +134,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
   const items: ServicioDirectoItem[] = lineas.map((l) => ({
     categoria: l.categoria, descripcion: l.descripcion,
     equipo_id: l.equipoId, equipo_nombre: l.equipoNombre, cantidad: l.cantidad,
+    bombonas: l.bombonas, kg_recarga: l.kg_recarga,
   }));
   const resumen = items.length === 1 ? items[0].descripcion : `${items.length} servicios`;
   // Equipo de cabecera = el primero de los renglones que tenga equipo (para la columna de la lista).

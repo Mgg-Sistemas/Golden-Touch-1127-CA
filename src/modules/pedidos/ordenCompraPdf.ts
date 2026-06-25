@@ -413,8 +413,12 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       head: [['SKU', 'Descripción', 'Cantidad', 'Precio unit.', 'Subtotal']],
       body: o.items.map((it) => {
         // Marca/modelo cargados por el usuario (en la oferta) se muestran bajo el nombre.
-        const ficha = [it.marca && `Marca: ${it.marca}`, it.modelo && `Modelo: ${it.modelo}`]
-          .filter(Boolean).join('   ');
+        // En servicios de recarga (gas/oxígeno/extintores) se muestran bombonas y KG.
+        const ficha = [
+          it.marca && `Marca: ${it.marca}`, it.modelo && `Modelo: ${it.modelo}`,
+          it.bombonas ? `Bombonas: ${num(it.bombonas)}` : '',
+          it.kg_recarga ? `KG a recargar: ${num(it.kg_recarga)}` : '',
+        ].filter(Boolean).join('   ');
         return [
           it.sku,
           ficha ? `${it.nombre}\n${ficha}` : it.nombre,

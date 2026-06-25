@@ -65,7 +65,10 @@ export function EquipoMovimientosModal({ equipo, onClose }: { equipo: Maquinaria
       const propios = (d.items ?? []).filter((x) => x.equipo_id === equipo.id);
       const lineas = propios.length ? propios : (d.equipo_id === equipo.id ? (d.items ?? []) : []);
       if (!lineas.length) continue;
-      const detalle = lineas.map((x) => `${x.descripcion}${x.cantidad ? ` ×${fmtNum(x.cantidad)}` : ''}`).join(', ') || d.descripcion;
+      const detalle = lineas.map((x) => {
+        const extra = [x.bombonas ? `${fmtNum(x.bombonas)} bombona(s)` : '', x.kg_recarga ? `${fmtNum(x.kg_recarga)} kg` : ''].filter(Boolean).join(' · ');
+        return `${x.descripcion}${x.cantidad ? ` ×${fmtNum(x.cantidad)}` : ''}${extra ? ` (${extra})` : ''}`;
+      }).join(', ') || d.descripcion;
       out.push({ fecha: d.finalizada_at ?? d.created_at, origen: 'Servicio', tipo: `${d.codigo ?? 'Servicio directo'} (${d.estado === 'finalizada' ? 'pagado' : 'en proceso'})`, detalle });
     }
     return out.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));

@@ -2045,12 +2045,19 @@ function OrdenDetailModal({
     }
   }
 
+  // Etiquetas según el tipo: en SERVICIOS hablamos de Solicitud de Servicio (SS) y
+  // Control de Servicio (CS), no de Solicitud de Pedido (SP) ni Orden de Compra (OC).
+  const esServicioOrd = o.tipo === 'servicio';
+  const ocLbl = esServicioOrd ? 'CS' : 'OC';
+  const spLbl = esServicioOrd ? 'SS' : 'SP';
+  const solicitudLbl = esServicioOrd ? 'Solicitud de Servicio' : 'Solicitud de Pedido';
+
   const buttons = (
     <>
       {/* Etapa OP: solo Aprobar / Rechazar Orden de Pedido + PDF de la OP. */}
       {isPendiente && (
-        <button className="btn btn-ghost" onClick={handleDownloadPdf} title="Descargar la Solicitud de Pedido en PDF">
-          ↓ PDF de la SP
+        <button className="btn btn-ghost" onClick={handleDownloadPdf} title={`Descargar la ${solicitudLbl} en PDF`}>
+          ↓ PDF de la {spLbl}
         </button>
       )}
       {puedeTrazabilidad && (
@@ -2076,32 +2083,32 @@ function OrdenDetailModal({
         <button className="btn btn-danger" onClick={onCancel}>Cancelar orden</button>
       )}
       {canCancelOc && (
-        <button className="btn btn-danger" onClick={onCancel} title="Cancelar la OC (indicando el motivo, que aparecerá en el PDF)">
-          ✖ Cancelar OC
+        <button className="btn btn-danger" onClick={onCancel} title={`Cancelar ${esServicioOrd ? 'el Control de Servicio' : 'la OC'} (indicando el motivo, que aparecerá en el PDF)`}>
+          ✖ Cancelar {ocLbl}
         </button>
       )}
       {/* OC cancelada: el PDF queda disponible con el motivo de cancelación. */}
       {isCancelada && tuvoOc && (
         <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF (incluye el motivo de cancelación)">
-          ↓ OC PDF
+          ↓ {ocLbl} PDF
         </button>
       )}
       {/* Etapa OC: oferta ya elegida (sin confirmar). Se confirma individual o en lote (checklist). */}
       {isOcCreada && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={onDesistir} title="Proveedor no cumplió">⚠ Proveedor desistió</button>
-          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
         </>
       )}
       {isOcCreada && isAdmin && (
-        <button className="btn btn-success" onClick={onConfirmOc} title="Aprobar esta OC de forma puntual (sin pasar por el lote)">
-          ✔ Aprobar OC
+        <button className="btn btn-success" onClick={onConfirmOc} title={`Aprobar ${esServicioOrd ? 'este Control de Servicio' : 'esta OC'} de forma puntual (sin pasar por el lote)`}>
+          ✔ Aprobar {ocLbl}
         </button>
       )}
       {/* Confirmada por el gerente: falta indicar el método de pago y enviar a pagar. */}
       {isConfirmadaMetodo && canManageProcurement && (
         <>
-          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
           <button className="btn btn-primary" onClick={onEnviarPagar} title="Indicar método de pago y enviar a Tesorería">
             💳 Indicar método de pago / Enviar para Pagar
           </button>
@@ -2111,7 +2118,7 @@ function OrdenDetailModal({
           Mientras no se haya pagado, Compras puede CAMBIAR el método de pago indicado. */}
       {isOcAprobada && (
         <>
-          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
           {canManageProcurement && (
             <button className="btn btn-primary" onClick={onEnviarPagar} title="Cambiar el método de pago indicado (antes de que Tesorería pague)">
               💳 Cambiar método de pago
@@ -2123,7 +2130,7 @@ function OrdenDetailModal({
           analista hace seguimiento y mueve la orden según corresponda. */}
       {isCuentaAbierta && canManageProcurement && (
         <>
-          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
           <button className="btn btn-ghost" onClick={onAbono} title="Ver la cuenta del crédito y el historial de abonos">
             📋 Ver crédito / historial
           </button>
@@ -2144,7 +2151,7 @@ function OrdenDetailModal({
       {/* Pendiente por recepción (contra entrega / crédito saldado): confirmar lo recibido. */}
       {isPorRecibir && canManageProcurement && (
         <>
-          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
           <button className="btn btn-primary" onClick={onReceive}>📦 Confirmar recepción</button>
         </>
       )}
@@ -2169,18 +2176,18 @@ function OrdenDetailModal({
           En contra entrega la recepción ocurrió ANTES del pago, así que no se repite. */}
       {isPagada && !o.recibida_en && canManageProcurement && (
         <>
-          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
           <button className="btn btn-primary" onClick={onReceive}>Marcar recibida</button>
         </>
       )}
       {/* Contra entrega pagada (ya recibida): solo queda el PDF; finaliza con el botón de abajo. */}
       {isPagada && o.recibida_en && canManageProcurement && (
-        <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+        <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
       )}
       {isOcEmitida && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={onDesistir} title="Proveedor no cumplió">⚠ Proveedor desistió</button>
-          <button className="btn btn-ghost" onClick={handleOcPdf} title="Volver a descargar el PDF de la OC">↓ OC PDF</button>
+          <button className="btn btn-ghost" onClick={handleOcPdf} title="Volver a descargar el PDF de la OC">↓ {ocLbl} PDF</button>
           <button className="btn btn-primary" onClick={onReceive}>Marcar recibida</button>
         </>
       )}
@@ -2195,8 +2202,8 @@ function OrdenDetailModal({
         </button>
       )}
       {canApprove && (
-        <button className="btn btn-success" onClick={onApprove} title="Aprobar la Solicitud de Pedido">
-          Aprobar Solicitud de Pedido
+        <button className="btn btn-success" onClick={onApprove} title={`Aprobar la ${solicitudLbl}`}>
+          Aprobar {solicitudLbl}
         </button>
       )}
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
@@ -2205,7 +2212,7 @@ function OrdenDetailModal({
 
   return (
     <>
-    <Modal title={`Orden ${o.codigo}`} size="lg" onClose={onClose} footer={buttons}>
+    <Modal title={`${esServicioOrd ? 'Servicio' : 'Orden'} ${o.codigo}`} size="lg" onClose={onClose} footer={buttons}>
       <div className="detail-row">
         <div className="k">Código</div>
         <div className="v mono">{o.codigo}</div>
@@ -2393,13 +2400,15 @@ function OrdenDetailModal({
         // En etapa OP (sin precio) quien gestiona compras puede marcar/desmarcar
         // qué ítems se aprueban para comprar.
         const puedeEditarComprar = !conPrecio && canManageProcurement;
+        // En órdenes de SERVICIO se muestra la Categoría del servicio en vez de la Finalidad.
+        const esServicioOrden = o.tipo === 'servicio' || o.items.some((it) => it.es_servicio);
         return (
       <table className="items-table">
         <thead>
           <tr>
             <th>SKU</th>
             <th>Producto</th>
-            <th>Finalidad</th>
+            <th>{esServicioOrden ? 'Categoría' : 'Finalidad'}</th>
             <th className="num">Cantidad</th>
             {conPrecio ? (
               <>
@@ -2423,8 +2432,17 @@ function OrdenDetailModal({
                     🏷 {[it.marca?.trim() && `Marca: ${it.marca.trim()}`, it.modelo?.trim() && `Modelo: ${it.modelo.trim()}`].filter(Boolean).join(' · ')}
                   </div>
                 )}
+                {(it.bombonas || it.kg_recarga) && (
+                  <div className="muted" style={{ fontSize: '.74rem', marginTop: '.1rem' }}>
+                    ⛽ {[it.bombonas && `${num(it.bombonas)} bombona(s)`, it.kg_recarga && `${num(it.kg_recarga)} kg a recargar`].filter(Boolean).join(' · ')}
+                  </div>
+                )}
               </td>
-              <td style={{ fontSize: '.84rem' }}>{it.finalidad?.trim() ? it.finalidad : <span className="muted">—</span>}</td>
+              <td style={{ fontSize: '.84rem' }}>
+                {esServicioOrden
+                  ? (it.categoria_servicio?.trim() ? it.categoria_servicio : <span className="muted">—</span>)
+                  : (it.finalidad?.trim() ? it.finalidad : <span className="muted">—</span>)}
+              </td>
               <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
               {conPrecio ? (
                 <>
