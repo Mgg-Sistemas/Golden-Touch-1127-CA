@@ -527,6 +527,16 @@ export function AgregarOfertaModal({
                     <td>
                       {it.nombre}
                       <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                      {it.es_servicio && (it.categoria_servicio || it.equipo_nombre) && (
+                        <div className="muted" style={{ fontSize: '.72rem' }}>
+                          {[it.categoria_servicio && `🗂 ${it.categoria_servicio}`, it.equipo_nombre && `🚜 ${it.equipo_nombre}`].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                      {(it.bombonas || it.kg_recarga) && (
+                        <div className="muted" style={{ fontSize: '.72rem' }}>
+                          ⛽ {[it.bombonas && `${it.bombonas} bombona(s)`, it.kg_recarga && `${it.kg_recarga} kg`].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
                       <div style={{ display: 'flex', gap: '.3rem', marginTop: '.25rem' }}>
                         {/* No controlado (defaultValue) como los precios: así un re-render
                             por realtime no borra lo que se está tecleando. La key={it.uid}
