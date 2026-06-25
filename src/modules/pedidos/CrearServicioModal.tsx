@@ -48,6 +48,7 @@ export function CrearServicioModal({
   const [servicio, setServicio] = useState('');
   const [equipoId, setEquipoId] = useState('');
   const [cantidad, setCantidad] = useState('1');
+  const [medida, setMedida] = useState('');
 
   useEffect(() => {
     listServiciosActivos().then(setCatalogo).catch(() => setCatalogo([]));
@@ -93,12 +94,13 @@ export function CrearServicioModal({
     const nombreItem = equipoNombre ? `${nom} · ${equipoNombre}` : nom;
     setItems((prev) => [...prev, {
       sku, nombre: nombreItem, cantidad: cant, precio: 0, comprar: true,
+      unidad: medida.trim() || undefined,
       es_servicio: true, categoria_servicio: categoria,
       equipo_id: esMantenimiento ? equipoId : null,
       equipo_nombre: equipoNombre,
     }]);
     // Reset del builder (conserva la categoría para cargar varios del mismo tipo).
-    setServicio(''); setEquipoId(''); setCantidad('1');
+    setServicio(''); setEquipoId(''); setCantidad('1'); setMedida('');
   }
 
   function quitarItem(idx: number) {
@@ -204,6 +206,12 @@ export function CrearServicioModal({
               <input className="input" value={cantidad} inputMode="decimal"
                 onChange={(e) => setCantidad(e.target.value)} />
             </div>
+            <div style={{ width: 160 }}>
+              <label className="label">Medida</label>
+              <input className="input" value={medida}
+                onChange={(e) => setMedida(e.target.value)}
+                placeholder="L, und, m, kg, juego…" />
+            </div>
             <button className="btn btn-primary" onClick={() => void addServicioItem()}>+ Añadir</button>
           </div>
           {esMantenimiento && (
@@ -217,7 +225,7 @@ export function CrearServicioModal({
         {items.length > 0 && (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>
-              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cant.</th><th></th></tr></thead>
+              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cant.</th><th>Medida</th><th></th></tr></thead>
               <tbody>
                 {items.map((it, i) => (
                   <tr key={it.sku}>
@@ -225,6 +233,7 @@ export function CrearServicioModal({
                     <td>{it.categoria_servicio || '—'}</td>
                     <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
                     <td style={{ textAlign: 'right' }}>{it.cantidad}</td>
+                    <td>{it.unidad || <span className="muted">—</span>}</td>
                     <td><button className="btn btn-sm btn-ghost" title="Quitar" onClick={() => quitarItem(i)}>✕</button></td>
                   </tr>
                 ))}
