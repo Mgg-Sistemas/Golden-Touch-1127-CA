@@ -3210,6 +3210,10 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                     onChange={() => toggleSel(r)} />
                 </td>
                 <td className="mono">{r.orden.oc_codigo ?? '—'}
+                  {r.orden.tipo === 'servicio' && (
+                    <span className="badge" style={{ marginLeft: '.35rem', background: '#0ea5e9', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
+                      title="Control de Servicio (no es compra de producto)">🔧 Servicio</span>
+                  )}
                   {(noLeidos.get(r.orden.id) ?? 0) > 0 && (
                     <span className="badge" style={{ marginLeft: '.35rem', background: '#ff8a00', color: '#111', fontWeight: 700 }}
                       title="Mensajes sin leer en el chat de esta OC">💬 {noLeidos.get(r.orden.id)}</span>
