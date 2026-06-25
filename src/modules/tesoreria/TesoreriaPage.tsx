@@ -19,7 +19,7 @@ import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
-import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisaEnCaja } from './cajaSaldos.repository';
+import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa } from './cajaSaldos.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
   listTransferenciasInter,
@@ -2539,27 +2539,56 @@ function RetencionesTesoreriaModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+const labelCuentaConv = (c: CuentaCaja | string) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : c === 'personal' ? 'Personal' : String(c);
+
 function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
   cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onConverted: () => void | Promise<void>;
 }) {
   const [de, setDe] = useState<MonedaCaja>('USD');
   const [a, setA] = useState<MonedaCaja>('Bs');
+  const [origenSaldoId, setOrigenSaldoId] = useState('');     // saldo existente del que sale el dinero
+  const [destinoCajaId, setDestinoCajaId] = useState('');
+  const [destinoCuenta, setDestinoCuenta] = useState<CuentaCaja>('general');
   const [montoStr, setMontoStr] = useState('');
   const [tasaStr, setTasaStr] = useState('');
+  const [comisionStr, setComisionStr] = useState('');   // % de comisión/descuento sobre el convertido
+  const [netoOverride, setNetoOverride] = useState<number | null>(null); // neto redondeado escrito a mano
+  const [redondearOpen, setRedondearOpen] = useState(false);            // modal «Ingrese monto redondeado»
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
-  // Conversión real desde saldos: caja + cuentas Bs.
-  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
-  const [cuentaDe, setCuentaDe] = useState<CuentaCaja>('juridica');
-  const [cuentaA, setCuentaA] = useState<CuentaCaja>('juridica');
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  // Con quién se hace el intercambio (cliente o proveedor), igual que en CxC/CxP.
+  const [cpTipo, setCpTipo] = useState<'cliente' | 'proveedor' | ''>('');
+  const [cpNombre, setCpNombre] = useState('');
+  const [contrapartes, setContrapartes] = useState<Contraparte[]>([]);
 
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
+  useEffect(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
+  useEffect(() => { listSaldos().then(setSaldos).catch(() => setSaldos([])); }, []);
+
+  // Saldos disponibles en la moneda DE (de cualquier caja/cuenta, con saldo > 0).
+  const saldosOrigen = useMemo(
+    () => saldos.filter((s) => s.moneda === de && (Number(s.saldo) || 0) > 0),
+    [saldos, de],
+  );
+  const nombreCaja = useCallback((id: string) => cajas.find((c) => c.id === id)?.nombre ?? '—', [cajas]);
+
+  // Al cambiar la moneda DE, elige el primer saldo disponible.
   useEffect(() => {
-    if (!cajaId) { setSaldos([]); return; }
-    saldosDeCaja(cajaId).then(setSaldos).catch(() => setSaldos([]));
-  }, [cajaId]);
+    setOrigenSaldoId((prev) => saldosOrigen.some((s) => s.id === prev) ? prev : (saldosOrigen[0]?.id ?? ''));
+  }, [saldosOrigen]);
+
+  // Cuentas/billeteras existentes en la caja destino (las que ya tienen saldo) + «General».
+  const cuentasDestino = useMemo(() => {
+    const set = new Set<string>(['general']);
+    saldos.filter((s) => s.caja_id === destinoCajaId).forEach((s) => set.add(s.cuenta));
+    return Array.from(set);
+  }, [saldos, destinoCajaId]);
+  // Si la cuenta elegida ya no es válida para la caja, volver a «General».
+  useEffect(() => {
+    if (!cuentasDestino.includes(destinoCuenta)) setDestinoCuenta((cuentasDestino[0] ?? 'general') as CuentaCaja);
+  }, [cuentasDestino, destinoCuenta]);
 
   // Sugerencia de tasa al cambiar las monedas o cargar el mercado (editable).
   useEffect(() => {
@@ -2568,19 +2597,21 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
     if (sug != null) setTasaStr(String(sug));
   }, [de, a, mercado]);
 
+  const origenSaldo = saldosOrigen.find((s) => s.id === origenSaldoId) ?? null;
+  const disponible = Number(origenSaldo?.saldo) || 0;
   const montoNum = Number(montoStr) || 0;
+  // Tasa con toda la precisión escrita: la conversión real usa este mismo valor, así
+  // la vista previa coincide al céntimo con lo que se acredita.
   const tasaNum = Number(tasaStr) || 0;
-  const resultado = round2(montoNum * tasaNum);
-
-  // Cuenta efectiva por moneda: Bs usa jurídica/personal; el resto, 'general'.
-  const ctaDe: CuentaCaja = de === 'Bs' ? cuentaDe : 'general';
-  const ctaA: CuentaCaja = a === 'Bs' ? cuentaA : 'general';
-  const saldoDe = saldos.find((s) => s.moneda === de && s.cuenta === ctaDe);
-  const dispDe = Number(saldoDe?.saldo) || 0;
-  // Bs por unidad de la moneda DESTINO (para su tasa promedio).
-  const tasaBsHacia = a === 'Bs' ? 1
-    : de === 'Bs' ? (tasaNum > 0 ? round2(1 / tasaNum) : 0)
-    : (mercado ? (tasaCruzada(a, 'Bs', mercado) ?? 0) : 0);
+  const comisionPctInput = Math.max(0, Math.min(100, Number(comisionStr) || 0));
+  const bruto = round2(montoNum * tasaNum);
+  // Neto redondeado a mano: tiene prioridad mientras sea válido (≤ bruto). Si no, manda el %.
+  const netoManual = netoOverride != null && netoOverride > 0 && netoOverride <= bruto ? round2(netoOverride) : null;
+  const resultado = netoManual != null ? netoManual : round2(bruto - round2(bruto * comisionPctInput / 100)); // neto que recibe el destino
+  const comisionMonto = round2(bruto - resultado);
+  const comisionPct = bruto > 0 ? round2(comisionMonto / bruto * 100) : 0;
+  const excede = montoNum > disponible + 0.001;
+  const puede = !!origenSaldo && !!destinoCajaId && de !== a && montoNum > 0 && tasaNum > 0 && !excede && !saving;
 
   function swap() { setDe(a); setA(de); }
   function usarMercado() {
@@ -2588,81 +2619,179 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
     const sug = de === a ? 1 : tasaCruzada(de, a, mercado);
     if (sug != null) setTasaStr(String(sug));
   }
+  // «Redondear»: el usuario escribe a mano el neto redondeado que debe recibir el destino.
+  function aplicarRedondeo(montoRedondeado: number) {
+    setNetoOverride(montoRedondeado > 0 ? round2(montoRedondeado) : null);
+    setComisionStr('');
+    setRedondearOpen(false);
+  }
+  function limpiarComision() { setNetoOverride(null); setComisionStr(''); }
 
   async function convertir() {
-    setError(null);
-    if (!cajaId) { setError('Elegí la caja.'); return; }
-    if (de === a) { setError('Elegí monedas distintas.'); return; }
-    if (montoNum <= 0) { setError('Indicá el monto a convertir.'); return; }
-    if (resultado <= 0) { setError('Indicá una tasa válida.'); return; }
-    if (montoNum > dispDe) { setError(`Saldo insuficiente en ${de}. Disponible: ${monto(dispDe, de)}.`); return; }
-    setSaving(true);
+    if (!origenSaldo) { setErr('Elegí de qué saldo sale el dinero.'); return; }
+    if (!destinoCajaId) { setErr('Elegí la caja destino.'); return; }
+    if (de === a) { setErr('Las monedas de origen y destino deben ser distintas.'); return; }
+    if (excede) { setErr(`No hay saldo suficiente. Disponible: ${monto(disponible, de)}.`); return; }
+    setErr(null); setSaving(true);
     try {
-      await convertirDivisaEnCaja({
-        cajaId,
-        desde: { cuenta: ctaDe, moneda: de, monto: montoNum },
-        hacia: { cuenta: ctaA, moneda: a, monto: resultado },
-        tasaBsHacia, actor, actorName,
+      // Con quién se hizo el intercambio (cliente/proveedor): queda en el motivo y se
+      // guarda en el directorio para reutilizarlo (igual que en CxC/CxP).
+      const quien = cpTipo && cpNombre.trim()
+        ? `${cpTipo === 'proveedor' ? 'Proveedor' : 'Cliente'}: ${cpNombre.trim()}`
+        : null;
+      const partes = [
+        `Conversión ${monto(montoNum, de)} → ${monto(resultado, a)}`,
+        comisionPct > 0 ? `comisión ${comisionPct}% = ${monto(comisionMonto, a)} (bruto ${monto(bruto, a)})` : null,
+        quien,
+      ].filter(Boolean);
+      const motivo = (comisionPct > 0 || quien) ? partes.join(' · ') : undefined;
+      await convertirDivisa({
+        origenCajaId: origenSaldo.caja_id, origenCuenta: origenSaldo.cuenta, monedaDe: de,
+        destinoCajaId, destinoCuenta, monedaA: a,
+        montoDe: montoNum, tasa: tasaNum, comisionPct, montoANeto: netoManual, motivo,
+        actor, actorName,
       });
-      notify(`Conversión ${monto(montoNum, de)} → ${monto(resultado, a)}`, 'success', { link: '#/app/tesoreria' });
-      setMontoStr('');
-      setSaldos(await saldosDeCaja(cajaId));
+      if (cpTipo && cpNombre.trim()) {
+        const ya = contrapartes.some((c) => c.tipo === cpTipo && c.nombre.trim().toUpperCase() === cpNombre.trim().toUpperCase());
+        if (!ya) { try { await crearContraparte({ tipo: cpTipo, nombre: cpNombre.trim() }); } catch { /* duplicado u otro: no bloquea */ } }
+      }
+      notify(`Convertido: ${monto(montoNum, de)} → ${monto(resultado, a)}${quien ? ` · ${quien}` : ''}`, 'success', { link: '#/app/tesoreria' });
       await onConverted();
-    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo convertir'); }
-    finally { setSaving(false); }
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo convertir.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <Modal title="Conversor multimoneda" size="md" onClose={onClose} footer={
-      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void convertir()} disabled={!puede}>
+          {saving ? 'Convirtiendo…' : '💱 Convertir'}
+        </button>
+      </>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Convierte dinero <strong>entre los saldos de una caja</strong> (ej. USD → Bs) a una tasa <strong>editable</strong>.
-        Al <strong>Convertir</strong>, descuenta el monto del saldo de origen y suma el equivalente al de destino (queda como movimiento de conversión). La sugerencia toma <strong>Binance (USDT/VES)</strong> y la TRM del COP; la <strong>BCV no se usa acá</strong>.
+        Convierte un <strong>saldo existente</strong> de una moneda a otra: descuenta de la caja
+        origen y acredita el equivalente en la caja destino. La tasa sugerida toma el dólar
+        de <strong>Binance (USDT/VES)</strong> y la TRM del COP (la <strong>BCV</strong> queda en la barra superior); es editable y se redondea a 2 decimales.
       </p>
-
-      <div className="form-row" style={{ marginBottom: '.5rem' }}>
-        <label>Caja</label>
-        <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
-          {!cajas.length && <option value="">— sin cajas —</option>}
-          {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
-      </div>
 
       <div className="form-grid">
         <div className="form-row">
-          <label>De</label>
+          <label>De (moneda)</label>
           <select className="select" value={de} onChange={(e) => setDe(e.target.value as MonedaCaja)}>
             {MONEDAS_CONV.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
-          {de === 'Bs' && (
-            <select className="select" style={{ marginTop: '.3rem' }} value={cuentaDe} onChange={(e) => setCuentaDe(e.target.value as CuentaCaja)}>
-              <option value="juridica">Jurídica</option><option value="personal">Personal</option>
-            </select>
-          )}
-          <small className="muted">Disponible: {monto(dispDe, de)}</small>
         </div>
         <div className="form-row" style={{ alignSelf: 'end' }}>
           <button type="button" className="btn btn-ghost" onClick={swap} title="Invertir">⇄ Invertir</button>
         </div>
         <div className="form-row">
-          <label>A</label>
+          <label>A (moneda)</label>
           <select className="select" value={a} onChange={(e) => setA(e.target.value as MonedaCaja)}>
             {MONEDAS_CONV.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
-          {a === 'Bs' && (
-            <select className="select" style={{ marginTop: '.3rem' }} value={cuentaA} onChange={(e) => setCuentaA(e.target.value as CuentaCaja)}>
-              <option value="juridica">Jurídica</option><option value="personal">Personal</option>
-            </select>
+        </div>
+      </div>
+
+      {/* Origen: de qué saldo sale el dinero (caja + cuenta + moneda DE). */}
+      <div className="form-row">
+        <label>Sale de (saldo en {de})</label>
+        {saldosOrigen.length === 0 ? (
+          <div className="muted" style={{ fontSize: '.82rem', padding: '.4rem 0' }}>
+            No hay ninguna caja con saldo en {de}.
+          </div>
+        ) : (
+          <select className="select" value={origenSaldoId} onChange={(e) => setOrigenSaldoId(e.target.value)}>
+            {saldosOrigen.map((s) => (
+              <option key={s.id} value={s.id}>
+                {nombreCaja(s.caja_id)}{s.cuenta !== 'general' ? ` · ${labelCuentaConv(s.cuenta)}` : ''} — {monto(s.saldo, s.moneda)}
+              </option>
+            ))}
+          </select>
+        )}
+        {origenSaldo && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.2rem' }}>Disponible: <strong className="mono">{monto(disponible, de)}</strong></div>}
+      </div>
+
+      {/* Destino: a qué caja entra el convertido (caja + cuenta), moneda A. */}
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Entra en (caja destino)</label>
+          <select className="select" value={destinoCajaId} onChange={(e) => setDestinoCajaId(e.target.value)}>
+            <option value="">— Elegí caja —</option>
+            {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <label>Cuenta / billetera destino</label>
+          <select className="select" value={destinoCuenta} onChange={(e) => setDestinoCuenta(e.target.value as CuentaCaja)} disabled={!destinoCajaId}>
+            {cuentasDestino.map((c) => <option key={c} value={c}>{labelCuentaConv(c)}</option>)}
+          </select>
+          {destinoCajaId && (
+            <small className="muted">
+              {cuentasDestino.length > 1
+                ? <>Entra a <strong>{nombreCaja(destinoCajaId)}</strong> · billetera <strong>{labelCuentaConv(destinoCuenta)}</strong>.</>
+                : <>Esta caja no tiene billeteras: entra directo a <strong>General</strong>.</>}
+            </small>
           )}
         </div>
+      </div>
+
+      {/* Con quién se hace el intercambio: cliente o proveedor (como en CxC/CxP). */}
+      <div className="form-row">
+        <label>¿Con quién? (cliente o proveedor)</label>
+        <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem' }}>
+          {(['cliente', 'proveedor'] as const).map((t) => {
+            const sel = cpTipo === t;
+            return (
+              <label key={t} style={{
+                display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer',
+                padding: '.4rem .7rem', borderRadius: 'var(--r-md)',
+                border: `1px solid ${sel ? 'var(--primary)' : 'var(--border)'}`,
+                background: sel ? 'rgba(255,138,0,0.10)' : 'transparent', flex: 1, justifyContent: 'center',
+              }}>
+                <input type="radio" name="conv-cp-tipo" checked={sel} onChange={() => { setCpTipo(t); setCpNombre(''); }} />
+                <span style={{ fontWeight: 600 }}>{t === 'cliente' ? '👤 Cliente' : '🏭 Proveedor'}</span>
+              </label>
+            );
+          })}
+          {cpTipo && <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setCpTipo(''); setCpNombre(''); }} title="Quitar">✕</button>}
+        </div>
+        {cpTipo && (() => {
+          const guardados = contrapartes.filter((c) => c.tipo === cpTipo);
+          const existe = guardados.some((c) => c.nombre.trim().toUpperCase() === cpNombre.trim().toUpperCase());
+          return (
+            <>
+              <input className="input" list="conv-contrapartes" value={cpNombre} onChange={(e) => setCpNombre(e.target.value)}
+                placeholder={cpTipo === 'proveedor' ? 'Buscar o agregar razón social del proveedor…' : 'Buscar o agregar nombre del cliente…'} autoFocus />
+              <datalist id="conv-contrapartes">
+                {guardados.map((c) => <option key={c.id} value={c.nombre} />)}
+              </datalist>
+              <small className="muted">
+                Buscá en los {guardados.length} {cpTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribí uno nuevo.{' '}
+                {cpNombre.trim() && !existe
+                  ? <strong style={{ color: 'var(--primary-3, #ff8a00)' }}>Nuevo → se guardará para próximas operaciones.</strong>
+                  : 'Queda registrado en el motivo del movimiento.'}
+              </small>
+            </>
+          );
+        })()}
       </div>
 
       <div className="form-grid">
         <div className="form-row">
           <label>Monto en {de}</label>
           <input className="input mono" type="number" min={0} step="any" value={montoStr}
-            onChange={(e) => setMontoStr(dosDecimales(e.target.value))} placeholder="0,00" autoFocus />
+            onChange={(e) => setMontoStr(dosDecimales(e.target.value))} placeholder="0,00" autoFocus
+            style={excede ? { borderColor: 'var(--danger)' } : undefined} />
+          {origenSaldo && (
+            <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.3rem' }}
+              onClick={() => setMontoStr(String(disponible))}>Usar todo ({monto(disponible, de)})</button>
+          )}
         </div>
         <div className="form-row">
           <label>Tasa · 1 {de} = ? {a}</label>
@@ -2670,24 +2799,78 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
             onChange={(e) => setTasaStr(e.target.value)} placeholder={mercado ? '0,00' : 'cargando…'} />
           <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.3rem' }} onClick={usarMercado}>↺ Tasa de mercado</button>
         </div>
+        <div className="form-row">
+          <label>Comisión / descuento (%)</label>
+          <input className="input mono" type="number" min={0} max={100} step="any"
+            value={netoManual != null ? '' : comisionStr}
+            onChange={(e) => { setNetoOverride(null); setComisionStr(e.target.value); }}
+            placeholder={netoManual != null ? `≈ ${comisionPct}% (redondeado)` : '0'} />
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRedondearOpen(true)} disabled={bruto <= 0}
+              title="Escribí a mano el monto redondeado que debe recibir el destino (ej. 60)">⊕ Redondear</button>
+            {(comisionStr || netoManual != null) && <button type="button" className="btn btn-sm btn-ghost" onClick={limpiarComision}>✕ Sin comisión</button>}
+          </div>
+          <small className="muted">
+            {netoManual != null
+              ? <>El destino recibe el monto redondeado <strong>{monto(netoManual, a)}</strong> (comisión {monto(comisionMonto, a)}).</>
+              : <>Opcional. Se le descuenta al convertido; el destino recibe el neto. «Redondear» te deja escribir el monto redondeado a recibir.</>}
+          </small>
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: '.5rem', textAlign: 'center', borderColor: 'var(--brand, #ff8a00)' }}>
-        <div className="muted" style={{ fontSize: '.74rem' }}>Equivalente en {a}</div>
-        <strong className="mono" style={{ fontSize: '1.6rem' }}>{monto(resultado, a)}</strong>
+        <div className="muted" style={{ fontSize: '.74rem' }}>{comisionMonto > 0 ? (netoManual != null ? 'Recibe (redondeado) en ' : 'Recibe (neto) en ') : 'Equivalente en '}{a}</div>
+        <strong className="mono" style={{ fontSize: '1.6rem', color: 'var(--text, #fff)' }}>{monto(resultado, a)}</strong>
         {tasaNum > 0 && montoNum > 0 && (
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-            {monto(montoNum, de)} × {tasaNum.toLocaleString('es-VE')} = {monto(resultado, a)}
+            {monto(montoNum, de)} × {tasaNum.toLocaleString('es-VE')} = {monto(bruto, a)}
+            {comisionMonto > 0 && <> · − comisión {comisionPct}% ({monto(comisionMonto, a)}) = <strong>{monto(resultado, a)}</strong></>}
           </div>
         )}
       </div>
 
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.5rem' }}><strong>Error:</strong> {error}</div>}
+      {redondearOpen && (
+        <RedondearNetoModal
+          moneda={a}
+          bruto={bruto}
+          sugerido={Math.round(resultado / 10) * 10}
+          onAceptar={aplicarRedondeo}
+          onClose={() => setRedondearOpen(false)}
+        />
+      )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '.6rem' }}>
-        <button className="btn btn-primary" onClick={() => void convertir()} disabled={saving || de === a || montoNum <= 0}>
-          {saving ? 'Convirtiendo…' : `⇄ Convertir ${de} → ${a}`}
-        </button>
+      {excede && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.8rem', marginTop: '.4rem' }}>El monto supera el saldo disponible.</div>}
+      {err && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.82rem', marginTop: '.4rem' }}>{err}</div>}
+    </Modal>
+  );
+}
+
+/** Modal chico: el usuario escribe el monto redondeado que debe recibir el destino. */
+function RedondearNetoModal({ moneda, bruto, sugerido, onAceptar, onClose }: {
+  moneda: string; bruto: number; sugerido: number; onAceptar: (m: number) => void; onClose: () => void;
+}) {
+  const [valStr, setValStr] = useState(sugerido > 0 && sugerido <= bruto ? String(sugerido) : '');
+  const val = Number(valStr) || 0;
+  const excede = val > bruto + 0.001;
+  const puede = val > 0 && !excede;
+  return (
+    <Modal title="Monto redondeado" size="md" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" disabled={!puede} onClick={() => onAceptar(val)}>Aplicar</button>
+      </>
+    }>
+      <div className="form-row">
+        <label>Ingrese el monto redondeado que recibe el destino ({moneda})</label>
+        <input className="input mono" type="number" min={0} step="any" autoFocus value={valStr}
+          onChange={(e) => setValStr(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && puede) onAceptar(val); }}
+          placeholder={sugerido > 0 ? String(sugerido) : '0'} />
+        <small className="muted">
+          Convertido (bruto): <strong>{monto(bruto, moneda)}</strong>.
+          {val > 0 && !excede && <> La comisión será <strong>{monto(round2(bruto - val), moneda)}</strong>.</>}
+        </small>
+        {excede && <small className="muted" style={{ color: 'var(--danger)' }}>No puede superar el convertido ({monto(bruto, moneda)}).</small>}
       </div>
     </Modal>
   );

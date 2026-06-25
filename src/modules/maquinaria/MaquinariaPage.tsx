@@ -10,7 +10,8 @@ import { EquipoFormModal } from './EquipoFormModal';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import { listEquipos, setEquipoActivo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { ConfirmDialog } from '@/shared/ui/Modal';
 import { horasUltimoPorEquipo } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
 import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
@@ -59,6 +60,7 @@ export function MaquinariaPage() {
   const [correoOpen, setCorreoOpen] = useState(false);
   const [form, setForm] = useState<{ open: boolean; equipo: MaquinariaEquipo | null }>({ open: false, equipo: null });
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
+  const [borrar, setBorrar] = useState<MaquinariaEquipo | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -109,6 +111,11 @@ export function MaquinariaPage() {
   async function toggleActivo(e: MaquinariaEquipo) {
     try { await setEquipoActivo(e.id, !e.activo); await cargar(); }
     catch (err) { toast(err instanceof Error ? err.message : 'No se pudo cambiar', 'error'); }
+  }
+
+  async function confirmarBorrar(e: MaquinariaEquipo) {
+    try { await eliminarEquipo(e.id); toast('Equipo eliminado', 'success'); await cargar(); }
+    catch (err) { toast(err instanceof Error ? err.message : 'No se pudo eliminar', 'error'); }
   }
 
   return (
@@ -179,6 +186,7 @@ export function MaquinariaPage() {
                     <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" title={e.activo ? 'Desactivar (queda inactivo, no se borra)' : 'Reactivar'} onClick={() => void toggleActivo(e)}>{e.activo ? 'Desactivar' : 'Activar'}</button>}
+                    {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar definitivamente (borra también su bitácora)" onClick={() => setBorrar(e)}>🗑</button>}
                   </td>
                 </tr>
                 );
@@ -186,6 +194,17 @@ export function MaquinariaPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {borrar && (
+        <ConfirmDialog
+          title="Eliminar equipo"
+          message={`¿Eliminar definitivamente "${borrar.equipo}"? Se borrará también toda su bitácora de mantenimientos. Esta acción no se puede deshacer.`}
+          confirmText="Eliminar"
+          danger
+          onCancel={() => setBorrar(null)}
+          onConfirm={() => { const e = borrar; setBorrar(null); void confirmarBorrar(e); }}
+        />
       )}
 
       {catalogoOpen && <MaquinariaCatalogoModal canWrite={canWrite} onClose={() => setCatalogoOpen(false)} />}
