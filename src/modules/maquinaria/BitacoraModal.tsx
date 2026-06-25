@@ -30,6 +30,8 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [tipo, setTipo] = useState<string>('cambio_aceite');
   const [pieza, setPieza] = useState('');
   const [horometro, setHorometro] = useState('');
+  const [kilometraje, setKilometraje] = useState('');
+  const [alertaKm, setAlertaKm] = useState('');
   const [aceite, setAceite] = useState('');
   const [refrigerante, setRefrigerante] = useState('');
   const [gasoil, setGasoil] = useState('');
@@ -69,6 +71,8 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         tipo: tipo || null,
         pieza: tipo === 'cambio_pieza' ? (pieza || null) : null,
         horometro: horometro === '' ? null : Number(horometro),
+        kilometraje: kilometraje === '' ? null : Number(kilometraje),
+        alerta_km: alertaKm === '' ? null : Number(alertaKm),
         aceite_lts: aceite === '' ? null : Number(aceite),
         refrigerante_lts: refrigerante === '' ? null : Number(refrigerante),
         gasoil_lts: gasoil === '' ? null : Number(gasoil),
@@ -76,7 +80,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         mecanico: mecanico || null, ubicacion: ubicacion || null,
       }, actor, actorName);
       toast('Mantenimiento registrado', 'success');
-      setPieza(''); setHorometro(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
+      setPieza(''); setHorometro(''); setKilometraje(''); setAlertaKm(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
       setShowForm(false);
       await cargar();
     } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo agregar', 'error'); }
@@ -171,6 +175,17 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
               <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
             )}
             <div className="form-row"><label>Horómetro (lectura)</label><input className="input mono" name="bit-horometro" type="number" step="any" defaultValue={horometro} onChange={(e) => setHorometro(e.target.value)} /></div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Kilometraje (lectura)</label>
+              <input className="input mono" name="bit-km" type="number" step="any" defaultValue={kilometraje} onChange={(e) => setKilometraje(e.target.value)} placeholder="Odómetro km" />
+            </div>
+            <div className="form-row">
+              <label>Indique alerta de kilometraje</label>
+              <input className="input mono" name="bit-alerta-km" type="number" step="any" defaultValue={alertaKm} onChange={(e) => setAlertaKm(e.target.value)} placeholder="Avisar al llegar a… km" />
+              <small className="muted">Al acercarse a este km, el equipo se avisa en Servicio de Mantenimiento.</small>
+            </div>
           </div>
           <div className="form-grid">
             <div className="form-row"><label>Aceite (Lts)</label><input className="input mono" name="bit-aceite" type="number" step="any" defaultValue={aceite} onChange={(e) => setAceite(e.target.value)} /></div>
