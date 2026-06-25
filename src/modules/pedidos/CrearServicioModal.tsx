@@ -11,6 +11,7 @@ import {
   listServiciosActivos, addServicioCatalogo, type ServicioCatalogo,
 } from './servicios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
 
 /**
  * Solicitud de Servicio (SS). Mismo procedimiento que la SP de productos, pero
@@ -55,10 +56,16 @@ export function CrearServicioModal({
 
   const esMantenimiento = categoria === CATEGORIA_MANTENIMIENTO;
   // Servicios del catálogo para la categoría elegida (nombres), para el desplegable.
-  const serviciosCat = useMemo(
-    () => catalogo.filter((s) => s.categoria === categoria).map((s) => s.nombre),
-    [catalogo, categoria],
-  );
+  // En MANTENIMIENTO (Control de Maquinaria) la lista de "tipo de servicio" se
+  // arma desde el catálogo de tipos de mantenimiento (cambio de aceite, filtro,
+  // servicio/preventivo, reparación…) + lo que ya se haya cargado en el catálogo.
+  const serviciosCat = useMemo(() => {
+    const delCatalogo = catalogo.filter((s) => s.categoria === categoria).map((s) => s.nombre);
+    if (!esMantenimiento) return delCatalogo;
+    const tipos = TIPOS_MANTENIMIENTO.map((t) => `${t.icon} ${t.label}`);
+    const vistos = new Set(tipos.map((t) => t.toLowerCase()));
+    return [...tipos, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
+  }, [catalogo, categoria, esMantenimiento]);
   const equipoOptions = useMemo(
     () => equipos.map((e) => ({ value: e.id, label: e.placa ? `${e.equipo} · ${e.placa}` : e.equipo })),
     [equipos],
@@ -176,9 +183,10 @@ export function CrearServicioModal({
               </select>
             </div>
             <div>
-              <label className="label">Servicio</label>
+              <label className="label">{esMantenimiento ? 'Tipo de servicio' : 'Servicio'}</label>
               <SearchCreateSelect options={serviciosCat} value={servicio} onChange={setServicio}
-                placeholder="Elegí o escribí un servicio…" emptyText="Sin servicios en esta categoría" />
+                placeholder={esMantenimiento ? 'Elegí el tipo (caucho, repuesto, aceite, pintura…)' : 'Elegí o escribí un servicio…'}
+                emptyText="Sin servicios en esta categoría" />
             </div>
           </div>
           {esMantenimiento && (

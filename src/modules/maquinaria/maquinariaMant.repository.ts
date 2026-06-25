@@ -8,11 +8,22 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 
-/** Tipos de mantenimiento (trazabilidad): catálogo fijo con etiqueta legible. */
+/** Tipos de mantenimiento / servicio (trazabilidad): catálogo con etiqueta legible.
+ *  Cubre todo lo que se le puede cambiar/hacer a un vehículo o maquinaria. */
 export const TIPOS_MANTENIMIENTO: ReadonlyArray<{ value: string; label: string; icon: string }> = [
   { value: 'cambio_aceite', label: 'Cambio de aceite', icon: '🛢' },
-  { value: 'cambio_pieza', label: 'Cambio de pieza', icon: '🔩' },
   { value: 'cambio_filtro', label: 'Cambio de filtro', icon: '🧯' },
+  { value: 'cambio_caucho', label: 'Cambio de cauchos / neumáticos', icon: '🛞' },
+  { value: 'repuestos', label: 'Repuestos', icon: '🔩' },
+  { value: 'cambio_pieza', label: 'Cambio de pieza', icon: '⚙' },
+  { value: 'pintura', label: 'Pintura / latonería', icon: '🎨' },
+  { value: 'frenos', label: 'Frenos', icon: '🛑' },
+  { value: 'bateria', label: 'Batería', icon: '🔋' },
+  { value: 'sistema_electrico', label: 'Sistema eléctrico', icon: '💡' },
+  { value: 'sistema_hidraulico', label: 'Sistema hidráulico', icon: '💧' },
+  { value: 'soldadura', label: 'Soldadura', icon: '🔥' },
+  { value: 'engrase', label: 'Engrase / lubricación', icon: '🧴' },
+  { value: 'refrigerante', label: 'Refrigerante', icon: '❄' },
   { value: 'servicio', label: 'Servicio / preventivo', icon: '🔧' },
   { value: 'reparacion', label: 'Reparación', icon: '🛠' },
   { value: 'inspeccion', label: 'Inspección', icon: '🔍' },
