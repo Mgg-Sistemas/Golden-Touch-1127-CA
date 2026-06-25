@@ -7,7 +7,7 @@ import type { ItemOrden, Usuario } from '@/shared/lib/types';
 import { crearOrden } from './pedidos.repository';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import {
-  CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO,
+  CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas,
   listServiciosActivos, addServicioCatalogo, type ServicioCatalogo,
 } from './servicios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
@@ -49,6 +49,9 @@ export function CrearServicioModal({
   const [equipoId, setEquipoId] = useState('');
   const [cantidad, setCantidad] = useState('1');
   const [medida, setMedida] = useState('');
+  // Recarga de gas / oxígeno / extintores: cantidad de bombonas + KG a recargar.
+  const [bombonas, setBombonas] = useState('');
+  const [kg, setKg] = useState('');
 
   useEffect(() => {
     listServiciosActivos().then(setCatalogo).catch(() => setCatalogo([]));
@@ -57,6 +60,7 @@ export function CrearServicioModal({
   }, []);
 
   const esMantenimiento = categoria === CATEGORIA_MANTENIMIENTO;
+  const esGas = esRecargaGas(categoria, servicio);
   // Servicios del catálogo para la categoría elegida (nombres), para el desplegable.
   // En MANTENIMIENTO (Control de Maquinaria) la lista de "tipo de servicio" se
   // arma desde el catálogo de tipos de mantenimiento (cambio de aceite, filtro,
@@ -78,8 +82,12 @@ export function CrearServicioModal({
   async function buildItem(): Promise<ItemOrden | null> {
     const nom = servicio.trim();
     if (!nom) { toast('Elegí o escribí el servicio', 'error'); return null; }
-    const cant = Number(String(cantidad).replace(',', '.')) || 0;
-    if (cant <= 0) { toast('La cantidad debe ser mayor a 0', 'error'); return null; }
+    const gas = esRecargaGas(categoria, nom);
+    // En recargas (gas/oxígeno/extintores) la cantidad la dan las bombonas (no hay campo Cantidad).
+    const cant = gas
+      ? (Number(String(bombonas).replace(',', '.')) || 0)
+      : (Number(String(cantidad).replace(',', '.')) || 0);
+    if (cant <= 0) { toast(gas ? 'Indicá la cantidad de bombonas' : 'La cantidad debe ser mayor a 0', 'error'); return null; }
     let equipoNombre: string | null = null;
     if (esMantenimiento) {
       if (!equipoId) { toast('Seleccioná la máquina/vehículo del mantenimiento', 'error'); return null; }
@@ -100,6 +108,8 @@ export function CrearServicioModal({
       es_servicio: true, categoria_servicio: categoria,
       equipo_id: esMantenimiento ? equipoId : null,
       equipo_nombre: equipoNombre,
+      bombonas: gas && bombonas ? Number(bombonas) : null,
+      kg_recarga: gas && kg ? Number(kg) : null,
     };
   }
 
@@ -108,7 +118,7 @@ export function CrearServicioModal({
     if (!it) return false;
     setItems((prev) => [...prev, it]);
     // Reset del builder (conserva la categoría para cargar varios del mismo tipo).
-    setServicio(''); setEquipoId(''); setCantidad('1'); setMedida('');
+    setServicio(''); setEquipoId(''); setCantidad('1'); setMedida(''); setBombonas(''); setKg('');
     return true;
   }
 
@@ -222,17 +232,35 @@ export function CrearServicioModal({
             </div>
           )}
           <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end' }}>
-            <div style={{ width: 120 }}>
-              <label className="label">Cantidad</label>
-              <input className="input" value={cantidad} inputMode="decimal"
-                onChange={(e) => setCantidad(e.target.value)} />
-            </div>
-            <div style={{ width: 160 }}>
-              <label className="label">Medida</label>
-              <input className="input" value={medida}
-                onChange={(e) => setMedida(e.target.value)}
-                placeholder="L, und, m, kg, juego…" />
-            </div>
+            {esGas ? (
+              <>
+                {/* Recarga de gas / oxígeno / extintores: solo bombonas + KG. */}
+                <div style={{ width: 160 }}>
+                  <label className="label">Cantidad de bombonas</label>
+                  <input className="input mono" value={bombonas} inputMode="decimal"
+                    onChange={(e) => setBombonas(e.target.value)} placeholder="Ej. 4" />
+                </div>
+                <div style={{ width: 160 }}>
+                  <label className="label">KG a recargar</label>
+                  <input className="input mono" value={kg} inputMode="decimal"
+                    onChange={(e) => setKg(e.target.value)} placeholder="Ej. 40" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ width: 120 }}>
+                  <label className="label">Cantidad</label>
+                  <input className="input" value={cantidad} inputMode="decimal"
+                    onChange={(e) => setCantidad(e.target.value)} />
+                </div>
+                <div style={{ width: 160 }}>
+                  <label className="label">Medida</label>
+                  <input className="input" value={medida}
+                    onChange={(e) => setMedida(e.target.value)}
+                    placeholder="L, und, m, kg, juego…" />
+                </div>
+              </>
+            )}
             <button className="btn btn-primary" onClick={() => void addServicioItem()}>+ Añadir</button>
           </div>
           {esMantenimiento && (
@@ -246,7 +274,7 @@ export function CrearServicioModal({
         {items.length > 0 && (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>
-              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cant.</th><th>Medida</th><th></th></tr></thead>
+              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th>Medida</th><th></th></tr></thead>
               <tbody>
                 {items.map((it, i) => (
                   <tr key={it.sku}>
@@ -254,6 +282,8 @@ export function CrearServicioModal({
                     <td>{it.categoria_servicio || '—'}</td>
                     <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
                     <td style={{ textAlign: 'right' }}>{it.cantidad}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{it.bombonas ? it.bombonas : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{it.kg_recarga ? it.kg_recarga : '—'}</td>
                     <td>{it.unidad || <span className="muted">—</span>}</td>
                     <td><button className="btn btn-sm btn-ghost" title="Quitar" onClick={() => quitarItem(i)}>✕</button></td>
                   </tr>

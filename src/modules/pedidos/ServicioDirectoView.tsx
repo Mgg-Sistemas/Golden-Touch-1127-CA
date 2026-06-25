@@ -11,7 +11,7 @@ import type { Caja, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
-import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, type ServicioCatalogo } from './servicios.repository';
+import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, type ServicioCatalogo } from './servicios.repository';
 import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -21,6 +21,7 @@ import {
   crearServicioDirecto, finalizarServicioDirecto, eliminarServicioDirecto, listServiciosDirectos,
   urlAdjuntoServicio, type ServicioDirecto, type ServicioDirectoItem, type LineaServicio, type PagoLeg,
 } from './serviciosDirectos.repository';
+import { descargarServicioDirectoPdf } from './servicioDirectoPdf';
 
 type Vista = 'kanban' | 'lista';
 
@@ -68,6 +69,11 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
     return m;
   }, [servicios]);
 
+  async function handlePdf(s: ServicioDirecto) {
+    try { await descargarServicioDirectoPdf(s); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+  }
+
   async function confirmarEliminar() {
     const s = eliminar;
     if (!s) return;
@@ -100,7 +106,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
               <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((s) => (
-                  <ServicioCard key={s.id} servicio={s} onFinalizar={() => setFinalizar(s)} onEliminar={() => setEliminar(s)} />
+                  <ServicioCard key={s.id} servicio={s} onFinalizar={() => setFinalizar(s)} onEliminar={() => setEliminar(s)} onPdf={() => handlePdf(s)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -124,6 +130,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                   <td className="muted">{dateTime(s.created_at)}</td>
                   <td className="muted">{s.finalizada_at ? dateTime(s.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(s)} title="Ver/descargar detalle en PDF">↓ PDF</button>
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑 Eliminar</button>}
                     {s.estado === 'finalizada' && <AdjuntoLink servicio={s} />}
@@ -159,8 +166,8 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   );
 }
 
-function ServicioCard({ servicio, onFinalizar, onEliminar }: {
-  servicio: ServicioDirecto; onFinalizar: () => void; onEliminar: () => void;
+function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf }: {
+  servicio: ServicioDirecto; onFinalizar: () => void; onEliminar: () => void; onPdf: () => void;
 }) {
   return (
     <div className="card" style={{ margin: 0 }}>
@@ -173,7 +180,7 @@ function ServicioCard({ servicio, onFinalizar, onEliminar }: {
       {servicio.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem' }}>🏷 {servicio.proveedor_nombre}</div>}
       {servicio.items.length > 1 && (
         <ul className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0', paddingLeft: '1rem' }}>
-          {servicio.items.map((it, i) => <li key={i}>{it.descripcion} · {num(it.cantidad)}{it.equipo_nombre ? ` · ${it.equipo_nombre}` : ''}</li>)}
+          {servicio.items.map((it, i) => <li key={i}>{it.descripcion} · {num(it.cantidad)}{it.equipo_nombre ? ` · ${it.equipo_nombre}` : ''}{it.bombonas ? ` · ${num(it.bombonas)} bombona(s)` : ''}{it.kg_recarga ? ` · ${num(it.kg_recarga)} kg` : ''}</li>)}
         </ul>
       )}
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', lineHeight: 1.5 }}>
@@ -187,12 +194,11 @@ function ServicioCard({ servicio, onFinalizar, onEliminar }: {
           <div className="muted"><AdjuntoLink servicio={servicio} /></div>
         </div>
       )}
-      {servicio.estado === 'en_proceso' && (
-        <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>
-          <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar servicio directo">🗑 Eliminar</button>
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+        <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
+        {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
+        {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar servicio directo">🗑 Eliminar</button>}
+      </div>
     </div>
   );
 }
@@ -208,7 +214,7 @@ function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
 
 /* ───────── Modal: nuevo servicio (categoría + tipo + equipo por renglón) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string }
 
 function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, onSaved }: {
   proveedores: Proveedor[]; equipos: MaquinariaEquipo[];
@@ -238,7 +244,7 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
     return [...tipos, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
   };
 
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '' });
   const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
   const [seq, setSeq] = useState(2);
   const [saving, setSaving] = useState(false);
@@ -264,12 +270,18 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
     for (const l of lineas) {
       const cat = l.categoria.trim();
       const tipo = l.tipo.trim();
-      const cant = Number(l.cantidad) || 0;
+      const gas = esRecargaGas(cat, tipo);
+      // En recargas la cantidad la dan las bombonas (no hay campo Cantidad).
+      const cant = gas ? (Number(l.bombonas) || 0) : (Number(l.cantidad) || 0);
       if (!cat) { setError('Indicá la categoría de cada servicio.'); return; }
       if (!tipo) { setError('Indicá el tipo de servicio en cada renglón.'); return; }
-      if (cant <= 0) { setError('Cada servicio debe tener cantidad mayor que 0.'); return; }
+      if (cant <= 0) { setError(gas ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
       const eq = equiposActivos.find((x) => x.id === l.equipoId) ?? null;
-      payload.push({ categoria: cat, descripcion: tipo, equipoId: eq?.id ?? null, equipoNombre: eq?.equipo ?? null, cantidad: cant });
+      payload.push({
+        categoria: cat, descripcion: tipo, equipoId: eq?.id ?? null, equipoNombre: eq?.equipo ?? null, cantidad: cant,
+        bombonas: gas && l.bombonas ? Number(l.bombonas) : null,
+        kg_recarga: gas && l.kg ? Number(l.kg) : null,
+      });
     }
     if (nuevoProveedor) {
       if (!provRazon.trim() || !rifPartes.numero) { setError('Razón social y RIF (con número) son obligatorios para el nuevo proveedor.'); return; }
@@ -410,11 +422,25 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
                   placeholder={equipoOptions.length ? '🔍 Buscá el equipo / vehículo…' : '— sin equipos —'} emptyText="Sin equipos" />
                 <small className="muted">Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
               </div>
-              <div className="form-row">
-                <label>Cantidad</label>
-                <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
-              </div>
+              {esRecargaGas(l.categoria, l.tipo) ? (
+                <div className="form-row">
+                  <label>Cantidad de bombonas</label>
+                  <input className="input mono" name={`linea-bomb-${l.id}`} type="number" min={0} step="any" defaultValue={l.bombonas} onChange={(e) => set(l.id, { bombonas: e.target.value })} placeholder="Ej. 4" />
+                </div>
+              ) : (
+                <div className="form-row">
+                  <label>Cantidad</label>
+                  <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
+                </div>
+              )}
             </div>
+            {esRecargaGas(l.categoria, l.tipo) && (
+              <div className="form-row">
+                <label>KG a recargar</label>
+                <input className="input mono" name={`linea-kg-${l.id}`} type="number" min={0} step="any" defaultValue={l.kg} onChange={(e) => set(l.id, { kg: e.target.value })} placeholder="Ej. 40" style={{ maxWidth: 220 }} />
+                <small className="muted">⛽ Recarga de gas / oxígeno / extintores.</small>
+              </div>
+            )}
           </div>
         ))}
 
@@ -574,7 +600,7 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Servicio</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ width: 160 }}>Monto</th><th style={{ textAlign: 'right' }}>Costo unit.</th></tr></thead>
+            <thead><tr><th>Servicio</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th style={{ width: 160 }}>Monto</th><th style={{ textAlign: 'right' }}>Costo unit.</th></tr></thead>
             <tbody>
               {servicio.items.map((it, i) => {
                 const g = Number(gastos[i]) || 0;
@@ -584,6 +610,8 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
                     <td>{it.descripcion}{it.categoria ? <span className="muted"> · {it.categoria}</span> : null}</td>
                     <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{it.bombonas ? num(it.bombonas) : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{it.kg_recarga ? num(it.kg_recarga) : '—'}</td>
                     <td><input className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
                     <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
                   </tr>
