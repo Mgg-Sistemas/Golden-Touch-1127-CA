@@ -294,6 +294,89 @@ export async function convertirDivisaEnCaja(input: {
   });
 }
 
+export interface ConvertirDivisaInput {
+  /** Origen: de dónde sale el dinero (caja + cuenta + moneda DE). */
+  origenCajaId: string; origenCuenta: CuentaCaja; monedaDe: string;
+  /** Destino: dónde entra el convertido (caja + cuenta + moneda A). Puede ser OTRA caja. */
+  destinoCajaId: string; destinoCuenta: CuentaCaja; monedaA: string;
+  montoDe: number;            // cuánto se cambia, en la moneda DE
+  tasa: number;              // 1 DE = ? A (la tasa usada para convertir)
+  /** Comisión/descuento (%) que se le descuenta al convertido: el destino recibe el neto. */
+  comisionPct?: number | null;
+  /** Neto redondeado (absoluto) que debe recibir el destino. Tiene prioridad sobre `comisionPct`:
+   *  la comisión se calcula como (bruto − este monto). Lo usa el botón «Redondear». */
+  montoANeto?: number | null;
+  motivo?: string | null;
+  actor: string; actorName?: string | null;
+}
+
+/**
+ * Convierte un saldo existente de una moneda a otra acreditando el equivalente en
+ * OTRA caja/cuenta (o la misma). Descuenta de la caja origen (valida fondos) e
+ * ingresa el neto a la caja destino, arrastrando la base de costo (Bs/unidad) para
+ * el promedio ponderado. Soporta comisión (% o neto redondeado a mano).
+ */
+export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ origen: CajaSaldo | null; destino: CajaSaldo }> {
+  const montoDe = round2(input.montoDe);
+  // Tasa con TODA la precisión que indicó el usuario (no se redondea a 4 dec): así el
+  // monto acreditado refleja exactamente `montoDe × tasa` (lo mismo que la vista previa).
+  const tasa = Number(input.tasa) || 0;
+  if (montoDe <= 0) throw new Error('El monto a convertir debe ser mayor que 0.');
+  if (tasa <= 0) throw new Error('La tasa de conversión debe ser mayor que 0.');
+  if (input.monedaDe === input.monedaA && input.origenCajaId === input.destinoCajaId && input.origenCuenta === input.destinoCuenta)
+    throw new Error('El origen y el destino son el mismo saldo: no hay nada que convertir.');
+  // Comisión/descuento: el bruto se reduce y el destino recibe el neto.
+  // Prioridad: si viene `montoANeto` (neto redondeado absoluto) se usa ese; si no, el %.
+  const montoBruto = round2(montoDe * tasa);
+  const netoManual = input.montoANeto != null ? round2(Number(input.montoANeto)) : null;
+  let comision: number, montoA: number;
+  if (netoManual != null && netoManual > 0 && netoManual <= montoBruto) {
+    montoA = netoManual;
+    comision = round2(montoBruto - montoA);
+  } else {
+    const pctIn = Math.max(0, Math.min(100, Number(input.comisionPct) || 0));
+    comision = round2(montoBruto * pctIn / 100);
+    montoA = round2(montoBruto - comision);
+  }
+  // % efectivo (para el motivo), derivado de la comisión real aplicada.
+  const pct = montoBruto > 0 ? round2(comision / montoBruto * 100) : 0;
+  if (montoA <= 0) throw new Error('El monto convertido (neto) resulta en 0.');
+
+  // Tasa promedio (Bs/unidad) del saldo origen, para arrastrar la base de costo al destino.
+  const { data: orig } = await supabase.from(SALDOS).select('tasa_prom')
+    .eq('caja_id', input.origenCajaId).eq('cuenta', input.origenCuenta).eq('moneda', input.monedaDe).maybeSingle();
+  const tasaPromOrig = input.monedaDe === 'Bs' ? 1 : (Number(orig?.tasa_prom) || 0);
+
+  // Costo en Bs por unidad de la moneda DESTINO (para el promedio ponderado del destino).
+  let tasaBsDest: number | null = null;
+  if (input.monedaA !== 'Bs') {
+    if (input.monedaDe === 'Bs') tasaBsDest = round4(montoDe / montoA);
+    else if (tasaPromOrig > 0) tasaBsDest = round4((montoDe * tasaPromOrig) / montoA);
+    else tasaBsDest = null; // sin base conocida; el destino tomará su propio promedio/nulo
+  }
+
+  const motivo = input.motivo?.trim()
+    || `Conversión ${montoDe} ${input.monedaDe} → ${montoA} ${input.monedaA} (1 ${input.monedaDe} = ${tasa} ${input.monedaA}${pct > 0 ? ` · comisión ${pct}% = ${comision} ${input.monedaA}` : ''})`;
+
+  // 1) Egreso del saldo origen (valida fondos).
+  await egresarDivisa({
+    cajaId: input.origenCajaId, cuenta: input.origenCuenta, moneda: input.monedaDe, monto: montoDe,
+    concepto: motivo, categoria: 'conversion', actor: input.actor, actorName: input.actorName,
+  });
+
+  // 2) Ingreso del convertido al saldo destino (recalcula su promedio).
+  const destino = await ingresarDivisa({
+    cajaId: input.destinoCajaId, cuenta: input.destinoCuenta, moneda: input.monedaA, monto: montoA,
+    tasaBs: tasaBsDest, origen: 'conversion', motivo, actor: input.actor, actorName: input.actorName,
+  });
+
+  // Saldo origen ya actualizado (puede haber quedado en 0 / sin fila visible).
+  const { data: origAfter } = await supabase.from(SALDOS).select('*')
+    .eq('caja_id', input.origenCajaId).eq('cuenta', input.origenCuenta).eq('moneda', input.monedaDe).maybeSingle();
+
+  return { origen: (origAfter as CajaSaldo) ?? null, destino };
+}
+
 /** Ajusta (fija) el saldo y/o la tasa promedio de una (caja, cuenta, moneda). */
 export async function ajustarSaldoDivisa(input: {
   cajaId: string; cuenta: CuentaCaja; moneda: string; saldo: number; tasaProm?: number | null;

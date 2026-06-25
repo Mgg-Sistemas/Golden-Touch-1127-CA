@@ -109,7 +109,13 @@ export async function setEquipoActivo(id: string, activo: boolean): Promise<void
   if (error) throw error;
 }
 
+/**
+ * Elimina un equipo de forma definitiva. Primero borra su bitácora de
+ * mantenimientos (para no chocar contra la FK) y luego el equipo.
+ */
 export async function eliminarEquipo(id: string): Promise<void> {
+  // Borra la bitácora del equipo (mantenimientos) antes que el equipo.
+  await supabase.from('maquinaria_mantenimientos').delete().eq('equipo_id', id);
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
 }
