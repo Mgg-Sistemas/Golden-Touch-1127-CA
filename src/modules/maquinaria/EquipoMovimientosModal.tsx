@@ -61,8 +61,12 @@ export function EquipoMovimientosModal({ equipo, onClose }: { equipo: Maquinaria
       out.push({ fecha: s.created_at, origen: 'Servicio', tipo: `${s.codigo}${s.estado ? ` (${s.estado})` : ''}`, detalle });
     }
     for (const d of directos) {
-      const detalle = (d.items ?? []).map((x) => `${x.descripcion}${x.cantidad ? ` ×${fmtNum(x.cantidad)}` : ''}`).join(', ') || d.descripcion;
-      out.push({ fecha: d.finalizada_at ?? d.created_at, origen: 'Servicio', tipo: `${d.codigo ?? 'Servicio directo'}${d.estado ? ` (${d.estado === 'finalizada' ? 'pagado' : 'en proceso'})` : ''}`, detalle });
+      // Solo los renglones casados a ESTE equipo (o todos si el servicio es de cabecera del equipo).
+      const propios = (d.items ?? []).filter((x) => x.equipo_id === equipo.id);
+      const lineas = propios.length ? propios : (d.equipo_id === equipo.id ? (d.items ?? []) : []);
+      if (!lineas.length) continue;
+      const detalle = lineas.map((x) => `${x.descripcion}${x.cantidad ? ` ×${fmtNum(x.cantidad)}` : ''}`).join(', ') || d.descripcion;
+      out.push({ fecha: d.finalizada_at ?? d.created_at, origen: 'Servicio', tipo: `${d.codigo ?? 'Servicio directo'} (${d.estado === 'finalizada' ? 'pagado' : 'en proceso'})`, detalle });
     }
     return out.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
   }, [bitacora, servicios, directos]);
