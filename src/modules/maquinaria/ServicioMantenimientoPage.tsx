@@ -38,6 +38,29 @@ const GRUPO_ICON: Record<string, string> = {
 /** Switch virtual para los equipos que aún no tienen grupo asignado en su ficha. */
 const SIN_GRUPO = '__sin_grupo__';
 
+/** Normaliza (sin acentos, minúsculas) para clasificar por el tipo del equipo. */
+const norm = (s: string) => (s ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+
+/**
+ * Grupo de mantenimiento DEDUCIDO del tipo del equipo cuando no tiene uno asignado
+ * a mano en su ficha:
+ *  · planta / generador / eléctrico        → PLANTAS ELÉCTRICAS
+ *  · vehículo / carro / camión / gandola…  → VEHÍCULOS DE CARGA
+ *  · todo lo demás (excavadora, cargador…) → FLOTA PESADA
+ */
+function grupoPorTipo(tipo: string | null | undefined): string {
+  const t = norm(tipo ?? '');
+  if (/planta|generador|electric/.test(t)) return 'PLANTAS ELÉCTRICAS';
+  if (/vehiculo|carro|camion|gandola|camioneta|pickup|\bauto|van\b|autobus|\bbus|encava|jeep|chuto|remolque|moto/.test(t)) return 'VEHÍCULOS DE CARGA';
+  return 'FLOTA PESADA';
+}
+
+/** Grupo efectivo de un equipo: el asignado a mano en la ficha o, si no, el deducido del tipo. */
+function grupoDeEquipo(e: { grupo_mantenimiento?: string | null; tipo?: string | null }): string {
+  const g = (e.grupo_mantenimiento ?? '').trim();
+  return GRUPOS_MANTENIMIENTO.includes(g as (typeof GRUPOS_MANTENIMIENTO)[number]) ? g : grupoPorTipo(e.tipo);
+}
+
 /**
  * HRS restantes hasta el próximo mantenimiento (cada N horas de horómetro):
  * restantes = N − (horómetro mod N). null si falta algún dato.
@@ -107,8 +130,9 @@ export function ServicioMantenimientoPage() {
     for (const g of GRUPOS_MANTENIMIENTO) m.set(g, []);
     const sinGrupoList: MaquinariaEquipo[] = [];
     for (const e of equipos) {
-      const g = (e.grupo_mantenimiento ?? '').trim();
-      if (g && m.has(g)) m.get(g)!.push(e);
+      // Grupo efectivo: el asignado a mano o el deducido del tipo del equipo.
+      const g = grupoDeEquipo(e);
+      if (m.has(g)) m.get(g)!.push(e);
       else sinGrupoList.push(e);
     }
     return { m, sinGrupoList, sinGrupo: sinGrupoList.length };
