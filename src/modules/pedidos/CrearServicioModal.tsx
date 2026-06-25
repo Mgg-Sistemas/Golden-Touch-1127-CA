@@ -73,14 +73,16 @@ export function CrearServicioModal({
     [equipos],
   );
 
-  async function addServicioItem() {
+  /** Construye el ítem desde el builder (valida y guarda el servicio nuevo en el
+   *  catálogo). Devuelve el ítem o null si falta algo. NO toca el estado. */
+  async function buildItem(): Promise<ItemOrden | null> {
     const nom = servicio.trim();
-    if (!nom) { toast('Elegí o escribí el servicio', 'error'); return; }
+    if (!nom) { toast('Elegí o escribí el servicio', 'error'); return null; }
     const cant = Number(String(cantidad).replace(',', '.')) || 0;
-    if (cant <= 0) { toast('La cantidad debe ser mayor a 0', 'error'); return; }
+    if (cant <= 0) { toast('La cantidad debe ser mayor a 0', 'error'); return null; }
     let equipoNombre: string | null = null;
     if (esMantenimiento) {
-      if (!equipoId) { toast('Seleccioná la máquina/vehículo del mantenimiento', 'error'); return; }
+      if (!equipoId) { toast('Seleccioná la máquina/vehículo del mantenimiento', 'error'); return null; }
       equipoNombre = equipos.find((e) => e.id === equipoId)?.equipo ?? null;
     }
     // Si el servicio no existe en el catálogo, lo guardamos para reutilizarlo.
@@ -92,15 +94,22 @@ export function CrearServicioModal({
     }
     const sku = `SRV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
     const nombreItem = equipoNombre ? `${nom} · ${equipoNombre}` : nom;
-    setItems((prev) => [...prev, {
+    return {
       sku, nombre: nombreItem, cantidad: cant, precio: 0, comprar: true,
       unidad: medida.trim() || undefined,
       es_servicio: true, categoria_servicio: categoria,
       equipo_id: esMantenimiento ? equipoId : null,
       equipo_nombre: equipoNombre,
-    }]);
+    };
+  }
+
+  async function addServicioItem(): Promise<boolean> {
+    const it = await buildItem();
+    if (!it) return false;
+    setItems((prev) => [...prev, it]);
     // Reset del builder (conserva la categoría para cargar varios del mismo tipo).
     setServicio(''); setEquipoId(''); setCantidad('1'); setMedida('');
+    return true;
   }
 
   function quitarItem(idx: number) {
@@ -108,7 +117,19 @@ export function CrearServicioModal({
   }
 
   async function handleSubmit() {
-    if (!items.length) { toast('Añadí al menos un servicio', 'error'); return; }
+    // Si no se tocó "+ Añadir" pero hay un servicio cargado en el builder, lo
+    // agregamos automáticamente para que "Crear solicitud" funcione igual.
+    let lista = items;
+    if (!lista.length) {
+      if (servicio.trim()) {
+        const it = await buildItem();
+        if (!it) return; // buildItem ya avisó qué falta
+        lista = [it];
+      } else {
+        toast('Añadí al menos un servicio', 'error');
+        return;
+      }
+    }
     const solicitanteFinal = (solicitanteRef.current?.value ?? nombreSolicitante).toUpperCase().trim();
     const unidad = unidadSolicitante.trim();
     setSubmitting(true);
@@ -121,7 +142,7 @@ export function CrearServicioModal({
       const saved = await crearOrden({
         tipo: 'servicio',
         proveedor_id: null,
-        items,
+        items: lista,
         notas: notas.trim() || null,
         motivo: null,
         finalidad: null,
@@ -152,7 +173,7 @@ export function CrearServicioModal({
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={submitting}>Cancelar</button>
-          <button className="btn btn-primary" onClick={() => void handleSubmit()} disabled={submitting || !items.length}>
+          <button className="btn btn-primary" onClick={() => void handleSubmit()} disabled={submitting || (!items.length && !servicio.trim())}>
             {submitting ? 'Creando…' : 'Crear solicitud'}
           </button>
         </>
