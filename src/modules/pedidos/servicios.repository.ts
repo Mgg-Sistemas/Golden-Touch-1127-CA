@@ -22,8 +22,11 @@ export const CATEGORIA_MANTENIMIENTO = 'MANTENIMIENTO';
  */
 export function esRecargaGas(...textos: Array<string | null | undefined>): boolean {
   const t = textos.filter(Boolean).join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  return /\b(gas|oxigeno|extintor)/.test(t);
+  return /(recarga|gas|oxigeno|extintor)/.test(t);
 }
+
+/** Tipos sugeridos para una recarga (gas / oxígeno / extintores). */
+export const TIPOS_RECARGA = ['Recarga de gas', 'Recarga de oxígeno', 'Recarga de extintores'] as const;
 
 export interface ServicioCatalogo {
   id: string;
