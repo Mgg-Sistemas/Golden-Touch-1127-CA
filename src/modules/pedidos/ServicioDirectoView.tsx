@@ -422,12 +422,8 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
                   placeholder={equipoOptions.length ? '🔍 Buscá el equipo / vehículo…' : '— sin equipos —'} emptyText="Sin equipos" />
                 <small className="muted">Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
               </div>
-              {esRecargaGas(l.categoria, l.tipo) ? (
-                <div className="form-row">
-                  <label>Cantidad de bombonas</label>
-                  <input className="input mono" name={`linea-bomb-${l.id}`} type="number" min={0} step="any" defaultValue={l.bombonas} onChange={(e) => set(l.id, { bombonas: e.target.value })} placeholder="Ej. 4" />
-                </div>
-              ) : (
+              {/* En recargas (gas / oxígeno / extintores) solo se piden Cantidad (bombonas) y KG, igual que en SS. */}
+              {!esRecargaGas(l.categoria, l.tipo) && (
                 <div className="form-row">
                   <label>Cantidad</label>
                   <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
@@ -435,10 +431,16 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
               )}
             </div>
             {esRecargaGas(l.categoria, l.tipo) && (
-              <div className="form-row">
-                <label>KG a recargar</label>
-                <input className="input mono" name={`linea-kg-${l.id}`} type="number" min={0} step="any" defaultValue={l.kg} onChange={(e) => set(l.id, { kg: e.target.value })} placeholder="Ej. 40" style={{ maxWidth: 220 }} />
-                <small className="muted">⛽ Recarga de gas / oxígeno / extintores.</small>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Cantidad de bombonas</label>
+                  <input className="input mono" name={`linea-bomb-${l.id}`} type="number" min={0} step="any" defaultValue={l.bombonas} onChange={(e) => set(l.id, { bombonas: e.target.value })} placeholder="Ej. 4" />
+                </div>
+                <div className="form-row">
+                  <label>KG a recargar</label>
+                  <input className="input mono" name={`linea-kg-${l.id}`} type="number" min={0} step="any" defaultValue={l.kg} onChange={(e) => set(l.id, { kg: e.target.value })} placeholder="Ej. 40" />
+                  <small className="muted">⛽ Recarga de gas / oxígeno / extintores.</small>
+                </div>
               </div>
             )}
           </div>
