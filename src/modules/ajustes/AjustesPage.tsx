@@ -6,6 +6,8 @@ import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import type { Usuario } from '@/shared/lib/types';
 import { labelRol } from '@/modules/usuarios/usuarios.repository';
+import { HuellaModal } from '@/modules/auth/HuellaModal';
+import { isWebAuthnSupported } from '@/modules/auth/webauthn.repository';
 import {
   getNotifPrefs,
   playNotificationPattern,
@@ -21,6 +23,7 @@ export function AjustesPage() {
   const navigate = useNavigate();
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [loading, setLoading] = useState(true);
+  const [huellaOpen, setHuellaOpen] = useState(false);
 
   // Perfil editable
   const [nombre, setNombre] = useState('');
@@ -297,9 +300,25 @@ export function AjustesPage() {
           <p className="muted" style={{ fontSize: '.85rem', marginBottom: '1rem' }}>
             Cambia tu clave de acceso al sistema. Vas a ser redirigido al login después de actualizarla.
           </p>
-          <button className="btn btn-ghost" onClick={handleCambiarClave}>
-            🔑 Cambiar mi clave
-          </button>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={handleCambiarClave}>
+              🔑 Cambiar mi clave
+            </button>
+            {isWebAuthnSupported() && (
+              <button
+                className="btn btn-ghost"
+                onClick={() => setHuellaOpen(true)}
+                title="Activar el ingreso con huella/biometría en este equipo"
+              >
+                🔒 Entrar con huella (este equipo)
+              </button>
+            )}
+          </div>
+          {isWebAuthnSupported() && (
+            <p className="muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>
+              La huella se activa por equipo: registrá la biometría de este dispositivo para entrar más rápido.
+            </p>
+          )}
         </div>
 
         {/* Preferencias de vista */}
@@ -358,6 +377,8 @@ export function AjustesPage() {
         </div>
 
       </div>
+
+      {huellaOpen && <HuellaModal onClose={() => setHuellaOpen(false)} />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -48,6 +48,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [crear, setCrear] = useState(false);
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
   const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
+  const [ver, setVer] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
     const [cs, pds, alms, cats, unis, cjs, provs] = await Promise.all([
@@ -110,7 +111,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
                   <CompraCard key={c.id} compra={c}
-                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} />
+                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} onVer={() => setVer(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -123,7 +124,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
             <thead><tr><th>Código</th><th>Material(es)</th><th>Proveedor</th><th>Almacén</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
             <tbody>
               {compras.map((c) => (
-                <tr key={c.id}>
+                <tr key={c.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setVer(c)} title="Ver detalle">
                   <td className="mono">{c.codigo ?? '—'}</td>
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : (c.producto_sku ? <span className="muted"> · {c.producto_sku}</span> : null)}</td>
                   <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
@@ -134,8 +135,9 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td>{c.actor_name || c.actor || '—'}</td>
                   <td className="muted">{dateTime(c.created_at)}</td>
                   <td className="muted">{c.finalizada_at ? dateTime(c.finalizada_at) : '—'}</td>
-                  <td className="actions" style={{ whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Descargar detalle en PDF">↓ PDF</button>
+                  <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setVer(c)} title="Ver detalle">👁 Ver</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Ver/descargar detalle en PDF">↓ PDF</button>
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑 Eliminar</button>}
                   </td>
@@ -156,6 +158,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
       )}
 
+      {ver && <CompraDetalleModal compra={ver} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)} />}
+
       {eliminar && (
         <ConfirmDialog
           title="Eliminar compra directa"
@@ -170,11 +174,11 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   );
 }
 
-function CompraCard({ compra, onFinalizar, onPdf, onEliminar }: {
-  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void; onEliminar: () => void;
+function CompraCard({ compra, onFinalizar, onPdf, onEliminar, onVer }: {
+  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void; onEliminar: () => void; onVer: () => void;
 }) {
   return (
-    <div className="card" style={{ margin: 0 }}>
+    <div className="card row-selectable" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver detalle">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
         <strong>{compra.producto_nombre}</strong>
         <span className="badge">{num(compra.cantidad)}</span>
@@ -193,13 +197,14 @@ function CompraCard({ compra, onFinalizar, onPdf, onEliminar }: {
         {compra.estado === 'finalizada' && <div>Comprada: {compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'}</div>}
       </div>
       {compra.estado === 'finalizada' && (
-        <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
+        <div style={{ fontSize: '.8rem', marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
           <div>Gasto: <strong className="mono">{compra.gasto != null ? money(compra.gasto) : '—'}</strong></div>
           <div className="muted"><AdjuntoLink compra={compra} /></div>
         </div>
       )}
-      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
-        <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Descargar detalle en PDF">↓ PDF</button>
+      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+        <button className="btn btn-sm btn-ghost" onClick={onVer} title="Ver detalle">👁 Ver</button>
+        <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
@@ -214,6 +219,70 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
     catch { toast('No se pudo abrir el adjunto', 'error'); }
   }
   return <button className="btn btn-sm btn-ghost" onClick={abrir} title={compra.adjunto_nombre ?? 'Adjunto'}>📎 PDF</button>;
+}
+
+/* ───────── Modal: detalle de la compra directa ───────── */
+
+function CompraDetalleModal({ compra, onClose, onPdf }: {
+  compra: CompraDirecta; onClose: () => void; onPdf: () => void;
+}) {
+  const total = compra.gasto != null ? Number(compra.gasto) : null;
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <button className="btn btn-primary" onClick={onPdf}>↓ PDF</button>
+    </>
+  );
+  const fila = (k: string, v: ReactNode) => (
+    <div className="detail-row"><div className="k">{k}</div><div className="v">{v}</div></div>
+  );
+  return (
+    <Modal title={`🛒 Compra Directa ${compra.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
+      {fila('Código', <span className="mono">{compra.codigo ?? '—'}</span>)}
+      {fila('Estado', compra.estado === 'finalizada' ? '🏁 Finalizada (ingresó a inventario)' : '⏳ En proceso')}
+      {fila('Proveedor', compra.proveedor_nombre || '—')}
+      {fila('Almacén destino', compra.almacen || '—')}
+      {fila('Generó', compra.actor_name || compra.actor || '—')}
+      {fila('Creada', dateTime(compra.created_at))}
+      {compra.estado === 'finalizada' && fila('Comprada', compra.finalizada_at ? dateTime(compra.finalizada_at) : '—')}
+      {fila('Gasto total', total != null ? money(total) : '—')}
+      {compra.adjunto_path && fila('Comprobante', <AdjuntoLink compra={compra} />)}
+
+      <div className="table-wrap" style={{ marginTop: '.6rem' }}>
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr>
+            <th>Material</th>
+            <th style={{ textAlign: 'right' }}>Cant.</th>
+            <th style={{ textAlign: 'right' }}>Costo unit.</th>
+            <th style={{ textAlign: 'right' }}>Precio</th>
+          </tr></thead>
+          <tbody>
+            {compra.items.map((it, i) => {
+              const cant = Number(it.cantidad) || 0;
+              const g = it.gasto != null ? Number(it.gasto) : null;
+              const cu = g != null && cant > 0 ? g / cant : null;
+              return (
+                <tr key={i}>
+                  <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{cu != null ? money(cu) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{g != null ? money(g) : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {total != null && (
+            <tfoot>
+              <tr>
+                <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>TOTAL</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(total)}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </Modal>
+  );
 }
 
 /* ───────── Modal: nueva compra (varios materiales) ───────── */

@@ -24,19 +24,16 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   doc.text(`GOLDEN TOUCH 1127 C.A. · ${fmt.dateTime(new Date().toISOString())}`, tx, y + 33);
   y += 60;
 
-  const cant = Number(compra.cantidad) || 0;
   const gasto = compra.gasto != null ? Number(compra.gasto) : null;
-  const costoUnit = gasto != null && cant > 0 ? gasto / cant : null;
+  const totalItems = compra.items.length;
 
   const ficha: Array<[string, string]> = [
     ['Código', compra.codigo || '—'],
-    ['Material', compra.producto_sku ? `${compra.producto_sku} — ${compra.producto_nombre}` : compra.producto_nombre],
     ['Proveedor', compra.proveedor_nombre || '—'],
     ['Almacén destino', compra.almacen || '—'],
-    ['Cantidad', fmt.num(cant)],
+    ['Materiales', `${totalItems} renglón(es)`],
     ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
-    ['Gasto', gasto != null ? fmt.money(gasto) : '—'],
-    ['Costo unitario', costoUnit != null ? fmt.money(costoUnit) : '—'],
+    ['Gasto total', gasto != null ? fmt.money(gasto) : '—'],
     ['Generó', compra.actor_name || compra.actor || '—'],
     ['Fecha de creación', fmt.dateTime(compra.created_at)],
     ['Fecha de compra', compra.finalizada_at ? fmt.dateTime(compra.finalizada_at) : '—'],
@@ -48,5 +45,35 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
     margin: MARGIN,
   });
-  previewPdf(doc, `compra-directa-${(compra.producto_sku ?? 'material')}-${compra.id.slice(0, 8)}.pdf`);
+
+  // Tabla de materiales: cantidad y precio (gasto + costo unitario) de cada renglón comprado.
+  const startY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+  const body = compra.items.map((it, i) => {
+    const cant = Number(it.cantidad) || 0;
+    const g = it.gasto != null ? Number(it.gasto) : null;
+    const cu = g != null && cant > 0 ? g / cant : null;
+    return [
+      String(i + 1),
+      it.producto_sku ? `${it.producto_nombre} · ${it.producto_sku}` : it.producto_nombre,
+      fmt.num(cant),
+      cu != null ? fmt.money(cu) : '—',
+      g != null ? fmt.money(g) : '—',
+    ];
+  });
+  autoTable(doc, {
+    startY: startY + 14,
+    head: [['#', 'Material', 'Cant.', 'Costo unit.', 'Precio']],
+    body,
+    foot: gasto != null ? [[{ content: 'TOTAL', colSpan: 4, styles: { halign: 'right' } }, fmt.money(gasto)]] : undefined,
+    styles: { fontSize: 9, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
+    headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
+    footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 24 },
+      2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+    },
+    margin: MARGIN,
+  });
+
+  previewPdf(doc, `compra-directa-${(compra.codigo ?? compra.producto_sku ?? 'material')}-${compra.id.slice(0, 8)}.pdf`);
 }
