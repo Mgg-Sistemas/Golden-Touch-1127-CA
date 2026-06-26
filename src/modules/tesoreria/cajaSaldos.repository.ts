@@ -170,6 +170,40 @@ export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: st
   return mov as { id: string };
 }
 
+/**
+ * REVIERTE un egreso de divisa: devuelve `monto` al saldo de (caja, cuenta, moneda)
+ * SIN recalcular la tasa promedio. El egreso (egresarDivisa) no altera la tasa, sólo
+ * baja el saldo; por eso sumar de vuelta el mismo monto restaura el estado exacto.
+ * Deja un movimiento 'ingreso' de auditoría (categoría 'reverso'). Se usa al REABRIR
+ * una compra/servicio directo finalizado para deshacer el pago.
+ */
+export async function revertirEgresoDivisa(input: {
+  cajaId: string; cuenta: CuentaCaja; moneda: string; monto: number;
+  concepto?: string | null; actor: string; actorName?: string | null;
+}): Promise<void> {
+  const monto = round2(input.monto);
+  if (monto <= 0) return;
+  const { data: actual } = await supabase
+    .from(SALDOS)
+    .select('saldo, tasa_prom')
+    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda)
+    .maybeSingle();
+  const saldoAntes = Number(actual?.saldo) || 0;
+  const saldoDespues = round2(saldoAntes + monto);
+  const tasaProm = input.moneda === 'Bs' ? 1 : (actual?.tasa_prom != null ? round4(Number(actual.tasa_prom)) : null);
+  const { error: upErr } = await supabase.from(SALDOS).upsert(
+    { caja_id: input.cajaId, cuenta: input.cuenta, moneda: input.moneda, saldo: saldoDespues, tasa_prom: tasaProm, updated_at: new Date().toISOString() },
+    { onConflict: 'caja_id,cuenta,moneda' },
+  );
+  if (upErr) throw upErr;
+  await supabase.from('movimientos_caja').insert({
+    caja_id: input.cajaId, tipo: 'ingreso', monto, moneda: input.moneda, cuenta: input.cuenta,
+    tasa_bs: input.moneda === 'Bs' ? null : (tasaProm ?? null), saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    motivo: input.concepto?.trim() || 'Reversión de egreso', categoria: 'reverso',
+    actor: input.actor, actor_name: input.actorName ?? null,
+  });
+}
+
 export interface TrasladoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
 
 /**

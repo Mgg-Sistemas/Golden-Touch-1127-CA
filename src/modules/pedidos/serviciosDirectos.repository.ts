@@ -8,8 +8,8 @@
    a un equipo de Control de Maquinaria para sincronizar su historial.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { egresarGastoCaja } from '@/modules/salidas/cajas.repository';
-import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
+import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
@@ -49,6 +49,8 @@ export interface ServicioDirecto {
   gasto: number | null;
   caja_id: string | null;
   caja_mov_id: string | null;
+  /** Desglose multimoneda del pago (para revertir exacto al reabrir). Null si fue caja simple. */
+  pago_legs: PagoLeg[] | null;
   adjunto_path: string | null;
   adjunto_nombre: string | null;
   actor: string | null;
@@ -257,9 +259,100 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
     .update({
       estado: 'finalizada', gasto: total, items,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
+      pago_legs: legs.length ? legs : null,
       adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', servicio.id);
   if (error) throw error;
+}
+
+/* ───────── Reabrir (revertir Tesorería) ───────── */
+
+/**
+ * Reabre un servicio directo FINALIZADO: deshace el egreso de la caja (devuelve el
+ * dinero a Tesorería) y lo deja EN PROCESO para editarlo y re-finalizarlo. No toca
+ * inventario (es un servicio). Reversión NO atómica (deuda conocida).
+ */
+export async function reabrirServicioDirecto(servicio: ServicioDirecto, actor: string, actorName?: string | null): Promise<void> {
+  if (servicio.estado !== 'finalizada') throw new Error('Solo se puede reabrir un servicio FINALIZADO.');
+
+  const concepto = `Reapertura ${servicio.codigo ?? servicio.descripcion}`;
+  const legs = Array.isArray(servicio.pago_legs) ? servicio.pago_legs.filter((l) => Number(l.monto) > 0) : [];
+  if (legs.length) {
+    for (const leg of legs) {
+      await revertirEgresoDivisa({
+        cajaId: servicio.caja_id!, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        concepto, actor, actorName: actorName ?? null,
+      });
+    }
+  } else if (servicio.caja_id && (servicio.gasto || 0) > 0) {
+    await ingresarDineroCaja({
+      cajaId: servicio.caja_id, monto: Number(servicio.gasto), concepto, categoria: 'reverso',
+      actor, actorName: actorName ?? null,
+    });
+  }
+
+  const { error } = await supabase
+    .from('servicios_directos')
+    .update({
+      estado: 'en_proceso', gasto: null, caja_id: null, caja_mov_id: null, pago_legs: null,
+      finalizada_at: null, updated_at: new Date().toISOString(),
+    })
+    .eq('id', servicio.id);
+  if (error) throw error;
+}
+
+/* ───────── Editar un servicio EN PROCESO (renglones / proveedor) ───────── */
+
+export interface EditarServicioDirectoInput {
+  servicio: ServicioDirecto;
+  lineas: LineaServicio[];
+  proveedorId?: string | null;
+  proveedorNombre?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/** Edita un servicio directo EN PROCESO: reemplaza renglones y proveedor. No toca caja. */
+export async function editarServicioDirectoEnProceso(input: EditarServicioDirectoInput): Promise<ServicioDirecto> {
+  if (input.servicio.estado !== 'en_proceso')
+    throw new Error('Solo se puede editar un servicio En proceso. Reabrí el servicio primero.');
+  const lineas = input.lineas
+    .map((l) => ({
+      categoria: (l.categoria ?? '').trim() || null,
+      descripcion: l.descripcion.trim(),
+      equipoId: l.equipoId ?? null,
+      equipoNombre: (l.equipoNombre ?? '').trim() || null,
+      cantidad: Number(l.cantidad) || 0,
+      bombonas: l.bombonas != null && Number(l.bombonas) > 0 ? Number(l.bombonas) : null,
+      kg_recarga: l.kg_recarga != null && Number(l.kg_recarga) > 0 ? Number(l.kg_recarga) : null,
+    }))
+    .filter((l) => l.descripcion && l.cantidad > 0);
+  if (!lineas.length) throw new Error('Agregá al menos un servicio con cantidad.');
+
+  const items: ServicioDirectoItem[] = lineas.map((l) => ({
+    categoria: l.categoria, descripcion: l.descripcion,
+    equipo_id: l.equipoId, equipo_nombre: l.equipoNombre, cantidad: l.cantidad,
+    bombonas: l.bombonas, kg_recarga: l.kg_recarga,
+  }));
+  const resumen = items.length === 1 ? items[0].descripcion : `${items.length} servicios`;
+  const conEquipo = lineas.find((l) => l.equipoId);
+
+  const { data, error } = await supabase
+    .from('servicios_directos')
+    .update({
+      descripcion: resumen,
+      items,
+      proveedor_id: input.proveedorId ?? null,
+      proveedor_nombre: input.proveedorNombre?.trim() || null,
+      equipo_id: conEquipo?.equipoId ?? null,
+      equipo_nombre: conEquipo?.equipoNombre ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.servicio.id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
 }

@@ -19,8 +19,10 @@ import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesore
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
   crearCompraDirecta, finalizarCompraDirecta, eliminarCompraDirecta, listComprasDirectas,
+  reabrirCompraDirecta, editarCompraDirectaEnProceso,
   urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
 } from './compras.repository';
+import { FacturasDirectas } from './FacturasDirectas';
 
 type Vista = 'kanban' | 'lista';
 
@@ -46,8 +48,11 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
   const [crear, setCrear] = useState(false);
+  const [editar, setEditar] = useState<CompraDirecta | null>(null);
   const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
   const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
+  const [reabrir, setReabrir] = useState<CompraDirecta | null>(null);
+  const [reabriendo, setReabriendo] = useState(false);
   const [ver, setVer] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
@@ -87,6 +92,19 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       setEliminar(null);
       await reload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar la compra directa', 'error'); }
+  }
+
+  async function confirmarReabrir() {
+    const c = reabrir;
+    if (!c) return;
+    setReabriendo(true);
+    try {
+      await reabrirCompraDirecta(c, actor, actorName);
+      notify(`Compra ${c.codigo ?? ''} reabierta · se devolvió el dinero y se revirtió el inventario`, 'success', { link: '#/app/pedidos' });
+      setReabrir(null); setVer(null);
+      await reload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir la compra', 'error'); }
+    finally { setReabriendo(false); }
   }
 
   return (
@@ -148,9 +166,10 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
         </div>
       )}
 
-      {crear && (
+      {(crear || editar) && (
         <CrearCompraModal productos={productos} almacenes={almacenes} categorias={categorias} unidades={unidades} proveedores={proveedores}
-          actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await reload(); }} />
+          editCompra={editar} actor={actor} actorName={actorName}
+          onClose={() => { setCrear(false); setEditar(null); }} onSaved={async () => { setCrear(false); setEditar(null); await reload(); }} />
       )}
 
       {finalizar && (
@@ -158,7 +177,10 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
       )}
 
-      {ver && <CompraDetalleModal compra={ver} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)} />}
+      {ver && (
+        <CompraDetalleModal compra={ver} actor={actor} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)}
+          onReabrir={() => setReabrir(ver)} onEditar={() => { setEditar(ver); setVer(null); }} />
+      )}
 
       {eliminar && (
         <ConfirmDialog
@@ -168,6 +190,16 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           danger
           onConfirm={confirmarEliminar}
           onCancel={() => setEliminar(null)}
+        />
+      )}
+
+      {reabrir && (
+        <ConfirmDialog
+          title="Reabrir compra directa"
+          message={`¿Reabrir ${reabrir.codigo ?? 'la compra'}? Se devolverá ${reabrir.gasto != null ? money(reabrir.gasto) : 'el dinero'} a la caja y se revertirá la entrada al inventario. Quedará En proceso para editarla.`}
+          confirmText={reabriendo ? 'Reabriendo…' : 'Reabrir'}
+          onConfirm={confirmarReabrir}
+          onCancel={() => setReabrir(null)}
         />
       )}
     </div>
@@ -223,13 +255,15 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
 
 /* ───────── Modal: detalle de la compra directa ───────── */
 
-function CompraDetalleModal({ compra, onClose, onPdf }: {
-  compra: CompraDirecta; onClose: () => void; onPdf: () => void;
+function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar }: {
+  compra: CompraDirecta; actor: string; onClose: () => void; onPdf: () => void; onReabrir: () => void; onEditar: () => void;
 }) {
   const total = compra.gasto != null ? Number(compra.gasto) : null;
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      {compra.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={onEditar} title="Editar materiales / proveedor">✏ Editar</button>}
+      {compra.estado === 'finalizada' && <button className="btn btn-ghost" style={{ color: 'var(--warning)' }} onClick={onReabrir} title="Reabrir para editar (revierte caja e inventario)">↺ Reabrir</button>}
       <button className="btn btn-primary" onClick={onPdf}>↓ PDF</button>
     </>
   );
@@ -281,6 +315,8 @@ function CompraDetalleModal({ compra, onClose, onPdf }: {
           )}
         </table>
       </div>
+
+      <FacturasDirectas modulo="compra" refId={compra.id} actor={actor} />
     </Modal>
   );
 }
@@ -289,10 +325,11 @@ function CompraDetalleModal({ compra, onClose, onPdf }: {
 
 interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
 
-function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedores, actor, actorName, onClose, onSaved }: {
+function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedores, editCompra, actor, actorName, onClose, onSaved }: {
   productos: Producto[]; almacenes: string[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
-  actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+  editCompra?: CompraDirecta | null; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  const esEdicion = !!editCompra;
   const alms = almacenes.length ? almacenes : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const provActivos = useMemo(() => proveedores.filter((p) => p.estado === 'activo'), [proveedores]);
@@ -305,14 +342,22 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
     nombre: '', categoria: cats[0] ?? '', unidad: activos[0]?.unidad || unis[0] || 'und', cantidad: '1',
   });
-  const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
-  const [almacen, setAlmacen] = useState(alms[0]);
+  // Al editar: precarga los renglones existentes de la compra (todos materiales del inventario).
+  const lineasIniciales = (): LineaUI[] => {
+    if (!editCompra || !editCompra.items.length) return [nuevaLinea(1)];
+    return editCompra.items.map((it, i) => {
+      const p = productos.find((x) => x.id === it.producto_id) ?? null;
+      return { id: i + 1, modo: 'existente' as const, productoId: it.producto_id, nombre: '', categoria: cats[0] ?? '', unidad: p?.unidad || unis[0] || 'und', cantidad: String(it.cantidad) };
+    });
+  };
+  const [lineas, setLineas] = useState<LineaUI[]>(lineasIniciales);
+  const [almacen, setAlmacen] = useState(editCompra?.almacen || alms[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [seq, setSeq] = useState(2);
+  const [seq, setSeq] = useState((editCompra?.items.length ?? 1) + 1);
 
   // Proveedor (opcional): se elige del directorio o se da de alta en el momento.
-  const [proveedorId, setProveedorId] = useState('');
+  const [proveedorId, setProveedorId] = useState(editCompra?.proveedor_id ?? '');
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
   const [provRazon, setProvRazon] = useState('');
   const [provRif, setProvRif] = useState('J-');
@@ -411,8 +456,13 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
         proveedorIdFinal = proveedorId;
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
-      const creada = await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName }, productos);
-      notify(`Compra directa ${creada.codigo ?? ''} creada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
+      if (esEdicion && editCompra) {
+        const edit = await editarCompraDirectaEnProceso({ compra: editCompra, lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName }, productos);
+        notify(`Compra directa ${edit.codigo ?? ''} actualizada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
+      } else {
+        const creada = await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName }, productos);
+        notify(`Compra directa ${creada.codigo ?? ''} creada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
+      }
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear la compra directa.'); setSaving(false); }
   }
@@ -420,12 +470,12 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cd-form" className="btn btn-primary" disabled={saving}>{saving ? 'Creando…' : 'Crear compra directa'}</button>
+      <button type="submit" form="cd-form" className="btn btn-primary" disabled={saving}>{saving ? (esEdicion ? 'Guardando…' : 'Creando…') : (esEdicion ? 'Guardar cambios' : 'Crear compra directa')}</button>
     </>
   );
 
   return (
-    <Modal title="Nueva compra directa" size="lg" onClose={onClose} footer={footer}>
+    <Modal title={esEdicion ? `Editar compra directa ${editCompra?.codigo ?? ''}` : 'Nueva compra directa'} size="lg" onClose={onClose} footer={footer}>
       <form id="cd-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 

@@ -10,8 +10,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import { createProducto, nextSku, updateProducto } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { egresarGastoCaja } from '@/modules/salidas/cajas.repository';
-import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
+import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Producto, CuentaCaja } from '@/shared/lib/types';
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
@@ -47,6 +47,8 @@ export interface CompraDirecta {
   gasto: number | null;
   caja_id: string | null;
   caja_mov_id: string | null;
+  /** Desglose multimoneda del pago (para revertir exacto al reabrir). Null si fue caja simple. */
+  pago_legs: PagoLeg[] | null;
   adjunto_path: string | null;
   adjunto_nombre: string | null;
   mov_id: string | null;
@@ -298,10 +300,140 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     .update({
       estado: 'finalizada', gasto: total, items,
       caja_id: input.cajaId, caja_mov_id: movCajaId,
+      pago_legs: legs.length ? legs : null,
       adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre,
       mov_id: primerMov,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
   if (error) throw error;
+}
+
+/* ───────── Reabrir (revertir Tesorería + Inventario) ───────── */
+
+/**
+ * Reabre una compra directa FINALIZADA para poder editarla: deshace el egreso de la
+ * caja (devuelve el dinero a Tesorería) y revierte la ENTRADA de cada material al
+ * inventario (saca lo que había entrado), y la deja EN PROCESO. Luego puede editarse
+ * y re-finalizarse normalmente (vuelve a descontar caja + dar entrada).
+ *
+ * ⚠ Reversión NO atómica (deuda conocida, ver movimientos.repository): si algo falla
+ * a mitad puede quedar un estado parcial. El inventario se clampa a ≥ 0.
+ */
+export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string, actorName?: string | null): Promise<void> {
+  if (compra.estado !== 'finalizada') throw new Error('Solo se puede reabrir una compra FINALIZADA.');
+
+  // 1) Devolver el dinero a la caja (revertir el egreso de Tesorería).
+  const concepto = `Reapertura ${compra.codigo ?? ''} · ${compra.producto_nombre}`.trim();
+  const legs = Array.isArray(compra.pago_legs) ? compra.pago_legs.filter((l) => Number(l.monto) > 0) : [];
+  if (legs.length) {
+    for (const leg of legs) {
+      await revertirEgresoDivisa({
+        cajaId: compra.caja_id!, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        concepto, actor, actorName: actorName ?? null,
+      });
+    }
+  } else if (compra.caja_id && (compra.gasto || 0) > 0) {
+    await ingresarDineroCaja({
+      cajaId: compra.caja_id, monto: Number(compra.gasto), concepto, categoria: 'reverso',
+      actor, actorName: actorName ?? null,
+    });
+  }
+
+  // 2) Revertir la entrada al inventario de cada material (salida por la misma cantidad).
+  for (const it of compra.items) {
+    const cantidad = Number(it.cantidad) || 0;
+    if (cantidad <= 0 || !it.producto_id) continue;
+    await registrarMovimiento({
+      producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.almacen,
+      actor, actor_name: actorName ?? null,
+      ref_tipo: 'compra_directa_reapertura', ref_id: compra.id,
+      detalle: `Reapertura compra directa · ${it.producto_nombre}`,
+    });
+  }
+
+  // 3) Volver a EN PROCESO (limpia pago/inventario; conserva ítems y proveedor para editar).
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({
+      estado: 'en_proceso', gasto: null, caja_id: null, caja_mov_id: null, pago_legs: null,
+      mov_id: null, finalizada_at: null, updated_at: new Date().toISOString(),
+    })
+    .eq('id', compra.id);
+  if (error) throw error;
+}
+
+/* ───────── Editar una compra EN PROCESO (ítems / proveedor / almacén) ───────── */
+
+export interface EditarCompraInput {
+  compra: CompraDirecta;
+  lineas: LineaCompra[];
+  almacen: string;
+  proveedorId?: string | null;
+  proveedorNombre?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Edita una compra directa EN PROCESO: reemplaza sus materiales/cantidades, almacén y
+ * proveedor. No toca caja ni inventario (todavía no se finalizó). Los materiales nuevos
+ * se dan de alta en inventario. Las FINALIZADAS deben reabrirse primero.
+ */
+export async function editarCompraDirectaEnProceso(
+  input: EditarCompraInput,
+  productosExistentes: Producto[] = [],
+): Promise<CompraDirecta> {
+  if (input.compra.estado !== 'en_proceso')
+    throw new Error('Solo se puede editar una compra En proceso. Reabrí la compra primero.');
+  const almacen = input.almacen.trim() || 'General';
+  const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0);
+  if (!lineas.length) throw new Error('Agregá al menos un material con cantidad.');
+
+  const items: CompraDirectaItem[] = [];
+  for (const l of lineas) {
+    const cantidad = Number(l.cantidad) || 0;
+    if (l.modo === 'existente') {
+      if (!l.productoId) throw new Error('Elegí el material en cada renglón.');
+      const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
+      const nuevaUnidad = (l.unidad ?? '').trim();
+      if (p && nuevaUnidad && nuevaUnidad !== (p.unidad ?? '')) {
+        await updateProducto(p.id, { unidad: nuevaUnidad });
+        p.unidad = nuevaUnidad;
+      }
+      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
+    } else {
+      const nom = l.nombre.trim().toUpperCase();
+      if (!nom) throw new Error('Indicá el nombre del material nuevo.');
+      const nuevo = await createProducto({
+        sku: await nextSku(l.categoria, productosExistentes),
+        nombre: nom, categoria: l.categoria, unidad: l.unidad,
+        stock: 0, stock_min: 0, precio: 0, almacen, estado: 'activo',
+      });
+      productosExistentes = [...productosExistentes, nuevo];
+      items.push({ producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad });
+    }
+  }
+
+  const totalCantidad = items.reduce((a, i) => a + i.cantidad, 0);
+  const resumen = items.length === 1 ? items[0].producto_nombre : `${items.length} materiales`;
+
+  const { data, error } = await supabase
+    .from('compras_directas')
+    .update({
+      producto_id: items.length === 1 ? items[0].producto_id : null,
+      producto_nombre: resumen,
+      producto_sku: items.length === 1 ? items[0].producto_sku : null,
+      almacen,
+      cantidad: totalCantidad,
+      items,
+      proveedor_id: input.proveedorId ?? null,
+      proveedor_nombre: input.proveedorNombre?.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.compra.id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
 }

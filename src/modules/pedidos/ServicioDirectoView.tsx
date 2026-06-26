@@ -19,9 +19,11 @@ import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesore
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
   crearServicioDirecto, finalizarServicioDirecto, eliminarServicioDirecto, listServiciosDirectos,
+  reabrirServicioDirecto, editarServicioDirectoEnProceso,
   urlAdjuntoServicio, type ServicioDirecto, type ServicioDirectoItem, type LineaServicio, type PagoLeg,
 } from './serviciosDirectos.repository';
 import { descargarServicioDirectoPdf } from './servicioDirectoPdf';
+import { FacturasDirectas } from './FacturasDirectas';
 
 type Vista = 'kanban' | 'lista';
 
@@ -44,8 +46,11 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   const [loading, setLoading] = useState(true);
   const [vista, setVista] = useState<Vista>('kanban');
   const [crear, setCrear] = useState(false);
+  const [editar, setEditar] = useState<ServicioDirecto | null>(null);
   const [finalizar, setFinalizar] = useState<ServicioDirecto | null>(null);
   const [eliminar, setEliminar] = useState<ServicioDirecto | null>(null);
+  const [reabrir, setReabrir] = useState<ServicioDirecto | null>(null);
+  const [reabriendo, setReabriendo] = useState(false);
   const [ver, setVer] = useState<ServicioDirecto | null>(null);
 
   const reload = useCallback(async () => {
@@ -84,6 +89,19 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
       setEliminar(null);
       await reload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar el servicio directo', 'error'); }
+  }
+
+  async function confirmarReabrir() {
+    const s = reabrir;
+    if (!s) return;
+    setReabriendo(true);
+    try {
+      await reabrirServicioDirecto(s, actor, actorName);
+      notify(`Servicio ${s.codigo ?? ''} reabierto · se devolvió el dinero a la caja`, 'success', { link: '#/app/pedidos' });
+      setReabrir(null); setVer(null);
+      await reload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir el servicio', 'error'); }
+    finally { setReabriendo(false); }
   }
 
   return (
@@ -144,9 +162,9 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
         </div>
       )}
 
-      {crear && (
-        <CrearServicioModal proveedores={proveedores} equipos={equipos}
-          actor={actor} actorName={actorName} onClose={() => setCrear(false)} onSaved={async () => { setCrear(false); await reload(); }} />
+      {(crear || editar) && (
+        <CrearServicioModal proveedores={proveedores} equipos={equipos} editServicio={editar}
+          actor={actor} actorName={actorName} onClose={() => { setCrear(false); setEditar(null); }} onSaved={async () => { setCrear(false); setEditar(null); await reload(); }} />
       )}
 
       {finalizar && (
@@ -154,7 +172,10 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
       )}
 
-      {ver && <ServicioDetalleModal servicio={ver} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)} />}
+      {ver && (
+        <ServicioDetalleModal servicio={ver} actor={actor} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)}
+          onReabrir={() => setReabrir(ver)} onEditar={() => { setEditar(ver); setVer(null); }} />
+      )}
 
       {eliminar && (
         <ConfirmDialog
@@ -164,6 +185,16 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
           danger
           onConfirm={confirmarEliminar}
           onCancel={() => setEliminar(null)}
+        />
+      )}
+
+      {reabrir && (
+        <ConfirmDialog
+          title="Reabrir servicio directo"
+          message={`¿Reabrir ${reabrir.codigo ?? 'el servicio'}? Se devolverá ${reabrir.gasto != null ? money(reabrir.gasto) : 'el dinero'} a la caja. Quedará En proceso para editarlo.`}
+          confirmText={reabriendo ? 'Reabriendo…' : 'Reabrir'}
+          onConfirm={confirmarReabrir}
+          onCancel={() => setReabrir(null)}
         />
       )}
     </div>
@@ -219,12 +250,14 @@ function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
 
 /* ───────── Modal: detalle del servicio directo ───────── */
 
-function ServicioDetalleModal({ servicio, onClose, onPdf }: {
-  servicio: ServicioDirecto; onClose: () => void; onPdf: () => void;
+function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEditar }: {
+  servicio: ServicioDirecto; actor: string; onClose: () => void; onPdf: () => void; onReabrir: () => void; onEditar: () => void;
 }) {
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      {servicio.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={onEditar} title="Editar servicios / proveedor">✏ Editar</button>}
+      {servicio.estado === 'finalizada' && <button className="btn btn-ghost" style={{ color: 'var(--warning)' }} onClick={onReabrir} title="Reabrir para editar (devuelve el dinero a la caja)">↺ Reabrir</button>}
       <button className="btn btn-primary" onClick={onPdf}>↓ PDF</button>
     </>
   );
@@ -264,6 +297,8 @@ function ServicioDetalleModal({ servicio, onClose, onPdf }: {
           </tbody>
         </table>
       </div>
+
+      <FacturasDirectas modulo="servicio" refId={servicio.id} actor={actor} />
     </Modal>
   );
 }
@@ -272,10 +307,11 @@ function ServicioDetalleModal({ servicio, onClose, onPdf }: {
 
 interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string }
 
-function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, onSaved }: {
-  proveedores: Proveedor[]; equipos: MaquinariaEquipo[];
+function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorName, onClose, onSaved }: {
+  proveedores: Proveedor[]; equipos: MaquinariaEquipo[]; editServicio?: ServicioDirecto | null;
   actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  const esEdicion = !!editServicio;
   const provActivos = useMemo(() => proveedores.filter((p) => p.estado === 'activo'), [proveedores]);
   const equiposActivos = useMemo(() => equipos.filter((e) => e.activo), [equipos]);
   const equipoOptions = useMemo(
@@ -302,13 +338,21 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
   };
 
   const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '' });
-  const [lineas, setLineas] = useState<LineaUI[]>([nuevaLinea(1)]);
-  const [seq, setSeq] = useState(2);
+  // Al editar: precarga los renglones existentes del servicio.
+  const lineasIniciales = (): LineaUI[] => {
+    if (!editServicio || !editServicio.items.length) return [nuevaLinea(1)];
+    return editServicio.items.map((it, i) => ({
+      id: i + 1, categoria: it.categoria ?? '', tipo: it.descripcion ?? '', equipoId: it.equipo_id ?? '',
+      cantidad: String(it.cantidad ?? 1), bombonas: it.bombonas != null ? String(it.bombonas) : '', kg: it.kg_recarga != null ? String(it.kg_recarga) : '',
+    }));
+  };
+  const [lineas, setLineas] = useState<LineaUI[]>(lineasIniciales);
+  const [seq, setSeq] = useState((editServicio?.items.length ?? 1) + 1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Proveedor (opcional): directorio + alta en línea.
-  const [proveedorId, setProveedorId] = useState('');
+  const [proveedorId, setProveedorId] = useState(editServicio?.proveedor_id ?? '');
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
   const [provRazon, setProvRazon] = useState('');
   const [provRif, setProvRif] = useState('J-');
@@ -372,10 +416,15 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
         proveedorIdFinal = proveedorId;
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
-      const creado = await crearServicioDirecto({
-        lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName,
-      });
-      notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
+      if (esEdicion && editServicio) {
+        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName });
+        notify(`Servicio directo ${edit.codigo ?? ''} actualizado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
+      } else {
+        const creado = await crearServicioDirecto({
+          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName,
+        });
+        notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
+      }
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo crear el servicio directo.'); setSaving(false); }
   }
@@ -383,12 +432,12 @@ function CrearServicioModal({ proveedores, equipos, actor, actorName, onClose, o
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="sd-form" className="btn btn-primary" disabled={saving}>{saving ? 'Creando…' : 'Crear servicio directo'}</button>
+      <button type="submit" form="sd-form" className="btn btn-primary" disabled={saving}>{saving ? (esEdicion ? 'Guardando…' : 'Creando…') : (esEdicion ? 'Guardar cambios' : 'Crear servicio directo')}</button>
     </>
   );
 
   return (
-    <Modal title="Nuevo servicio directo" size="lg" onClose={onClose} footer={footer}>
+    <Modal title={esEdicion ? `Editar servicio directo ${editServicio?.codigo ?? ''}` : 'Nuevo servicio directo'} size="lg" onClose={onClose} footer={footer}>
       <form id="sd-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
