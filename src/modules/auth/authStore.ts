@@ -9,6 +9,7 @@ export interface AppUser {
   id: string;
   email: string;
   nombre: string;
+  apellido?: string | null;
   role: Role;
   ci?: string | null;
 }
@@ -69,7 +70,7 @@ export async function signOutLocal() {
 export async function getAppUser(user: User): Promise<AppUser | null> {
   const { data, error } = await supabase
     .from('usuarios')
-    .select('id, email, nombre, role, ci')
+    .select('id, email, nombre, apellido, role, ci')
     .eq('id', user.id)
     .single();
 

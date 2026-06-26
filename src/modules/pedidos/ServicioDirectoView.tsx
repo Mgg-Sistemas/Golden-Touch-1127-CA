@@ -174,7 +174,7 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
   servicio: ServicioDirecto; onFinalizar: () => void; onEliminar: () => void; onPdf: () => void; onVer: () => void;
 }) {
   return (
-    <div className="card" style={{ margin: 0 }}>
+    <div className="card row-selectable" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver detalle">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
         <strong>{servicio.descripcion}</strong>
         <span className="badge">🔧</span>
@@ -193,12 +193,12 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
         {servicio.estado === 'finalizada' && <div>Pagado: {servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—'}</div>}
       </div>
       {servicio.estado === 'finalizada' && (
-        <div style={{ fontSize: '.8rem', marginTop: '.4rem' }}>
+        <div style={{ fontSize: '.8rem', marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
           <div>Monto: <strong className="mono">{servicio.gasto != null ? money(servicio.gasto) : '—'}</strong></div>
           <div className="muted"><AdjuntoLink servicio={servicio} /></div>
         </div>
       )}
-      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-sm btn-ghost" onClick={onVer} title="Ver detalle">👁 Ver</button>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
