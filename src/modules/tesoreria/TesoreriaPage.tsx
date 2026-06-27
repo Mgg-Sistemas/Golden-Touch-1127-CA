@@ -36,6 +36,7 @@ import {
   registrarGasto, disponibilidadFinanciera, listLibroMayor, ultimoCorrelativo,
   type Disponibilidad,
 } from './tesoreria.repository';
+import { esMovimientoEditable, editarMovimientoCajaManual, eliminarMovimientoCajaManual } from '@/modules/salidas/cajas.repository';
 import {
   listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
   type Contraparte, type TipoContraparte,
@@ -531,7 +532,7 @@ export function TesoreriaPage() {
       </>
       )}
 
-      {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={actor} onClose={() => setMovSel(null)} />}
+      {movSel && <MovimientoDetalleModal mov={movSel} defaultEmail={actor} onClose={() => setMovSel(null)} onChanged={() => { void reload(); }} />}
       {lmDetalleMoneda && (
         <LibroMayorDetalleModal
           moneda={lmDetalleMoneda}
@@ -571,7 +572,7 @@ export function TesoreriaPage() {
 
 /* ───────────── Detalle de un movimiento del registro ───────────── */
 
-function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: MovimientoCaja; defaultEmail: string; onClose: () => void }) {
+function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov: MovimientoCaja; defaultEmail: string; onClose: () => void; onChanged?: () => void }) {
   const egreso = mov.tipo === 'salida' || mov.tipo === 'traslado_salida'
     || (mov.tipo === 'ajuste' && Number(mov.saldo_despues) < Number(mov.saldo_antes));
   const [orden, setOrden] = useState<Orden | null>(null);
@@ -581,6 +582,53 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: Movimient
   const [abriendo, setAbriendo] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
+
+  // ── Editar / borrar movimiento MANUAL (gasto / ingreso / ajuste) ──
+  const editable = esMovimientoEditable(mov);
+  const [editando, setEditando] = useState(false);
+  const [confirmBorrar, setConfirmBorrar] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [errEdit, setErrEdit] = useState<string | null>(null);
+  const [catsEdit, setCatsEdit] = useState<CategoriaGasto[]>([]);
+  const [eMonto, setEMonto] = useState(String(mov.monto ?? ''));
+  const [eMotivo, setEMotivo] = useState(mov.motivo ?? '');
+  const [eFecha, setEFecha] = useState((mov.at ?? '').slice(0, 16));
+  const [eCatId, setECatId] = useState('');
+  const [eSubId, setESubId] = useState('');
+  useEffect(() => {
+    if (!editable) return;
+    listCategoriasGasto(true).then((rows) => {
+      setCatsEdit(rows);
+      const cat = soloCategorias(rows).find((c) => c.nombre === mov.gasto_categoria);
+      if (cat) {
+        setECatId(cat.id);
+        const sub = subcategoriasDe(rows, cat.id).find((c) => c.nombre === mov.gasto_subcategoria);
+        if (sub) setESubId(sub.id);
+      }
+    }).catch(() => setCatsEdit([]));
+  }, [editable, mov.gasto_categoria, mov.gasto_subcategoria]);
+
+  async function guardarEdicion() {
+    setErrEdit(null); setSavingEdit(true);
+    try {
+      await editarMovimientoCajaManual({
+        mov, monto: Number(eMonto) || 0, motivo: eMotivo,
+        gastoCategoria: catsEdit.find((c) => c.id === eCatId)?.nombre ?? null,
+        gastoSubcategoria: catsEdit.find((c) => c.id === eSubId)?.nombre ?? null,
+        fecha: eFecha ? new Date(eFecha).toISOString() : null,
+      });
+      toast('Movimiento actualizado · saldo sincronizado', 'success');
+      onChanged?.(); onClose();
+    } catch (e) { setErrEdit(e instanceof Error ? e.message : 'No se pudo editar el movimiento'); setSavingEdit(false); }
+  }
+  async function borrarMov() {
+    setSavingEdit(true);
+    try {
+      await eliminarMovimientoCajaManual(mov);
+      toast('Movimiento borrado · saldo sincronizado', 'success');
+      onChanged?.(); onClose();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar el movimiento', 'error'); setSavingEdit(false); setConfirmBorrar(false); }
+  }
 
   // Si el movimiento es un pago de compra (pago_oc), traemos la OC para mostrar
   // seriales de billetes, comprobante y datos de la orden pagada.
@@ -632,14 +680,69 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose }: { mov: Movimient
 
   return (
     <Modal title="Detalle del movimiento" size="lg" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
-          {generandoPdf ? 'Generando…' : '↓ PDF'}
-        </button>
-        <button className="btn btn-ghost" onClick={() => setCorreoOpen(true)} disabled={cargandoOrden}>✉ Enviar por correo</button>
-        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
-      </>
+      editando ? (
+        <>
+          <button className="btn btn-ghost" onClick={() => setEditando(false)} disabled={savingEdit}>Cancelar</button>
+          <button className="btn btn-primary" onClick={guardarEdicion} disabled={savingEdit}>{savingEdit ? 'Guardando…' : '💾 Guardar'}</button>
+        </>
+      ) : (
+        <>
+          {editable && <button className="btn btn-ghost" onClick={() => setEditando(true)} title="Editar este movimiento manual">✏ Editar</button>}
+          {editable && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmBorrar(true)} title="Borrar este movimiento manual">🗑 Borrar</button>}
+          <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
+            {generandoPdf ? 'Generando…' : '↓ PDF'}
+          </button>
+          <button className="btn btn-ghost" onClick={() => setCorreoOpen(true)} disabled={cargandoOrden}>✉ Enviar por correo</button>
+          <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+        </>
+      )
     }>
+      {confirmBorrar && (
+        <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>
+          <strong>¿Borrar este movimiento?</strong> Se revertirá su efecto en el saldo de la caja. No se puede deshacer.
+          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem' }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => setConfirmBorrar(false)} disabled={savingEdit}>Cancelar</button>
+            <button className="btn btn-sm btn-primary" style={{ background: 'var(--danger)' }} onClick={borrarMov} disabled={savingEdit}>{savingEdit ? 'Borrando…' : 'Sí, borrar'}</button>
+          </div>
+        </div>
+      )}
+
+      {editando && (
+        <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+          <div className="card-title" style={{ marginBottom: '.5rem' }}>✏ Editar movimiento{mov.tipo === 'ajuste' ? ' (ajuste · el monto no se edita)' : ''}</div>
+          {errEdit && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {errEdit}</div>}
+          {mov.tipo !== 'ajuste' && (
+            <div className="form-row">
+              <label>Monto ({mov.moneda})</label>
+              <input className="input mono" type="number" min={0} step="any" value={eMonto} onChange={(e) => setEMonto(e.target.value)} />
+              <small className="muted">Si cambia, el saldo de la caja se ajusta por la diferencia (sincroniza).</small>
+            </div>
+          )}
+          <div className="form-row">
+            <label>Concepto / motivo</label>
+            <input className="input" value={eMotivo} onChange={(e) => setEMotivo(e.target.value)} placeholder="Concepto del movimiento" />
+          </div>
+          {catsEdit.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
+              <div className="form-row">
+                <label>Categoría de gasto</label>
+                <SearchSelect value={eCatId} onChange={(v) => { setECatId(v); setESubId(''); }} placeholder="🔍 Categoría…" emptyText="Sin categorías"
+                  options={soloCategorias(catsEdit).map((c) => ({ value: c.id, label: c.nombre }))} />
+              </div>
+              <div className="form-row">
+                <label>Subcategoría</label>
+                <SearchSelect value={eSubId} onChange={setESubId} disabled={!eCatId} placeholder={eCatId ? '🔍 Subcategoría…' : '— elegí la categoría —'} emptyText="Sin subcategorías"
+                  options={(eCatId ? subcategoriasDe(catsEdit, eCatId) : []).map((c) => ({ value: c.id, label: c.nombre }))} />
+              </div>
+            </div>
+          )}
+          <div className="form-row">
+            <label>Fecha y hora</label>
+            <input className="input" type="datetime-local" value={eFecha} onChange={(e) => setEFecha(e.target.value)} />
+          </div>
+        </div>
+      )}
+
       {/* Datos generales del movimiento */}
       <div className="card" style={{ marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.4rem' }}>Movimiento</div>
