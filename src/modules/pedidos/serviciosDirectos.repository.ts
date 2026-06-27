@@ -17,7 +17,7 @@ export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
 
 const BUCKET = 'servicios-directos';
 
-export type EstadoServicioDirecto = 'en_proceso' | 'finalizada';
+export type EstadoServicioDirecto = 'en_proceso' | 'por_pagar' | 'finalizada';
 
 export interface ServicioDirectoItem {
   /** Categoría del servicio (ej. MANTENIMIENTO DE VEHÍCULOS). */
@@ -53,6 +53,12 @@ export interface ServicioDirecto {
   pago_legs: PagoLeg[] | null;
   adjunto_path: string | null;
   adjunto_nombre: string | null;
+  gasto_categoria: string | null;
+  gasto_subcategoria: string | null;
+  pagada_at: string | null;
+  pagada_por: string | null;
+  pagada_por_name: string | null;
+  enviada_pagar_at: string | null;
   actor: string | null;
   actor_name: string | null;
   created_at: string;
@@ -261,6 +267,101 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
       caja_id: input.cajaId, caja_mov_id: movCajaId,
       pago_legs: legs.length ? legs : null,
       adjunto_path: adjuntoPath, adjunto_nombre: adjuntoNombre,
+      finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    .eq('id', servicio.id);
+  if (error) throw error;
+}
+
+/* ───────── NUEVO FLUJO: montar (Por pagar) → Tesorería paga (Finalizada) ───────── */
+
+export interface EnviarServicioAPagarInput {
+  servicio: ServicioDirecto;
+  /** Servicios con su monto ya cargado por el analista. */
+  items: ServicioDirectoItem[];
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * El analista MONTA el servicio con la factura y los montos y lo deja "Por pagar":
+ * fija los montos por renglón y el total, y pasa a estado `por_pagar`. NO mueve caja
+ * (eso lo hace Tesorería al pagar). La factura se sube aparte (adjuntos).
+ */
+export async function enviarServicioAPagar(input: EnviarServicioAPagarInput): Promise<void> {
+  const { servicio } = input;
+  if (servicio.estado === 'finalizada') throw new Error('Este servicio ya fue pagado.');
+  const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
+  if (!items.length) throw new Error('El servicio no tiene renglones.');
+  const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  if (total <= 0) throw new Error('Cargá los montos del servicio.');
+
+  const { error } = await supabase
+    .from('servicios_directos')
+    .update({
+      estado: 'por_pagar', gasto: total, items,
+      enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    .eq('id', servicio.id);
+  if (error) throw error;
+}
+
+export interface PagarServicioInput {
+  servicio: ServicioDirecto;
+  cajaId: string;
+  legs?: PagoLeg[];
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * TESORERÍA PAGA un servicio que estaba "Por pagar": descuenta el total de la caja
+ * elegida (egreso en Tesorería con su categoría/subcategoría de gasto) y lo marca
+ * FINALIZADO, dejando el comprobante de pago. NO toca inventario (es un servicio).
+ */
+export async function pagarServicioDirecto(input: PagarServicioInput): Promise<void> {
+  const { servicio } = input;
+  if (servicio.estado === 'finalizada') throw new Error('Este servicio ya fue pagado.');
+  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  const items = (servicio.items ?? []).map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
+  if (!items.length) throw new Error('El servicio no tiene renglones.');
+  const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  if (total <= 0) throw new Error('El servicio no tiene montos cargados.');
+
+  const concepto = `Servicio directo · ${servicio.codigo ?? servicio.descripcion}${servicio.equipo_nombre ? ` · ${servicio.equipo_nombre}` : ''}`;
+  const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
+  let movCajaId: string;
+  if (legs.length) {
+    let primero: string | null = null;
+    for (const leg of legs) {
+      const r = await egresarDivisa({
+        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        concepto, categoria: 'servicio_directo',
+        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+        actor: input.actor, actorName: input.actorName ?? null,
+      });
+      if (!primero) primero = r.id;
+    }
+    if (!primero) throw new Error('Indicá cuánto pagar en al menos una moneda.');
+    movCajaId = primero;
+  } else {
+    const movCaja = await egresarGastoCaja({
+      cajaId: input.cajaId, monto: total, concepto, categoria: 'servicio_directo',
+      gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
+    movCajaId = movCaja.id;
+  }
+
+  const { error } = await supabase
+    .from('servicios_directos')
+    .update({
+      estado: 'finalizada', gasto: total, items,
+      caja_id: input.cajaId, caja_mov_id: movCajaId, pago_legs: legs.length ? legs : null,
+      gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+      pagada_at: new Date().toISOString(), pagada_por: input.actor, pagada_por_name: input.actorName ?? null,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', servicio.id);
