@@ -214,6 +214,100 @@ export async function ingresarDineroCaja(input: {
   return data as MovimientoCaja;
 }
 
+/* ───────────── Editar / borrar movimientos MANUALES (gasto / ingreso / ajuste) ─────────────
+   Solo movimientos sueltos cargados a mano. Los VINCULADOS (pago de OC, traslado entre
+   cajas, conciliación de mineral, pago de compra/servicio directo, conversión, reverso)
+   NO se editan acá: se anulan desde su módulo, para no descuadrar el otro lado/inventario.
+   Al editar/borrar se SINCRONIZA el saldo de la caja (legacy o multimoneda). */
+
+const CATEGORIAS_VINCULADAS = new Set(['pago_oc', 'traslado', 'conversion', 'compra_directa', 'servicio_directo', 'reverso', 'conciliacion']);
+
+/** ¿Es un movimiento manual editable/borrable desde Tesorería? */
+export function esMovimientoEditable(m: MovimientoCaja): boolean {
+  if (!['salida', 'ingreso', 'ajuste'].includes(m.tipo)) return false;
+  const r = m as unknown as Record<string, unknown>;
+  if (r.ref_orden_id || r.ref_caja_id || r.estado_mineral || r.mineral_mov_id) return false;
+  if (m.categoria && CATEGORIAS_VINCULADAS.has(m.categoria)) return false;
+  return true;
+}
+
+/** Efecto del movimiento sobre el saldo (saldo_despues − saldo_antes). */
+function efectoMov(m: MovimientoCaja): number {
+  return round2(Number(m.saldo_despues) - Number(m.saldo_antes));
+}
+
+/** Suma `delta` al saldo de la caja del movimiento (legacy cajas.saldo + espejo, o multimoneda caja_saldos). */
+async function aplicarDeltaSaldo(m: MovimientoCaja, delta: number): Promise<void> {
+  if (!delta) return;
+  const r = m as unknown as Record<string, unknown>;
+  const cuenta = (r.cuenta as string | null) || null;
+  if (cuenta) {
+    // Multimoneda: ajusta caja_saldos (no toca la tasa promedio).
+    const { data } = await supabase.from('caja_saldos')
+      .select('id, saldo').eq('caja_id', m.caja_id).eq('cuenta', cuenta).eq('moneda', m.moneda).maybeSingle();
+    const saldo = round2((Number((data as { saldo?: number } | null)?.saldo) || 0) + delta);
+    if (data) await supabase.from('caja_saldos').update({ saldo, updated_at: new Date().toISOString() }).eq('id', (data as { id: string }).id);
+    else await supabase.from('caja_saldos').upsert({ caja_id: m.caja_id, cuenta, moneda: m.moneda, saldo, updated_at: new Date().toISOString() }, { onConflict: 'caja_id,cuenta,moneda' });
+    return;
+  }
+  // Legacy: ajusta cajas.saldo y espeja la cuenta general en su moneda si existe.
+  const caja = await getCaja(m.caja_id);
+  const saldo = round2((Number(caja.saldo) || 0) + delta);
+  await supabase.from(TABLE).update({ saldo, updated_at: new Date().toISOString() }).eq('id', m.caja_id);
+  const { data: s } = await supabase.from('caja_saldos')
+    .select('id, saldo').eq('caja_id', m.caja_id).eq('cuenta', 'general').eq('moneda', caja.moneda).maybeSingle();
+  if (s) await supabase.from('caja_saldos').update({ saldo: round2((Number((s as { saldo: number }).saldo) || 0) + delta), updated_at: new Date().toISOString() }).eq('id', (s as { id: string }).id);
+}
+
+/** Borra un movimiento manual y revierte su efecto en el saldo de la caja. */
+export async function eliminarMovimientoCajaManual(m: MovimientoCaja): Promise<void> {
+  if (!esMovimientoEditable(m))
+    throw new Error('Este movimiento está vinculado (OC, traslado, conciliación, conversión o directo) y no se edita acá: anulalo desde su módulo.');
+  await aplicarDeltaSaldo(m, -efectoMov(m));
+  const { error } = await supabase.from(LIBRO).delete().eq('id', m.id);
+  if (error) throw error;
+}
+
+export interface EditarMovimientoManualInput {
+  mov: MovimientoCaja;
+  /** Nuevo monto (para salida/ingreso). En 'ajuste' no cambia el efecto. */
+  monto: number;
+  motivo: string;
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+  /** Nueva fecha/hora ISO (opcional). */
+  fecha?: string | null;
+}
+
+/** Edita un movimiento manual: si cambia el monto, ajusta el saldo por la diferencia (sincroniza). */
+export async function editarMovimientoCajaManual(input: EditarMovimientoManualInput): Promise<void> {
+  const m = input.mov;
+  if (!esMovimientoEditable(m))
+    throw new Error('Este movimiento está vinculado y no se edita acá: anulalo desde su módulo.');
+  const montoNuevo = round2(Number(input.monto) || 0);
+  if (m.tipo !== 'ajuste' && montoNuevo <= 0) throw new Error('El monto debe ser mayor que 0.');
+
+  const efectoViejo = efectoMov(m);
+  let efectoNuevo = efectoViejo;
+  if (m.tipo === 'salida') efectoNuevo = -montoNuevo;
+  else if (m.tipo === 'ingreso') efectoNuevo = montoNuevo;
+  // 'ajuste': se mantiene el efecto original (no se recalcula por monto).
+
+  const diff = round2(efectoNuevo - efectoViejo);
+  if (diff !== 0) await aplicarDeltaSaldo(m, diff);
+
+  const patch: Record<string, unknown> = {
+    monto: m.tipo === 'ajuste' ? m.monto : montoNuevo,
+    saldo_despues: round2(Number(m.saldo_antes) + efectoNuevo),
+    motivo: input.motivo?.trim() || m.motivo,
+    gasto_categoria: input.gastoCategoria?.trim() || null,
+    gasto_subcategoria: input.gastoSubcategoria?.trim() || null,
+  };
+  if (input.fecha) patch.at = input.fecha;
+  const { error } = await supabase.from(LIBRO).update(patch).eq('id', m.id);
+  if (error) throw error;
+}
+
 /* ───────────── Salida de dinero (anticipo · queda pendiente) ───────────── */
 
 export interface SalidaDineroInput {
