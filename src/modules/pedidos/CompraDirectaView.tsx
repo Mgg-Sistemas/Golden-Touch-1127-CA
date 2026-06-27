@@ -18,19 +18,22 @@ import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
-  crearCompraDirecta, finalizarCompraDirecta, eliminarCompraDirecta, listComprasDirectas,
-  reabrirCompraDirecta, editarCompraDirectaEnProceso,
+  crearCompraDirecta, enviarCompraAPagar, pagarCompraDirecta,
+  eliminarCompraDirecta, listComprasDirectas, reabrirCompraDirecta, editarCompraDirectaEnProceso,
   urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
 } from './compras.repository';
+import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { FacturasDirectas } from './FacturasDirectas';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 type Vista = 'kanban' | 'lista';
 
 const COLS: { key: CompraDirecta['estado']; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
+  { key: 'por_pagar', label: 'Por pagar' },
   { key: 'finalizada', label: 'Finalizada' },
 ];
-const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', finalizada: '🏁 Finalizada' };
+const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '🧾 Por pagar', finalizada: '🏁 Finalizada' };
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -49,11 +52,14 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [vista, setVista] = useState<Vista>('kanban');
   const [crear, setCrear] = useState(false);
   const [editar, setEditar] = useState<CompraDirecta | null>(null);
-  const [finalizar, setFinalizar] = useState<CompraDirecta | null>(null);
+  const [montar, setMontar] = useState<CompraDirecta | null>(null);
+  const [pagar, setPagar] = useState<CompraDirecta | null>(null);
   const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
   const [reabrir, setReabrir] = useState<CompraDirecta | null>(null);
   const [reabriendo, setReabriendo] = useState(false);
   const [ver, setVer] = useState<CompraDirecta | null>(null);
+  const { can } = usePermissions();
+  const puedePagar = can('tesoreria');
 
   const reload = useCallback(async () => {
     const [cs, pds, alms, cats, unis, cjs, provs] = await Promise.all([
@@ -73,7 +79,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   useRealtime(['compras_directas', 'productos', 'proveedores'], () => { void reload(); });
 
   const porEstado = useMemo(() => {
-    const m: Record<string, CompraDirecta[]> = { en_proceso: [], finalizada: [] };
+    const m: Record<string, CompraDirecta[]> = { en_proceso: [], por_pagar: [], finalizada: [] };
     compras.forEach((c) => { (m[c.estado] ??= []).push(c); });
     return m;
   }, [compras]);
@@ -128,8 +134,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
-                  <CompraCard key={c.id} compra={c}
-                    onFinalizar={() => setFinalizar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} onVer={() => setVer(c)} />
+                  <CompraCard key={c.id} compra={c} puedePagar={puedePagar}
+                    onMontar={() => setMontar(c)} onPagar={() => setPagar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} onVer={() => setVer(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -156,7 +162,9 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => setVer(c)} title="Ver detalle">👁 Ver</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Ver/descargar detalle en PDF">↓ PDF</button>
-                    {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(c)}>Cargar factura y precios</button>}
+                    {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setMontar(c)}>Cargar factura y montos</button>}
+                    {c.estado === 'por_pagar' && puedePagar && <button className="btn btn-sm btn-primary" onClick={() => setPagar(c)} title="Pagar desde Tesorería">💳 Pagar</button>}
+                    {c.estado === 'por_pagar' && !puedePagar && <span className="badge" title="Esperando pago de Tesorería">🧾 DIRECTO · por pagar</span>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑 Eliminar</button>}
                   </td>
                 </tr>
@@ -172,9 +180,14 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
           onClose={() => { setCrear(false); setEditar(null); }} onSaved={async () => { setCrear(false); setEditar(null); await reload(); }} />
       )}
 
-      {finalizar && (
-        <FinalizarCompraModal compra={finalizar} cajas={cajas} actor={actor} actorName={actorName}
-          onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
+      {montar && (
+        <FinalizarCompraModal modo="montar" compra={montar} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={() => setMontar(null)} onSaved={async () => { setMontar(null); await reload(); }} />
+      )}
+
+      {pagar && (
+        <FinalizarCompraModal modo="pagar" compra={pagar} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={() => setPagar(null)} onSaved={async () => { setPagar(null); await reload(); }} />
       )}
 
       {ver && (
@@ -206,8 +219,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   );
 }
 
-function CompraCard({ compra, onFinalizar, onPdf, onEliminar, onVer }: {
-  compra: CompraDirecta; onFinalizar: () => void; onPdf: () => void; onEliminar: () => void; onVer: () => void;
+function CompraCard({ compra, puedePagar, onMontar, onPagar, onPdf, onEliminar, onVer }: {
+  compra: CompraDirecta; puedePagar: boolean; onMontar: () => void; onPagar: () => void; onPdf: () => void; onEliminar: () => void; onVer: () => void;
 }) {
   return (
     <div className="card row-selectable" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver detalle">
@@ -228,16 +241,22 @@ function CompraCard({ compra, onFinalizar, onPdf, onEliminar, onVer }: {
         <div>Creada: {dateTime(compra.created_at)}</div>
         {compra.estado === 'finalizada' && <div>Comprada: {compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'}</div>}
       </div>
-      {compra.estado === 'finalizada' && (
+      {(compra.estado === 'finalizada' || compra.estado === 'por_pagar') && (
         <div style={{ fontSize: '.8rem', marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
-          <div>Gasto: <strong className="mono">{compra.gasto != null ? money(compra.gasto) : '—'}</strong></div>
+          <div>{compra.estado === 'finalizada' ? 'Gasto' : 'A pagar'}: <strong className="mono">{compra.gasto != null ? money(compra.gasto) : '—'}</strong></div>
           <div className="muted"><AdjuntoLink compra={compra} /></div>
+        </div>
+      )}
+      {compra.estado === 'por_pagar' && (
+        <div style={{ marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
+          <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#1a1a1a' }}>DIRECTO</span>
         </div>
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-sm btn-ghost" onClick={onVer} title="Ver detalle">👁 Ver</button>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
-        {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y precios</button>}
+        {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onMontar}>Cargar factura y montos</button>}
+        {compra.estado === 'por_pagar' && puedePagar && <button className="btn btn-sm btn-primary" onClick={onPagar} title="Pagar desde Tesorería">💳 Pagar</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
     </div>
@@ -273,13 +292,15 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
   return (
     <Modal title={`🛒 Compra Directa ${compra.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
       {fila('Código', <span className="mono">{compra.codigo ?? '—'}</span>)}
-      {fila('Estado', compra.estado === 'finalizada' ? '🏁 Finalizada (ingresó a inventario)' : '⏳ En proceso')}
+      {fila('Estado', compra.estado === 'finalizada' ? '🏁 Finalizada (pagada · ingresó a inventario)' : compra.estado === 'por_pagar' ? '🧾 Por pagar (DIRECTO · espera Tesorería)' : '⏳ En proceso')}
       {fila('Proveedor', compra.proveedor_nombre || '—')}
       {fila('Almacén destino', compra.almacen || '—')}
-      {fila('Generó', compra.actor_name || compra.actor || '—')}
+      {fila('Generó (analista)', compra.actor_name || compra.actor || '—')}
       {fila('Creada', dateTime(compra.created_at))}
-      {compra.estado === 'finalizada' && fila('Comprada', compra.finalizada_at ? dateTime(compra.finalizada_at) : '—')}
-      {fila('Gasto total', total != null ? money(total) : '—')}
+      {compra.estado === 'finalizada' && fila('Pagada', compra.pagada_at ? dateTime(compra.pagada_at) : (compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'))}
+      {compra.estado === 'finalizada' && (compra.pagada_por_name || compra.pagada_por) && fila('Pagó (Tesorería)', compra.pagada_por_name || compra.pagada_por)}
+      {compra.estado === 'finalizada' && compra.gasto_categoria && fila('Categoría de gasto', `${compra.gasto_categoria}${compra.gasto_subcategoria ? ` · ${compra.gasto_subcategoria}` : ''}`)}
+      {fila(compra.estado === 'finalizada' ? 'Gasto total' : 'Total a pagar', total != null ? money(total) : '—')}
       {compra.adjunto_path && fila('Comprobante', <AdjuntoLink compra={compra} />)}
 
       <div className="table-wrap" style={{ marginTop: '.6rem' }}>
@@ -621,11 +642,16 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
 
 /* ───────── Modal: finalizar (gasto por material + caja) ───────── */
 
-function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSaved }: {
-  compra: CompraDirecta; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, onClose, onSaved }: {
+  modo: 'montar' | 'pagar'; compra: CompraDirecta; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  const esPago = modo === 'pagar';
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
-  const [gastos, setGastos] = useState<Record<number, string>>({});
+  const [gastos, setGastos] = useState<Record<number, string>>(() => {
+    const m: Record<number, string> = {};
+    compra.items.forEach((it, i) => { if (it.gasto != null) m[i] = String(it.gasto); });
+    return m;
+  });
   const [file, setFile] = useState<File | null>(null);
   // Categoría / subcategoría de gasto (Tesorería): etiqueta el movimiento del egreso.
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
@@ -690,10 +716,25 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
-    if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
+
+    // MODO MONTAR (analista): carga factura + montos y deja "Por pagar" (no toca caja ni inventario).
+    if (!esPago) {
+      const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
+      setSaving(true);
+      try {
+        if (file) await agregarAdjuntoDirecto('compra', compra.id, file, actor);
+        await enviarCompraAPagar({ compra, items, actor, actorName });
+        notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
+        onSaved();
+      } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
+      return;
+    }
+
+    // MODO PAGAR (Tesorería): egreso + inventario + finaliza.
+    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
+    if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
     let legs: PagoLeg[] | undefined;
     if (esMultimoneda) {
       legs = saldosCaja
@@ -709,28 +750,32 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
       if (total > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
       legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: total }];
     }
-    const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await finalizarCompraDirecta({ compra, items, cajaId, legs, file, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre });
+      await pagarCompraDirecta({ compra, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre });
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
-      notify(`Compra finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
+      notify(`Compra pagada y finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar la compra.'); setSaving(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar la compra.'); setSaving(false); }
   }
 
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Finalizando…' : excedeTotalMulti ? 'Excede el total' : `Finalizar · ${montoCaja(total, moneda)}`}</button>
+      {esPago ? (
+        <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `💳 Pagar · ${montoCaja(total, moneda)}`}</button>
+      ) : (
+        <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : '🧾 Enviar a pagar'}</button>
+      )}
     </>
   );
 
   return (
-    <Modal title="Cargar factura y precios" size="lg" onClose={onClose} footer={footer}>
+    <Modal title={esPago ? `💳 Pagar compra ${compra.codigo ?? ''}` : 'Cargar factura y montos'} size="lg" onClose={onClose} footer={footer}>
       <form id="cd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
+        {esPago && (
         <div className="form-row">
           <label>Caja (de dónde sale el dinero)</label>
           <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 320 }}
@@ -738,11 +783,12 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
             options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
           <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
         </div>
+        )}
 
         {/* Categoría / subcategoría de gasto: etiqueta el movimiento en Tesorería,
             igual que el registro de gasto manual. Así el egreso se refleja por
             categoría y subcategoría en los reportes de Tesorería. */}
-        {catsGasto.length > 0 && (
+        {esPago && catsGasto.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
             <div className="form-row">
               <label>Categoría de gasto</label>
@@ -760,7 +806,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
         )}
 
         {/* 👛 Billetera de la caja elegida: muestra el/los saldo(s) disponibles. */}
-        {caja && (
+        {esPago && caja && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>👛 Billetera · {caja.nombre}</div>
             {saldosCaja.length ? (
@@ -788,7 +834,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
                   <tr key={i}>
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
-                    <td><input className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
+                    <td><input className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" disabled={esPago} defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
                     <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
                   </tr>
                 );
@@ -796,10 +842,14 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
             </tbody>
           </table>
         </div>
-        <div className="card" style={{ margin: '.5rem 0' }}>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra a inventario en <strong>{compra.almacen}</strong></div>
+        <div className="card" style={{ margin: '.5rem 0' }}>
+          {esPago
+            ? <>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra a inventario en <strong>{compra.almacen}</strong></>
+            : <>Total a pagar: <strong className="mono">{money(total)}</strong> · queda <strong>Por pagar</strong>; Tesorería lo abona y entra a inventario en <strong>{compra.almacen}</strong></>}
+        </div>
 
         {/* Conversión del total a Bs con la tasa BCV (editable) — para cualquier caja. */}
-        {cajaId && (
+        {esPago && cajaId && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
             <div>
               <div className="muted" style={{ fontSize: '.72rem' }}>Total en USD</div>
@@ -819,7 +869,7 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
         )}
 
         {/* Multipago por cuenta: repartí el total entre las monedas de la caja Multimoneda. */}
-        {esMultimoneda && (
+        {esPago && esMultimoneda && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
             <div className="table-wrap">
@@ -864,11 +914,14 @@ function FinalizarCompraModal({ compra, cajas, actor, actorName, onClose, onSave
           </div>
         )}
 
-        <div className="form-row">
-          <label>Adjuntar comprobante de la compra · PDF o imagen (opcional)</label>
-          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {file && <small className="muted">{file.name}</small>}
-        </div>
+        {!esPago && (
+          <div className="form-row">
+            <label>Adjuntar factura · PDF o imagen</label>
+            <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            {file && <small className="muted">{file.name}</small>}
+            <small className="muted">Podés sumar más facturas después desde el detalle.</small>
+          </div>
+        )}
       </form>
     </Modal>
   );
