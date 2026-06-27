@@ -19,6 +19,8 @@ import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { DirectosPorPagarPanel } from './DirectosPorPagarPanel';
+import { listComprasDirectas, type CompraDirecta } from '@/modules/pedidos/compras.repository';
+import { listServiciosDirectos, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa } from './cajaSaldos.repository';
 import {
@@ -177,7 +179,7 @@ export function TesoreriaPage() {
   const [transfers, setTransfers] = useState<TransferenciaInter[]>([]);
 
   const reload = useCallback(async () => {
-    const [d, cs, sal, mov, pp, cr, cxp, cxc, tr, nc] = await Promise.all([
+    const [d, cs, sal, mov, pp, cr, cxp, cxc, tr, nc, cd, sd] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
@@ -188,14 +190,18 @@ export function TesoreriaPage() {
       listCuentasPorCobrar(true).catch(() => [] as CuentaPorCobrar[]),
       listTransferenciasInter().catch(() => [] as TransferenciaInter[]),
       countRenglonesPorPagar().catch(() => 0),
+      listComprasDirectas().catch(() => [] as CompraDirecta[]),
+      listServiciosDirectos().catch(() => [] as ServicioDirecto[]),
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
+    // Directos (compra/servicio) que el analista dejó "por pagar" — los paga Tesorería.
+    const directosPorPagar = cd.filter((c) => c.estado === 'por_pagar').length + sd.filter((s) => s.estado === 'por_pagar').length;
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length); setCreditosCount(crPendientes.length + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length + directosPorPagar); setCreditosCount(crPendientes.length + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
-  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos'], () => { void reload(); });
+  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos', 'compras_directas', 'servicios_directos'], () => { void reload(); });
 
   useEffect(() => {
     setLoading(true);

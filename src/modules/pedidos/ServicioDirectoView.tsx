@@ -18,20 +18,22 @@ import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
-  crearServicioDirecto, finalizarServicioDirecto, eliminarServicioDirecto, listServiciosDirectos,
+  crearServicioDirecto, enviarServicioAPagar, pagarServicioDirecto, eliminarServicioDirecto, listServiciosDirectos,
   reabrirServicioDirecto, editarServicioDirectoEnProceso,
   urlAdjuntoServicio, type ServicioDirecto, type ServicioDirectoItem, type LineaServicio, type PagoLeg,
 } from './serviciosDirectos.repository';
 import { descargarServicioDirectoPdf } from './servicioDirectoPdf';
 import { FacturasDirectas } from './FacturasDirectas';
+import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 
 type Vista = 'kanban' | 'lista';
 
 const COLS: { key: ServicioDirecto['estado']; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
+  { key: 'por_pagar', label: 'Por pagar' },
   { key: 'finalizada', label: 'Finalizada' },
 ];
-const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', finalizada: '🏁 Finalizada' };
+const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '🧾 Por pagar', finalizada: '🏁 Finalizada' };
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -70,7 +72,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
   useRealtime(['servicios_directos', 'proveedores'], () => { void reload(); });
 
   const porEstado = useMemo(() => {
-    const m: Record<string, ServicioDirecto[]> = { en_proceso: [], finalizada: [] };
+    const m: Record<string, ServicioDirecto[]> = { en_proceso: [], por_pagar: [], finalizada: [] };
     servicios.forEach((s) => { (m[s.estado] ??= []).push(s); });
     return m;
   }, [servicios]);
@@ -152,6 +154,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                     <button className="btn btn-sm btn-ghost" onClick={() => setVer(s)} title="Ver detalle">👁 Ver</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(s)} title="Ver/descargar detalle en PDF">↓ PDF</button>
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
+                    {s.estado === 'por_pagar' && <span className="badge" title="El pago se realiza desde Tesorería">🧾 DIRECTO · por pagar</span>}
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑 Eliminar</button>}
                     {s.estado === 'finalizada' && <AdjuntoLink servicio={s} />}
                   </td>
@@ -168,7 +171,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
       )}
 
       {finalizar && (
-        <FinalizarServicioModal servicio={finalizar} cajas={cajas} actor={actor} actorName={actorName}
+        <FinalizarServicioModal modo="montar" servicio={finalizar} cajas={cajas} actor={actor} actorName={actorName}
           onClose={() => setFinalizar(null)} onSaved={async () => { setFinalizar(null); await reload(); }} />
       )}
 
@@ -227,6 +230,12 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
         <div style={{ fontSize: '.8rem', marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
           <div>Monto: <strong className="mono">{servicio.gasto != null ? money(servicio.gasto) : '—'}</strong></div>
           <div className="muted"><AdjuntoLink servicio={servicio} /></div>
+        </div>
+      )}
+      {servicio.estado === 'por_pagar' && (
+        <div style={{ marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
+          <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#1a1a1a' }}>DIRECTO</span>
+          <span className="muted mono" style={{ marginLeft: '.4rem' }}>A pagar: {servicio.gasto != null ? money(servicio.gasto) : '—'}</span>
         </div>
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
@@ -562,11 +571,15 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
 
 /* ───────── Modal: finalizar (monto por servicio + caja + factura) ───────── */
 
-function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, onSaved }: {
-  servicio: ServicioDirecto; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName, onClose, onSaved }: {
+  modo: 'montar' | 'pagar'; servicio: ServicioDirecto; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  const esPago = modo === 'pagar';
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
-  const [gastos, setGastos] = useState<Record<number, string>>({});
+  // Montos: en pagar ya vienen cargados (del montaje); en montar los carga el analista.
+  const montosIniciales: Record<number, string> = {};
+  if (esPago) servicio.items.forEach((it, i) => { if (it.gasto != null) montosIniciales[i] = String(it.gasto); });
+  const [gastos, setGastos] = useState<Record<number, string>>(montosIniciales);
   const [file, setFile] = useState<File | null>(null);
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
@@ -622,10 +635,25 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (total <= 0) { setError('Indicá cuánto costó cada servicio.'); return; }
-    if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
+    const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
+
+    // MODO MONTAR (analista): carga factura + montos y lo deja "Por pagar" (no toca caja).
+    if (!esPago) {
+      setSaving(true);
+      try {
+        if (file) await agregarAdjuntoDirecto('servicio', servicio.id, file, actor);
+        await enviarServicioAPagar({ servicio, items, actor, actorName });
+        notify(`Servicio ${servicio.codigo ?? ''} enviado a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
+        onSaved();
+      } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
+      return;
+    }
+
+    // MODO PAGAR (Tesorería): valida la caja y descuenta el dinero.
+    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
+    if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
     let legs: PagoLeg[] | undefined;
     if (esMultimoneda) {
       legs = saldosCaja
@@ -639,25 +667,26 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
       if (total > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
       legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: total }];
     }
-    const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
     setSaving(true);
     try {
-      await finalizarServicioDirecto({ servicio, items, cajaId, legs, file, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre });
+      await pagarServicioDirecto({ servicio, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre });
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
-      notify(`Servicio finalizado · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/tesoreria' });
+      notify(`Servicio pagado · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar el servicio.'); setSaving(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar el servicio.'); setSaving(false); }
   }
 
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Finalizando…' : excedeTotalMulti ? 'Excede el total' : `Finalizar · ${montoCaja(total, moneda)}`}</button>
+      {esPago
+        ? <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `💳 Pagar · ${montoCaja(total, moneda)}`}</button>
+        : <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : '🧾 Enviar a pagar'}</button>}
     </>
   );
 
   return (
-    <Modal title="Cargar factura y monto" size="lg" onClose={onClose} footer={footer}>
+    <Modal title={esPago ? 'Pagar servicio' : 'Cargar factura y monto'} size="lg" onClose={onClose} footer={footer}>
       <form id="sd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -665,6 +694,7 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
           <div className="card" style={{ marginBottom: '.75rem' }}>🚜 Servicio del equipo <strong>{servicio.equipo_nombre}</strong> — se reflejará en su historial de Control de Maquinaria.</div>
         )}
 
+        {esPago && (
         <div className="form-row">
           <label>Caja (de dónde sale el dinero)</label>
           <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 320 }}
@@ -672,8 +702,9 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
             options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
           <small className="muted">El monto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
         </div>
+        )}
 
-        {catsGasto.length > 0 && (
+        {esPago && catsGasto.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }}>
             <div className="form-row">
               <label>Categoría de gasto</label>
@@ -690,7 +721,7 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
           </div>
         )}
 
-        {caja && (
+        {esPago && caja && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>👛 Billetera · {caja.nombre}</div>
             {saldosCaja.length ? (
@@ -731,7 +762,7 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
         </div>
         <div className="card" style={{ margin: '.5rem 0' }}>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong></div>
 
-        {cajaId && (
+        {esPago && cajaId && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
             <div>
               <div className="muted" style={{ fontSize: '.72rem' }}>Total en USD</div>
@@ -750,7 +781,7 @@ function FinalizarServicioModal({ servicio, cajas, actor, actorName, onClose, on
           </div>
         )}
 
-        {esMultimoneda && (
+        {esPago && esMultimoneda && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
             <div className="table-wrap">
