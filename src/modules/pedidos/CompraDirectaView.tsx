@@ -24,7 +24,6 @@ import {
 } from './compras.repository';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { FacturasDirectas } from './FacturasDirectas';
-import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 type Vista = 'kanban' | 'lista';
 
@@ -53,13 +52,10 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [crear, setCrear] = useState(false);
   const [editar, setEditar] = useState<CompraDirecta | null>(null);
   const [montar, setMontar] = useState<CompraDirecta | null>(null);
-  const [pagar, setPagar] = useState<CompraDirecta | null>(null);
   const [eliminar, setEliminar] = useState<CompraDirecta | null>(null);
   const [reabrir, setReabrir] = useState<CompraDirecta | null>(null);
   const [reabriendo, setReabriendo] = useState(false);
   const [ver, setVer] = useState<CompraDirecta | null>(null);
-  const { can } = usePermissions();
-  const puedePagar = can('tesoreria');
 
   const reload = useCallback(async () => {
     const [cs, pds, alms, cats, unis, cjs, provs] = await Promise.all([
@@ -134,8 +130,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
-                  <CompraCard key={c.id} compra={c} puedePagar={puedePagar}
-                    onMontar={() => setMontar(c)} onPagar={() => setPagar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} onVer={() => setVer(c)} />
+                  <CompraCard key={c.id} compra={c}
+                    onMontar={() => setMontar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} onVer={() => setVer(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -163,8 +159,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                     <button className="btn btn-sm btn-ghost" onClick={() => setVer(c)} title="Ver detalle">👁 Ver</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Ver/descargar detalle en PDF">↓ PDF</button>
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setMontar(c)}>Cargar factura y montos</button>}
-                    {c.estado === 'por_pagar' && puedePagar && <button className="btn btn-sm btn-primary" onClick={() => setPagar(c)} title="Pagar desde Tesorería">💳 Pagar</button>}
-                    {c.estado === 'por_pagar' && !puedePagar && <span className="badge" title="Esperando pago de Tesorería">🧾 DIRECTO · por pagar</span>}
+                    {c.estado === 'por_pagar' && <span className="badge" title="El pago se realiza desde Tesorería">🧾 DIRECTO · por pagar</span>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑 Eliminar</button>}
                   </td>
                 </tr>
@@ -183,11 +178,6 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       {montar && (
         <FinalizarCompraModal modo="montar" compra={montar} cajas={cajas} actor={actor} actorName={actorName}
           onClose={() => setMontar(null)} onSaved={async () => { setMontar(null); await reload(); }} />
-      )}
-
-      {pagar && (
-        <FinalizarCompraModal modo="pagar" compra={pagar} cajas={cajas} actor={actor} actorName={actorName}
-          onClose={() => setPagar(null)} onSaved={async () => { setPagar(null); await reload(); }} />
       )}
 
       {ver && (
@@ -219,8 +209,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   );
 }
 
-function CompraCard({ compra, puedePagar, onMontar, onPagar, onPdf, onEliminar, onVer }: {
-  compra: CompraDirecta; puedePagar: boolean; onMontar: () => void; onPagar: () => void; onPdf: () => void; onEliminar: () => void; onVer: () => void;
+function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer }: {
+  compra: CompraDirecta; onMontar: () => void; onPdf: () => void; onEliminar: () => void; onVer: () => void;
 }) {
   return (
     <div className="card row-selectable" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver detalle">
@@ -256,7 +246,6 @@ function CompraCard({ compra, puedePagar, onMontar, onPagar, onPdf, onEliminar, 
         <button className="btn btn-sm btn-ghost" onClick={onVer} title="Ver detalle">👁 Ver</button>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onMontar}>Cargar factura y montos</button>}
-        {compra.estado === 'por_pagar' && puedePagar && <button className="btn btn-sm btn-primary" onClick={onPagar} title="Pagar desde Tesorería">💳 Pagar</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
     </div>
@@ -642,7 +631,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
 
 /* ───────── Modal: finalizar (gasto por material + caja) ───────── */
 
-function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, onClose, onSaved }: {
+export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, onClose, onSaved }: {
   modo: 'montar' | 'pagar'; compra: CompraDirecta; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const esPago = modo === 'pagar';
