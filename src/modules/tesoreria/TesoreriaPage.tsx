@@ -18,6 +18,7 @@ import type { NominaRenglon } from '@/shared/lib/types';
 import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
+import { DirectosPorPagarPanel } from './DirectosPorPagarPanel';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa } from './cajaSaldos.repository';
 import {
@@ -3264,6 +3265,12 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
           onPaid={async () => { setPagarVarias(null); setSeleccion(new Set()); await reload(); onPaid(); }}
         />
       )}
+
+      {/* Compras directas montadas por el analista, pendientes de pago por Tesorería. */}
+      <DirectosPorPagarPanel
+        cajas={cajas} actor={actor} actorName={actorName}
+        onPaid={async () => { await reload(); onPaid(); }}
+      />
     </Modal>
   );
 }
