@@ -19,7 +19,7 @@ export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
 
 const BUCKET = 'compras-directas';
 
-export type EstadoCompraDirecta = 'en_proceso' | 'finalizada';
+export type EstadoCompraDirecta = 'en_proceso' | 'por_pagar' | 'finalizada';
 
 export interface CompraDirectaItem {
   producto_id: string;
@@ -52,6 +52,15 @@ export interface CompraDirecta {
   adjunto_path: string | null;
   adjunto_nombre: string | null;
   mov_id: string | null;
+  /** Etiqueta de gasto que coloca Tesorería al pagar. */
+  gasto_categoria: string | null;
+  gasto_subcategoria: string | null;
+  /** Comprobante de pago (lo completa Tesorería al pagar). */
+  pagada_at: string | null;
+  pagada_por: string | null;
+  pagada_por_name: string | null;
+  /** Cuándo el analista la envió a pagar (montó con factura). */
+  enviada_pagar_at: string | null;
   actor: string | null;
   actor_name: string | null;
   created_at: string;
@@ -436,4 +445,120 @@ export async function editarCompraDirectaEnProceso(
     .single();
   if (error) throw error;
   return normalizar(data as Record<string, unknown>);
+}
+
+/* ───────── NUEVO FLUJO: montar (Por pagar) → Tesorería paga (Finalizada) ───────── */
+
+export interface EnviarCompraAPagarInput {
+  compra: CompraDirecta;
+  /** Materiales con su monto (precio por renglón) ya cargados por el analista. */
+  items: CompraDirectaItem[];
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * El analista MONTA la compra con la factura y los montos y la deja "Por pagar":
+ * fija los montos por material y el total, y pasa a estado `por_pagar`. NO mueve caja
+ * ni inventario (eso lo hace Tesorería al pagar). La factura se sube aparte (adjuntos).
+ */
+export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promise<void> {
+  const { compra } = input;
+  if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
+  const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
+  if (!items.length) throw new Error('La compra no tiene materiales.');
+  const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  if (total <= 0) throw new Error('Cargá los montos de los materiales.');
+
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({
+      estado: 'por_pagar', gasto: total, items,
+      enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    .eq('id', compra.id);
+  if (error) throw error;
+}
+
+export interface PagarCompraInput {
+  compra: CompraDirecta;
+  /** Caja de Tesorería de la que sale el dinero. */
+  cajaId: string;
+  legs?: PagoLeg[];
+  /** Categoría/subcategoría de gasto que coloca Tesorería al pagar. */
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * TESORERÍA PAGA una compra que estaba "Por pagar": descuenta el total de la caja
+ * elegida (egreso en Tesorería con su categoría/subcategoría de gasto), da ENTRADA al
+ * inventario de cada material (costo = monto ÷ cantidad → PMP) y la marca FINALIZADA,
+ * dejando el comprobante de pago (quién pagó, cuándo, de qué caja) para que lo vea el analista.
+ */
+export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void> {
+  const { compra } = input;
+  if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
+  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  const items = (compra.items ?? []).map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
+  if (!items.length) throw new Error('La compra no tiene materiales.');
+  const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  if (total <= 0) throw new Error('La compra no tiene montos cargados.');
+
+  // 1) Egreso de la caja (valida saldo) → Tesorería / Libro Mayor.
+  const concepto = `Compra directa · ${compra.codigo ?? compra.producto_nombre}`;
+  const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
+  let movCajaId: string;
+  if (legs.length) {
+    let primero: string | null = null;
+    for (const leg of legs) {
+      const r = await egresarDivisa({
+        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        concepto, categoria: 'compra_directa',
+        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+        actor: input.actor, actorName: input.actorName ?? null,
+      });
+      if (!primero) primero = r.id;
+    }
+    if (!primero) throw new Error('Indicá cuánto pagar en al menos una moneda.');
+    movCajaId = primero;
+  } else {
+    const movCaja = await egresarGastoCaja({
+      cajaId: input.cajaId, monto: total, concepto, categoria: 'compra_directa',
+      gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
+    movCajaId = movCaja.id;
+  }
+
+  // 2) Entrada al inventario por cada material (costo = monto / cantidad).
+  let primerMov: string | null = null;
+  for (const it of items) {
+    const cantidad = Number(it.cantidad) || 0;
+    if (cantidad <= 0 || !it.producto_id) continue;
+    const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 10000) / 10000 : 0;
+    const mov = await registrarMovimiento({
+      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'compra_directa', ref_id: compra.id,
+      detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
+    });
+    if (!primerMov) primerMov = mov.id;
+  }
+
+  // 3) Finalizar + comprobante de pago.
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({
+      estado: 'finalizada', gasto: total, items,
+      caja_id: input.cajaId, caja_mov_id: movCajaId, pago_legs: legs.length ? legs : null,
+      gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+      mov_id: primerMov,
+      pagada_at: new Date().toISOString(), pagada_por: input.actor, pagada_por_name: input.actorName ?? null,
+      finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    .eq('id', compra.id);
+  if (error) throw error;
 }
