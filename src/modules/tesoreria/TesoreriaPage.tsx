@@ -58,13 +58,14 @@ import { descargarOrdenesPorPagarPdf } from './ordenesPorPagarPdf';
 import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
-  listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg,
+  listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg, type AbonoComision,
   getOrdenById, urlAdjuntoOc,
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { ChatOrden } from '@/modules/pedidos/ChatOrden';
 import { noLeidosPorOrden } from '@/modules/pedidos/ordenChat.repository';
-import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
+import { resumenDatosPago, DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
+import { listDatosPago, guardarDatosPago, METODOS_CON_DATOS, type DatosPago } from '@/modules/pedidos/datosPago.repository';
 import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesHechas, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
 import { descargarReportePdf, type ReporteMeta } from './reportePdf';
 import { CierreMesModal } from './CierreMesModal';
@@ -3616,6 +3617,65 @@ function NuevaCuentaForm({ btnLabel, onCrear }: {
   );
 }
 
+/** Etiqueta legible de cada método con datos de pago. */
+const LABEL_METODO_DATOS: Record<string, string> = {
+  pago_movil: 'Pago móvil',
+  transferencia: 'Transferencia',
+  zelle: 'Zelle',
+  binance_usdt: 'Binance (USDT)',
+};
+
+/**
+ * Editor inline de los datos de pago de un proveedor (dónde pagarle por método).
+ * Se reutiliza en Tesorería para cargar/editar los datos sin ir al directorio.
+ */
+function DatosPagoProveedorModal({ proveedorId, proveedorNombre, actor, inicial, onClose, onSaved }: {
+  proveedorId: string;
+  proveedorNombre: string;
+  actor: string;
+  inicial: Record<string, DatosPago>;
+  onClose: () => void;
+  onSaved: (datos: Record<string, DatosPago>) => void;
+}) {
+  const [metodo, setMetodo] = useState<string>(() => METODOS_CON_DATOS.find((m) => inicial[m]) ?? 'transferencia');
+  const [datos, setDatos] = useState<Record<string, DatosPago>>(() => ({ ...inicial }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    setError(null);
+    const d = datos[metodo] ?? {};
+    const err = validarDatosPago(metodo, d);
+    if (err) { setError(err); return; }
+    setSaving(true);
+    try {
+      await guardarDatosPago(proveedorId, metodo, d, actor);
+      const next = { ...datos, [metodo]: d };
+      setDatos(next);
+      onSaved(next);
+      toast(`Datos de pago guardados · ${proveedorNombre}`, 'success');
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="card" style={{ margin: '.4rem 0 0', padding: '.6rem .75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+      <div className="form-row" style={{ margin: '0 0 .4rem' }}>
+        <label style={{ fontSize: '.72rem' }}>Método</label>
+        <select className="select" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
+          {METODOS_CON_DATOS.map((m) => <option key={m} value={m}>{LABEL_METODO_DATOS[m]}{inicial[m] ? ' ✓' : ''}</option>)}
+        </select>
+      </div>
+      <DatosPagoFields metodo={metodo} value={datos[metodo] ?? {}} onChange={(d) => setDatos((prev) => ({ ...prev, [metodo]: d }))} />
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', margin: '.4rem 0 0', padding: '.4rem .6rem' }}><small><strong>Error:</strong> {error}</small></div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.4rem', marginTop: '.5rem' }}>
+        <button className="btn btn-sm btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+        <button className="btn btn-sm btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : '💾 Guardar'}</button>
+      </div>
+    </div>
+  );
+}
+
 function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onChanged: () => void | Promise<void>;
 }) {
@@ -3630,6 +3690,11 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [factura, setFactura] = useState<File | null>(null);
   const [tasa, setTasa] = useState(0);
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
+  // Comisión bancaria opcional: monto + saldo de caja (moneda/cuenta) del que sale.
+  const [comisionMonto, setComisionMonto] = useState('');
+  const [comisionSaldoId, setComisionSaldoId] = useState('');
+  const [datosPago, setDatosPago] = useState<Record<string, DatosPago>>({});
+  const [editarDatosPago, setEditarDatosPago] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3654,13 +3719,24 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   }, []);
   useEffect(() => {
     if (!cajaId) { setSaldosCaja([]); return; }
-    saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
-    setLegMontos({});
+    saldosDeCaja(cajaId).then((rows) => {
+      const con = rows.filter((r) => Number(r.saldo) > 0);
+      setSaldosCaja(con);
+      setComisionSaldoId((p) => (p && con.some((s) => s.id === p)) ? p : (con[0]?.id ?? ''));
+    }).catch(() => setSaldosCaja([]));
+    setLegMontos({}); setComisionMonto('');
   }, [cajaId]);
   useEffect(() => {
     if (!selId) { setAbonos([]); return; }
     listAbonos(selId).then(setAbonos).catch(() => setAbonos([]));
   }, [selId]);
+  // Datos de pago guardados del proveedor de la OC (para mostrarlos / editarlos).
+  useEffect(() => {
+    const provId = ordenes.find((x) => x.orden.id === selId)?.proveedor?.id;
+    setEditarDatosPago(false);
+    if (!provId) { setDatosPago({}); return; }
+    listDatosPago(provId).then(setDatosPago).catch(() => setDatosPago({}));
+  }, [selId, ordenes]);
 
   const sel = ordenes.find((x) => x.orden.id === selId) ?? null;
   const o = sel?.orden ?? null;
@@ -3676,6 +3752,10 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
     return round2(n);
   }
   const sumUsd = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
+  // Comisión bancaria: monto + saldo (moneda/cuenta) elegido de la misma caja.
+  const comisionSaldo = saldosCaja.find((s) => s.id === comisionSaldoId) ?? null;
+  const comisionMontoNum = Number(comisionMonto) || 0;
+  const comisionUsd = comisionSaldo ? legUsd(comisionSaldo.moneda, comisionMontoNum) : 0;
 
   async function handleAbonar() {
     setError(null);
@@ -3685,16 +3765,23 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
       .filter((l) => l.monto > 0);
     if (!legs.length) { setError('Indicá cuánto abonar en al menos una moneda.'); return; }
     if (sumUsd > saldo + 0.01) { setError(`El abono (${monto(sumUsd, 'USD')}) supera el saldo pendiente (${monto(saldo, 'USD')}).`); return; }
+    // Comisión bancaria opcional (egreso aparte; no reduce la deuda).
+    let comision: AbonoComision | null = null;
+    if (comisionMontoNum > 0) {
+      if (!comisionSaldo) { setError('Elegí de qué saldo sale la comisión bancaria.'); return; }
+      if (comisionMontoNum > Number(comisionSaldo.saldo) + 0.01) { setError('La comisión bancaria supera el saldo disponible de esa moneda.'); return; }
+      comision = { cajaId, cuenta: comisionSaldo.cuenta as CuentaCaja, moneda: comisionSaldo.moneda, monto: comisionMontoNum, montoUsd: comisionUsd };
+    }
     // Lee la nota del DOM (no del estado) para evitar capturas incompletas.
     const notaVal = (((document.querySelector('[name="cred-nota"]') as HTMLInputElement | null)?.value ?? '') || nota).trim();
     setSaving(true);
     try {
-      const r = await registrarAbonoMulti({ orden: o, legs, nota: notaVal || null, factura, actorEmail: actor, actorName });
+      const r = await registrarAbonoMulti({ orden: o, legs, nota: notaVal || null, factura, comision, actorEmail: actor, actorName });
       const saldadoNow = r.orden.estado !== 'cuenta_abierta';
       notify(saldadoNow
         ? `Crédito saldado · ${o.oc_codigo ?? o.codigo} · pasa a recepción/finalización`
-        : `Abono ${monto(sumUsd, 'USD')} · ${o.oc_codigo ?? o.codigo}`, 'success');
-      setLegMontos({}); setNota(''); setFactura(null);
+        : `Abono ${monto(sumUsd, 'USD')}${comision ? ` + comisión ${monto(comisionMontoNum, comisionSaldo!.moneda)}` : ''} · ${o.oc_codigo ?? o.codigo}`, 'success');
+      setLegMontos({}); setNota(''); setFactura(null); setComisionMonto('');
       setFormKey((k) => k + 1);
       await onChanged();
       await cargar();
@@ -3771,6 +3858,38 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                     {sel.proveedor.email && <span className="muted" style={{ fontSize: '.8rem' }}>✉ {sel.proveedor.email}</span>}
                     {sel.proveedor.direccion && <span className="muted" style={{ fontSize: '.8rem' }}>📍 {sel.proveedor.direccion}</span>}
                   </div>
+
+                  {/* Datos de pago guardados (dónde pagarle) + edición. */}
+                  <div style={{ marginTop: '.5rem', borderTop: '1px solid var(--border, #2a2f3a)', paddingTop: '.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                      <span className="muted" style={{ fontSize: '.7rem' }}>DATOS DE PAGO</span>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setEditarDatosPago((v) => !v)}>
+                        {editarDatosPago ? '✕ Cerrar' : '✏ Cargar / editar datos de pago'}
+                      </button>
+                    </div>
+                    {!editarDatosPago && (
+                      Object.keys(datosPago).length === 0
+                        ? <div className="muted" style={{ fontSize: '.78rem' }}>Sin datos de pago guardados.</div>
+                        : <div style={{ display: 'grid', gap: '.2rem', marginTop: '.25rem' }}>
+                            {METODOS_CON_DATOS.filter((m) => datosPago[m]).map((m) => (
+                              <div key={m} style={{ fontSize: '.8rem' }}>
+                                <span className="badge">{LABEL_METODO_DATOS[m]}</span>{' '}
+                                <span className="mono muted">{resumenDatosPago(m, datosPago[m])}</span>
+                              </div>
+                            ))}
+                          </div>
+                    )}
+                    {editarDatosPago && sel.proveedor && (
+                      <DatosPagoProveedorModal
+                        proveedorId={sel.proveedor.id}
+                        proveedorNombre={sel.proveedor.razon_social}
+                        actor={actor}
+                        inicial={datosPago}
+                        onClose={() => setEditarDatosPago(false)}
+                        onSaved={(d) => { setDatosPago(d); }}
+                      />
+                    )}
+                  </div>
                 </div>
               )}
               {o.recibida_en && <div className="badge warning" style={{ marginBottom: '.6rem' }}>📦 Mercancía ya recibida · crédito pendiente</div>}
@@ -3835,6 +3954,33 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                     </tfoot>
                   </table>
                 </div>
+
+                {/* Comisión bancaria (opcional): sale de la caja, NO reduce la deuda. */}
+                <div className="card" style={{ margin: '.5rem 0 0', padding: '.5rem .75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+                  <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div className="form-row" style={{ margin: 0, minWidth: 150 }}>
+                      <label style={{ fontSize: '.72rem' }}>Comisión bancaria (opcional)</label>
+                      <input key={`cred-comision-${formKey}`} className="input mono" type="number" min={0} step="any" name="cred-comision"
+                        defaultValue={comisionMonto} placeholder="0,00"
+                        onChange={(e) => { const v = dosDecimales(e.target.value); e.target.value = v; setComisionMonto(v); }}
+                        style={{ width: 130, textAlign: 'right' }} />
+                    </div>
+                    <div className="form-row" style={{ margin: 0, minWidth: 160 }}>
+                      <label style={{ fontSize: '.72rem' }}>Sale del saldo</label>
+                      <select className="select" value={comisionSaldoId} onChange={(e) => setComisionSaldoId(e.target.value)} disabled={!saldosCaja.length}>
+                        {!saldosCaja.length && <option value="">— sin saldos —</option>}
+                        {saldosCaja.map((s) => {
+                          const etq = s.cuenta === 'general' ? '' : s.cuenta === 'juridica' ? ' · Jurídica' : ' · Personal';
+                          return <option key={s.id} value={s.id}>{s.moneda}{etq} · {monto(Number(s.saldo), s.moneda)}</option>;
+                        })}
+                      </select>
+                    </div>
+                    <div style={{ fontSize: '.8rem' }} className="muted">
+                      {comisionMontoNum > 0 ? <>≈ {monto(comisionUsd, 'USD')} · se descuenta de la caja (no abona la deuda)</> : 'Se descuenta de la caja además del abono. No reduce la deuda.'}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="form-grid" style={{ marginTop: '.5rem' }}>
                   <div className="form-row">
                     <label>Comprobante (PDF o imagen) (opcional)</label>
@@ -3853,16 +3999,22 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
 
               <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto' }}>
                 <table className="table" style={{ fontSize: '.82rem' }}>
-                  <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono (USD)</th><th>Nota</th></tr></thead>
+                  <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Abono (USD)</th><th style={{ textAlign: 'right' }}>Comisión bancaria</th><th>Nota</th></tr></thead>
                   <tbody>
-                    {!abonos.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center' }}>Sin abonos todavía.</td></tr>}
-                    {abonos.map((ab) => (
-                      <tr key={ab.id}>
-                        <td>{dateTime(ab.at)}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), 'USD')}</td>
-                        <td className="muted">{ab.nota || '—'}</td>
-                      </tr>
-                    ))}
+                    {!abonos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin abonos todavía.</td></tr>}
+                    {abonos.map((ab) => {
+                      const com = Number(ab.comision_monto) || 0;
+                      return (
+                        <tr key={ab.id}>
+                          <td>{dateTime(ab.at)}</td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(ab.monto), 'USD')}</td>
+                          <td className="mono" style={{ textAlign: 'right', color: com > 0 ? 'var(--warning)' : undefined }}>
+                            {com > 0 ? <>{monto(com, ab.comision_moneda || 'Bs')}{Number(ab.comision_usd) > 0 ? <span className="muted"> · {monto(Number(ab.comision_usd), 'USD')}</span> : null}</> : '—'}
+                          </td>
+                          <td className="muted">{ab.nota || '—'}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

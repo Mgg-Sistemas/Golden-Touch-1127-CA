@@ -1487,11 +1487,21 @@ export interface AbonoLeg {
   monto: number;        // en su propia moneda
   montoUsd: number;     // equivalente USD (para acumular contra el total)
 }
+/** Comisión bancaria del abono: sale de la caja (egreso aparte) y NO reduce la deuda. */
+export interface AbonoComision {
+  cajaId: string;
+  cuenta: CuentaCaja;
+  moneda: string;
+  monto: number;        // en su propia moneda
+  montoUsd: number;     // equivalente USD (solo informativo)
+}
 export interface RegistrarAbonoMultiInput {
   orden: Orden;
   legs: AbonoLeg[];
   nota?: string | null;
   factura?: File | null;
+  /** Comisión bancaria opcional: egreso extra de la caja, no reduce el saldo. */
+  comision?: AbonoComision | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -1521,6 +1531,18 @@ export async function registrarAbonoMulti(input: RegistrarAbonoMultiInput): Prom
     movIds.push(mov.id);
   }
 
+  // Comisión bancaria (opcional): egreso EXTRA de la caja. No reduce la deuda de la OC.
+  const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
+  let comisionMovId: string | null = null;
+  if (comision) {
+    const movC = await egresarDivisa({
+      cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
+      concepto: `Comisión bancaria · abono ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+      actor: input.actorEmail, actorName: input.actorName ?? null,
+    });
+    comisionMovId = movC.id;
+  }
+
   let comprobantePath: string | null = null, comprobanteNombre: string | null = null;
   if (input.factura) { comprobantePath = await subirAdjuntoOc(o.id, input.factura, 'factura'); comprobanteNombre = input.factura.name; }
 
@@ -1537,6 +1559,10 @@ export async function registrarAbonoMulti(input: RegistrarAbonoMultiInput): Prom
       saldo_restante: saldoRestante, actor: input.actorEmail, actor_name: input.actorName ?? null,
       nota: [input.nota?.trim(), `Multipago: ${detalle}`].filter(Boolean).join(' · '),
       comprobante_path: comprobantePath, comprobante_nombre: comprobanteNombre,
+      comision_monto: comision ? Math.round((Number(comision.monto) || 0) * 100) / 100 : 0,
+      comision_moneda: comision?.moneda ?? null,
+      comision_usd: comision ? Math.round((Number(comision.montoUsd) || 0) * 100) / 100 : 0,
+      comision_caja_mov_id: comisionMovId,
     })
     .select('*')
     .single();
