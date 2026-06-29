@@ -365,6 +365,83 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
   return data as SolicitudSalida;
 }
 
+export interface EditarSolicitudSalidaInput {
+  /** Material: lista editada de renglones (cantidad / precio / observación). */
+  items?: ItemSalida[] | null;
+  solicitante?: string;
+  unidadSolicitante?: string | null;
+  destino?: string | null;
+  motivo?: string | null;
+  fechaEntrega?: string | null;
+  notaEntrega?: string | null;
+  choferNombre?: string | null;
+  choferCedula?: string | null;
+  vehiculoDescripcion?: string | null;
+  vehiculoPlaca?: string | null;
+  direccionDespacho?: string | null;
+  direccionDestino?: string | null;
+  consumoInterno?: boolean | null;
+  /** Dinero. */
+  monto?: number | null;
+  actor: string;
+}
+
+/**
+ * Edita una solicitud que AÚN está «por aprobar» (no ejecutada): cambia datos de
+ * cabecera, transporte/direcciones y, en material, las cantidades/precios de los
+ * renglones. Recalcula el resumen (producto_nombre/cantidad/precio_unit). No mueve
+ * stock ni saldo: eso ocurre solo al ejecutar.
+ */
+export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSolicitudSalidaInput): Promise<void> {
+  if (s.estado !== 'por_aprobar') throw new Error('Solo se puede editar una solicitud que está por aprobar.');
+
+  const patch: Record<string, unknown> = {
+    historial: appendHistorial(s, 'editada', input.actor),
+  };
+  if (input.solicitante !== undefined) {
+    if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+    patch.solicitante = input.solicitante.trim();
+  }
+  if (input.unidadSolicitante !== undefined) patch.unidad_solicitante = input.unidadSolicitante?.trim() || null;
+  if (input.motivo !== undefined) patch.motivo = input.motivo?.trim() || null;
+  if (input.fechaEntrega !== undefined) patch.fecha_entrega = input.fechaEntrega || null;
+  if (input.notaEntrega !== undefined) patch.nota_entrega = input.notaEntrega?.trim() || null;
+  if (input.choferNombre !== undefined) patch.chofer_nombre = input.choferNombre?.trim() || null;
+  if (input.choferCedula !== undefined) patch.chofer_cedula = input.choferCedula?.trim() || null;
+  if (input.vehiculoDescripcion !== undefined) patch.vehiculo_descripcion = input.vehiculoDescripcion?.trim() || null;
+  if (input.vehiculoPlaca !== undefined) patch.vehiculo_placa = input.vehiculoPlaca?.trim() || null;
+  if (input.direccionDespacho !== undefined) patch.direccion_despacho = input.direccionDespacho?.trim() || null;
+  if (input.direccionDestino !== undefined) patch.direccion_destino = input.direccionDestino?.trim() || null;
+  if (input.consumoInterno !== undefined) patch.consumo_interno = !!input.consumoInterno;
+
+  if (s.tipo === 'material' && input.items !== undefined) {
+    const items = (input.items ?? []).filter((i) => i && i.producto_id && (Number(i.cantidad) || 0) > 0);
+    if (!items.length) throw new Error('La solicitud debe tener al menos un material con cantidad.');
+    const cantTotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0), 0);
+    const montoTotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
+    patch.items = items;
+    patch.producto_id = items.length === 1 ? items[0].producto_id : null;
+    patch.producto_nombre = items.length === 1 ? items[0].producto_nombre : `${items.length} materiales`;
+    patch.cantidad = cantTotal;
+    patch.precio_unit = cantTotal > 0 ? montoTotal / cantTotal : 0;
+  }
+
+  // El destino/«dirigido a»: en salida se actualiza (consumo interno fija la etiqueta).
+  if (s.scope === 'salida') {
+    if (input.consumoInterno) patch.destino = 'CONSUMO INTERNO';
+    else if (input.destino !== undefined) patch.destino = input.destino?.trim() || null;
+  }
+
+  if (s.tipo === 'dinero' && input.monto !== undefined) {
+    const monto = Number(input.monto) || 0;
+    if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
+    patch.monto = monto;
+  }
+
+  const { error } = await supabase.from(SOL).update(patch).eq('id', s.id);
+  if (error) throw error;
+}
+
 /** Aprueba la solicitud (por_aprobar → aprobada). NO ejecuta el movimiento. */
 export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string): Promise<void> {
   if (s.estado !== 'por_aprobar') throw new Error('Solo se aprueban solicitudes por aprobar.');

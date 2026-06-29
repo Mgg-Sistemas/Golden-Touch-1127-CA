@@ -196,6 +196,8 @@ export async function crearTanque(input: TanqueInput & { actor: string }): Promi
       capacidad_calculada_litros: capacidadCalculada(geom) || null,
       saldo_litros: saldoLitros,
       saldo_usd: round(saldoLitros * tasa, 2),
+      // Saldo de apertura: el libro arranca su saldo corrido desde aquí.
+      saldo_inicial_litros: saldoLitros,
       tasa_usd_litro: tasa,
       ubicacion: input.ubicacion?.trim() || null,
       created_by: input.actor,
@@ -332,11 +334,15 @@ function horaOrden(h: string | null | undefined): number {
 }
 
 export async function listMovimientosTanque(tanqueId: string): Promise<MovimientoTanque[]> {
-  const { data, error } = await supabase
-    .from('combustible_tanque_movimientos')
-    .select('*')
-    .eq('tanque_id', tanqueId);
+  // El saldo corrido arranca del SALDO DE APERTURA del tanque (los litros con que se
+  // creó, que no son un movimiento). Así la última fila iguala el saldo del header.
+  const [{ data, error }, { data: tk }] = await Promise.all([
+    supabase.from('combustible_tanque_movimientos').select('*').eq('tanque_id', tanqueId),
+    supabase.from('combustible_tanques').select('saldo_inicial_litros, tasa_usd_litro').eq('id', tanqueId).maybeSingle(),
+  ]);
   if (error) throw error;
+  const aperturaL = num((tk as { saldo_inicial_litros?: number | null } | null)?.saldo_inicial_litros);
+  const tasaTk = num((tk as { tasa_usd_litro?: number | null } | null)?.tasa_usd_litro);
   // Orden cronológico real por fecha + hora (+ created_at de desempate) para el saldo corrido.
   const rows = ((data ?? []) as MovimientoTanque[]).slice().sort((a, b) => {
     const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
@@ -345,9 +351,9 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
     if (h !== 0) return h;
     return (a.created_at ?? '').localeCompare(b.created_at ?? '');
   });
-  // Saldos corridos (litros y USD), como en el Excel.
-  let saldoL = 0;
-  let saldoU = 0;
+  // Saldos corridos (litros y USD), como en el Excel, partiendo de la apertura.
+  let saldoL = aperturaL;
+  let saldoU = round(aperturaL * tasaTk, 2);
   return rows.map((m) => {
     if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
@@ -660,7 +666,8 @@ export async function recomputarTanque(tanqueId: string): Promise<void> {
   const tasa = num(t.tasa_usd_litro);
   const movs = await listMovimientosTanque(tanqueId); // ya ordenado por fecha+hora, con saldo corrido
   const last = movs.length ? movs[movs.length - 1] : null;
-  const saldoL = last ? num(last.saldo_litros) : 0;
+  // El saldo corrido ya incluye la apertura. Sin movimientos, el saldo es la pura apertura.
+  const saldoL = last ? num(last.saldo_litros) : num(t.saldo_inicial_litros);
   await aplicarSaldoTanque(tanqueId, round(saldoL, 2), round(saldoL * tasa, 2), tasa);
 }
 

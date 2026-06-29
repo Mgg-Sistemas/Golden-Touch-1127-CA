@@ -316,6 +316,9 @@ export interface TanqueCombustible {
   capacidad_calculada_litros?: number | null;
   saldo_litros: number;
   saldo_usd: number;
+  /** Saldo de APERTURA (litros con que se creó el tanque). No es un movimiento, pero
+   *  el saldo corrido del libro arranca de aquí para que la última fila iguale el header. */
+  saldo_inicial_litros?: number | null;
   tasa_usd_litro: number;
   ubicacion?: string | null;
   estado: 'activo' | 'inactivo';
