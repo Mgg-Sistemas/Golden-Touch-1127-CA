@@ -1,5 +1,6 @@
 let cachedDataUrl: string | null = null;
 let cachedFirmaDataUrl: string | null | undefined; // undefined = aún no intentado; null = no existe
+let cachedFirma2: { dataUrl: string; w: number; h: number } | null | undefined;
 
 /**
  * Devuelve el logo (GOLDEN TOUCH) como data URL (JPEG) para embeberlo en PDFs
@@ -33,6 +34,46 @@ export async function loadLogoDataUrl(): Promise<string> {
     return cachedDataUrl;
   } finally {
     URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/**
+ * Firma de LEYDIS RENGEL (autorizadora de salidas/traslados) desde `public/firma2.jpeg`,
+ * como data URL JPEG + dimensiones naturales (para mantener la proporción al estamparla
+ * sobre la línea de «Autorizado por» en la Orden de Salida). Devuelve `null` si no existe.
+ */
+export async function loadFirma2DataUrl(): Promise<{ dataUrl: string; w: number; h: number } | null> {
+  if (cachedFirma2 !== undefined) return cachedFirma2;
+  try {
+    const url = `${import.meta.env.BASE_URL}firma2.jpeg`;
+    const resp = await fetch(url);
+    if (!resp.ok) { cachedFirma2 = null; return null; }
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('No se pudo decodificar la firma2'));
+        el.src = objectUrl;
+      });
+      const w = img.naturalWidth || 600;
+      const h = img.naturalHeight || 250;
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { cachedFirma2 = null; return null; }
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      cachedFirma2 = { dataUrl: canvas.toDataURL('image/jpeg', 0.92), w, h };
+      return cachedFirma2;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch {
+    cachedFirma2 = null;
+    return null;
   }
 }
 
