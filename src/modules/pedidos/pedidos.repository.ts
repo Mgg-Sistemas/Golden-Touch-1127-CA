@@ -933,6 +933,9 @@ export async function adjuntarFacturaRecepcion(ordenId: string, file: File): Pro
 export interface OrdenPorPagar {
   orden: Orden;
   proveedorNombre: string;
+  /** Datos completos del proveedor de la OC (RIF, teléfono, dirección…) para mostrarlos
+   *  en Tesorería sin tener que ir al directorio. Null si la OC no tiene proveedor. */
+  proveedor: Proveedor | null;
   /** Contra entrega = se paga solo lo recibido. */
   esContraEntrega: boolean;
   /** Monto sugerido a pagar (lo recibido en contra entrega, el total en el resto). */
@@ -943,12 +946,14 @@ export interface OrdenPorPagar {
   esperandoMetodo: boolean;
 }
 
-function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
+function mapPorPagar(orden: Orden, pm: Map<string, Proveedor>): OrdenPorPagar {
   const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
   const montoAPagar = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
+  const proveedor = (orden.proveedor_id && pm.get(orden.proveedor_id)) || null;
   return {
     orden,
-    proveedorNombre: (orden.proveedor_id && pm.get(orden.proveedor_id)) || '—',
+    proveedor,
+    proveedorNombre: proveedor?.razon_social || '—',
     esContraEntrega,
     montoAPagar,
     esperandoMetodo: orden.estado === 'confirmada_metodo',
@@ -964,10 +969,10 @@ function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
 export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   const [{ data: os, error }, { data: provs }] = await Promise.all([
     supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada']).order('oc_aprobada_en', { ascending: true }),
-    supabase.from('proveedores').select('id, razon_social'),
+    supabase.from('proveedores').select('*'),
   ]);
   if (error) throw error;
-  const pm = new Map((provs ?? []).map((p) => [p.id as string, p.razon_social as string]));
+  const pm = new Map((provs ?? []).map((p) => [(p as Proveedor).id, p as Proveedor]));
   return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
 }
 
@@ -975,10 +980,10 @@ export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
 export async function listOrdenesEnCredito(): Promise<OrdenPorPagar[]> {
   const [{ data: os, error }, { data: provs }] = await Promise.all([
     supabase.from(TABLE).select('*').eq('estado', 'cuenta_abierta').order('oc_aprobada_en', { ascending: true }),
-    supabase.from('proveedores').select('id, razon_social'),
+    supabase.from('proveedores').select('*'),
   ]);
   if (error) throw error;
-  const pm = new Map((provs ?? []).map((p) => [p.id as string, p.razon_social as string]));
+  const pm = new Map((provs ?? []).map((p) => [(p as Proveedor).id, p as Proveedor]));
   return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
 }
 

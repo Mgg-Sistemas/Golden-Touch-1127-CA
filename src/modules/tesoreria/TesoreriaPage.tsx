@@ -3759,6 +3759,20 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                   <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{monto(saldo, 'USD')}</div>
                 </div>
               </div>
+              {/* Datos del proveedor de la OC (se traen del directorio por proveedor_id). */}
+              {sel?.proveedor && (
+                <div className="card" style={{ margin: '0 0 .6rem', padding: '.6rem .85rem' }}>
+                  <div className="muted" style={{ fontSize: '.7rem', marginBottom: '.25rem' }}>PROVEEDOR</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem 1.5rem', alignItems: 'baseline' }}>
+                    <strong style={{ fontSize: '.95rem' }}>{sel.proveedor.razon_social}</strong>
+                    {sel.proveedor.rif && <span className="mono muted" style={{ fontSize: '.8rem' }}>RIF {sel.proveedor.rif}</span>}
+                    {sel.proveedor.telefono && <span className="muted" style={{ fontSize: '.8rem' }}>📞 {sel.proveedor.telefono}</span>}
+                    {sel.proveedor.contacto && <span className="muted" style={{ fontSize: '.8rem' }}>👤 {sel.proveedor.contacto}</span>}
+                    {sel.proveedor.email && <span className="muted" style={{ fontSize: '.8rem' }}>✉ {sel.proveedor.email}</span>}
+                    {sel.proveedor.direccion && <span className="muted" style={{ fontSize: '.8rem' }}>📍 {sel.proveedor.direccion}</span>}
+                  </div>
+                </div>
+              )}
               {o.recibida_en && <div className="badge warning" style={{ marginBottom: '.6rem' }}>📦 Mercancía ya recibida · crédito pendiente</div>}
 
               {/* Conversión del saldo a Bs con tasa personalizable (por defecto BCV). */}
