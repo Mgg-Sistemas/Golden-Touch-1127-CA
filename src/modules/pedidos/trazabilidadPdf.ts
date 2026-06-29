@@ -157,7 +157,18 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
       money(it.precio),
       money(it.cantidad * it.precio),
     ]),
-    foot: [['', '', '', '', 'TOTAL', money(orden.total)]],
+    foot: (() => {
+      const desc = Math.max(0, Number(orden.descuento_obtenido) || 0);
+      if (desc > 0) {
+        const sub = Math.round((Number(orden.total) + desc) * 100) / 100;
+        return [
+          ['', '', '', '', 'Subtotal', money(sub)],
+          ['', '', '', '', 'Descuento obtenido', `− ${money(desc)}`],
+          ['', '', '', '', 'TOTAL', money(orden.total)],
+        ];
+      }
+      return [['', '', '', '', 'TOTAL', money(orden.total)]];
+    })(),
     theme: 'grid',
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
@@ -290,6 +301,9 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['Proveedor adjudicado', proveedorFinal?.razon_social ?? '—'],
     ['RIF', proveedorFinal?.rif ?? '—'],
     ['Contacto', proveedorFinal?.contacto ?? '—'],
+    ...((Number(orden.descuento_obtenido) || 0) > 0
+      ? ([['Descuento obtenido', `− ${money(Number(orden.descuento_obtenido))} (subtotal ${money(Math.round((Number(orden.total) + Number(orden.descuento_obtenido)) * 100) / 100)})`]] as Array<[string, string]>)
+      : []),
     ['Total de la orden', money(orden.total)],
     ...(ofertaAceptada?.precio_divisa != null && Number(ofertaAceptada.precio_divisa) > 0 && Number(ofertaAceptada.precio_divisa) !== Number(ofertaAceptada.precio_total)
       ? ([['Precio con descuento (divisa)', `${money(Number(ofertaAceptada.precio_divisa))} · lista BCV ${money(Number(ofertaAceptada.precio_total))}`]] as Array<[string, string]>)

@@ -17,6 +17,8 @@ export interface CrearOfertaInput {
   precio_total: number;
   /** Precio con descuento en divisa (opcional). Si se indica, pasa a ser el precio final de la OC. */
   precio_divisa?: number | null;
+  /** Descuento obtenido (monto $) que se resta del total de la factura/OC. Opcional. */
+  descuento_obtenido?: number | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
@@ -97,6 +99,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       items: input.items,
       precio_total: input.precio_total,
       precio_divisa: input.precio_divisa ?? null,
+      descuento_obtenido: Math.max(0, Number(input.descuento_obtenido) || 0),
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
       notas: input.notas ?? null,
@@ -115,7 +118,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
 export async function actualizarOferta(
   id: string,
   patch: Partial<Pick<CrearOfertaInput,
-    'proveedor_id' | 'items' | 'precio_total' | 'precio_divisa' |
+    'proveedor_id' | 'items' | 'precio_total' | 'precio_divisa' | 'descuento_obtenido' |
     'fecha_entrega_prometida' | 'condiciones_pago' | 'notas' | 'ficha' | 'adjuntos' |
     'pdf_path' | 'pdf_filename'>>
 ): Promise<OfertaProveedor> {

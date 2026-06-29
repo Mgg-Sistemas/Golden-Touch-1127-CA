@@ -3335,10 +3335,14 @@ function EditarOrdenModal({
   // (oc_creada o confirmada_metodo). Si se está esperando el método de pago (firmada por
   // el GG), al guardar la OC vuelve a aprobación del Gerente General (ver `guardar`).
   const editarPrecios = ['oc_creada', 'confirmada_metodo'].includes(orden.estado) && Number(orden.total) > 0;
-  const totalEditado = items.reduce(
+  const subtotalEditado = items.reduce(
     (a, it) => a + (it.comprar !== false ? (Number(it.cantidad) || 0) * (Number(it.precio) || 0) : 0),
     0,
   );
+  // Descuento obtenido (monto $) editable: se resta del total (sincroniza la factura).
+  const [descuentoObt, setDescuentoObt] = useState(orden.descuento_obtenido != null && orden.descuento_obtenido > 0 ? String(orden.descuento_obtenido) : '');
+  const descuentoObtNum = Math.max(0, Number(descuentoObt) || 0);
+  const totalEditado = Math.max(0, Math.round((subtotalEditado - descuentoObtNum) * 100) / 100);
   // Datos de cabecera editables de la OP: solicitante, unidad, clasificación, urgencia y notas.
   const [solicitante, setSolicitante] = useState(orden.solicitante ?? '');
   const [ciSolicitante, setCiSolicitante] = useState(orden.ci_solicitante ?? '');
@@ -3471,6 +3475,7 @@ function EditarOrdenModal({
       await actualizarOrdenEditable(orden, {
         items: itemsFinal,
         total: editarPrecios ? Math.round(totalEditado * 100) / 100 : undefined,
+        descuento_obtenido: editarPrecios ? descuentoObtNum : undefined,
         motivo: orden.motivo ?? null,
         finalidad: orden.finalidad ?? null,
         solicitante: solicitante.trim() || null,
@@ -3644,12 +3649,25 @@ function EditarOrdenModal({
           })}
         </div>
         {editarPrecios && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '.5rem', marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px dashed var(--border, #334)' }}>
-            <span className="muted" style={{ fontSize: '.82rem' }}>Total de la OC</span>
-            <strong className="mono" style={{ fontSize: '1rem' }}>{money(totalEditado)}</strong>
-            {Math.abs(totalEditado - Number(orden.total)) > 0.01 && (
-              <span className="muted mono" style={{ fontSize: '.76rem', textDecoration: 'line-through' }}>{money(Number(orden.total))}</span>
+          <div style={{ marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px dashed var(--border, #334)' }}>
+            {/* Descuento obtenido: opcional, se resta del subtotal y sincroniza el total. */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.5rem' }}>
+              <span className="muted" style={{ fontSize: '.82rem' }}>Descuento obtenido $</span>
+              <input className="input mono" type="number" min={0} step="any" style={{ width: 120, textAlign: 'right' }}
+                value={descuentoObt} onChange={(e) => setDescuentoObt(e.target.value)} placeholder="0,00" />
+            </div>
+            {descuentoObtNum > 0 && (
+              <div className="muted mono" style={{ fontSize: '.78rem', textAlign: 'right', marginTop: '.2rem' }}>
+                Subtotal {money(subtotalEditado)} − descuento {money(descuentoObtNum)}
+              </div>
             )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '.5rem', marginTop: '.25rem' }}>
+              <span className="muted" style={{ fontSize: '.82rem' }}>Total de la OC</span>
+              <strong className="mono" style={{ fontSize: '1rem' }}>{money(totalEditado)}</strong>
+              {Math.abs(totalEditado - Number(orden.total)) > 0.01 && (
+                <span className="muted mono" style={{ fontSize: '.76rem', textDecoration: 'line-through' }}>{money(Number(orden.total))}</span>
+              )}
+            </div>
           </div>
         )}
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>

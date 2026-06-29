@@ -245,6 +245,8 @@ export async function actualizarOrdenEditable(
     unidad_solicitante?: string | null; clasificacion?: string[] | null; urgente?: boolean;
     solicitante?: string | null; ci_solicitante?: string | null; notas?: string | null;
     imagen_path?: string | null; total?: number;
+    /** Descuento obtenido (monto, $) que se resta del total de la OC. Opcional. */
+    descuento_obtenido?: number;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -259,10 +261,15 @@ export async function actualizarOrdenEditable(
   // método de pago), cualquier modificación la DEVUELVE a aprobación del Gerente
   // General: vuelve a `oc_creada` y se limpia la firma previa (oc_aprobada_por/en).
   const vuelveAGerente = o.estado === 'confirmada_metodo';
+  const descCambia = patch.descuento_obtenido !== undefined;
+  const descNuevo = descCambia ? Math.max(0, Math.round((Number(patch.descuento_obtenido) || 0) * 100) / 100) : null;
   const upd: Record<string, unknown> = {
-    historial: appendHistorial(o, 'orden_modificada', actorEmail,
-      vuelveAGerente ? { nota: 'Modificada tras la firma · vuelve a aprobación del Gerente General' } : {}),
+    historial: appendHistorial(o, 'orden_modificada', actorEmail, {
+      ...(vuelveAGerente ? { nota: 'Modificada tras la firma · vuelve a aprobación del Gerente General' } : {}),
+      ...(descCambia ? { descuento_obtenido: descNuevo } : {}),
+    }),
   };
+  if (descCambia) upd.descuento_obtenido = descNuevo;
   if (vuelveAGerente) {
     upd.estado = 'oc_creada' as EstadoOrden;
     upd.oc_aprobada_por = null;
@@ -391,7 +398,7 @@ export async function aprobarOrdenConOferta(
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
-    .from('ofertas_proveedor').select('condiciones_pago, precio_divisa')
+    .from('ofertas_proveedor').select('condiciones_pago, precio_divisa, descuento_obtenido')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -402,14 +409,19 @@ export async function aprobarOrdenConOferta(
   const precioDivisa = (ofRow?.precio_divisa as number | null) ?? null;
   const usaDescuento = precioDivisa != null && precioDivisa > 0 && precioDivisa !== ofertaPrecioTotal;
   const itemsFinal = usaDescuento ? escalarItemsADescuento(ofertaItems, ofertaPrecioTotal, precioDivisa) : ofertaItems;
-  const totalFinal = usaDescuento ? precioDivisa : ofertaPrecioTotal;
+  // DESCUENTO OBTENIDO (monto): se resta del total de la OC y queda registrado para la
+  // trazabilidad y el PDF. Se sincroniza con la factura (el total final ya es neto).
+  const descuentoObtenido = Math.max(0, Number((ofRow?.descuento_obtenido as number | null) ?? 0) || 0);
+  const totalBruto = usaDescuento ? precioDivisa : ofertaPrecioTotal;
+  const totalFinal = Math.round((totalBruto - descuentoObtenido) * 100) / 100;
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
     items: itemsFinal,
     total: totalFinal,
-    total_divisa: precioDivisa,
+    total_divisa: precioDivisa != null ? Math.round((precioDivisa - descuentoObtenido) * 100) / 100 : null,
     pago_en_divisa: usaDescuento,
+    descuento_obtenido: descuentoObtenido,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     oc_creada_por: actorEmail,
@@ -419,6 +431,7 @@ export async function aprobarOrdenConOferta(
       precio: totalFinal,
       precio_bcv: ofertaPrecioTotal,
       con_descuento: usaDescuento,
+      descuento_obtenido: descuentoObtenido,
       score: scoreCalculado,
       oc_codigo: ocCodigo,
     }),
@@ -441,6 +454,8 @@ export interface GrupoReparto {
   total: number;
   totalDivisa?: number | null;
   condicionesPago?: string | null;
+  /** Descuento obtenido (monto $) de la oferta, prorrateado a la parte de esta hija. */
+  descuentoObtenido?: number | null;
 }
 
 /**
@@ -491,7 +506,9 @@ export async function repartirOpEntreProveedores(
     const gDivisa = g.totalDivisa != null ? Number(g.totalDivisa) : null;
     const gUsaDescuento = gDivisa != null && gDivisa > 0 && gDivisa !== g.total;
     const gItems = gUsaDescuento ? escalarItemsADescuento(g.items, g.total, gDivisa) : g.items;
-    const gTotal = gUsaDescuento ? gDivisa : g.total;
+    // Descuento obtenido prorrateado a esta hija (se resta del total y queda en la trazabilidad).
+    const gDescuento = Math.max(0, Number(g.descuentoObtenido) || 0);
+    const gTotal = Math.round(((gUsaDescuento ? gDivisa! : g.total) - gDescuento) * 100) / 100;
     const row = {
       codigo: `${op.codigo}-${maxSuf + i + 1}`,
       proveedor_id: g.proveedorId,
@@ -501,8 +518,9 @@ export async function repartirOpEntreProveedores(
       ci_solicitante: op.ci_solicitante ?? null,
       items: gItems,
       total: gTotal,
-      total_divisa: gDivisa,
+      total_divisa: gDivisa != null ? Math.round((gDivisa - gDescuento) * 100) / 100 : null,
       pago_en_divisa: gUsaDescuento,
+      descuento_obtenido: gDescuento,
       estado: 'oc_creada' as EstadoOrden,
       notas: op.notas ?? null,
       motivo: op.motivo ?? null,
@@ -519,7 +537,7 @@ export async function repartirOpEntreProveedores(
       oc_creada_en: nowIso,
       historial: [
         ...(op.historial ?? []),
-        { at: nowIso, evento: 'oc_creada_reparto', actor: actorEmail, proveedorId: g.proveedorId, oc_codigo: ocCodigo, total: gTotal, con_descuento: gUsaDescuento } as EventoHistorial,
+        { at: nowIso, evento: 'oc_creada_reparto', actor: actorEmail, proveedorId: g.proveedorId, oc_codigo: ocCodigo, total: gTotal, con_descuento: gUsaDescuento, descuento_obtenido: gDescuento } as EventoHistorial,
       ],
     };
     const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
