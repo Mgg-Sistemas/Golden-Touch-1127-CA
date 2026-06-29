@@ -83,17 +83,19 @@ export function AgregarOfertaModal({
   const statSel = !nuevoProveedor ? stats.get(proveedorId) : undefined;
 
   // Al editar, se cargan los ítems de la oferta tal cual se guardaron (con su
-  // marca/modelo/precio). Al crear, los ítems "comprar" de la OP, en blanco.
+  // marca/modelo/precio). Al CREAR una oferta nueva, los ítems "comprar" de la OP
+  // pero EN LIMPIO: precio/precio_usd/marca/modelo en blanco (esos campos son de
+  // cada oferta, no de la orden, que puede traer precios de ofertas/repartos previos).
   const [items, setItems] = useState<FormItem[]>(
     (ofertaEditar
       ? ofertaEditar.items
       : orden.items.filter((i) => i.comprar !== false)
     ).map((i) => ({
       ...i, uid: nuevoUid(),
-      precio: Number(i.precio) || 0,
-      precio_usd: Number((i as ItemOrden).precio_usd) || 0,
-      marca: (i as ItemOrden).marca ?? '',
-      modelo: (i as ItemOrden).modelo ?? '',
+      precio: editando ? Number(i.precio) || 0 : 0,
+      precio_usd: editando ? Number((i as ItemOrden).precio_usd) || 0 : 0,
+      marca: editando ? (i as ItemOrden).marca ?? '' : '',
+      modelo: editando ? (i as ItemOrden).modelo ?? '' : '',
     })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEditar?.fecha_entrega_prometida ?? '');
