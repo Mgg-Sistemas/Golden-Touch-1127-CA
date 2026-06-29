@@ -470,6 +470,19 @@ export async function repartirOpEntreProveedores(
   const nowIso = new Date().toISOString();
   const hijos: Orden[] = [];
 
+  // Las hijas se numeran DESPUÉS de las que ya existan para esta OP (reparto repetido o
+  // parcial), para no chocar con el UNIQUE (codigo): si ya hay SP-...-1 y -2, las nuevas
+  // arrancan en -3.
+  const { data: hijasPrevias } = await supabase
+    .from(TABLE)
+    .select('codigo')
+    .like('codigo', `${op.codigo}-%`);
+  let maxSuf = 0;
+  for (const r of hijasPrevias ?? []) {
+    const m = /-(\d+)$/.exec((r as { codigo: string }).codigo ?? '');
+    if (m) maxSuf = Math.max(maxSuf, Number(m[1]));
+  }
+
   for (let i = 0; i < validos.length; i++) {
     const g = validos[i];
     const ocCodigo = await nextOcCodigo();
@@ -480,7 +493,7 @@ export async function repartirOpEntreProveedores(
     const gItems = gUsaDescuento ? escalarItemsADescuento(g.items, g.total, gDivisa) : g.items;
     const gTotal = gUsaDescuento ? gDivisa : g.total;
     const row = {
-      codigo: `${op.codigo}-${i + 1}`,
+      codigo: `${op.codigo}-${maxSuf + i + 1}`,
       proveedor_id: g.proveedorId,
       solicitante_email: op.solicitante_email,
       solicitante: op.solicitante ?? null,

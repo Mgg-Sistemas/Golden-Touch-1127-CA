@@ -98,7 +98,10 @@ export function RepartirProveedoresModal({
       notify(`OP repartida en ${hijos.length} orden(es) de compra · pendiente(s) por aprobación del GG${extra}`, 'success', { link: '#/app/pedidos' });
       onDone();
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo repartir la orden', 'error');
+      const msg = e instanceof Error
+        ? e.message
+        : (e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : '');
+      toast(msg || 'No se pudo repartir la orden', 'error');
       setSaving(false);
     }
   }
