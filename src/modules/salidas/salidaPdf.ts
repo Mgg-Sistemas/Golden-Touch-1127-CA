@@ -313,12 +313,14 @@ export async function descargarOrdenSalidaPdf(
   // Firma de LEYDIS RENGEL (autorizadora) estampada SOBRE la línea de «Autorizado por»,
   // tamaño mediano y centrada, cuando la solicitud ya fue aprobada/ejecutada.
   if (firma2) {
-    // Tamaño grande pero acotado al ancho de la columna de firma.
-    const maxW = Math.min(colW, 240), maxH = 125;
+    // Firma grande: se centra sobre la columna de «Autorizado por» y, si crece más que
+    // la columna, se desplaza para no pasarse de los márgenes de la hoja.
+    const maxW = 300, maxH = 160;
     const ratio = Math.min(maxW / firma2.w, maxH / firma2.h);
     const sw = firma2.w * ratio, sh = firma2.h * ratio;
     const cx = MARGIN + colW + 40 + colW / 2;
-    doc.addImage(firma2.dataUrl, 'JPEG', cx - sw / 2, fy - sh - 1, sw, sh);
+    const sx = Math.max(MARGIN, Math.min(cx - sw / 2, PAGE_W - MARGIN - sw));
+    doc.addImage(firma2.dataUrl, 'JPEG', sx, fy - sh - 1, sw, sh);
   }
   doc.setDrawColor(120); doc.setLineWidth(0.7);
   doc.line(MARGIN, fy, MARGIN + colW, fy);
