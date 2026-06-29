@@ -1313,7 +1313,10 @@ export async function recibirOrdenParcial(
     throw new Error('Indicá al menos una cantidad recibida.');
 
   // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
-  await Promise.all(o.items.map(async (it) => {
+  // Se OMITE cuando la orden está marcada "no afecta inventario" (la mercancía ya se
+  // cargó a mano): la recepción se registra pero NO aumenta el stock (evita duplicar).
+  const afectaInventario = o.afecta_inventario !== false;
+  if (afectaInventario) await Promise.all(o.items.map(async (it) => {
     const rec = recMap.get(it.sku) ?? 0;
     if (!it.productoId || rec <= 0) return;
     const { data: prod, error: pErr } = await supabase

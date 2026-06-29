@@ -1088,6 +1088,9 @@ export interface Orden {
   nota_recepcion?: string | null;
   recibida_por?: string | null;
   recibida_en?: string | null;
+  /** Si la recepción INGRESA la mercancía al inventario. false = ya cargada a mano
+   *  (al recibir no se aumenta el stock, para no duplicar). Por defecto true. */
+  afecta_inventario?: boolean | null;
   /** Compras a crédito: total abonado acumulado. */
   abonado_total?: number | null;
   /** Seriales de los billetes entregados al pagar la OC en USD físico (efectivo). */
