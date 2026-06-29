@@ -30,6 +30,7 @@ import { ConciliarMineralModal } from './ConciliarMineralModal';
 import { GestionarCajasModal } from './GestionarCajasModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import {
   descargarResumenUnidadPdf, descargarResumenUnidadExcel, enviarResumenUnidadCorreo,
   type SalidaResumenRow, type GrupoUnidad, type GrupoProducto,
@@ -68,7 +69,9 @@ export function SalidasPage() {
   // crea solicitudes.
   const puedeAprobar = isAdmin || can('salidas', 'full') || /^(analista|jef[ae])/.test(role ?? '');
   const actor = appUser?.email ?? 'sistema';
-  const actorName = appUser?.nombre ?? null;
+  // Nombre COMPLETO (nombre + apellido) de la persona logueada, para que las
+  // solicitudes/movimientos muestren "Nombre Apellido" y no solo el nombre.
+  const actorName = [appUser?.nombre, appUser?.apellido].map((v) => (v ?? '').trim()).filter(Boolean).join(' ') || null;
 
   const [scope, setScope] = useState<Scope>('salidas');
   // El dinero se maneja directo desde Tesorería; Salidas solo opera material.
@@ -183,7 +186,7 @@ export function SalidasPage() {
       {loading ? (
         <EmptyState message="Cargando…" icon="◔" />
       ) : vista === 'kanban' ? (
-        <SolicitudesKanban sols={solsVista} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
+        <SolicitudesKanban sols={solsVista} nombreDe={nombreDe} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
       ) : (
         <Historial
           scope={scope} tipo={tipo}
@@ -199,6 +202,8 @@ export function SalidasPage() {
           sol={modal.sol}
           puedeAprobar={puedeAprobar}
           canWrite={canWrite}
+          productos={productos}
+          existencias={existencias}
           actor={actor}
           actorName={actorName}
           nombreDe={nombreDe}
@@ -558,15 +563,24 @@ function Historial({
 function resumenSolicitud(s: SolicitudSalida): string {
   if (s.tipo === 'material') {
     const cant = num(Number(s.cantidad) || 0);
-    if (s.scope === 'traslado') return `${cant} · ${s.almacen_origen} → ${s.almacen_destino}`;
-    return `${cant} · ${s.almacen_origen} → ${s.destino ?? '—'}`;
+    if (s.scope === 'traslado') return `${cant} · ${s.almacen_origen ?? '—'} → ${s.almacen_destino ?? '—'}`;
+    // Salida: el origen puede ser de varios almacenes (cada material del suyo).
+    const origen = s.almacen_origen ?? 'varios almacenes';
+    return s.destino ? `${cant} · ${origen} → ${s.destino}` : `${cant} · ${origen}`;
   }
   const monto = money(Number(s.monto) || 0);
-  if (s.scope === 'traslado') return `${monto} ${s.moneda ?? ''} → ${s.destino ?? '—'}`;
   return `${monto} ${s.moneda ?? ''} → ${s.destino ?? '—'}`;
 }
 
-function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s: SolicitudSalida) => void }) {
+function SolicitudesKanban({ sols, onVer, nombreDe }: {
+  sols: SolicitudSalida[]; onVer: (s: SolicitudSalida) => void; nombreDe: (email?: string | null) => string;
+}) {
+  // Nombre completo de quien solicitó: se resuelve del usuario (email → "Nombre Apellido");
+  // si no se encuentra, cae al texto guardado en la solicitud.
+  const quienSolicito = (s: SolicitudSalida): string => {
+    const n = nombreDe(s.actor);
+    return n && n !== s.actor ? n : (s.solicitante ?? '—');
+  };
   if (!sols.length) return <EmptyState message="No hay solicitudes en esta vista. Creá una con el botón de arriba." icon="🗂" />;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.75rem' }}>
@@ -588,7 +602,7 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
                   </div>
                   <div className="muted" style={{ fontSize: '.74rem' }}>{resumenSolicitud(s)}</div>
                   <div style={{ fontSize: '.72rem', marginTop: '.2rem', color: 'var(--success)', fontWeight: 600 }}>
-                    👤 {s.solicitante ?? '—'}
+                    👤 {quienSolicito(s)}
                   </div>
                   <div className="muted" style={{ fontSize: '.68rem', marginTop: '.15rem' }}>{dateTime(s.created_at)}</div>
                 </button>
@@ -616,8 +630,12 @@ interface ItemEdit {
   observacion: string;
 }
 
-function SolicitudEditForm({ sol, actor, onSaved }: { sol: SolicitudSalida; actor: string; onSaved: () => void }) {
+function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
+  sol: SolicitudSalida; actor: string; productos: Producto[]; existencias: Existencia[]; onSaved: () => void;
+}) {
   const esTraslado = sol.scope === 'traslado';
+  const [nextKey, setNextKey] = useState(1000);
+  const [agregarKey, setAgregarKey] = useState('');
   // Renglones editables: de items[] (multi) o del campo suelto (legado).
   const [items, setItems] = useState<ItemEdit[]>(() => {
     const base = (sol.items && sol.items.length)
@@ -657,6 +675,52 @@ function SolicitudEditForm({ sol, actor, onSaved }: { sol: SolicitudSalida; acto
   }
   function quitarItem(key: number) {
     setItems((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls));
+  }
+
+  // Productos con stock para AÑADIR a la solicitud. En salida, cada material sale de
+  // su almacén (todas las existencias con stock). En traslado, solo del almacén origen.
+  const exMap = useMemo(() => {
+    const m = new Map<string, Existencia>();
+    existencias.forEach((e) => m.set(`${e.producto_id}|${e.almacen}`, e));
+    return m;
+  }, [existencias]);
+  const opcionesAgregar = useMemo(() => {
+    const activos = new Map(productos.filter((p) => p.estado === 'activo').map((p) => [p.id, p]));
+    return existencias
+      .filter((e) => (Number(e.stock) || 0) > 0 && activos.has(e.producto_id))
+      .filter((e) => (esTraslado ? e.almacen === sol.almacen_origen : true))
+      .map((e) => {
+        const p = activos.get(e.producto_id)!;
+        return { value: `${e.producto_id}|${e.almacen}`, label: `${p.nombre} · ${p.sku} — ${e.almacen}`, nombre: p.nombre };
+      })
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [existencias, productos, esTraslado, sol.almacen_origen]);
+
+  function agregarMaterial(key: string) {
+    if (!key) return;
+    const [pid, alm] = key.split('|');
+    if (items.some((i) => i.producto_id === pid && (i.almacen ?? '') === alm)) {
+      toast('Ese material (en ese almacén) ya está en la solicitud.', 'error');
+      setAgregarKey('');
+      return;
+    }
+    const p = productos.find((x) => x.id === pid);
+    if (!p) return;
+    const ex = exMap.get(key);
+    const precioDefault = (Number(ex?.costo_promedio) || 0) || (p.precio ?? 0) || 0;
+    setItems((ls) => [...ls, {
+      key: nextKey,
+      producto_id: pid,
+      producto_nombre: p.nombre,
+      producto_sku: p.sku ?? null,
+      unidad: p.unidad ?? null,
+      almacen: alm,
+      cantidad: '1',
+      precio_unit: String(precioDefault),
+      observacion: '',
+    }]);
+    setNextKey((k) => k + 1);
+    setAgregarKey('');
   }
 
   const total = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
@@ -744,6 +808,18 @@ function SolicitudEditForm({ sol, actor, onSaved }: { sol: SolicitudSalida; acto
               <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={esTraslado ? 3 : 4} className="num">Total</td><td className="num mono">{money(total)}</td><td></td></tr></tfoot>
             </table>
           </div>
+          {/* Añadir un material nuevo a la solicitud */}
+          <div className="form-row" style={{ marginTop: '.5rem' }}>
+            <label>＋ Añadir material</label>
+            <SearchSelect value={agregarKey} onChange={agregarMaterial}
+              options={opcionesAgregar.map((o) => ({ value: o.value, label: o.label }))}
+              placeholder={opcionesAgregar.length ? '🔍 Buscar producto con stock para agregarlo…' : '— no hay materiales con stock disponibles —'} />
+            <small className="muted">
+              {esTraslado
+                ? `Solo materiales con stock en el almacén origen (${sol.almacen_origen ?? '—'}).`
+                : 'Cada material se descuenta del almacén donde está. Al elegirlo se agrega con cantidad 1 y su costo (PMP).'}
+            </small>
+          </div>
         </>
       )}
 
@@ -818,11 +894,13 @@ function SolicitudEditForm({ sol, actor, onSaved }: { sol: SolicitudSalida; acto
 /* ───────────── Detalle + acciones de una solicitud ───────────── */
 
 function SolicitudDetalleModal({
-  sol, puedeAprobar, canWrite, actor, actorName, nombreDe, onClose, onChanged,
+  sol, puedeAprobar, canWrite, productos, existencias, actor, actorName, nombreDe, onClose, onChanged,
 }: {
   sol: SolicitudSalida;
   puedeAprobar: boolean;
   canWrite: boolean;
+  productos: Producto[];
+  existencias: Existencia[];
   actor: string;
   actorName: string | null;
   nombreDe: (email?: string | null) => string;
@@ -892,7 +970,7 @@ function SolicitudDetalleModal({
   if (editando) {
     return (
       <ModalUI title={`Editar solicitud ${sol.codigo}`} size="lg" onClose={onClose} footer={footer}>
-        <SolicitudEditForm sol={sol} actor={actor} onSaved={() => { setEditando(false); onChanged(); }} />
+        <SolicitudEditForm sol={sol} actor={actor} productos={productos} existencias={existencias} onSaved={() => { onChanged(); onClose(); }} />
       </ModalUI>
     );
   }
@@ -903,7 +981,7 @@ function SolicitudDetalleModal({
         <tbody>
           <tr><td className="muted">Tipo</td><td>{sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de {sol.tipo === 'dinero' ? 'dinero' : 'material'}</td></tr>
           <tr><td className="muted">Estado</td><td><span className={`badge ${SOL_ESTADO_CLASS[sol.estado]}`}>{SOL_COLS.find((c) => c.key === sol.estado)?.label}</span></td></tr>
-          <tr><td className="muted">Solicitante</td><td>{sol.solicitante}</td></tr>
+          <tr><td className="muted">Solicitante</td><td>{(() => { const n = nombreDe(sol.actor); return n && n !== sol.actor ? n : (sol.solicitante ?? '—'); })()}</td></tr>
           {sol.unidad_solicitante && <tr><td className="muted">Unidad solicitante</td><td>{sol.unidad_solicitante}</td></tr>}
           {sol.tipo === 'material' ? (
             <>
