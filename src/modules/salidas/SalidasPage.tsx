@@ -8,7 +8,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type {
   Almacen, Caja, Existencia, Movimiento, MovimientoCaja, Producto,
-  SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, Usuario,
+  SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, Usuario, ItemSalida,
 } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
@@ -19,6 +19,7 @@ import {
 import {
   listSalidasMaterial, listTrasladosMaterial,
   listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cancelarSolicitudSalida,
+  editarSolicitudSalida,
 } from './salidas.repository';
 import { descargarSalidaDineroPdf, descargarTrasladoDineroPdf, descargarOrdenSalidaPdf } from './salidaPdf';
 import { SalidaMaterialForm } from './SalidaMaterialForm';
@@ -197,6 +198,7 @@ export function SalidasPage() {
         <SolicitudDetalleModal
           sol={modal.sol}
           puedeAprobar={puedeAprobar}
+          canWrite={canWrite}
           actor={actor}
           actorName={actorName}
           nombreDe={nombreDe}
@@ -600,13 +602,227 @@ function SolicitudesKanban({ sols, onVer }: { sols: SolicitudSalida[]; onVer: (s
   );
 }
 
+/* ───────────── Edición de una solicitud (mientras está por aprobar) ───────────── */
+
+interface ItemEdit {
+  key: number;
+  producto_id: string;
+  producto_nombre: string;
+  producto_sku: string | null;
+  unidad: string | null;
+  almacen: string | null;
+  cantidad: string;
+  precio_unit: string;
+  observacion: string;
+}
+
+function SolicitudEditForm({ sol, actor, onSaved }: { sol: SolicitudSalida; actor: string; onSaved: () => void }) {
+  const esTraslado = sol.scope === 'traslado';
+  // Renglones editables: de items[] (multi) o del campo suelto (legado).
+  const [items, setItems] = useState<ItemEdit[]>(() => {
+    const base = (sol.items && sol.items.length)
+      ? sol.items
+      : (sol.producto_id
+          ? [{ producto_id: sol.producto_id, producto_nombre: sol.producto_nombre ?? '', producto_sku: null, unidad: null, cantidad: Number(sol.cantidad) || 0, precio_unit: Number(sol.precio_unit) || 0, almacen: sol.almacen_origen ?? null } as ItemSalida]
+          : []);
+    return base.map((it, i) => ({
+      key: i + 1,
+      producto_id: it.producto_id,
+      producto_nombre: it.producto_nombre ?? '',
+      producto_sku: it.producto_sku ?? null,
+      unidad: it.unidad ?? null,
+      almacen: it.almacen ?? null,
+      cantidad: String(Number(it.cantidad) || 0),
+      precio_unit: String(Number(it.precio_unit) || 0),
+      observacion: it.observacion ?? '',
+    }));
+  });
+  const [solicitante, setSolicitante] = useState(sol.solicitante ?? '');
+  const [unidadSolic, setUnidadSolic] = useState(sol.unidad_solicitante ?? '');
+  const [destino, setDestino] = useState(sol.destino ?? '');
+  const [motivo, setMotivo] = useState(sol.motivo ?? '');
+  const [fechaEntrega, setFechaEntrega] = useState(sol.fecha_entrega ?? '');
+  const [consumoInterno, setConsumoInterno] = useState(!!sol.consumo_interno);
+  const [choferNombre, setChoferNombre] = useState(sol.chofer_nombre ?? '');
+  const [choferCedula, setChoferCedula] = useState(sol.chofer_cedula ?? '');
+  const [vehiculoDesc, setVehiculoDesc] = useState(sol.vehiculo_descripcion ?? '');
+  const [vehiculoPlaca, setVehiculoPlaca] = useState(sol.vehiculo_placa ?? '');
+  const [dirDespacho, setDirDespacho] = useState(sol.direccion_despacho ?? '');
+  const [dirDestino, setDirDestino] = useState(sol.direccion_destino ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setItem(key: number, patch: Partial<ItemEdit>) {
+    setItems((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+  function quitarItem(key: number) {
+    setItems((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls));
+  }
+
+  const total = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
+
+  async function guardar() {
+    setError(null);
+    if (!solicitante.trim()) { setError('Indicá quién hace la solicitud.'); return; }
+    const itemsLimpios: ItemSalida[] = items
+      .filter((i) => (Number(i.cantidad) || 0) > 0)
+      .map((i) => ({
+        producto_id: i.producto_id,
+        producto_nombre: i.producto_nombre,
+        producto_sku: i.producto_sku,
+        unidad: i.unidad,
+        cantidad: Number(i.cantidad) || 0,
+        precio_unit: Number(i.precio_unit) || 0,
+        almacen: i.almacen,
+        observacion: i.observacion.trim() || null,
+      }));
+    if (sol.tipo === 'material' && !itemsLimpios.length) { setError('Debe quedar al menos un material con cantidad mayor que 0.'); return; }
+    setSaving(true);
+    try {
+      await editarSolicitudSalida(sol, {
+        items: sol.tipo === 'material' ? itemsLimpios : undefined,
+        solicitante,
+        unidadSolicitante: unidadSolic,
+        destino: esTraslado ? undefined : destino,
+        motivo,
+        fechaEntrega,
+        consumoInterno,
+        choferNombre, choferCedula,
+        vehiculoDescripcion: vehiculoDesc, vehiculoPlaca,
+        direccionDespacho: dirDespacho, direccionDestino: dirDestino,
+        actor,
+      });
+      notify(`Solicitud ${sol.codigo} actualizada`, 'success');
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo guardar.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Solicitante</label>
+          <input className="input" defaultValue={solicitante} onChange={(e) => setSolicitante(e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>Unidad solicitante</label>
+          <input className="input" defaultValue={unidadSolic} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setUnidadSolic(e.target.value); }} placeholder="Departamento / unidad" />
+        </div>
+      </div>
+
+      {sol.tipo === 'material' && (
+        <>
+          <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.5rem 0 .35rem' }}>
+            Materiales <span className="muted" style={{ textTransform: 'none' }}>(se puede cambiar cantidad, costo y observación; el producto y el almacén no se cambian)</span>
+          </label>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.82rem' }}>
+              <thead><tr><th>Producto</th>{!esTraslado && <th>Almacén</th>}<th className="num">Cantidad</th><th className="num">Costo u.</th><th className="num">Subtotal</th><th></th></tr></thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.key}>
+                    <td>{it.producto_nombre}{it.producto_sku ? <div className="muted mono" style={{ fontSize: '.7rem' }}>{it.producto_sku}</div> : null}
+                      <input className="input" style={{ marginTop: '.25rem', fontSize: '.74rem' }} defaultValue={it.observacion}
+                        onChange={(e) => setItem(it.key, { observacion: e.target.value })} placeholder="Observación (opcional)" />
+                    </td>
+                    {!esTraslado && <td className="muted">{it.almacen ?? sol.almacen_origen ?? '—'}</td>}
+                    <td className="num"><input className="input mono" type="number" min={0} step="any" style={{ width: 90, textAlign: 'right' }}
+                      value={it.cantidad} onChange={(e) => setItem(it.key, { cantidad: e.target.value })} /></td>
+                    <td className="num"><input className="input mono" type="number" min={0} step="any" style={{ width: 90, textAlign: 'right' }}
+                      value={it.precio_unit} onChange={(e) => setItem(it.key, { precio_unit: e.target.value })} /></td>
+                    <td className="num mono">{money((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0))}</td>
+                    <td>{items.length > 1 && <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => quitarItem(it.key)} title="Quitar">✕</button>}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={esTraslado ? 3 : 4} className="num">Total</td><td className="num mono">{money(total)}</td><td></td></tr></tfoot>
+            </table>
+          </div>
+        </>
+      )}
+
+      <div className="form-grid" style={{ marginTop: '.5rem' }}>
+        <div className="form-row">
+          <label>Motivo / detalle</label>
+          <input className="input" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del despacho, referencia…" />
+        </div>
+        <div className="form-row">
+          <label>Fecha de entrega</label>
+          <input className="input" type="date" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} />
+        </div>
+      </div>
+
+      {!esTraslado && (
+        <div className="form-row" style={{ marginTop: '.25rem' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={consumoInterno} onChange={(e) => setConsumoInterno(e.target.checked)} />
+            Consumo interno
+          </label>
+          {!consumoInterno && (
+            <input className="input" style={{ marginTop: '.4rem' }} defaultValue={destino} onChange={(e) => setDestino(e.target.value)} placeholder="Dirigido a (destino)" />
+          )}
+        </div>
+      )}
+
+      {!consumoInterno && (
+        <>
+          <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.6rem 0 .35rem' }}>
+            Transporte y direcciones
+          </label>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Chofer / responsable</label>
+              <input className="input" defaultValue={choferNombre} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setChoferNombre(e.target.value); }} />
+            </div>
+            <div className="form-row">
+              <label>C.I. chofer</label>
+              <input className="input mono" defaultValue={choferCedula} onChange={(e) => setChoferCedula(e.target.value)} />
+            </div>
+          </div>
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Vehículo</label>
+              <input className="input" defaultValue={vehiculoDesc} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setVehiculoDesc(e.target.value); }} />
+            </div>
+            <div className="form-row">
+              <label>Placa</label>
+              <input className="input mono" defaultValue={vehiculoPlaca} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setVehiculoPlaca(e.target.value); }} />
+            </div>
+          </div>
+          <div className="form-row">
+            <label>Dirección de despacho</label>
+            <input className="input" defaultValue={dirDespacho} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setDirDespacho(e.target.value); }} />
+          </div>
+          <div className="form-row">
+            <label>Dirección de destino</label>
+            <input className="input" defaultValue={dirDestino} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setDirDestino(e.target.value); }} />
+          </div>
+        </>
+      )}
+
+      <div className="actions" style={{ marginTop: '.75rem', justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void guardar()}>
+          {saving ? 'Guardando…' : '💾 Guardar cambios'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ───────────── Detalle + acciones de una solicitud ───────────── */
 
 function SolicitudDetalleModal({
-  sol, puedeAprobar, actor, actorName, nombreDe, onClose, onChanged,
+  sol, puedeAprobar, canWrite, actor, actorName, nombreDe, onClose, onChanged,
 }: {
   sol: SolicitudSalida;
   puedeAprobar: boolean;
+  canWrite: boolean;
   actor: string;
   actorName: string | null;
   nombreDe: (email?: string | null) => string;
@@ -616,6 +832,9 @@ function SolicitudDetalleModal({
   const [busy, setBusy] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancel, setMotivoCancel] = useState('');
+  const [editando, setEditando] = useState(false);
+  // Se puede editar mientras esté POR APROBAR (aún no movió stock).
+  const puedeEditar = canWrite && sol.estado === 'por_aprobar';
 
   const ejecutarLabel =
     sol.tipo === 'dinero'
@@ -636,12 +855,19 @@ function SolicitudDetalleModal({
     }
   }
 
-  const footer = (
+  const footer = editando ? (
+    <button className="btn btn-ghost" onClick={() => setEditando(false)} disabled={busy}>Volver al detalle</button>
+  ) : (
     <>
       {sol.tipo === 'material' && (
         <button className="btn btn-ghost" disabled={busy}
           onClick={() => { void descargarOrdenSalidaPdf(sol).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>
           ↓ Orden de salida (PDF)
+        </button>
+      )}
+      {puedeEditar && (
+        <button className="btn btn-ghost" disabled={busy} onClick={() => setEditando(true)} title="Editar esta solicitud (mientras está por aprobar)">
+          ✏ Editar
         </button>
       )}
       {puedeAprobar && sol.estado === 'por_aprobar' && (
@@ -662,6 +888,14 @@ function SolicitudDetalleModal({
       <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cerrar</button>
     </>
   );
+
+  if (editando) {
+    return (
+      <ModalUI title={`Editar solicitud ${sol.codigo}`} size="lg" onClose={onClose} footer={footer}>
+        <SolicitudEditForm sol={sol} actor={actor} onSaved={() => { setEditando(false); onChanged(); }} />
+      </ModalUI>
+    );
+  }
 
   return (
     <ModalUI title={`Solicitud ${sol.codigo}`} onClose={onClose} footer={footer}>
