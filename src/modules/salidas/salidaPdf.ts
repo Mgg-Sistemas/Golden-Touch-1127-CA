@@ -146,8 +146,13 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
    solicitante, el motivo, quién autorizó, y deja las líneas de
    firma de "Solicitado/Creado por" y "Autorizado por".
    ============================================================ */
-export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+export async function descargarOrdenSalidaPdf(
+  sol: SolicitudSalida,
+  /** Resuelve email → "Nombre Apellido" (del directorio de usuarios). Sin resolver,
+   *  o si el email no se encuentra, se usa el valor tal cual. */
+  resolverNombre?: (email?: string | null) => string,
+): Promise<void> {
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl, loadFirma2DataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
@@ -158,8 +163,20 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const esTraslado = sol.scope === 'traslado';
   const cant = Number(sol.cantidad) || 0;
   const precio = Number(sol.precio_unit) || 0;
-  const autorizo = sol.ejecutada_por || sol.aprobada_por || null;
-  const creo = sol.actor_name || sol.actor || sol.solicitante;
+  // Nombre completo (no el email): resuelve del directorio de usuarios.
+  const nombre = (email?: string | null): string => {
+    if (!email) return '';
+    const r = resolverNombre?.(email);
+    return r && r !== email ? r : email;
+  };
+  // Autorizador de salidas/traslados: LEYDIS RENGEL (con su firma) cuando ya fue aprobada/ejecutada.
+  const AUTORIZADOR_SALIDAS = 'LEYDIS RENGEL';
+  const aprobada = !!(sol.aprobada_en || sol.aprobada_por || sol.ejecutada_en || sol.ejecutada_por);
+  const autorizo = aprobada ? AUTORIZADOR_SALIDAS : null;
+  const firma2 = aprobada ? await loadFirma2DataUrl().catch(() => null) : null;
+  // Solicitante: el nombre COMPLETO del usuario (no el texto guardado, que puede venir cortado).
+  const creoResuelto = nombre(sol.actor);
+  const creo = (creoResuelto && creoResuelto !== sol.actor) ? creoResuelto : (sol.solicitante || sol.actor_name || sol.actor);
 
   // Renglones: varios (items) o uno solo (campos sueltos). Se muestran como factura.
   const items = (sol.items && sol.items.length)
@@ -293,6 +310,16 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // ── Firmas al pie ──
   const fy = PAGE_H - MARGIN - 50;
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
+  // Firma de LEYDIS RENGEL (autorizadora) estampada SOBRE la línea de «Autorizado por»,
+  // tamaño mediano y centrada, cuando la solicitud ya fue aprobada/ejecutada.
+  if (firma2) {
+    // Tamaño grande pero acotado al ancho de la columna de firma.
+    const maxW = Math.min(colW - 10, 200), maxH = 85;
+    const ratio = Math.min(maxW / firma2.w, maxH / firma2.h);
+    const sw = firma2.w * ratio, sh = firma2.h * ratio;
+    const cx = MARGIN + colW + 40 + colW / 2;
+    doc.addImage(firma2.dataUrl, 'JPEG', cx - sw / 2, fy - sh - 1, sw, sh);
+  }
   doc.setDrawColor(120); doc.setLineWidth(0.7);
   doc.line(MARGIN, fy, MARGIN + colW, fy);
   doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);

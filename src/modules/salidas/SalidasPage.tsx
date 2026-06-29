@@ -939,7 +939,7 @@ function SolicitudDetalleModal({
     <>
       {sol.tipo === 'material' && (
         <button className="btn btn-ghost" disabled={busy}
-          onClick={() => { void descargarOrdenSalidaPdf(sol).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>
+          onClick={() => { void descargarOrdenSalidaPdf(sol, nombreDe).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}>
           ↓ Orden de salida (PDF)
         </button>
       )}
