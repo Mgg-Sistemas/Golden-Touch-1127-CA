@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { dosDecimales } from '@/shared/lib/format';
@@ -99,6 +99,9 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
     return () => { cancelled = true; };
   }, [productos]);
   const [form, setForm] = useState<FormState>(() => initialState(producto, categorias, unidades));
+  // Ref del nombre: al guardar leemos el valor DIRECTO del input (lo que se ve escrito),
+  // así nada puede "cortar" el nombre aunque el estado quede atrás.
+  const nombreRef = useRef<HTMLInputElement>(null);
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaUnid, setNuevaUnid] = useState('');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
@@ -208,7 +211,8 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
     setError(null);
 
     const sku = form.sku.trim().toUpperCase();
-    const nombre = form.nombre.trim().toUpperCase();
+    // El nombre se toma del input REAL (lo escrito), no del estado: blindaje anti-corte.
+    const nombre = (nombreRef.current?.value ?? form.nombre).trim().toUpperCase();
     if (!sku || !nombre) {
       setError('SKU y nombre son obligatorios.');
       return;
@@ -325,6 +329,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
           {/* No controlado (defaultValue): un re-render por realtime (al refrescar
               `productos`) no pisa ni "corta" lo que se está tecleando. */}
           <input
+            ref={nombreRef}
             className="input"
             defaultValue={form.nombre}
             onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('nombre', e.target.value); }}
