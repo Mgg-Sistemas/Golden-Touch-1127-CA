@@ -322,10 +322,12 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
 
         <div className="form-row">
           <label>Nombre del producto</label>
+          {/* No controlado (defaultValue): un re-render por realtime (al refrescar
+              `productos`) no pisa ni "corta" lo que se está tecleando. */}
           <input
             className="input"
-            value={form.nombre}
-            onChange={(e) => update('nombre', e.target.value.toUpperCase())}
+            defaultValue={form.nombre}
+            onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('nombre', e.target.value); }}
             required
           />
         </div>
@@ -560,42 +562,42 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
           <div style={{ marginTop: '.5rem' }}>
             <div className="form-row">
               <label>Nombre de búsqueda / alias</label>
-              <input className="input" value={form.nombre_busqueda}
-                onChange={(e) => update('nombre_busqueda', e.target.value.toUpperCase())}
+              <input className="input" defaultValue={form.nombre_busqueda}
+                onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('nombre_busqueda', e.target.value); }}
                 placeholder="Ej.: CLORO (para hallarlo más fácil)" />
               <small className="muted" style={{ fontSize: '.72rem' }}>Sirve para encontrar el producto en el buscador del inventario.</small>
             </div>
             <div className="form-grid">
               <div className="form-row">
                 <label>Marca</label>
-                <input className="input" value={form.marca} onChange={(e) => update('marca', e.target.value.toUpperCase())} placeholder="Ej.: STIHL" />
+                <input className="input" defaultValue={form.marca} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('marca', e.target.value); }} placeholder="Ej.: STIHL" />
               </div>
               <div className="form-row">
                 <label>Modelo</label>
-                <input className="input" value={form.modelo} onChange={(e) => update('modelo', e.target.value.toUpperCase())} placeholder="Ej.: ZH4100D" />
+                <input className="input" defaultValue={form.modelo} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('modelo', e.target.value); }} placeholder="Ej.: ZH4100D" />
               </div>
             </div>
             <div className="form-grid">
               <div className="form-row">
                 <label>N°</label>
-                <input className="input mono" value={form.numero} onChange={(e) => update('numero', e.target.value.toUpperCase())} placeholder="N° de parte / activo" />
+                <input className="input mono" defaultValue={form.numero} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('numero', e.target.value); }} placeholder="N° de parte / activo" />
               </div>
               <div className="form-row">
                 <label>Serial</label>
-                <input className="input mono" value={form.serial} onChange={(e) => update('serial', e.target.value.toUpperCase())} placeholder="N° de serie" />
+                <input className="input mono" defaultValue={form.serial} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('serial', e.target.value); }} placeholder="N° de serie" />
               </div>
               <div className="form-row">
                 <label>Código</label>
-                <input className="input mono" value={form.codigo} onChange={(e) => update('codigo', e.target.value.toUpperCase())} placeholder="Código de fábrica / barra" />
+                <input className="input mono" defaultValue={form.codigo} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('codigo', e.target.value); }} placeholder="Código de fábrica / barra" />
               </div>
             </div>
             <div className="form-row">
               <label>Ubicación física</label>
-              <input className="input" value={form.ubicacion} onChange={(e) => update('ubicacion', e.target.value.toUpperCase())} placeholder="Estante / fila / zona del almacén" />
+              <input className="input" defaultValue={form.ubicacion} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); update('ubicacion', e.target.value); }} placeholder="Estante / fila / zona del almacén" />
             </div>
             <div className="form-row">
               <label>Descripción / detalles</label>
-              <textarea className="input" rows={2} value={form.descripcion} onChange={(e) => update('descripcion', e.target.value)} placeholder="Características, presentación, notas…" />
+              <textarea className="input" rows={2} defaultValue={form.descripcion} onChange={(e) => update('descripcion', e.target.value)} placeholder="Características, presentación, notas…" />
             </div>
           </div>
         </details>
