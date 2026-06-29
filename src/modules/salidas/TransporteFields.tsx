@@ -17,7 +17,7 @@ import {
 } from './transporte.repository';
 
 /** Dirección de despacho por defecto (galpón de Golden Touch). */
-export const DIRECCION_DESPACHO_DEFAULT = 'ZONA INDUSTRIAL MATANZAS, GALPÓN MATANZAS-GT';
+export const DIRECCION_DESPACHO_DEFAULT = 'GALPON LOS PINOS GT';
 
 export interface TransporteSeleccion {
   choferId: string | null;
