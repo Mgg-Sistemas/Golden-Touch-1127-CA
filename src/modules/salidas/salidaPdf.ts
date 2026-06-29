@@ -314,7 +314,7 @@ export async function descargarOrdenSalidaPdf(
   // tamaño mediano y centrada, cuando la solicitud ya fue aprobada/ejecutada.
   if (firma2) {
     // Tamaño grande pero acotado al ancho de la columna de firma.
-    const maxW = Math.min(colW - 10, 200), maxH = 85;
+    const maxW = Math.min(colW, 240), maxH = 125;
     const ratio = Math.min(maxW / firma2.w, maxH / firma2.h);
     const sw = firma2.w * ratio, sh = firma2.h * ratio;
     const cx = MARGIN + colW + 40 + colW / 2;
