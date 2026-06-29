@@ -635,6 +635,9 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   modo: 'montar' | 'pagar'; compra: CompraDirecta; cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const esPago = modo === 'pagar';
+  // Si los materiales ENTRAN al inventario al pagar. Se desmarca cuando ya se cargaron
+  // a mano (para no duplicar el stock). Por defecto, sí entran.
+  const [afectaInventario, setAfectaInventario] = useState(compra.afecta_inventario !== false);
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
   const [gastos, setGastos] = useState<Record<number, string>>(() => {
     const m: Record<number, string> = {};
@@ -714,7 +717,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       setSaving(true);
       try {
         if (file) await agregarAdjuntoDirecto('compra', compra.id, file, actor);
-        await enviarCompraAPagar({ compra, items, actor, actorName });
+        await enviarCompraAPagar({ compra, items, afectaInventario, actor, actorName });
         notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
@@ -909,6 +912,27 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
             <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             {file && <small className="muted">{file.name}</small>}
             <small className="muted">Podés sumar más facturas después desde el detalle.</small>
+          </div>
+        )}
+
+        {/* Ingreso al inventario: por defecto sí; se desmarca cuando los materiales ya
+            se cargaron a mano (para que el pago no duplique el stock). */}
+        {!esPago && (
+          <div className="form-row">
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={afectaInventario} onChange={(e) => setAfectaInventario(e.target.checked)} />
+              Ingresar estos materiales al inventario cuando Tesorería pague
+            </label>
+            <small className="muted">
+              {afectaInventario
+                ? 'Al pagar, cada material entra al inventario (stock + costo PMP).'
+                : '⚠ No entrarán al inventario al pagar (marcalo así si ya los cargaste a mano, para no duplicar el stock).'}
+            </small>
+          </div>
+        )}
+        {esPago && compra.afecta_inventario === false && (
+          <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', margin: '.5rem 0' }}>
+            <small>⚠ Esta compra está marcada <strong>«no ingresa al inventario»</strong> (los materiales ya se cargaron a mano). Al pagar solo sale el dinero de la caja; <strong>no se mueve el stock</strong>.</small>
           </div>
         )}
       </form>
