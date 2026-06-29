@@ -18,6 +18,7 @@ import {
   getCategorias,
   listProductos,
   listRecepcionesFinalizadas,
+  listRecepcionesPorMarcar,
   contarRecepcionesPorMarcar,
   renombrarCategoria,
   setEstadoProducto,
@@ -138,6 +139,7 @@ export function InventarioPage() {
   const canWrite = can('inventario', 'escritura');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [recepciones, setRecepciones] = useState<Orden[]>([]);
+  const [recepcionesPendientes, setRecepcionesPendientes] = useState<Orden[]>([]);
   // Cuántas órdenes están pendientes por marcar la recepción (lo que cuenta el botón).
   const [recepcionesPorMarcar, setRecepcionesPorMarcar] = useState(0);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -170,7 +172,7 @@ export function InventarioPage() {
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
-  useRealtime(['productos', 'movimientos', 'almacenes'], () => { void reload(); });
+  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes'], () => { void reload(); });
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -191,9 +193,10 @@ export function InventarioPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prods, ords, porMarcar, alms, exs, nEnProduccion] = await Promise.all([
+      const [prods, ords, pendientes, porMarcar, alms, exs, nEnProduccion] = await Promise.all([
         listProductos(),
         listRecepcionesFinalizadas().catch(() => [] as Orden[]),
+        listRecepcionesPorMarcar().catch(() => [] as Orden[]),
         contarRecepcionesPorMarcar().catch(() => 0),
         listAlmacenes().catch(() => [] as Almacen[]),
         listExistencias().catch(() => [] as Existencia[]),
@@ -201,6 +204,7 @@ export function InventarioPage() {
       ]);
       setProductos(prods);
       setRecepciones(ords);
+      setRecepcionesPendientes(pendientes);
       setRecepcionesPorMarcar(porMarcar);
       setAlmacenes(alms);
       setExistencias(exs);
@@ -610,7 +614,15 @@ export function InventarioPage() {
       )}
 
       {ui.view === 'recepciones' ? (
-        <RecepcionesPendientes ordenes={recepciones} />
+        <RecepcionesPendientes
+          ordenes={recepciones}
+          pendientes={recepcionesPendientes}
+          almacenes={almacenes}
+          actor={productoActor}
+          actorName={actorName}
+          canWrite={canWrite}
+          onRecibida={reload}
+        />
       ) : ui.view === 'almacenes' ? (
         almacenSel ? (
           <>

@@ -333,6 +333,23 @@ export async function listRecepcionesFinalizadas(): Promise<Orden[]> {
 }
 
 /**
+ * Órdenes PENDIENTES por recepción (las que el almacenista debe recibir):
+ * contra entrega lista para recibir (`por_recibir`) o ya pagada y aún sin recibir
+ * (`pagada` con `recibida_en` nulo). Se muestran como tarjetas en Recepciones para
+ * que el almacenista las reciba y elija el almacén destino.
+ */
+export async function listRecepcionesPorMarcar(): Promise<Orden[]> {
+  const { data, error } = await supabase
+    .from('ordenes')
+    .select('*')
+    .is('recibida_en', null)
+    .in('estado', ['por_recibir', 'pagada'])
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Orden[];
+}
+
+/**
  * Cuántas órdenes están PENDIENTES por marcar la recepción (desde Pedidos/Compras):
  * contra entrega lista para recibir (`por_recibir`) o ya pagada y aún sin recibir
  * (`pagada` con `recibida_en` nulo). Es el número que se muestra en el botón de
