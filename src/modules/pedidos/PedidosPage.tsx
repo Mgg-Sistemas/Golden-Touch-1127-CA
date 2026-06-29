@@ -1542,6 +1542,11 @@ function RecepcionParcialModal({
         Confirmá cuánto entró realmente al almacén por ítem. Solo lo recibido se suma al inventario.
         Si llegó menos de lo pedido, dejá una <strong>nota</strong>; la orden cierra sin saldo pendiente.
       </p>
+      {orden.afecta_inventario === false && (
+        <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.75rem' }}>
+          <small>⚠ Esta orden está marcada <strong>«no ingresa al inventario»</strong> (la mercancía ya se cargó a mano). Al confirmar, la recepción <strong>se registra pero NO aumenta el stock</strong>.</small>
+        </div>
+      )}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       <div className="table-wrap">
