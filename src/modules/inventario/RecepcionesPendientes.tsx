@@ -2,16 +2,181 @@ import { useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { Modal } from '@/shared/ui/Modal';
+import { toast } from '@/shared/ui/Toast';
 import { date, dateTime, money, num } from '@/shared/lib/format';
-import type { ItemOrden, Orden } from '@/shared/lib/types';
+import type { Almacen, ItemOrden, Orden } from '@/shared/lib/types';
+import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
+import { nombreCortoAlmacen } from './almacenes.repository';
 
 interface RecepcionesPendientesProps {
+  /** Órdenes ya finalizadas (historial). */
   ordenes: Orden[];
+  /** Órdenes pendientes por recepción (el almacenista debe recibirlas). */
+  pendientes: Orden[];
+  /** Almacenes (con sub-almacenes) para elegir el destino de la mercancía. */
+  almacenes: Almacen[];
+  /** Email del usuario que recibe. */
+  actor: string;
+  /** Nombre del usuario que recibe (para la trazabilidad del movimiento). */
+  actorName: string | null;
+  /** Si el usuario puede registrar la recepción. */
+  canWrite: boolean;
+  /** Se llama tras recibir una orden para recargar el inventario. */
+  onRecibida: () => void | Promise<void>;
 }
 
 /** Marca/modelo ofertado de un ítem (para mostrarlo en el detalle). */
 function ficha(it: ItemOrden): string {
   return [it.marca, it.modelo].map((v) => (v ?? '').toString().trim()).filter(Boolean).join(' · ');
+}
+
+/** Almacenes ordenados: cada principal seguido de sus sub-almacenes. */
+function almacenesOrdenados(almacenes: Almacen[]): Almacen[] {
+  const principales = almacenes.filter((a) => !a.parent_id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const hijosDe = (id: string) => almacenes.filter((a) => a.parent_id === id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const out: Almacen[] = [];
+  for (const p of principales) { out.push(p); out.push(...hijosDe(p.id)); }
+  out.push(...almacenes.filter((a) => a.parent_id && !almacenes.some((x) => x.id === a.parent_id)));
+  return out;
+}
+
+/**
+ * Modal de recepción: el almacenista confirma cuánto entró por ítem y elige el
+ * almacén destino. Solo lo recibido entra al inventario (vía `recibirOrdenParcial`).
+ */
+function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSaved }: {
+  orden: Orden;
+  almacenes: Almacen[];
+  actor: string;
+  actorName: string | null;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [recs, setRecs] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    orden.items.forEach((it) => { m[it.sku] = String(it.cantidad); });
+    return m;
+  });
+  const [nota, setNota] = useState('');
+  const [almacen, setAlmacen] = useState<string>(orden.almacen_destino ?? almacenesOrdenados(almacenes)[0]?.nombre ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setRec(sku: string, cantPedida: number, v: string) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > cantPedida) { setRecs((r) => ({ ...r, [sku]: String(cantPedida) })); return; }
+    setRecs((r) => ({ ...r, [sku]: v }));
+  }
+
+  const recibidoTotal = orden.items.reduce((a, it) => a + (Number(recs[it.sku]) || 0) * Number(it.precio), 0);
+  const hayDiferencia = orden.items.some((it) => (Number(recs[it.sku]) || 0) < Number(it.cantidad));
+
+  async function handleConfirm() {
+    setError(null);
+    const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
+    if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
+    if (!almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
+    if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
+    setSaving(true);
+    try {
+      await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName, almacen.trim());
+      const esContra = orden.condiciones_pago === 'contra_entrega';
+      toast(
+        esContra
+          ? `Recepción confirmada · ${orden.codigo} · indicá el método para pagar lo recibido en Tesorería`
+          : `Mercancía recibida · ${orden.codigo} · stock actualizado en ${almacen.trim()}`,
+        'success',
+      );
+      await onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo confirmar la recepción');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Recibir · ${orden.oc_codigo ?? orden.codigo}`}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleConfirm} disabled={saving}>
+            {saving ? 'Confirmando…' : '📦 Confirmar recepción'}
+          </button>
+        </>
+      }
+    >
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        Confirmá cuánto entró realmente por ítem y elegí el <strong>almacén destino</strong>. Solo lo recibido se suma al inventario.
+        Si llegó menos de lo pedido, dejá una <strong>nota</strong>; la orden cierra sin saldo pendiente.
+      </p>
+      {orden.afecta_inventario === false && (
+        <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.75rem' }}>
+          <small>⚠ Esta orden está marcada <strong>«no ingresa al inventario»</strong> (la mercancía ya se cargó a mano). Al confirmar, la recepción <strong>se registra pero NO aumenta el stock</strong>.</small>
+        </div>
+      )}
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+      <div className="form-row" style={{ marginBottom: '.6rem' }}>
+        <label>Almacén / sub-almacén destino *</label>
+        <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
+          <option value="">— elegí el almacén —</option>
+          {almacenesOrdenados(almacenes).map((a) => {
+            const padre = a.parent_id ? almacenes.find((x) => x.id === a.parent_id) : null;
+            const corto = nombreCortoAlmacen(a, almacenes);
+            return (
+              <option key={a.id} value={a.nombre}>
+                {padre ? `   ↳ ${padre.nombre} › ${corto}` : a.nombre}
+              </option>
+            );
+          })}
+        </select>
+        <small className="muted">La mercancía entra a este almacén y queda en la trazabilidad final.</small>
+      </div>
+
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr><th>SKU</th><th>Producto</th><th style={{ textAlign: 'right' }}>Pedido</th><th style={{ textAlign: 'right' }}>Recibido</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
+          <tbody>
+            {orden.items.map((it) => {
+              const rec = Number(recs[it.sku]) || 0;
+              const falta = rec < Number(it.cantidad);
+              return (
+                <tr key={it.sku}>
+                  <td className="mono">{it.sku}</td>
+                  <td>{it.nombre}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <input className="input mono" type="number" min={0} max={it.cantidad} step="any"
+                      value={recs[it.sku]} onChange={(e) => setRec(it.sku, Number(it.cantidad), e.target.value)}
+                      style={{ width: 90, textAlign: 'right', borderColor: falta ? 'var(--warning)' : undefined }} />
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{money(rec * Number(it.precio))}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Total recibido</td><td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(recibidoTotal)}</td></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div className="form-row" style={{ marginTop: '.5rem' }}>
+        <label>Nota de recepción {hayDiferencia && <span style={{ color: 'var(--warning)' }}>(obligatoria · llegó menos de lo pedido)</span>}</label>
+        <textarea className="input" rows={2} name="recep-nota" defaultValue={nota} onChange={(e) => setNota(e.target.value)}
+          placeholder="Diferencias, faltantes, observaciones de la recepción…" />
+      </div>
+      {orden.condiciones_pago === 'contra_entrega' && (
+        <small className="muted" style={{ display: 'block' }}>
+          Contra entrega: luego se indicará el método para pagar <strong>{money(recibidoTotal)}</strong> (lo recibido) en Tesorería.
+        </small>
+      )}
+    </Modal>
+  );
 }
 
 /** Modal con el detalle de una orden finalizada: ítems con cantidad y precio. */
@@ -92,76 +257,149 @@ function DetalleRecepcionModal({ orden, onClose }: { orden: Orden; onClose: () =
 }
 
 /**
- * Tarjetas con las órdenes finalizadas (cerradas). Al hacer click en una se abre
- * el detalle con sus ítems (cantidad y precio).
+ * Módulo de Recepciones del inventario:
+ *  · Arriba, las órdenes PENDIENTES por recepción — el almacenista las recibe
+ *    eligiendo el almacén destino (botón «Recibir»).
+ *  · Abajo, el historial de órdenes ya finalizadas (click → detalle).
  */
-export function RecepcionesPendientes({ ordenes }: RecepcionesPendientesProps) {
+export function RecepcionesPendientes({
+  ordenes, pendientes, almacenes, actor, actorName, canWrite, onRecibida,
+}: RecepcionesPendientesProps) {
   const [detalle, setDetalle] = useState<Orden | null>(null);
+  const [recibir, setRecibir] = useState<Orden | null>(null);
 
   return (
-    <div className="card">
-      <div className="card-title">
-        <span>Recepciones (finalizadas)</span>
-        <span className="muted mono">{num(ordenes.length)} órdenes</span>
+    <>
+      {/* ─── Pendientes por recepción ─── */}
+      <div className="card">
+        <div className="card-title">
+          <span>Pendientes por recepción</span>
+          <span className="muted mono">{num(pendientes.length)} órden{pendientes.length !== 1 ? 'es' : ''}</span>
+        </div>
+
+        {!pendientes.length ? (
+          <EmptyState message="No hay órdenes pendientes por recibir." icon="📦" />
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.75rem' }}>
+            {pendientes.map((o) => {
+              const itemsCount = Array.isArray(o.items) ? o.items.length : 0;
+              const totalUnidades = Array.isArray(o.items)
+                ? o.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0)
+                : 0;
+              return (
+                <div key={o.id} className="card" style={{ margin: 0, padding: '.85rem', borderColor: 'var(--primary-3, #2563eb)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
+                    <div>
+                      <div className="mono" style={{ fontWeight: 700 }}>{o.oc_codigo ?? o.codigo}</div>
+                      <div className="muted" style={{ fontSize: '.75rem' }}>{date(o.created_at)}</div>
+                    </div>
+                    <StatusBadge estado={o.estado} />
+                  </div>
+
+                  <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
+                    <div>{num(itemsCount)} ítem{itemsCount !== 1 ? 's' : ''} · {num(totalUnidades)} und.</div>
+                    <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(o.total)}</div>
+                  </div>
+
+                  {o.solicitante && (
+                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Solicita: {o.solicitante}</div>
+                  )}
+                  {o.almacen_destino && (
+                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.2rem' }}>Destino sugerido: {o.almacen_destino}</div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem' }}>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDetalle(o)} title="Ver el detalle de la orden">
+                      👁 Detalle
+                    </button>
+                    {canWrite && (
+                      <button type="button" className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setRecibir(o)} title="Recibir esta orden y elegir el almacén destino">
+                        📦 Recibir
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {!ordenes.length ? (
-        <EmptyState message="No hay órdenes finalizadas todavía." icon="✓" />
-      ) : (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-            gap: '.75rem',
-          }}
-        >
-          {ordenes.map((o) => {
-            const itemsCount = Array.isArray(o.items) ? o.items.length : 0;
-            const totalUnidades = Array.isArray(o.items)
-              ? o.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0)
-              : 0;
+      {/* ─── Historial (finalizadas) ─── */}
+      <div className="card">
+        <div className="card-title">
+          <span>Recepciones (finalizadas)</span>
+          <span className="muted mono">{num(ordenes.length)} órdenes</span>
+        </div>
 
-            return (
-              <button
-                key={o.id}
-                type="button"
-                className="card"
-                onClick={() => setDetalle(o)}
-                title="Ver el detalle de la orden"
-                style={{ margin: 0, padding: '.85rem', textAlign: 'left', cursor: 'pointer', width: '100%', background: 'var(--surface, transparent)' }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
-                  <div>
-                    <div className="mono" style={{ fontWeight: 700 }}>{o.codigo}</div>
-                    <div className="muted" style={{ fontSize: '.75rem' }}>
-                      {date(o.created_at)}
+        {!ordenes.length ? (
+          <EmptyState message="No hay órdenes finalizadas todavía." icon="✓" />
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+              gap: '.75rem',
+            }}
+          >
+            {ordenes.map((o) => {
+              const itemsCount = Array.isArray(o.items) ? o.items.length : 0;
+              const totalUnidades = Array.isArray(o.items)
+                ? o.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0)
+                : 0;
+
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  className="card"
+                  onClick={() => setDetalle(o)}
+                  title="Ver el detalle de la orden"
+                  style={{ margin: 0, padding: '.85rem', textAlign: 'left', cursor: 'pointer', width: '100%', background: 'var(--surface, transparent)' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
+                    <div>
+                      <div className="mono" style={{ fontWeight: 700 }}>{o.codigo}</div>
+                      <div className="muted" style={{ fontSize: '.75rem' }}>
+                        {date(o.created_at)}
+                      </div>
+                    </div>
+                    <StatusBadge estado={o.estado} />
+                  </div>
+
+                  <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
+                    <div>{num(itemsCount)} ítem{itemsCount !== 1 ? 's' : ''} · {num(totalUnidades)} und.</div>
+                    <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>
+                      {money(o.total)}
                     </div>
                   </div>
-                  <StatusBadge estado={o.estado} />
-                </div>
 
-                <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
-                  <div>{num(itemsCount)} ítem{itemsCount !== 1 ? 's' : ''} · {num(totalUnidades)} und.</div>
-                  <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>
-                    {money(o.total)}
+                  {o.solicitante && (
+                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>
+                      Solicita: {o.solicitante}
+                    </div>
+                  )}
+                  <div className="muted" style={{ fontSize: '.7rem', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
+                    👁 Ver detalle
                   </div>
-                </div>
-
-                {o.solicitante && (
-                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>
-                    Solicita: {o.solicitante}
-                  </div>
-                )}
-                <div className="muted" style={{ fontSize: '.7rem', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
-                  👁 Ver detalle
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {detalle && <DetalleRecepcionModal orden={detalle} onClose={() => setDetalle(null)} />}
-    </div>
+      {recibir && (
+        <RecibirOrdenModal
+          orden={recibir}
+          almacenes={almacenes}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setRecibir(null)}
+          onSaved={onRecibida}
+        />
+      )}
+    </>
   );
 }
