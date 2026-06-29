@@ -1120,6 +1120,12 @@ export interface AbonoCredito {
   nota?: string | null;
   comprobante_path?: string | null;
   comprobante_nombre?: string | null;
+  /** Comisión bancaria del abono: monto en su moneda + equivalente USD, egresado
+   *  aparte de la caja (no reduce la deuda de la OC). */
+  comision_monto?: number | null;
+  comision_moneda?: string | null;
+  comision_usd?: number | null;
+  comision_caja_mov_id?: string | null;
   at: string;
 }
 
