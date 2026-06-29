@@ -427,7 +427,19 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
           money(it.cantidad * it.precio),
         ];
       }),
-      foot: [['', '', '', esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL', money(o.total)]],
+      foot: (() => {
+        const desc = Math.max(0, Number(o.descuento_obtenido) || 0);
+        const totalLabel = esConsolidada ? `Subtotal ${o.codigo}` : 'TOTAL';
+        if (desc > 0) {
+          const sub = Math.round((Number(o.total) + desc) * 100) / 100;
+          return [
+            ['', '', '', 'Subtotal', money(sub)],
+            ['', '', '', 'Descuento obtenido', `− ${money(desc)}`],
+            ['', '', '', totalLabel, money(o.total)],
+          ];
+        }
+        return [['', '', '', totalLabel, money(o.total)]];
+      })(),
       theme: 'grid',
       headStyles: { fillColor: [255, 138, 0], textColor: 255 },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },

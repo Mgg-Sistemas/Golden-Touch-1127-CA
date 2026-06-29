@@ -101,6 +101,8 @@ export function AgregarOfertaModal({
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEditar?.fecha_entrega_prometida ?? '');
   const [condiciones, setCondiciones] = useState(ofertaEditar?.condiciones_pago ?? '');
   const [notas, setNotas] = useState(ofertaEditar?.notas ?? '');
+  // Descuento obtenido (monto $): se resta del total de la factura. Opcional.
+  const [descuento, setDescuento] = useState(ofertaEditar?.descuento_obtenido != null && ofertaEditar.descuento_obtenido > 0 ? String(ofertaEditar.descuento_obtenido) : '');
   // Adjuntos: PDF o varias imágenes de la cotización (multi-archivo).
   const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   // Al EDITAR: adjuntos ya guardados que se conservan (se pueden quitar uno a uno).
@@ -168,6 +170,10 @@ export function AgregarOfertaModal({
   // la suma de los precios USD por ítem.
   const precioTotal = items.reduce((a, i) => a + i.cantidad * i.precio, 0);   // Pago en Bs a BCV
   const totalUsd = items.reduce((a, i) => a + i.cantidad * i.precio_usd, 0);  // Pago en USD
+  const descuentoNum = Math.max(0, Number(descuento) || 0);
+  // Total NETO de la factura tras el descuento obtenido (referencia BCV y, si aplica, USD).
+  const netoBcv = Math.max(0, Math.round((precioTotal - descuentoNum) * 100) / 100);
+  const netoUsd = Math.max(0, Math.round((totalUsd - descuentoNum) * 100) / 100);
   const tieneUsd = items.some((i) => i.precio_usd > 0);
   const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
   const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
@@ -286,6 +292,7 @@ export function AgregarOfertaModal({
           items: itemsGuardar,
           precio_total: precioTotalGuardar,
           precio_divisa: tieneUsd ? totalUsd : null,
+          descuento_obtenido: descuentoNum,
           fecha_entrega_prometida: fechaEntrega || null,
           condiciones_pago: condiciones.trim() || null,
           notas: notas.trim() || null,
@@ -312,6 +319,7 @@ export function AgregarOfertaModal({
         adjuntos,
         ficha: fichaLimpia(),
         precio_divisa: tieneUsd ? totalUsd : null,
+        descuento_obtenido: descuentoNum,
       });
       notify(`Oferta registrada para ${orden.codigo}`, 'success', { link: '#/app/pedidos' });
       onCreated();
@@ -605,6 +613,20 @@ export function AgregarOfertaModal({
             {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
+      </div>
+
+      {/* Descuento obtenido: se resta del total de la factura (sincroniza el monto). */}
+      <div className="form-row">
+        <label>Descuento obtenido <span className="muted">(opcional, $)</span></label>
+        <input className="input mono" type="number" min={0} step="any" value={descuento}
+          onChange={(e) => setDescuento(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
+        {descuentoNum > 0 && (
+          <small className="muted">
+            Total con descuento: <strong className="mono">{money(netoBcv)}</strong>
+            {tieneUsd && <> · en USD <strong className="mono">{money(netoUsd)}</strong></>}
+            {' '}(antes {money(precioTotal)}{tieneUsd ? ` / ${money(totalUsd)}` : ''}).
+          </small>
+        )}
       </div>
 
       <div className="form-row">

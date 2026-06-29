@@ -1018,6 +1018,8 @@ export interface Orden {
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;
+  /** Descuento obtenido (monto $) restado del total de la OC. Opcional; editable. */
+  descuento_obtenido?: number | null;
   /** Total alternativo si se paga en divisa/efectivo (precio con descuento del proveedor). */
   total_divisa?: number | null;
   /** Se marcó que el pago se hizo en divisa → el monto a pagar es `total_divisa`. */
@@ -1309,6 +1311,9 @@ export interface OfertaProveedor {
   ficha?: FichaOferta | null;
   /** Precio total si se paga en divisa/efectivo (precio_total es el de referencia BCV). */
   precio_divisa?: number | null;
+  /** Descuento obtenido (monto $) que el proveedor concede; se resta del total de la
+   *  factura/OC. Opcional. */
+  descuento_obtenido?: number | null;
 }
 
 export interface EvaluacionRecepcion {

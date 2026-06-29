@@ -71,7 +71,12 @@ export function RepartirProveedoresModal({
       const totalDivisa = divisaOferta != null && totalOferta > 0
         ? Math.round(divisaOferta * (total / totalOferta) * 100) / 100
         : null;
-      return { proveedorId: of.proveedor_id, items, total, totalDivisa, condicionesPago: of.condiciones_pago ?? null };
+      // Descuento obtenido prorrateado al peso de estos ítems dentro de la oferta.
+      const descOferta = Number(of.descuento_obtenido) || 0;
+      const descuentoObtenido = descOferta > 0 && totalOferta > 0
+        ? Math.round(descOferta * (total / totalOferta) * 100) / 100
+        : 0;
+      return { proveedorId: of.proveedor_id, items, total, totalDivisa, condicionesPago: of.condiciones_pago ?? null, descuentoObtenido };
     });
   }, [asig, itemsCompra, ofertas]);
 
