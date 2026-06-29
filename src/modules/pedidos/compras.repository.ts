@@ -45,6 +45,9 @@ export interface CompraDirecta {
   proveedor_nombre: string | null;
   estado: EstadoCompraDirecta;
   gasto: number | null;
+  /** Si la compra ingresa los materiales al inventario al pagar. Se pone en false
+   *  cuando los materiales ya se cargaron a mano (para no duplicar el stock). */
+  afecta_inventario?: boolean | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   /** Desglose multimoneda del pago (para revertir exacto al reabrir). Null si fue caja simple. */
@@ -350,15 +353,19 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
   }
 
   // 2) Revertir la entrada al inventario de cada material (salida por la misma cantidad).
-  for (const it of compra.items) {
-    const cantidad = Number(it.cantidad) || 0;
-    if (cantidad <= 0 || !it.producto_id) continue;
-    await registrarMovimiento({
-      producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.almacen,
-      actor, actor_name: actorName ?? null,
-      ref_tipo: 'compra_directa_reapertura', ref_id: compra.id,
-      detalle: `Reapertura compra directa · ${it.producto_nombre}`,
-    });
+  //    Solo si la compra HABÍA entrado al inventario; si estaba marcada "no afecta
+  //    inventario", no se movió stock, así que tampoco se revierte.
+  if (compra.afecta_inventario !== false) {
+    for (const it of compra.items) {
+      const cantidad = Number(it.cantidad) || 0;
+      if (cantidad <= 0 || !it.producto_id) continue;
+      await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.almacen,
+        actor, actor_name: actorName ?? null,
+        ref_tipo: 'compra_directa_reapertura', ref_id: compra.id,
+        detalle: `Reapertura compra directa · ${it.producto_nombre}`,
+      });
+    }
   }
 
   // 3) Volver a EN PROCESO (limpia pago/inventario; conserva ítems y proveedor para editar).
@@ -453,6 +460,9 @@ export interface EnviarCompraAPagarInput {
   compra: CompraDirecta;
   /** Materiales con su monto (precio por renglón) ya cargados por el analista. */
   items: CompraDirectaItem[];
+  /** Si los materiales deben INGRESAR al inventario al pagar. false = ya cargados a
+   *  mano (no se re-ingresan, para no duplicar el stock). Por defecto true. */
+  afectaInventario?: boolean;
   actor: string;
   actorName?: string | null;
 }
@@ -474,6 +484,7 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
     .from('compras_directas')
     .update({
       estado: 'por_pagar', gasto: total, items,
+      afecta_inventario: input.afectaInventario !== false,
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
@@ -534,18 +545,23 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   }
 
   // 2) Entrada al inventario por cada material (costo = monto / cantidad).
+  //    Se OMITE cuando la compra está marcada "no afecta inventario" (los materiales
+  //    ya se cargaron a mano): así el pago no duplica el stock.
+  const afectaInventario = compra.afecta_inventario !== false;
   let primerMov: string | null = null;
-  for (const it of items) {
-    const cantidad = Number(it.cantidad) || 0;
-    if (cantidad <= 0 || !it.producto_id) continue;
-    const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 10000) / 10000 : 0;
-    const mov = await registrarMovimiento({
-      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
-      actor: input.actor, actor_name: input.actorName ?? null,
-      ref_tipo: 'compra_directa', ref_id: compra.id,
-      detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
-    });
-    if (!primerMov) primerMov = mov.id;
+  if (afectaInventario) {
+    for (const it of items) {
+      const cantidad = Number(it.cantidad) || 0;
+      if (cantidad <= 0 || !it.producto_id) continue;
+      const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 10000) / 10000 : 0;
+      const mov = await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
+        actor: input.actor, actor_name: input.actorName ?? null,
+        ref_tipo: 'compra_directa', ref_id: compra.id,
+        detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
+      });
+      if (!primerMov) primerMov = mov.id;
+    }
   }
 
   // 3) Finalizar + comprobante de pago.
