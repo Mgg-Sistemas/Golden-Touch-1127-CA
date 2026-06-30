@@ -330,7 +330,7 @@ export function RecepcionesPage() {
             {b.label}
           </button>
         ))}
-        <button className="btn btn-primary" style={{ filter: 'hue-rotate(75deg)' }} onClick={() => setCierresOpen(true)} title="Cerrar la recepción y guardar todo en el histórico">
+        <button className="btn" style={{ background: '#334155', color: '#fff', border: 'none' }} onClick={() => setCierresOpen(true)} title="Cerrar la recepción y guardar todo en el histórico">
           🔒 Cerrar recepción
         </button>
       </div>
