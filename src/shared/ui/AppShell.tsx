@@ -39,7 +39,7 @@ export function AppShell() {
   const { can, role, appUser } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('tesoreria') || can('maquinaria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('maquinaria');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -267,6 +267,7 @@ export function AppShell() {
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
           {can('acopio') && <NavItem to="/app/acopio" icon="📦" label="Centro de Costo PERAMANAL" />}
+          {can('recepciones') && <NavItem to="/app/recepciones" icon="📋" label="Recepciones" />}
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación (Cocina)" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}

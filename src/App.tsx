@@ -22,6 +22,7 @@ const CocinaPage = lazy(() => import('./modules/cocina/CocinaPage').then((m) => 
 const RrhhPage = lazy(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
 const TesoreriaPage = lazy(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
 const RetencionesPage = lazy(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
+const RecepcionesPage = lazy(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
 const UsuariosPage = lazy(() => import('./modules/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
 const AjustesPage = lazy(() => import('./modules/ajustes/AjustesPage').then((m) => ({ default: m.AjustesPage })));
 const MaquinariaPage = lazy(() => import('./modules/maquinaria/MaquinariaPage').then((m) => ({ default: m.MaquinariaPage })));
@@ -88,6 +89,7 @@ export function App() {
           <Route path="maquinaria/servicio-mantenimiento" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><ServicioMantenimientoPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
           <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesPage /></Suspense></RequireModule>} />
+          <Route path="recepciones" element={<RequireModule module="recepciones"><Suspense fallback={<PageLoader />}><RecepcionesPage /></Suspense></RequireModule>} />
           <Route path="usuarios" element={<RequireModule module="usuarios"><Suspense fallback={<PageLoader />}><UsuariosPage /></Suspense></RequireModule>} />
           <Route path="ajustes" element={<RequireModule module="ajustes"><Suspense fallback={<PageLoader />}><AjustesPage /></Suspense></RequireModule>} />
           <Route path="sin-acceso" element={<SinAccesoPage />} />

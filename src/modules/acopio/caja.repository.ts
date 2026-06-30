@@ -7,6 +7,7 @@
    · Los saldos corrientes (K y M del Excel) se calculan acá al listar.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { crearRecepcionDesdeCierre } from '@/modules/recepciones/recepciones.repository';
 import type { CajaCierre, CajaMovimiento, CajaResumen, ClasificacionAcopio, CostoClase, GrupoClasificacion, TransferenciaInter } from '@/shared/lib/types';
 
 export const GRUPOS: { key: GrupoClasificacion; label: string; color: string }[] = [
@@ -580,6 +581,20 @@ export async function cerrarYAbrirCaja(input: {
       caja_id: nueva.id,
     }, actor, actorName ?? null, { skipDeudaMgg: true });
   }
+
+  // 6) RECEPCIÓN: el saldo de KG de casiterita acumulado genera una RECEPCIÓN para el
+  //    laboratorio (módulo Recepciones). OJO: NO entra al inventario al cerrar la caja
+  //    (el ingreso a inventario es un paso posterior, aún por definir). Best-effort:
+  //    si falla, el cierre no se bloquea (la recepción se puede crear a mano).
+  try {
+    await crearRecepcionDesdeCierre({
+      cajaId: cerrando.id,
+      cajaNumero: cerrando.numero,
+      pesoKg: snapshot.resumen.saldoKg,
+      actor,
+      actorName: actorName ?? null,
+    });
+  } catch { /* no bloquea el cierre */ }
 
   return { ...nueva, saldo_inicial_usd: snapshot.resumen.saldoUsd, saldo_inicial_kg: snapshot.resumen.saldoKg };
 }
