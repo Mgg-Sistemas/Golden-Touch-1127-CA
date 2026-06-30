@@ -3245,15 +3245,15 @@ function CrearOrdenModal({
                 className="input"
                 name="op-nuevo-nombre"
                 placeholder="Nombre del producto *"
-                defaultValue={nuevoNombre}
-                onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoNombre(e.target.value); }}
+                value={nuevoNombre}
+                onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
               />
               <div className="form-grid">
                 {mercado ? (
                   <input className="input" value="VÍVERES" disabled title="En MERCADO los productos nuevos entran como VÍVERES y quedan disponibles en Cocina" />
                 ) : (
-                  <input className="input" name="op-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoCategoria(e.target.value); }} />
+                  <input className="input" name="op-nuevo-categoria" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
                 )}
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
@@ -3691,12 +3691,12 @@ function EditarOrdenModal({
                 className="input"
                 name="op-edit-nuevo-nombre"
                 placeholder="Nombre del producto *"
-                defaultValue={nuevoNombre}
-                onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoNombre(e.target.value); }}
+                value={nuevoNombre}
+                onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
               />
               <div className="form-grid">
-                <input className="input" name="op-edit-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevoCategoria(e.target.value); }} />
+                <input className="input" name="op-edit-nuevo-categoria" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
                     placeholder="🔍 Unidad…" options={unidadesList.map((u) => ({ value: u, label: u }))} />
