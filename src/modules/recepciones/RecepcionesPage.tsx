@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -16,8 +16,10 @@ import {
   listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal, pctHumedadFinal,
   listBigbags, crearBigbag, actualizarBigbag, eliminarBigbag, formulaBigbag,
   guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
+  listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion, calcConciliacion,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
   type HumedadProvRow, type HumedadFinalRow, type BigbagRow, type PesadaRow,
+  type Conciliacion,
 } from './recepciones.repository';
 
 /** ISO → valor de <input type="datetime-local"> (hora local). */
@@ -322,9 +324,14 @@ export function RecepcionesPage() {
         ))}
       </div>
 
-      {seccion && (
+      {seccion === 'conciliacion' && (
+        <div style={{ marginBottom: '1.25rem' }}>
+          <ConciliacionPanel canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} />
+        </div>
+      )}
+      {(seccion === 'totales' || seccion === 'resumenes') && (
         <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem' }}>
-          <EmptyState message={`Sección «${seccion === 'conciliacion' ? 'Conciliación' : seccion === 'totales' ? 'Totales' : 'Resúmenes'}» — pendiente de definir.`} icon="🚧" />
+          <EmptyState message={`Sección «${seccion === 'totales' ? 'Totales' : 'Resúmenes'}» — pendiente de definir.`} icon="🚧" />
         </div>
       )}
 
@@ -980,5 +987,217 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
         />
       )}
     </Modal>
+  );
+}
+
+/* ───────────── Panel: Conciliación (vs Centros de Acopio) ───────────── */
+const ROJO = { color: 'var(--danger, #e5484d)', fontWeight: 800 };
+const VERDE_BG = { background: 'rgba(120,200,140,.22)' };
+
+function ConciliacionPanel({ canWrite, actor, actorName, pesoTotal }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number;
+}) {
+  const [lista, setLista] = useState<Conciliacion[]>([]);
+  const [sel, setSel] = useState<string | null>(null);
+  const [cur, setCur] = useState<Conciliacion | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [creando, setCreando] = useState(false);
+  const [aBorrar, setABorrar] = useState<Conciliacion | null>(null);
+  const curRef = useRef<Conciliacion | null>(null);
+  curRef.current = cur;
+
+  const cargar = useCallback(async () => {
+    try { setLista(await listConciliaciones()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las conciliaciones', 'error'); }
+  }, []);
+  useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
+  useRealtime(['recepciones_conciliaciones'], () => { void cargar(); });
+
+  // Mantener `cur` sincronizado con la conciliación seleccionada (sin pisar lo que se teclea).
+  useEffect(() => {
+    if (!sel) { setCur(null); return; }
+    const found = lista.find((c) => c.id === sel) ?? null;
+    setCur((prev) => (prev && prev.id === sel ? prev : found));
+  }, [sel, lista]);
+
+  const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
+
+  async function nueva() {
+    const sugerido = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
+    const entrada = window.prompt('N° de recepción para esta conciliación:', String(sugerido));
+    if (entrada == null) return;
+    const numero = Math.max(1, Math.round(Number(entrada) || sugerido));
+    setCreando(true);
+    try {
+      const c = await crearConciliacion({ numero, actor, actorName });
+      await cargar(); setSel(c.id); setCur(c);
+      toast(`Conciliación N° ${c.numero} creada`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear', 'error'); }
+    finally { setCreando(false); }
+  }
+  async function guardarCampo(patch: Parameters<typeof actualizarConciliacion>[1]) {
+    const c = curRef.current; if (!c) return;
+    try { await actualizarConciliacion(c.id, patch); await cargar(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void cargar(); }
+  }
+  function setLocal(patch: Partial<Conciliacion>) { setCur((p) => (p ? { ...p, ...patch } : p)); }
+  function setCentro(i: number, campo: 'nombre' | 'kg', value: string) {
+    setCur((p) => {
+      if (!p) return p;
+      const centros = p.centros.map((x, j) => (j === i ? { ...x, [campo]: campo === 'kg' ? (value === '' ? null : Number(value)) : value } : x));
+      return { ...p, centros };
+    });
+  }
+  async function guardarCentros() { const c = curRef.current; if (c) await guardarCampo({ centros: c.centros }); }
+  async function addCentro() {
+    setCur((p) => (p ? { ...p, centros: [...p.centros, { nombre: '', kg: null }] } : p));
+    const c = curRef.current; if (c) await actualizarConciliacion(c.id, { centros: [...c.centros, { nombre: '', kg: null }] }).then(cargar).catch(() => {});
+  }
+  async function delCentro(i: number) {
+    const c = curRef.current; if (!c) return;
+    const centros = c.centros.filter((_, j) => j !== i);
+    setCur({ ...c, centros });
+    await actualizarConciliacion(c.id, { centros }).then(cargar).catch(() => {});
+  }
+  async function borrar(c: Conciliacion) {
+    try { await eliminarConciliacion(c.id); if (sel === c.id) { setSel(null); setCur(null); } await cargar(); toast('Conciliación eliminada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setABorrar(null); }
+  }
+
+  const t = cur ? calcConciliacion(cur) : null;
+  const fila = (label: ReactNode, valor: ReactNode, opts?: { rojo?: boolean; verde?: boolean }) => (
+    <tr>
+      <td className="num mono" style={{ ...(opts?.verde ? VERDE_BG : {}), ...(opts?.rojo ? ROJO : { fontWeight: 700 }), textAlign: 'right', width: 200 }}>{valor}</td>
+      <td style={{ fontWeight: 700 }}>{label}</td>
+    </tr>
+  );
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)', flexWrap: 'wrap' }}>
+        <strong>🔗 Conciliación vs Centros de Acopio</strong>
+        {canWrite && <button className="btn btn-sm btn-primary" onClick={() => void nueva()} disabled={creando}>{creando ? 'Creando…' : '＋ Nueva conciliación'}</button>}
+      </div>
+
+      {loading ? (
+        <p className="muted" style={{ padding: '1rem' }}>Cargando…</p>
+      ) : (
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start', padding: '.85rem' }}>
+          {/* Histórico de conciliaciones */}
+          <div style={{ flex: '1 1 260px', minWidth: 240 }}>
+            <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.4rem' }}>Conciliaciones guardadas</div>
+            {!lista.length ? (
+              <EmptyState message="Sin conciliaciones. Creá una con «Nueva conciliación»." icon="🔗" />
+            ) : (
+              <div style={{ display: 'grid', gap: '.4rem' }}>
+                {lista.map((c) => (
+                  <div key={c.id} className="card" style={{ padding: '.5rem .65rem', cursor: 'pointer', borderLeft: sel === c.id ? '3px solid var(--primary)' : '3px solid transparent' }} onClick={() => setSel(c.id)}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.4rem' }}>
+                      <strong style={{ fontSize: '.85rem' }}>Conciliación N° {c.numero}</strong>
+                      {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={(e) => { e.stopPropagation(); setABorrar(c); }}>🗑</button>}
+                    </div>
+                    <div className="muted" style={{ fontSize: '.72rem' }}>{fmtFecha(c.fecha)}</div>
+                    <div className="mono" style={{ fontSize: '.74rem', ...ROJO }}>No llegó: {fmt(c.no_llego)} · {fmt(c.porcentaje)}%</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Editor de la conciliación seleccionada */}
+          <div style={{ flex: '2 1 460px', minWidth: 340 }}>
+            {!cur ? (
+              <EmptyState message="Elegí o creá una conciliación para editar sus centros y totales." icon="📋" />
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '.6rem' }}>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '.74rem' }}>N° de recepción</label>
+                    <input className="input mono" type="number" min={1} value={cur.numero} disabled={!canWrite}
+                      onChange={(e) => setLocal({ numero: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
+                      onBlur={() => void guardarCampo({ numero: cur.numero })} style={{ width: 110 }} />
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '.74rem' }}>Peso KG TOTAL</label>
+                    <input className="input mono" type="number" step="any" value={cur.peso_kg_total ?? ''} disabled={!canWrite}
+                      onChange={(e) => setLocal({ peso_kg_total: e.target.value === '' ? 0 : Number(e.target.value) })}
+                      onBlur={() => void guardarCampo({ peso_kg_total: cur.peso_kg_total })} style={{ width: 140, textAlign: 'right' }} />
+                    {canWrite && <button className="btn btn-sm btn-ghost" type="button" title="Usar el Peso KG total de las recepciones" onClick={() => { setLocal({ peso_kg_total: pesoTotal }); void actualizarConciliacion(cur.id, { peso_kg_total: pesoTotal }).then(cargar); }}>↺ Recepciones ({fmt(pesoTotal)})</button>}
+                  </div>
+                  <div className="muted" style={{ fontSize: '.72rem' }}>{fmtFecha(cur.fecha)}</div>
+                </div>
+
+                {/* Centros de acopio */}
+                <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                  <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
+                    <thead><tr><th className="num">Saldo KG</th><th>Centro de Acopio / Aliado</th>{canWrite && <th style={{ width: 30 }}></th>}</tr></thead>
+                    <tbody>
+                      {!cur.centros.length && <tr><td colSpan={canWrite ? 3 : 2} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usá «＋ Añadir centro».</td></tr>}
+                      {cur.centros.map((ce, i) => (
+                        <tr key={i}>
+                          <td className="num">
+                            <input className="input mono" type="number" step="any" value={ce.kg ?? ''} disabled={!canWrite}
+                              onChange={(e) => setCentro(i, 'kg', e.target.value)} onBlur={() => void guardarCentros()}
+                              style={{ width: 130, textAlign: 'right' }} />
+                          </td>
+                          <td>
+                            <input className="input" value={ce.nombre} disabled={!canWrite}
+                              onChange={(e) => setCentro(i, 'nombre', e.target.value.toUpperCase())} onBlur={() => void guardarCentros()}
+                              placeholder="P-MGG… / Aliado" style={{ width: 280 }} />
+                          </td>
+                          {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Quitar centro" onClick={() => void delCentro(i)}>🗑</button></td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {canWrite && <button className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={() => void addCentro()}>＋ Añadir centro</button>}
+
+                {/* Totales */}
+                <div className="table-wrap" style={{ marginTop: '.85rem' }}>
+                  <table className="table" style={{ fontSize: '.85rem' }}>
+                    <tbody>
+                      {fila('Kg Reportado por Centros de Acopio', fmt(t!.reportado))}
+                      {fila('Kg Faltante', fmt(t!.faltante), { rojo: true, verde: true })}
+                      <tr>
+                        <td className="num" style={{ width: 200 }}>
+                          <input className="input mono" type="number" step="any" value={cur.kg_bolsas ?? ''} disabled={!canWrite}
+                            onChange={(e) => setLocal({ kg_bolsas: e.target.value === '' ? 0 : Number(e.target.value) })}
+                            onBlur={() => void guardarCampo({ kg_bolsas: cur.kg_bolsas })} style={{ width: 150, textAlign: 'right' }} />
+                        </td>
+                        <td style={{ fontWeight: 700 }}>Kg Peso de Bolsas</td>
+                      </tr>
+                      <tr>
+                        <td className="num" style={{ width: 200 }}>
+                          <input className="input mono" type="number" step="any" value={cur.muestras_lab ?? ''} disabled={!canWrite}
+                            onChange={(e) => setLocal({ muestras_lab: e.target.value === '' ? 0 : Number(e.target.value) })}
+                            onBlur={() => void guardarCampo({ muestras_lab: cur.muestras_lab })} style={{ width: 150, textAlign: 'right' }} />
+                        </td>
+                        <td style={{ fontWeight: 700 }}>Muestras tomadas por Laboratorio MGG</td>
+                      </tr>
+                      {fila('Kg No Llegó', fmt(t!.noLlego), { rojo: true, verde: true })}
+                      {fila('% de lo que no llegó (descontando bolsas y muestras de laboratorio)', `${fmt(t!.porcentaje)}%`, { rojo: true, verde: true })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>
+                  Se guarda automáticamente al salir de cada campo (tiempo real). Faltante = Peso KG total − Reportado · No llegó = Faltante + Bolsas + Muestras · % = No llegó / Reportado × 100.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {aBorrar && (
+        <ConfirmDialog
+          title="Eliminar conciliación"
+          message={`¿Eliminar la Conciliación N° ${aBorrar.numero}?`}
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)}
+        />
+      )}
+    </div>
   );
 }
