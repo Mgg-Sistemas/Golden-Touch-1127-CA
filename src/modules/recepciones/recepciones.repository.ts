@@ -266,10 +266,126 @@ export async function setMineralActivo(id: string, activo: boolean): Promise<voi
   if (error) throw error;
 }
 
+/* ───────────── Humedad Provisional (tabla independiente) ─────────────
+   Peso (Gr) Húmedos · Peso (Gr) seco → % Humedad = (húmedos − seco)/húmedos × 100
+   y Merma peso H2O = húmedos − seco. El promedio del lote del % es el promedio
+   simple; la Merma del lote es la sumatoria de la columna. */
+
+const TABLE_HPROV = 'recepciones_humedad_prov';
+
+export interface HumedadProvRow {
+  id: string;
+  peso_humedo: number | null;
+  peso_seco: number | null;
+  observacion?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listHumedadProv(): Promise<HumedadProvRow[]> {
+  const { data, error } = await supabase.from(TABLE_HPROV).select('*').order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as HumedadProvRow[];
+}
+
+export async function crearHumedadProv(input: { actor: string; actorName?: string | null }): Promise<HumedadProvRow> {
+  const { data, error } = await supabase.from(TABLE_HPROV).insert({
+    peso_humedo: null, peso_seco: null, created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return data as HumedadProvRow;
+}
+
+export async function actualizarHumedadProv(id: string, patch: { peso_humedo?: number | null; peso_seco?: number | null }): Promise<void> {
+  const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.peso_humedo !== undefined) upd.peso_humedo = patch.peso_humedo == null ? null : Math.max(0, num(patch.peso_humedo));
+  if (patch.peso_seco !== undefined) upd.peso_seco = patch.peso_seco == null ? null : Math.max(0, num(patch.peso_seco));
+  const { error } = await supabase.from(TABLE_HPROV).update(upd).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarHumedadProv(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_HPROV).delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** % Humedad de una fila provisional. (húmedos − seco) / húmedos × 100. */
+export function pctHumedadProv(r: { peso_humedo: number | null; peso_seco: number | null }): number | null {
+  const h = Number(r.peso_humedo), s = Number(r.peso_seco);
+  if (!Number.isFinite(h) || h <= 0 || !Number.isFinite(s)) return null;
+  return round3(((h - s) / h) * 100);
+}
+/** Merma de agua de una fila provisional (gramos). húmedos − seco. */
+export function mermaH2OProv(r: { peso_humedo: number | null; peso_seco: number | null }): number | null {
+  const h = Number(r.peso_humedo), s = Number(r.peso_seco);
+  if (!Number.isFinite(h) || !Number.isFinite(s)) return null;
+  return round2(h - s);
+}
+/** Promedio del lote del % de humedad provisional (promedio simple de los % con valor). */
+export function promedioHumedadProv(filas: Array<{ peso_humedo: number | null; peso_seco: number | null }>): number | null {
+  const ps = filas.map(pctHumedadProv).filter((x): x is number => x != null);
+  if (!ps.length) return null;
+  return round3(ps.reduce((a, b) => a + b, 0) / ps.length);
+}
+
+/* ───────────── Humedad Final (tabla independiente) ─────────────
+   Peso (Kg) recogido · el % Humedad final aplicado proviene del promedio del lote
+   de la Humedad Provisional; Merma peso H2O = recogido × %humedad/100.
+   El total de Peso recogido y de Merma son sumatorias; el % del lote, promedio. */
+
+const TABLE_HFIN = 'recepciones_humedad_final';
+
+export interface HumedadFinalRow {
+  id: string;
+  peso_recogido: number | null;
+  observacion?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listHumedadFinal(): Promise<HumedadFinalRow[]> {
+  const { data, error } = await supabase.from(TABLE_HFIN).select('*').order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as HumedadFinalRow[];
+}
+
+export async function crearHumedadFinal(input: { actor: string; actorName?: string | null }): Promise<HumedadFinalRow> {
+  const { data, error } = await supabase.from(TABLE_HFIN).insert({
+    peso_recogido: null, created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return data as HumedadFinalRow;
+}
+
+export async function actualizarHumedadFinal(id: string, patch: { peso_recogido?: number | null }): Promise<void> {
+  const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.peso_recogido !== undefined) upd.peso_recogido = patch.peso_recogido == null ? null : Math.max(0, num(patch.peso_recogido));
+  const { error } = await supabase.from(TABLE_HFIN).update(upd).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarHumedadFinal(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_HFIN).delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Merma peso H2O de una fila final = recogido × (%humedad final / 100). */
+export function mermaH2OFinal(pesoRecogido: number | null, pctHumedadFinal: number | null): number | null {
+  const p = Number(pesoRecogido);
+  if (!Number.isFinite(p)) return null;
+  const h = pctHumedadFinal == null ? 0 : Number(pctHumedadFinal);
+  return round2(p * (h / 100));
+}
+
 /* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */
 
 // Las leyes de mineral se redondean a 3 decimales (se muestran con mín. 2, máx. 3).
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Promedio (A+B+C)/3 de un elemento en una recepción. Promedia solo los valores cargados. */
 export function promElemento(analisis: AnalisisLab | null | undefined, key: string, abc: boolean): number | null {

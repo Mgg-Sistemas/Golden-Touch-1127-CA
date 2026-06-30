@@ -595,6 +595,13 @@
       <li><strong>Añadir valores (independiente):</strong> la tabla de laboratorio es <strong>independiente</strong> de la de recepciones (kg). El botón naranja <strong>«＋ Añadir valores»</strong> agrega <strong>solo una fila de análisis químico</strong> (no toca la tabla de arriba); el <strong>N° Análisis</strong> es correlativo y se <strong>incrementa solo</strong> (continúa desde el mayor valor cargado). Cada fila de análisis se puede <strong>eliminar</strong> (🗑).</li>
       <li><strong>⚙ Configurar minerales:</strong> botón que abre un panel para <strong>gestionar los minerales/columnas</strong>: <strong>agregar</strong> uno nuevo (nombre, subtítulo opcional, tipo de columnas <em>A/B/C/Prom.</em> o <em>Solo Prom.</em>, y color), <strong>editar</strong> (✎) y <strong>ocultar/mostrar</strong>. Los cambios se reflejan al instante en las columnas del laboratorio.</li>
       <li><strong>Promedio del lote:</strong> al pie de cada elemento, el sistema calcula el <strong>Promedio del lote</strong> = promedio de los <strong>Prom.</strong> de todas las recepciones que tienen valor en ese elemento.</li>
+      <li><strong>Humedad Provisional y Humedad Final:</strong> debajo del laboratorio hay <strong>dos tablas, una al lado de la otra</strong>, con sus propios botones <strong>«＋ Humedad Provisional»</strong> y <strong>«＋ Humedad Final»</strong> para agregar filas.
+        <ul>
+          <li><strong>Humedad Provisional:</strong> se cargan <strong>Peso (Gr) Húmedos</strong> y <strong>Peso (Gr) seco</strong>; el sistema calcula <strong>% Humedad</strong> = (Húmedos − seco) / Húmedos × 100 y <strong>Merma peso H2O</strong> = Húmedos − seco. Al pie: <strong>Promedio del lote</strong> del % (promedio simple, en %) y <strong>Merma</strong> total (sumatoria de la columna).</li>
+          <li><strong>Humedad Final:</strong> se carga el <strong>Peso (Kg) recogido</strong>; el <strong>% Humedad final</strong> aplica el <strong>Promedio del lote</strong> de la Humedad Provisional, y <strong>Merma peso H2O</strong> = Peso recogido × % Humedad / 100. Al pie: <strong>Peso recogido</strong> y <strong>Merma</strong> totales (sumatorias) y el <strong>% Humedad final</strong> del lote.</li>
+          <li>Solo la <strong>humedad</strong> se muestra en <strong>%</strong>. Cada fila se puede <strong>eliminar</strong> (🗑) y los cambios se guardan al salir de la celda (tiempo real).</li>
+        </ul>
+      </li>
       <li><strong>Edición y tiempo real:</strong> cada celda se <strong>guarda al salir</strong> de ella y se <strong>sincroniza al instante</strong> con los demás usuarios. Las recepciones se pueden <strong>editar o eliminar</strong>.</li>
     </ul>
   </section>
