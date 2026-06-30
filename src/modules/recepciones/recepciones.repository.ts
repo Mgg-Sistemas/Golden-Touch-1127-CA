@@ -12,13 +12,13 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 const TABLE = 'recepciones_lab';
 
 /** Lectura por elemento del análisis (A, B, C). El Promedio se calcula en el front. */
-export interface AnalisisElemento {
-  a?: number | null;
-  b?: number | null;
-  c?: number | null;
-}
-/** Análisis por elemento. `ucv` es un valor único (no A/B/C); el resto son {a,b,c}. */
+/** Lectura por elemento: a, b, c, d, e, f… (cantidad configurable por mineral). */
+export type AnalisisElemento = { [k: string]: number | null | undefined };
+/** Análisis por elemento. `ucv` es un valor único (no A/B/C); el resto son {a,b,c,…}. */
 export type AnalisisLab = Record<string, AnalisisElemento | number | null>;
+/** Letras de las lecturas, en orden (a→A, b→B…). Soporta hasta 8 lecturas. */
+export const LETRAS_LECTURA = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
+export const labelLectura = (i: number) => (LETRAS_LECTURA[i] ?? `x${i}`).toUpperCase();
 
 export interface RecepcionLab {
   id: string;
@@ -209,10 +209,17 @@ export interface MineralLab {
   clave: string;          // clave estable usada en el JSON de análisis
   nombre: string;         // ej. "Sn (Estaño)"
   subtitulo?: string | null;
-  columnas: 'abc' | 'prom'; // 'abc' = A/B/C/Prom · 'prom' = solo Prom (como UCV)
+  columnas: 'abc' | 'prom'; // 'abc' = A/B/C…/Prom · 'prom' = solo Prom (como UCV)
+  n_lecturas?: number | null; // cantidad de lecturas A,B,C,D,E,F… (solo 'abc'); default 3
   color: string;
   orden: number;
   activo: boolean;
+}
+/** Cantidad de lecturas saneada de un mineral (1..8); 3 por defecto. */
+export function nLecturas(m: { columnas?: string; n_lecturas?: number | null }): number {
+  if (m.columnas === 'prom') return 0;
+  const n = Math.round(Number(m.n_lecturas ?? 3));
+  return Number.isFinite(n) ? Math.min(8, Math.max(1, n)) : 3;
 }
 
 /** Lista los minerales (columnas del laboratorio). `soloActivos` para la tabla de análisis. */
@@ -235,26 +242,29 @@ async function claveUnica(nombre: string): Promise<string> {
   return `${base}_${Date.now()}`;
 }
 
-export async function addMineral(input: { nombre: string; subtitulo?: string | null; columnas: 'abc' | 'prom'; color?: string | null }): Promise<MineralLab> {
+export async function addMineral(input: { nombre: string; subtitulo?: string | null; columnas: 'abc' | 'prom'; n_lecturas?: number | null; color?: string | null }): Promise<MineralLab> {
   const nombre = input.nombre.trim();
   if (!nombre) throw new Error('Indicá el nombre del mineral.');
   const clave = await claveUnica(nombre);
   const { data: max } = await supabase.from(TABLE_MIN).select('orden').order('orden', { ascending: false }).limit(1).maybeSingle();
   const orden = (num((max as { orden?: number } | null)?.orden) || 0) + 1;
+  const esAbc = input.columnas !== 'prom';
   const { data, error } = await supabase.from(TABLE_MIN).insert({
     clave, nombre, subtitulo: input.subtitulo?.trim() || null,
-    columnas: input.columnas === 'prom' ? 'prom' : 'abc',
+    columnas: esAbc ? 'abc' : 'prom',
+    n_lecturas: esAbc ? nLecturas({ columnas: 'abc', n_lecturas: input.n_lecturas }) : 3,
     color: input.color?.trim() || '#888888', orden, activo: true,
   }).select('*').single();
   if (error) throw error;
   return data as MineralLab;
 }
 
-export async function updateMineral(id: string, patch: { nombre?: string; subtitulo?: string | null; columnas?: 'abc' | 'prom'; color?: string; orden?: number; activo?: boolean }): Promise<void> {
+export async function updateMineral(id: string, patch: { nombre?: string; subtitulo?: string | null; columnas?: 'abc' | 'prom'; n_lecturas?: number | null; color?: string; orden?: number; activo?: boolean }): Promise<void> {
   const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.nombre != null) { const n = patch.nombre.trim(); if (!n) throw new Error('El nombre no puede estar vacío.'); upd.nombre = n; }
   if (patch.subtitulo !== undefined) upd.subtitulo = patch.subtitulo?.trim() || null;
   if (patch.columnas != null) upd.columnas = patch.columnas === 'prom' ? 'prom' : 'abc';
+  if (patch.n_lecturas != null) upd.n_lecturas = nLecturas({ columnas: 'abc', n_lecturas: patch.n_lecturas });
   if (patch.color != null) upd.color = patch.color.trim() || '#888888';
   if (patch.orden != null) upd.orden = Math.round(num(patch.orden));
   if (patch.activo != null) upd.activo = patch.activo;
@@ -316,7 +326,8 @@ export async function eliminarHumedadProv(id: string): Promise<void> {
 export function pctHumedadProv(r: { peso_humedo: number | null; peso_seco: number | null }): number | null {
   const h = Number(r.peso_humedo), s = Number(r.peso_seco);
   if (!Number.isFinite(h) || h <= 0 || !Number.isFinite(s)) return null;
-  return round3(100 - (s / h) * 4);
+  // % Humedad = 100% − (Peso seco / Peso húmedos) expresado en %. Redondeo a 2 decimales.
+  return round2(100 - (s / h) * 100);
 }
 /** Merma de agua de una fila provisional = Peso (húmedos) × % Humedad / 100. */
 export function mermaH2OProv(r: { peso_humedo: number | null; peso_seco: number | null }): number | null {
@@ -329,7 +340,7 @@ export function mermaH2OProv(r: { peso_humedo: number | null; peso_seco: number 
 export function promedioHumedadProv(filas: Array<{ peso_humedo: number | null; peso_seco: number | null }>): number | null {
   const ps = filas.map(pctHumedadProv).filter((x): x is number => x != null);
   if (!ps.length) return null;
-  return round3(ps.reduce((a, b) => a + b, 0) / ps.length);
+  return round2(ps.reduce((a, b) => a + b, 0) / ps.length);
 }
 
 /* ───────────── Humedad Final (tabla independiente) ─────────────
@@ -916,26 +927,27 @@ export async function eliminarCierre(id: string): Promise<void> {
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Promedio (A+B+C)/3 de un elemento en una recepción. Promedia solo los valores cargados. */
-export function promElemento(analisis: AnalisisLab | null | undefined, key: string, abc: boolean): number | null {
+/** Promedio (A+B+C+…)/n de un elemento en una recepción. `n` = cantidad de lecturas (default 3). */
+export function promElemento(analisis: AnalisisLab | null | undefined, key: string, abc: boolean, n = 3): number | null {
   const v = analisis?.[key];
   if (!abc) {
-    const n = Number(v);
-    return v == null || !Number.isFinite(n) ? null : round3(n);
+    const x = Number(v);
+    return v == null || !Number.isFinite(x) ? null : round3(x);
   }
   const e = (v && typeof v === 'object') ? v as AnalisisElemento : null;
   if (!e) return null;
-  const vals = [e.a, e.b, e.c].map((x) => Number(x)).filter((x) => Number.isFinite(x));
+  const cant = Math.min(8, Math.max(1, Math.round(n)));
+  const vals = LETRAS_LECTURA.slice(0, cant).map((L) => Number(e[L])).filter((x) => Number.isFinite(x));
   if (!vals.length) return null;
-  // (A+B+C)/3 — siempre dividido entre 3 (las celdas vacías cuentan como 0 si hay alguna cargada).
+  // Promedio SOLO de las casillas con dato: suma / cantidad de casillas llenas.
   const suma = vals.reduce((a, b) => a + b, 0);
-  return round3(suma / 3);
+  return round3(suma / vals.length);
 }
 
 /** Promedio del lote de un elemento: promedio de los Prom de todas las filas que lo tienen. */
-export function promedioLote(filas: Array<{ analisis: AnalisisLab }>, key: string, abc: boolean): number | null {
+export function promedioLote(filas: Array<{ analisis: AnalisisLab }>, key: string, abc: boolean, n = 3): number | null {
   const proms = filas
-    .map((r) => promElemento(r.analisis, key, abc))
+    .map((r) => promElemento(r.analisis, key, abc, n))
     .filter((x): x is number => x != null);
   if (!proms.length) return null;
   return round3(proms.reduce((a, b) => a + b, 0) / proms.length);

@@ -12,7 +12,7 @@ import {
   listRecepciones, crearRecepcion, actualizarRecepcion, eliminarRecepcion,
   listAnalisis, crearAnalisis, actualizarAnalisisRow, eliminarAnalisis,
   listMinerales, addMineral, updateMineral, setMineralActivo,
-  promElemento, promedioLote,
+  promElemento, promedioLote, nLecturas, LETRAS_LECTURA, labelLectura,
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
   pctHumedadProv, mermaH2OProv, promedioHumedadProv,
   listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal, pctHumedadFinal,
@@ -22,7 +22,7 @@ import {
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion, calcConciliacion,
   listTotales, crearTotales, actualizarTotales, eliminarTotales, calcTotales,
   listCierres, cerrarRecepcion, eliminarCierre,
-  type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
+  type RecepcionLab, type AnalisisRow, type AnalisisElemento, type AnalisisLab, type MineralLab,
   type HumedadProvRow, type HumedadFinalRow, type BigbagRow, type PesadaRow,
   type Conciliacion, type ConciliacionCentro, type TotalesDoc, type TotalCentro,
   type CierreRecepcion,
@@ -49,7 +49,6 @@ const fmtPct = (n: number | null | undefined) =>
 const fmtH = (n: number | null | undefined) =>
   (n == null ? '—' : `${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`);
 
-const BORDE_GRUPO = { borderLeft: '2px solid var(--border-strong, #3a4150)' };
 
 export function RecepcionesPage() {
   const { user } = useSession();
@@ -120,7 +119,7 @@ export function RecepcionesPage() {
   }
 
   /* ── Tabla de abajo: análisis químicos (independiente) ── */
-  function setCeldaAbc(id: string, key: string, sub: 'a' | 'b' | 'c', value: string) {
+  function setCeldaAbc(id: string, key: string, sub: string, value: string) {
     setAnalisis((prev) => prev.map((r) => {
       if (r.id !== id) return r;
       const prevEl = (r.analisis?.[key] && typeof r.analisis[key] === 'object') ? r.analisis[key] as AnalisisElemento : {};
@@ -204,109 +203,101 @@ export function RecepcionesPage() {
   const finPctLote = finPcts.length ? finPcts.reduce((a, b) => a + b, 0) / finPcts.length : null;
 
   /**
-   * Renderiza UNA tabla de laboratorio con un subconjunto de minerales. La tabla
-   * completa se parte en dos mitades (5 arriba / 5 abajo) para evitar el scroll
-   * horizontal. Cada mitad repite N° Análisis; el botón eliminar va solo en la primera.
+   * Renderiza UN mineral como bloque vertical (tipo columna): título arriba y, debajo,
+   * una mini-tabla con una fila por N° Análisis y las casillas A, B, C, D… (las que tenga
+   * configuradas) + Prom. (= promedio de las casillas con dato). Pie con Promedio del lote.
    */
-  function tablaLab(mins: MineralLab[], gi: number) {
-    const conBorrar = gi === 0 && canWrite;
+  function mineralBlock(m: MineralLab) {
+    const abc = m.columnas === 'abc';
+    const n = nLecturas(m);
+    const letras = LETRAS_LECTURA.slice(0, n);
+    const pl = promedioLote(analisis, m.clave, abc, n);
     return (
-      <div key={gi} className="table-wrap" style={{ overflowX: 'auto', borderTop: gi > 0 ? '1px solid var(--border, #2a2f3a)' : undefined }}>
-        <table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
-          <thead>
-            <tr>
-              <th rowSpan={2} style={{ width: 34 }}></th>
-              <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>N° Análisis</th>
-              {mins.map((m) => (
-                <th key={m.id} colSpan={m.columnas === 'abc' ? 4 : 1} style={{ textAlign: 'center', fontWeight: 700, ...BORDE_GRUPO }}>
-                  {m.nombre}{m.subtitulo ? <div className="muted" style={{ fontSize: '.66rem', fontWeight: 600 }}>{m.subtitulo}</div> : null}
-                </th>
-              ))}
-            </tr>
-            <tr>
-              {mins.map((m) => (
-                m.columnas === 'abc'
-                  ? ['A', 'B', 'C', 'Prom.'].map((s, i) => (
-                      <th key={`${m.id}-${s}`} className="num" style={i === 0 ? BORDE_GRUPO : undefined}>{s}</th>
-                    ))
-                  : <th key={`${m.id}-prom`} className="num" style={BORDE_GRUPO}>Prom.</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {!analisis.length && (
-              <tr><td colSpan={2 + mins.reduce((a, m) => a + (m.columnas === 'abc' ? 4 : 1), 0)} className="muted" style={{ textAlign: 'center' }}>
-                Sin análisis. Usá «＋ Añadir valores» para agregar una fila.
-              </td></tr>
+      <div key={m.id} className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '.6rem', borderTop: `3px solid ${m.color || '#888'}` }}>
+        <div style={{ fontWeight: 700, textAlign: 'center', padding: '.4rem .6rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
+          {m.nombre}{m.subtitulo ? <div className="muted" style={{ fontSize: '.66rem', fontWeight: 600 }}>{m.subtitulo}</div> : null}
+        </div>
+        <div className="table-wrap" style={{ overflowX: 'auto' }}>
+          <table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
+            <thead>
+              <tr>
+                <th>N°</th>
+                {abc && letras.map((L, i) => <th key={L} className="num">{labelLectura(i)}</th>)}
+                <th className="num">Prom.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!analisis.length && (
+                <tr><td colSpan={abc ? n + 2 : 2} className="muted" style={{ textAlign: 'center' }}>Sin análisis.</td></tr>
+              )}
+              {analisis.map((r) => {
+                const prom = promElemento(r.analisis, m.clave, abc, n);
+                const el = (r.analisis?.[m.clave] && typeof r.analisis[m.clave] === 'object') ? r.analisis[m.clave] as AnalisisElemento : {};
+                const valUnica = (typeof r.analisis?.[m.clave] === 'number') ? r.analisis[m.clave] as number : '';
+                return (
+                  <tr key={r.id}>
+                    <td className="mono" style={{ fontWeight: 700 }}>{r.n_analisis ?? '—'}</td>
+                    {abc
+                      ? letras.map((L) => (
+                          <td key={L} className="num">
+                            <input className="input mono" type="number" step="any" value={(el[L] ?? '') as number | ''} disabled={!canWrite}
+                              onChange={(ev) => setCeldaAbc(r.id, m.clave, L, ev.target.value)} onBlur={() => void guardarAnalisis(r.id)}
+                              style={{ width: '100%', minWidth: 96, textAlign: 'right' }} />
+                          </td>
+                        ))
+                      : (
+                          <td className="num">
+                            <input className="input mono" type="number" step="any" value={valUnica ?? ''} disabled={!canWrite}
+                              onChange={(ev) => setCeldaUnica(r.id, m.clave, ev.target.value)} onBlur={() => void guardarAnalisis(r.id)}
+                              style={{ width: '100%', minWidth: 110, textAlign: 'right' }} />
+                          </td>
+                        )}
+                    {abc && <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)', textAlign: 'center' }}>{prom == null ? '—' : fmtPct(prom)}</td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+            {analisis.length > 0 && (
+              <tfoot>
+                <tr style={{ fontWeight: 800 }}>
+                  <td colSpan={abc ? n + 2 : 2} style={{ textAlign: 'center' }}>
+                    Promedio del lote <span className="mono" style={{ color: 'var(--primary-3)', marginLeft: '.35rem' }}>{pl == null ? '—' : fmtPct(pl)}</span>
+                  </td>
+                </tr>
+              </tfoot>
             )}
-            {analisis.map((r) => (
-              <tr key={r.id}>
-                <td style={{ textAlign: 'center' }}>
-                  {conBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar este análisis" onClick={() => setAnaBorrar(r)}>🗑</button>}
-                </td>
-                <td className="num">
-                  <input className="input mono" type="number" min={1} defaultValue={r.n_analisis ?? ''} disabled={!canWrite}
-                    onBlur={(e) => { const raw = e.target.value; const v = raw === '' ? null : Math.max(1, Math.round(Number(raw) || 1)); if (v !== r.n_analisis) void actualizarAnalisisRow(r.id, { n_analisis: v }).catch(() => void reload()); }}
-                    style={{ width: 72, textAlign: 'right' }} />
-                </td>
-                {mins.map((m) => {
-                  const abc = m.columnas === 'abc';
-                  const prom = promElemento(r.analisis, m.clave, abc);
-                  if (!abc) {
-                    const val = (typeof r.analisis?.[m.clave] === 'number') ? r.analisis[m.clave] as number : '';
-                    return (
-                      <td key={`${r.id}-${m.id}`} className="num" style={BORDE_GRUPO}>
-                        <input className="input mono" type="number" step="any" value={val ?? ''} disabled={!canWrite}
-                          onChange={(ev) => setCeldaUnica(r.id, m.clave, ev.target.value)} onBlur={() => void guardarAnalisis(r.id)}
-                          style={{ width: 70, textAlign: 'right' }} />
-                      </td>
-                    );
-                  }
-                  const el = (r.analisis?.[m.clave] && typeof r.analisis[m.clave] === 'object') ? r.analisis[m.clave] as AnalisisElemento : {};
-                  return (
-                    <Fragment key={`${r.id}-${m.id}`}>
-                      {(['a', 'b', 'c'] as const).map((s, i) => (
-                        <td key={s} className="num" style={i === 0 ? BORDE_GRUPO : undefined}>
-                          <input className="input mono" type="number" step="any" value={(el[s] ?? '') as number | ''} disabled={!canWrite}
-                            onChange={(ev) => setCeldaAbc(r.id, m.clave, s, ev.target.value)} onBlur={() => void guardarAnalisis(r.id)}
-                            style={{ width: 64, textAlign: 'right' }} />
-                        </td>
-                      ))}
-                      <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{prom == null ? '—' : fmtPct(prom)}</td>
-                    </Fragment>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-          {analisis.length > 0 && (
-            <tfoot>
-              <tr style={{ fontWeight: 700 }}>
-                <td></td>
-                <td style={{ textAlign: 'right' }}>Promedio del lote</td>
-                {mins.map((m) => {
-                  const abc = m.columnas === 'abc';
-                  const pl = promedioLote(analisis, m.clave, abc);
-                  if (!abc) return <td key={`pl-${m.id}`} className="num mono" style={{ ...BORDE_GRUPO, fontWeight: 800 }}>{pl == null ? '—' : fmtPct(pl)}</td>;
-                  return (
-                    <Fragment key={`pl-${m.id}`}>
-                      <td style={BORDE_GRUPO}></td><td></td><td></td>
-                      <td className="num mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{pl == null ? '—' : fmtPct(pl)}</td>
-                    </Fragment>
-                  );
-                })}
-              </tr>
-            </tfoot>
-          )}
-        </table>
+          </table>
+        </div>
       </div>
     );
   }
 
-  // La tabla del laboratorio se parte en DOS mitades apiladas (5 de un lado y 5 del
-  // otro) para ver mejor los resultados sin desplazamiento horizontal.
+  /** Barra superior: gestiona los N° de análisis (editar el número y eliminar la fila). */
+  function barraAnalisis() {
+    return (
+      <div className="card" style={{ padding: '.5rem .75rem', marginBottom: '.6rem' }}>
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="muted" style={{ fontSize: '.78rem', fontWeight: 700 }}>Análisis cargados:</span>
+          {!analisis.length && <span className="muted" style={{ fontSize: '.78rem' }}>Ninguno. Usá «＋ Añadir valores».</span>}
+          {analisis.map((r) => (
+            <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '.25rem', border: '1px solid var(--border, #2a2f3a)', borderRadius: 8, padding: '.1rem .35rem' }}>
+              <span className="muted" style={{ fontSize: '.72rem' }}>N°</span>
+              <input className="input mono" type="number" min={1} defaultValue={r.n_analisis ?? ''} disabled={!canWrite}
+                onBlur={(e) => { const raw = e.target.value; const v = raw === '' ? null : Math.max(1, Math.round(Number(raw) || 1)); if (v !== r.n_analisis) void actualizarAnalisisRow(r.id, { n_analisis: v }).catch(() => void reload()); }}
+                style={{ width: 56, textAlign: 'right' }} />
+              {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar este análisis" onClick={() => setAnaBorrar(r)}>🗑</button>}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // La tabla del laboratorio se muestra EN COLUMNA (cada mineral apilado uno bajo otro),
+  // 5 de un lado y 5 del otro, para ver mejor los resultados sin scroll horizontal.
   const mitad = Math.ceil(minerales.length / 2);
-  const grupos = [minerales.slice(0, mitad), minerales.slice(mitad)].filter((g) => g.length);
+  const colIzq = minerales.slice(0, mitad);
+  const colDer = minerales.slice(mitad);
 
   return (
     <div>
@@ -450,13 +441,19 @@ export function RecepcionesPage() {
             {!minerales.length ? (
               <EmptyState message="No hay minerales configurados. Usá «Configurar minerales» para agregarlos." icon="⚗" />
             ) : (
-              grupos.map((g, gi) => tablaLab(g, gi))
+              <div style={{ padding: '.6rem .75rem' }}>
+                {barraAnalisis()}
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 360px', minWidth: 300 }}>{colIzq.map(mineralBlock)}</div>
+                  <div style={{ flex: '1 1 360px', minWidth: 300 }}>{colDer.map(mineralBlock)}</div>
+                </div>
+              </div>
             )}
 
             <div className="muted" style={{ fontSize: '.74rem', padding: '.5rem .75rem' }}>
-              Prom. = (A + B + C) / 3 · Promedio del lote = promedio de los Prom. de todos los análisis con valor.
+              Prom. = promedio de las casillas con dato (si cargás 2 lecturas, divide entre 2). Promedio del lote = promedio de los Prom. de todos los análisis con valor.
               Esta tabla es <strong>independiente</strong> de la de recepciones: «＋ Añadir valores» agrega solo análisis químicos.
-              La tabla se divide en dos mitades apiladas (5 de un lado y 5 del otro) para ver mejor los resultados sin desplazamiento horizontal. Los cambios se guardan al salir de cada celda (tiempo real) o con «💾 Guardar datos».
+              Cada mineral se muestra en columna (uno bajo otro), 5 de un lado y 5 del otro. El N° de lecturas (A, B, C, D…) se ajusta por mineral en «⚙ Configurar minerales». Los cambios se guardan al salir de cada celda (tiempo real) o con «💾 Guardar datos».
             </div>
           </div>
 
@@ -640,8 +637,9 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
   const [nombre, setNombre] = useState('');
   const [subtitulo, setSubtitulo] = useState('');
   const [columnas, setColumnas] = useState<'abc' | 'prom'>('abc');
+  const [nLect, setNLect] = useState(3);
   const [color, setColor] = useState('#6db8ff');
-  const [edit, setEdit] = useState<{ nombre: string; subtitulo: string; columnas: 'abc' | 'prom'; color: string }>({ nombre: '', subtitulo: '', columnas: 'abc', color: '#6db8ff' });
+  const [edit, setEdit] = useState<{ nombre: string; subtitulo: string; columnas: 'abc' | 'prom'; nLecturas: number; color: string }>({ nombre: '', subtitulo: '', columnas: 'abc', nLecturas: 3, color: '#6db8ff' });
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -655,8 +653,8 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
     if (!nombre.trim()) { toast('Indicá el nombre del mineral.', 'error'); return; }
     setSaving(true);
     try {
-      await addMineral({ nombre, subtitulo, columnas, color });
-      setNombre(''); setSubtitulo(''); setColumnas('abc'); setColor('#6db8ff');
+      await addMineral({ nombre, subtitulo, columnas, n_lecturas: nLect, color });
+      setNombre(''); setSubtitulo(''); setColumnas('abc'); setNLect(3); setColor('#6db8ff');
       await cargar(); await onChanged();
       toast('Mineral agregado', 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
@@ -664,12 +662,12 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
   }
   function abrirEdicion(m: MineralLab) {
     setEditId(m.id);
-    setEdit({ nombre: m.nombre, subtitulo: m.subtitulo ?? '', columnas: m.columnas, color: m.color });
+    setEdit({ nombre: m.nombre, subtitulo: m.subtitulo ?? '', columnas: m.columnas, nLecturas: nLecturas(m), color: m.color });
   }
   async function guardarEdicion(id: string) {
     setSaving(true);
     try {
-      await updateMineral(id, { nombre: edit.nombre, subtitulo: edit.subtitulo, columnas: edit.columnas, color: edit.color });
+      await updateMineral(id, { nombre: edit.nombre, subtitulo: edit.subtitulo, columnas: edit.columnas, n_lecturas: edit.nLecturas, color: edit.color });
       setEditId(null); await cargar(); await onChanged();
       toast('Mineral actualizado', 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
@@ -697,10 +695,18 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
           <div className="form-row">
             <label>Columnas</label>
             <select className="select" value={columnas} onChange={(e) => setColumnas(e.target.value as 'abc' | 'prom')}>
-              <option value="abc">A / B / C / Prom.</option>
+              <option value="abc">A / B / C / … / Prom.</option>
               <option value="prom">Solo Prom.</option>
             </select>
           </div>
+          {columnas === 'abc' && (
+            <div className="form-row">
+              <label>N° de lecturas (A, B, C, D…)</label>
+              <input className="input mono" type="number" min={1} max={8} value={nLect}
+                onChange={(e) => setNLect(Math.min(8, Math.max(1, Math.round(Number(e.target.value) || 1))))} />
+              <small className="muted">Cantidad de casillas por análisis: {LETRAS_LECTURA.slice(0, nLect).map((_, i) => labelLectura(i)).join(' · ')}</small>
+            </div>
+          )}
           <div className="form-row">
             <label>Color</label>
             <input className="input" type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ height: 38, padding: 2 }} />
@@ -732,10 +738,16 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
                       </div>
                     </td>
                     <td>
-                      <select className="select" value={edit.columnas} onChange={(e) => setEdit((p) => ({ ...p, columnas: e.target.value as 'abc' | 'prom' }))}>
-                        <option value="abc">A/B/C/Prom.</option>
-                        <option value="prom">Solo Prom.</option>
-                      </select>
+                      <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <select className="select" value={edit.columnas} onChange={(e) => setEdit((p) => ({ ...p, columnas: e.target.value as 'abc' | 'prom' }))}>
+                          <option value="abc">A/B/C/…/Prom.</option>
+                          <option value="prom">Solo Prom.</option>
+                        </select>
+                        {edit.columnas === 'abc' && (
+                          <input className="input mono" type="number" min={1} max={8} value={edit.nLecturas} title="N° de lecturas"
+                            onChange={(e) => setEdit((p) => ({ ...p, nLecturas: Math.min(8, Math.max(1, Math.round(Number(e.target.value) || 1))) }))} style={{ width: 64 }} />
+                        )}
+                      </div>
                     </td>
                     <td><span className={`badge ${m.activo ? 'success' : ''}`}>{m.activo ? 'Activo' : 'Oculto'}</span></td>
                     <td style={{ whiteSpace: 'nowrap' }}>
@@ -750,7 +762,7 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
                       <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, background: m.color, marginRight: '.4rem', verticalAlign: 'middle' }} />
                       <strong>{m.nombre}</strong>{m.subtitulo ? <span className="muted"> · {m.subtitulo}</span> : null}
                     </td>
-                    <td>{m.columnas === 'abc' ? 'A/B/C/Prom.' : 'Solo Prom.'}</td>
+                    <td>{m.columnas === 'abc' ? `${LETRAS_LECTURA.slice(0, nLecturas(m)).map((_, i) => labelLectura(i)).join('/')}/Prom.` : 'Solo Prom.'}</td>
                     <td><span className={`badge ${m.activo ? 'success' : ''}`}>{m.activo ? 'Activo' : 'Oculto'}</span></td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => abrirEdicion(m)}>✎</button>{' '}
@@ -808,11 +820,14 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
       return { ...r, [campo]: value === '' ? null : Number(value) };
     }));
   }
-  async function guardar(id: string, campo: 'procedencia' | 'peso_humedo' | 'peso_seco') {
-    const row = rowsRef.current.find((r) => r.id === id);
-    if (!row) return;
-    const patch = campo === 'procedencia' ? { procedencia: row.procedencia }
-      : campo === 'peso_humedo' ? { peso_humedo: row.peso_humedo } : { peso_seco: row.peso_seco };
+  // Guarda el valor tecleado (los inputs son NO controlados para que el refresh de
+  // realtime no pise lo que se está escribiendo). Actualiza también el estado para
+  // recalcular tara/totales y persiste en la BD.
+  async function guardarCampo(id: string, campo: 'procedencia' | 'peso_humedo' | 'peso_seco', raw: string) {
+    setCampo(id, campo, raw);
+    const patch = campo === 'procedencia'
+      ? { procedencia: raw.trim() || null }
+      : { [campo]: raw === '' ? null : Number(raw) } as { peso_humedo?: number | null; peso_seco?: number | null };
     try { await actualizarBigbag(id, patch); await trasEditarPesada(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void cargar(vistaRef.current); }
   }
@@ -884,14 +899,14 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
                 return (
                 <tr key={r.id}>
                   <td>
-                    <input className="input" value={r.procedencia ?? ''} disabled={!canWrite}
-                      onChange={(e) => setCampo(r.id, 'procedencia', e.target.value.toUpperCase())}
-                      onBlur={() => void guardar(r.id, 'procedencia')} placeholder="A, B, ALI…" style={{ width: 130 }} />
+                    <input key={`${r.id}-proc`} className="input" defaultValue={r.procedencia ?? ''} disabled={!canWrite}
+                      onBlur={(e) => { const v = e.target.value.toUpperCase(); if (v !== e.target.value) e.target.value = v; if (v !== (r.procedencia ?? '')) void guardarCampo(r.id, 'procedencia', v); }}
+                      placeholder="A, B, ALI…" style={{ width: 130 }} />
                   </td>
                   <td className="num">
-                    <input className="input mono" type="number" step="any" value={(r[campo] ?? '') as number | ''} disabled={!canWrite}
-                      onChange={(e) => setCampo(r.id, campo, e.target.value)}
-                      onBlur={() => void guardar(r.id, campo)} style={{ width: 110, textAlign: 'right' }} />
+                    <input key={`${r.id}-${campo}`} className="input mono" type="number" step="any" defaultValue={(r[campo] ?? '') as number | ''} disabled={!canWrite}
+                      onBlur={(e) => { const raw = e.target.value; const cur = r[campo] == null ? '' : String(r[campo]); if (raw !== cur) void guardarCampo(r.id, campo, raw); }}
+                      style={{ width: 110, textAlign: 'right' }} />
                   </td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
@@ -1608,6 +1623,34 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
           <div className="detail-row"><div className="k">Análisis químicos</div><div className="v mono">{arr('analisis').length}</div></div>
           <div className="detail-row"><div className="k">Conciliaciones</div><div className="v mono">{arr('conciliaciones').length}</div></div>
           <div className="detail-row"><div className="k">Totales</div><div className="v mono">{arr('totales').length}</div></div>
+
+          {/* Resultados de laboratorio guardados al cerrar (Prom. por mineral) */}
+          {arr('analisis').length > 0 && (() => {
+            const mins = (arr('minerales') as MineralLab[]).filter((m) => m.activo !== false);
+            const anas = arr('analisis') as Array<{ n_analisis: number | null; analisis: AnalisisLab }>;
+            if (!mins.length) return null;
+            return (
+              <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '.4rem' }}>
+                <div className="card-title" style={{ padding: '.45rem .7rem' }}><span>🧪 Resultados de laboratorio (Prom. por mineral)</span></div>
+                <div className="table-wrap" style={{ overflowX: 'auto' }}><table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
+                  <thead><tr><th>N° Análisis</th>{mins.map((m) => <th key={m.id} className="num">{m.nombre}</th>)}</tr></thead>
+                  <tbody>
+                    {anas.map((r, i) => (
+                      <tr key={i}>
+                        <td className="mono" style={{ fontWeight: 700 }}>{r.n_analisis ?? '—'}</td>
+                        {mins.map((m) => { const p = promElemento(r.analisis, m.clave, m.columnas === 'abc', nLecturas(m)); return <td key={m.id} className="num mono">{p == null ? '—' : fmtPct(p)}</td>; })}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr style={{ fontWeight: 800 }}>
+                    <td style={{ textAlign: 'right' }}>Promedio del lote</td>
+                    {mins.map((m) => { const pl = promedioLote(anas, m.clave, m.columnas === 'abc', nLecturas(m)); return <td key={m.id} className="num mono" style={{ color: 'var(--primary-3)' }}>{pl == null ? '—' : fmtPct(pl)}</td>; })}
+                  </tr></tfoot>
+                </table></div>
+              </div>
+            );
+          })()}
+
           {arr('ingresos_resguardo').length > 0 && (
             <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '.4rem' }}>
               <div className="card-title" style={{ padding: '.45rem .7rem' }}><span>Ingresos al inventario por RESGUARDO (sin tasa)</span></div>
