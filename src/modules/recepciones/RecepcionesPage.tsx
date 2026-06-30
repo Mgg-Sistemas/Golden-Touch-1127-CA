@@ -66,6 +66,7 @@ export function RecepcionesPage() {
   const [finBorrar, setFinBorrar] = useState<HumedadFinalRow | null>(null);
   const [config, setConfig] = useState(false);
   const [pesos, setPesos] = useState(false);
+  const [seccion, setSeccion] = useState<'conciliacion' | 'totales' | 'resumenes' | null>(null);
 
   // Espejo del análisis para leer el estado vigente desde onBlur sin closures viejos.
   const analisisRef = useRef<AnalisisRow[]>([]);
@@ -305,6 +306,26 @@ export function RecepcionesPage() {
           )}
         </div>
       </div>
+
+      {/* Secciones (a definir): Conciliación · Totales · Resúmenes */}
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        {([
+          { key: 'conciliacion', label: '🔗 Conciliación' },
+          { key: 'totales', label: '🧮 Totales' },
+          { key: 'resumenes', label: '📊 Resúmenes' },
+        ] as const).map((b) => (
+          <button key={b.key} className={`btn ${seccion === b.key ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setSeccion(seccion === b.key ? null : b.key)}>
+            {b.label}
+          </button>
+        ))}
+      </div>
+
+      {seccion && (
+        <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem' }}>
+          <EmptyState message={`Sección «${seccion === 'conciliacion' ? 'Conciliación' : seccion === 'totales' ? 'Totales' : 'Resúmenes'}» — pendiente de definir.`} icon="🚧" />
+        </div>
+      )}
 
       {loading ? (
         <EmptyState message="Cargando recepciones…" icon="◔" />
