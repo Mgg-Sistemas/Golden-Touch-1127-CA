@@ -11,7 +11,11 @@ import {
   listAnalisis, crearAnalisis, actualizarAnalisisRow, eliminarAnalisis,
   listMinerales, addMineral, updateMineral, setMineralActivo,
   promElemento, promedioLote,
+  listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
+  pctHumedadProv, mermaH2OProv, promedioHumedadProv,
+  listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
+  type HumedadProvRow, type HumedadFinalRow,
 } from './recepciones.repository';
 
 /** ISO → valor de <input type="datetime-local"> (hora local). */
@@ -31,6 +35,9 @@ const fmt = (n: number | null | undefined) => (n == null ? '—' : Number(n).toL
 /** Ley del mineral en porcentaje (mínimo 2, máximo 3 decimales). */
 const fmtPct = (n: number | null | undefined) =>
   (n == null ? '—' : `${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} %`);
+/** Humedad en porcentaje (2 decimales). */
+const fmtH = (n: number | null | undefined) =>
+  (n == null ? '—' : `${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`);
 
 const BORDE_GRUPO = { borderLeft: '2px solid var(--border-strong, #3a4150)' };
 
@@ -44,11 +51,17 @@ export function RecepcionesPage() {
   const [filas, setFilas] = useState<RecepcionLab[]>([]);       // tabla de arriba (kg por cierre)
   const [analisis, setAnalisis] = useState<AnalisisRow[]>([]);  // tabla de abajo (análisis químicos)
   const [minerales, setMinerales] = useState<MineralLab[]>([]);
+  const [humProv, setHumProv] = useState<HumedadProvRow[]>([]); // humedad provisional
+  const [humFin, setHumFin] = useState<HumedadFinalRow[]>([]);  // humedad final
   const [loading, setLoading] = useState(true);
   const [creando, setCreando] = useState(false);
   const [anadiendo, setAnadiendo] = useState(false);
+  const [addProv, setAddProv] = useState(false);
+  const [addFin, setAddFin] = useState(false);
   const [aBorrar, setABorrar] = useState<RecepcionLab | null>(null);
   const [anaBorrar, setAnaBorrar] = useState<AnalisisRow | null>(null);
+  const [provBorrar, setProvBorrar] = useState<HumedadProvRow | null>(null);
+  const [finBorrar, setFinBorrar] = useState<HumedadFinalRow | null>(null);
   const [config, setConfig] = useState(false);
 
   // Espejo del análisis para leer el estado vigente desde onBlur sin closures viejos.
@@ -57,8 +70,10 @@ export function RecepcionesPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [recs, anas, mins] = await Promise.all([listRecepciones(), listAnalisis(), listMinerales(true)]);
-      setFilas(recs); setAnalisis(anas); setMinerales(mins);
+      const [recs, anas, mins, hp, hf] = await Promise.all([
+        listRecepciones(), listAnalisis(), listMinerales(true), listHumedadProv(), listHumedadFinal(),
+      ]);
+      setFilas(recs); setAnalisis(anas); setMinerales(mins); setHumProv(hp); setHumFin(hf);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las recepciones', 'error'); }
   }, []);
 
@@ -69,7 +84,7 @@ export function RecepcionesPage() {
     return () => { cancel = true; };
   }, [reload]);
 
-  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales'], () => { void reload(); });
+  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales', 'recepciones_humedad_prov', 'recepciones_humedad_final'], () => { void reload(); });
 
   /* ── Tabla de arriba: recepciones (kg) ── */
   async function guardarCampo(id: string, patch: Parameters<typeof actualizarRecepcion>[1]) {
@@ -118,7 +133,48 @@ export function RecepcionesPage() {
     finally { setAnaBorrar(null); }
   }
 
+  /* ── Humedad Provisional ── */
+  async function nuevaProv() {
+    setAddProv(true);
+    try { await crearHumedadProv({ actor, actorName }); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar la fila', 'error'); }
+    finally { setAddProv(false); }
+  }
+  async function guardarProv(id: string, patch: Parameters<typeof actualizarHumedadProv>[1]) {
+    try { await actualizarHumedadProv(id, patch); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void reload(); }
+  }
+  async function borrarProv(r: HumedadProvRow) {
+    try { await eliminarHumedadProv(r.id); setHumProv((prev) => prev.filter((x) => x.id !== r.id)); toast('Fila eliminada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setProvBorrar(null); }
+  }
+
+  /* ── Humedad Final ── */
+  async function nuevaFin() {
+    setAddFin(true);
+    try { await crearHumedadFinal({ actor, actorName }); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar la fila', 'error'); }
+    finally { setAddFin(false); }
+  }
+  async function guardarFin(id: string, patch: Parameters<typeof actualizarHumedadFinal>[1]) {
+    try { await actualizarHumedadFinal(id, patch); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void reload(); }
+  }
+  async function borrarFin(r: HumedadFinalRow) {
+    try { await eliminarHumedadFinal(r.id); setHumFin((prev) => prev.filter((x) => x.id !== r.id)); toast('Fila eliminada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setFinBorrar(null); }
+  }
+
   const pesoTotal = filas.reduce((a, f) => a + (Number(f.peso_kg) || 0), 0);
+
+  // Humedad provisional: promedio del lote (%) y merma total (suma).
+  const provPctLote = promedioHumedadProv(humProv);
+  const provMermaTotal = humProv.reduce((a, r) => a + (mermaH2OProv(r) ?? 0), 0);
+  // Humedad final: el % aplicado es el promedio del lote provisional; totales por suma.
+  const finRecogidoTotal = humFin.reduce((a, r) => a + (Number(r.peso_recogido) || 0), 0);
+  const finMermaTotal = humFin.reduce((a, r) => a + (mermaH2OFinal(r.peso_recogido, provPctLote) ?? 0), 0);
 
   /**
    * Renderiza UNA tabla de laboratorio con un subconjunto de minerales. La tabla
@@ -335,6 +391,134 @@ export function RecepcionesPage() {
               La tabla se divide en dos mitades para evitar el desplazamiento horizontal. Los cambios se guardan al salir de cada celda (tiempo real).
             </div>
           </div>
+
+          {/* ───────── Humedad: Provisional y Final (una al lado de la otra) ───────── */}
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '1.25rem', alignItems: 'flex-start' }}>
+            {/* Humedad Provisional */}
+            <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 460px', minWidth: 360 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
+                <span style={{ fontWeight: 700, letterSpacing: '.03em' }}>Humedad Provisional</span>
+                {canWrite && (
+                  <button className="btn btn-sm btn-primary" onClick={() => void nuevaProv()} disabled={addProv}
+                    title="Agregar una fila a Humedad Provisional">
+                    {addProv ? 'Añadiendo…' : '＋ Humedad Provisional'}
+                  </button>
+                )}
+              </div>
+              <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
+                  <thead>
+                    <tr>
+                      <th className="num">Peso (Gr) Húmedos</th>
+                      <th className="num">Peso (Gr) seco</th>
+                      <th className="num">% Humedad</th>
+                      <th className="num">Merma peso H2O</th>
+                      {canWrite && <th style={{ width: 34 }}></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!humProv.length && (
+                      <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>
+                        Sin filas. Usá «＋ Humedad Provisional».
+                      </td></tr>
+                    )}
+                    {humProv.map((r) => {
+                      const pct = pctHumedadProv(r);
+                      const merma = mermaH2OProv(r);
+                      return (
+                        <tr key={r.id}>
+                          <td className="num">
+                            <input className="input mono" type="number" min={0} step="any" defaultValue={r.peso_humedo ?? ''} disabled={!canWrite}
+                              onBlur={(e) => { const v = e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0); if (v !== r.peso_humedo) void guardarProv(r.id, { peso_humedo: v }); }}
+                              style={{ width: 110, textAlign: 'right' }} />
+                          </td>
+                          <td className="num">
+                            <input className="input mono" type="number" min={0} step="any" defaultValue={r.peso_seco ?? ''} disabled={!canWrite}
+                              onBlur={(e) => { const v = e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0); if (v !== r.peso_seco) void guardarProv(r.id, { peso_seco: v }); }}
+                              style={{ width: 110, textAlign: 'right' }} />
+                          </td>
+                          <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(pct)}</td>
+                          <td className="num mono">{merma == null ? '—' : fmt(merma)}</td>
+                          {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Eliminar fila" onClick={() => setProvBorrar(r)}>🗑</button></td>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {humProv.length > 0 && (
+                    <tfoot>
+                      <tr style={{ fontWeight: 700 }}>
+                        <td colSpan={2} style={{ textAlign: 'right' }}>Promedio del lote</td>
+                        <td className="num mono" style={{ fontWeight: 800 }}>{fmtH(provPctLote)}</td>
+                        <td className="num mono" style={{ fontWeight: 800 }}>{fmt(provMermaTotal)}</td>
+                        {canWrite && <td></td>}
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+
+            {/* Humedad Final */}
+            <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 380px', minWidth: 320 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
+                <span style={{ fontWeight: 700, letterSpacing: '.03em' }}>Humedad Final</span>
+                {canWrite && (
+                  <button className="btn btn-sm btn-primary" onClick={() => void nuevaFin()} disabled={addFin}
+                    title="Agregar una fila a Humedad Final">
+                    {addFin ? 'Añadiendo…' : '＋ Humedad Final'}
+                  </button>
+                )}
+              </div>
+              <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
+                  <thead>
+                    <tr>
+                      <th className="num">Peso (Kg) recogido</th>
+                      <th className="num">Merma peso H2O</th>
+                      <th className="num">% Humedad final</th>
+                      {canWrite && <th style={{ width: 34 }}></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!humFin.length && (
+                      <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>
+                        Sin filas. Usá «＋ Humedad Final».
+                      </td></tr>
+                    )}
+                    {humFin.map((r) => {
+                      const merma = mermaH2OFinal(r.peso_recogido, provPctLote);
+                      return (
+                        <tr key={r.id}>
+                          <td className="num">
+                            <input className="input mono" type="number" min={0} step="any" defaultValue={r.peso_recogido ?? ''} disabled={!canWrite}
+                              onBlur={(e) => { const v = e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0); if (v !== r.peso_recogido) void guardarFin(r.id, { peso_recogido: v }); }}
+                              style={{ width: 120, textAlign: 'right' }} />
+                          </td>
+                          <td className="num mono">{merma == null ? '—' : fmt(merma)}</td>
+                          <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(provPctLote)}</td>
+                          {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Eliminar fila" onClick={() => setFinBorrar(r)}>🗑</button></td>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {humFin.length > 0 && (
+                    <tfoot>
+                      <tr style={{ fontWeight: 700 }}>
+                        <td className="num mono" style={{ fontWeight: 800 }}>{fmt(finRecogidoTotal)}</td>
+                        <td className="num mono" style={{ fontWeight: 800 }}>{fmt(finMermaTotal)}</td>
+                        <td className="num mono" style={{ fontWeight: 800 }}>{fmtH(provPctLote)}</td>
+                        {canWrite && <td></td>}
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+              <div className="muted" style={{ fontSize: '.72rem', padding: '.5rem .75rem' }}>
+                El <strong>% Humedad final</strong> aplica el «Promedio del lote» de la Humedad Provisional ·
+                Merma peso H2O = Peso recogido × % Humedad / 100.
+              </div>
+            </div>
+          </div>
         </>
       )}
 
@@ -352,6 +536,23 @@ export function RecepcionesPage() {
           message={`¿Eliminar el análisis N° ${anaBorrar.n_analisis ?? '—'}? Se borran sus leyes por elemento.`}
           confirmText="Eliminar" danger
           onConfirm={() => void borrarAnalisis(anaBorrar)} onCancel={() => setAnaBorrar(null)}
+        />
+      )}
+
+      {provBorrar && (
+        <ConfirmDialog
+          title="Eliminar fila de Humedad Provisional"
+          message="¿Eliminar esta fila de humedad provisional?"
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrarProv(provBorrar)} onCancel={() => setProvBorrar(null)}
+        />
+      )}
+      {finBorrar && (
+        <ConfirmDialog
+          title="Eliminar fila de Humedad Final"
+          message="¿Eliminar esta fila de humedad final?"
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrarFin(finBorrar)} onCancel={() => setFinBorrar(null)}
         />
       )}
 
