@@ -290,6 +290,7 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {compra.estado === 'finalizada' && (compra.pagada_por_name || compra.pagada_por) && fila('Pagó (Tesorería)', compra.pagada_por_name || compra.pagada_por)}
       {compra.estado === 'finalizada' && compra.gasto_categoria && fila('Categoría de gasto', `${compra.gasto_categoria}${compra.gasto_subcategoria ? ` · ${compra.gasto_subcategoria}` : ''}`)}
       {fila(compra.estado === 'finalizada' ? 'Gasto total' : 'Total a pagar', total != null ? money(total) : '—')}
+      {compra.nota && fila('Nota', <span style={{ whiteSpace: 'pre-wrap' }}>{compra.nota}</span>)}
       {compra.adjunto_path && fila('Comprobante', <AdjuntoLink compra={compra} />)}
 
       <div className="table-wrap" style={{ marginTop: '.6rem' }}>
@@ -362,6 +363,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   };
   const [lineas, setLineas] = useState<LineaUI[]>(lineasIniciales);
   const [almacen, setAlmacen] = useState(editCompra?.almacen || alms[0]);
+  const [nota, setNota] = useState(editCompra?.nota ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seq, setSeq] = useState((editCompra?.items.length ?? 1) + 1);
@@ -467,10 +469,10 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
       if (esEdicion && editCompra) {
-        const edit = await editarCompraDirectaEnProceso({ compra: editCompra, lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName }, productos);
+        const edit = await editarCompraDirectaEnProceso({ compra: editCompra, lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, nota, actor, actorName }, productos);
         notify(`Compra directa ${edit.codigo ?? ''} actualizada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
       } else {
-        const creada = await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName }, productos);
+        const creada = await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, nota, actor, actorName }, productos);
         notify(`Compra directa ${creada.codigo ?? ''} creada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
       }
       onSaved();
@@ -623,6 +625,13 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
         ))}
 
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar material</button>
+
+        <div className="form-row" style={{ marginTop: '.75rem' }}>
+          <label>Nota / observación <span className="muted">(opcional)</span></label>
+          <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
+            placeholder="Detalle u observación de esta compra (se muestra en el detalle y el PDF)…" />
+        </div>
+
         <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan precios. El gasto por material y la caja se indican al finalizar.</p>
       </form>
     </Modal>
