@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -26,6 +26,8 @@ function localToIso(v: string): string {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 const fmt = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 }));
+/** Ley del mineral en porcentaje (todos los valores del laboratorio son %). */
+const fmtPct = (n: number | null | undefined) => (n == null ? '—' : `${fmt(n)} %`);
 
 export function RecepcionesPage() {
   const { user } = useSession();
@@ -183,8 +185,9 @@ export function RecepcionesPage() {
 
           {/* ───────── Tabla 2: RECEPCIÓN GLOBAL LABORATORIO ───────── */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div className="card-title" style={{ justifyContent: 'center', padding: '.6rem .85rem' }}>
-              <span style={{ letterSpacing: '.04em' }}>RECEPCIÓN GLOBAL LABORATORIO</span>
+            <div style={{ textAlign: 'center', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
+              <div style={{ fontWeight: 700, letterSpacing: '.04em' }}>RECEPCIÓN GLOBAL LABORATORIO</div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Todos los valores de minerales son leyes en porcentaje (%)</div>
             </div>
             <div className="table-wrap" style={{ overflowX: 'auto' }}>
               <table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
@@ -219,30 +222,31 @@ export function RecepcionesPage() {
                       </td>
                       {ELEMENTOS_LAB.map((e) => {
                         const prom = promElemento(f.analisis, e.key, e.abc);
+                        const bordeGrupo = { borderLeft: '2px solid var(--border-strong, #3a4150)' };
                         if (!e.abc) {
                           const val = (typeof f.analisis?.[e.key] === 'number') ? f.analisis[e.key] as number : '';
                           return (
-                            <td key={`${f.id}-${e.key}`} className="num" style={{ borderLeft: '2px solid var(--border-strong, #3a4150)' }}>
+                            <td key={`${f.id}-${e.key}`} className="num" style={bordeGrupo}>
                               <input className="input mono" type="number" step="any" value={val ?? ''} disabled={!canWrite}
                                 onChange={(ev) => setCeldaUcv(f.id, ev.target.value)} onBlur={() => void guardarAnalisis(f.id)}
-                                style={{ width: 64, textAlign: 'right' }} />
+                                style={{ width: 70, textAlign: 'right' }} />
                             </td>
                           );
                         }
                         const el = (f.analisis?.[e.key] && typeof f.analisis[e.key] === 'object') ? f.analisis[e.key] as AnalisisElemento : {};
                         return (
-                          <td key={`${f.id}-${e.key}`} className="num" style={{ padding: 0, borderLeft: '2px solid var(--border-strong, #3a4150)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              {(['a', 'b', 'c'] as const).map((s) => (
-                                <input key={s} className="input mono" type="number" step="any" value={(el[s] ?? '') as number | ''} disabled={!canWrite}
+                          <Fragment key={`${f.id}-${e.key}`}>
+                            {(['a', 'b', 'c'] as const).map((s, i) => (
+                              <td key={s} className="num" style={i === 0 ? bordeGrupo : undefined}>
+                                <input className="input mono" type="number" step="any" value={(el[s] ?? '') as number | ''} disabled={!canWrite}
                                   onChange={(ev) => setCeldaAbc(f.id, e.key, s, ev.target.value)} onBlur={() => void guardarAnalisis(f.id)}
-                                  style={{ width: 52, textAlign: 'right', borderRadius: 0 }} />
-                              ))}
-                              <span className="mono" style={{ width: 56, textAlign: 'right', padding: '0 .3rem', fontWeight: 700, color: 'var(--primary-3)' }}>
-                                {prom == null ? '—' : fmt(prom)}
-                              </span>
-                            </div>
-                          </td>
+                                  style={{ width: 64, textAlign: 'right' }} />
+                              </td>
+                            ))}
+                            <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>
+                              {prom == null ? '—' : fmtPct(prom)}
+                            </td>
+                          </Fragment>
                         );
                       })}
                     </tr>
@@ -253,18 +257,17 @@ export function RecepcionesPage() {
                     <td style={{ textAlign: 'right' }}>Promedio del lote</td>
                     {ELEMENTOS_LAB.map((e) => {
                       const pl = promedioLote(filas, e.key, e.abc);
+                      const bordeGrupo = { borderLeft: '2px solid var(--border-strong, #3a4150)' };
                       if (!e.abc) {
-                        return <td key={`pl-${e.key}`} className="num mono" style={{ borderLeft: '2px solid var(--border-strong, #3a4150)', fontWeight: 800 }}>{pl == null ? '—' : fmt(pl)}</td>;
+                        return <td key={`pl-${e.key}`} className="num mono" style={{ ...bordeGrupo, fontWeight: 800 }}>{pl == null ? '—' : fmtPct(pl)}</td>;
                       }
                       return (
-                        <td key={`pl-${e.key}`} className="num" style={{ padding: 0, borderLeft: '2px solid var(--border-strong, #3a4150)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <span style={{ width: 52 }} /><span style={{ width: 52 }} /><span style={{ width: 52 }} />
-                            <span className="mono" style={{ width: 56, textAlign: 'right', padding: '0 .3rem', fontWeight: 800, color: 'var(--primary-3)' }}>
-                              {pl == null ? '—' : fmt(pl)}
-                            </span>
-                          </div>
-                        </td>
+                        <Fragment key={`pl-${e.key}`}>
+                          <td style={bordeGrupo}></td>
+                          <td></td>
+                          <td></td>
+                          <td className="num mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{pl == null ? '—' : fmtPct(pl)}</td>
+                        </Fragment>
                       );
                     })}
                   </tr>
