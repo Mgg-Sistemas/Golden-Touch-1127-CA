@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -8,8 +8,10 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   listRecepciones, crearRecepcion, actualizarRecepcion, eliminarRecepcion,
-  promElemento, promedioLote, ELEMENTOS_LAB,
-  type RecepcionLab, type AnalisisElemento,
+  listAnalisis, crearAnalisis, actualizarAnalisisRow, eliminarAnalisis,
+  listMinerales, addMineral, updateMineral, setMineralActivo,
+  promElemento, promedioLote,
+  type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
 } from './recepciones.repository';
 
 /** ISO → valor de <input type="datetime-local"> (hora local). */
@@ -30,6 +32,8 @@ const fmt = (n: number | null | undefined) => (n == null ? '—' : Number(n).toL
 const fmtPct = (n: number | null | undefined) =>
   (n == null ? '—' : `${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} %`);
 
+const BORDE_GRUPO = { borderLeft: '2px solid var(--border-strong, #3a4150)' };
+
 export function RecepcionesPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
@@ -37,18 +41,25 @@ export function RecepcionesPage() {
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
-  const [filas, setFilas] = useState<RecepcionLab[]>([]);
+  const [filas, setFilas] = useState<RecepcionLab[]>([]);       // tabla de arriba (kg por cierre)
+  const [analisis, setAnalisis] = useState<AnalisisRow[]>([]);  // tabla de abajo (análisis químicos)
+  const [minerales, setMinerales] = useState<MineralLab[]>([]);
   const [loading, setLoading] = useState(true);
   const [creando, setCreando] = useState(false);
+  const [anadiendo, setAnadiendo] = useState(false);
   const [aBorrar, setABorrar] = useState<RecepcionLab | null>(null);
+  const [anaBorrar, setAnaBorrar] = useState<AnalisisRow | null>(null);
+  const [config, setConfig] = useState(false);
 
-  // Espejo de las filas para leer el estado vigente desde onBlur sin closures viejos.
-  const filasRef = useRef<RecepcionLab[]>([]);
-  filasRef.current = filas;
+  // Espejo del análisis para leer el estado vigente desde onBlur sin closures viejos.
+  const analisisRef = useRef<AnalisisRow[]>([]);
+  analisisRef.current = analisis;
 
   const reload = useCallback(async () => {
-    try { setFilas(await listRecepciones()); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las recepciones', 'error'); }
+    try {
+      const [recs, anas, mins] = await Promise.all([listRecepciones(), listAnalisis(), listMinerales(true)]);
+      setFilas(recs); setAnalisis(anas); setMinerales(mins);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las recepciones', 'error'); }
   }, []);
 
   useEffect(() => {
@@ -58,51 +69,159 @@ export function RecepcionesPage() {
     return () => { cancel = true; };
   }, [reload]);
 
-  useRealtime(['recepciones_lab'], () => { void reload(); });
+  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales'], () => { void reload(); });
 
-  /** Edita una celda A/B/C de un elemento (vivo, para recalcular el Prom al instante). */
-  function setCeldaAbc(id: string, key: string, sub: 'a' | 'b' | 'c', value: string) {
-    setFilas((prev) => prev.map((f) => {
-      if (f.id !== id) return f;
-      const prevEl = (f.analisis?.[key] && typeof f.analisis[key] === 'object') ? f.analisis[key] as AnalisisElemento : {};
-      const el: AnalisisElemento = { ...prevEl, [sub]: value === '' ? null : Number(value) };
-      return { ...f, analisis: { ...f.analisis, [key]: el } };
-    }));
-  }
-  function setCeldaUcv(id: string, value: string) {
-    setFilas((prev) => prev.map((f) => (f.id === id ? { ...f, analisis: { ...f.analisis, ucv: value === '' ? null : Number(value) } } : f)));
-  }
-
-  /** Persiste el análisis vigente de una fila (al salir de una celda). */
-  async function guardarAnalisis(id: string) {
-    const fila = filasRef.current.find((f) => f.id === id);
-    if (!fila) return;
-    try { await actualizarRecepcion(id, { analisis: fila.analisis }); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar el análisis', 'error'); void reload(); }
-  }
-
-  /** Persiste un campo de cabecera (peso, procedencia, fecha, item, n° análisis). */
+  /* ── Tabla de arriba: recepciones (kg) ── */
   async function guardarCampo(id: string, patch: Parameters<typeof actualizarRecepcion>[1]) {
     try { await actualizarRecepcion(id, patch); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void reload(); }
   }
-
   async function nueva() {
     setCreando(true);
-    try {
-      await crearRecepcion({ actor, actorName });
-      await reload();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear la recepción', 'error'); }
+    try { await crearRecepcion({ actor, actorName }); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear la recepción', 'error'); }
     finally { setCreando(false); }
   }
-
   async function borrar(f: RecepcionLab) {
     try { await eliminarRecepcion(f.id); setFilas((prev) => prev.filter((x) => x.id !== f.id)); toast('Recepción eliminada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
     finally { setABorrar(null); }
   }
 
+  /* ── Tabla de abajo: análisis químicos (independiente) ── */
+  function setCeldaAbc(id: string, key: string, sub: 'a' | 'b' | 'c', value: string) {
+    setAnalisis((prev) => prev.map((r) => {
+      if (r.id !== id) return r;
+      const prevEl = (r.analisis?.[key] && typeof r.analisis[key] === 'object') ? r.analisis[key] as AnalisisElemento : {};
+      const el: AnalisisElemento = { ...prevEl, [sub]: value === '' ? null : Number(value) };
+      return { ...r, analisis: { ...r.analisis, [key]: el } };
+    }));
+  }
+  function setCeldaUnica(id: string, key: string, value: string) {
+    setAnalisis((prev) => prev.map((r) => (r.id === id ? { ...r, analisis: { ...r.analisis, [key]: value === '' ? null : Number(value) } } : r)));
+  }
+  async function guardarAnalisis(id: string) {
+    const row = analisisRef.current.find((r) => r.id === id);
+    if (!row) return;
+    try { await actualizarAnalisisRow(id, { analisis: row.analisis }); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar el análisis', 'error'); void reload(); }
+  }
+  async function nuevoAnalisis() {
+    setAnadiendo(true);
+    try { await crearAnalisis({ actor, actorName }); await reload(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir el análisis', 'error'); }
+    finally { setAnadiendo(false); }
+  }
+  async function borrarAnalisis(r: AnalisisRow) {
+    try { await eliminarAnalisis(r.id); setAnalisis((prev) => prev.filter((x) => x.id !== r.id)); toast('Análisis eliminado', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setAnaBorrar(null); }
+  }
+
   const pesoTotal = filas.reduce((a, f) => a + (Number(f.peso_kg) || 0), 0);
+
+  /**
+   * Renderiza UNA tabla de laboratorio con un subconjunto de minerales. La tabla
+   * completa se parte en dos mitades (5 arriba / 5 abajo) para evitar el scroll
+   * horizontal. Cada mitad repite N° Análisis; el botón eliminar va solo en la primera.
+   */
+  function tablaLab(mins: MineralLab[], gi: number) {
+    const conBorrar = gi === 0 && canWrite;
+    return (
+      <div key={gi} className="table-wrap" style={{ overflowX: 'auto', borderTop: gi > 0 ? '1px solid var(--border, #2a2f3a)' : undefined }}>
+        <table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
+          <thead>
+            <tr>
+              <th rowSpan={2} style={{ width: 34 }}></th>
+              <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>N° Análisis</th>
+              {mins.map((m) => (
+                <th key={m.id} colSpan={m.columnas === 'abc' ? 4 : 1} style={{ textAlign: 'center', fontWeight: 700, ...BORDE_GRUPO }}>
+                  {m.nombre}{m.subtitulo ? <div className="muted" style={{ fontSize: '.66rem', fontWeight: 600 }}>{m.subtitulo}</div> : null}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              {mins.map((m) => (
+                m.columnas === 'abc'
+                  ? ['A', 'B', 'C', 'Prom.'].map((s, i) => (
+                      <th key={`${m.id}-${s}`} className="num" style={i === 0 ? BORDE_GRUPO : undefined}>{s}</th>
+                    ))
+                  : <th key={`${m.id}-prom`} className="num" style={BORDE_GRUPO}>Prom.</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {!analisis.length && (
+              <tr><td colSpan={2 + mins.reduce((a, m) => a + (m.columnas === 'abc' ? 4 : 1), 0)} className="muted" style={{ textAlign: 'center' }}>
+                Sin análisis. Usá «＋ Añadir valores» para agregar una fila.
+              </td></tr>
+            )}
+            {analisis.map((r) => (
+              <tr key={r.id}>
+                <td style={{ textAlign: 'center' }}>
+                  {conBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar este análisis" onClick={() => setAnaBorrar(r)}>🗑</button>}
+                </td>
+                <td className="num">
+                  <input className="input mono" type="number" min={1} defaultValue={r.n_analisis ?? ''} disabled={!canWrite}
+                    onBlur={(e) => { const raw = e.target.value; const v = raw === '' ? null : Math.max(1, Math.round(Number(raw) || 1)); if (v !== r.n_analisis) void actualizarAnalisisRow(r.id, { n_analisis: v }).catch(() => void reload()); }}
+                    style={{ width: 72, textAlign: 'right' }} />
+                </td>
+                {mins.map((m) => {
+                  const abc = m.columnas === 'abc';
+                  const prom = promElemento(r.analisis, m.clave, abc);
+                  if (!abc) {
+                    const val = (typeof r.analisis?.[m.clave] === 'number') ? r.analisis[m.clave] as number : '';
+                    return (
+                      <td key={`${r.id}-${m.id}`} className="num" style={BORDE_GRUPO}>
+                        <input className="input mono" type="number" step="any" value={val ?? ''} disabled={!canWrite}
+                          onChange={(ev) => setCeldaUnica(r.id, m.clave, ev.target.value)} onBlur={() => void guardarAnalisis(r.id)}
+                          style={{ width: 70, textAlign: 'right' }} />
+                      </td>
+                    );
+                  }
+                  const el = (r.analisis?.[m.clave] && typeof r.analisis[m.clave] === 'object') ? r.analisis[m.clave] as AnalisisElemento : {};
+                  return (
+                    <Fragment key={`${r.id}-${m.id}`}>
+                      {(['a', 'b', 'c'] as const).map((s, i) => (
+                        <td key={s} className="num" style={i === 0 ? BORDE_GRUPO : undefined}>
+                          <input className="input mono" type="number" step="any" value={(el[s] ?? '') as number | ''} disabled={!canWrite}
+                            onChange={(ev) => setCeldaAbc(r.id, m.clave, s, ev.target.value)} onBlur={() => void guardarAnalisis(r.id)}
+                            style={{ width: 64, textAlign: 'right' }} />
+                        </td>
+                      ))}
+                      <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{prom == null ? '—' : fmtPct(prom)}</td>
+                    </Fragment>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+          {analisis.length > 0 && (
+            <tfoot>
+              <tr style={{ fontWeight: 700 }}>
+                <td></td>
+                <td style={{ textAlign: 'right' }}>Promedio del lote</td>
+                {mins.map((m) => {
+                  const abc = m.columnas === 'abc';
+                  const pl = promedioLote(analisis, m.clave, abc);
+                  if (!abc) return <td key={`pl-${m.id}`} className="num mono" style={{ ...BORDE_GRUPO, fontWeight: 800 }}>{pl == null ? '—' : fmtPct(pl)}</td>;
+                  return (
+                    <Fragment key={`pl-${m.id}`}>
+                      <td style={BORDE_GRUPO}></td><td></td><td></td>
+                      <td className="num mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{pl == null ? '—' : fmtPct(pl)}</td>
+                    </Fragment>
+                  );
+                })}
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    );
+  }
+
+  const mitad = Math.ceil(minerales.length / 2);
+  const grupos = [minerales.slice(0, mitad), minerales.slice(mitad)].filter((g) => g.length);
 
   return (
     <div>
@@ -111,7 +230,7 @@ export function RecepcionesPage() {
           <h1 style={{ margin: 0 }}>📋 Recepciones</h1>
           <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.85rem' }}>
             Cada cierre de caja del Centro de Acopio genera una recepción con el saldo de KG de casiterita.
-            El laboratorio carga el análisis por elemento (A/B/C → Promedio). <strong>No entra al inventario al cerrar la caja.</strong>
+            El laboratorio carga aparte el análisis químico. <strong>No entra al inventario al cerrar la caja.</strong>
           </p>
         </div>
         {canWrite && (
@@ -123,25 +242,22 @@ export function RecepcionesPage() {
 
       {loading ? (
         <EmptyState message="Cargando recepciones…" icon="◔" />
-      ) : !filas.length ? (
-        <EmptyState message="Aún no hay recepciones. Se crean al cerrar la caja del Centro de Acopio, o con «Nueva recepción»." icon="📋" />
       ) : (
         <>
-          {/* ───────── Tabla 1: Recepciones ───────── */}
+          {/* ───────── Tabla 1: Recepciones (kg) ───────── */}
           <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '1.25rem' }}>
             <div className="card-title" style={{ padding: '.6rem .85rem' }}>
               <span>Recepciones</span>
               <span className="muted mono">{num(filas.length)} recepción(es)</span>
             </div>
+            {!filas.length ? (
+              <EmptyState message="Aún no hay recepciones. Se crean al cerrar la caja del Centro de Acopio, o con «Nueva recepción»." icon="📋" />
+            ) : (
             <div className="table-wrap" style={{ overflowX: 'auto' }}>
               <table className="table" style={{ fontSize: '.85rem' }}>
                 <thead>
                   <tr>
-                    <th>Ítem</th>
-                    <th>Fecha y hora</th>
-                    <th className="num">Peso KG</th>
-                    <th>Procedencia</th>
-                    {canWrite && <th></th>}
+                    <th>Ítem</th><th>Fecha y hora</th><th className="num">Peso KG</th><th>Procedencia</th>{canWrite && <th></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -167,9 +283,7 @@ export function RecepcionesPage() {
                           onBlur={(e) => { const v = e.target.value.trim() || 'PERAMANAL'; if (v !== f.procedencia) void guardarCampo(f.id, { procedencia: v }); }}
                           style={{ width: 200 }} />
                       </td>
-                      {canWrite && (
-                        <td><button className="btn btn-sm btn-ghost" title="Eliminar recepción" onClick={() => setABorrar(f)}>🗑</button></td>
-                      )}
+                      {canWrite && <td><button className="btn btn-sm btn-ghost" title="Eliminar recepción" onClick={() => setABorrar(f)}>🗑</button></td>}
                     </tr>
                   ))}
                 </tbody>
@@ -182,102 +296,43 @@ export function RecepcionesPage() {
                 </tfoot>
               </table>
             </div>
+            )}
           </div>
 
-          {/* ───────── Tabla 2: RECEPCIÓN GLOBAL LABORATORIO ───────── */}
+          {/* ───────── Tabla 2: RECEPCIÓN GLOBAL LABORATORIO (análisis químicos, independientes) ───────── */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ textAlign: 'center', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
-              <div style={{ fontWeight: 700, letterSpacing: '.04em' }}>RECEPCIÓN GLOBAL LABORATORIO</div>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Todos los valores de minerales son leyes en porcentaje (%)</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
+              <div style={{ minWidth: 150 }}>
+                {canWrite && (
+                  <button className="btn btn-sm btn-ghost" onClick={() => setConfig(true)} title="Agregar, editar u ocultar los minerales (columnas) del análisis">
+                    ⚙ Configurar minerales
+                  </button>
+                )}
+              </div>
+              <div style={{ textAlign: 'center', flex: 1 }}>
+                <div style={{ fontWeight: 700, letterSpacing: '.04em' }}>RECEPCIÓN GLOBAL LABORATORIO</div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>Todos los valores de minerales son leyes en porcentaje (%)</div>
+              </div>
+              <div style={{ minWidth: 150, textAlign: 'right' }}>
+                {canWrite && (
+                  <button className="btn btn-sm btn-primary" onClick={() => void nuevoAnalisis()} disabled={anadiendo}
+                    title="Agregar una fila nueva de análisis químico (no afecta la tabla de recepciones)">
+                    {anadiendo ? 'Añadiendo…' : '＋ Añadir valores'}
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="table-wrap" style={{ overflowX: 'auto' }}>
-              <table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
-                <thead>
-                  <tr>
-                    <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>N° Análisis</th>
-                    {ELEMENTOS_LAB.map((e) => (
-                      <th key={e.key} colSpan={e.abc ? 4 : 1}
-                        style={{ textAlign: 'center', fontWeight: 700, borderLeft: '2px solid var(--border-strong, #3a4150)' }}>
-                        {e.label}{e.sub ? <div className="muted" style={{ fontSize: '.66rem', fontWeight: 600 }}>{e.sub}</div> : null}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr>
-                    {ELEMENTOS_LAB.map((e) => (
-                      e.abc
-                        ? ['A', 'B', 'C', 'Prom.'].map((s, i) => (
-                            <th key={`${e.key}-${s}`} className="num" style={i === 0 ? { borderLeft: '2px solid var(--border-strong, #3a4150)' } : undefined}>{s}</th>
-                          ))
-                        : <th key={`${e.key}-prom`} className="num" style={{ borderLeft: '2px solid var(--border-strong, #3a4150)' }}>Prom.</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filas.map((f) => (
-                    <tr key={f.id}>
-                      {/* N° Análisis (correlativo del laboratorio) */}
-                      <td className="num">
-                        <input className="input mono" type="number" min={1} defaultValue={f.n_analisis ?? ''} disabled={!canWrite}
-                          onBlur={(e) => { const raw = e.target.value; const v = raw === '' ? null : Math.max(1, Math.round(Number(raw) || 1)); if (v !== f.n_analisis) void guardarCampo(f.id, { n_analisis: v }); }}
-                          style={{ width: 72, textAlign: 'right' }} />
-                      </td>
-                      {ELEMENTOS_LAB.map((e) => {
-                        const prom = promElemento(f.analisis, e.key, e.abc);
-                        const bordeGrupo = { borderLeft: '2px solid var(--border-strong, #3a4150)' };
-                        if (!e.abc) {
-                          const val = (typeof f.analisis?.[e.key] === 'number') ? f.analisis[e.key] as number : '';
-                          return (
-                            <td key={`${f.id}-${e.key}`} className="num" style={bordeGrupo}>
-                              <input className="input mono" type="number" step="any" value={val ?? ''} disabled={!canWrite}
-                                onChange={(ev) => setCeldaUcv(f.id, ev.target.value)} onBlur={() => void guardarAnalisis(f.id)}
-                                style={{ width: 70, textAlign: 'right' }} />
-                            </td>
-                          );
-                        }
-                        const el = (f.analisis?.[e.key] && typeof f.analisis[e.key] === 'object') ? f.analisis[e.key] as AnalisisElemento : {};
-                        return (
-                          <Fragment key={`${f.id}-${e.key}`}>
-                            {(['a', 'b', 'c'] as const).map((s, i) => (
-                              <td key={s} className="num" style={i === 0 ? bordeGrupo : undefined}>
-                                <input className="input mono" type="number" step="any" value={(el[s] ?? '') as number | ''} disabled={!canWrite}
-                                  onChange={(ev) => setCeldaAbc(f.id, e.key, s, ev.target.value)} onBlur={() => void guardarAnalisis(f.id)}
-                                  style={{ width: 64, textAlign: 'right' }} />
-                              </td>
-                            ))}
-                            <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>
-                              {prom == null ? '—' : fmtPct(prom)}
-                            </td>
-                          </Fragment>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ fontWeight: 700 }}>
-                    <td style={{ textAlign: 'right' }}>Promedio del lote</td>
-                    {ELEMENTOS_LAB.map((e) => {
-                      const pl = promedioLote(filas, e.key, e.abc);
-                      const bordeGrupo = { borderLeft: '2px solid var(--border-strong, #3a4150)' };
-                      if (!e.abc) {
-                        return <td key={`pl-${e.key}`} className="num mono" style={{ ...bordeGrupo, fontWeight: 800 }}>{pl == null ? '—' : fmtPct(pl)}</td>;
-                      }
-                      return (
-                        <Fragment key={`pl-${e.key}`}>
-                          <td style={bordeGrupo}></td>
-                          <td></td>
-                          <td></td>
-                          <td className="num mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{pl == null ? '—' : fmtPct(pl)}</td>
-                        </Fragment>
-                      );
-                    })}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+
+            {!minerales.length ? (
+              <EmptyState message="No hay minerales configurados. Usá «Configurar minerales» para agregarlos." icon="⚗" />
+            ) : (
+              grupos.map((g, gi) => tablaLab(g, gi))
+            )}
+
             <div className="muted" style={{ fontSize: '.74rem', padding: '.5rem .75rem' }}>
-              Prom. = (A + B + C) / 3 · Promedio del lote = promedio de los Prom. de todas las recepciones con valor.
-              Los cambios se guardan al salir de cada celda y se sincronizan en tiempo real.
+              Prom. = (A + B + C) / 3 · Promedio del lote = promedio de los Prom. de todos los análisis con valor.
+              Esta tabla es <strong>independiente</strong> de la de recepciones: «＋ Añadir valores» agrega solo análisis químicos.
+              La tabla se divide en dos mitades para evitar el desplazamiento horizontal. Los cambios se guardan al salir de cada celda (tiempo real).
             </div>
           </div>
         </>
@@ -286,13 +341,158 @@ export function RecepcionesPage() {
       {aBorrar && (
         <ConfirmDialog
           title="Eliminar recepción"
-          message={`¿Eliminar la recepción Ítem ${aBorrar.item} (${fmt(Number(aBorrar.peso_kg))} kg)? Se borra su análisis de laboratorio.`}
-          confirmText="Eliminar"
-          danger
-          onConfirm={() => void borrar(aBorrar)}
-          onCancel={() => setABorrar(null)}
+          message={`¿Eliminar la recepción Ítem ${aBorrar.item} (${fmt(Number(aBorrar.peso_kg))} kg)?`}
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)}
         />
       )}
+      {anaBorrar && (
+        <ConfirmDialog
+          title="Eliminar análisis químico"
+          message={`¿Eliminar el análisis N° ${anaBorrar.n_analisis ?? '—'}? Se borran sus leyes por elemento.`}
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrarAnalisis(anaBorrar)} onCancel={() => setAnaBorrar(null)}
+        />
+      )}
+
+      {config && <ConfigMineralesModal onClose={() => setConfig(false)} onChanged={reload} />}
     </div>
+  );
+}
+
+/* ───────────── Modal: Configurar minerales (columnas del laboratorio) ───────────── */
+function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void | Promise<void> }) {
+  const [minerales, setMinerales] = useState<MineralLab[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [nombre, setNombre] = useState('');
+  const [subtitulo, setSubtitulo] = useState('');
+  const [columnas, setColumnas] = useState<'abc' | 'prom'>('abc');
+  const [color, setColor] = useState('#6db8ff');
+  const [edit, setEdit] = useState<{ nombre: string; subtitulo: string; columnas: 'abc' | 'prom'; color: string }>({ nombre: '', subtitulo: '', columnas: 'abc', color: '#6db8ff' });
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try { setMinerales(await listMinerales(false)); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los minerales', 'error'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  async function agregar() {
+    if (!nombre.trim()) { toast('Indicá el nombre del mineral.', 'error'); return; }
+    setSaving(true);
+    try {
+      await addMineral({ nombre, subtitulo, columnas, color });
+      setNombre(''); setSubtitulo(''); setColumnas('abc'); setColor('#6db8ff');
+      await cargar(); await onChanged();
+      toast('Mineral agregado', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+    finally { setSaving(false); }
+  }
+  function abrirEdicion(m: MineralLab) {
+    setEditId(m.id);
+    setEdit({ nombre: m.nombre, subtitulo: m.subtitulo ?? '', columnas: m.columnas, color: m.color });
+  }
+  async function guardarEdicion(id: string) {
+    setSaving(true);
+    try {
+      await updateMineral(id, { nombre: edit.nombre, subtitulo: edit.subtitulo, columnas: edit.columnas, color: edit.color });
+      setEditId(null); await cargar(); await onChanged();
+      toast('Mineral actualizado', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+    finally { setSaving(false); }
+  }
+  async function toggleActivo(m: MineralLab) {
+    try { await setMineralActivo(m.id, !m.activo); await cargar(); await onChanged(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
+  }
+
+  return (
+    <Modal title="⚙ Configurar minerales" size="xl" onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}><span>Nuevo mineral</span></div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Nombre</label>
+            <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Cu (Cobre)" />
+          </div>
+          <div className="form-row">
+            <label>Subtítulo (opcional)</label>
+            <input className="input" value={subtitulo} onChange={(e) => setSubtitulo(e.target.value)} placeholder="Laboratorio…" />
+          </div>
+          <div className="form-row">
+            <label>Columnas</label>
+            <select className="select" value={columnas} onChange={(e) => setColumnas(e.target.value as 'abc' | 'prom')}>
+              <option value="abc">A / B / C / Prom.</option>
+              <option value="prom">Solo Prom.</option>
+            </select>
+          </div>
+          <div className="form-row">
+            <label>Color</label>
+            <input className="input" type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ height: 38, padding: 2 }} />
+          </div>
+        </div>
+        <div style={{ marginTop: '.5rem' }}>
+          <button className="btn btn-primary" onClick={() => void agregar()} disabled={saving}>＋ Agregar mineral</button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="muted">Cargando…</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.85rem' }}>
+            <thead>
+              <tr><th>Orden</th><th>Mineral</th><th>Columnas</th><th>Estado</th><th></th></tr>
+            </thead>
+            <tbody>
+              {minerales.map((m) => (
+                editId === m.id ? (
+                  <tr key={m.id}>
+                    <td className="mono">{m.orden}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input className="input" value={edit.nombre} onChange={(e) => setEdit((p) => ({ ...p, nombre: e.target.value }))} style={{ width: 160 }} placeholder="Nombre" />
+                        <input className="input" value={edit.subtitulo} onChange={(e) => setEdit((p) => ({ ...p, subtitulo: e.target.value }))} style={{ width: 160 }} placeholder="Subtítulo" />
+                        <input className="input" type="color" value={edit.color} onChange={(e) => setEdit((p) => ({ ...p, color: e.target.value }))} style={{ width: 44, height: 34, padding: 2 }} />
+                      </div>
+                    </td>
+                    <td>
+                      <select className="select" value={edit.columnas} onChange={(e) => setEdit((p) => ({ ...p, columnas: e.target.value as 'abc' | 'prom' }))}>
+                        <option value="abc">A/B/C/Prom.</option>
+                        <option value="prom">Solo Prom.</option>
+                      </select>
+                    </td>
+                    <td><span className={`badge ${m.activo ? 'success' : ''}`}>{m.activo ? 'Activo' : 'Oculto'}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-sm btn-primary" onClick={() => void guardarEdicion(m.id)} disabled={saving}>Guardar</button>{' '}
+                      <button className="btn btn-sm btn-ghost" onClick={() => setEditId(null)} disabled={saving}>Cancelar</button>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={m.id} style={{ opacity: m.activo ? 1 : 0.55 }}>
+                    <td className="mono">{m.orden}</td>
+                    <td>
+                      <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, background: m.color, marginRight: '.4rem', verticalAlign: 'middle' }} />
+                      <strong>{m.nombre}</strong>{m.subtitulo ? <span className="muted"> · {m.subtitulo}</span> : null}
+                    </td>
+                    <td>{m.columnas === 'abc' ? 'A/B/C/Prom.' : 'Solo Prom.'}</td>
+                    <td><span className={`badge ${m.activo ? 'success' : ''}`}>{m.activo ? 'Activo' : 'Oculto'}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => abrirEdicion(m)}>✎</button>{' '}
+                      <button className="btn btn-sm btn-ghost" onClick={() => void toggleActivo(m)}>{m.activo ? 'Ocultar' : 'Mostrar'}</button>
+                    </td>
+                  </tr>
+                )
+              ))}
+              {!minerales.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin minerales. Agregá el primero arriba.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }
