@@ -100,6 +100,9 @@ export function OfertasComparativa({
   }, [ofertasOrdenId, reloadKey]);
 
   const scored = scoreOfertas(ofertas, stats);
+  // En una orden HIJA se muestra SOLO la oferta del proveedor que se le asignó
+  // (la que se eligió al repartir), no toda la comparativa del padre.
+  const scoredView = esHija ? scored.filter((s) => s.oferta.proveedor_id === (orden.proveedor_id ?? '')) : scored;
 
   async function abrirPdf(path: string) {
     try {
@@ -158,7 +161,7 @@ export function OfertasComparativa({
     <div className="card-title" style={{ marginBottom: '.5rem' }}>
       <span>Ofertas y comparativa{esHija ? ' · de la orden padre' : ''}</span>
       <span style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-        <span className="muted mono">{scored.length}/{MAX_OFERTAS} oferta(s)</span>
+        <span className="muted mono">{esHija ? `${scoredView.length} oferta(s)` : `${scored.length}/${MAX_OFERTAS} oferta(s)`}</span>
         {puedeAgregar && (
           <button className="btn btn-sm btn-ghost" onClick={onAddOferta}>+ Agregar oferta</button>
         )}
@@ -189,12 +192,22 @@ export function OfertasComparativa({
     );
   }
 
+  // Hija sin oferta de su proveedor en el padre (caso raro): aviso claro.
+  if (esHija && !scoredView.length) {
+    return (
+      <div className="card" style={{ marginTop: '1rem' }}>
+        {headLine}
+        <EmptyState message="No se encontró la oferta del proveedor de esta orden hija." icon="◇" />
+      </div>
+    );
+  }
+
   return (
     <div className="card" style={{ marginTop: '1rem' }}>
       {headLine}
       {esHija && (
         <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.5rem' }}>
-          📄 Comparativa de la <strong>orden padre</strong> (solo lectura). Esta orden hija corresponde al proveedor{' '}
+          📄 Oferta elegida para esta orden hija (solo lectura), tomada de la <strong>orden padre</strong>. Proveedor:{' '}
           <strong>{proveedorMap.get(orden.proveedor_id ?? '')?.razon_social ?? '—'}</strong>. Los precios se muestran en Bs (BCV) y en divisa ($).
         </div>
       )}
@@ -214,7 +227,7 @@ export function OfertasComparativa({
             </tr>
           </thead>
           <tbody>
-            {scored.map((s) => {
+            {scoredView.map((s) => {
               const prov = proveedorMap.get(s.oferta.proveedor_id);
               const recomendada = s.recomendada && s.oferta.estado === 'pendiente';
               const aceptada = s.oferta.estado === 'aceptada';
@@ -413,8 +426,9 @@ export function OfertasComparativa({
         </table>
       </div>
 
-      {/* Recomendación: qué proveedor conviene por precio / calidad / score global. */}
-      {ofertas.length > 0 && (() => {
+      {/* Recomendación: qué proveedor conviene por precio / calidad / score global.
+          En una hija NO aplica (ya tiene su proveedor fijo): se oculta. */}
+      {!esHija && ofertas.length > 0 && (() => {
         const mejorPrecioOf = scored.find((s) => s.mejorPrecio);
         const mejorCalidadOf = scored.find((s) => s.mejorCalidad);
         const recomendadaOf = scored.find((s) => s.recomendada) ?? scored[0];
