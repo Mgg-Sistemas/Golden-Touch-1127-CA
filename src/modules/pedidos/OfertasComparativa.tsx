@@ -75,10 +75,16 @@ export function OfertasComparativa({
   // Modal para repartir la OP entre varios proveedores (multi-proveedor).
   const [repartir, setRepartir] = useState(false);
 
+  // Órdenes HIJAS (reparto): las ofertas viven en la orden PADRE. Para mostrar la
+  // comparativa igual que el padre, se cargan las del padre y se ven en SOLO LECTURA
+  // (la hija ya es una OC: no se agregan/eligen/reparten/editan ofertas desde acá).
+  const esHija = !!orden.op_padre_id;
+  const ofertasOrdenId = orden.op_padre_id ?? orden.id;
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listOfertasByOrden(orden.id)
+    listOfertasByOrden(ofertasOrdenId)
       .then(async (rows) => {
         if (cancelled) return;
         setOfertas(rows);
@@ -91,7 +97,7 @@ export function OfertasComparativa({
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [orden.id, reloadKey]);
+  }, [ofertasOrdenId, reloadKey]);
 
   const scored = scoreOfertas(ofertas, stats);
 
@@ -138,16 +144,19 @@ export function OfertasComparativa({
   }
 
   // Las ofertas se cargan/eligen sobre la OP ya APROBADA (etapa Orden de Compra).
-  const enEtapaOc = orden.estado === 'aprobada' || orden.estado === 'desistida_proveedor';
+  // En una orden HIJA es SIEMPRE solo lectura (no se decide/agrega/reparte/edita).
+  const enEtapaOc = !esHija && (orden.estado === 'aprobada' || orden.estado === 'desistida_proveedor');
   // Cotizaciones: mínimo 1 para poder elegir, máximo 6 para cargar.
   const MIN_OFERTAS = 1, MAX_OFERTAS = 6;
   const minOk = ofertas.length >= MIN_OFERTAS;
   const puedeDecidir = canDecidir && enEtapaOc && minOk;
   const puedeAgregar = (canCrearOferta ?? canDecidir) && enEtapaOc && ofertas.length < MAX_OFERTAS;
+  // Edición/eliminación de ofertas: nunca en una hija (la oferta es del padre).
+  const puedeEditarOfertas = (canCrearOferta ?? canDecidir) && !esHija;
 
   const headLine = (
     <div className="card-title" style={{ marginBottom: '.5rem' }}>
-      <span>Ofertas y comparativa</span>
+      <span>Ofertas y comparativa{esHija ? ' · de la orden padre' : ''}</span>
       <span style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
         <span className="muted mono">{scored.length}/{MAX_OFERTAS} oferta(s)</span>
         {puedeAgregar && (
@@ -175,7 +184,7 @@ export function OfertasComparativa({
     return (
       <div className="card" style={{ marginTop: '1rem' }}>
         {headLine}
-        <EmptyState message="Aún no hay ofertas registradas para esta orden." icon="◇" />
+        <EmptyState message={esHija ? 'La orden padre no tiene ofertas registradas.' : 'Aún no hay ofertas registradas para esta orden.'} icon="◇" />
       </div>
     );
   }
@@ -183,6 +192,12 @@ export function OfertasComparativa({
   return (
     <div className="card" style={{ marginTop: '1rem' }}>
       {headLine}
+      {esHija && (
+        <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.5rem' }}>
+          📄 Comparativa de la <strong>orden padre</strong> (solo lectura). Esta orden hija corresponde al proveedor{' '}
+          <strong>{proveedorMap.get(orden.proveedor_id ?? '')?.razon_social ?? '—'}</strong>. Los precios se muestran en Bs (BCV) y en divisa ($).
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -359,7 +374,7 @@ export function OfertasComparativa({
                           </table>
                             );
                           })()}
-                          {(canCrearOferta ?? canDecidir) && s.oferta.estado === 'pendiente' && (
+                          {puedeEditarOfertas && s.oferta.estado === 'pendiente' && (
                             <div style={{ textAlign: 'right', marginTop: '.4rem', display: 'flex', gap: '.4rem', justifyContent: 'flex-end' }}>
                               {onEditarOferta && (
                                 <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); onEditarOferta(s.oferta); }}>
