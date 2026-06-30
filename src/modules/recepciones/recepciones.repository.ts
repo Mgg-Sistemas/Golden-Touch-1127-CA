@@ -27,6 +27,8 @@ export interface RecepcionLab {
   fecha_hora: string;
   peso_kg: number;
   procedencia: string;
+  /** Tasa del cierre de caja que generó esta recepción (centro de acopio). */
+  tasa?: number | null;
   caja_id?: string | null;
   caja_numero?: string | null;
   analisis: AnalisisLab;
@@ -64,6 +66,7 @@ async function siguientesCorrelativos(): Promise<{ item: number; nAnalisis: numb
 
 export interface CrearRecepcionInput {
   pesoKg?: number;
+  tasa?: number | null;
   procedencia?: string | null;
   fechaHora?: string | null;
   cajaId?: string | null;
@@ -82,6 +85,7 @@ export async function crearRecepcion(input: CrearRecepcionInput): Promise<Recepc
       n_analisis: nAnalisis,
       fecha_hora: input.fechaHora ?? new Date().toISOString(),
       peso_kg: round2(Math.max(0, num(input.pesoKg))),
+      tasa: input.tasa == null ? null : num(input.tasa),
       procedencia: (input.procedencia?.trim() || 'PERAMANAL'),
       caja_id: input.cajaId ?? null,
       caja_numero: input.cajaNumero ?? null,
@@ -104,6 +108,7 @@ export async function crearRecepcionDesdeCierre(input: {
   cajaId: string;
   cajaNumero?: string | null;
   pesoKg: number;
+  tasa?: number | null;
   actor: string;
   actorName?: string | null;
 }): Promise<RecepcionLab | null> {
@@ -111,6 +116,7 @@ export async function crearRecepcionDesdeCierre(input: {
   if (ya) return null; // ya existe la recepción de ese cierre
   return crearRecepcion({
     pesoKg: input.pesoKg,
+    tasa: input.tasa ?? null,
     cajaId: input.cajaId,
     cajaNumero: input.cajaNumero ?? null,
     actor: input.actor,

@@ -1641,8 +1641,13 @@ export async function desistirProveedor(
   // aprobada (ofertas cargadas) como sobre la OC ya creada que está PENDIENTE POR
   // APROBACIÓN DEL GERENTE GENERAL (oc_creada): si el proveedor no cumple o se eligió
   // mal, se reabren las ofertas para re-elegir antes de que el GG firme.
-  if (!['aprobada', 'oc_creada'].includes(o.estado))
-    throw new Error('Solo se registra desistimiento sobre órdenes aprobadas o pendientes por aprobación del Gerente General');
+  // Se permite en cualquier etapa de la OC ANTES del pago (aprobada → OC creada →
+  // OC aprobada por GG → método confirmado). Una vez PAGADA hay que cancelar/reabrir
+  // (eso revierte caja/inventario), no desistir.
+  if (!['aprobada', 'oc_creada', 'oc_aprobada', 'confirmada_metodo'].includes(o.estado)) {
+    if (o.estado === 'pagada') throw new Error('La OC ya está pagada: reabrila/cancelala (revierte caja e inventario) en vez de registrar desistimiento.');
+    throw new Error('Solo se registra desistimiento sobre órdenes aprobadas o de OC antes del pago.');
+  }
   if (!motivo.trim()) throw new Error('Debes indicar por qué no cumplió el proveedor');
 
   // CASO ORDEN HIJA (reparto multiproveedor): en vez de quedar como "desistida"
