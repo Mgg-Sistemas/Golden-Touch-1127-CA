@@ -192,6 +192,8 @@ export function RecepcionesPage() {
   }
 
   const pesoTotal = filas.reduce((a, f) => a + (Number(f.peso_kg) || 0), 0);
+  // Tasa del último cierre de caja (la recepción más reciente con tasa) para los Totales.
+  const cajaTasa = [...filas].reverse().find((f) => f.tasa != null)?.tasa ?? 0;
 
   // Humedad provisional: promedio del lote (%) y merma total (suma).
   const provPctLote = promedioHumedadProv(humProv);
@@ -346,7 +348,7 @@ export function RecepcionesPage() {
       )}
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} onClose={() => setConcilOpen(false)} />}
-      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} onClose={() => setTotalesOpen(false)} />}
+      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} cajaTasa={cajaTasa} onClose={() => setTotalesOpen(false)} />}
       {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCierresOpen(false)} />}
 
       {loading ? (
@@ -1342,8 +1344,8 @@ interface TotalesDraft {
   humedad_prov: number; humedad_final: number; fe_esteril: number; observacion: string;
 }
 
-function TotalesModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; onClose: () => void;
+function TotalesModal({ canWrite, actor, actorName, pesoTotal, cajaTasa, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; cajaTasa: number; onClose: () => void;
 }) {
   const [lista, setLista] = useState<TotalesDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1363,7 +1365,9 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
 
   function nueva() {
     const numero = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
-    setDraft({ id: null, numero, fecha: null, centros: [{ nombre: '', sno2: null, precio: null }], gastos: 0, pesos_kg: pesoTotal || 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
+    // Primer centro tomado del cierre de caja: nombre Peramanal, Total SnO2 = Saldo Kg de
+    // casiterita y Precio/Tasa = tasa del cierre.
+    setDraft({ id: null, numero, fecha: null, centros: [{ nombre: 'Peramanal', sno2: pesoTotal || null, precio: cajaTasa || null }], gastos: 0, pesos_kg: pesoTotal || 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
     setMode('form');
   }
   // Si no hay totales guardados, abrir directamente el formulario (no una lista vacía).

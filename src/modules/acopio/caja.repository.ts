@@ -593,6 +593,7 @@ export async function cerrarYAbrirCaja(input: {
       cajaId: cerrando.id,
       cajaNumero: cerrando.numero,
       pesoKg: snapshot.resumen.saldoKg,
+      tasa: snapshot.resumen.tasa,
       actor,
       actorName: actorName ?? null,
     });
