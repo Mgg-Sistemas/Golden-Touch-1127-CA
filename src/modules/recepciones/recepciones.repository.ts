@@ -548,6 +548,111 @@ export async function eliminarPesada(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/* ───────────── Conciliación (vs Centros de Acopio) ─────────────
+   Compara el Peso KG total recibido contra lo reportado por los centros de acopio
+   (incluye aliados). Cálculos:
+     Reportado  = Σ saldos KG de los centros
+     Faltante   = Peso KG total − Reportado            (en rojo)
+     No llegó   = Faltante + Kg bolsas + Muestras lab   (en rojo)
+     %No llegó  = No llegó / Reportado × 100            (en rojo) */
+
+const TABLE_CONCIL = 'recepciones_conciliaciones';
+
+export interface ConciliacionCentro { nombre: string; kg: number | null }
+
+export interface Conciliacion {
+  id: string;
+  numero: number;
+  fecha: string;
+  peso_kg_total: number;
+  kg_bolsas: number;
+  muestras_lab: number;
+  centros: ConciliacionCentro[];
+  reportado: number;
+  faltante: number;
+  no_llego: number;
+  porcentaje: number;
+  observacion?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+/** Calcula los totales de una conciliación a partir de sus campos. */
+export function calcConciliacion(c: { peso_kg_total: number | null; kg_bolsas: number | null; muestras_lab: number | null; centros: ConciliacionCentro[] }): {
+  reportado: number; faltante: number; noLlego: number; porcentaje: number;
+} {
+  const reportado = round2((c.centros ?? []).reduce((a, x) => a + (Number(x.kg) || 0), 0));
+  const faltante = round2(num(c.peso_kg_total) - reportado);
+  const noLlego = round2(faltante + num(c.kg_bolsas) + num(c.muestras_lab));
+  const porcentaje = reportado !== 0 ? round2((noLlego / reportado) * 100) : 0;
+  return { reportado, faltante, noLlego, porcentaje };
+}
+
+function normConcil(row: Record<string, unknown>): Conciliacion {
+  const r = row as unknown as Conciliacion;
+  return { ...r, centros: Array.isArray(r.centros) ? r.centros : [] };
+}
+
+export async function listConciliaciones(): Promise<Conciliacion[]> {
+  const { data, error } = await supabase.from(TABLE_CONCIL).select('*')
+    .order('numero', { ascending: false }).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => normConcil(r as Record<string, unknown>));
+}
+
+/** Crea una conciliación. El N° lo pide el usuario la 1ª vez; luego sugiere máx+1. */
+export async function crearConciliacion(input: { numero?: number | null; actor: string; actorName?: string | null }): Promise<Conciliacion> {
+  let numero = input.numero != null ? Math.max(1, Math.round(num(input.numero))) : 0;
+  if (!numero) {
+    const { data: rows } = await supabase.from(TABLE_CONCIL).select('numero');
+    let max = 0;
+    for (const r of (rows ?? []) as Array<{ numero: number | null }>) max = Math.max(max, num(r.numero));
+    numero = max + 1;
+  }
+  const { data, error } = await supabase.from(TABLE_CONCIL).insert({
+    numero, peso_kg_total: 0, kg_bolsas: 0, muestras_lab: 0, centros: [],
+    reportado: 0, faltante: 0, no_llego: 0, porcentaje: 0,
+    created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return normConcil(data as Record<string, unknown>);
+}
+
+export async function actualizarConciliacion(id: string, patch: {
+  numero?: number; fecha?: string; peso_kg_total?: number | null; kg_bolsas?: number | null;
+  muestras_lab?: number | null; centros?: ConciliacionCentro[]; observacion?: string | null;
+}): Promise<void> {
+  const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.numero != null) upd.numero = Math.max(1, Math.round(num(patch.numero)));
+  if (patch.fecha != null) upd.fecha = patch.fecha;
+  if (patch.peso_kg_total !== undefined) upd.peso_kg_total = num(patch.peso_kg_total);
+  if (patch.kg_bolsas !== undefined) upd.kg_bolsas = num(patch.kg_bolsas);
+  if (patch.muestras_lab !== undefined) upd.muestras_lab = num(patch.muestras_lab);
+  if (patch.centros !== undefined) upd.centros = patch.centros;
+  if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
+  // Recalcular snapshot si cambió algo que afecte los totales.
+  if (['peso_kg_total', 'kg_bolsas', 'muestras_lab', 'centros'].some((k) => k in upd)) {
+    const { data: cur } = await supabase.from(TABLE_CONCIL).select('peso_kg_total, kg_bolsas, muestras_lab, centros').eq('id', id).single();
+    const base = (cur ?? {}) as { peso_kg_total: number; kg_bolsas: number; muestras_lab: number; centros: ConciliacionCentro[] };
+    const t = calcConciliacion({
+      peso_kg_total: 'peso_kg_total' in upd ? (upd.peso_kg_total as number) : base.peso_kg_total,
+      kg_bolsas: 'kg_bolsas' in upd ? (upd.kg_bolsas as number) : base.kg_bolsas,
+      muestras_lab: 'muestras_lab' in upd ? (upd.muestras_lab as number) : base.muestras_lab,
+      centros: 'centros' in upd ? (upd.centros as ConciliacionCentro[]) : (Array.isArray(base.centros) ? base.centros : []),
+    });
+    upd.reportado = t.reportado; upd.faltante = t.faltante; upd.no_llego = t.noLlego; upd.porcentaje = t.porcentaje;
+  }
+  const { error } = await supabase.from(TABLE_CONCIL).update(upd).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarConciliacion(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_CONCIL).delete().eq('id', id);
+  if (error) throw error;
+}
+
 /* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */
 
 // Las leyes de mineral se redondean a 3 decimales (se muestran con mín. 2, máx. 3).
