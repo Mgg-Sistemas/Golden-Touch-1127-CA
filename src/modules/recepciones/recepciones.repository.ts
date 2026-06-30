@@ -146,22 +146,127 @@ export async function eliminarRecepcion(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */
+/* ───────────── Análisis químicos (tabla de laboratorio, independiente) ─────────────
+   Las filas de análisis (N° Análisis + leyes por elemento) son INDEPENDIENTES de las
+   recepciones de KG (tabla de arriba): se agregan/eliminan con el botón «Añadir valores». */
 
-/** Elementos del análisis, en el orden de la hoja. `abc:false` = valor único (UCV). */
-export const ELEMENTOS_LAB: { key: string; label: string; sub?: string; abc: boolean; color: string }[] = [
-  { key: 'sn',  label: 'Sn (Estaño)',     sub: 'Laboratorio Mineral Group', abc: true,  color: '#f6c344' },
-  { key: 'ucv', label: 'UCV',             abc: false, color: '#f0b429' },
-  { key: 'fe',  label: 'Fe (Hierro)',     abc: true,  color: '#f6d2a2' },
-  { key: 'ti',  label: 'Ti (Titanio)',    abc: true,  color: '#aed4f0' },
-  { key: 'ta',  label: 'Ta (Tántalo)',    abc: true,  color: '#cdc1e8' },
-  { key: 'nb',  label: 'Nb (Niobio)',     abc: true,  color: '#aeddb0' },
-  { key: 'v',   label: 'V (Vanadio)',     abc: true,  color: '#d4a0ba' },
-  { key: 'zr',  label: 'Zr (Circonio)',   abc: true,  color: '#7fa9b0' },
-  { key: 'bal', label: 'Bal (estéril)',   abc: true,  color: '#f0a868' },
-  { key: 'mn',  label: 'Mn (Manganeso)',  abc: true,  color: '#f0c419' },
-  { key: 'hf',  label: 'Hf (hafnio)',     abc: true,  color: '#7fb6e0' },
-];
+const TABLE_ANA = 'recepciones_analisis';
+
+export interface AnalisisRow {
+  id: string;
+  n_analisis: number | null;
+  analisis: AnalisisLab;
+  observacion?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listAnalisis(): Promise<AnalisisRow[]> {
+  const { data, error } = await supabase
+    .from(TABLE_ANA)
+    .select('*')
+    .order('n_analisis', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as AnalisisRow[];
+}
+
+/** Crea una fila de análisis. El N° Análisis se autoasigna (máx + 1). */
+export async function crearAnalisis(input: { actor: string; actorName?: string | null }): Promise<AnalisisRow> {
+  const { data: rows } = await supabase.from(TABLE_ANA).select('n_analisis');
+  let max = 0;
+  for (const r of (rows ?? []) as Array<{ n_analisis: number | null }>) max = Math.max(max, num(r.n_analisis));
+  const { data, error } = await supabase.from(TABLE_ANA).insert({
+    n_analisis: max + 1, analisis: {}, created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return data as AnalisisRow;
+}
+
+export async function actualizarAnalisisRow(id: string, patch: { n_analisis?: number | null; analisis?: AnalisisLab; observacion?: string | null }): Promise<void> {
+  const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.n_analisis !== undefined) upd.n_analisis = patch.n_analisis == null ? null : Math.max(1, Math.round(num(patch.n_analisis)));
+  if (patch.analisis != null) upd.analisis = patch.analisis;
+  if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
+  const { error } = await supabase.from(TABLE_ANA).update(upd).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarAnalisis(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_ANA).delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ───────────── Minerales (columnas configurables del laboratorio) ───────────── */
+
+const TABLE_MIN = 'recepciones_minerales';
+
+export interface MineralLab {
+  id: string;
+  clave: string;          // clave estable usada en el JSON de análisis
+  nombre: string;         // ej. "Sn (Estaño)"
+  subtitulo?: string | null;
+  columnas: 'abc' | 'prom'; // 'abc' = A/B/C/Prom · 'prom' = solo Prom (como UCV)
+  color: string;
+  orden: number;
+  activo: boolean;
+}
+
+/** Lista los minerales (columnas del laboratorio). `soloActivos` para la tabla de análisis. */
+export async function listMinerales(soloActivos = false): Promise<MineralLab[]> {
+  let q = supabase.from(TABLE_MIN).select('*').order('orden', { ascending: true }).order('nombre', { ascending: true });
+  if (soloActivos) q = q.eq('activo', true);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as MineralLab[];
+}
+
+/** Genera una clave estable y única a partir del nombre (para el JSON de análisis). */
+async function claveUnica(nombre: string): Promise<string> {
+  const base = nombre.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'min';
+  const { data } = await supabase.from(TABLE_MIN).select('clave');
+  const usadas = new Set((data ?? []).map((r) => (r as { clave: string }).clave));
+  if (!usadas.has(base)) return base;
+  for (let i = 2; i < 999; i++) { const c = `${base}_${i}`; if (!usadas.has(c)) return c; }
+  return `${base}_${Date.now()}`;
+}
+
+export async function addMineral(input: { nombre: string; subtitulo?: string | null; columnas: 'abc' | 'prom'; color?: string | null }): Promise<MineralLab> {
+  const nombre = input.nombre.trim();
+  if (!nombre) throw new Error('Indicá el nombre del mineral.');
+  const clave = await claveUnica(nombre);
+  const { data: max } = await supabase.from(TABLE_MIN).select('orden').order('orden', { ascending: false }).limit(1).maybeSingle();
+  const orden = (num((max as { orden?: number } | null)?.orden) || 0) + 1;
+  const { data, error } = await supabase.from(TABLE_MIN).insert({
+    clave, nombre, subtitulo: input.subtitulo?.trim() || null,
+    columnas: input.columnas === 'prom' ? 'prom' : 'abc',
+    color: input.color?.trim() || '#888888', orden, activo: true,
+  }).select('*').single();
+  if (error) throw error;
+  return data as MineralLab;
+}
+
+export async function updateMineral(id: string, patch: { nombre?: string; subtitulo?: string | null; columnas?: 'abc' | 'prom'; color?: string; orden?: number; activo?: boolean }): Promise<void> {
+  const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.nombre != null) { const n = patch.nombre.trim(); if (!n) throw new Error('El nombre no puede estar vacío.'); upd.nombre = n; }
+  if (patch.subtitulo !== undefined) upd.subtitulo = patch.subtitulo?.trim() || null;
+  if (patch.columnas != null) upd.columnas = patch.columnas === 'prom' ? 'prom' : 'abc';
+  if (patch.color != null) upd.color = patch.color.trim() || '#888888';
+  if (patch.orden != null) upd.orden = Math.round(num(patch.orden));
+  if (patch.activo != null) upd.activo = patch.activo;
+  const { error } = await supabase.from(TABLE_MIN).update(upd).eq('id', id);
+  if (error) throw error;
+}
+
+export async function setMineralActivo(id: string, activo: boolean): Promise<void> {
+  const { error } = await supabase.from(TABLE_MIN).update({ activo, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+/* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */
 
 // Las leyes de mineral se redondean a 3 decimales (se muestran con mín. 2, máx. 3).
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -182,9 +287,9 @@ export function promElemento(analisis: AnalisisLab | null | undefined, key: stri
   return round3(suma / 3);
 }
 
-/** Promedio del lote de un elemento: promedio de los Prom de todas las recepciones que lo tienen. */
-export function promedioLote(recepciones: RecepcionLab[], key: string, abc: boolean): number | null {
-  const proms = recepciones
+/** Promedio del lote de un elemento: promedio de los Prom de todas las filas que lo tienen. */
+export function promedioLote(filas: Array<{ analisis: AnalisisLab }>, key: string, abc: boolean): number | null {
+  const proms = filas
     .map((r) => promElemento(r.analisis, key, abc))
     .filter((x): x is number => x != null);
   if (!proms.length) return null;
