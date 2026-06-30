@@ -99,8 +99,7 @@ export function RecepcionesPage() {
     finally { setABorrar(null); }
   }
 
-  // Total de columnas de la sección de laboratorio (para el ancho de las cabeceras).
-  const colsCab = 6; // Ítem, Fecha/Hora, Peso KG, Procedencia, N° Análisis, (acciones)
+  const pesoTotal = filas.reduce((a, f) => a + (Number(f.peso_kg) || 0), 0);
 
   return (
     <div>
@@ -124,147 +123,160 @@ export function RecepcionesPage() {
       ) : !filas.length ? (
         <EmptyState message="Aún no hay recepciones. Se crean al cerrar la caja del Centro de Acopio, o con «Nueva recepción»." icon="📋" />
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div className="table-wrap" style={{ overflowX: 'auto' }}>
-            <table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
-              {/* Título de la sección de laboratorio, centrado, encima de los elementos. */}
-              <thead>
-                <tr>
-                  <th colSpan={colsCab} style={{ background: 'var(--surface-2)' }}></th>
-                  <th colSpan={ELEMENTOS_LAB.reduce((a, e) => a + (e.abc ? 4 : 1), 0)}
-                    style={{ textAlign: 'center', background: '#f7d9b0', color: '#1a1a1a', fontWeight: 800, letterSpacing: '.04em' }}>
-                    RECEPCIÓN GLOBAL LABORATORIO
-                  </th>
-                </tr>
-                <tr>
-                  <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Ítem</th>
-                  <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Fecha y hora</th>
-                  <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Peso KG</th>
-                  <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Procedencia</th>
-                  <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>N° Análisis</th>
-                  {ELEMENTOS_LAB.map((e) => (
-                    <th key={e.key} colSpan={e.abc ? 4 : 1}
-                      style={{ textAlign: 'center', background: e.color, color: '#1a1a1a', fontWeight: 700 }}>
-                      {e.label}{e.sub ? <div style={{ fontSize: '.66rem', fontWeight: 600 }}>{e.sub}</div> : null}
-                    </th>
+        <>
+          {/* ───────── Tabla 1: Recepciones ───────── */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '1.25rem' }}>
+            <div className="card-title" style={{ padding: '.6rem .85rem' }}>
+              <span>Recepciones</span>
+              <span className="muted mono">{num(filas.length)} recepción(es)</span>
+            </div>
+            <div className="table-wrap" style={{ overflowX: 'auto' }}>
+              <table className="table" style={{ fontSize: '.85rem' }}>
+                <thead>
+                  <tr>
+                    <th>Ítem</th>
+                    <th>Fecha y hora</th>
+                    <th className="num">Peso KG</th>
+                    <th>Procedencia</th>
+                    {canWrite && <th></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((f) => (
+                    <tr key={f.id}>
+                      <td className="num">
+                        <input className="input mono" type="number" min={1} defaultValue={f.item} disabled={!canWrite}
+                          onBlur={(e) => { const v = Math.max(1, Math.round(Number(e.target.value) || 1)); if (v !== f.item) void guardarCampo(f.id, { item: v }); }}
+                          style={{ width: 64, textAlign: 'right' }} />
+                      </td>
+                      <td>
+                        <input className="input" type="datetime-local" defaultValue={isoToLocal(f.fecha_hora)} disabled={!canWrite}
+                          onBlur={(e) => { if (e.target.value) void guardarCampo(f.id, { fecha_hora: localToIso(e.target.value) }); }}
+                          style={{ width: 200 }} />
+                      </td>
+                      <td className="num">
+                        <input className="input mono" type="number" min={0} step="any" defaultValue={f.peso_kg} disabled={!canWrite}
+                          onBlur={(e) => { const v = Math.max(0, Number(e.target.value) || 0); if (v !== Number(f.peso_kg)) void guardarCampo(f.id, { peso_kg: v }); }}
+                          style={{ width: 120, textAlign: 'right' }} />
+                      </td>
+                      <td>
+                        <input className="input" defaultValue={f.procedencia} disabled={!canWrite}
+                          onBlur={(e) => { const v = e.target.value.trim() || 'PERAMANAL'; if (v !== f.procedencia) void guardarCampo(f.id, { procedencia: v }); }}
+                          style={{ width: 200 }} />
+                      </td>
+                      {canWrite && (
+                        <td><button className="btn btn-sm btn-ghost" title="Eliminar recepción" onClick={() => setABorrar(f)}>🗑</button></td>
+                      )}
+                    </tr>
                   ))}
-                  {canWrite && <th rowSpan={2} style={{ verticalAlign: 'bottom' }}></th>}
-                </tr>
-                <tr>
-                  {ELEMENTOS_LAB.map((e) => (
-                    e.abc
-                      ? ['A', 'B', 'C', 'Prom.'].map((s) => (
-                          <th key={`${e.key}-${s}`} className="num" style={{ background: e.color, color: '#1a1a1a' }}>{s}</th>
-                        ))
-                      : <th key={`${e.key}-prom`} className="num" style={{ background: e.color, color: '#1a1a1a' }}>Prom.</th>
-                  ))}
-                </tr>
-              </thead>
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 700 }}>
+                    <td colSpan={2} style={{ textAlign: 'right' }}>Total</td>
+                    <td className="num mono">{fmt(pesoTotal)}</td>
+                    <td colSpan={canWrite ? 2 : 1}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
 
-              <tbody>
-                {filas.map((f) => (
-                  <tr key={f.id}>
-                    {/* Ítem */}
-                    <td className="num">
-                      <input className="input mono" type="number" min={1} defaultValue={f.item} disabled={!canWrite}
-                        onBlur={(e) => { const v = Math.max(1, Math.round(Number(e.target.value) || 1)); if (v !== f.item) void guardarCampo(f.id, { item: v }); }}
-                        style={{ width: 56, textAlign: 'right' }} />
-                    </td>
-                    {/* Fecha y hora */}
-                    <td>
-                      <input className="input" type="datetime-local" defaultValue={isoToLocal(f.fecha_hora)} disabled={!canWrite}
-                        onBlur={(e) => { if (e.target.value) void guardarCampo(f.id, { fecha_hora: localToIso(e.target.value) }); }}
-                        style={{ width: 180 }} />
-                    </td>
-                    {/* Peso KG */}
-                    <td className="num">
-                      <input className="input mono" type="number" min={0} step="any" defaultValue={f.peso_kg} disabled={!canWrite}
-                        onBlur={(e) => { const v = Math.max(0, Number(e.target.value) || 0); if (v !== Number(f.peso_kg)) void guardarCampo(f.id, { peso_kg: v }); }}
-                        style={{ width: 90, textAlign: 'right' }} />
-                    </td>
-                    {/* Procedencia */}
-                    <td>
-                      <input className="input" defaultValue={f.procedencia} disabled={!canWrite}
-                        onBlur={(e) => { const v = e.target.value.trim() || 'PERAMANAL'; if (v !== f.procedencia) void guardarCampo(f.id, { procedencia: v }); }}
-                        style={{ width: 140 }} />
-                    </td>
-                    {/* N° Análisis */}
-                    <td className="num">
-                      <input className="input mono" type="number" min={1} defaultValue={f.n_analisis ?? ''} disabled={!canWrite}
-                        onBlur={(e) => { const raw = e.target.value; const v = raw === '' ? null : Math.max(1, Math.round(Number(raw) || 1)); if (v !== f.n_analisis) void guardarCampo(f.id, { n_analisis: v }); }}
-                        style={{ width: 64, textAlign: 'right' }} />
-                    </td>
-
-                    {/* Elementos: A/B/C + Prom (o Prom único para UCV) */}
-                    {ELEMENTOS_LAB.map((e) => {
-                      const prom = promElemento(f.analisis, e.key, e.abc);
-                      if (!e.abc) {
-                        const val = (typeof f.analisis?.[e.key] === 'number') ? f.analisis[e.key] as number : '';
+          {/* ───────── Tabla 2: RECEPCIÓN GLOBAL LABORATORIO ───────── */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="card-title" style={{ justifyContent: 'center', padding: '.6rem .85rem' }}>
+              <span style={{ letterSpacing: '.04em' }}>RECEPCIÓN GLOBAL LABORATORIO</span>
+            </div>
+            <div className="table-wrap" style={{ overflowX: 'auto' }}>
+              <table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
+                <thead>
+                  <tr>
+                    <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>N° Análisis</th>
+                    {ELEMENTOS_LAB.map((e) => (
+                      <th key={e.key} colSpan={e.abc ? 4 : 1}
+                        style={{ textAlign: 'center', fontWeight: 700, borderLeft: '2px solid var(--border-strong, #3a4150)' }}>
+                        {e.label}{e.sub ? <div className="muted" style={{ fontSize: '.66rem', fontWeight: 600 }}>{e.sub}</div> : null}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr>
+                    {ELEMENTOS_LAB.map((e) => (
+                      e.abc
+                        ? ['A', 'B', 'C', 'Prom.'].map((s, i) => (
+                            <th key={`${e.key}-${s}`} className="num" style={i === 0 ? { borderLeft: '2px solid var(--border-strong, #3a4150)' } : undefined}>{s}</th>
+                          ))
+                        : <th key={`${e.key}-prom`} className="num" style={{ borderLeft: '2px solid var(--border-strong, #3a4150)' }}>Prom.</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((f) => (
+                    <tr key={f.id}>
+                      {/* N° Análisis (correlativo del laboratorio) */}
+                      <td className="num">
+                        <input className="input mono" type="number" min={1} defaultValue={f.n_analisis ?? ''} disabled={!canWrite}
+                          onBlur={(e) => { const raw = e.target.value; const v = raw === '' ? null : Math.max(1, Math.round(Number(raw) || 1)); if (v !== f.n_analisis) void guardarCampo(f.id, { n_analisis: v }); }}
+                          style={{ width: 72, textAlign: 'right' }} />
+                      </td>
+                      {ELEMENTOS_LAB.map((e) => {
+                        const prom = promElemento(f.analisis, e.key, e.abc);
+                        if (!e.abc) {
+                          const val = (typeof f.analisis?.[e.key] === 'number') ? f.analisis[e.key] as number : '';
+                          return (
+                            <td key={`${f.id}-${e.key}`} className="num" style={{ borderLeft: '2px solid var(--border-strong, #3a4150)' }}>
+                              <input className="input mono" type="number" step="any" value={val ?? ''} disabled={!canWrite}
+                                onChange={(ev) => setCeldaUcv(f.id, ev.target.value)} onBlur={() => void guardarAnalisis(f.id)}
+                                style={{ width: 64, textAlign: 'right' }} />
+                            </td>
+                          );
+                        }
+                        const el = (f.analisis?.[e.key] && typeof f.analisis[e.key] === 'object') ? f.analisis[e.key] as AnalisisElemento : {};
                         return (
-                          <td key={`${f.id}-${e.key}`} className="num">
-                            <input className="input mono" type="number" step="any" value={val ?? ''} disabled={!canWrite}
-                              onChange={(ev) => setCeldaUcv(f.id, ev.target.value)} onBlur={() => void guardarAnalisis(f.id)}
-                              style={{ width: 64, textAlign: 'right' }} />
+                          <td key={`${f.id}-${e.key}`} className="num" style={{ padding: 0, borderLeft: '2px solid var(--border-strong, #3a4150)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              {(['a', 'b', 'c'] as const).map((s) => (
+                                <input key={s} className="input mono" type="number" step="any" value={(el[s] ?? '') as number | ''} disabled={!canWrite}
+                                  onChange={(ev) => setCeldaAbc(f.id, e.key, s, ev.target.value)} onBlur={() => void guardarAnalisis(f.id)}
+                                  style={{ width: 52, textAlign: 'right', borderRadius: 0 }} />
+                              ))}
+                              <span className="mono" style={{ width: 56, textAlign: 'right', padding: '0 .3rem', fontWeight: 700, color: 'var(--primary-3)' }}>
+                                {prom == null ? '—' : fmt(prom)}
+                              </span>
+                            </div>
                           </td>
                         );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 700 }}>
+                    <td style={{ textAlign: 'right' }}>Promedio del lote</td>
+                    {ELEMENTOS_LAB.map((e) => {
+                      const pl = promedioLote(filas, e.key, e.abc);
+                      if (!e.abc) {
+                        return <td key={`pl-${e.key}`} className="num mono" style={{ borderLeft: '2px solid var(--border-strong, #3a4150)', fontWeight: 800 }}>{pl == null ? '—' : fmt(pl)}</td>;
                       }
-                      const el = (f.analisis?.[e.key] && typeof f.analisis[e.key] === 'object') ? f.analisis[e.key] as AnalisisElemento : {};
                       return (
-                        <td key={`${f.id}-${e.key}`} className="num" style={{ padding: 0 }}>
+                        <td key={`pl-${e.key}`} className="num" style={{ padding: 0, borderLeft: '2px solid var(--border-strong, #3a4150)' }}>
                           <div style={{ display: 'flex', alignItems: 'center' }}>
-                            {(['a', 'b', 'c'] as const).map((s) => (
-                              <input key={s} className="input mono" type="number" step="any" value={(el[s] ?? '') as number | ''} disabled={!canWrite}
-                                onChange={(ev) => setCeldaAbc(f.id, e.key, s, ev.target.value)} onBlur={() => void guardarAnalisis(f.id)}
-                                style={{ width: 52, textAlign: 'right', borderRadius: 0 }} />
-                            ))}
-                            <span className="mono" style={{ width: 56, textAlign: 'right', padding: '0 .3rem', fontWeight: 700, color: 'var(--primary-3)' }}>
-                              {prom == null ? '—' : fmt(prom)}
+                            <span style={{ width: 52 }} /><span style={{ width: 52 }} /><span style={{ width: 52 }} />
+                            <span className="mono" style={{ width: 56, textAlign: 'right', padding: '0 .3rem', fontWeight: 800, color: 'var(--primary-3)' }}>
+                              {pl == null ? '—' : fmt(pl)}
                             </span>
                           </div>
                         </td>
                       );
                     })}
-
-                    {canWrite && (
-                      <td>
-                        <button className="btn btn-sm btn-ghost" title="Eliminar recepción" onClick={() => setABorrar(f)}>🗑</button>
-                      </td>
-                    )}
                   </tr>
-                ))}
-              </tbody>
-
-              {/* Promedio del lote: promedio de los Prom de cada elemento en todas las recepciones. */}
-              <tfoot>
-                <tr style={{ fontWeight: 700 }}>
-                  <td colSpan={colsCab - 1} style={{ textAlign: 'right' }}>Promedio del lote</td>
-                  <td className="num"></td>
-                  {ELEMENTOS_LAB.map((e) => {
-                    const pl = promedioLote(filas, e.key, e.abc);
-                    if (!e.abc) {
-                      return <td key={`pl-${e.key}`} className="num mono" style={{ background: e.color, color: '#1a1a1a' }}>{pl == null ? '—' : fmt(pl)}</td>;
-                    }
-                    return (
-                      <td key={`pl-${e.key}`} className="num" style={{ padding: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <span style={{ width: 52 }} /><span style={{ width: 52 }} /><span style={{ width: 52 }} />
-                          <span className="mono" style={{ width: 56, textAlign: 'right', padding: '0 .3rem', background: e.color, color: '#1a1a1a', fontWeight: 800 }}>
-                            {pl == null ? '—' : fmt(pl)}
-                          </span>
-                        </div>
-                      </td>
-                    );
-                  })}
-                  {canWrite && <td></td>}
-                </tr>
-              </tfoot>
-            </table>
+                </tfoot>
+              </table>
+            </div>
+            <div className="muted" style={{ fontSize: '.74rem', padding: '.5rem .75rem' }}>
+              Prom. = (A + B + C) / 3 · Promedio del lote = promedio de los Prom. de todas las recepciones con valor.
+              Los cambios se guardan al salir de cada celda y se sincronizan en tiempo real.
+            </div>
           </div>
-          <div className="muted" style={{ fontSize: '.74rem', padding: '.5rem .75rem' }}>
-            Prom. = (A + B + C) / 3 · Promedio del lote = promedio de los Prom. de todas las recepciones con valor · {num(filas.length)} recepción(es).
-            Los cambios se guardan al salir de cada celda y se sincronizan en tiempo real.
-          </div>
-        </div>
+        </>
       )}
 
       {aBorrar && (
