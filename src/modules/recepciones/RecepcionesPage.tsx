@@ -772,9 +772,8 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
     setSaving(true);
     try {
       const p = await guardarPesada({ actor, actorName });
-      toast('Pesos guardados en el histórico', 'success');
+      toast(`PESOS GUARDADOS DÍA ${fmtDia(p.fecha)}`, 'success');
       await cargar(null); setVista(null);
-      void p;
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron guardar los pesos', 'error'); }
     finally { setSaving(false); }
   }
@@ -853,6 +852,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   }
 
   const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
+  const fmtDia = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
 
   return (
     <Modal title="⚖ Añadir pesos — Bigbags" size="xl" onClose={onClose}
@@ -878,7 +878,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
       {/* Banner de la vista activa */}
       <div className="card" style={{ padding: '.5rem .75rem', marginBottom: '.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap', borderLeft: `3px solid ${vista ? 'var(--primary)' : 'var(--border, #2a2f3a)'}` }}>
         <span style={{ fontWeight: 700, fontSize: '.85rem' }}>
-          {vista ? `📦 Editando pesada del ${pesadaActiva ? fmtFecha(pesadaActiva.fecha) : '—'}` : '📝 Pesada actual (sin guardar)'}
+          {vista ? `📦 PESOS GUARDADOS DÍA ${pesadaActiva ? fmtDia(pesadaActiva.fecha) : '—'} · ${pesadaActiva ? fmtFecha(pesadaActiva.fecha) : ''}` : '📝 Pesada actual (sin guardar)'}
         </span>
         {vista && <button className="btn btn-sm btn-ghost" onClick={() => setVista(null)}>← Volver a pesada actual</button>}
       </div>
@@ -913,7 +913,13 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
               <tbody>
                 {pesadas.map((p) => (
                   <tr key={p.id} style={{ background: vista === p.id ? 'var(--primary-soft, rgba(255,138,0,.10))' : undefined }}>
-                    <td>{fmtFecha(p.fecha)}</td>
+                    <td>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setVista(p.id)}
+                        title="Ver y editar los detalles de este día"
+                        style={{ fontWeight: 700, color: 'var(--primary-3, #ff8a00)', padding: '.1rem .2rem' }}>
+                        PESOS GUARDADOS DÍA {fmtDia(p.fecha)}
+                      </button>
+                    </td>
                     <td className="num mono">{p.n_bigbags}</td>
                     <td className="num mono">{fmt(p.neto_humedo)}</td>
                     <td className="num mono">{fmt(p.neto_seco)}</td>
