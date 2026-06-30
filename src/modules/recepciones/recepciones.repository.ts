@@ -875,13 +875,15 @@ async function productoCasiterita(): Promise<{ id: string } | null> {
 }
 
 /**
- * Cierra la recepción N°: ingresa al inventario (sin tasa) los centros RESGUARDO
- * pendientes y guarda la foto de todos los datos. Idempotente por centro (marca aplicado).
+ * Cierra la recepción N°: guarda la foto de todos los datos e ingresa al inventario:
+ *  - los centros RESGUARDO pendientes (SIN tasa), y
+ *  - el NETO SECO de las pesadas disponibles (CON la tasa final de Totales) al almacén
+ *    (y subalmacén) indicado. Idempotente: marca aplicado/consumida para no duplicar.
  */
-export async function cerrarRecepcion(input: { numero: number; actor: string; actorName?: string | null; observacion?: string | null }): Promise<CierreRecepcion> {
+export async function cerrarRecepcion(input: { numero: number; actor: string; actorName?: string | null; observacion?: string | null; almacen?: string | null; subalmacen?: string | null }): Promise<CierreRecepcion> {
   const numero = Math.max(1, Math.round(num(input.numero)));
-  const [recs, anas, hp, hf, mins, todasConcil, todosTot] = await Promise.all([
-    listRecepciones(), listAnalisis(), listHumedadProv(), listHumedadFinal(), listMinerales(false), listConciliaciones(), listTotales(),
+  const [recs, anas, hp, hf, mins, todasConcil, todosTot, pesadas] = await Promise.all([
+    listRecepciones(), listAnalisis(), listHumedadProv(), listHumedadFinal(), listMinerales(false), listConciliaciones(), listTotales(), listPesadas(),
   ]);
   const conciliaciones = todasConcil.filter((c) => c.numero === numero);
   const totales = todosTot.filter((t) => t.numero === numero);
@@ -909,10 +911,33 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
     if (cambiaron) await actualizarConciliacion(c.id, { centros });
   }
 
+  // ── Ingreso al inventario del NETO SECO (casiterita) con la TASA FINAL de Totales ──
+  // Cantidad = suma del Neto seco de las pesadas DISPONIBLES; tasa = tasa_final de los
+  // Totales N°. Se asigna al almacén (y subalmacén) indicado. Idempotente: las pesadas
+  // usadas se marcan «consumida» para no volver a ingresarlas en otro cierre.
+  const almacenBase = (input.almacen ?? '').trim();
+  const subalmacen = (input.subalmacen ?? '').trim();
+  const almacenFinal = subalmacen ? `${almacenBase} / ${subalmacen}` : almacenBase;
+  const tasaFinal = Number(totales[0]?.tasa_final) || 0;
+  const pesadasDisp = pesadas.filter((p) => !p.consumida && (Number(p.neto_seco) || 0) > 0);
+  const netoSecoTotal = round2(pesadasDisp.reduce((a, p) => a + (Number(p.neto_seco) || 0), 0));
+  let ingresoCasiterita: { almacen: string; kg: number; tasa: number } | null = null;
+  if (almacenBase && netoSecoTotal > 0) {
+    if (!cas) cas = await productoCasiterita();
+    if (!cas) throw new Error('No se encontró el producto Casiterita en el inventario para el ingreso del neto seco.');
+    await registrarMovimiento({
+      producto_id: cas.id, tipo: 'entrada', delta: netoSecoTotal, almacen: almacenFinal,
+      precio_unitario: tasaFinal > 0 ? tasaFinal : null, actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'recepcion_cierre', ref_id: String(numero),
+    });
+    for (const p of pesadasDisp) await actualizarPesada(p.id, { consumida: true });
+    ingresoCasiterita = { almacen: almacenFinal, kg: netoSecoTotal, tasa: tasaFinal };
+  }
+
   const snapshot = {
     generado_at: new Date().toISOString(),
     recepciones: recs, analisis: anas, humedad_prov: hp, humedad_final: hf, minerales: mins,
-    conciliaciones, totales, ingresos_resguardo: ingresos,
+    conciliaciones, totales, ingresos_resguardo: ingresos, ingreso_casiterita: ingresoCasiterita,
   };
   const { data, error } = await supabase.from(TABLE_CIERRES).insert({
     numero, snapshot, observacion: input.observacion?.trim() || null,

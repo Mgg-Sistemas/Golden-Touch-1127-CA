@@ -6,6 +6,7 @@ import { num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { getNombresAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
+import { tasaActualAcopio } from '@/modules/acopio/caja.repository';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
@@ -78,6 +79,9 @@ export function RecepcionesPage() {
   const [concilOpen, setConcilOpen] = useState(false);
   const [totalesOpen, setTotalesOpen] = useState(false);
   const [cierresOpen, setCierresOpen] = useState(false);
+  // Tasa actual del centro de acopio (fallback para Totales cuando la recepción no la trae).
+  const [tasaAcopioLive, setTasaAcopioLive] = useState(0);
+  useEffect(() => { tasaActualAcopio().then(setTasaAcopioLive).catch(() => setTasaAcopioLive(0)); }, []);
 
   // Espejo del análisis para leer el estado vigente desde onBlur sin closures viejos.
   const analisisRef = useRef<AnalisisRow[]>([]);
@@ -192,8 +196,10 @@ export function RecepcionesPage() {
   }
 
   const pesoTotal = filas.reduce((a, f) => a + (Number(f.peso_kg) || 0), 0);
-  // Tasa del último cierre de caja (la recepción más reciente con tasa) para los Totales.
-  const cajaTasa = [...filas].reverse().find((f) => f.tasa != null)?.tasa ?? 0;
+  // Tasa del centro de acopio para los Totales: la guardada en el cierre (recepción) o,
+  // si no hay (recepciones previas a la columna), la tasa ACTUAL del acopio en vivo.
+  const tasaRecep = [...filas].reverse().find((f) => f.tasa != null)?.tasa ?? null;
+  const cajaTasa = tasaRecep ?? tasaAcopioLive;
 
   // Humedad provisional: promedio del lote (%) y merma total (suma).
   const provPctLote = promedioHumedadProv(humProv);
@@ -1543,6 +1549,9 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
   const [mode, setMode] = useState<'list' | 'cerrar' | 'detalle'>('list');
   const [numero, setNumero] = useState(1);
   const [obs, setObs] = useState('');
+  const [almacen, setAlmacen] = useState('');
+  const [subalmacen, setSubalmacen] = useState('');
+  const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [cerrando, setCerrando] = useState(false);
   const [ver, setVer] = useState<CierreRecepcion | null>(null);
   const [aBorrar, setABorrar] = useState<CierreRecepcion | null>(null);
@@ -1552,15 +1561,26 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los cierres', 'error'); }
   }, []);
   useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
+  useEffect(() => { getNombresAlmacenes().then(setAlmacenes).catch(() => setAlmacenes([])); }, []);
   useRealtime(['recepciones_cierres'], () => { void cargar(); });
+
+  /** Almacén destino: si es nuevo, lo crea en el inventario REAL. */
+  async function setAlmacenDestino(v: string) {
+    const value = v.toUpperCase(); setAlmacen(value);
+    const t = value.trim();
+    if (t && !almacenes.some((a) => a.toLowerCase() === t.toLowerCase())) {
+      try { const a = await crearAlmacen({ nombre: t }, actor); setAlmacenes((prev) => prev.includes(a.nombre) ? prev : [...prev, a.nombre]); setAlmacen(a.nombre); }
+      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el almacén', 'error'); }
+    }
+  }
 
   const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
 
-  function abrirCerrar() { setNumero(lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1); setObs(''); setMode('cerrar'); }
+  function abrirCerrar() { setNumero(lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1); setObs(''); setAlmacen(''); setSubalmacen(''); setMode('cerrar'); }
   async function confirmarCierre() {
     setCerrando(true);
     try {
-      const c = await cerrarRecepcion({ numero, actor, actorName, observacion: obs });
+      const c = await cerrarRecepcion({ numero, actor, actorName, observacion: obs, almacen: almacen.trim() || null, subalmacen: subalmacen.trim() || null });
       await cargar(); setMode('list');
       toast(`Recepción N° ${c.numero} cerrada`, 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar la recepción', 'error'); }
@@ -1623,12 +1643,24 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
             <label>N° de recepción</label>
             <input className="input mono" type="number" min={1} value={numero} onChange={(e) => setNumero(Math.max(1, Math.round(Number(e.target.value) || 1)))} />
           </div>
+          <div className="form-grid" style={{ marginTop: '.75rem' }}>
+            <div className="form-row">
+              <label>Almacén destino <span className="muted">(neto seco)</span></label>
+              <SearchCreateSelect options={almacenes} value={almacen} disabled={!canWrite}
+                onChange={(v) => void setAlmacenDestino(v)}
+                placeholder="🔍 Almacén… (escribí para crear)" emptyText="Escribí para crear un almacén" />
+            </div>
+            <div className="form-row">
+              <label>Subalmacén <span className="muted">(opcional)</span></label>
+              <input className="input" value={subalmacen} onChange={(e) => setSubalmacen(e.target.value.toUpperCase())} placeholder="Sub-ubicación…" />
+            </div>
+          </div>
           <div className="form-row" style={{ marginTop: '.75rem' }}>
             <label>Nota <span className="muted">(opcional)</span></label>
             <textarea className="input" rows={2} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observaciones del cierre…" />
           </div>
           <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--warning)' }}>
-            <small>Al cerrar se guarda una <strong>foto de todos los datos</strong> (recepciones, análisis, humedad, conciliación N° {numero} y totales N° {numero}) y los centros marcados <strong>RESGUARDO «entra al inventario»</strong> ingresan al inventario <strong>sin tasa</strong> (producto Casiterita).</small>
+            <small>Al cerrar se guarda una <strong>foto de todos los datos</strong> (recepciones, análisis, humedad, conciliación N° {numero} y totales N° {numero}). El <strong>NETO SECO</strong> de las pesadas disponibles ingresa al inventario (producto <strong>Casiterita</strong>) al <strong>almacén/subalmacén</strong> indicado con la <strong>tasa final de Totales</strong>. Los centros <strong>RESGUARDO «entra al inventario»</strong> ingresan <strong>sin tasa</strong>.</small>
           </div>
         </div>
       )}
@@ -1668,6 +1700,14 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
                 </table></div>
               </div>
             );
+          })()}
+
+          {(() => {
+            const ing = (snap as Record<string, unknown>).ingreso_casiterita as { almacen: string; kg: number; tasa: number } | null | undefined;
+            return ing ? (
+              <div className="detail-row"><div className="k">Neto seco → inventario</div>
+                <div className="v mono">{fmt(ing.kg)} kg · {ing.almacen} · tasa {fmt4(ing.tasa)}</div></div>
+            ) : null;
           })()}
 
           {arr('ingresos_resguardo').length > 0 && (
