@@ -259,10 +259,23 @@ const SECCIONES: Seccion[] = [
       'Vínculo con el Inventario (Casiterita y Martillos): ambos se reflejan como productos del inventario (almacén PRODUCCION). La Casiterita aumenta su stock al cerrar un contrato desde Producción, valorizada con la tasa del material de acopio vigente (queda en la trazabilidad). Los Martillos sincronizan su cantidad (restantes) y su costo (precio por martillo) automáticamente desde el libro de Consumo de Martillos, registrando cada cambio en la trazabilidad como un movimiento de Ajuste.',
       'Tasa actual del material: la tarjeta muestra una flecha con el texto SUBIÓ (verde) o BAJÓ (rojo) según haya aumentado o disminuido la tasa respecto al valor anterior.',
       'Dinero por entrar (desde otro sistema): cuando llega dinero desde el sistema externo Mineral Group, el banner DINERO POR ENTRAR muestra el monto; al pulsar ACEPTAR ENTRADA se registra como un movimiento del Centro de Acopio con la descripción fija "CAJA MULTIMONEDAS MGG / CAJA GT PERAMANAL" y el monto en la columna $Usd entregado (suma en la tarjeta USD entregados y en el Saldo de caja). Ya no requiere tener una caja abierta; si la hay, el movimiento se asocia automáticamente.',
-      'Cierres de caja: la caja se maneja por períodos (cada "cierre" tiene número, rango de fechas y recepción asociada). Al cerrar, se calcula el resumen del cierre: días transcurridos, total gastado, distribución del gasto por categoría y tasa promedio.',
+      'Cierres de caja: la caja se maneja por períodos (cada "cierre" tiene número, rango de fechas y recepción asociada). Al cerrar, se calcula el resumen del cierre: días transcurridos, total gastado, distribución del gasto por categoría y tasa promedio. Al cerrar, el sistema crea automáticamente una RECEPCIÓN (módulo Recepciones) con el Saldo de KG de casiterita acumulado. Esa casiterita NO entra al inventario al cerrar la caja: primero se hace la recepción del laboratorio; el ingreso a inventario es un paso posterior.',
       'Clasificación de costos (2 niveles): cada gasto puede etiquetarse con una Clasificación y una Sub-clasificación (ej. "Costos de Extracción y acarreo" → "Gastos de Combustible") para el análisis de costos del cierre.',
       'Cuadre Efectivo: cuadre de caja en efectivo (lo que entrega el proveedor de caja). Se cuenta el efectivo por billetes para verificarlo, se cargan las salidas categorizadas (nómina, compras, adelantos), se lleva el saldo corriente y se controlan los vales/deudas pendientes.',
       'Procesos: las demás hojas del Excel (resúmenes, registros de cuadrillas, mesa seca, consumo de martillos) se muestran como vistas del sistema y se van convirtiendo en módulos interactivos.',
+    ],
+  },
+  {
+    icono: '📋',
+    titulo: 'Recepciones (Laboratorio de mineral)',
+    intro:
+      'Registra la recepción de casiterita que llega del Centro de Acopio y el análisis de laboratorio por elemento (réplica de la hoja "Recepción Global Laboratorio"). Está vinculado a los cierres de caja del Centro de Acopio.',
+    puntos: [
+      'Se alimenta del cierre de caja: cada vez que se cierra la caja del Centro de Acopio se crea automáticamente una fila de recepción con Peso KG = Saldo de KG de casiterita acumulado, la fecha/hora del cierre y Procedencia = PERAMANAL (editable). Esa casiterita NO entra al inventario al cerrar la caja; primero se hace la recepción (el ingreso a inventario es un paso posterior).',
+      'Cabecera de cada recepción: Ítem (correlativo que empieza en 1 y se incrementa solo), Fecha y hora, Peso KG, Procedencia (PERAMANAL por defecto, editable) y N° Análisis (correlativo del laboratorio). También se puede crear una recepción a mano con "Nueva recepción".',
+      'Recepción Global Laboratorio: sobre la misma fila, el laboratorio carga el análisis por elemento: Sn (Estaño) — Laboratorio Mineral Group, UCV, Fe, Ti, Ta, Nb, V, Zr, Bal (estéril), Mn y Hf. Cada elemento tiene tres lecturas A, B, C y una columna Prom. calculada como (A + B + C) / 3 (la UCV es un valor único).',
+      'Promedio del lote: al pie de cada elemento se calcula el Promedio del lote = promedio de los Prom. de todas las recepciones que tienen valor en ese elemento.',
+      'Edición y tiempo real: cada celda se guarda al salir de ella y se sincroniza al instante con los demás usuarios. Las recepciones se pueden editar o eliminar.',
     ],
   },
   {

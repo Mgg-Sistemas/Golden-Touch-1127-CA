@@ -13,6 +13,7 @@ export type ModuleKey =
   | 'cocina'
   | 'tesoreria'
   | 'retenciones'
+  | 'recepciones'
   | 'rrhh'
   | 'maquinaria'
   | 'usuarios'
@@ -40,6 +41,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'cocina',      label: 'Control de Alimentación (Cocina)' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'retenciones', label: 'Retenciones' },
+  { key: 'recepciones', label: 'Recepciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'maquinaria',  label: 'Control de Maquinaria y Vehículos' },
   { key: 'usuarios',    label: 'Usuarios' },
@@ -64,6 +66,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.usuarios = { lectura: true, escritura: false, full: false };
     all.tesoreria = { lectura: true, escritura: false, full: false };
     all.retenciones = { lectura: true, escritura: true, full: false };
+    all.recepciones = { lectura: true, escritura: true, full: false };
     all.rrhh = { lectura: true, escritura: true, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };
@@ -72,6 +75,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.produccion = { lectura: true, escritura: true, full: false };
     all.acopio     = { lectura: true, escritura: true, full: false };
     all.cocina     = { lectura: true, escritura: true, full: false };
+    all.recepciones = { lectura: true, escritura: true, full: false };
     all.maquinaria = { lectura: true, escritura: true, full: false };
     all.ajustes    = { lectura: true, escritura: false, full: false };
   } else {
