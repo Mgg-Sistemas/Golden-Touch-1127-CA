@@ -345,7 +345,7 @@ export function RecepcionesPage() {
         </div>
       )}
 
-      {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} onClose={() => setConcilOpen(false)} />}
+      {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} onClose={() => setConcilOpen(false)} />}
       {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} onClose={() => setTotalesOpen(false)} />}
       {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCierresOpen(false)} />}
 
@@ -1070,8 +1070,8 @@ interface ConcilDraft {
   observacion: string;
 }
 
-function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; onClose: () => void;
+function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; onClose: () => void;
 }) {
   const [lista, setLista] = useState<Conciliacion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1094,8 +1094,10 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
 
   function nueva() {
     const numero = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
-    setDraft({ id: null, numero, fecha: null, peso_kg_total: pesoTotal || 0, kg_bolsas: 0, muestras_lab: 0,
-      centros: [{ nombre: '', kg: null, categoria: null, entra_inventario: false, almacen: null }], observacion: '' });
+    // Peso Kg Total = total de «Peso (Kg) recogido» de Humedad Final.
+    // Centro «Peramanal» = Saldo Kg de casiterita reportado por la caja del acopio (= peso de las recepciones del cierre).
+    setDraft({ id: null, numero, fecha: null, peso_kg_total: pesoRecogidoFinal || 0, kg_bolsas: 0, muestras_lab: 0,
+      centros: [{ nombre: 'Peramanal', kg: pesoTotal || null, categoria: null, entra_inventario: false, almacen: null }], observacion: '' });
     setMode('form');
   }
   // Si no hay conciliaciones guardadas, abrir directamente el formulario (no una lista vacía).
@@ -1281,8 +1283,8 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
                       <input className="input mono" type="number" step="any" value={draft.peso_kg_total || ''} disabled={!canWrite}
                         onChange={(e) => setLocal({ peso_kg_total: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="Peso Kg Total" style={{ width: 160, textAlign: 'right' }} />
                     </td>
-                    <td style={{ fontWeight: 700 }}>Peso Kg Total <span className="muted" style={{ fontWeight: 400 }}>(lo que llegó / pesado)</span>
-                      {canWrite && <div><button className="btn btn-sm btn-ghost" type="button" style={{ padding: '0 .3rem', fontSize: '.72rem' }} onClick={() => setLocal({ peso_kg_total: pesoTotal })}>↺ Usar recepciones ({fmt(pesoTotal)})</button></div>}
+                    <td style={{ fontWeight: 700 }}>Peso Kg Total <span className="muted" style={{ fontWeight: 400 }}>(= Peso (Kg) recogido · Humedad Final)</span>
+                      {canWrite && <div><button className="btn btn-sm btn-ghost" type="button" style={{ padding: '0 .3rem', fontSize: '.72rem' }} onClick={() => setLocal({ peso_kg_total: pesoRecogidoFinal })}>↺ Usar Humedad Final ({fmt(pesoRecogidoFinal)})</button></div>}
                     </td>
                   </tr>
                   {resumenFila(fmt(t!.reportado), 'Kg Reportado por Centros de Acopio')}
