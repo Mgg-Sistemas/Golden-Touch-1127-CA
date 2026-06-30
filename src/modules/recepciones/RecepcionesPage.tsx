@@ -17,9 +17,10 @@ import {
   listBigbags, crearBigbag, actualizarBigbag, eliminarBigbag, formulaBigbag,
   guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion, calcConciliacion,
+  listTotales, crearTotales, actualizarTotales, eliminarTotales, calcTotales,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
   type HumedadProvRow, type HumedadFinalRow, type BigbagRow, type PesadaRow,
-  type Conciliacion, type ConciliacionCentro,
+  type Conciliacion, type ConciliacionCentro, type TotalesDoc, type TotalCentro,
 } from './recepciones.repository';
 
 /** ISO → valor de <input type="datetime-local"> (hora local). */
@@ -68,8 +69,9 @@ export function RecepcionesPage() {
   const [finBorrar, setFinBorrar] = useState<HumedadFinalRow | null>(null);
   const [config, setConfig] = useState(false);
   const [pesos, setPesos] = useState(false);
-  const [seccion, setSeccion] = useState<'totales' | 'resumenes' | null>(null);
+  const [seccion, setSeccion] = useState<'resumenes' | null>(null);
   const [concilOpen, setConcilOpen] = useState(false);
+  const [totalesOpen, setTotalesOpen] = useState(false);
 
   // Espejo del análisis para leer el estado vigente desde onBlur sin closures viejos.
   const analisisRef = useRef<AnalisisRow[]>([]);
@@ -319,19 +321,20 @@ export function RecepcionesPage() {
         ] as const).map((b) => (
           <button key={b.key} className="btn btn-primary"
             style={(b.key !== 'conciliacion' && seccion === b.key) ? { filter: 'brightness(0.82)' } : undefined}
-            onClick={() => { if (b.key === 'conciliacion') setConcilOpen(true); else setSeccion(seccion === b.key ? null : (b.key as 'totales' | 'resumenes')); }}>
+            onClick={() => { if (b.key === 'conciliacion') setConcilOpen(true); else if (b.key === 'totales') setTotalesOpen(true); else setSeccion(seccion === b.key ? null : (b.key as 'resumenes')); }}>
             {b.label}
           </button>
         ))}
       </div>
 
-      {(seccion === 'totales' || seccion === 'resumenes') && (
+      {seccion === 'resumenes' && (
         <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem' }}>
-          <EmptyState message={`Sección «${seccion === 'totales' ? 'Totales' : 'Resúmenes'}» — pendiente de definir.`} icon="🚧" />
+          <EmptyState message="Sección «Resúmenes» — pendiente de definir." icon="🚧" />
         </div>
       )}
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} onClose={() => setConcilOpen(false)} />}
+      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} onClose={() => setTotalesOpen(false)} />}
 
       {loading ? (
         <EmptyState message="Cargando recepciones…" icon="◔" />
@@ -1204,6 +1207,197 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
           confirmText="Eliminar" danger
           onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)}
         />
+      )}
+    </Modal>
+  );
+}
+
+/* ───────────── Modal: Totales (precio de compra minas → recepcionada → costo final) ───────────── */
+const fmt4 = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 }));
+
+interface TotalesDraft {
+  id: string | null; numero: number; fecha: string | null;
+  centros: TotalCentro[]; gastos: number; pesos_kg: number;
+  humedad_prov: number; humedad_final: number; fe_esteril: number; observacion: string;
+}
+
+function TotalesModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; onClose: () => void;
+}) {
+  const [lista, setLista] = useState<TotalesDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<'list' | 'form'>('list');
+  const [draft, setDraft] = useState<TotalesDraft | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [aBorrar, setABorrar] = useState<TotalesDoc | null>(null);
+
+  const cargar = useCallback(async () => {
+    try { setLista(await listTotales()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los totales', 'error'); }
+  }, []);
+  useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
+  useRealtime(['recepciones_totales'], () => { void cargar(); });
+
+  const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
+
+  function nueva() {
+    const numero = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
+    setDraft({ id: null, numero, fecha: null, centros: [], gastos: 0, pesos_kg: 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
+    setMode('form');
+  }
+  function abrir(d: TotalesDoc) {
+    setDraft({ id: d.id, numero: d.numero, fecha: d.fecha, centros: d.centros.map((x) => ({ ...x })), gastos: Number(d.gastos) || 0, pesos_kg: Number(d.pesos_kg) || 0, humedad_prov: Number(d.humedad_prov) || 0, humedad_final: Number(d.humedad_final) || 0, fe_esteril: Number(d.fe_esteril) || 0, observacion: d.observacion ?? '' });
+    setMode('form');
+  }
+  function setLocal(patch: Partial<TotalesDraft>) { setDraft((p) => (p ? { ...p, ...patch } : p)); }
+  function setCentro(i: number, campo: 'nombre' | 'sno2' | 'precio', value: string) {
+    setDraft((p) => p ? { ...p, centros: p.centros.map((x, j) => (j === i ? { ...x, [campo]: campo === 'nombre' ? value : (value === '' ? null : Number(value)) } : x)) } : p);
+  }
+  function addCentro() { setDraft((p) => (p ? { ...p, centros: [...p.centros, { nombre: '', sno2: null, precio: null }] } : p)); }
+  function delCentro(i: number) { setDraft((p) => (p ? { ...p, centros: p.centros.filter((_, j) => j !== i) } : p)); }
+
+  async function guardar() {
+    const d = draft; if (!d) return;
+    setGuardando(true);
+    try {
+      const campos = { centros: d.centros, gastos: d.gastos, pesos_kg: d.pesos_kg, humedad_prov: d.humedad_prov, humedad_final: d.humedad_final, fe_esteril: d.fe_esteril, observacion: d.observacion };
+      if (d.id) { await actualizarTotales(d.id, { numero: d.numero, ...campos }); toast(`Totales N° ${d.numero} actualizados`, 'success'); }
+      else { const c = await crearTotales({ numero: d.numero, actor, actorName }); await actualizarTotales(c.id, campos); toast(`Totales N° ${d.numero} guardados`, 'success'); }
+      await cargar(); setMode('list'); setDraft(null);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron guardar los totales', 'error'); }
+    finally { setGuardando(false); }
+  }
+  async function borrar(d: TotalesDoc) {
+    try { await eliminarTotales(d.id); await cargar(); toast(`Totales N° ${d.numero} eliminados`, 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setABorrar(null); }
+  }
+
+  const t = draft ? calcTotales(draft) : null;
+
+  const bloque = (sno2: ReactNode, precio: ReactNode, moneda: ReactNode, label: string) => (
+    <tr style={{ fontWeight: 800 }}>
+      <td className="num mono">{sno2}</td><td className="num mono">{precio}</td><td className="num mono">{moneda}</td><td>{label}</td>{canWrite && <td></td>}
+    </tr>
+  );
+
+  const footer = mode === 'list' ? (
+    <>
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      {canWrite && <button className="btn btn-primary" onClick={nueva}>＋ Nuevos totales</button>}
+    </>
+  ) : (
+    <>
+      <button className="btn btn-ghost" onClick={() => { setMode('list'); setDraft(null); }}>← Volver</button>
+      {canWrite && <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'GUARDAR TOTALES'}</button>}
+    </>
+  );
+
+  return (
+    <Modal title={mode === 'list' ? '🧮 Totales — Precio de compra' : (draft?.id ? `Totales N° ${draft.numero}` : 'Nuevos totales')} size="xl" onClose={onClose} footer={footer}>
+      {mode === 'list' ? (
+        loading ? <p className="muted">Cargando…</p> : !lista.length ? (
+          <EmptyState message="Sin totales. Usá «＋ Nuevos totales»." icon="🧮" />
+        ) : (
+          <div className="table-wrap" style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ fontSize: '.85rem' }}>
+              <thead><tr><th>N° Recepción</th><th>Fecha</th><th className="num">Total SnO2 (minas)</th><th className="num">Total Moneda</th><th className="num">Tasa final</th>{canWrite && <th></th>}</tr></thead>
+              <tbody>
+                {lista.map((d) => (
+                  <tr key={d.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => abrir(d)} title="Ver / editar">
+                    <td className="mono" style={{ fontWeight: 700 }}>N° {d.numero}</td>
+                    <td>{fmtFecha(d.fecha)}</td>
+                    <td className="num mono">{fmt(d.total_sno2_minas)}</td>
+                    <td className="num mono">{fmt(d.total_moneda_minas)}</td>
+                    <td className="num mono" style={{ fontWeight: 700 }}>${fmt4(d.tasa_final)}</td>
+                    {canWrite && <td><button className="btn btn-sm btn-ghost" title="Eliminar" onClick={(e) => { e.stopPropagation(); setABorrar(d); }}>🗑</button></td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : draft && t && (
+        <div>
+          <div className="form-row" style={{ maxWidth: 260, marginBottom: '1rem' }}>
+            <label>N° de recepción</label>
+            <input className="input mono" type="number" min={1} value={draft.numero} disabled={!canWrite}
+              onChange={(e) => setLocal({ numero: Math.max(1, Math.round(Number(e.target.value) || 1)) })} />
+          </div>
+
+          <div className="table-wrap" style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
+              <thead><tr>
+                <th className="num" style={{ minWidth: 120 }}>Total SnO2</th>
+                <th className="num" style={{ minWidth: 110 }}>Precio / Tasa</th>
+                <th className="num" style={{ minWidth: 130 }}>Total Moneda</th>
+                <th>Centro de costo</th>{canWrite && <th style={{ width: 30 }}></th>}
+              </tr></thead>
+              <tbody>
+                {!draft.centros.length && <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usá «＋ Añadir centro».</td></tr>}
+                {draft.centros.map((c, i) => {
+                  const moneda = (Number(c.sno2) || 0) * (Number(c.precio) || 0);
+                  return (
+                    <tr key={i}>
+                      <td className="num"><input className="input mono" type="number" step="any" value={c.sno2 ?? ''} disabled={!canWrite} onChange={(e) => setCentro(i, 'sno2', e.target.value)} placeholder="0,00" style={{ width: 110, textAlign: 'right' }} /></td>
+                      <td className="num"><input className="input mono" type="number" step="any" value={c.precio ?? ''} disabled={!canWrite} onChange={(e) => setCentro(i, 'precio', e.target.value)} placeholder="0,0000" style={{ width: 100, textAlign: 'right' }} /></td>
+                      <td className="num mono">{fmt(moneda)}</td>
+                      <td><input className="input" value={c.nombre} disabled={!canWrite} onChange={(e) => setCentro(i, 'nombre', e.target.value.toUpperCase())} placeholder="LOS PIJIGUAOS / P-MGG…" style={{ width: 240 }} /></td>
+                      {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Quitar" onClick={() => delCentro(i)}>🗑</button></td>}
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <td></td><td></td>
+                  <td className="num"><input className="input mono" type="number" step="any" value={draft.gastos || ''} disabled={!canWrite} onChange={(e) => setLocal({ gastos: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} /></td>
+                  <td style={{ fontWeight: 700 }}>GASTOS</td>{canWrite && <td></td>}
+                </tr>
+              </tbody>
+              <tfoot>
+                {bloque(fmt(t.totalSnO2Minas), `$${fmt4(t.precioMinas)}`, fmt(t.totalMonedaMinas), 'PROMEDIO DE PRECIO DE COMPRA EN MINAS')}
+                <tr style={{ fontWeight: 800 }}>
+                  <td className="num">
+                    <input className="input mono" type="number" step="any" value={draft.pesos_kg || ''} disabled={!canWrite} onChange={(e) => setLocal({ pesos_kg: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="Pesos Kg" style={{ width: 110, textAlign: 'right', ...VERDE_BG }} />
+                  </td>
+                  <td className="num mono">${fmt4(t.tasaRecep)}</td>
+                  <td className="num mono">{fmt(t.totalMonedaRecep)}</td>
+                  <td>PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA
+                    {canWrite && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', fontSize: '.72rem', marginLeft: '.3rem' }} onClick={() => setLocal({ pesos_kg: pesoTotal })}>↺ recepciones ({fmt(pesoTotal)})</button>}
+                  </td>{canWrite && <td></td>}
+                </tr>
+                <tr>
+                  <td className="num"><input className="input mono" type="number" step="any" value={draft.humedad_prov || ''} disabled={!canWrite} onChange={(e) => setLocal({ humedad_prov: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 110, textAlign: 'right', color: 'var(--danger)' }} /></td>
+                  <td></td><td></td><td style={ROJO}>HUMEDAD PROVISIONAL (LABORATORIO)</td>{canWrite && <td></td>}
+                </tr>
+                <tr>
+                  <td className="num"><input className="input mono" type="number" step="any" value={draft.humedad_final || ''} disabled={!canWrite} onChange={(e) => setLocal({ humedad_final: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 110, textAlign: 'right', color: 'var(--danger)' }} /></td>
+                  <td></td><td></td><td style={ROJO}>HUMEDAD ADICIONAL (FINAL)</td>{canWrite && <td></td>}
+                </tr>
+                <tr>
+                  <td className="num"><input className="input mono" type="number" step="any" value={draft.fe_esteril || ''} disabled={!canWrite} onChange={(e) => setLocal({ fe_esteril: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 110, textAlign: 'right' }} /></td>
+                  <td></td><td></td><td style={{ fontWeight: 700 }}>Fe estéril</td>{canWrite && <td></td>}
+                </tr>
+                {bloque(fmt(t.totalSnO2Final), `$${fmt4(t.tasaFinal)}`, fmt(t.totalMonedaFinal), 'PROMEDIO DE PRECIO DE COSTO FINAL')}
+              </tfoot>
+            </table>
+          </div>
+          {canWrite && <button className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={addCentro}>＋ Añadir centro</button>}
+
+          <div className="form-row" style={{ marginTop: '1rem' }}>
+            <label>Nota <span className="muted">(opcional)</span></label>
+            <textarea className="input" rows={2} value={draft.observacion} disabled={!canWrite} onChange={(e) => setLocal({ observacion: e.target.value })} placeholder="Observaciones…" />
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>
+            Total Moneda (centro) = Total SnO2 × Precio/Tasa · MINAS: SnO2 = Σ kg, Moneda = Σ(kg×precio) + GASTOS, Precio = Moneda/SnO2 ·
+            RECEPCIONADA: SnO2 = Pesos Kg, Moneda = Moneda de MINAS, Tasa = Moneda/Pesos Kg ·
+            COSTO FINAL: SnO2 = Pesos Kg + Humedad Prov + Humedad Final + Fe estéril, Moneda = Moneda RECEPCIONADA, Tasa = Moneda/SnO2.
+          </div>
+        </div>
+      )}
+
+      {aBorrar && (
+        <ConfirmDialog title="Eliminar totales" message={`¿Eliminar los Totales N° ${aBorrar.numero}?`} confirmText="Eliminar" danger
+          onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)} />
       )}
     </Modal>
   );
