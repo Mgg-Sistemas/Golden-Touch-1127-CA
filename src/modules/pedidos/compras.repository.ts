@@ -43,6 +43,8 @@ export interface CompraDirecta {
   /** Proveedor opcional (directorio). Si se tipea uno nuevo, se da de alta en `proveedores`. */
   proveedor_id: string | null;
   proveedor_nombre: string | null;
+  /** Nota / observación libre del analista. */
+  nota: string | null;
   estado: EstadoCompraDirecta;
   gasto: number | null;
   /** Si la compra ingresa los materiales al inventario al pagar. Se pone en false
@@ -83,7 +85,7 @@ function normalizar(row: Record<string, unknown>): CompraDirecta {
       producto_sku: r.producto_sku, cantidad: Number(r.cantidad) || 0, gasto: r.gasto ?? null,
     }];
   }
-  return { ...r, items };
+  return { ...r, items, nota: r.nota ?? null };
 }
 
 /**
@@ -121,6 +123,8 @@ export interface CrearCompraInput {
   proveedorId?: string | null;
   /** Nombre del proveedor (para mostrar sin re-consultar). */
   proveedorNombre?: string | null;
+  /** Nota / observación libre. */
+  nota?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -179,6 +183,7 @@ export async function crearCompraDirecta(
       items,
       proveedor_id: input.proveedorId ?? null,
       proveedor_nombre: input.proveedorNombre?.trim() || null,
+      nota: input.nota?.trim() || null,
       estado: 'en_proceso',
       actor: input.actor,
       actor_name: input.actorName ?? null,
@@ -387,6 +392,7 @@ export interface EditarCompraInput {
   almacen: string;
   proveedorId?: string | null;
   proveedorNombre?: string | null;
+  nota?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -445,6 +451,7 @@ export async function editarCompraDirectaEnProceso(
       items,
       proveedor_id: input.proveedorId ?? null,
       proveedor_nombre: input.proveedorNombre?.trim() || null,
+      nota: input.nota?.trim() || null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.compra.id)

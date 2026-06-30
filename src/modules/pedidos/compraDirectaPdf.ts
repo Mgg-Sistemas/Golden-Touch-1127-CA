@@ -38,6 +38,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     ['Fecha de creación', fmt.dateTime(compra.created_at)],
     ['Fecha de compra', compra.finalizada_at ? fmt.dateTime(compra.finalizada_at) : '—'],
     ['Adjunto', compra.adjunto_nombre || '—'],
+    ...(compra.nota ? [['Nota', compra.nota] as [string, string]] : []),
   ];
   autoTable(doc, {
     startY: y, body: ficha, theme: 'plain',
