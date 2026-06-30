@@ -1094,9 +1094,16 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
 
   function nueva() {
     const numero = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
-    setDraft({ id: null, numero, fecha: null, peso_kg_total: 0, kg_bolsas: 0, muestras_lab: 0, centros: [], observacion: '' });
+    setDraft({ id: null, numero, fecha: null, peso_kg_total: pesoTotal || 0, kg_bolsas: 0, muestras_lab: 0,
+      centros: [{ nombre: '', kg: null, categoria: null, entra_inventario: false, almacen: null }], observacion: '' });
     setMode('form');
   }
+  // Si no hay conciliaciones guardadas, abrir directamente el formulario (no una lista vacía).
+  const autoAbierto = useRef(false);
+  useEffect(() => {
+    if (!loading && !autoAbierto.current && canWrite && !lista.length) { autoAbierto.current = true; nueva(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, lista.length, canWrite]);
   function abrir(c: Conciliacion) {
     setDraft({ id: c.id, numero: c.numero, fecha: c.fecha, peso_kg_total: Number(c.peso_kg_total) || 0, kg_bolsas: Number(c.kg_bolsas) || 0, muestras_lab: Number(c.muestras_lab) || 0, centros: c.centros.map((x) => ({ ...x })), observacion: c.observacion ?? '' });
     setMode('form');
@@ -1354,9 +1361,15 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
 
   function nueva() {
     const numero = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
-    setDraft({ id: null, numero, fecha: null, centros: [], gastos: 0, pesos_kg: 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
+    setDraft({ id: null, numero, fecha: null, centros: [{ nombre: '', sno2: null, precio: null }], gastos: 0, pesos_kg: pesoTotal || 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
     setMode('form');
   }
+  // Si no hay totales guardados, abrir directamente el formulario (no una lista vacía).
+  const autoAbierto = useRef(false);
+  useEffect(() => {
+    if (!loading && !autoAbierto.current && canWrite && !lista.length) { autoAbierto.current = true; nueva(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, lista.length, canWrite]);
   function abrir(d: TotalesDoc) {
     setDraft({ id: d.id, numero: d.numero, fecha: d.fecha, centros: d.centros.map((x) => ({ ...x })), gastos: Number(d.gastos) || 0, pesos_kg: Number(d.pesos_kg) || 0, humedad_prov: Number(d.humedad_prov) || 0, humedad_final: Number(d.humedad_final) || 0, fe_esteril: Number(d.fe_esteril) || 0, observacion: d.observacion ?? '' });
     setMode('form');
