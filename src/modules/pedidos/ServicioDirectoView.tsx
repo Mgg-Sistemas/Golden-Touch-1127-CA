@@ -25,6 +25,7 @@ import {
 import { descargarServicioDirectoPdf } from './servicioDirectoPdf';
 import { FacturasDirectas } from './FacturasDirectas';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
+import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 
 type Vista = 'kanban' | 'lista';
 
@@ -360,6 +361,9 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   const [seq, setSeq] = useState((editServicio?.items.length ?? 1) + 1);
   const [solicitante, setSolicitante] = useState(editServicio?.solicitante ?? '');
   const [unidadSolicitante, setUnidadSolicitante] = useState(editServicio?.unidad_solicitante ?? '');
+  // Catálogo de unidades solicitantes (mismo que el servicio/OP normal, sincronizado).
+  const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
+  useEffect(() => { listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => setUnidadOpciones([])); }, []);
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -430,6 +434,11 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
       if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); setSaving(false); return; }
+      // Sincroniza la unidad solicitante con el catálogo (igual que el servicio normal).
+      const uniClean = unidadSolicitante.trim().toUpperCase();
+      if (uniClean && !unidadOpciones.some((u) => u.toLowerCase() === uniClean.toLowerCase())) {
+        await addCatalogoPedido('unidad_solicitante', uniClean).catch(() => {});
+      }
       if (esEdicion && editServicio) {
         const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, actor, actorName });
         if (file) await agregarAdjuntoDirecto('servicio', edit.id, file, actor);
@@ -525,7 +534,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
           </div>
           <div className="form-row">
             <label>Unidad solicitante</label>
-            <input className="input" value={unidadSolicitante} onChange={(e) => setUnidadSolicitante(e.target.value.toUpperCase())} placeholder="Unidad / área…" />
+            <SearchCreateSelect options={unidadOpciones} value={unidadSolicitante}
+              onChange={(v) => setUnidadSolicitante(v.toUpperCase())} placeholder="Unidad / área…" />
           </div>
         </div>
 
