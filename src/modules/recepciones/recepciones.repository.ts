@@ -653,6 +653,130 @@ export async function eliminarConciliacion(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/* ───────────── Totales (precio de compra: minas → recepcionada → costo final) ─────────────
+   Por centro de costo: Total SnO2 (kg) × Precio/Tasa = Total Moneda.
+   MINAS:        Total SnO2 = Σ kg · Total Moneda = Σ(kg×precio) + GASTOS · Precio = Moneda/SnO2.
+   RECEPCIONADA: Total SnO2 = Pesos Kg (lo recepcionado) · Total Moneda = Moneda de MINAS ·
+                 Tasa = Total Moneda / Pesos Kg.
+   COSTO FINAL:  Total SnO2 = Pesos Kg + Humedad Prov + Humedad Final + Fe estéril ·
+                 Total Moneda = Moneda de RECEPCIONADA (si el ajuste es 0) · Tasa = Moneda/SnO2. */
+
+const TABLE_TOT = 'recepciones_totales';
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+export interface TotalCentro { nombre: string; sno2: number | null; precio: number | null }
+
+export interface TotalesDoc {
+  id: string;
+  numero: number;
+  fecha: string;
+  centros: TotalCentro[];
+  gastos: number;
+  pesos_kg: number;
+  humedad_prov: number;
+  humedad_final: number;
+  fe_esteril: number;
+  total_sno2_minas: number;
+  total_moneda_minas: number;
+  precio_minas: number;
+  tasa_recep: number;
+  total_moneda_recep: number;
+  total_sno2_final: number;
+  total_moneda_final: number;
+  tasa_final: number;
+  observacion?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface TotalesCalc {
+  totalSnO2Minas: number; totalMonedaMinas: number; precioMinas: number;
+  tasaRecep: number; totalMonedaRecep: number;
+  totalSnO2Final: number; totalMonedaFinal: number; tasaFinal: number;
+}
+
+/** Calcula los tres bloques (minas / recepcionada / costo final). */
+export function calcTotales(d: {
+  centros: TotalCentro[]; gastos: number | null; pesos_kg: number | null;
+  humedad_prov: number | null; humedad_final: number | null; fe_esteril: number | null;
+}): TotalesCalc {
+  const totalSnO2Minas = round2((d.centros ?? []).reduce((a, c) => a + (Number(c.sno2) || 0), 0));
+  const monedaCentros = (d.centros ?? []).reduce((a, c) => a + (Number(c.sno2) || 0) * (Number(c.precio) || 0), 0);
+  const totalMonedaMinas = round2(monedaCentros + num(d.gastos));
+  const precioMinas = totalSnO2Minas !== 0 ? round4(totalMonedaMinas / totalSnO2Minas) : 0;
+  const pesos = num(d.pesos_kg);
+  const totalMonedaRecep = totalMonedaMinas;
+  const tasaRecep = pesos !== 0 ? round4(totalMonedaRecep / pesos) : 0;
+  const totalSnO2Final = round2(pesos + num(d.humedad_prov) + num(d.humedad_final) + num(d.fe_esteril));
+  // El ajuste de humedad/fe no aporta dinero: la moneda final es la de RECEPCIONADA.
+  const totalMonedaFinal = totalMonedaRecep;
+  const tasaFinal = totalSnO2Final !== 0 ? round4(totalMonedaFinal / totalSnO2Final) : 0;
+  return { totalSnO2Minas, totalMonedaMinas, precioMinas, tasaRecep, totalMonedaRecep, totalSnO2Final, totalMonedaFinal, tasaFinal };
+}
+
+function normTot(row: Record<string, unknown>): TotalesDoc {
+  const r = row as unknown as TotalesDoc;
+  return { ...r, centros: Array.isArray(r.centros) ? r.centros : [] };
+}
+
+export async function listTotales(): Promise<TotalesDoc[]> {
+  const { data, error } = await supabase.from(TABLE_TOT).select('*')
+    .order('numero', { ascending: false }).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => normTot(r as Record<string, unknown>));
+}
+
+export async function crearTotales(input: { numero?: number | null; actor: string; actorName?: string | null }): Promise<TotalesDoc> {
+  let numero = input.numero != null ? Math.max(1, Math.round(num(input.numero))) : 0;
+  if (!numero) {
+    const { data: rows } = await supabase.from(TABLE_TOT).select('numero');
+    let max = 0;
+    for (const r of (rows ?? []) as Array<{ numero: number | null }>) max = Math.max(max, num(r.numero));
+    numero = max + 1;
+  }
+  const { data, error } = await supabase.from(TABLE_TOT).insert({
+    numero, centros: [], gastos: 0, pesos_kg: 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0,
+    created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return normTot(data as Record<string, unknown>);
+}
+
+export async function actualizarTotales(id: string, patch: {
+  numero?: number; centros?: TotalCentro[]; gastos?: number | null; pesos_kg?: number | null;
+  humedad_prov?: number | null; humedad_final?: number | null; fe_esteril?: number | null; observacion?: string | null;
+}): Promise<void> {
+  const { data: cur } = await supabase.from(TABLE_TOT).select('centros, gastos, pesos_kg, humedad_prov, humedad_final, fe_esteril').eq('id', id).single();
+  const base = (cur ?? {}) as { centros: TotalCentro[]; gastos: number; pesos_kg: number; humedad_prov: number; humedad_final: number; fe_esteril: number };
+  const merged = {
+    centros: patch.centros !== undefined ? patch.centros : (Array.isArray(base.centros) ? base.centros : []),
+    gastos: patch.gastos !== undefined ? num(patch.gastos) : num(base.gastos),
+    pesos_kg: patch.pesos_kg !== undefined ? num(patch.pesos_kg) : num(base.pesos_kg),
+    humedad_prov: patch.humedad_prov !== undefined ? num(patch.humedad_prov) : num(base.humedad_prov),
+    humedad_final: patch.humedad_final !== undefined ? num(patch.humedad_final) : num(base.humedad_final),
+    fe_esteril: patch.fe_esteril !== undefined ? num(patch.fe_esteril) : num(base.fe_esteril),
+  };
+  const c = calcTotales(merged);
+  const upd: Record<string, unknown> = {
+    ...merged,
+    total_sno2_minas: c.totalSnO2Minas, total_moneda_minas: c.totalMonedaMinas, precio_minas: c.precioMinas,
+    tasa_recep: c.tasaRecep, total_moneda_recep: c.totalMonedaRecep,
+    total_sno2_final: c.totalSnO2Final, total_moneda_final: c.totalMonedaFinal, tasa_final: c.tasaFinal,
+    updated_at: new Date().toISOString(),
+  };
+  if (patch.numero != null) upd.numero = Math.max(1, Math.round(num(patch.numero)));
+  if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
+  const { error } = await supabase.from(TABLE_TOT).update(upd).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarTotales(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_TOT).delete().eq('id', id);
+  if (error) throw error;
+}
+
 /* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */
 
 // Las leyes de mineral se redondean a 3 decimales (se muestran con mín. 2, máx. 3).

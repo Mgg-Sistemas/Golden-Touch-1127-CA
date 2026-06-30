@@ -591,7 +591,15 @@
     <h2>📋 Recepciones (Laboratorio de mineral)</h2>
     <p>Registra la <strong>recepción de casiterita</strong> que llega del Centro de Acopio y el <strong>análisis de laboratorio por elemento</strong> (réplica de la hoja <em>"Recepción Global Laboratorio"</em>). Está <strong>vinculado a los cierres de caja</strong> del Centro de Acopio.</p>
     <ul>
-      <li><strong>Secciones (debajo del título):</strong> tres botones — <strong>🔗 Conciliación</strong>, <strong>🧮 Totales</strong> y <strong>📊 Resúmenes</strong> — abren su panel de trabajo dentro de la misma vista.</li>
+      <li><strong>Secciones (debajo del título):</strong> tres botones — <strong>🔗 Conciliación</strong>, <strong>🧮 Totales</strong> y <strong>📊 Resúmenes</strong> — abren su modal/panel de trabajo.</li>
+      <li><strong>🧮 Totales (precio de compra):</strong> modal con <strong>lista</strong> (N° Recepción, Fecha, Total SnO2, Total Moneda, Tasa final) y <strong>formulario</strong>. Por cada <strong>centro de costo</strong> se cargan <strong>Total SnO2</strong> (kg) y <strong>Precio / Tasa</strong>; <strong>Total Moneda = SnO2 × Precio</strong>. Más una fila <strong>GASTOS</strong>. Bloques calculados:
+        <ul>
+          <li><strong>Promedio de precio de compra en minas:</strong> SnO2 = Σ kg · Moneda = Σ(kg×precio) + GASTOS · Precio = Moneda / SnO2.</li>
+          <li><strong>Promedio de precio de compra recepcionada:</strong> SnO2 = <strong>Pesos Kg</strong> (editable, con atajo «usar recepciones») · Moneda = Moneda de minas · Tasa = Moneda / Pesos Kg.</li>
+          <li>Tres filas <strong>editables</strong>: <strong>Humedad Provisional (Laboratorio)</strong> y <strong>Humedad Adicional (Final)</strong> (en <span style="color:#e5484d;font-weight:700">rojo</span>) y <strong>Fe estéril</strong>.</li>
+          <li><strong>Promedio de precio de costo final:</strong> SnO2 = Pesos Kg + Humedad Prov + Humedad Final + Fe estéril · Moneda = Moneda recepcionada · Tasa = Moneda / SnO2.</li>
+        </ul>
+        Se guarda con <strong>«GUARDAR TOTALES»</strong>; histórico editable y en <strong>tiempo real</strong>.</li>
       <li><strong>🔗 Conciliación (vs Centros de Acopio):</strong> el botón abre un <strong>modal</strong> que compara el <strong>Peso KG total recibido</strong> contra lo <strong>reportado por los centros de acopio</strong> (incluye aliados).
         <ul>
           <li><strong>Lista (modal principal):</strong> muestra las conciliaciones guardadas con <strong>N° Recepción, Fecha, Reportado (KG), Kg No Llegó y % No Llegó</strong>. Se <strong>hace clic</strong> en una fila para abrirla y editarla, o <strong>🗑</strong> para eliminarla. Abajo: <strong>Cerrar</strong> y <strong>«＋ Nueva conciliación»</strong>.</li>
