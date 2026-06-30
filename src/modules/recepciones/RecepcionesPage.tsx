@@ -14,8 +14,9 @@ import {
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
   pctHumedadProv, mermaH2OProv, promedioHumedadProv,
   listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal, pctHumedadFinal,
+  listBigbags, crearBigbag, actualizarBigbag, eliminarBigbag, formulaBigbag,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
-  type HumedadProvRow, type HumedadFinalRow,
+  type HumedadProvRow, type HumedadFinalRow, type BigbagRow,
 } from './recepciones.repository';
 
 /** ISO → valor de <input type="datetime-local"> (hora local). */
@@ -63,6 +64,7 @@ export function RecepcionesPage() {
   const [provBorrar, setProvBorrar] = useState<HumedadProvRow | null>(null);
   const [finBorrar, setFinBorrar] = useState<HumedadFinalRow | null>(null);
   const [config, setConfig] = useState(false);
+  const [pesos, setPesos] = useState(false);
 
   // Espejo del análisis para leer el estado vigente desde onBlur sin closures viejos.
   const analisisRef = useRef<AnalisisRow[]>([]);
@@ -291,11 +293,16 @@ export function RecepcionesPage() {
             El laboratorio carga aparte el análisis químico. <strong>No entra al inventario al cerrar la caja.</strong>
           </p>
         </div>
-        {canWrite && (
-          <button className="btn btn-primary" onClick={() => void nueva()} disabled={creando}>
-            {creando ? 'Creando…' : '＋ Nueva recepción'}
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={() => setPesos(true)} title="Pesos de bigbags (húmedos y secos)">
+            ⚖ Añadir pesos
           </button>
-        )}
+          {canWrite && (
+            <button className="btn btn-primary" onClick={() => void nueva()} disabled={creando}>
+              {creando ? 'Creando…' : '＋ Nueva recepción'}
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -560,6 +567,7 @@ Merma peso H2O = Peso KG (recepciones) − Peso recogido ·
       )}
 
       {config && <ConfigMineralesModal onClose={() => setConfig(false)} onChanged={reload} />}
+      {pesos && <PesosBigbagsModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setPesos(false)} />}
     </div>
   );
 }
@@ -696,6 +704,143 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
             </tbody>
           </table>
         </div>
+      )}
+    </Modal>
+  );
+}
+
+/* ───────────── Modal: Añadir pesos (Bigbags · Pesos Húmedos / Pesos Secos) ───────────── */
+function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; onClose: () => void;
+}) {
+  const [rows, setRows] = useState<BigbagRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [aBorrar, setABorrar] = useState<BigbagRow | null>(null);
+  const rowsRef = useRef<BigbagRow[]>([]);
+  rowsRef.current = rows;
+
+  const cargar = useCallback(async () => {
+    try { setRows(await listBigbags()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los pesos', 'error'); }
+  }, []);
+  useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
+  useRealtime(['recepciones_bigbags'], () => { void cargar(); });
+
+  function setCampo(id: string, campo: 'procedencia' | 'peso_humedo' | 'peso_seco', value: string) {
+    setRows((prev) => prev.map((r) => {
+      if (r.id !== id) return r;
+      if (campo === 'procedencia') return { ...r, procedencia: value };
+      return { ...r, [campo]: value === '' ? null : Number(value) };
+    }));
+  }
+  async function guardar(id: string, campo: 'procedencia' | 'peso_humedo' | 'peso_seco') {
+    const row = rowsRef.current.find((r) => r.id === id);
+    if (!row) return;
+    const patch = campo === 'procedencia' ? { procedencia: row.procedencia }
+      : campo === 'peso_humedo' ? { peso_humedo: row.peso_humedo } : { peso_seco: row.peso_seco };
+    try { await actualizarBigbag(id, patch); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void cargar(); }
+  }
+  async function nuevo() {
+    setAdding(true);
+    try { await crearBigbag({ actor, actorName }); await cargar(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir el bigbag', 'error'); }
+    finally { setAdding(false); }
+  }
+  async function borrar(r: BigbagRow) {
+    try { await eliminarBigbag(r.id); setRows((prev) => prev.filter((x) => x.id !== r.id)); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setABorrar(null); }
+  }
+
+  // Totales por tabla: BIG BAG = −(cantidad de bigbags con peso) × 1.5; TOTAL NETO = suma + BIG BAG.
+  const humConPeso = rows.filter((r) => r.peso_humedo != null).length;
+  const secConPeso = rows.filter((r) => r.peso_seco != null).length;
+  const sumaHum = rows.reduce((a, r) => a + (Number(r.peso_humedo) || 0), 0);
+  const sumaSec = rows.reduce((a, r) => a + (Number(r.peso_seco) || 0), 0);
+  const formulaHum = formulaBigbag(humConPeso);
+  const formulaSec = formulaBigbag(secConPeso);
+  const netoHum = sumaHum + formulaHum;
+  const netoSec = sumaSec + formulaSec;
+
+  /** Renderiza una tabla (húmedos o secos). `campo` = columna de peso editada. */
+  function tabla(titulo: string, campo: 'peso_humedo' | 'peso_seco', formula: number, neto: number) {
+    return (
+      <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 360px', minWidth: 320 }}>
+        <div style={{ fontWeight: 800, letterSpacing: '.04em', textAlign: 'center', padding: '.5rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>{titulo}</div>
+        <div className="table-wrap" style={{ overflowX: 'auto' }}>
+          <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
+            <thead>
+              <tr><th>Procedencia</th><th className="num">Peso</th><th>Bigbag</th>{canWrite && <th style={{ width: 30 }}></th>}</tr>
+            </thead>
+            <tbody>
+              {!rows.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin bigbags. Usá «＋ Añadir BIGBAG».</td></tr>}
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td>
+                    <input className="input" value={r.procedencia ?? ''} disabled={!canWrite}
+                      onChange={(e) => setCampo(r.id, 'procedencia', e.target.value.toUpperCase())}
+                      onBlur={() => void guardar(r.id, 'procedencia')} placeholder="A, B, ALI…" style={{ width: 130 }} />
+                  </td>
+                  <td className="num">
+                    <input className="input mono" type="number" step="any" value={(r[campo] ?? '') as number | ''} disabled={!canWrite}
+                      onChange={(e) => setCampo(r.id, campo, e.target.value)}
+                      onBlur={() => void guardar(r.id, campo)} style={{ width: 110, textAlign: 'right' }} />
+                  </td>
+                  <td className="mono">Bigbag {r.numero}</td>
+                  {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Eliminar bigbag" onClick={() => setABorrar(r)}>🗑</button></td>}
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ fontWeight: 700 }}>
+                <td></td>
+                <td className="num mono" style={{ background: 'rgba(120,200,140,.25)', color: 'var(--danger, #e5484d)', fontWeight: 800 }}>{fmt(formula)}</td>
+                <td style={{ color: 'var(--danger, #e5484d)', fontWeight: 800 }}>BIG BAG</td>
+                {canWrite && <td></td>}
+              </tr>
+              <tr style={{ fontWeight: 800 }}>
+                <td></td>
+                <td className="num mono">{fmt(neto)}</td>
+                <td>TOTAL NETO</td>
+                {canWrite && <td></td>}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Modal title="⚖ Añadir pesos — Bigbags" size="xl" onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
+        <div className="muted" style={{ fontSize: '.8rem' }}>
+          BIG BAG = −(cantidad de bigbags con peso) × 1.5 · TOTAL NETO = suma de pesos + BIG BAG (permite negativos).
+        </div>
+        {canWrite && (
+          <button className="btn btn-primary" onClick={() => void nuevo()} disabled={adding}>
+            {adding ? 'Añadiendo…' : '＋ Añadir BIGBAG'}
+          </button>
+        )}
+      </div>
+      {loading ? (
+        <p className="muted">Cargando…</p>
+      ) : (
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          {tabla('PESOS HÚMEDOS', 'peso_humedo', formulaHum, netoHum)}
+          {tabla('PESOS SECOS', 'peso_seco', formulaSec, netoSec)}
+        </div>
+      )}
+      {aBorrar && (
+        <ConfirmDialog
+          title="Eliminar bigbag"
+          message={`¿Eliminar el Bigbag ${aBorrar.numero}? Se quita de ambas tablas (húmedos y secos).`}
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)}
+        />
       )}
     </Modal>
   );

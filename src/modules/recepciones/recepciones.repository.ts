@@ -389,6 +389,66 @@ export function pctHumedadFinal(pesoKg: number | null, pesoRecogido: number | nu
   return round3((merma / pk) * 100);
 }
 
+/* ───────────── Bigbags (Pesos Húmedos / Pesos Secos) ─────────────
+   Cada bigbag tiene número incremental (desde 1), procedencia (A, B, ALI, D,
+   FALTANTE…), un peso húmedo y un peso seco. La fila «BIG BAG» de cada tabla
+   resta la tara de los bigbags ingresados: −(cantidad de bigbags con peso) × 1.5.
+   El TOTAL NETO = suma de los pesos + esa fórmula (puede ser negativo). */
+
+const TABLE_BB = 'recepciones_bigbags';
+export const TARA_BIGBAG = 1.5;
+
+export interface BigbagRow {
+  id: string;
+  numero: number;
+  procedencia: string | null;
+  peso_humedo: number | null;
+  peso_seco: number | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listBigbags(): Promise<BigbagRow[]> {
+  const { data, error } = await supabase.from(TABLE_BB).select('*')
+    .order('numero', { ascending: true }).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as BigbagRow[];
+}
+
+export async function crearBigbag(input: { actor: string; actorName?: string | null }): Promise<BigbagRow> {
+  const { data: rows } = await supabase.from(TABLE_BB).select('numero');
+  let max = 0;
+  for (const r of (rows ?? []) as Array<{ numero: number | null }>) max = Math.max(max, num(r.numero));
+  const { data, error } = await supabase.from(TABLE_BB).insert({
+    numero: max + 1, procedencia: null, peso_humedo: null, peso_seco: null,
+    created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return data as BigbagRow;
+}
+
+export async function actualizarBigbag(id: string, patch: { numero?: number; procedencia?: string | null; peso_humedo?: number | null; peso_seco?: number | null }): Promise<void> {
+  const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.numero != null) upd.numero = Math.max(1, Math.round(num(patch.numero)));
+  if (patch.procedencia !== undefined) upd.procedencia = patch.procedencia?.trim() || null;
+  if (patch.peso_humedo !== undefined) upd.peso_humedo = patch.peso_humedo == null ? null : num(patch.peso_humedo);
+  if (patch.peso_seco !== undefined) upd.peso_seco = patch.peso_seco == null ? null : num(patch.peso_seco);
+  const { error } = await supabase.from(TABLE_BB).update(upd).eq('id', id);
+  if (error) throw error;
+}
+
+export async function eliminarBigbag(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_BB).delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Fórmula de la fila «BIG BAG»: −(cantidad de bigbags con peso) × 1.5. */
+export function formulaBigbag(cantidadConPeso: number): number {
+  return round2(-cantidadConPeso * TARA_BIGBAG);
+}
+
 /* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */
 
 // Las leyes de mineral se redondean a 3 decimales (se muestran con mín. 2, máx. 3).
