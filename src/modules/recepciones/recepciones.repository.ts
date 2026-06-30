@@ -311,11 +311,11 @@ export async function eliminarHumedadProv(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** % Humedad de una fila provisional. (húmedos − seco) / húmedos × 100. */
+/** % Humedad de una fila provisional. 100 − (Peso seco / Peso húmedos) × 4. */
 export function pctHumedadProv(r: { peso_humedo: number | null; peso_seco: number | null }): number | null {
   const h = Number(r.peso_humedo), s = Number(r.peso_seco);
   if (!Number.isFinite(h) || h <= 0 || !Number.isFinite(s)) return null;
-  return round3(((h - s) / h) * 100);
+  return round3(100 - (s / h) * 4);
 }
 /** Merma de agua de una fila provisional = Peso (húmedos) × % Humedad / 100. */
 export function mermaH2OProv(r: { peso_humedo: number | null; peso_seco: number | null }): number | null {
