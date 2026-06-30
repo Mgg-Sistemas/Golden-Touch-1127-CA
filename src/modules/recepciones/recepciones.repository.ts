@@ -7,6 +7,7 @@
    ingreso a inventario ocurre en un paso posterior (a definir).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 
 const TABLE = 'recepciones_lab';
 
@@ -558,7 +559,18 @@ export async function eliminarPesada(id: string): Promise<void> {
 
 const TABLE_CONCIL = 'recepciones_conciliaciones';
 
-export interface ConciliacionCentro { nombre: string; kg: number | null }
+export interface ConciliacionCentro {
+  nombre: string;
+  kg: number | null;
+  /** Categoría del centro: 'RESGUARDO' habilita el ingreso al inventario (sin tasa). */
+  categoria?: string | null;
+  /** Si es RESGUARDO: ¿esos KG entran al inventario? */
+  entra_inventario?: boolean;
+  /** Almacén destino del ingreso al inventario (cuando entra_inventario). */
+  almacen?: string | null;
+  /** Marca que el ingreso al inventario ya se aplicó (al cerrar la recepción) — evita duplicar. */
+  inventario_aplicado?: boolean;
+}
 
 export interface Conciliacion {
   id: string;
@@ -774,6 +786,92 @@ export async function actualizarTotales(id: string, patch: {
 
 export async function eliminarTotales(id: string): Promise<void> {
   const { error } = await supabase.from(TABLE_TOT).delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ───────────── Cierre de recepción (histórico: toma TODOS los datos) ─────────────
+   Al cerrar una recepción: ingresa al inventario (SIN tasa) los saldos de centros
+   marcados RESGUARDO + «entra al inventario», y guarda una foto completa de los
+   datos (recepciones, análisis, humedad, conciliación y totales) con su N° y fecha. */
+
+const TABLE_CIERRES = 'recepciones_cierres';
+
+export interface CierreRecepcion {
+  id: string;
+  numero: number;
+  fecha: string;
+  snapshot: Record<string, unknown>;
+  observacion?: string | null;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listCierres(): Promise<CierreRecepcion[]> {
+  const { data, error } = await supabase.from(TABLE_CIERRES).select('*')
+    .order('numero', { ascending: false }).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as CierreRecepcion[];
+}
+
+/** Producto Casiterita (mineral) para el ingreso por RESGUARDO. */
+async function productoCasiterita(): Promise<{ id: string } | null> {
+  const { data } = await supabase.from('productos').select('id, sku, categoria')
+    .or('sku.eq.CASITERITA,sku.eq.SNO2,categoria.ilike.%mineral%').limit(1).maybeSingle();
+  return (data as { id: string } | null) ?? null;
+}
+
+/**
+ * Cierra la recepción N°: ingresa al inventario (sin tasa) los centros RESGUARDO
+ * pendientes y guarda la foto de todos los datos. Idempotente por centro (marca aplicado).
+ */
+export async function cerrarRecepcion(input: { numero: number; actor: string; actorName?: string | null; observacion?: string | null }): Promise<CierreRecepcion> {
+  const numero = Math.max(1, Math.round(num(input.numero)));
+  const [recs, anas, hp, hf, mins, todasConcil, todosTot] = await Promise.all([
+    listRecepciones(), listAnalisis(), listHumedadProv(), listHumedadFinal(), listMinerales(false), listConciliaciones(), listTotales(),
+  ]);
+  const conciliaciones = todasConcil.filter((c) => c.numero === numero);
+  const totales = todosTot.filter((t) => t.numero === numero);
+
+  // ── Ingreso al inventario de los RESGUARDO pendientes (sin tasa) ──
+  let cas: { id: string } | null = null;
+  const ingresos: Array<{ centro: string; almacen: string; kg: number }> = [];
+  for (const c of conciliaciones) {
+    let cambiaron = false;
+    const centros = c.centros.map((ce) => ({ ...ce }));
+    for (const ce of centros) {
+      const kg = Number(ce.kg) || 0;
+      if ((ce.categoria ?? '') === 'RESGUARDO' && ce.entra_inventario && (ce.almacen ?? '').trim() && !ce.inventario_aplicado && kg > 0) {
+        if (!cas) cas = await productoCasiterita();
+        if (!cas) throw new Error('No se encontró el producto Casiterita en el inventario para el ingreso por RESGUARDO.');
+        await registrarMovimiento({
+          producto_id: cas.id, tipo: 'entrada', delta: kg, almacen: (ce.almacen as string).trim(),
+          precio_unitario: null, actor: input.actor, actor_name: input.actorName ?? null,
+          ref_tipo: 'recepcion_resguardo', ref_id: c.id,
+        });
+        ce.inventario_aplicado = true; cambiaron = true;
+        ingresos.push({ centro: ce.nombre, almacen: (ce.almacen as string).trim(), kg });
+      }
+    }
+    if (cambiaron) await actualizarConciliacion(c.id, { centros });
+  }
+
+  const snapshot = {
+    generado_at: new Date().toISOString(),
+    recepciones: recs, analisis: anas, humedad_prov: hp, humedad_final: hf, minerales: mins,
+    conciliaciones, totales, ingresos_resguardo: ingresos,
+  };
+  const { data, error } = await supabase.from(TABLE_CIERRES).insert({
+    numero, snapshot, observacion: input.observacion?.trim() || null,
+    created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  return data as CierreRecepcion;
+}
+
+export async function eliminarCierre(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_CIERRES).delete().eq('id', id);
   if (error) throw error;
 }
 

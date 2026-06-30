@@ -4,6 +4,8 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
+import { getNombresAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
@@ -18,9 +20,11 @@ import {
   guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion, calcConciliacion,
   listTotales, crearTotales, actualizarTotales, eliminarTotales, calcTotales,
+  listCierres, cerrarRecepcion, eliminarCierre,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
   type HumedadProvRow, type HumedadFinalRow, type BigbagRow, type PesadaRow,
   type Conciliacion, type ConciliacionCentro, type TotalesDoc, type TotalCentro,
+  type CierreRecepcion,
 } from './recepciones.repository';
 
 /** ISO → valor de <input type="datetime-local"> (hora local). */
@@ -72,6 +76,7 @@ export function RecepcionesPage() {
   const [seccion, setSeccion] = useState<'resumenes' | null>(null);
   const [concilOpen, setConcilOpen] = useState(false);
   const [totalesOpen, setTotalesOpen] = useState(false);
+  const [cierresOpen, setCierresOpen] = useState(false);
 
   // Espejo del análisis para leer el estado vigente desde onBlur sin closures viejos.
   const analisisRef = useRef<AnalisisRow[]>([]);
@@ -325,6 +330,9 @@ export function RecepcionesPage() {
             {b.label}
           </button>
         ))}
+        <button className="btn btn-primary" style={{ filter: 'hue-rotate(75deg)' }} onClick={() => setCierresOpen(true)} title="Cerrar la recepción y guardar todo en el histórico">
+          🔒 Cerrar recepción
+        </button>
       </div>
 
       {seccion === 'resumenes' && (
@@ -335,6 +343,7 @@ export function RecepcionesPage() {
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} onClose={() => setConcilOpen(false)} />}
       {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} onClose={() => setTotalesOpen(false)} />}
+      {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCierresOpen(false)} />}
 
       {loading ? (
         <EmptyState message="Cargando recepciones…" icon="◔" />
@@ -1016,11 +1025,14 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
   const [guardando, setGuardando] = useState(false);
   const [aBorrar, setABorrar] = useState<Conciliacion | null>(null);
 
+  const [almacenes, setAlmacenes] = useState<string[]>([]);
+
   const cargar = useCallback(async () => {
     try { setLista(await listConciliaciones()); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las conciliaciones', 'error'); }
   }, []);
   useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
+  useEffect(() => { getNombresAlmacenes().then(setAlmacenes).catch(() => setAlmacenes([])); }, []);
   useRealtime(['recepciones_conciliaciones'], () => { void cargar(); });
 
   const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
@@ -1038,7 +1050,19 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
   function setCentro(i: number, campo: 'nombre' | 'kg', value: string) {
     setDraft((p) => p ? { ...p, centros: p.centros.map((x, j) => (j === i ? { ...x, [campo]: campo === 'kg' ? (value === '' ? null : Number(value)) : value } : x)) } : p);
   }
-  function addCentro() { setDraft((p) => (p ? { ...p, centros: [...p.centros, { nombre: '', kg: null }] } : p)); }
+  function patchCentro(i: number, patch: Partial<ConciliacionCentro>) {
+    setDraft((p) => p ? { ...p, centros: p.centros.map((x, j) => (j === i ? { ...x, ...patch } : x)) } : p);
+  }
+  /** Almacén del centro RESGUARDO: si es nuevo, lo crea en el inventario REAL. */
+  async function setAlmacenCentro(i: number, value: string) {
+    patchCentro(i, { almacen: value });
+    const v = value.trim();
+    if (v && !almacenes.some((a) => a.toLowerCase() === v.toLowerCase())) {
+      try { const a = await crearAlmacen({ nombre: v }, actor); setAlmacenes((prev) => prev.includes(a.nombre) ? prev : [...prev, a.nombre]); patchCentro(i, { almacen: a.nombre }); }
+      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el almacén', 'error'); }
+    }
+  }
+  function addCentro() { setDraft((p) => (p ? { ...p, centros: [...p.centros, { nombre: '', kg: null, categoria: null, entra_inventario: false, almacen: null }] } : p)); }
   function delCentro(i: number) { setDraft((p) => (p ? { ...p, centros: p.centros.filter((_, j) => j !== i) } : p)); }
 
   async function guardar() {
@@ -1131,22 +1155,55 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
               </div>
               <div className="table-wrap" style={{ overflowX: 'auto' }}>
                 <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
-                  <thead><tr><th className="num">Saldo (KG)</th><th>Centro de Acopio / Aliado</th>{canWrite && <th style={{ width: 30 }}></th>}</tr></thead>
+                  <thead><tr><th className="num">Saldo (KG)</th><th>Centro de Acopio / Aliado</th><th>Categoría</th>{canWrite && <th style={{ width: 30 }}></th>}</tr></thead>
                   <tbody>
-                    {!draft.centros.length && <tr><td colSpan={canWrite ? 3 : 2} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usá «＋ Añadir centro».</td></tr>}
-                    {draft.centros.map((ce, i) => (
-                      <tr key={i}>
-                        <td className="num">
-                          <input className="input mono" type="number" step="any" value={ce.kg ?? ''} disabled={!canWrite}
-                            onChange={(e) => setCentro(i, 'kg', e.target.value)} placeholder="0,00" style={{ width: 120, textAlign: 'right' }} />
-                        </td>
-                        <td>
-                          <input className="input" value={ce.nombre} disabled={!canWrite}
-                            onChange={(e) => setCentro(i, 'nombre', e.target.value.toUpperCase())} placeholder="P-MGG… / Aliado" style={{ width: 240 }} />
-                        </td>
-                        {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Quitar centro" onClick={() => delCentro(i)}>🗑</button></td>}
-                      </tr>
-                    ))}
+                    {!draft.centros.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usá «＋ Añadir centro».</td></tr>}
+                    {draft.centros.map((ce, i) => {
+                      const esResguardo = (ce.categoria ?? '') === 'RESGUARDO';
+                      return (
+                      <Fragment key={i}>
+                        <tr>
+                          <td className="num">
+                            <input className="input mono" type="number" step="any" value={ce.kg ?? ''} disabled={!canWrite}
+                              onChange={(e) => setCentro(i, 'kg', e.target.value)} placeholder="0,00" style={{ width: 120, textAlign: 'right' }} />
+                          </td>
+                          <td>
+                            <input className="input" value={ce.nombre} disabled={!canWrite}
+                              onChange={(e) => setCentro(i, 'nombre', e.target.value.toUpperCase())} placeholder="P-MGG… / Aliado" style={{ width: 220 }} />
+                          </td>
+                          <td>
+                            <select className="select" value={ce.categoria ?? ''} disabled={!canWrite}
+                              onChange={(e) => patchCentro(i, { categoria: e.target.value || null, ...(e.target.value !== 'RESGUARDO' ? { entra_inventario: false, almacen: null } : {}) })} style={{ width: 140 }}>
+                              <option value="">— Normal —</option>
+                              <option value="RESGUARDO">RESGUARDO</option>
+                            </select>
+                          </td>
+                          {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Quitar centro" onClick={() => delCentro(i)}>🗑</button></td>}
+                        </tr>
+                        {esResguardo && (
+                          <tr>
+                            <td colSpan={canWrite ? 4 : 3} style={{ background: 'var(--bg-1, #11151c)' }}>
+                              <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap', alignItems: 'center', padding: '.25rem 0' }}>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.8rem' }}>
+                                  <input type="checkbox" checked={!!ce.entra_inventario} disabled={!canWrite}
+                                    onChange={(e) => patchCentro(i, { entra_inventario: e.target.checked })} />
+                                  ¿Entran estos KG al inventario? <span className="muted">(sin tasa)</span>
+                                </label>
+                                {ce.entra_inventario && (
+                                  <div style={{ minWidth: 240, flex: '1 1 240px' }}>
+                                    <SearchCreateSelect options={almacenes} value={ce.almacen ?? ''} disabled={!canWrite}
+                                      onChange={(v) => void setAlmacenCentro(i, v.toUpperCase())}
+                                      placeholder="🔍 Almacén destino… (escribí para crear)" emptyText="Escribí para crear un almacén" />
+                                  </div>
+                                )}
+                                {ce.inventario_aplicado && <span className="badge success" style={{ fontSize: '.7rem' }}>✓ Ingresado</span>}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1398,6 +1455,139 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, onClose }: {
       {aBorrar && (
         <ConfirmDialog title="Eliminar totales" message={`¿Eliminar los Totales N° ${aBorrar.numero}?`} confirmText="Eliminar" danger
           onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)} />
+      )}
+    </Modal>
+  );
+}
+
+/* ───────────── Modal: Cerrar recepción (histórico de TODOS los datos) ───────────── */
+function CierresModal({ canWrite, actor, actorName, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; onClose: () => void;
+}) {
+  const [lista, setLista] = useState<CierreRecepcion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<'list' | 'cerrar' | 'detalle'>('list');
+  const [numero, setNumero] = useState(1);
+  const [obs, setObs] = useState('');
+  const [cerrando, setCerrando] = useState(false);
+  const [ver, setVer] = useState<CierreRecepcion | null>(null);
+  const [aBorrar, setABorrar] = useState<CierreRecepcion | null>(null);
+
+  const cargar = useCallback(async () => {
+    try { setLista(await listCierres()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los cierres', 'error'); }
+  }, []);
+  useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
+  useRealtime(['recepciones_cierres'], () => { void cargar(); });
+
+  const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
+
+  function abrirCerrar() { setNumero(lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1); setObs(''); setMode('cerrar'); }
+  async function confirmarCierre() {
+    setCerrando(true);
+    try {
+      const c = await cerrarRecepcion({ numero, actor, actorName, observacion: obs });
+      await cargar(); setMode('list');
+      toast(`Recepción N° ${c.numero} cerrada`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar la recepción', 'error'); }
+    finally { setCerrando(false); }
+  }
+  async function borrar(c: CierreRecepcion) {
+    try { await eliminarCierre(c.id); await cargar(); toast(`Cierre N° ${c.numero} eliminado`, 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setABorrar(null); }
+  }
+
+  const snap = (ver?.snapshot ?? {}) as Record<string, unknown>;
+  const arr = (k: string): unknown[] => (Array.isArray(snap[k]) ? snap[k] as unknown[] : []);
+
+  const footer = mode === 'cerrar' ? (
+    <>
+      <button className="btn btn-ghost" onClick={() => setMode('list')}>← Volver</button>
+      {canWrite && <button className="btn btn-primary" onClick={() => void confirmarCierre()} disabled={cerrando}>{cerrando ? 'Cerrando…' : '🔒 CERRAR RECEPCIÓN'}</button>}
+    </>
+  ) : mode === 'detalle' ? (
+    <button className="btn btn-primary" onClick={() => { setVer(null); setMode('list'); }}>← Volver</button>
+  ) : (
+    <>
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      {canWrite && <button className="btn btn-primary" onClick={abrirCerrar}>🔒 Cerrar recepción</button>}
+    </>
+  );
+
+  return (
+    <Modal title={mode === 'cerrar' ? 'Cerrar recepción' : mode === 'detalle' ? `Recepción cerrada N° ${ver?.numero ?? ''}` : '🔒 Recepciones cerradas (histórico)'} size="xl" onClose={onClose} footer={footer}>
+      {mode === 'list' && (
+        loading ? <p className="muted">Cargando…</p> : !lista.length ? (
+          <EmptyState message="Sin recepciones cerradas. Usá «🔒 Cerrar recepción»." icon="🔒" />
+        ) : (
+          <div className="table-wrap" style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ fontSize: '.85rem' }}>
+              <thead><tr><th>N° Recepción</th><th>Fecha</th><th>Ingresos resguardo</th>{canWrite && <th></th>}</tr></thead>
+              <tbody>
+                {lista.map((c) => {
+                  const ingArr = (c.snapshot as Record<string, unknown>).ingresos_resguardo;
+                  const ing = Array.isArray(ingArr) ? ingArr.length : 0;
+                  return (
+                    <tr key={c.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => { setVer(c); setMode('detalle'); }} title="Ver detalle">
+                      <td className="mono" style={{ fontWeight: 700 }}>N° {c.numero}</td>
+                      <td>{fmtFecha(c.fecha)}</td>
+                      <td className="mono">{ing}</td>
+                      {canWrite && <td><button className="btn btn-sm btn-ghost" title="Eliminar" onClick={(e) => { e.stopPropagation(); setABorrar(c); }}>🗑</button></td>}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
+      {mode === 'cerrar' && (
+        <div>
+          <div className="form-row" style={{ maxWidth: 260 }}>
+            <label>N° de recepción</label>
+            <input className="input mono" type="number" min={1} value={numero} onChange={(e) => setNumero(Math.max(1, Math.round(Number(e.target.value) || 1)))} />
+          </div>
+          <div className="form-row" style={{ marginTop: '.75rem' }}>
+            <label>Nota <span className="muted">(opcional)</span></label>
+            <textarea className="input" rows={2} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observaciones del cierre…" />
+          </div>
+          <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--warning)' }}>
+            <small>Al cerrar se guarda una <strong>foto de todos los datos</strong> (recepciones, análisis, humedad, conciliación N° {numero} y totales N° {numero}) y los centros marcados <strong>RESGUARDO «entra al inventario»</strong> ingresan al inventario <strong>sin tasa</strong> (producto Casiterita).</small>
+          </div>
+        </div>
+      )}
+
+      {mode === 'detalle' && ver && (
+        <div style={{ display: 'grid', gap: '.5rem' }}>
+          <div className="detail-row"><div className="k">N° Recepción</div><div className="v mono">N° {ver.numero}</div></div>
+          <div className="detail-row"><div className="k">Fecha de cierre</div><div className="v">{fmtFecha(ver.fecha)}</div></div>
+          {ver.observacion && <div className="detail-row"><div className="k">Nota</div><div className="v">{ver.observacion}</div></div>}
+          <div className="detail-row"><div className="k">Recepciones (kg)</div><div className="v mono">{arr('recepciones').length}</div></div>
+          <div className="detail-row"><div className="k">Análisis químicos</div><div className="v mono">{arr('analisis').length}</div></div>
+          <div className="detail-row"><div className="k">Conciliaciones</div><div className="v mono">{arr('conciliaciones').length}</div></div>
+          <div className="detail-row"><div className="k">Totales</div><div className="v mono">{arr('totales').length}</div></div>
+          {arr('ingresos_resguardo').length > 0 && (
+            <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '.4rem' }}>
+              <div className="card-title" style={{ padding: '.45rem .7rem' }}><span>Ingresos al inventario por RESGUARDO (sin tasa)</span></div>
+              <div className="table-wrap"><table className="table" style={{ fontSize: '.82rem' }}>
+                <thead><tr><th>Centro</th><th>Almacén</th><th className="num">KG</th></tr></thead>
+                <tbody>
+                  {(arr('ingresos_resguardo') as Array<{ centro: string; almacen: string; kg: number }>).map((g, i) => (
+                    <tr key={i}><td>{g.centro || '—'}</td><td>{g.almacen}</td><td className="num mono">{fmt(g.kg)}</td></tr>
+                  ))}
+                </tbody>
+              </table></div>
+            </div>
+          )}
+          <div className="muted" style={{ fontSize: '.72rem' }}>La foto guarda todos los datos de la recepción al momento del cierre.</div>
+        </div>
+      )}
+
+      {aBorrar && (
+        <ConfirmDialog title="Eliminar cierre" message={`¿Eliminar el cierre de la Recepción N° ${aBorrar.numero}? (no revierte el inventario ya ingresado)`}
+          confirmText="Eliminar" danger onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)} />
       )}
     </Modal>
   );
