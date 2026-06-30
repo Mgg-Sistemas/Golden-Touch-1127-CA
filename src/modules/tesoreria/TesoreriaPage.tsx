@@ -1128,7 +1128,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                   <tr key={l.id}>
                     <td>{dateTime(l.created_at)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{monto(l.monto, lotesDe.moneda)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{l.tasa_bs != null ? Number(l.tasa_bs).toLocaleString('es-VE', { maximumFractionDigits: 4 }) : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{l.tasa_bs != null ? Number(l.tasa_bs).toLocaleString('es-VE', { maximumFractionDigits: 2 }) : '—'}</td>
                     <td>{l.origen || '—'}</td>
                     <td className="muted">{l.actor_name || l.actor || '—'}</td>
                   </tr>
@@ -1142,7 +1142,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                     <tr>
                       <td style={{ fontWeight: 700 }}>Total</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(tot, lotesDe.moneda)}</td>
-                      <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#16c784' }} title="Promedio ponderado por monto de los lotes">{prom.toLocaleString('es-VE', { maximumFractionDigits: 4 })}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: '#16c784' }} title="Promedio ponderado por monto de los lotes">{prom.toLocaleString('es-VE', { maximumFractionDigits: 2 })}</td>
                       <td colSpan={2} className="muted" style={{ fontSize: '.72rem' }}>Promedio ponderado de las tasas de ingreso</td>
                     </tr>
                   </tfoot>
@@ -1198,7 +1198,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 <input className="input mono" type="number" min={0} step="any" value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} required />
                 {tasaSugerida != null && tasaSugerida > 0 && (
                   <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginTop: '.2rem' }}>
-                    Tasa del día: <strong className="mono">{tasaSugerida.toLocaleString('es-VE', { maximumFractionDigits: 4 })}</strong>
+                    Tasa del día: <strong className="mono">{tasaSugerida.toLocaleString('es-VE', { maximumFractionDigits: 2 })}</strong>
                     <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .4rem' }}
                       onClick={() => setTasaStr(String(tasaSugerida))}>Usar</button>
                   </small>
@@ -1267,7 +1267,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
             const tn = Number(tasaStr) || 0;
             const nuevoSaldo = sa + mn;
             const nuevoProm = nuevoSaldo > 0 ? (sa * tp + mn * tn) / nuevoSaldo : tn;
-            const f4 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 4 });
+            const f4 = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 2 });
             return (
               <div className="card" style={{ marginTop: '.5rem', padding: '.55rem .7rem', background: 'var(--bg-1)' }}>
                 <div style={{ fontSize: '.83rem' }}>

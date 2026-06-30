@@ -104,7 +104,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       body: filas,
       foot: [
         ['NETO A PAGAR (USD)', usd(r.neto_usd)],
-        ...(tasa > 0 ? [['Equivalente en Bs (BCV ' + tasa.toLocaleString('es-VE') + ')', bsStr(Number(r.neto_usd) * tasa)]] as Array<[string, string]> : []),
+        ...(tasa > 0 ? [['Equivalente en Bs (BCV ' + tasa.toLocaleString('es-VE', { maximumFractionDigits: 2 }) + ')', bsStr(Number(r.neto_usd) * tasa)]] as Array<[string, string]> : []),
       ],
       margin: MARGIN,
       styles: { fontSize: 9.5, cellPadding: 5 },

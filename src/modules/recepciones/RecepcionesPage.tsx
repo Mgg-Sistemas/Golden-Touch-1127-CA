@@ -43,9 +43,9 @@ function localToIso(v: string): string {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 const fmt = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 }));
-/** Ley del mineral en porcentaje (mínimo 2, máximo 3 decimales). */
+/** Ley del mineral en porcentaje (2 decimales). */
 const fmtPct = (n: number | null | undefined) =>
-  (n == null ? '—' : `${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} %`);
+  (n == null ? '—' : `${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`);
 /** Humedad en porcentaje (2 decimales). */
 const fmtH = (n: number | null | undefined) =>
   (n == null ? '—' : `${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`);
@@ -1342,7 +1342,7 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
 }
 
 /* ───────────── Modal: Totales (precio de compra minas → recepcionada → costo final) ───────────── */
-const fmt4 = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 }));
+const fmt4 = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 interface TotalesDraft {
   id: string | null; numero: number; fecha: string | null;
@@ -1484,11 +1484,6 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, cajaTasa, onClose
                     </tr>
                   );
                 })}
-                <tr>
-                  <td></td><td></td>
-                  <td className="num"><input className="input mono" type="number" step="any" value={draft.gastos || ''} disabled={!canWrite} onChange={(e) => setLocal({ gastos: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} /></td>
-                  <td style={{ fontWeight: 700 }}>GASTOS</td>{canWrite && <td></td>}
-                </tr>
               </tbody>
               <tfoot>
                 {bloque(fmt(t.totalSnO2Minas), `$${fmt4(t.precioMinas)}`, fmt(t.totalMonedaMinas), 'PROMEDIO DE PRECIO DE COMPRA EN MINAS')}
@@ -1525,7 +1520,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, cajaTasa, onClose
             <textarea className="input" rows={2} value={draft.observacion} disabled={!canWrite} onChange={(e) => setLocal({ observacion: e.target.value })} placeholder="Observaciones…" />
           </div>
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>
-            Total Moneda (centro) = Total SnO2 × Precio/Tasa · MINAS: SnO2 = Σ kg, Moneda = Σ(kg×precio) + GASTOS, Precio = Moneda/SnO2 ·
+            Total Moneda (centro) = Total SnO2 × Precio/Tasa · MINAS: SnO2 = Σ kg, Moneda = Σ(kg×precio), Precio = Moneda/SnO2 ·
             RECEPCIONADA: SnO2 = Pesos Kg, Moneda = Moneda de MINAS, Tasa = Moneda/Pesos Kg ·
             COSTO FINAL: SnO2 = Pesos Kg + Humedad Prov + Humedad Final + Fe estéril, Moneda = Moneda RECEPCIONADA, Tasa = Moneda/SnO2.
           </div>

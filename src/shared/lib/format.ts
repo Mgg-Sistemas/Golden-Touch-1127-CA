@@ -16,7 +16,7 @@ export function redondearArriba5(n: number | null | undefined): number {
 
 export function num(n: number | null | undefined): string {
   if (n == null || isNaN(n as number)) return '—';
-  return Number(n).toLocaleString('es-VE');
+  return Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 });
 }
 
 /**
