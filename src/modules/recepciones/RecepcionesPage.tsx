@@ -16,7 +16,8 @@ import {
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
   pctHumedadProv, mermaH2OProv, promedioHumedadProv,
   listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal, pctHumedadFinal,
-  listBigbags, crearBigbag, actualizarBigbag, eliminarBigbag, formulaBigbag,
+  listBigbags, crearBigbag, actualizarBigbag, eliminarBigbag, totalesBigbags,
+  TARA_TIPO, TIPO_LABEL, TIPO_SINGULAR, tipoValido, type TipoPesaje,
   guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion, calcConciliacion,
   listTotales, crearTotales, actualizarTotales, eliminarTotales, calcTotales,
@@ -65,6 +66,7 @@ export function RecepcionesPage() {
   const [loading, setLoading] = useState(true);
   const [creando, setCreando] = useState(false);
   const [anadiendo, setAnadiendo] = useState(false);
+  const [guardandoLab, setGuardandoLab] = useState(false);
   const [addProv, setAddProv] = useState(false);
   const [addFin, setAddFin] = useState(false);
   const [aBorrar, setABorrar] = useState<RecepcionLab | null>(null);
@@ -134,6 +136,15 @@ export function RecepcionesPage() {
     if (!row) return;
     try { await actualizarAnalisisRow(id, { analisis: row.analisis }); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar el análisis', 'error'); void reload(); }
+  }
+  // Guarda de una vez TODOS los análisis cargados (sin borrar lo recién ingresado).
+  async function guardarTodoLab() {
+    setGuardandoLab(true);
+    try {
+      for (const row of analisisRef.current) await actualizarAnalisisRow(row.id, { analisis: row.analisis });
+      toast('Datos de laboratorio guardados', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron guardar los datos', 'error'); void reload(); }
+    finally { setGuardandoLab(false); }
   }
   async function nuevoAnalisis() {
     setAnadiendo(true);
@@ -292,6 +303,8 @@ export function RecepcionesPage() {
     );
   }
 
+  // La tabla del laboratorio se parte en DOS mitades apiladas (5 de un lado y 5 del
+  // otro) para ver mejor los resultados sin desplazamiento horizontal.
   const mitad = Math.ceil(minerales.length / 2);
   const grupos = [minerales.slice(0, mitad), minerales.slice(mitad)].filter((g) => g.length);
 
@@ -380,8 +393,8 @@ export function RecepcionesPage() {
                       </td>
                       <td className="num">
                         <input className="input mono" type="number" min={0} step="any" defaultValue={f.peso_kg} disabled={!canWrite}
-                          onBlur={(e) => { const v = Math.max(0, Number(e.target.value) || 0); if (v !== Number(f.peso_kg)) void guardarCampo(f.id, { peso_kg: v }); }}
-                          style={{ width: 120, textAlign: 'right' }} />
+                          onBlur={(e) => { const v = Math.round(Math.max(0, Number(e.target.value) || 0) * 100) / 100; if (v !== Number(e.target.value)) e.target.value = String(v); if (v !== Number(f.peso_kg)) void guardarCampo(f.id, { peso_kg: v }); }}
+                          style={{ width: 180, minWidth: 160, textAlign: 'right' }} />
                       </td>
                       <td>
                         <input className="input" defaultValue={f.procedencia} disabled={!canWrite}
@@ -418,7 +431,13 @@ export function RecepcionesPage() {
                 <div style={{ fontWeight: 700, letterSpacing: '.04em' }}>RECEPCIÓN GLOBAL LABORATORIO</div>
                 <div className="muted" style={{ fontSize: '.72rem' }}>Todos los valores de minerales son leyes en porcentaje (%)</div>
               </div>
-              <div style={{ minWidth: 150, textAlign: 'right' }}>
+              <div style={{ minWidth: 150, textAlign: 'right', display: 'flex', gap: '.4rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                {canWrite && analisis.length > 0 && (
+                  <button className="btn btn-sm btn-ghost" onClick={() => void guardarTodoLab()} disabled={guardandoLab}
+                    title="Guardar todos los datos de laboratorio cargados">
+                    {guardandoLab ? 'Guardando…' : '💾 Guardar datos'}
+                  </button>
+                )}
                 {canWrite && (
                   <button className="btn btn-sm btn-primary" onClick={() => void nuevoAnalisis()} disabled={anadiendo}
                     title="Agregar una fila nueva de análisis químico (no afecta la tabla de recepciones)">
@@ -437,7 +456,7 @@ export function RecepcionesPage() {
             <div className="muted" style={{ fontSize: '.74rem', padding: '.5rem .75rem' }}>
               Prom. = (A + B + C) / 3 · Promedio del lote = promedio de los Prom. de todos los análisis con valor.
               Esta tabla es <strong>independiente</strong> de la de recepciones: «＋ Añadir valores» agrega solo análisis químicos.
-              La tabla se divide en dos mitades para evitar el desplazamiento horizontal. Los cambios se guardan al salir de cada celda (tiempo real).
+              La tabla se divide en dos mitades apiladas (5 de un lado y 5 del otro) para ver mejor los resultados sin desplazamiento horizontal. Los cambios se guardan al salir de cada celda (tiempo real) o con «💾 Guardar datos».
             </div>
           </div>
 
@@ -760,6 +779,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [nuevoTipo, setNuevoTipo] = useState<TipoPesaje>('bigbag');
   const [aBorrar, setABorrar] = useState<BigbagRow | null>(null);
   const [pesadaBorrar, setPesadaBorrar] = useState<PesadaRow | null>(null);
   const rowsRef = useRef<BigbagRow[]>([]);
@@ -798,8 +818,8 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   }
   async function nuevo() {
     setAdding(true);
-    try { await crearBigbag({ actor, actorName, pesadaId: vista }); await cargar(vista); await trasEditarPesada(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir el bigbag', 'error'); }
+    try { await crearBigbag({ actor, actorName, pesadaId: vista, tipo: nuevoTipo }); await cargar(vista); await trasEditarPesada(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir', 'error'); }
     finally { setAdding(false); }
   }
   async function borrar(r: BigbagRow) {
@@ -830,15 +850,21 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar', 'error'); }
   }
 
-  // Totales por tabla: BIG BAG = −(cantidad de bigbags con peso) × 1.5; TOTAL NETO = suma + BIG BAG.
-  const humConPeso = rows.filter((r) => r.peso_humedo != null).length;
-  const secConPeso = rows.filter((r) => r.peso_seco != null).length;
-  const sumaHum = rows.reduce((a, r) => a + (Number(r.peso_humedo) || 0), 0);
-  const sumaSec = rows.reduce((a, r) => a + (Number(r.peso_seco) || 0), 0);
-  const formulaHum = formulaBigbag(humConPeso);
-  const formulaSec = formulaBigbag(secConPeso);
-  const netoHum = sumaHum + formulaHum;
-  const netoSec = sumaSec + formulaSec;
+  // Cambia la CATEGORÍA de una fila (por fila: un mismo pesaje mezcla los 3 tipos).
+  async function setTipoRow(id: string, t: TipoPesaje) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, tipo: t } : r)));
+    try { await actualizarBigbag(id, { tipo: t }); await trasEditarPesada(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar la categoría', 'error'); void cargar(vistaRef.current); }
+  }
+
+  // Ordinal POR CATEGORÍA: el número se incrementa dentro de cada tipo (Bigbag 1, Saco 1…).
+  const ordinal = new Map<string, number>();
+  { const cont: Record<string, number> = {}; for (const r of rows) { const t = tipoValido(r.tipo); cont[t] = (cont[t] ?? 0) + 1; ordinal.set(r.id, cont[t]); } }
+
+  // Totales: TARA por categoría (Σ por tipo); TOTAL NETO = suma + TARA. Permite negativos.
+  const tot = totalesBigbags(rows);
+  const formulaHum = tot.bigBagHumedo, formulaSec = tot.bigBagSeco;
+  const netoHum = tot.netoHumedo, netoSec = tot.netoSeco;
   const pesadaActiva = vista ? pesadas.find((p) => p.id === vista) ?? null : null;
 
   /** Renderiza una tabla (húmedos o secos). `campo` = columna de peso editada. */
@@ -849,11 +875,13 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
         <div className="table-wrap" style={{ overflowX: 'auto' }}>
           <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
             <thead>
-              <tr><th>Procedencia</th><th className="num">Peso</th><th>Bigbag</th>{canWrite && <th style={{ width: 30 }}></th>}</tr>
+              <tr><th>Procedencia</th><th className="num">Peso</th><th>Categoría</th>{canWrite && <th style={{ width: 30 }}></th>}</tr>
             </thead>
             <tbody>
-              {!rows.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin bigbags. Usá «＋ Añadir BIGBAG».</td></tr>}
-              {rows.map((r) => (
+              {!rows.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin pesajes. Usá «＋ Añadir».</td></tr>}
+              {rows.map((r) => {
+                const t = tipoValido(r.tipo);
+                return (
                 <tr key={r.id}>
                   <td>
                     <input className="input" value={r.procedencia ?? ''} disabled={!canWrite}
@@ -865,16 +893,24 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
                       onChange={(e) => setCampo(r.id, campo, e.target.value)}
                       onBlur={() => void guardar(r.id, campo)} style={{ width: 110, textAlign: 'right' }} />
                   </td>
-                  <td className="mono">Bigbag {r.numero}</td>
-                  {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Eliminar bigbag" onClick={() => setABorrar(r)}>🗑</button></td>}
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
+                      <select className="select" value={t} disabled={!canWrite} onChange={(e) => void setTipoRow(r.id, e.target.value as TipoPesaje)} style={{ width: 140 }}>
+                        {(['bigbag', 'saco', 'bolsa_hielo'] as TipoPesaje[]).map((k) => <option key={k} value={k}>{TIPO_LABEL[k]}</option>)}
+                      </select>
+                      <span className="mono muted" style={{ fontSize: '.78rem' }}>{TIPO_SINGULAR[t]} {ordinal.get(r.id)}</span>
+                    </div>
+                  </td>
+                  {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Eliminar pesaje" onClick={() => setABorrar(r)}>🗑</button></td>}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
                 <td></td>
                 <td className="num mono" style={{ background: 'rgba(120,200,140,.25)', color: 'var(--danger, #e5484d)', fontWeight: 800 }}>{fmt(formula)}</td>
-                <td style={{ color: 'var(--danger, #e5484d)', fontWeight: 800 }}>BIG BAG</td>
+                <td style={{ color: 'var(--danger, #e5484d)', fontWeight: 800 }}>TARA ENVASES</td>
                 {canWrite && <td></td>}
               </tr>
               <tr style={{ fontWeight: 800 }}>
@@ -898,12 +934,16 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
         <div className="muted" style={{ fontSize: '.8rem' }}>
-          BIG BAG = −(cantidad de bigbags con peso) × 1.5 · TOTAL NETO = suma de pesos + BIG BAG (permite negativos).
+          TARA por categoría (un pesaje mezcla los 3): BIG BAG ×{fmt(TARA_TIPO.bigbag)} · SACO ×{fmt(TARA_TIPO.saco)} · BOLSA DE HIELO ×{fmt(TARA_TIPO.bolsa_hielo)}. TOTAL NETO = suma de pesos − tara (permite negativos).
         </div>
         {canWrite && (
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Selector de categoría para la fila nueva: el número se incrementa por categoría */}
+            <select className="select" value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value as TipoPesaje)} style={{ width: 150 }} title="Categoría de la fila a añadir">
+              {(['bigbag', 'saco', 'bolsa_hielo'] as TipoPesaje[]).map((t) => <option key={t} value={t}>{TIPO_LABEL[t]}</option>)}
+            </select>
             <button className="btn btn-ghost" onClick={() => void nuevo()} disabled={adding}>
-              {adding ? 'Añadiendo…' : '＋ Añadir BIGBAG'}
+              {adding ? 'Añadiendo…' : `＋ Añadir ${TIPO_LABEL[nuevoTipo]}`}
             </button>
             {!vista && (
               <button className="btn btn-primary" onClick={() => void guardarPesos()} disabled={saving || !rows.length}>
@@ -982,8 +1022,8 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
 
       {aBorrar && (
         <ConfirmDialog
-          title="Eliminar bigbag"
-          message={`¿Eliminar el Bigbag ${aBorrar.numero}? Se quita de ambas tablas (húmedos y secos).`}
+          title={`Eliminar ${TIPO_SINGULAR[tipoValido(aBorrar.tipo)].toLowerCase()}`}
+          message={`¿Eliminar el ${TIPO_SINGULAR[tipoValido(aBorrar.tipo)]} ${ordinal.get(aBorrar.id) ?? ''}? Se quita de ambas tablas (húmedos y secos).`}
           confirmText="Eliminar" danger
           onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)}
         />

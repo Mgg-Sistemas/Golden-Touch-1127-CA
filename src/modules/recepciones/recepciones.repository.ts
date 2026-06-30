@@ -81,7 +81,7 @@ export async function crearRecepcion(input: CrearRecepcionInput): Promise<Recepc
       item,
       n_analisis: nAnalisis,
       fecha_hora: input.fechaHora ?? new Date().toISOString(),
-      peso_kg: Math.max(0, num(input.pesoKg)),
+      peso_kg: round2(Math.max(0, num(input.pesoKg))),
       procedencia: (input.procedencia?.trim() || 'PERAMANAL'),
       caja_id: input.cajaId ?? null,
       caja_numero: input.cajaNumero ?? null,
@@ -133,7 +133,7 @@ export async function actualizarRecepcion(id: string, patch: ActualizarRecepcion
   if (patch.item != null) upd.item = Math.max(1, Math.round(num(patch.item)));
   if (patch.n_analisis !== undefined) upd.n_analisis = patch.n_analisis == null ? null : Math.max(1, Math.round(num(patch.n_analisis)));
   if (patch.fecha_hora != null) upd.fecha_hora = patch.fecha_hora;
-  if (patch.peso_kg != null) upd.peso_kg = Math.max(0, num(patch.peso_kg));
+  if (patch.peso_kg != null) upd.peso_kg = round2(Math.max(0, num(patch.peso_kg)));
   if (patch.procedencia != null) upd.procedencia = patch.procedencia.trim() || 'PERAMANAL';
   if (patch.analisis != null) upd.analisis = patch.analisis;
   if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
@@ -399,12 +399,23 @@ export function pctHumedadFinal(pesoKg: number | null, pesoRecogido: number | nu
 const TABLE_BB = 'recepciones_bigbags';
 export const TARA_BIGBAG = 1.5;
 
+/** Tipo de envase del pesaje (switch). Cada uno descuenta su propia tara por unidad con peso. */
+export type TipoPesaje = 'bigbag' | 'saco' | 'bolsa_hielo';
+/** Tara (negativa) por unidad con peso, según el tipo. */
+export const TARA_TIPO: Record<TipoPesaje, number> = { bigbag: 1.5, saco: 0.06, bolsa_hielo: 0.05 };
+/** Etiqueta de la fila de tara / encabezado, según el tipo. */
+export const TIPO_LABEL: Record<TipoPesaje, string> = { bigbag: 'BIG BAG', saco: 'SACO', bolsa_hielo: 'BOLSA DE HIELO' };
+/** Etiqueta singular (para «X 1», botón «Añadir X»). */
+export const TIPO_SINGULAR: Record<TipoPesaje, string> = { bigbag: 'Bigbag', saco: 'Saco', bolsa_hielo: 'Bolsa de hielo' };
+export function tipoValido(t: unknown): TipoPesaje { return t === 'saco' || t === 'bolsa_hielo' ? t : 'bigbag'; }
+
 export interface BigbagRow {
   id: string;
   numero: number;
   procedencia: string | null;
   peso_humedo: number | null;
   peso_seco: number | null;
+  tipo?: string | null;
   pesada_id?: string | null;
   created_by?: string | null;
   actor_name?: string | null;
@@ -422,7 +433,7 @@ export async function listBigbags(pesadaId: string | null = null): Promise<Bigba
   return (data ?? []) as BigbagRow[];
 }
 
-export async function crearBigbag(input: { actor: string; actorName?: string | null; pesadaId?: string | null }): Promise<BigbagRow> {
+export async function crearBigbag(input: { actor: string; actorName?: string | null; pesadaId?: string | null; tipo?: TipoPesaje }): Promise<BigbagRow> {
   const pesadaId = input.pesadaId ?? null;
   let q = supabase.from(TABLE_BB).select('numero');
   q = pesadaId == null ? q.is('pesada_id', null) : q.eq('pesada_id', pesadaId);
@@ -431,15 +442,26 @@ export async function crearBigbag(input: { actor: string; actorName?: string | n
   for (const r of (rows ?? []) as Array<{ numero: number | null }>) max = Math.max(max, num(r.numero));
   const { data, error } = await supabase.from(TABLE_BB).insert({
     numero: max + 1, procedencia: null, peso_humedo: null, peso_seco: null, pesada_id: pesadaId,
+    tipo: input.tipo ?? 'bigbag',
     created_by: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) throw error;
   return data as BigbagRow;
 }
 
-export async function actualizarBigbag(id: string, patch: { numero?: number; procedencia?: string | null; peso_humedo?: number | null; peso_seco?: number | null }): Promise<void> {
+/** Cambia el tipo de TODO el conjunto (set de trabajo o pesada) y, si es pesada, su cabecera. */
+export async function cambiarTipoPesos(pesadaId: string | null, tipo: TipoPesaje): Promise<void> {
+  let q = supabase.from(TABLE_BB).update({ tipo, updated_at: new Date().toISOString() });
+  q = pesadaId == null ? q.is('pesada_id', null) : q.eq('pesada_id', pesadaId);
+  const { error } = await q;
+  if (error) throw error;
+  if (pesadaId) await supabase.from(TABLE_PESADAS).update({ tipo }).eq('id', pesadaId);
+}
+
+export async function actualizarBigbag(id: string, patch: { numero?: number; procedencia?: string | null; peso_humedo?: number | null; peso_seco?: number | null; tipo?: TipoPesaje }): Promise<void> {
   const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.numero != null) upd.numero = Math.max(1, Math.round(num(patch.numero)));
+  if (patch.tipo !== undefined) upd.tipo = patch.tipo;
   if (patch.procedencia !== undefined) upd.procedencia = patch.procedencia?.trim() || null;
   if (patch.peso_humedo !== undefined) upd.peso_humedo = patch.peso_humedo == null ? null : num(patch.peso_humedo);
   if (patch.peso_seco !== undefined) upd.peso_seco = patch.peso_seco == null ? null : num(patch.peso_seco);
@@ -452,22 +474,32 @@ export async function eliminarBigbag(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Fórmula de la fila «BIG BAG»: −(cantidad de bigbags con peso) × 1.5. */
-export function formulaBigbag(cantidadConPeso: number): number {
-  return round2(-cantidadConPeso * TARA_BIGBAG);
+/** Fórmula de la fila de tara: −(cantidad de unidades con peso) × tara del tipo. */
+export function formulaBigbag(cantidadConPeso: number, tipo: TipoPesaje = 'bigbag'): number {
+  return round2(-cantidadConPeso * TARA_TIPO[tipo]);
 }
 
-/** Totales de un conjunto de bigbags (húmedos/secos): suma, BIG BAG y neto. */
+const TIPOS_PESAJE: TipoPesaje[] = ['bigbag', 'saco', 'bolsa_hielo'];
+
+/**
+ * Totales de un conjunto de pesajes (húmedos/secos): suma, tara y neto.
+ * La tara se calcula POR CATEGORÍA: en un mismo pesaje pueden convivir big bags,
+ * sacos y bolsas de hielo; cada tipo descuenta su propia tara × (cantidad con peso).
+ */
 export function totalesBigbags(bigbags: BigbagRow[]): {
   nBigbags: number; sumaHumedo: number; sumaSeco: number;
   bigBagHumedo: number; bigBagSeco: number; netoHumedo: number; netoSeco: number;
 } {
-  const humConPeso = bigbags.filter((b) => b.peso_humedo != null).length;
-  const secConPeso = bigbags.filter((b) => b.peso_seco != null).length;
   const sumaHumedo = round2(bigbags.reduce((a, b) => a + (Number(b.peso_humedo) || 0), 0));
   const sumaSeco = round2(bigbags.reduce((a, b) => a + (Number(b.peso_seco) || 0), 0));
-  const bigBagHumedo = formulaBigbag(humConPeso);
-  const bigBagSeco = formulaBigbag(secConPeso);
+  let bigBagHumedo = 0, bigBagSeco = 0;
+  for (const t of TIPOS_PESAJE) {
+    const hum = bigbags.filter((b) => b.peso_humedo != null && tipoValido(b.tipo) === t).length;
+    const sec = bigbags.filter((b) => b.peso_seco != null && tipoValido(b.tipo) === t).length;
+    bigBagHumedo += formulaBigbag(hum, t);
+    bigBagSeco += formulaBigbag(sec, t);
+  }
+  bigBagHumedo = round2(bigBagHumedo); bigBagSeco = round2(bigBagSeco);
   return {
     nBigbags: bigbags.length, sumaHumedo, sumaSeco, bigBagHumedo, bigBagSeco,
     netoHumedo: round2(sumaHumedo + bigBagHumedo), netoSeco: round2(sumaSeco + bigBagSeco),
@@ -488,6 +520,7 @@ export interface PesadaRow {
   big_bag_seco: number;
   neto_humedo: number;
   neto_seco: number;
+  tipo?: string | null;
   observacion?: string | null;
   consumida: boolean;
   created_by?: string | null;
@@ -506,11 +539,12 @@ export async function listPesadas(): Promise<PesadaRow[]> {
 export async function guardarPesada(input: { actor: string; actorName?: string | null; observacion?: string | null }): Promise<PesadaRow> {
   const trabajo = await listBigbags(null);
   if (!trabajo.length) throw new Error('No hay bigbags para guardar.');
+  const tipo = tipoValido(trabajo[0]?.tipo);
   const t = totalesBigbags(trabajo);
   const { data, error } = await supabase.from(TABLE_PESADAS).insert({
     n_bigbags: t.nBigbags, suma_humedo: t.sumaHumedo, suma_seco: t.sumaSeco,
     big_bag_humedo: t.bigBagHumedo, big_bag_seco: t.bigBagSeco,
-    neto_humedo: t.netoHumedo, neto_seco: t.netoSeco,
+    neto_humedo: t.netoHumedo, neto_seco: t.netoSeco, tipo,
     observacion: input.observacion?.trim() || null,
     created_by: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
@@ -529,7 +563,8 @@ export async function recomputarPesada(pesadaId: string): Promise<void> {
   const { error } = await supabase.from(TABLE_PESADAS).update({
     n_bigbags: t.nBigbags, suma_humedo: t.sumaHumedo, suma_seco: t.sumaSeco,
     big_bag_humedo: t.bigBagHumedo, big_bag_seco: t.bigBagSeco,
-    neto_humedo: t.netoHumedo, neto_seco: t.netoSeco, updated_at: new Date().toISOString(),
+    neto_humedo: t.netoHumedo, neto_seco: t.netoSeco,
+    tipo: tipoValido(bigbags[0]?.tipo), updated_at: new Date().toISOString(),
   }).eq('id', pesadaId);
   if (error) throw error;
 }

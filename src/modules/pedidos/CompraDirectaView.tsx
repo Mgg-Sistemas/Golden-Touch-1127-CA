@@ -589,7 +589,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
                 </div>
                 <div className="form-row">
                   <label>Cantidad</label>
-                  <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
+                  <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
                 </div>
               </div>
             ) : (
@@ -617,7 +617,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
                       <button type="button" className="btn btn-sm btn-ghost" onClick={() => handleAddUnidad(l.id)}>+ Añadir</button>
                     </div></div>
                   <div className="form-row"><label>Cantidad</label>
-                    <input className="input mono" name={`linea-cant-nuevo-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
+                    <input className="input mono" name={`linea-cant-nuevo-${l.id}`} type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
               </>
             )}

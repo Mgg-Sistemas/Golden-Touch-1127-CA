@@ -561,12 +561,14 @@ export async function cerrarYAbrirCaja(input: {
   }).eq('id', cerrando.id);
   if (e1) throw e1;
 
-  // 4) Abrir la caja nueva con los saldos de apertura arrastrados.
+  // 4) Abrir la caja nueva. El saldo USD se arrastra (entra como «USD entregados»);
+  //    el saldo de KG de casiterita NO se arrastra: se REINICIA en 0 porque todo el
+  //    acumulado se despacha a Recepción (paso 6). La caja nueva arranca su Kg desde 0.
   const cajasTrasCerrar = [...cajas.filter((c) => c.id !== cerrando!.id), { ...cerrando }];
   const nueva = await crearCaja({ numero: siguienteNumeroCaja(cajasTrasCerrar), fecha_inicio: hoy }, actor);
   const { error: e2 } = await supabase.from('acopio_cajas').update({
     saldo_inicial_usd: snapshot.resumen.saldoUsd,
-    saldo_inicial_kg: snapshot.resumen.saldoKg,
+    saldo_inicial_kg: 0,
   }).eq('id', nueva.id);
   if (e2) throw e2;
 
@@ -596,7 +598,7 @@ export async function cerrarYAbrirCaja(input: {
     });
   } catch { /* no bloquea el cierre */ }
 
-  return { ...nueva, saldo_inicial_usd: snapshot.resumen.saldoUsd, saldo_inicial_kg: snapshot.resumen.saldoKg };
+  return { ...nueva, saldo_inicial_usd: snapshot.resumen.saldoUsd, saldo_inicial_kg: 0 };
 }
 
 export async function reabrirCaja(id: string): Promise<void> {
