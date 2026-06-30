@@ -33,7 +33,8 @@ import type { ClasificacionAcopio } from '@/shared/lib/types';
 import { DineroPorEntrar } from './DineroPorEntrar';
 import { listEntrantesPorConfirmar } from '@/modules/tesoreria/transferenciasInter.repository';
 import { descargarRecepcionPdf } from './acopioPdf';
-import type { CajaCierre, TransferenciaInter } from '@/shared/lib/types';
+import { listContratos } from '@/modules/produccion/contratos.repository';
+import type { CajaCierre, TransferenciaInter, ContratoAcopio } from '@/shared/lib/types';
 
 const ESTADO_LABEL: Record<string, string> = {
   abierta: '● Abierta', cerrada: '✔ Cerrada', anulada: '✖ Anulada',
@@ -52,6 +53,8 @@ export function AcopioPage() {
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [cajas, setCajas] = useState<CajaCierre[]>([]);
   const [entrantes, setEntrantes] = useState<TransferenciaInter[]>([]);
+  // Contratos de producción ACTIVOS — se incluyen como referencia en la foto del cierre.
+  const [contratosActivos, setContratosActivos] = useState<ContratoAcopio[]>([]);
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
   const [nuevo, setNuevo] = useState(false);
   const [movAcopio, setMovAcopio] = useState(false);
@@ -88,14 +91,16 @@ export function AcopioPage() {
   }, [resumen.tasa]);
 
   const reload = useCallback(async () => {
-    const [ps, alms, cjs, ent] = await Promise.all([
+    const [ps, alms, cjs, ent, cts] = await Promise.all([
       listProductos(), getNombresAlmacenes(), listCajas(),
       listEntrantesPorConfirmar().catch(() => []),
+      listContratos().catch(() => [] as ContratoAcopio[]),
     ]);
     setProductos(ps);
     setAlmacenes(alms);
     setCajas(cjs);
     setEntrantes(ent);
+    setContratosActivos(cts.filter((c) => c.estado === 'activo'));
   }, []);
 
   useEffect(() => {
@@ -103,7 +108,7 @@ export function AcopioPage() {
     reload().catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'Error al cargar', 'error'); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'transferencias_inter', 'cajas', 'productos', 'existencias'], reload);
+  useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'acopio_contratos', 'transferencias_inter', 'cajas', 'productos', 'existencias'], reload);
 
   // Caja a la que se asocian los movimientos nuevos (la ACTUALMENTE ABIERTA).
   const cajaActual = useMemo(() => cajas.find((c) => c.estado === 'abierta') ?? cajas[0] ?? null, [cajas]);
@@ -133,6 +138,11 @@ export function AcopioPage() {
             fecha: f.fecha, descripcion: f.descripcion, usdEntregado: f.usdEntregado,
             kgCerrados: f.kgCerrados, usdFacturados: f.usdFacturados, gastosGt: f.gastosGt,
             nominasGt: f.nominasGt, saldoUsd: f.saldoUsd, saldoKgCasiterita: f.saldoKgCasiterita,
+          })),
+          // Contratos de producción aún activos: referencia dentro de la foto del cierre.
+          contratosActivos: contratosActivos.map((c) => ({
+            numero: c.numero, fecha: hoy, supervisor: c.supervisor ?? null,
+            lugarExtraccion: c.lugar_extraccion ?? null, kgSecoLimpio: Number(c.kg_seco_limpio) || 0,
           })),
         },
       });
@@ -215,7 +225,7 @@ export function AcopioPage() {
       {confirmarCierre && (
         <ConfirmDialog
           title="🔒 Cerrar caja"
-          message={`Se cerrará la caja actual (${cajaActual?.numero ?? '—'}) y se guardará en el histórico con sus movimientos y saldos. Se abrirá una caja nueva que arranca con el saldo acumulado: ${money(resumen.saldoUsd)} entra como «USD entregados» y ${num(resumen.saldoKg)} Kg como saldo de apertura. La tasa y los gastos se reinician. ¿Confirmás el cierre?`}
+          message={`Se cerrará la caja actual (${cajaActual?.numero ?? '—'}) y se guardará en el histórico con sus movimientos y saldos. Se abrirá una caja nueva: el saldo ${money(resumen.saldoUsd)} entra como «USD entregados». El Saldo en Kg (${num(resumen.saldoKg)} Kg) se REINICIA en 0 — todo el acumulado de casiterita se despacha a Recepción. La tasa y los gastos también se reinician.${contratosActivos.length ? ` Se incluirá${contratosActivos.length > 1 ? 'n' : ''} ${contratosActivos.length} contrato(s) activo(s) como referencia en la foto del cierre (no se cierran).` : ''} ¿Confirmás el cierre?`}
           confirmText={cerrando ? 'Cerrando…' : 'Cerrar caja'}
           onConfirm={() => { if (!cerrando) void cerrarCaja(); }}
           onCancel={() => { if (!cerrando) setConfirmarCierre(false); }}

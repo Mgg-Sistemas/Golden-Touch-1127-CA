@@ -675,6 +675,17 @@ export interface CierreSnapshot {
   };
   /** Filas de la tabla de movimientos al cierre (para mostrarlas tal cual en el histórico). */
   filas: CierreSnapshotFila[];
+  /** Contratos de producción aún ACTIVOS al momento del cierre (referencia; NO se cierran). */
+  contratosActivos?: CierreSnapshotContrato[];
+}
+
+/** Referencia de un contrato activo dentro de la foto del cierre de caja. */
+export interface CierreSnapshotContrato {
+  numero: string;
+  fecha: string;
+  supervisor?: string | null;
+  lugarExtraccion?: string | null;
+  kgSecoLimpio: number;
 }
 
 export interface CierreSnapshotFila {

@@ -109,6 +109,31 @@ export function HistoricoCajasModal({ onClose }: { onClose: () => void }) {
                   </table>
                 </div>
               )}
+
+              {/* Contratos de producción que estaban ACTIVOS al momento del cierre (referencia) */}
+              {!!(snap.contratosActivos && snap.contratosActivos.length) && (
+                <>
+                  <div className="card-title" style={{ marginTop: '1rem' }}><span>📑 Contratos activos al cierre ({snap.contratosActivos.length})</span></div>
+                  <div className="table-wrap">
+                    <table className="table" style={{ fontSize: '.8rem' }}>
+                      <thead><tr>
+                        <th>Contrato</th><th>Fecha</th><th>Supervisor</th><th>Lugar extracción</th><th>Kg seco limpio</th>
+                      </tr></thead>
+                      <tbody>
+                        {snap.contratosActivos.map((c, i) => (
+                          <tr key={i}>
+                            <td className="mono" style={{ fontWeight: 700 }}>{c.numero}</td>
+                            <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(c.fecha)}</td>
+                            <td>{c.supervisor || '—'}</td>
+                            <td>{c.lugarExtraccion || '—'}</td>
+                            <td className="mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{num(c.kgSecoLimpio)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </>
           )}
         </>
