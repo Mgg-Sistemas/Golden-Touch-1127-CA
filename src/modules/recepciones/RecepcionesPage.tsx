@@ -354,7 +354,7 @@ export function RecepcionesPage() {
       )}
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} onClose={() => setConcilOpen(false)} />}
-      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} cajaTasa={cajaTasa} onClose={() => setTotalesOpen(false)} />}
+      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} cajaTasa={cajaTasa} onClose={() => setTotalesOpen(false)} />}
       {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCierresOpen(false)} />}
 
       {loading ? (
@@ -1350,8 +1350,8 @@ interface TotalesDraft {
   humedad_prov: number; humedad_final: number; fe_esteril: number; observacion: string;
 }
 
-function TotalesModal({ canWrite, actor, actorName, pesoTotal, cajaTasa, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; cajaTasa: number; onClose: () => void;
+function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, cajaTasa, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; cajaTasa: number; onClose: () => void;
 }) {
   const [lista, setLista] = useState<TotalesDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1373,7 +1373,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, cajaTasa, onClose
     const numero = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
     // Primer centro tomado del cierre de caja: nombre Peramanal, Total SnO2 = Saldo Kg de
     // casiterita y Precio/Tasa = tasa del cierre.
-    setDraft({ id: null, numero, fecha: null, centros: [{ nombre: 'Peramanal', sno2: pesoTotal || null, precio: cajaTasa || null }], gastos: 0, pesos_kg: pesoTotal || 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
+    setDraft({ id: null, numero, fecha: null, centros: [{ nombre: 'Peramanal', sno2: pesoTotal || null, precio: cajaTasa || null }], gastos: 0, pesos_kg: pesoRecogidoFinal || pesoTotal || 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
     setMode('form');
   }
   // Si no hay totales guardados, abrir directamente el formulario (no una lista vacía).
@@ -1494,7 +1494,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, cajaTasa, onClose
                   <td className="num mono">${fmt4(t.tasaRecep)}</td>
                   <td className="num mono">{fmt(t.totalMonedaRecep)}</td>
                   <td>PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA
-                    {canWrite && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', fontSize: '.72rem', marginLeft: '.3rem' }} onClick={() => setLocal({ pesos_kg: pesoTotal })}>↺ recepciones ({fmt(pesoTotal)})</button>}
+                    {canWrite && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', fontSize: '.72rem', marginLeft: '.3rem' }} onClick={() => setLocal({ pesos_kg: pesoRecogidoFinal })}>↺ Humedad Final ({fmt(pesoRecogidoFinal)})</button>}
                   </td>{canWrite && <td></td>}
                 </tr>
                 <tr>
