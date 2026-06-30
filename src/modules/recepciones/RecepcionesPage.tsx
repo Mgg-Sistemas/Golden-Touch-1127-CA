@@ -314,7 +314,8 @@ export function RecepcionesPage() {
           { key: 'totales', label: '🧮 Totales' },
           { key: 'resumenes', label: '📊 Resúmenes' },
         ] as const).map((b) => (
-          <button key={b.key} className={`btn ${seccion === b.key ? 'btn-primary' : 'btn-ghost'}`}
+          <button key={b.key} className="btn btn-primary"
+            style={seccion === b.key ? { filter: 'brightness(0.82)' } : undefined}
             onClick={() => setSeccion(seccion === b.key ? null : b.key)}>
             {b.label}
           </button>
