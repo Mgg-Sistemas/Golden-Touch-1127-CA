@@ -167,7 +167,7 @@ export function GestionarCajasModal({
             {/* Controlado a propósito: la tasa se prellena por estado (useEffect con la tasa Binance del día),
                 lo que NO se reflejaría en un input no-controlado. */}
             <input className="input mono" type="number" min={0} step="0.0001" value={tasaUsdt} onChange={(e) => setTasaUsdt(e.target.value)} placeholder={tasaBinance != null ? String(tasaBinance) : 'Bs por 1 USDT'} />
-            <small className="muted">{tasaBinance != null ? `Sugerida (Binance hoy): ${tasaBinance.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs` : 'Sin tasa Binance cargada'}</small>
+            <small className="muted">{tasaBinance != null ? `Sugerida (Binance hoy): ${tasaBinance.toLocaleString('es-VE', { maximumFractionDigits: 2 })} Bs` : 'Sin tasa Binance cargada'}</small>
           </div>
         ) : <div className="form-row" />}
         <div className="form-row" style={{ alignSelf: 'end' }}>
@@ -207,7 +207,7 @@ export function GestionarCajasModal({
                     <td className="mono" style={{ textAlign: 'right' }}>
                       {esUsdt ? `${saldoShow.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT` : money(saldoShow)}
                       {esUsdt && multi?.tasaProm != null && multi.tasaProm > 0 && (
-                        <div className="muted" style={{ fontSize: '.7rem' }}>tasa prom: {multi.tasaProm.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs</div>
+                        <div className="muted" style={{ fontSize: '.7rem' }}>tasa prom: {multi.tasaProm.toLocaleString('es-VE', { maximumFractionDigits: 2 })} Bs</div>
                       )}
                     </td>
                     <td><span className={`badge ${activo ? 'success' : 'warning'}`}>{activo ? 'Activa' : 'Inhabilitada'}</span></td>
@@ -257,7 +257,7 @@ export function GestionarCajasModal({
                     <tr>
                       <td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>
                         Total registrado (USDT)
-                        {tasaProm > 0 && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>tasa prom. ponderada: {tasaProm.toLocaleString('es-VE', { maximumFractionDigits: 4 })} Bs</div>}
+                        {tasaProm > 0 && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>tasa prom. ponderada: {tasaProm.toLocaleString('es-VE', { maximumFractionDigits: 2 })} Bs</div>}
                       </td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{totalUsdt.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</td>
                       <td colSpan={2}></td>
