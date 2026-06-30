@@ -4,7 +4,7 @@ import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import type { ItemOrden, Usuario } from '@/shared/lib/types';
-import { crearOrden } from './pedidos.repository';
+import { crearOrden, subirImagenOrden } from './pedidos.repository';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import {
   CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas, TIPOS_RECARGA,
@@ -31,6 +31,7 @@ export function CrearServicioModal({
   const [items, setItems] = useState<ItemOrden[]>([]);
   const [notas, setNotas] = useState('');
   const [urgente, setUrgente] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Solicitante (persona): nombre y apellido del usuario (NO el correo). Editable.
@@ -156,6 +157,7 @@ export function CrearServicioModal({
     }
     const solicitanteFinal = (solicitante || nombreSolicitante).toUpperCase().trim();
     const unidad = unidadSolicitante.trim();
+    if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { toast('El adjunto debe ser una imagen o un PDF', 'error'); return; }
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
@@ -163,6 +165,7 @@ export function CrearServicioModal({
       if (unidad && !unidadOpciones.some((u) => u.toLowerCase() === unidad.toLowerCase())) {
         await addCatalogoPedido('unidad_solicitante', unidad).catch(() => {});
       }
+      const imagenPath = file ? await subirImagenOrden(file) : null;
       const saved = await crearOrden({
         tipo: 'servicio',
         proveedor_id: null,
@@ -172,7 +175,7 @@ export function CrearServicioModal({
         finalidad: null,
         clasificacion: ['Servicios'],
         urgente,
-        imagen_path: null,
+        imagen_path: imagenPath,
         solicitante_email: email,
         solicitante: solicitanteFinal || null,
         unidad_solicitante: unidad || null,
@@ -311,6 +314,11 @@ export function CrearServicioModal({
           <label className="label">Nota / observación (opcional)</label>
           <textarea className="input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)}
             placeholder="Detalle del servicio requerido…" />
+        </div>
+        <div>
+          <label className="label">Adjuntar imagen o PDF (opcional)</label>
+          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          {file && <small className="muted">{file.name}</small>}
         </div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}>
           <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} /> 🚨 Marcar URGENTE
