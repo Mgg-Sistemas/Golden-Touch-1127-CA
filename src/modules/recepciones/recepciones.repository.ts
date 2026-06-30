@@ -381,6 +381,14 @@ export function mermaH2OFinal(pesoKg: number | null, pesoRecogido: number | null
   return round2((Number.isFinite(pk) ? pk : 0) - pr);
 }
 
+/** % Humedad final = Merma peso H2O / Peso Kg × 100. */
+export function pctHumedadFinal(pesoKg: number | null, pesoRecogido: number | null): number | null {
+  const pk = Number(pesoKg);
+  const merma = mermaH2OFinal(pesoKg, pesoRecogido);
+  if (merma == null || !Number.isFinite(pk) || pk <= 0) return null;
+  return round3((merma / pk) * 100);
+}
+
 /* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */
 
 // Las leyes de mineral se redondean a 3 decimales (se muestran con mín. 2, máx. 3).

@@ -13,7 +13,7 @@ import {
   promElemento, promedioLote,
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
   pctHumedadProv, mermaH2OProv, promedioHumedadProv,
-  listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal,
+  listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal, pctHumedadFinal,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
   type HumedadProvRow, type HumedadFinalRow,
 } from './recepciones.repository';
@@ -172,9 +172,11 @@ export function RecepcionesPage() {
   // Humedad provisional: promedio del lote (%) y merma total (suma).
   const provPctLote = promedioHumedadProv(humProv);
   const provMermaTotal = humProv.reduce((a, r) => a + (mermaH2OProv(r) ?? 0), 0);
-  // Humedad final: Merma = Peso KG (recepciones) − Peso recogido; % aplica el promedio del lote provisional.
+  // Humedad final: Merma = Peso KG (recepciones) − Peso recogido; % Humedad final = Merma / Peso KG × 100.
   const finRecogidoTotal = humFin.reduce((a, r) => a + (Number(r.peso_recogido) || 0), 0);
   const finMermaTotal = humFin.reduce((a, r) => a + (mermaH2OFinal(pesoTotal, r.peso_recogido) ?? 0), 0);
+  const finPcts = humFin.map((r) => pctHumedadFinal(pesoTotal, r.peso_recogido)).filter((x): x is number => x != null);
+  const finPctLote = finPcts.length ? finPcts.reduce((a, b) => a + b, 0) / finPcts.length : null;
 
   /**
    * Renderiza UNA tabla de laboratorio con un subconjunto de minerales. La tabla
@@ -487,6 +489,7 @@ export function RecepcionesPage() {
                     )}
                     {humFin.map((r) => {
                       const merma = mermaH2OFinal(pesoTotal, r.peso_recogido);
+                      const pct = pctHumedadFinal(pesoTotal, r.peso_recogido);
                       return (
                         <tr key={r.id}>
                           <td className="num">
@@ -495,7 +498,7 @@ export function RecepcionesPage() {
                               style={{ width: 120, textAlign: 'right' }} />
                           </td>
                           <td className="num mono">{merma == null ? '—' : fmt(merma)}</td>
-                          <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(provPctLote)}</td>
+                          <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(pct)}</td>
                           {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Eliminar fila" onClick={() => setFinBorrar(r)}>🗑</button></td>}
                         </tr>
                       );
@@ -506,7 +509,7 @@ export function RecepcionesPage() {
                       <tr style={{ fontWeight: 700 }}>
                         <td className="num mono" style={{ fontWeight: 800 }}>{fmt(finRecogidoTotal)}</td>
                         <td className="num mono" style={{ fontWeight: 800 }}>{fmt(finMermaTotal)}</td>
-                        <td className="num mono" style={{ fontWeight: 800 }}>{fmtH(provPctLote)}</td>
+                        <td className="num mono" style={{ fontWeight: 800 }}>{fmtH(finPctLote)}</td>
                         {canWrite && <td></td>}
                       </tr>
                     </tfoot>
@@ -514,8 +517,8 @@ export function RecepcionesPage() {
                 </table>
               </div>
               <div className="muted" style={{ fontSize: '.72rem', padding: '.5rem .75rem' }}>
-El <strong>% Humedad final</strong> aplica el «Promedio del lote» de la Humedad Provisional ·
-                Merma peso H2O = Peso KG (recepciones) − Peso recogido.
+Merma peso H2O = Peso KG (recepciones) − Peso recogido ·
+                <strong>% Humedad final</strong> = Merma peso H2O / Peso KG × 100.
               </div>
             </div>
           </div>
