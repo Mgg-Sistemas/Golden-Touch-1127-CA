@@ -317,11 +317,12 @@ export function pctHumedadProv(r: { peso_humedo: number | null; peso_seco: numbe
   if (!Number.isFinite(h) || h <= 0 || !Number.isFinite(s)) return null;
   return round3(((h - s) / h) * 100);
 }
-/** Merma de agua de una fila provisional (gramos). húmedos − seco. */
+/** Merma de agua de una fila provisional = Peso (húmedos) × % Humedad / 100. */
 export function mermaH2OProv(r: { peso_humedo: number | null; peso_seco: number | null }): number | null {
-  const h = Number(r.peso_humedo), s = Number(r.peso_seco);
-  if (!Number.isFinite(h) || !Number.isFinite(s)) return null;
-  return round2(h - s);
+  const pct = pctHumedadProv(r);
+  const h = Number(r.peso_humedo);
+  if (pct == null || !Number.isFinite(h)) return null;
+  return round2(h * (pct / 100));
 }
 /** Promedio del lote del % de humedad provisional (promedio simple de los % con valor). */
 export function promedioHumedadProv(filas: Array<{ peso_humedo: number | null; peso_seco: number | null }>): number | null {
@@ -373,12 +374,11 @@ export async function eliminarHumedadFinal(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Merma peso H2O de una fila final = recogido × (%humedad final / 100). */
-export function mermaH2OFinal(pesoRecogido: number | null, pctHumedadFinal: number | null): number | null {
-  const p = Number(pesoRecogido);
-  if (!Number.isFinite(p)) return null;
-  const h = pctHumedadFinal == null ? 0 : Number(pctHumedadFinal);
-  return round2(p * (h / 100));
+/** Merma peso H2O de una fila final = Peso Kg (casiterita recibida) − Peso (Kg) recogido. */
+export function mermaH2OFinal(pesoKg: number | null, pesoRecogido: number | null): number | null {
+  const pk = Number(pesoKg), pr = Number(pesoRecogido);
+  if (!Number.isFinite(pr)) return null;
+  return round2((Number.isFinite(pk) ? pk : 0) - pr);
 }
 
 /* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */

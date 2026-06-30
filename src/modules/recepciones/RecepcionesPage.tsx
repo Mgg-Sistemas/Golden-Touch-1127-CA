@@ -172,9 +172,9 @@ export function RecepcionesPage() {
   // Humedad provisional: promedio del lote (%) y merma total (suma).
   const provPctLote = promedioHumedadProv(humProv);
   const provMermaTotal = humProv.reduce((a, r) => a + (mermaH2OProv(r) ?? 0), 0);
-  // Humedad final: el % aplicado es el promedio del lote provisional; totales por suma.
+  // Humedad final: Merma = Peso KG (recepciones) − Peso recogido; % aplica el promedio del lote provisional.
   const finRecogidoTotal = humFin.reduce((a, r) => a + (Number(r.peso_recogido) || 0), 0);
-  const finMermaTotal = humFin.reduce((a, r) => a + (mermaH2OFinal(r.peso_recogido, provPctLote) ?? 0), 0);
+  const finMermaTotal = humFin.reduce((a, r) => a + (mermaH2OFinal(pesoTotal, r.peso_recogido) ?? 0), 0);
 
   /**
    * Renderiza UNA tabla de laboratorio con un subconjunto de minerales. La tabla
@@ -486,7 +486,7 @@ export function RecepcionesPage() {
                       </td></tr>
                     )}
                     {humFin.map((r) => {
-                      const merma = mermaH2OFinal(r.peso_recogido, provPctLote);
+                      const merma = mermaH2OFinal(pesoTotal, r.peso_recogido);
                       return (
                         <tr key={r.id}>
                           <td className="num">
@@ -514,8 +514,8 @@ export function RecepcionesPage() {
                 </table>
               </div>
               <div className="muted" style={{ fontSize: '.72rem', padding: '.5rem .75rem' }}>
-                El <strong>% Humedad final</strong> aplica el «Promedio del lote» de la Humedad Provisional ·
-                Merma peso H2O = Peso recogido × % Humedad / 100.
+El <strong>% Humedad final</strong> aplica el «Promedio del lote» de la Humedad Provisional ·
+                Merma peso H2O = Peso KG (recepciones) − Peso recogido.
               </div>
             </div>
           </div>
