@@ -26,8 +26,9 @@ function localToIso(v: string): string {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 const fmt = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-VE', { maximumFractionDigits: 2 }));
-/** Ley del mineral en porcentaje (todos los valores del laboratorio son %). */
-const fmtPct = (n: number | null | undefined) => (n == null ? '—' : `${fmt(n)} %`);
+/** Ley del mineral en porcentaje (mínimo 2, máximo 3 decimales). */
+const fmtPct = (n: number | null | undefined) =>
+  (n == null ? '—' : `${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} %`);
 
 export function RecepcionesPage() {
   const { user } = useSession();

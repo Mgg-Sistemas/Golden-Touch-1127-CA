@@ -163,14 +163,15 @@ export const ELEMENTOS_LAB: { key: string; label: string; sub?: string; abc: boo
   { key: 'hf',  label: 'Hf (hafnio)',     abc: true,  color: '#7fb6e0' },
 ];
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+// Las leyes de mineral se redondean a 3 decimales (se muestran con mín. 2, máx. 3).
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
 /** Promedio (A+B+C)/3 de un elemento en una recepción. Promedia solo los valores cargados. */
 export function promElemento(analisis: AnalisisLab | null | undefined, key: string, abc: boolean): number | null {
   const v = analisis?.[key];
   if (!abc) {
     const n = Number(v);
-    return v == null || !Number.isFinite(n) ? null : round2(n);
+    return v == null || !Number.isFinite(n) ? null : round3(n);
   }
   const e = (v && typeof v === 'object') ? v as AnalisisElemento : null;
   if (!e) return null;
@@ -178,7 +179,7 @@ export function promElemento(analisis: AnalisisLab | null | undefined, key: stri
   if (!vals.length) return null;
   // (A+B+C)/3 — siempre dividido entre 3 (las celdas vacías cuentan como 0 si hay alguna cargada).
   const suma = vals.reduce((a, b) => a + b, 0);
-  return round2(suma / 3);
+  return round3(suma / 3);
 }
 
 /** Promedio del lote de un elemento: promedio de los Prom de todas las recepciones que lo tienen. */
@@ -187,5 +188,5 @@ export function promedioLote(recepciones: RecepcionLab[], key: string, abc: bool
     .map((r) => promElemento(r.analisis, key, abc))
     .filter((x): x is number => x != null);
   if (!proms.length) return null;
-  return round2(proms.reduce((a, b) => a + b, 0) / proms.length);
+  return round3(proms.reduce((a, b) => a + b, 0) / proms.length);
 }
