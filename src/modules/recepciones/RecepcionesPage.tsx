@@ -15,8 +15,9 @@ import {
   pctHumedadProv, mermaH2OProv, promedioHumedadProv,
   listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal, pctHumedadFinal,
   listBigbags, crearBigbag, actualizarBigbag, eliminarBigbag, formulaBigbag,
+  guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type MineralLab,
-  type HumedadProvRow, type HumedadFinalRow, type BigbagRow,
+  type HumedadProvRow, type HumedadFinalRow, type BigbagRow, type PesadaRow,
 } from './recepciones.repository';
 
 /** ISO → valor de <input type="datetime-local"> (hora local). */
@@ -713,19 +714,33 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
 function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   canWrite: boolean; actor: string; actorName: string | null; onClose: () => void;
 }) {
+  // vista: null = set de trabajo (sin guardar); o el id de una pesada del histórico.
+  const [vista, setVista] = useState<string | null>(null);
   const [rows, setRows] = useState<BigbagRow[]>([]);
+  const [pesadas, setPesadas] = useState<PesadaRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [aBorrar, setABorrar] = useState<BigbagRow | null>(null);
+  const [pesadaBorrar, setPesadaBorrar] = useState<PesadaRow | null>(null);
   const rowsRef = useRef<BigbagRow[]>([]);
   rowsRef.current = rows;
+  const vistaRef = useRef<string | null>(null);
+  vistaRef.current = vista;
 
-  const cargar = useCallback(async () => {
-    try { setRows(await listBigbags()); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los pesos', 'error'); }
+  const cargar = useCallback(async (v: string | null) => {
+    try {
+      const [bb, ps] = await Promise.all([listBigbags(v), listPesadas()]);
+      setRows(bb); setPesadas(ps);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los pesos', 'error'); }
   }, []);
-  useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
-  useRealtime(['recepciones_bigbags'], () => { void cargar(); });
+  useEffect(() => { setLoading(true); cargar(vista).finally(() => setLoading(false)); }, [cargar, vista]);
+  useRealtime(['recepciones_bigbags', 'recepciones_pesadas'], () => { void cargar(vistaRef.current); });
+
+  // Si se está editando una pesada del histórico, al cambiar sus bigbags se recalcula su cabecera.
+  async function trasEditarPesada() {
+    if (vistaRef.current) { try { await recomputarPesada(vistaRef.current); } catch { /* noop */ } }
+  }
 
   function setCampo(id: string, campo: 'procedencia' | 'peso_humedo' | 'peso_seco', value: string) {
     setRows((prev) => prev.map((r) => {
@@ -739,19 +754,42 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
     if (!row) return;
     const patch = campo === 'procedencia' ? { procedencia: row.procedencia }
       : campo === 'peso_humedo' ? { peso_humedo: row.peso_humedo } : { peso_seco: row.peso_seco };
-    try { await actualizarBigbag(id, patch); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void cargar(); }
+    try { await actualizarBigbag(id, patch); await trasEditarPesada(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void cargar(vistaRef.current); }
   }
   async function nuevo() {
     setAdding(true);
-    try { await crearBigbag({ actor, actorName }); await cargar(); }
+    try { await crearBigbag({ actor, actorName, pesadaId: vista }); await cargar(vista); await trasEditarPesada(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir el bigbag', 'error'); }
     finally { setAdding(false); }
   }
   async function borrar(r: BigbagRow) {
-    try { await eliminarBigbag(r.id); setRows((prev) => prev.filter((x) => x.id !== r.id)); }
+    try { await eliminarBigbag(r.id); setRows((prev) => prev.filter((x) => x.id !== r.id)); await trasEditarPesada(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
     finally { setABorrar(null); }
+  }
+  async function guardarPesos() {
+    setSaving(true);
+    try {
+      const p = await guardarPesada({ actor, actorName });
+      toast('Pesos guardados en el histórico', 'success');
+      await cargar(null); setVista(null);
+      void p;
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron guardar los pesos', 'error'); }
+    finally { setSaving(false); }
+  }
+  async function borrarPesada(p: PesadaRow) {
+    try {
+      await eliminarPesada(p.id);
+      if (vista === p.id) setVista(null);
+      await cargar(vista === p.id ? null : vista);
+      toast('Pesada eliminada', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar la pesada', 'error'); }
+    finally { setPesadaBorrar(null); }
+  }
+  async function toggleConsumida(p: PesadaRow) {
+    try { await actualizarPesada(p.id, { consumida: !p.consumida }); await cargar(vista); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar', 'error'); }
   }
 
   // Totales por tabla: BIG BAG = −(cantidad de bigbags con peso) × 1.5; TOTAL NETO = suma + BIG BAG.
@@ -763,6 +801,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   const formulaSec = formulaBigbag(secConPeso);
   const netoHum = sumaHum + formulaHum;
   const netoSec = sumaSec + formulaSec;
+  const pesadaActiva = vista ? pesadas.find((p) => p.id === vista) ?? null : null;
 
   /** Renderiza una tabla (húmedos o secos). `campo` = columna de peso editada. */
   function tabla(titulo: string, campo: 'peso_humedo' | 'peso_seco', formula: number, neto: number) {
@@ -813,6 +852,8 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
     );
   }
 
+  const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
+
   return (
     <Modal title="⚖ Añadir pesos — Bigbags" size="xl" onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
@@ -821,11 +862,27 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
           BIG BAG = −(cantidad de bigbags con peso) × 1.5 · TOTAL NETO = suma de pesos + BIG BAG (permite negativos).
         </div>
         {canWrite && (
-          <button className="btn btn-primary" onClick={() => void nuevo()} disabled={adding}>
-            {adding ? 'Añadiendo…' : '＋ Añadir BIGBAG'}
-          </button>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={() => void nuevo()} disabled={adding}>
+              {adding ? 'Añadiendo…' : '＋ Añadir BIGBAG'}
+            </button>
+            {!vista && (
+              <button className="btn btn-primary" onClick={() => void guardarPesos()} disabled={saving || !rows.length}>
+                {saving ? 'Guardando…' : '💾 Guardar pesos'}
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      {/* Banner de la vista activa */}
+      <div className="card" style={{ padding: '.5rem .75rem', marginBottom: '.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap', borderLeft: `3px solid ${vista ? 'var(--primary)' : 'var(--border, #2a2f3a)'}` }}>
+        <span style={{ fontWeight: 700, fontSize: '.85rem' }}>
+          {vista ? `📦 Editando pesada del ${pesadaActiva ? fmtFecha(pesadaActiva.fecha) : '—'}` : '📝 Pesada actual (sin guardar)'}
+        </span>
+        {vista && <button className="btn btn-sm btn-ghost" onClick={() => setVista(null)}>← Volver a pesada actual</button>}
+      </div>
+
       {loading ? (
         <p className="muted">Cargando…</p>
       ) : (
@@ -834,12 +891,64 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
           {tabla('PESOS SECOS', 'peso_seco', formulaSec, netoSec)}
         </div>
       )}
+
+      {/* Histórico de pesadas guardadas (modificable) */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '1.25rem' }}>
+        <div className="card-title" style={{ padding: '.55rem .85rem' }}>
+          <span>Históricos de pesadas guardadas</span>
+          <span className="muted mono">{num(pesadas.length)} pesada(s)</span>
+        </div>
+        {!pesadas.length ? (
+          <EmptyState message="Aún no hay pesadas guardadas. Cargá bigbags y usá «Guardar pesos»." icon="📦" />
+        ) : (
+          <div className="table-wrap" style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
+              <thead>
+                <tr>
+                  <th>Fecha</th><th className="num">Bigbags</th>
+                  <th className="num">Neto húmedo</th><th className="num">Neto seco</th>
+                  <th>Estado</th>{canWrite && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {pesadas.map((p) => (
+                  <tr key={p.id} style={{ background: vista === p.id ? 'var(--primary-soft, rgba(255,138,0,.10))' : undefined }}>
+                    <td>{fmtFecha(p.fecha)}</td>
+                    <td className="num mono">{p.n_bigbags}</td>
+                    <td className="num mono">{fmt(p.neto_humedo)}</td>
+                    <td className="num mono">{fmt(p.neto_seco)}</td>
+                    <td><span className={`badge ${p.consumida ? '' : 'success'}`}>{p.consumida ? 'Consumida' : 'Disponible'}</span></td>
+                    {canWrite && (
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button className="btn btn-sm btn-ghost" title="Editar esta pesada" onClick={() => setVista(p.id)}>✎ Editar</button>{' '}
+                        <button className="btn btn-sm btn-ghost" title={p.consumida ? 'Marcar disponible' : 'Marcar consumida'} onClick={() => void toggleConsumida(p)}>
+                          {p.consumida ? '↺ Disponible' : '✓ Consumida'}
+                        </button>{' '}
+                        <button className="btn btn-sm btn-ghost" title="Eliminar pesada" onClick={() => setPesadaBorrar(p)}>🗑</button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {aBorrar && (
         <ConfirmDialog
           title="Eliminar bigbag"
           message={`¿Eliminar el Bigbag ${aBorrar.numero}? Se quita de ambas tablas (húmedos y secos).`}
           confirmText="Eliminar" danger
           onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)}
+        />
+      )}
+      {pesadaBorrar && (
+        <ConfirmDialog
+          title="Eliminar pesada"
+          message={`¿Eliminar la pesada del ${fmtFecha(pesadaBorrar.fecha)}? Se borran sus ${pesadaBorrar.n_bigbags} bigbag(s).`}
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrarPesada(pesadaBorrar)} onCancel={() => setPesadaBorrar(null)}
         />
       )}
     </Modal>

@@ -404,25 +404,32 @@ export interface BigbagRow {
   procedencia: string | null;
   peso_humedo: number | null;
   peso_seco: number | null;
+  pesada_id?: string | null;
   created_by?: string | null;
   actor_name?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
 
-export async function listBigbags(): Promise<BigbagRow[]> {
-  const { data, error } = await supabase.from(TABLE_BB).select('*')
+/** Bigbags de una pesada. `pesadaId = null` (por defecto) = set de trabajo sin guardar. */
+export async function listBigbags(pesadaId: string | null = null): Promise<BigbagRow[]> {
+  let q = supabase.from(TABLE_BB).select('*')
     .order('numero', { ascending: true }).order('created_at', { ascending: true });
+  q = pesadaId == null ? q.is('pesada_id', null) : q.eq('pesada_id', pesadaId);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as BigbagRow[];
 }
 
-export async function crearBigbag(input: { actor: string; actorName?: string | null }): Promise<BigbagRow> {
-  const { data: rows } = await supabase.from(TABLE_BB).select('numero');
+export async function crearBigbag(input: { actor: string; actorName?: string | null; pesadaId?: string | null }): Promise<BigbagRow> {
+  const pesadaId = input.pesadaId ?? null;
+  let q = supabase.from(TABLE_BB).select('numero');
+  q = pesadaId == null ? q.is('pesada_id', null) : q.eq('pesada_id', pesadaId);
+  const { data: rows } = await q;
   let max = 0;
   for (const r of (rows ?? []) as Array<{ numero: number | null }>) max = Math.max(max, num(r.numero));
   const { data, error } = await supabase.from(TABLE_BB).insert({
-    numero: max + 1, procedencia: null, peso_humedo: null, peso_seco: null,
+    numero: max + 1, procedencia: null, peso_humedo: null, peso_seco: null, pesada_id: pesadaId,
     created_by: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) throw error;
@@ -447,6 +454,98 @@ export async function eliminarBigbag(id: string): Promise<void> {
 /** Fórmula de la fila «BIG BAG»: −(cantidad de bigbags con peso) × 1.5. */
 export function formulaBigbag(cantidadConPeso: number): number {
   return round2(-cantidadConPeso * TARA_BIGBAG);
+}
+
+/** Totales de un conjunto de bigbags (húmedos/secos): suma, BIG BAG y neto. */
+export function totalesBigbags(bigbags: BigbagRow[]): {
+  nBigbags: number; sumaHumedo: number; sumaSeco: number;
+  bigBagHumedo: number; bigBagSeco: number; netoHumedo: number; netoSeco: number;
+} {
+  const humConPeso = bigbags.filter((b) => b.peso_humedo != null).length;
+  const secConPeso = bigbags.filter((b) => b.peso_seco != null).length;
+  const sumaHumedo = round2(bigbags.reduce((a, b) => a + (Number(b.peso_humedo) || 0), 0));
+  const sumaSeco = round2(bigbags.reduce((a, b) => a + (Number(b.peso_seco) || 0), 0));
+  const bigBagHumedo = formulaBigbag(humConPeso);
+  const bigBagSeco = formulaBigbag(secConPeso);
+  return {
+    nBigbags: bigbags.length, sumaHumedo, sumaSeco, bigBagHumedo, bigBagSeco,
+    netoHumedo: round2(sumaHumedo + bigBagHumedo), netoSeco: round2(sumaSeco + bigBagSeco),
+  };
+}
+
+/* ───────────── Pesadas guardadas (histórico modificable) ───────────── */
+
+const TABLE_PESADAS = 'recepciones_pesadas';
+
+export interface PesadaRow {
+  id: string;
+  fecha: string;
+  n_bigbags: number;
+  suma_humedo: number;
+  suma_seco: number;
+  big_bag_humedo: number;
+  big_bag_seco: number;
+  neto_humedo: number;
+  neto_seco: number;
+  observacion?: string | null;
+  consumida: boolean;
+  created_by?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export async function listPesadas(): Promise<PesadaRow[]> {
+  const { data, error } = await supabase.from(TABLE_PESADAS).select('*').order('fecha', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as PesadaRow[];
+}
+
+/** Guarda el set de trabajo (bigbags sin pesada) como una pesada del histórico. */
+export async function guardarPesada(input: { actor: string; actorName?: string | null; observacion?: string | null }): Promise<PesadaRow> {
+  const trabajo = await listBigbags(null);
+  if (!trabajo.length) throw new Error('No hay bigbags para guardar.');
+  const t = totalesBigbags(trabajo);
+  const { data, error } = await supabase.from(TABLE_PESADAS).insert({
+    n_bigbags: t.nBigbags, suma_humedo: t.sumaHumedo, suma_seco: t.sumaSeco,
+    big_bag_humedo: t.bigBagHumedo, big_bag_seco: t.bigBagSeco,
+    neto_humedo: t.netoHumedo, neto_seco: t.netoSeco,
+    observacion: input.observacion?.trim() || null,
+    created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (error) throw error;
+  const pesada = data as PesadaRow;
+  const ids = trabajo.map((b) => b.id);
+  const { error: e2 } = await supabase.from(TABLE_BB).update({ pesada_id: pesada.id }).in('id', ids);
+  if (e2) throw e2;
+  return pesada;
+}
+
+/** Recalcula y guarda los totales de una pesada a partir de sus bigbags (tras editarla). */
+export async function recomputarPesada(pesadaId: string): Promise<void> {
+  const bigbags = await listBigbags(pesadaId);
+  const t = totalesBigbags(bigbags);
+  const { error } = await supabase.from(TABLE_PESADAS).update({
+    n_bigbags: t.nBigbags, suma_humedo: t.sumaHumedo, suma_seco: t.sumaSeco,
+    big_bag_humedo: t.bigBagHumedo, big_bag_seco: t.bigBagSeco,
+    neto_humedo: t.netoHumedo, neto_seco: t.netoSeco, updated_at: new Date().toISOString(),
+  }).eq('id', pesadaId);
+  if (error) throw error;
+}
+
+export async function actualizarPesada(id: string, patch: { observacion?: string | null; consumida?: boolean; fecha?: string }): Promise<void> {
+  const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
+  if (patch.consumida != null) upd.consumida = patch.consumida;
+  if (patch.fecha != null) upd.fecha = patch.fecha;
+  const { error } = await supabase.from(TABLE_PESADAS).update(upd).eq('id', id);
+  if (error) throw error;
+}
+
+/** Elimina una pesada del histórico (y en cascada sus bigbags). */
+export async function eliminarPesada(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_PESADAS).delete().eq('id', id);
+  if (error) throw error;
 }
 
 /* ───────────── Cálculos (Promedio por análisis · Promedio del lote) ───────────── */
