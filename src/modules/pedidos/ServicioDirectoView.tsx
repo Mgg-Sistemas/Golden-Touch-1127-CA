@@ -279,6 +279,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {fila('Estado', servicio.estado === 'finalizada' ? '🏁 Finalizada (pagada)' : '⏳ En proceso')}
       {fila('Proveedor', servicio.proveedor_nombre || '—')}
       {fila('Equipo', servicio.equipo_nombre || '—')}
+      {(servicio.solicitante || servicio.unidad_solicitante) && fila('Solicitante', `${servicio.solicitante || '—'}${servicio.unidad_solicitante ? ` · ${servicio.unidad_solicitante}` : ''}`)}
       {fila('Generó', servicio.actor_name || servicio.actor || '—')}
       {fila('Creado', dateTime(servicio.created_at))}
       {servicio.estado === 'finalizada' && fila('Pagado', servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—')}
@@ -357,6 +358,9 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   };
   const [lineas, setLineas] = useState<LineaUI[]>(lineasIniciales);
   const [seq, setSeq] = useState((editServicio?.items.length ?? 1) + 1);
+  const [solicitante, setSolicitante] = useState(editServicio?.solicitante ?? '');
+  const [unidadSolicitante, setUnidadSolicitante] = useState(editServicio?.unidad_solicitante ?? '');
+  const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -425,13 +429,16 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         proveedorIdFinal = proveedorId;
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
+      if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); setSaving(false); return; }
       if (esEdicion && editServicio) {
-        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName });
+        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, actor, actorName });
+        if (file) await agregarAdjuntoDirecto('servicio', edit.id, file, actor);
         notify(`Servicio directo ${edit.codigo ?? ''} actualizado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       } else {
         const creado = await crearServicioDirecto({
-          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, actor, actorName,
+          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, actor, actorName,
         });
+        if (file) await agregarAdjuntoDirecto('servicio', creado.id, file, actor);
         notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       }
       onSaved();
@@ -510,6 +517,18 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
           )}
         </div>
 
+        {/* Quién solicita y su unidad/área (editable). */}
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Solicitante <span className="muted">(quién lo solicitó)</span></label>
+            <input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value.toUpperCase())} placeholder="Nombre y apellido del solicitante" />
+          </div>
+          <div className="form-row">
+            <label>Unidad solicitante</label>
+            <input className="input" value={unidadSolicitante} onChange={(e) => setUnidadSolicitante(e.target.value.toUpperCase())} placeholder="Unidad / área…" />
+          </div>
+        </div>
+
         <p className="muted" style={{ fontSize: '.8rem', margin: '.25rem 0 .6rem' }}>Categoría + tipo + equipo de maquinaria. Los montos se cargan al finalizar (con la factura).</p>
 
         {lineas.map((l, idx) => (
@@ -563,6 +582,14 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         ))}
 
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar servicio</button>
+
+        <div className="form-row" style={{ marginTop: '.75rem' }}>
+          <label>Adjuntar imagen o PDF <span className="muted">(opcional)</span></label>
+          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          {file && <small className="muted">{file.name}</small>}
+          {esEdicion && editServicio?.adjunto_path && !file && <small className="muted">Ya tiene un adjunto. Si subís otro, lo reemplaza.</small>}
+        </div>
+
         <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan montos al crear. La factura, el monto y la caja se indican al finalizar.</p>
       </form>
     </Modal>

@@ -45,6 +45,9 @@ export interface ServicioDirecto {
   proveedor_nombre: string | null;
   equipo_id: string | null;
   equipo_nombre: string | null;
+  /** Quién solicitó el servicio y su unidad/área. */
+  solicitante: string | null;
+  unidad_solicitante: string | null;
   estado: EstadoServicioDirecto;
   gasto: number | null;
   caja_id: string | null;
@@ -120,6 +123,8 @@ export interface CrearServicioDirectoInput {
   lineas: LineaServicio[];
   proveedorId?: string | null;
   proveedorNombre?: string | null;
+  solicitante?: string | null;
+  unidadSolicitante?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -159,6 +164,8 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       proveedor_nombre: input.proveedorNombre?.trim() || null,
       equipo_id: conEquipo?.equipoId ?? null,
       equipo_nombre: conEquipo?.equipoNombre ?? null,
+      solicitante: input.solicitante?.trim() || null,
+      unidad_solicitante: input.unidadSolicitante?.trim() || null,
       estado: 'en_proceso',
       actor: input.actor,
       actor_name: input.actorName ?? null,
@@ -411,6 +418,8 @@ export interface EditarServicioDirectoInput {
   lineas: LineaServicio[];
   proveedorId?: string | null;
   proveedorNombre?: string | null;
+  solicitante?: string | null;
+  unidadSolicitante?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -449,6 +458,8 @@ export async function editarServicioDirectoEnProceso(input: EditarServicioDirect
       proveedor_nombre: input.proveedorNombre?.trim() || null,
       equipo_id: conEquipo?.equipoId ?? null,
       equipo_nombre: conEquipo?.equipoNombre ?? null,
+      solicitante: input.solicitante?.trim() || null,
+      unidad_solicitante: input.unidadSolicitante?.trim() || null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.servicio.id)
