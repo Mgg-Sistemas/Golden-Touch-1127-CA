@@ -36,7 +36,7 @@ import {
   registrarGasto, disponibilidadFinanciera, listLibroMayor, ultimoCorrelativo,
   type Disponibilidad,
 } from './tesoreria.repository';
-import { esMovimientoEditable, editarMovimientoCajaManual, eliminarMovimientoCajaManual } from '@/modules/salidas/cajas.repository';
+import { esMovimientoEditable, editarMovimientoCajaManual, eliminarMovimientoCajaManual, editarFechaMovimiento } from '@/modules/salidas/cajas.repository';
 import {
   listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
   type Contraparte, type TipoContraparte,
@@ -587,6 +587,9 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
   // ── Editar / borrar movimiento MANUAL (gasto / ingreso / ajuste) ──
   const editable = esMovimientoEditable(mov);
   const [editando, setEditando] = useState(false);
+  // Editar SOLO la fecha — disponible para TODOS los movimientos (también los vinculados),
+  // p.ej. cuando el pago real fue otro día pero se cargó tarde. No cambia montos ni saldos.
+  const [editandoFecha, setEditandoFecha] = useState(false);
   const [confirmBorrar, setConfirmBorrar] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [errEdit, setErrEdit] = useState<string | null>(null);
@@ -621,6 +624,14 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
       toast('Movimiento actualizado · saldo sincronizado', 'success');
       onChanged?.(); onClose();
     } catch (e) { setErrEdit(e instanceof Error ? e.message : 'No se pudo editar el movimiento'); setSavingEdit(false); }
+  }
+  async function guardarFecha() {
+    setErrEdit(null); setSavingEdit(true);
+    try {
+      await editarFechaMovimiento(mov, eFecha ? new Date(eFecha).toISOString() : '');
+      toast('Fecha del movimiento actualizada · sincronizada', 'success');
+      onChanged?.(); onClose();
+    } catch (e) { setErrEdit(e instanceof Error ? e.message : 'No se pudo cambiar la fecha'); setSavingEdit(false); }
   }
   async function borrarMov() {
     setSavingEdit(true);
@@ -686,9 +697,15 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
           <button className="btn btn-ghost" onClick={() => setEditando(false)} disabled={savingEdit}>Cancelar</button>
           <button className="btn btn-primary" onClick={guardarEdicion} disabled={savingEdit}>{savingEdit ? 'Guardando…' : '💾 Guardar'}</button>
         </>
+      ) : editandoFecha ? (
+        <>
+          <button className="btn btn-ghost" onClick={() => setEditandoFecha(false)} disabled={savingEdit}>Cancelar</button>
+          <button className="btn btn-primary" onClick={guardarFecha} disabled={savingEdit}>{savingEdit ? 'Guardando…' : '💾 Guardar fecha'}</button>
+        </>
       ) : (
         <>
           {editable && <button className="btn btn-ghost" onClick={() => setEditando(true)} title="Editar este movimiento manual">✏ Editar</button>}
+          {!editable && <button className="btn btn-ghost" onClick={() => { setEFecha((mov.at ?? '').slice(0, 16)); setEditandoFecha(true); }} title="Cambiar la fecha de este movimiento (p.ej. el pago real fue otro día)">📅 Editar fecha</button>}
           {editable && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmBorrar(true)} title="Borrar este movimiento manual">🗑 Borrar</button>}
           <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
             {generandoPdf ? 'Generando…' : '↓ PDF'}
@@ -705,6 +722,18 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
             <button className="btn btn-sm btn-ghost" onClick={() => setConfirmBorrar(false)} disabled={savingEdit}>Cancelar</button>
             <button className="btn btn-sm btn-primary" style={{ background: 'var(--danger)' }} onClick={borrarMov} disabled={savingEdit}>{savingEdit ? 'Borrando…' : 'Sí, borrar'}</button>
           </div>
+        </div>
+      )}
+
+      {editandoFecha && (
+        <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+          <div className="card-title" style={{ marginBottom: '.5rem' }}>📅 Editar fecha del movimiento</div>
+          {errEdit && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}><strong>Error:</strong> {errEdit}</div>}
+          <div className="form-row">
+            <label>Fecha y hora reales del movimiento</label>
+            <input className="input" type="datetime-local" value={eFecha} onChange={(e) => setEFecha(e.target.value)} />
+          </div>
+          <small className="muted">Solo cambia la fecha (no toca montos ni saldos). Se sincroniza con la fecha de pago del documento vinculado (OC, compra/servicio directo, nómina).</small>
         </div>
       )}
 
