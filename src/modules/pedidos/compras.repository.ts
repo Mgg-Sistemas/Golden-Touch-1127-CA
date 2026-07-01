@@ -523,6 +523,9 @@ export interface EnviarCompraAPagarInput {
   retencionTipo?: string | null;
   retencionBase?: number;
   retencionPct?: number;
+  /** Nota / observación (p. ej. datos de quién cobra). Se muestra en Tesorería al pagar.
+   *  `undefined` = no tocar la nota existente; string = reemplazarla (vacío → null). */
+  nota?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -560,6 +563,8 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
       retencion_base: retencionPct > 0 ? retencionBase : 0,
       retencion_pct: retencionPct, retencion_monto: retencionMonto,
       afecta_inventario: input.afectaInventario !== false,
+      // Nota: solo se reemplaza si viene en el input (undefined = conservar la existente).
+      ...(input.nota !== undefined ? { nota: input.nota?.trim() || null } : {}),
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
