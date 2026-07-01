@@ -886,7 +886,11 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
     listRecepciones(), listAnalisis(), listHumedadProv(), listHumedadFinal(), listMinerales(false), listConciliaciones(), listTotales(), listPesadas(),
   ]);
   const conciliaciones = todasConcil.filter((c) => c.numero === numero);
-  const totales = todosTot.filter((t) => t.numero === numero);
+  // El documento de Totales lleva su propio correlativo (no está ligado al N° de
+  // recepción), así que se toma el MÁS RECIENTE: listTotales viene ordenado por
+  // numero desc y created_at desc, por lo que todosTot[0] es el último.
+  const totalesUsado = todosTot[0] ?? null;
+  const totales = totalesUsado ? [totalesUsado] : [];
 
   // ── Ingreso al inventario de los RESGUARDO pendientes (sin tasa) ──
   let cas: { id: string } | null = null;
@@ -918,7 +922,10 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
   const almacenBase = (input.almacen ?? '').trim();
   const subalmacen = (input.subalmacen ?? '').trim();
   const almacenFinal = subalmacen ? `${almacenBase} / ${subalmacen}` : almacenBase;
-  const tasaFinal = Number(totales[0]?.tasa_final) || 0;
+  // Tasa FINAL de Totales (44,86 $/Kg en el ejemplo). Si el valor guardado viniera en
+  // 0 (doc viejo), se recalcula desde el documento con calcTotales.
+  let tasaFinal = Number(totalesUsado?.tasa_final) || 0;
+  if (!tasaFinal && totalesUsado) tasaFinal = calcTotales(totalesUsado).tasaFinal;
   const pesadasDisp = pesadas.filter((p) => !p.consumida && (Number(p.neto_seco) || 0) > 0);
   const netoSecoTotal = round2(pesadasDisp.reduce((a, p) => a + (Number(p.neto_seco) || 0), 0));
   let ingresoCasiterita: { almacen: string; kg: number; tasa: number } | null = null;
