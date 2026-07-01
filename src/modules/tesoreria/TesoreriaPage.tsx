@@ -4987,6 +4987,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [tasa, setTasa] = useState<number>(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
   const [tasaLista, setTasaLista] = useState(false);
+  // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
+  const [comisionMonto, setComisionMonto] = useState('');
+  const [comisionSaldoId, setComisionSaldoId] = useState('');
   useEffect(() => {
     getTasaHoy()
       .then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); })
@@ -5141,6 +5144,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('El comprobante debe ser un PDF o una imagen.'); return;
     }
+    // Comisión bancaria opcional: sale de la billetera elegida (egreso extra, no suma al total).
+    const comSaldo = saldosCaja.find((s) => s.id === comisionSaldoId) ?? saldosCaja[0] ?? null;
+    const comMonto = Number(comisionMonto) || 0;
+    if (comMonto > 0 && !comSaldo) { setError('Elegí de qué billetera sale la comisión bancaria.'); return; }
+    const comision = comMonto > 0 && comSaldo
+      ? { cajaId: comSaldo.caja_id, cuenta: comSaldo.cuenta as CuentaCaja, moneda: comSaldo.moneda, monto: comMonto, montoUsd: legUsd(comSaldo.moneda, comMonto) }
+      : null;
     setSaving(true);
     try {
       if (esMultimoneda) {
@@ -5151,7 +5161,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una cuenta.'); setSaving(false); return; }
         if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        await pagarOrdenCompraMultiCajas({ orden: o, legs, factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName });
+        await pagarOrdenCompraMultiCajas({ orden: o, legs, factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
         notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(sumUsdMulti, 'USD')}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
@@ -5160,7 +5170,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       await pagarOrdenCompra({
         orden: o, cajaId, monto: Number(montoStr) || 0,
         factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
-        seriales: pagaUsdEfectivo ? seriales : null, actorEmail: actor, actorName,
+        seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName,
       });
       notify(`OC ${o.oc_codigo ?? o.codigo} pagada · ${monto(Number(montoStr) || 0, moneda)}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
@@ -5299,6 +5309,19 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
               <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
                 onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder={tasaLista ? '0,00' : 'cargando…'} />
             </div>
+          </div>
+        </div>
+
+        {/* Comisión bancaria opcional: egreso EXTRA de una billetera (no suma al total). */}
+        <div className="card" style={{ marginBottom: '.75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>Comisión bancaria <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>(opcional · no suma al total de la OC)</span></div>
+          <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input className="input mono" type="number" min={0} step="any" value={comisionMonto} onChange={(e) => setComisionMonto(dosDecimales(e.target.value))} placeholder="0,00" style={{ width: 140, textAlign: 'right' }} />
+            <select className="select" value={comisionSaldoId} onChange={(e) => setComisionSaldoId(e.target.value)} style={{ maxWidth: 240 }}>
+              <option value="">— billetera de la comisión —</option>
+              {saldosCaja.map((s) => <option key={s.id} value={s.id}>{s.moneda}{s.cuenta !== 'general' ? ` · ${s.cuenta}` : ''} · {monto(Number(s.saldo), s.moneda)}</option>)}
+            </select>
+            <span className="muted" style={{ fontSize: '.78rem' }}>Se descuenta de la caja como gasto aparte.</span>
           </div>
         </div>
 
