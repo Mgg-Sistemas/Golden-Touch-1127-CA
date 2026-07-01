@@ -68,7 +68,9 @@ function DropdownPortal({ anchorRef, panelRef, open, children }: {
   const pos = useAnchoredPos(anchorRef, open);
   if (!open || !pos) return null;
   const style: CSSProperties = {
-    ...PANEL_LOOK, position: 'fixed', zIndex: 1000,
+    // z-index por encima del modal (.modal-backdrop = 9000) y por debajo de los toasts (9999),
+    // porque el panel vive en un portal en <body>: si quedara por debajo del modal, no se vería.
+    ...PANEL_LOOK, position: 'fixed', zIndex: 9500,
     left: pos.left, width: pos.width, maxHeight: pos.maxHeight,
     ...(pos.top != null ? { top: pos.top } : { bottom: pos.bottom }),
   };
