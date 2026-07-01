@@ -388,6 +388,10 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   // Nota NO controlada (defaultValue + ref): un refresh de realtime no debe pisar
   // lo que se está tecleando (bug «borra palabras»). El valor se lee en el submit.
   const notaRef = useRef<HTMLTextAreaElement>(null);
+  // Nombres de materiales nuevos: NO controlados (defaultValue + ref) para que un
+  // re-render/realtime no coma la última letra («SUPERFICIA» en vez de «SUPERFICIAL»).
+  // Se leen del DOM al guardar. Clave = id de la línea.
+  const nombreRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -458,8 +462,10 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
         if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
         payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant, unidad: l.unidad });
       } else {
-        if (!l.nombre.trim()) { setError('Indicá el nombre del material nuevo.'); return; }
-        payload.push({ modo: 'nuevo', nombre: l.nombre, categoria: l.categoria, unidad: l.unidad, cantidad: cant });
+        // Se lee del DOM (ref) para no perder la última letra por un re-render.
+        const nombre = (nombreRefs.current[l.id]?.value ?? l.nombre).trim().toUpperCase();
+        if (!nombre) { setError('Indicá el nombre del material nuevo.'); return; }
+        payload.push({ modo: 'nuevo', nombre, categoria: l.categoria, unidad: l.unidad, cantidad: cant });
       }
     }
     // Validación del proveedor nuevo (si se eligió darlo de alta ahora).
@@ -621,7 +627,9 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
               <>
                 <div className="form-row">
                   <label>Descripción del material nuevo</label>
-                  <input className="input" name={`linea-nombre-${l.id}`} defaultValue={l.nombre} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); set(l.id, { nombre: e.target.value }); }} placeholder="Nombre / descripción" />
+                  <input className="input" name={`linea-nombre-${l.id}`} ref={(el) => { nombreRefs.current[l.id] = el; }}
+                    defaultValue={l.nombre} style={{ textTransform: 'uppercase' }}
+                    onChange={(e) => set(l.id, { nombre: e.target.value })} placeholder="Nombre / descripción" />
                   <small className="muted">Se da de alta en el inventario (stock 0, sin precio). SKU automático.</small>
                 </div>
                 <div className="form-grid">
