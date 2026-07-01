@@ -5289,6 +5289,11 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
               <div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs</div>
               <strong className="mono" style={{ fontSize: '1.15rem' }}>{tasa > 0 ? monto(totalBs, 'Bs') : '—'}</strong>
             </div>
+            <div style={{ fontSize: '1.2rem' }} className="muted">⇄</div>
+            <div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Equivale en USDT</div>
+              <strong className="mono" style={{ fontSize: '1.15rem' }}>{totalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</strong>
+            </div>
             <div className="form-row" style={{ marginLeft: 'auto', minWidth: 160 }}>
               <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs por $){tasaFecha ? ` · ${fmtDate(tasaFecha)}` : ''}</label>
               <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
