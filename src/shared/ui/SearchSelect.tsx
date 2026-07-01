@@ -32,6 +32,10 @@ const optStyle = (activo: boolean, sel: boolean): CSSProperties => ({
   fontWeight: sel ? 600 : 400,
 });
 
+/** Máximo de opciones que se PINTAN a la vez (se filtra sobre TODO el catálogo, pero
+ *  solo se renderiza este tope para que el tecleo no se trabe con listas grandes). */
+const MAX_OPCIONES = 80;
+
 interface AnchorPos { left: number; width: number; top?: number; bottom?: number; maxHeight: number }
 
 /** Calcula la posición fija del panel anclada al input, con flip hacia arriba si
@@ -115,6 +119,8 @@ export function SearchSelect({
     if (!q) return options;
     return options.filter((o) => normBusqueda(o.label).includes(q));
   }, [options, query]);
+  // Solo se pintan las primeras MAX_OPCIONES (rendimiento con catálogos grandes).
+  const visibles = filtered.length > MAX_OPCIONES ? filtered.slice(0, MAX_OPCIONES) : filtered;
 
   // Cerrar al hacer clic afuera (y limpiar el texto tecleado). El panel vive en un
   // portal, así que un clic dentro de él NO se considera «afuera».
@@ -139,14 +145,14 @@ export function SearchSelect({
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setOpen(true);
-      setHi((h) => Math.min(h + 1, filtered.length - 1));
+      setHi((h) => Math.min(h + 1, visibles.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHi((h) => Math.max(h - 1, 0));
     } else if (e.key === 'Enter') {
-      if (open && filtered[hi]) {
+      if (open && visibles[hi]) {
         e.preventDefault();
-        pick(filtered[hi].value);
+        pick(visibles[hi].value);
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
@@ -172,7 +178,7 @@ export function SearchSelect({
         {filtered.length === 0 && (
           <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>
         )}
-        {filtered.map((o, i) => (
+        {visibles.map((o, i) => (
           <div
             key={o.value}
             role="option"
@@ -184,6 +190,11 @@ export function SearchSelect({
             {o.label}
           </div>
         ))}
+        {filtered.length > visibles.length && (
+          <div className="muted" style={{ padding: '.4rem .7rem', fontSize: '.78rem', borderTop: '1px solid var(--border, #2a3240)' }}>
+            …y {filtered.length - visibles.length} más · seguí escribiendo para afinar
+          </div>
+        )}
       </DropdownPortal>
     </div>
   );
