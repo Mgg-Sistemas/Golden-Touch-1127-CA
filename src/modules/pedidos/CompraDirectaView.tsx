@@ -382,7 +382,9 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   };
   const [lineas, setLineas] = useState<LineaUI[]>(lineasIniciales);
   const [almacen, setAlmacen] = useState(editCompra?.almacen || alms[0]);
-  const [nota, setNota] = useState(editCompra?.nota ?? '');
+  // Nota NO controlada (defaultValue + ref): un refresh de realtime no debe pisar
+  // lo que se está tecleando (bug «borra palabras»). El valor se lee en el submit.
+  const notaRef = useRef<HTMLTextAreaElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -463,6 +465,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
       const emailClean = provEmail.trim();
       if (emailClean && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)) { setError('El correo del proveedor no tiene un formato válido.'); return; }
     }
+    const nota = notaRef.current?.value ?? '';
     setSaving(true);
     try {
       // Resolver proveedor: existente del directorio o alta en línea (se guarda en `proveedores`).
@@ -647,7 +650,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
 
         <div className="form-row" style={{ marginTop: '.75rem' }}>
           <label>Nota / observación <span className="muted">(opcional)</span></label>
-          <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
+          <textarea className="input" rows={2} ref={notaRef} defaultValue={editCompra?.nota ?? ''}
             placeholder="Detalle u observación de esta compra (se muestra en el detalle y el PDF)…" />
         </div>
 
