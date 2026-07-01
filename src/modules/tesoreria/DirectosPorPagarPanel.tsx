@@ -62,7 +62,8 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
               {compras.map((c) => (
                 <tr key={c.id}>
                   <td className="mono">{c.codigo ?? '—'}</td>
-                  <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : null}</td>
+                  <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : null}
+                    {c.nota?.trim() && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', whiteSpace: 'pre-wrap' }}>📝 {c.nota}</div>}</td>
                   <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>{c.actor_name || c.actor || '—'}<br />{dateTime(c.updated_at)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{c.gasto != null ? money(c.gasto) : '—'}</td>

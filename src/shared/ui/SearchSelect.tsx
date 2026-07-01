@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface SearchOption {
   value: string;
@@ -16,10 +17,11 @@ const normBusqueda = (s: string): string => {
   }
 };
 
-/** Estilos compartidos del panel desplegable (mismos en SearchSelect y SearchCreateSelect). */
-const PANEL_STYLE: CSSProperties = {
-  position: 'absolute', zIndex: 60, top: '100%', left: 0, right: 0, marginTop: 2,
-  maxHeight: 260, overflowY: 'auto',
+/** Apariencia del panel (colores/borde/sombra). La POSICIÓN se calcula aparte
+ *  porque el panel se monta en un portal (position: fixed) para que ningún
+ *  contenedor con overflow (tablas, modales) lo recorte. */
+const PANEL_LOOK: CSSProperties = {
+  overflowY: 'auto',
   background: 'var(--bg-1, #11151c)', border: '1px solid var(--border, #2a3240)',
   borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)',
 };
@@ -29,6 +31,49 @@ const optStyle = (activo: boolean, sel: boolean): CSSProperties => ({
   color: sel ? 'var(--primary-3, #ff8a00)' : 'var(--text, #e6e6e6)',
   fontWeight: sel ? 600 : 400,
 });
+
+interface AnchorPos { left: number; width: number; top?: number; bottom?: number; maxHeight: number }
+
+/** Calcula la posición fija del panel anclada al input, con flip hacia arriba si
+ *  no hay espacio abajo. Se recalcula al hacer scroll (en cualquier contenedor) o
+ *  al redimensionar, mientras el panel está abierto. */
+function useAnchoredPos(anchorRef: RefObject<HTMLElement>, open: boolean): AnchorPos | null {
+  const [pos, setPos] = useState<AnchorPos | null>(null);
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return; }
+    const el = anchorRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - r.bottom;
+      const spaceAbove = r.top;
+      const flip = spaceBelow < 200 && spaceAbove > spaceBelow;
+      const maxHeight = Math.max(140, Math.min(260, (flip ? spaceAbove : spaceBelow) - 12));
+      setPos(flip
+        ? { left: r.left, width: r.width, bottom: window.innerHeight - r.top + 2, maxHeight }
+        : { left: r.left, width: r.width, top: r.bottom + 2, maxHeight });
+    };
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => { window.removeEventListener('scroll', update, true); window.removeEventListener('resize', update); };
+  }, [open, anchorRef]);
+  return pos;
+}
+
+/** Panel desplegable montado en un portal (body) con posición fija anclada al input. */
+function DropdownPortal({ anchorRef, panelRef, open, children }: {
+  anchorRef: RefObject<HTMLElement>; panelRef: RefObject<HTMLDivElement>; open: boolean; children: ReactNode;
+}) {
+  const pos = useAnchoredPos(anchorRef, open);
+  if (!open || !pos) return null;
+  const style: CSSProperties = {
+    ...PANEL_LOOK, position: 'fixed', zIndex: 1000,
+    left: pos.left, width: pos.width, maxHeight: pos.maxHeight,
+    ...(pos.top != null ? { top: pos.top } : { bottom: pos.bottom }),
+  };
+  return createPortal(<div ref={panelRef} role="listbox" style={style}>{children}</div>, document.body);
+}
 
 /**
  * Combobox con buscador: input que filtra una lista desplegable y selecciona al
@@ -58,6 +103,8 @@ export function SearchSelect({
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const selected = options.find((o) => o.value === value) ?? null;
 
@@ -67,13 +114,14 @@ export function SearchSelect({
     return options.filter((o) => normBusqueda(o.label).includes(q));
   }, [options, query]);
 
-  // Cerrar al hacer clic afuera (y limpiar el texto tecleado).
+  // Cerrar al hacer clic afuera (y limpiar el texto tecleado). El panel vive en un
+  // portal, así que un clic dentro de él NO se considera «afuera».
   useEffect(() => {
     function onDoc(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery('');
-      }
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      setOpen(false);
+      setQuery('');
     }
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -107,6 +155,7 @@ export function SearchSelect({
   return (
     <div ref={wrapRef} style={{ position: 'relative', ...style }}>
       <input
+        ref={inputRef}
         id={id}
         className="input"
         autoComplete="off"
@@ -117,33 +166,23 @@ export function SearchSelect({
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setHi(0); }}
         onKeyDown={onKeyDown}
       />
-      {open && !disabled && (
-        <div
-          role="listbox"
-          style={{
-            position: 'absolute', zIndex: 60, top: '100%', left: 0, right: 0, marginTop: 2,
-            maxHeight: 260, overflowY: 'auto',
-            background: 'var(--bg-1, #11151c)', border: '1px solid var(--border, #2a3240)',
-            borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)',
-          }}
-        >
-          {filtered.length === 0 && (
-            <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>
-          )}
-          {filtered.map((o, i) => (
-            <div
-              key={o.value}
-              role="option"
-              aria-selected={o.value === value}
-              onMouseDown={(e) => { e.preventDefault(); pick(o.value); }}
-              onMouseEnter={() => setHi(i)}
-              style={optStyle(i === hi, o.value === value)}
-            >
-              {o.label}
-            </div>
-          ))}
-        </div>
-      )}
+      <DropdownPortal anchorRef={inputRef} panelRef={panelRef} open={open && !disabled}>
+        {filtered.length === 0 && (
+          <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>
+        )}
+        {filtered.map((o, i) => (
+          <div
+            key={o.value}
+            role="option"
+            aria-selected={o.value === value}
+            onMouseDown={(e) => { e.preventDefault(); pick(o.value); }}
+            onMouseEnter={() => setHi(i)}
+            style={optStyle(i === hi, o.value === value)}
+          >
+            {o.label}
+          </div>
+        ))}
+      </DropdownPortal>
     </div>
   );
 }
@@ -175,6 +214,8 @@ export function SearchCreateSelect({
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const norm = (s: string) => normBusqueda(s);
 
   const filtered = useMemo(() => {
@@ -192,7 +233,9 @@ export function SearchCreateSelect({
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      setOpen(false);
     }
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -210,6 +253,7 @@ export function SearchCreateSelect({
   return (
     <div ref={wrapRef} style={{ position: 'relative', ...style }}>
       <input
+        ref={inputRef}
         id={id}
         className="input"
         autoComplete="off"
@@ -220,23 +264,21 @@ export function SearchCreateSelect({
         onChange={(e) => { onChange(e.target.value); setOpen(true); setHi(-1); }}
         onKeyDown={onKeyDown}
       />
-      {open && !disabled && (items.length > 0 || !value) && (
-        <div role="listbox" style={PANEL_STYLE}>
-          {items.length === 0 && <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>}
-          {items.map((it, i) => (
-            <div
-              key={(it.create ? '__new__' : '') + it.val}
-              role="option"
-              aria-selected={!it.create && norm(it.val) === norm(value)}
-              onMouseDown={(e) => { e.preventDefault(); pick(it.val); }}
-              onMouseEnter={() => setHi(i)}
-              style={optStyle(i === hi, !it.create && norm(it.val) === norm(value))}
-            >
-              {it.create ? <span><span style={{ color: 'var(--primary-3, #ff8a00)' }}>➕ Usar</span> «{it.val}» <span className="muted">(nuevo)</span></span> : it.val}
-            </div>
-          ))}
-        </div>
-      )}
+      <DropdownPortal anchorRef={inputRef} panelRef={panelRef} open={open && !disabled && (items.length > 0 || !value)}>
+        {items.length === 0 && <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>}
+        {items.map((it, i) => (
+          <div
+            key={(it.create ? '__new__' : '') + it.val}
+            role="option"
+            aria-selected={!it.create && norm(it.val) === norm(value)}
+            onMouseDown={(e) => { e.preventDefault(); pick(it.val); }}
+            onMouseEnter={() => setHi(i)}
+            style={optStyle(i === hi, !it.create && norm(it.val) === norm(value))}
+          >
+            {it.create ? <span><span style={{ color: 'var(--primary-3, #ff8a00)' }}>➕ Usar</span> «{it.val}» <span className="muted">(nuevo)</span></span> : it.val}
+          </div>
+        ))}
+      </DropdownPortal>
     </div>
   );
 }

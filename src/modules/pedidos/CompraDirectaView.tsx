@@ -186,7 +186,8 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
 
       {ver && (
         <CompraDetalleModal compra={ver} actor={actor} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)}
-          onReabrir={() => setReabrir(ver)} onEditar={() => { setEditar(ver); setVer(null); }} />
+          onReabrir={() => setReabrir(ver)} onEditar={() => { setEditar(ver); setVer(null); }}
+          onMontar={() => { setMontar(ver); setVer(null); }} />
       )}
 
       {eliminar && (
@@ -250,6 +251,7 @@ function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer }: {
         <button className="btn btn-sm btn-ghost" onClick={onVer} title="Ver detalle">👁 Ver</button>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onMontar}>Cargar factura y montos</button>}
+        {compra.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onMontar} title="Editar factura, montos y nota (antes de que Tesorería pague)">✏ Editar</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
     </div>
@@ -267,14 +269,15 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
 
 /* ───────── Modal: detalle de la compra directa ───────── */
 
-function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar }: {
-  compra: CompraDirecta; actor: string; onClose: () => void; onPdf: () => void; onReabrir: () => void; onEditar: () => void;
+function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar, onMontar }: {
+  compra: CompraDirecta; actor: string; onClose: () => void; onPdf: () => void; onReabrir: () => void; onEditar: () => void; onMontar: () => void;
 }) {
   const total = compra.gasto != null ? Number(compra.gasto) : null;
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       {compra.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={onEditar} title="Editar materiales / proveedor">✏ Editar</button>}
+      {compra.estado === 'por_pagar' && <button className="btn btn-ghost" onClick={onMontar} title="Editar factura, montos y nota (antes de que Tesorería pague)">✏ Editar</button>}
       {compra.estado === 'finalizada' && <button className="btn btn-ghost" style={{ color: 'var(--warning)' }} onClick={onReabrir} title="Reabrir para editar (revierte caja e inventario)">↺ Reabrir</button>}
       <button className="btn btn-primary" onClick={onPdf}>↓ PDF</button>
     </>
@@ -691,6 +694,8 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   // Retención (se vincula al módulo Retenciones al pagar).
   const [retTipo, setRetTipo] = useState<'IVA' | 'ISLR' | 'MUNICIPAL'>((compra.retencion_tipo as 'IVA' | 'ISLR' | 'MUNICIPAL') || 'IVA');
   const [retPct, setRetPct] = useState(compra.retencion_pct ? String(compra.retencion_pct) : '');
+  // Nota / observación (p. ej. datos de quién cobra). Editable al montar; visible al pagar.
+  const notaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { listCategoriasGasto().then(setCatsGasto).catch(() => setCatsGasto([])); }, []);
   const catNombre = catsGasto.find((c) => c.id === catId)?.nombre ?? null;
   const subNombre = catsGasto.find((c) => c.id === subId)?.nombre ?? null;
@@ -792,7 +797,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       setSaving(true);
       try {
         for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor);
-        await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, iva: ivaNum, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, retencionTipo: retTipo, retencionBase: subtotal, retencionPct: Number(retPct) || 0, actor, actorName });
+        await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, iva: ivaNum, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, retencionTipo: retTipo, retencionBase: subtotal, retencionPct: Number(retPct) || 0, nota: notaRef.current?.value ?? '', actor, actorName });
         notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
@@ -844,6 +849,15 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     <Modal title={esPago ? `💳 Pagar compra ${compra.codigo ?? ''}` : 'Cargar factura y montos'} size="lg" onClose={onClose} footer={footer}>
       <form id="cd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {/* Nota de la compra: al PAGAR se muestra resaltada (suele traer los datos de
+            quién cobra); a Tesorería le sirve para saber a quién/ cómo pagar. */}
+        {esPago && compra.nota?.trim() && (
+          <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="card-title" style={{ marginBottom: '.25rem' }}>📝 Nota de la compra</div>
+            <div style={{ whiteSpace: 'pre-wrap' }}>{compra.nota}</div>
+          </div>
+        )}
 
         {esPago && (
         <div className="form-row">
@@ -1048,6 +1062,15 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
             <small className="muted">
               Subtotal {montoCaja(subtotal, monedaCompra)}{descuentoNum > 0 ? ` − Desc. ${montoCaja(descuentoNum, monedaCompra)}` : ''}{monedaCompra === 'Bs' && ivaNum > 0 ? ` + IVA ${montoCaja(ivaNum, 'Bs')}` : ''} = <strong>Total {montoCaja(total, monedaCompra)}</strong>{monedaCompra === 'Bs' ? ' · el IVA suma al total solo en Bs.' : '.'}
             </small>
+          </div>
+        )}
+
+        {!esPago && (
+          <div className="form-row">
+            <label>Nota / observación <span className="muted">(opcional · se muestra en Tesorería al pagar)</span></label>
+            <textarea className="input" rows={2} ref={notaRef} defaultValue={compra.nota ?? ''}
+              placeholder="Ej.: pagar a Juan Pérez · Pago Móvil 0414… / cuenta 0102…" />
+            <small className="muted">Suele llevar los datos de a quién y cómo pagar; Tesorería lo verá al abonar.</small>
           </div>
         )}
 
