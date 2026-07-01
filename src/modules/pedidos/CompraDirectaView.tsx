@@ -1011,6 +1011,13 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
               <input className="input mono" type="number" min={0} step="any" value={total || ''} onChange={(e) => onTotal(e.target.value)} style={{ width: 150, textAlign: 'right', fontWeight: 700 }} /> {monedaCompra === 'Bs' ? 'Bs' : '$'}
               <span className="muted" style={{ fontSize: '.72rem' }}>ajustá el total y el descuento se sincroniza.</span>
             </div>
+            {monedaCompra === 'Bs' && (
+              <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
+                <span className="muted">Tasa (Bs/$):</span>
+                <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" style={{ width: 120, textAlign: 'right' }} />
+                <span className="muted" style={{ fontSize: '.8rem' }}>Equivale a <strong className="mono">{tasa > 0 ? montoCaja(totalUsd, 'USD') : '—'}</strong> {tasa > 0 ? '($ equivalente del total en Bs)' : '(cargá la tasa)'}</span>
+              </div>
+            )}
             <small className="muted">
               Subtotal {montoCaja(subtotal, monedaCompra)}{descuentoNum > 0 ? ` − Desc. ${montoCaja(descuentoNum, monedaCompra)}` : ''}{monedaCompra === 'Bs' && ivaNum > 0 ? ` + IVA ${montoCaja(ivaNum, 'Bs')}` : ''} = <strong>Total {montoCaja(total, monedaCompra)}</strong>{monedaCompra === 'Bs' ? ' · el IVA suma al total solo en Bs.' : '.'}
             </small>
