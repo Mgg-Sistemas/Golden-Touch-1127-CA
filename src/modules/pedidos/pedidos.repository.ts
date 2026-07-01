@@ -998,6 +998,8 @@ export interface PagarOcInput {
   // Opcional: anclar el pago a un GASTO (categoría → subcategoría del catálogo).
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Comisión bancaria opcional: egreso EXTRA de la caja, NO suma al total de la OC. */
+  comision?: AbonoComision | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -1048,6 +1050,18 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     actor: input.actorEmail, actorName: input.actorName ?? null,
   });
 
+  // 1.b) Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
+  const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
+  let comisionMovId: string | null = null;
+  if (comision) {
+    const movC = await egresarDivisa({
+      cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
+      concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+      actor: input.actorEmail, actorName: input.actorName ?? null,
+    });
+    comisionMovId = movC.id;
+  }
+
   // 2) Adjuntos (factura obligatoria por flujo; retención opcional).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
   let retencionPath: string | null = null, retencionNombre: string | null = null;
@@ -1063,6 +1077,10 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     caja_mov_id: mov.id,
     factura_path: facturaPath, factura_nombre: facturaNombre,
     retencion_path: retencionPath, retencion_nombre: retencionNombre,
+    comision_monto: comision ? Math.round((Number(comision.monto) || 0) * 100) / 100 : 0,
+    comision_moneda: comision?.moneda ?? null,
+    comision_usd: comision ? Math.round((Number(comision.montoUsd) || 0) * 100) / 100 : 0,
+    comision_caja_mov_id: comisionMovId,
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     // Si la OC es por Factura, al pagar se marca automáticamente en Retenciones.
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
@@ -1188,6 +1206,8 @@ export interface PagarOcMultiCajasInput {
   seriales?: string[] | null;
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Comisión bancaria opcional: egreso EXTRA de la caja, NO suma al total de la OC. */
+  comision?: AbonoComision | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -1232,6 +1252,18 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
     }
   }
 
+  // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
+  const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
+  let comisionMovId: string | null = null;
+  if (comision) {
+    const movC = await egresarDivisa({
+      cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
+      concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+      actor: input.actorEmail, actorName: input.actorName ?? null,
+    });
+    comisionMovId = movC.id;
+  }
+
   let facturaPath: string | null = null, facturaNombre: string | null = null;
   if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
 
@@ -1242,6 +1274,10 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
     caja_id: legs[0].cajaId,
     caja_mov_id: movIds[0] ?? null,
     factura_path: facturaPath, factura_nombre: facturaNombre,
+    comision_monto: comision ? Math.round((Number(comision.monto) || 0) * 100) / 100 : 0,
+    comision_moneda: comision?.moneda ?? null,
+    comision_usd: comision ? Math.round((Number(comision.montoUsd) || 0) * 100) / 100 : 0,
+    comision_caja_mov_id: comisionMovId,
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
     historial: appendHistorial(o, 'pagada', input.actorEmail, {
