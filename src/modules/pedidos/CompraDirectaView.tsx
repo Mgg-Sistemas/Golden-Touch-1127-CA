@@ -299,6 +299,9 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {compra.estado === 'finalizada' && fila('Pagada', compra.pagada_at ? dateTime(compra.pagada_at) : (compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'))}
       {compra.estado === 'finalizada' && (compra.pagada_por_name || compra.pagada_por) && fila('Pagó (Tesorería)', compra.pagada_por_name || compra.pagada_por)}
       {compra.estado === 'finalizada' && compra.gasto_categoria && fila('Categoría de gasto', `${compra.gasto_categoria}${compra.gasto_subcategoria ? ` · ${compra.gasto_subcategoria}` : ''}`)}
+      {fila('Moneda', compra.moneda === 'Bs' ? 'Bs' : '$ (USD)')}
+      {(Number(compra.descuento) || 0) > 0 && fila('Descuento', <span>{Number(compra.descuento).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {compra.moneda === 'Bs' ? 'Bs' : '$'}{(Number(compra.descuento_pct) || 0) > 0 ? ` (${Number(compra.descuento_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)` : ''} <span className="muted" style={{ fontSize: '.75rem' }}>(restado del total)</span></span>)}
+      {(Number(compra.iva) || 0) > 0 && fila('IVA (16%)', <span>{Number(compra.iva).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs <span className="muted" style={{ fontSize: '.75rem' }}>(incluido en el total)</span></span>)}
       {fila(compra.estado === 'finalizada' ? 'Gasto total' : 'Total a pagar', total != null ? money(total) : '—')}
       {compra.estado === 'finalizada' && (Number(compra.comision_bancaria) || 0) > 0 && fila('Comisión bancaria', <span>{money(Number(compra.comision_bancaria))} <span className="muted" style={{ fontSize: '.75rem' }}>(gasto aparte · no suma a la factura)</span></span>)}
       {compra.nota && fila('Nota', <span style={{ whiteSpace: 'pre-wrap' }}>{compra.nota}</span>)}
@@ -671,6 +674,12 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const [subId, setSubId] = useState('');
   // Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
   const [comision, setComision] = useState('');
+  // Moneda de la compra (Bs/$) e IVA (solo suma al total cuando es Bs).
+  const [monedaCompra, setMonedaCompra] = useState<'USD' | 'Bs'>(compra.moneda === 'Bs' ? 'Bs' : 'USD');
+  const [iva, setIva] = useState(compra.iva ? String(compra.iva) : '');
+  // Descuento en % y en monto (se sincronizan entre sí y con el total).
+  const [descuentoPct, setDescuentoPct] = useState(compra.descuento_pct ? String(compra.descuento_pct) : '');
+  const [descuentoMonto, setDescuentoMonto] = useState(compra.descuento ? String(compra.descuento) : '');
   useEffect(() => { listCategoriasGasto().then(setCatsGasto).catch(() => setCatsGasto([])); }, []);
   const catNombre = catsGasto.find((c) => c.id === catId)?.nombre ?? null;
   const subNombre = catsGasto.find((c) => c.id === subId)?.nombre ?? null;
@@ -679,10 +688,25 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
   const moneda = caja?.moneda ?? 'USD';
 
-  const total = useMemo(
+  const subtotal = useMemo(
     () => Math.round(compra.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100,
     [gastos, compra.items],
   );
+  // Descuento (resta) e IVA (solo suma en Bs). Total = subtotal − descuento + IVA.
+  const descuentoNum = Math.min(subtotal, Math.max(0, Math.round((Number(descuentoMonto) || 0) * 100) / 100));
+  const ivaNum = monedaCompra === 'Bs' ? Math.max(0, Math.round((Number(iva) || 0) * 100) / 100) : 0;
+  const total = Math.round((subtotal - descuentoNum + ivaNum) * 100) / 100;
+  // Sincroniza los dos campos de descuento (% ↔ monto) usando el subtotal.
+  function onDescPct(v: string) {
+    setDescuentoPct(v);
+    const p = Number(v) || 0;
+    setDescuentoMonto(p > 0 && subtotal > 0 ? String(Math.round(subtotal * p) / 100) : '');
+  }
+  function onDescMonto(v: string) {
+    setDescuentoMonto(v);
+    const m = Number(v) || 0;
+    setDescuentoPct(m > 0 && subtotal > 0 ? String(Math.round((m / subtotal) * 10000) / 100) : '');
+  }
 
   // Saldos multimoneda de la caja elegida (para pagar repartiendo por cuenta/moneda).
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
@@ -739,7 +763,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       setSaving(true);
       try {
         for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor);
-        await enviarCompraAPagar({ compra, items, afectaInventario, actor, actorName });
+        await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, iva: ivaNum, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, actor, actorName });
         notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
@@ -933,6 +957,36 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                 : cubreTotalMulti
                 ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
                 : <>Faltan <strong>{montoCaja(round2(total - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
+            </small>
+          </div>
+        )}
+
+        {!esPago && (
+          <div className="form-row">
+            <label>Moneda de la compra</label>
+            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <select className="select" style={{ maxWidth: 150 }} value={monedaCompra} onChange={(e) => setMonedaCompra(e.target.value === 'Bs' ? 'Bs' : 'USD')}>
+                <option value="USD">$ (USD)</option>
+                <option value="Bs">Bs</option>
+              </select>
+              {monedaCompra === 'Bs' && (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+                  <span className="muted">IVA (16%):</span>
+                  <input className="input mono" type="number" min={0} step="any" value={iva} onChange={(e) => setIva(e.target.value)} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} />
+                </label>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
+              <span className="muted">Descuento:</span>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+                <input className="input mono" type="number" min={0} step="any" value={descuentoPct} onChange={(e) => onDescPct(e.target.value)} placeholder="0" style={{ width: 90, textAlign: 'right' }} /> %
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+                <input className="input mono" type="number" min={0} step="any" value={descuentoMonto} onChange={(e) => onDescMonto(e.target.value)} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} /> {monedaCompra === 'Bs' ? 'Bs' : '$'}
+              </label>
+            </div>
+            <small className="muted">
+              Subtotal {montoCaja(subtotal, monedaCompra)}{descuentoNum > 0 ? ` − Desc. ${montoCaja(descuentoNum, monedaCompra)}` : ''}{monedaCompra === 'Bs' && ivaNum > 0 ? ` + IVA ${montoCaja(ivaNum, 'Bs')}` : ''} = <strong>Total {montoCaja(total, monedaCompra)}</strong>{monedaCompra === 'Bs' ? ' · el IVA suma al total solo en Bs.' : '.'}
             </small>
           </div>
         )}

@@ -74,6 +74,13 @@ export interface CompraDirecta {
   recepcion_almacen?: string | null;
   /** Comisión bancaria cobrada al pagar (egreso extra de la caja, NO parte de la factura). */
   comision_bancaria?: number | null;
+  /** Moneda de la compra ('USD' o 'Bs'). El IVA solo aplica/​suma cuando es 'Bs'. */
+  moneda?: string | null;
+  /** Monto de IVA (16%) — suma al total cuando la moneda es Bs. */
+  iva?: number | null;
+  /** Descuento aplicado (monto) y su % — resta al total. */
+  descuento?: number | null;
+  descuento_pct?: number | null;
   /** Cuándo el analista la envió a pagar (montó con factura). */
   enviada_pagar_at: string | null;
   actor: string | null;
@@ -495,6 +502,13 @@ export interface EnviarCompraAPagarInput {
   /** Si los materiales deben INGRESAR al inventario al pagar. false = ya cargados a
    *  mano (no se re-ingresan, para no duplicar el stock). Por defecto true. */
   afectaInventario?: boolean;
+  /** Moneda de la compra ('USD' o 'Bs'). */
+  moneda?: string;
+  /** Monto de IVA (16%): suma al total SOLO cuando la moneda es 'Bs'. */
+  iva?: number;
+  /** Descuento en monto y su % — resta al total. */
+  descuento?: number;
+  descuentoPct?: number;
   actor: string;
   actorName?: string | null;
 }
@@ -509,13 +523,21 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
   if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
-  const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
-  if (total <= 0) throw new Error('Cargá los montos de los materiales.');
+  const subtotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  if (subtotal <= 0) throw new Error('Cargá los montos de los materiales.');
+  const moneda = input.moneda === 'Bs' ? 'Bs' : 'USD';
+  // Descuento (resta) e IVA (solo suma en Bs). Total = subtotal − descuento + IVA.
+  const descuento = Math.min(subtotal, Math.max(0, Math.round((Number(input.descuento) || 0) * 100) / 100));
+  const descuentoPct = Math.max(0, Math.round((Number(input.descuentoPct) || 0) * 100) / 100);
+  const iva = moneda === 'Bs' ? Math.max(0, Math.round((Number(input.iva) || 0) * 100) / 100) : 0;
+  const total = Math.round((subtotal - descuento + iva) * 100) / 100;
+  if (total <= 0) throw new Error('El total no puede ser 0.');
 
   const { error } = await supabase
     .from('compras_directas')
     .update({
       estado: 'por_pagar', gasto: total, items,
+      moneda, iva, descuento, descuento_pct: descuentoPct,
       afecta_inventario: input.afectaInventario !== false,
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
@@ -550,7 +572,12 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
   const items = (compra.items ?? []).map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
-  const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  const subtotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
+  // Total a pagar = subtotal − descuento + IVA (IVA solo en Bs). El IVA/descuento NO
+  // alteran el costo de inventario: los materiales entran por su subtotal.
+  const descuento = Math.min(subtotal, Math.max(0, Math.round((Number(compra.descuento) || 0) * 100) / 100));
+  const ivaCompra = compra.moneda === 'Bs' ? Math.max(0, Math.round((Number(compra.iva) || 0) * 100) / 100) : 0;
+  const total = Math.round((subtotal - descuento + ivaCompra) * 100) / 100;
   if (total <= 0) throw new Error('La compra no tiene montos cargados.');
 
   // 1) Egreso de la caja (valida saldo) → Tesorería / Libro Mayor.
