@@ -229,7 +229,7 @@ export async function listLibroMayor(filtros: {
 
 export async function crearRetencion(input: {
   tipo: TipoRetencion; base: number; porcentaje: number; moneda: string;
-  proveedorId?: string | null; ordenId?: string | null;
+  proveedorId?: string | null; ordenId?: string | null; compraDirectaId?: string | null;
   comprobanteNro?: string | null; fecha?: string; descripcion?: string | null;
   actor: string; actorName?: string | null;
 }): Promise<Retencion> {
@@ -242,6 +242,7 @@ export async function crearRetencion(input: {
   const { data, error } = await supabase.from('retenciones').insert({
     tipo: input.tipo, base, porcentaje, monto, moneda: input.moneda || 'Bs',
     proveedor_id: input.proveedorId ?? null, orden_id: input.ordenId ?? null,
+    compra_directa_id: input.compraDirectaId ?? null,
     comprobante_nro: input.comprobanteNro?.trim() || null,
     fecha: input.fecha || new Date().toISOString().slice(0, 10),
     descripcion: input.descripcion?.trim() || null,
@@ -249,6 +250,12 @@ export async function crearRetencion(input: {
   }).select('*').single();
   if (error) throw error;
   return data as Retencion;
+}
+
+/** Borra la(s) retención(es) vinculadas a una compra directa (al reabrir/anular su pago). */
+export async function borrarRetencionesDeCompra(compraDirectaId: string): Promise<void> {
+  if (!compraDirectaId) return;
+  await supabase.from('retenciones').delete().eq('compra_directa_id', compraDirectaId);
 }
 
 export async function listRetenciones(filtros: {
