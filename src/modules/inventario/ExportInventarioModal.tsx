@@ -21,6 +21,7 @@ type RecetaFiltro = '' | 'con_receta' | 'sin_receta' | 'en_proceso' | RecetaFund
 export function ExportInventarioModal({ productos, onClose }: Props) {
   const [f, setF] = useState<ExportFiltros>({
     categoria: '',
+    categorias: [],
     estado: 'activo',
     bajoMinimo: false,
     receta: '',
@@ -45,6 +46,14 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
 
   function update<K extends keyof ExportFiltros>(key: K, value: ExportFiltros[K]) {
     setF((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function toggleCategoria(c: string, on: boolean) {
+    setF((prev) => {
+      const set = new Set(prev.categorias ?? []);
+      if (on) set.add(c); else set.delete(c);
+      return { ...prev, categorias: Array.from(set) };
+    });
   }
 
   async function handleExportar(formato: 'xlsx' | 'pdf') {
@@ -101,11 +110,25 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
           />
         </div>
         <div className="form-row">
-          <label>Categoría</label>
-          <select className="select" value={f.categoria ?? ''} onChange={(e) => update('categoria', e.target.value)}>
-            <option value="">Todas</option>
-            {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <label>Categorías <span className="muted" style={{ fontWeight: 400 }}>(marcá una o varias · vacío = todas)</span></label>
+          <div style={{ border: '1px solid var(--border, #2a2f3a)', borderRadius: 8, maxHeight: 210, overflowY: 'auto', padding: '.45rem .65rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+            {categorias.length === 0 ? (
+              <span className="muted" style={{ fontSize: '.8rem' }}>Sin categorías.</span>
+            ) : categorias.map((c) => {
+              const checked = (f.categorias ?? []).includes(c);
+              return (
+                <label key={c} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.85rem' }}>
+                  <input type="checkbox" checked={checked} onChange={(e) => toggleCategoria(c, e.target.checked)} />
+                  <span>{c}</span>
+                </label>
+              );
+            })}
+          </div>
+          <small className="muted" style={{ marginTop: '.25rem' }}>
+            {(f.categorias?.length ?? 0) > 0
+              ? <>{f.categorias!.length} seleccionada(s) · <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem' }} onClick={() => update('categorias', [])}>limpiar</button></>
+              : 'Todas las categorías'}
+          </small>
         </div>
       </div>
 
