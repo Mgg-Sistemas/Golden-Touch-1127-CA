@@ -72,6 +72,8 @@ export interface CompraDirecta {
   recepcionada_por?: string | null;
   recepcionada_por_name?: string | null;
   recepcion_almacen?: string | null;
+  /** Comisión bancaria cobrada al pagar (egreso extra de la caja, NO parte de la factura). */
+  comision_bancaria?: number | null;
   /** Cuándo el analista la envió a pagar (montó con factura). */
   enviada_pagar_at: string | null;
   actor: string | null;
@@ -365,6 +367,20 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
     });
   }
 
+  // 1.b) Devolver la comisión bancaria a la caja (era un egreso extra al pagar).
+  const comision = Math.round((Number(compra.comision_bancaria) || 0) * 100) / 100;
+  if (comision > 0 && compra.caja_id) {
+    const conceptoCom = `Reapertura ${compra.codigo ?? ''} · comisión bancaria`.trim();
+    if (legs.length) {
+      await revertirEgresoDivisa({
+        cajaId: compra.caja_id, cuenta: legs[0].cuenta, moneda: legs[0].moneda, monto: comision,
+        concepto: conceptoCom, actor, actorName: actorName ?? null,
+      });
+    } else {
+      await ingresarDineroCaja({ cajaId: compra.caja_id, monto: comision, concepto: conceptoCom, categoria: 'reverso', actor, actorName: actorName ?? null });
+    }
+  }
+
   // 2) Revertir la entrada al inventario de cada material (salida por la misma cantidad).
   //    Solo si la compra HABÍA entrado al inventario; si estaba marcada "no afecta
   //    inventario", no se movió stock, así que tampoco se revierte.
@@ -386,6 +402,7 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
     .from('compras_directas')
     .update({
       estado: 'en_proceso', gasto: null, caja_id: null, caja_mov_id: null, pago_legs: null,
+      comision_bancaria: 0, recepcion_pendiente: false,
       mov_id: null, finalizada_at: null, updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
@@ -514,6 +531,9 @@ export interface PagarCompraInput {
   /** Categoría/subcategoría de gasto que coloca Tesorería al pagar. */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Comisión bancaria: egreso ADICIONAL de la caja (NO suma al total de la factura).
+   *  Sale de la misma billetera/moneda del pago. */
+  comision?: number;
   actor: string;
   actorName?: string | null;
 }
@@ -559,6 +579,25 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     movCajaId = movCaja.id;
   }
 
+  // 1.b) COMISIÓN BANCARIA: egreso ADICIONAL de la caja, NO suma al total de la factura.
+  //      Sale de la misma billetera/moneda del pago (o de la caja legacy si no hay legs).
+  const comision = Math.round((Number(input.comision) || 0) * 100) / 100;
+  if (comision > 0) {
+    const conceptoCom = `Comisión bancaria · ${compra.codigo ?? compra.producto_nombre}`;
+    if (legs.length) {
+      await egresarDivisa({
+        cajaId: input.cajaId, cuenta: legs[0].cuenta, moneda: legs[0].moneda, monto: comision,
+        concepto: conceptoCom, categoria: 'gasto', gastoCategoria: 'Comisión bancaria',
+        actor: input.actor, actorName: input.actorName ?? null,
+      });
+    } else {
+      await egresarGastoCaja({
+        cajaId: input.cajaId, monto: comision, concepto: conceptoCom, categoria: 'gasto',
+        gastoCategoria: 'Comisión bancaria', actor: input.actor, actorName: input.actorName ?? null,
+      });
+    }
+  }
+
   // 2) La ENTRADA al inventario ya NO ocurre al pagar: la mercancía queda «pendiente de
   //    recepción» para que el ALMACENISTA le dé entrada eligiendo almacén/sub-almacén
   //    (Inventario → Recepciones). Se marca pendiente solo si la compra afecta inventario;
@@ -572,6 +611,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
       estado: 'finalizada', gasto: total, items,
       caja_id: input.cajaId, caja_mov_id: movCajaId, pago_legs: legs.length ? legs : null,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+      comision_bancaria: comision,
       recepcion_pendiente: afectaInventario,
       pagada_at: new Date().toISOString(), pagada_por: input.actor, pagada_por_name: input.actorName ?? null,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
