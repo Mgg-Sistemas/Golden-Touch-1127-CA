@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { descargarResumenRecepcionPdf, type ResumenRecepcionData } from './recepcionResumenPdf';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -63,6 +64,9 @@ export function RecepcionesPage() {
   const [minerales, setMinerales] = useState<MineralLab[]>([]);
   const [humProv, setHumProv] = useState<HumedadProvRow[]>([]); // humedad provisional
   const [humFin, setHumFin] = useState<HumedadFinalRow[]>([]);  // humedad final
+  const [concils, setConcils] = useState<Conciliacion[]>([]);   // conciliaciones (para Resúmenes)
+  const [tots, setTots] = useState<TotalesDoc[]>([]);           // totales (Fe estéril)
+  const [pesadasList, setPesadasList] = useState<PesadaRow[]>([]); // pesadas (bigbags)
   const [loading, setLoading] = useState(true);
   const [creando, setCreando] = useState(false);
   const [anadiendo, setAnadiendo] = useState(false);
@@ -89,10 +93,12 @@ export function RecepcionesPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [recs, anas, mins, hp, hf] = await Promise.all([
+      const [recs, anas, mins, hp, hf, cons, tt, pes] = await Promise.all([
         listRecepciones(), listAnalisis(), listMinerales(true), listHumedadProv(), listHumedadFinal(),
+        listConciliaciones(), listTotales(), listPesadas(),
       ]);
       setFilas(recs); setAnalisis(anas); setMinerales(mins); setHumProv(hp); setHumFin(hf);
+      setConcils(cons); setTots(tt); setPesadasList(pes);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las recepciones', 'error'); }
   }, []);
 
@@ -103,7 +109,62 @@ export function RecepcionesPage() {
     return () => { cancel = true; };
   }, [reload]);
 
-  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales', 'recepciones_humedad_prov', 'recepciones_humedad_final'], () => { void reload(); });
+  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales', 'recepciones_humedad_prov', 'recepciones_humedad_final', 'recepciones_conciliaciones', 'recepciones_totales', 'recepciones_pesadas'], () => { void reload(); });
+
+  /* ── Resumen «hoja de recepción» (Resúmenes → PDF): toma los datos ya cargados
+     (recepción/pesadas, conciliación, humedad, Fe y análisis) y arma la hoja clásica.
+     Agregado sobre la recepción de trabajo actual. ── */
+  const resumen = useMemo<ResumenRecepcionData>(() => {
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const toN = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    const concil = concils[0] ?? null;              // conciliación más reciente
+    const tot = tots[0] ?? null;                    // totales (Fe estéril)
+    // Kg recibidos por Ops: el peso total conciliado, o la suma de las recepciones.
+    const kgRecibidos = concil ? toN(concil.peso_kg_total) : filas.reduce((a, f) => a + toN(f.peso_kg), 0);
+    const kgCentroAcopio = concil ? toN(concil.reportado) : kgRecibidos;
+    const mermaNoLlego = concil ? toN(concil.no_llego) : 0;
+    const pctNoLlego = concil ? toN(concil.porcentaje) : 0;
+    // Merma humedad: % promedio del lote provisional aplicado a lo recibido.
+    const humPct = promedioHumedadProv(humProv) ?? 0;
+    const mermaHumedad = r2(kgRecibidos * humPct / 100);
+    const kgSecos = r2(kgRecibidos - mermaHumedad);
+    // Merma Fe: del documento de Totales (fe_esteril), tomada como merma.
+    const mermaFe = tot ? Math.abs(toN(tot.fe_esteril)) : 0;
+    const pctFe = kgSecos > 0 ? r2((mermaFe / kgSecos) * 100) : 0;
+    const kgFinales = r2(kgSecos - mermaFe);
+    // Tenor Sn: mineral Sn/casiterita, promedio del lote por cada lectura (A/B/C…).
+    const snMin = minerales.find((m) => /sn|casiter|esta[nñ]o/i.test(m.nombre) || /sn|casiter/i.test(m.clave)) ?? minerales[0] ?? null;
+    let tenores: number[] = [];
+    let tenorProm = 0;
+    if (snMin) {
+      const esAbc = snMin.columnas === 'abc';
+      if (esAbc) {
+        const nl = nLecturas(snMin);
+        tenores = LETRAS_LECTURA.slice(0, nl).map((L) => {
+          const vals = analisis
+            .map((row) => { const el = row.analisis?.[snMin.clave]; return el && typeof el === 'object' ? Number((el as AnalisisElemento)[L]) : NaN; })
+            .filter((x) => Number.isFinite(x));
+          return vals.length ? r2(vals.reduce((a, b) => a + b, 0) / vals.length) : NaN;
+        }).filter((x) => Number.isFinite(x)) as number[];
+      }
+      tenorProm = promedioLote(analisis, snMin.clave, esAbc, nLecturas(snMin)) ?? (tenores.length ? r2(tenores.reduce((a, b) => a + b, 0) / tenores.length) : 0);
+    }
+    const kgNetoSn = r2(kgFinales * tenorProm / 100);
+    // Encabezado: N° y fecha de la conciliación (o de la recepción más antigua).
+    const numero = concil ? String(concil.numero) : (filas[0] ? String(filas[0].item) : '');
+    const fechaBase = concil?.fecha ?? filas[0]?.fecha_hora ?? new Date().toISOString();
+    const fecha = new Date(fechaBase).toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    const procedencia = (concil?.centros?.map((c) => c.nombre).filter(Boolean).join(' · ')) || filas[0]?.procedencia || 'PERAMANAL';
+    const nBigbags = pesadasList.reduce((a, p) => a + toN(p.n_bigbags), 0);
+    return {
+      numero, fecha, procedencia,
+      obsBolsas: `Cantidad de bolsas: ${concil ? toN(concil.kg_bolsas) : 0}`,
+      obsBigbags: nBigbags > 0 ? `se recepcionó en ${nBigbags} big bags` : '',
+      kgCentroAcopio, mermaNoLlego, pctNoLlego, kgRecibidos,
+      mermaHumedad, pctHumedad: humPct, kgSecos, mermaFe, pctFe, kgFinales,
+      tenores, tenorProm, kgNetoSn,
+    };
+  }, [concils, tots, filas, humProv, minerales, analisis, pesadasList]);
 
   /* ── Tabla de arriba: recepciones (kg) ── */
   async function guardarCampo(id: string, patch: Parameters<typeof actualizarRecepcion>[1]) {
@@ -348,9 +409,7 @@ export function RecepcionesPage() {
       </div>
 
       {seccion === 'resumenes' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem' }}>
-          <EmptyState message="Sección «Resúmenes» — pendiente de definir." icon="🚧" />
-        </div>
+        <ResumenRecepcionCard resumen={resumen} />
       )}
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} onClose={() => setConcilOpen(false)} />}
@@ -1788,5 +1847,50 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
           confirmText="Eliminar" danger onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)} />
       )}
     </Modal>
+  );
+}
+
+/* ───────── Resumen «hoja de recepción» (Resúmenes → vista previa + PDF) ───────── */
+
+function ResumenRecepcionCard({ resumen }: { resumen: ResumenRecepcionData }) {
+  const kg = (n: number) => Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pc = (n: number) => `${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  const bd = '1px solid var(--border, #2a3240)';
+  const cellL: CSSProperties = { border: bd, padding: '.45rem .6rem', fontWeight: 700 };
+  const cellV: CSSProperties = { border: bd, padding: '.45rem .6rem', textAlign: 'center', fontWeight: 700, fontFamily: 'ui-monospace, monospace' };
+  const cellO: CSSProperties = { border: bd, padding: '.45rem .6rem', fontSize: '.78rem', color: 'var(--muted, #9aa4b2)' };
+  const merma: CSSProperties = { background: 'rgba(148,163,184,.08)' };
+  return (
+    <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
+        <strong>📊 Resumen · Hoja de recepción</strong>
+        <button className="btn btn-primary btn-sm" onClick={() => void descargarResumenRecepcionPdf(resumen)}>↓ PDF (vista previa)</button>
+      </div>
+      <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 760, fontSize: '.9rem' }}>
+        <tbody>
+          <tr><td style={cellL}>RECEPCIÓN#</td><td style={cellV} colSpan={3}>{resumen.numero || '—'}</td><td style={cellO}></td></tr>
+          <tr><td style={cellL}>FECHA:</td><td style={cellV} colSpan={3}>{resumen.fecha || '—'}</td><td style={cellO}></td></tr>
+          <tr><td style={cellL}>Procedencia C/A:</td><td style={{ ...cellV, fontWeight: 500 }} colSpan={3}>{resumen.procedencia || '—'}</td><td style={{ ...cellO, fontWeight: 700, textAlign: 'center', color: 'var(--text)' }}>Observaciones</td></tr>
+          <tr><td style={cellL}>Kg neto Centro de Acopio:</td><td style={cellV} colSpan={3}>{kg(resumen.kgCentroAcopio)}</td><td style={cellO}>{resumen.obsBolsas}</td></tr>
+          <tr><td style={{ ...cellL, ...merma, fontWeight: 500 }}>Merma no llegó</td><td style={{ ...cellV, ...merma, fontWeight: 500 }} colSpan={3}>{kg(resumen.mermaNoLlego)}</td><td style={{ ...cellO, ...merma }}>{pc(resumen.pctNoLlego)}</td></tr>
+          <tr><td style={cellL}>Kg neto Recibidos por Ops:</td><td style={cellV} colSpan={3}>{kg(resumen.kgRecibidos)}</td><td style={cellO}>{resumen.obsBigbags}</td></tr>
+          <tr><td style={{ ...cellL, ...merma, fontWeight: 500 }}>Merma humedad</td><td style={{ ...cellV, ...merma, fontWeight: 500 }} colSpan={3}>{kg(resumen.mermaHumedad)}</td><td style={{ ...cellO, ...merma }}>{pc(resumen.pctHumedad)}</td></tr>
+          <tr><td style={cellL}>Kg neto Secos:</td><td style={cellV} colSpan={3}>{kg(resumen.kgSecos)}</td><td style={cellO}>Si el material viene seco se repite el paso de Ops</td></tr>
+          <tr><td style={{ ...cellL, ...merma, fontWeight: 500 }}>Merma Fe</td><td style={{ ...cellV, ...merma, fontWeight: 500 }} colSpan={3}>{kg(resumen.mermaFe)}</td><td style={{ ...cellO, ...merma }}>{pc(resumen.pctFe)}</td></tr>
+          <tr><td style={{ ...cellL, background: 'rgba(255,196,0,.14)' }}>Kg neto finales seco y limpio:</td><td style={{ ...cellV, background: 'rgba(255,196,0,.14)' }} colSpan={3}>{kg(resumen.kgFinales)}</td><td style={cellO}>Si el material viene sin Fe y limpio se repite el paso de Ops</td></tr>
+          <tr>
+            <td style={cellL}>Tenor Sn:</td>
+            <td style={cellV}>{resumen.tenores[0] != null ? kg(resumen.tenores[0]) : '—'}</td>
+            <td style={cellV}>{resumen.tenores[1] != null ? kg(resumen.tenores[1]) : '—'}</td>
+            <td style={cellV}>{resumen.tenores[2] != null ? kg(resumen.tenores[2]) : '—'}</td>
+            <td style={cellO}>{resumen.tenorProm ? `Prom: ${kg(resumen.tenorProm)}` : ''}</td>
+          </tr>
+          <tr><td style={cellL}>Kg Neto de Sn:</td><td style={{ ...cellV, fontSize: '1.05rem' }} colSpan={3}>{kg(resumen.kgNetoSn)}</td><td style={cellO}></td></tr>
+        </tbody>
+      </table>
+      <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
+        Se arma con los datos ya cargados: recepción/pesadas, conciliación, humedad, Fe (Totales) y análisis. El PDF abre en vista previa antes de descargar.
+      </small>
+    </div>
   );
 }
