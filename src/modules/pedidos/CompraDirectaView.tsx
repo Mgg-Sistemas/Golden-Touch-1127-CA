@@ -306,6 +306,7 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {fila('Moneda', compra.moneda === 'Bs' ? 'Bs' : '$ (USD)')}
       {(Number(compra.descuento) || 0) > 0 && fila('Descuento', <span>{Number(compra.descuento).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {compra.moneda === 'Bs' ? 'Bs' : '$'}{(Number(compra.descuento_pct) || 0) > 0 ? ` (${Number(compra.descuento_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)` : ''} <span className="muted" style={{ fontSize: '.75rem' }}>(restado del total)</span></span>)}
       {(Number(compra.iva) || 0) > 0 && fila('IVA (16%)', <span>{Number(compra.iva).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs <span className="muted" style={{ fontSize: '.75rem' }}>(incluido en el total)</span></span>)}
+      {(Number(compra.retencion_pct) || 0) > 0 && fila('Retención', <span>{compra.retencion_tipo || 'IVA'} · {Number(compra.retencion_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}% = {Number(compra.retencion_monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {compra.moneda === 'Bs' ? 'Bs' : '$'} <span className="muted" style={{ fontSize: '.75rem' }}>(en módulo Retenciones)</span></span>)}
       {fila(compra.estado === 'finalizada' ? 'Gasto total' : 'Total a pagar', total != null ? money(total) : '—')}
       {compra.estado === 'finalizada' && (Number(compra.comision_bancaria) || 0) > 0 && fila('Comisión bancaria', <span>{money(Number(compra.comision_bancaria))} <span className="muted" style={{ fontSize: '.75rem' }}>(gasto aparte · no suma a la factura)</span></span>)}
       {compra.nota && fila('Nota', <span style={{ whiteSpace: 'pre-wrap' }}>{compra.nota}</span>)}
@@ -684,6 +685,9 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   // Descuento en % y en monto (se sincronizan entre sí y con el total).
   const [descuentoPct, setDescuentoPct] = useState(compra.descuento_pct ? String(compra.descuento_pct) : '');
   const [descuentoMonto, setDescuentoMonto] = useState(compra.descuento ? String(compra.descuento) : '');
+  // Retención (se vincula al módulo Retenciones al pagar).
+  const [retTipo, setRetTipo] = useState<'IVA' | 'ISLR' | 'MUNICIPAL'>((compra.retencion_tipo as 'IVA' | 'ISLR' | 'MUNICIPAL') || 'IVA');
+  const [retPct, setRetPct] = useState(compra.retencion_pct ? String(compra.retencion_pct) : '');
   useEffect(() => { listCategoriasGasto().then(setCatsGasto).catch(() => setCatsGasto([])); }, []);
   const catNombre = catsGasto.find((c) => c.id === catId)?.nombre ?? null;
   const subNombre = catsGasto.find((c) => c.id === subId)?.nombre ?? null;
@@ -785,7 +789,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       setSaving(true);
       try {
         for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor);
-        await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, iva: ivaNum, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, actor, actorName });
+        await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, iva: ivaNum, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, retencionTipo: retTipo, retencionBase: subtotal, retencionPct: Number(retPct) || 0, actor, actorName });
         notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
@@ -1015,13 +1019,29 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
               <input className="input mono" type="number" min={0} step="any" value={total || ''} onChange={(e) => onTotal(e.target.value)} style={{ width: 150, textAlign: 'right', fontWeight: 700 }} /> {monedaCompra === 'Bs' ? 'Bs' : '$'}
               <span className="muted" style={{ fontSize: '.72rem' }}>ajustá el total y el descuento se sincroniza.</span>
             </div>
-            {monedaCompra === 'Bs' && (
-              <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
-                <span className="muted">Tasa (Bs/$):</span>
-                <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" style={{ width: 120, textAlign: 'right' }} />
-                <span className="muted" style={{ fontSize: '.8rem' }}>Equivale a <strong className="mono">{tasa > 0 ? montoCaja(totalUsd, 'USD') : '—'}</strong> {tasa > 0 ? '($ equivalente del total en Bs)' : '(cargá la tasa)'}</span>
-              </div>
-            )}
+            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
+              <span className="muted">Tasa BCV (Bs/$):</span>
+              <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" style={{ width: 120, textAlign: 'right' }} />
+              <span className="muted" style={{ fontSize: '.8rem' }}>
+                {tasa > 0
+                  ? <>Equivale a <strong className="mono">{monedaCompra === 'Bs' ? montoCaja(totalUsd, 'USD') : montoCaja(totalBs, 'Bs')}</strong></>
+                  : 'cargá la tasa (modificable)'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
+              <span className="muted">Retención:</span>
+              <select className="select" style={{ maxWidth: 140 }} value={retTipo} onChange={(e) => setRetTipo(e.target.value as 'IVA' | 'ISLR' | 'MUNICIPAL')}>
+                <option value="IVA">IVA</option>
+                <option value="ISLR">ISLR</option>
+                <option value="MUNICIPAL">Municipal</option>
+              </select>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+                <input className="input mono" type="number" min={0} step="any" value={retPct} onChange={(e) => setRetPct(e.target.value)} placeholder="0" style={{ width: 90, textAlign: 'right' }} /> %
+              </label>
+              <span className="muted" style={{ fontSize: '.78rem' }}>
+                {(Number(retPct) || 0) > 0 ? <>= <strong className="mono">{montoCaja(Math.round(subtotal * (Number(retPct) || 0)) / 100, monedaCompra)}</strong> · se registra en Retenciones al pagar</> : 'opcional · se vincula al módulo Retenciones al pagar'}
+              </span>
+            </div>
             <small className="muted">
               Subtotal {montoCaja(subtotal, monedaCompra)}{descuentoNum > 0 ? ` − Desc. ${montoCaja(descuentoNum, monedaCompra)}` : ''}{monedaCompra === 'Bs' && ivaNum > 0 ? ` + IVA ${montoCaja(ivaNum, 'Bs')}` : ''} = <strong>Total {montoCaja(total, monedaCompra)}</strong>{monedaCompra === 'Bs' ? ' · el IVA suma al total solo en Bs.' : '.'}
             </small>

@@ -12,7 +12,8 @@ import { createProducto, nextSku, updateProducto } from '@/modules/inventario/in
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
-import type { Producto, CuentaCaja } from '@/shared/lib/types';
+import { crearRetencion, borrarRetencionesDeCompra } from '@/modules/tesoreria/tesoreria.repository';
+import type { Producto, CuentaCaja, TipoRetencion } from '@/shared/lib/types';
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
 export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
@@ -81,6 +82,11 @@ export interface CompraDirecta {
   /** Descuento aplicado (monto) y su % — resta al total. */
   descuento?: number | null;
   descuento_pct?: number | null;
+  /** Retención (se vincula al módulo Retenciones al pagar): tipo, base, % y monto. */
+  retencion_tipo?: string | null;
+  retencion_base?: number | null;
+  retencion_pct?: number | null;
+  retencion_monto?: number | null;
   /** Cuándo el analista la envió a pagar (montó con factura). */
   enviada_pagar_at: string | null;
   actor: string | null;
@@ -404,12 +410,16 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
     }
   }
 
+  // 2.b) Quitar la retención vinculada del módulo Retenciones (se recrea al re-pagar).
+  await borrarRetencionesDeCompra(compra.id).catch(() => { /* best-effort */ });
+
   // 3) Volver a EN PROCESO (limpia pago/inventario; conserva ítems y proveedor para editar).
   const { error } = await supabase
     .from('compras_directas')
     .update({
       estado: 'en_proceso', gasto: null, caja_id: null, caja_mov_id: null, pago_legs: null,
       comision_bancaria: 0, recepcion_pendiente: false,
+      retencion_tipo: null, retencion_base: 0, retencion_pct: 0, retencion_monto: 0,
       mov_id: null, finalizada_at: null, updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
@@ -509,6 +519,10 @@ export interface EnviarCompraAPagarInput {
   /** Descuento en monto y su % — resta al total. */
   descuento?: number;
   descuentoPct?: number;
+  /** Retención (opcional): tipo, base y % — se vincula a Retenciones al pagar. */
+  retencionTipo?: string | null;
+  retencionBase?: number;
+  retencionPct?: number;
   actor: string;
   actorName?: string | null;
 }
@@ -532,12 +546,19 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
   const iva = moneda === 'Bs' ? Math.max(0, Math.round((Number(input.iva) || 0) * 100) / 100) : 0;
   const total = Math.round((subtotal - descuento + iva) * 100) / 100;
   if (total <= 0) throw new Error('El total no puede ser 0.');
+  // Retención (el registro en Retenciones se crea al PAGAR; acá solo se guarda en la compra).
+  const retencionPct = Math.max(0, Math.round((Number(input.retencionPct) || 0) * 100) / 100);
+  const retencionBase = (Math.max(0, Math.round((Number(input.retencionBase) || 0) * 100) / 100)) || subtotal;
+  const retencionMonto = retencionPct > 0 ? Math.round(retencionBase * (retencionPct / 100) * 100) / 100 : 0;
 
   const { error } = await supabase
     .from('compras_directas')
     .update({
       estado: 'por_pagar', gasto: total, items,
       moneda, iva, descuento, descuento_pct: descuentoPct,
+      retencion_tipo: retencionPct > 0 ? (input.retencionTipo ?? null) : null,
+      retencion_base: retencionPct > 0 ? retencionBase : 0,
+      retencion_pct: retencionPct, retencion_monto: retencionMonto,
       afecta_inventario: input.afectaInventario !== false,
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
@@ -645,6 +666,19 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     })
     .eq('id', compra.id);
   if (error) throw error;
+
+  // Retención → módulo Retenciones: se crea el registro vinculado a la compra directa.
+  const retPct = Number(compra.retencion_pct) || 0;
+  const retBase = (Number(compra.retencion_base) || 0) || subtotal;
+  if (retPct > 0 && retBase > 0) {
+    await crearRetencion({
+      tipo: (compra.retencion_tipo || 'IVA') as TipoRetencion,
+      base: retBase, porcentaje: retPct, moneda: compra.moneda === 'Bs' ? 'Bs' : 'USD',
+      proveedorId: compra.proveedor_id ?? null, compraDirectaId: compra.id,
+      descripcion: `Compra directa ${compra.codigo ?? ''}`.trim(),
+      actor: input.actor, actorName: input.actorName ?? null,
+    }).catch((e) => { console.error('[compra-directa] no se pudo crear la retención:', e); });
+  }
 }
 
 /* ───────── Recepción en inventario (la da el ALMACENISTA tras el pago) ───────── */
