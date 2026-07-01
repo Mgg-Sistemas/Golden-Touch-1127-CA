@@ -6,11 +6,13 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 
-export type ModuloDirecto = 'compra' | 'servicio';
+export type ModuloDirecto = 'compra' | 'servicio' | 'orden';
 
 const BUCKET: Record<ModuloDirecto, string> = {
   compra: 'compras-directas',
   servicio: 'servicios-directos',
+  // Solicitudes/órdenes (SP de servicio y compra normal): reusa el bucket de imágenes de OP.
+  orden: 'op-imagenes',
 };
 
 export interface AdjuntoDirecto {

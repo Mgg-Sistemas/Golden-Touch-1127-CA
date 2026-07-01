@@ -66,6 +66,7 @@ import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
+import { FacturasDirectas } from './FacturasDirectas';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ChatOrden } from './ChatOrden';
 import { noLeidosPorOrden } from './ordenChat.repository';
@@ -2382,6 +2383,7 @@ function OrdenDetailModal({
           <div className="v"><OpImagenAdjunta path={o.imagen_path} /></div>
         </div>
       )}
+      <FacturasDirectas modulo="orden" refId={o.id} actor={actorEmail || 'sistema'} titulo="📎 Adjuntos (imágenes / PDF)" textoBoton="＋ Agregar adjunto (PDF/imagen)" />
 
       {mostrarOfertas && (
         <OfertasComparativa

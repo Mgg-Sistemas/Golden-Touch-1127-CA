@@ -663,7 +663,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     compra.items.forEach((it, i) => { if (it.gasto != null) m[i] = String(it.gasto); });
     return m;
   });
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   // Categoría / subcategoría de gasto (Tesorería): etiqueta el movimiento del egreso.
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
@@ -728,14 +728,14 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
-    if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
+    if (files.some((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'))) { setError('Los adjuntos deben ser PDF o imagen.'); return; }
 
     // MODO MONTAR (analista): carga factura + montos y deja "Por pagar" (no toca caja ni inventario).
     if (!esPago) {
       const items: CompraDirectaItem[] = compra.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
       setSaving(true);
       try {
-        if (file) await agregarAdjuntoDirecto('compra', compra.id, file, actor);
+        for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor);
         await enviarCompraAPagar({ compra, items, afectaInventario, actor, actorName });
         notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
@@ -927,9 +927,9 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
 
         {!esPago && (
           <div className="form-row">
-            <label>Adjuntar factura · PDF o imagen</label>
-            <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-            {file && <small className="muted">{file.name}</small>}
+            <label>Adjuntar facturas · PDF o imagen <span className="muted">(podés elegir varias)</span></label>
+            <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+            {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
             <small className="muted">Podés sumar más facturas después desde el detalle.</small>
           </div>
         )}

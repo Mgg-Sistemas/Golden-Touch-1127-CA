@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import type { ItemOrden, Usuario } from '@/shared/lib/types';
 import { crearOrden, subirImagenOrden } from './pedidos.repository';
+import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import {
   CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas, TIPOS_RECARGA,
@@ -31,7 +32,7 @@ export function CrearServicioModal({
   const [items, setItems] = useState<ItemOrden[]>([]);
   const [notas, setNotas] = useState('');
   const [urgente, setUrgente] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   // Solicitante (persona): nombre y apellido del usuario (NO el correo). Editable.
@@ -157,7 +158,7 @@ export function CrearServicioModal({
     }
     const solicitanteFinal = (solicitante || nombreSolicitante).toUpperCase().trim();
     const unidad = unidadSolicitante.trim();
-    if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { toast('El adjunto debe ser una imagen o un PDF', 'error'); return; }
+    if (files.some((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'))) { toast('Los adjuntos deben ser imagen o PDF', 'error'); return; }
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
@@ -165,7 +166,9 @@ export function CrearServicioModal({
       if (unidad && !unidadOpciones.some((u) => u.toLowerCase() === unidad.toLowerCase())) {
         await addCatalogoPedido('unidad_solicitante', unidad).catch(() => {});
       }
-      const imagenPath = file ? await subirImagenOrden(file) : null;
+      // La primera imagen/PDF queda como imagen principal (preview del detalle); las
+      // demás se suman como adjuntos de la orden (se ven/borran en el detalle).
+      const imagenPath = files[0] ? await subirImagenOrden(files[0]) : null;
       const saved = await crearOrden({
         tipo: 'servicio',
         proveedor_id: null,
@@ -181,6 +184,8 @@ export function CrearServicioModal({
         unidad_solicitante: unidad || null,
         ci_solicitante: null,
       });
+      // Adjuntos extra (a partir del 2º archivo) → lista de adjuntos de la orden.
+      for (const f of files.slice(1)) await agregarAdjuntoDirecto('orden', saved.id, f, email ?? '');
       notify(`Nueva solicitud de servicio ${saved.codigo} enviada para aprobación`, 'success',
         { link: '#/app/pedidos', destino: 'admin' });
       toast(`Solicitud de servicio ${saved.codigo} creada`, 'success');
@@ -316,9 +321,9 @@ export function CrearServicioModal({
             placeholder="Detalle del servicio requerido…" />
         </div>
         <div>
-          <label className="label">Adjuntar imagen o PDF (opcional)</label>
-          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {file && <small className="muted">{file.name}</small>}
+          <label className="label">Adjuntar imágenes o PDF <span className="muted">(podés elegir varios)</span></label>
+          <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+          {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
         </div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}>
           <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} /> 🚨 Marcar URGENTE

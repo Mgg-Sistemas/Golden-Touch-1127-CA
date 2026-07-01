@@ -14,8 +14,8 @@ import {
   type AdjuntoDirecto, type ModuloDirecto,
 } from './adjuntosDirectos.repository';
 
-export function FacturasDirectas({ modulo, refId, actor, soloLectura = false }: {
-  modulo: ModuloDirecto; refId: string; actor: string; soloLectura?: boolean;
+export function FacturasDirectas({ modulo, refId, actor, soloLectura = false, titulo = '🧾 Facturas / comprobantes', textoBoton = '＋ Agregar factura (PDF/imagen)' }: {
+  modulo: ModuloDirecto; refId: string; actor: string; soloLectura?: boolean; titulo?: string; textoBoton?: string;
 }) {
   const [lista, setLista] = useState<AdjuntoDirecto[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -37,15 +37,15 @@ export function FacturasDirectas({ modulo, refId, actor, soloLectura = false }: 
     catch { toast('No se pudo abrir la factura', 'error'); }
   }
 
-  async function onPick(file: File | null) {
-    if (!file) return;
+  async function onPick(archivos: File[]) {
+    if (!archivos.length) return;
     setSubiendo(true);
     try {
-      await agregarAdjuntoDirecto(modulo, refId, file, actor);
-      toast('Factura cargada', 'success');
+      for (const f of archivos) await agregarAdjuntoDirecto(modulo, refId, f, actor);
+      toast(archivos.length > 1 ? `${archivos.length} archivos cargados` : 'Archivo cargado', 'success');
       if (inputRef.current) inputRef.current.value = '';
       await reload();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar la factura', 'error'); }
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el archivo', 'error'); }
     finally { setSubiendo(false); }
   }
 
@@ -60,13 +60,13 @@ export function FacturasDirectas({ modulo, refId, actor, soloLectura = false }: 
   return (
     <div className="card" style={{ marginTop: '.6rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', gap: '.5rem', flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: '.9rem' }}>🧾 Facturas / comprobantes {lista.length ? <span className="badge">{lista.length}</span> : null}</strong>
+        <strong style={{ fontSize: '.9rem' }}>{titulo} {lista.length ? <span className="badge">{lista.length}</span> : null}</strong>
         {!soloLectura && (
           <>
-            <input ref={inputRef} type="file" accept="application/pdf,image/*" style={{ display: 'none' }}
-              onChange={(e) => onPick(e.target.files?.[0] ?? null)} />
+            <input ref={inputRef} type="file" accept="application/pdf,image/*" multiple style={{ display: 'none' }}
+              onChange={(e) => onPick(Array.from(e.target.files ?? []))} />
             <button type="button" className="btn btn-sm btn-primary" disabled={subiendo} onClick={() => inputRef.current?.click()}>
-              {subiendo ? 'Subiendo…' : '＋ Agregar factura (PDF/imagen)'}
+              {subiendo ? 'Subiendo…' : textoBoton}
             </button>
           </>
         )}

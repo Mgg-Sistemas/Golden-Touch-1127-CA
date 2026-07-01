@@ -364,7 +364,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   // Catálogo de unidades solicitantes (mismo que el servicio/OP normal, sincronizado).
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   useEffect(() => { listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => setUnidadOpciones([])); }, []);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -433,7 +433,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         proveedorIdFinal = proveedorId;
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
-      if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); setSaving(false); return; }
+      if (files.some((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'))) { setError('Los adjuntos deben ser PDF o imagen.'); setSaving(false); return; }
       // Sincroniza la unidad solicitante con el catálogo (igual que el servicio normal).
       const uniClean = unidadSolicitante.trim().toUpperCase();
       if (uniClean && !unidadOpciones.some((u) => u.toLowerCase() === uniClean.toLowerCase())) {
@@ -441,13 +441,13 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       }
       if (esEdicion && editServicio) {
         const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, actor, actorName });
-        if (file) await agregarAdjuntoDirecto('servicio', edit.id, file, actor);
+        for (const f of files) await agregarAdjuntoDirecto('servicio', edit.id, f, actor);
         notify(`Servicio directo ${edit.codigo ?? ''} actualizado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       } else {
         const creado = await crearServicioDirecto({
           lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, actor, actorName,
         });
-        if (file) await agregarAdjuntoDirecto('servicio', creado.id, file, actor);
+        for (const f of files) await agregarAdjuntoDirecto('servicio', creado.id, f, actor);
         notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       }
       onSaved();
@@ -594,10 +594,10 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar servicio</button>
 
         <div className="form-row" style={{ marginTop: '.75rem' }}>
-          <label>Adjuntar imagen o PDF <span className="muted">(opcional)</span></label>
-          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {file && <small className="muted">{file.name}</small>}
-          {esEdicion && editServicio?.adjunto_path && !file && <small className="muted">Ya tiene un adjunto. Si subís otro, lo reemplaza.</small>}
+          <label>Adjuntar imágenes o PDF <span className="muted">(podés elegir varios)</span></label>
+          <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+          {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
+          {esEdicion && editServicio && <small className="muted" style={{ display: 'block' }}>Los adjuntos se agregan a la lista del servicio (podés verlos/borrarlos en el detalle).</small>}
         </div>
 
         <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan montos al crear. La factura, el monto y la caja se indican al finalizar.</p>
@@ -617,7 +617,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   const montosIniciales: Record<number, string> = {};
   if (esPago) servicio.items.forEach((it, i) => { if (it.gasto != null) montosIniciales[i] = String(it.gasto); });
   const [gastos, setGastos] = useState<Record<number, string>>(montosIniciales);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
   const [subId, setSubId] = useState('');
@@ -673,14 +673,14 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (total <= 0) { setError('Indicá cuánto costó cada servicio.'); return; }
-    if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El adjunto debe ser un PDF o una imagen.'); return; }
+    if (files.some((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'))) { setError('Los adjuntos deben ser PDF o imagen.'); return; }
     const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
 
     // MODO MONTAR (analista): carga factura + montos y lo deja "Por pagar" (no toca caja).
     if (!esPago) {
       setSaving(true);
       try {
-        if (file) await agregarAdjuntoDirecto('servicio', servicio.id, file, actor);
+        for (const f of files) await agregarAdjuntoDirecto('servicio', servicio.id, f, actor);
         await enviarServicioAPagar({ servicio, items, actor, actorName });
         notify(`Servicio ${servicio.codigo ?? ''} enviado a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
@@ -857,9 +857,9 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
         )}
 
         <div className="form-row">
-          <label>Adjuntar factura / comprobante · PDF o imagen (opcional)</label>
-          <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {file && <small className="muted">{file.name}</small>}
+          <label>Adjuntar facturas / comprobantes · PDF o imagen (podés elegir varios)</label>
+          <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+          {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
         </div>
       </form>
     </Modal>
