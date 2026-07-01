@@ -951,6 +951,17 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
     created_by: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) throw error;
+
+  // Con la foto ya guardada en el histórico, se BORRAN los datos de trabajo de la
+  // recepción (análisis químico, humedad provisional y humedad final) para que la
+  // próxima recepción arranque en blanco. La información queda íntegra en el snapshot.
+  // Best-effort: si algún borrado fallara, el cierre ya está guardado y no se revierte.
+  await Promise.allSettled([
+    supabase.from(TABLE_ANA).delete().not('id', 'is', null),
+    supabase.from(TABLE_HPROV).delete().not('id', 'is', null),
+    supabase.from(TABLE_HFIN).delete().not('id', 'is', null),
+  ]);
+
   return data as CierreRecepcion;
 }
 
