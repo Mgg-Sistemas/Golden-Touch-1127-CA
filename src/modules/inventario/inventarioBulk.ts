@@ -510,6 +510,8 @@ export async function descargarPlantillaExcel(): Promise<void> {
 
 export interface ExportFiltros {
   categoria?: string;
+  /** Varias categorías (multi-selección tipo check). Si tiene elementos, manda sobre `categoria`. */
+  categorias?: string[];
   estado?: 'activo' | 'inactivo' | '';
   bajoMinimo?: boolean;
   receta?: '' | 'con_receta' | 'sin_receta' | 'en_proceso' | RecetaFundicion;
@@ -521,7 +523,8 @@ export interface ExportFiltros {
 export function filtrarParaExport(productos: Producto[], f: ExportFiltros): Producto[] {
   const q = f.texto?.trim().toLowerCase() ?? '';
   return productos.filter((p) => {
-    if (f.categoria && p.categoria !== f.categoria) return false;
+    if (f.categorias && f.categorias.length) { if (!f.categorias.includes(p.categoria)) return false; }
+    else if (f.categoria && p.categoria !== f.categoria) return false;
     if (f.estado && p.estado !== f.estado) return false;
     if (f.bajoMinimo && (p.stock ?? 0) > (p.stock_min ?? 0)) return false;
     if (f.almacen && p.almacen !== f.almacen) return false;
