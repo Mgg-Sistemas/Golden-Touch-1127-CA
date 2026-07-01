@@ -58,8 +58,12 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [ver, setVer] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
-    const [cs, pds, alms, cats, unis, cjs, provs] = await Promise.all([
-      listComprasDirectas(), listProductos(), getNombresAlmacenes(), getCategorias(), getUnidades(), listCajasActivas(), listProveedores(),
+    // Los productos se cargan primero para pasarlos a getCategorias/getUnidades: así la
+    // lista sale IGUAL que en Inventario (catálogo `taxonomias` + categorías/medidas ya
+    // presentes en productos), no solo el catálogo.
+    const pds = await listProductos();
+    const [cs, alms, cats, unis, cjs, provs] = await Promise.all([
+      listComprasDirectas(), getNombresAlmacenes(), getCategorias(pds), getUnidades(pds), listCajasActivas(), listProveedores(),
     ]);
     setCompras(cs); setProductos(pds); setAlmacenes(alms); setCategorias(cats); setUnidades(unis); setCajas(cjs); setProveedores(provs);
   }, []);
