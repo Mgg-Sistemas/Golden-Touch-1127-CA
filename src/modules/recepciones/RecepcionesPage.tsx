@@ -1697,6 +1697,67 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
             );
           })()}
 
+          {/* Humedad provisional guardada al cerrar */}
+          {arr('humedad_prov').length > 0 && (() => {
+            const filas = arr('humedad_prov') as Array<{ peso_humedo: number | null; peso_seco: number | null }>;
+            const mermaTot = filas.reduce((a, r) => a + (mermaH2OProv(r) ?? 0), 0);
+            return (
+              <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '.4rem' }}>
+                <div className="card-title" style={{ padding: '.45rem .7rem' }}><span>💧 Humedad provisional</span></div>
+                <div className="table-wrap" style={{ overflowX: 'auto' }}><table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
+                  <thead><tr><th className="num">Peso (Gr) Húmedos</th><th className="num">Peso (Gr) seco</th><th className="num">% Humedad</th><th className="num">Merma peso H2O</th></tr></thead>
+                  <tbody>
+                    {filas.map((r, i) => (
+                      <tr key={i}>
+                        <td className="num mono">{fmt(r.peso_humedo)}</td>
+                        <td className="num mono">{fmt(r.peso_seco)}</td>
+                        <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(pctHumedadProv(r))}</td>
+                        <td className="num mono">{(() => { const m = mermaH2OProv(r); return m == null ? '—' : fmt(m); })()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr style={{ fontWeight: 800 }}>
+                    <td colSpan={2} style={{ textAlign: 'right' }}>Promedio del lote</td>
+                    <td className="num mono">{fmtH(promedioHumedadProv(filas))}</td>
+                    <td className="num mono">{fmt(mermaTot)}</td>
+                  </tr></tfoot>
+                </table></div>
+              </div>
+            );
+          })()}
+
+          {/* Humedad final guardada al cerrar */}
+          {arr('humedad_final').length > 0 && (() => {
+            const filas = arr('humedad_final') as Array<{ peso_recogido: number | null }>;
+            const pesoKgSnap = (arr('recepciones') as Array<{ peso_kg?: number | null }>).reduce((a, r) => a + (Number(r.peso_kg) || 0), 0);
+            const recogidoTot = filas.reduce((a, r) => a + (Number(r.peso_recogido) || 0), 0);
+            const mermaTot = filas.reduce((a, r) => a + (mermaH2OFinal(pesoKgSnap, r.peso_recogido) ?? 0), 0);
+            const pcts = filas.map((r) => pctHumedadFinal(pesoKgSnap, r.peso_recogido)).filter((x): x is number => x != null);
+            const pctLote = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
+            return (
+              <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '.4rem' }}>
+                <div className="card-title" style={{ padding: '.45rem .7rem' }}><span>💧 Humedad final</span></div>
+                <div className="table-wrap" style={{ overflowX: 'auto' }}><table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
+                  <thead><tr><th className="num">Peso (Kg) recogido</th><th className="num">Merma peso H2O</th><th className="num">% Humedad final</th></tr></thead>
+                  <tbody>
+                    {filas.map((r, i) => (
+                      <tr key={i}>
+                        <td className="num mono">{fmt(r.peso_recogido)}</td>
+                        <td className="num mono">{(() => { const m = mermaH2OFinal(pesoKgSnap, r.peso_recogido); return m == null ? '—' : fmt(m); })()}</td>
+                        <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(pctHumedadFinal(pesoKgSnap, r.peso_recogido))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr style={{ fontWeight: 800 }}>
+                    <td className="num mono">{fmt(recogidoTot)}</td>
+                    <td className="num mono">{fmt(mermaTot)}</td>
+                    <td className="num mono">{fmtH(pctLote)}</td>
+                  </tr></tfoot>
+                </table></div>
+              </div>
+            );
+          })()}
+
           {(() => {
             const ing = (snap as Record<string, unknown>).ingreso_casiterita as { almacen: string; kg: number; tasa: number } | null | undefined;
             return ing ? (

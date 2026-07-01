@@ -105,6 +105,9 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaUnid, setNuevaUnid] = useState('');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
+  // Input de alta de medida NO controlado (ref): sobrevive a los refresh de realtime
+  // mientras se teclea (con `value` controlado, un re-render cortaba «par» → «p»).
+  const nuevaUnidRef = useRef<HTMLInputElement>(null);
   // Carga por CAJA/BULTO: si la unidad es caja o bulto, el stock inicial se ingresa
   // en cajas/bultos y se multiplica por las unidades por bulto → se guarda en UNIDADES.
   const [undPorBulto, setUndPorBulto] = useState('');
@@ -170,13 +173,15 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   }
 
   async function handleAddUnidad() {
-    const clean = nuevaUnid.trim();
+    // Fuente de verdad: el DOM (input no controlado), no el estado React.
+    const clean = (nuevaUnidRef.current?.value ?? nuevaUnid).trim();
     if (!clean) { toast('Escribe un nombre para la unidad', 'error'); return; }
+    const limpiarInput = () => { if (nuevaUnidRef.current) nuevaUnidRef.current.value = ''; setNuevaUnid(''); };
     // Sin duplicados por mayúsculas/minúsculas (ej. «kg» vs «Kg»): si ya existe, la seleccionamos.
     const existente = unidades.find((u) => u.toLowerCase() === clean.toLowerCase());
     if (existente) {
       setForm((prev) => ({ ...prev, unidad: existente }));
-      setNuevaUnid('');
+      limpiarInput();
       toast(`La medida "${existente}" ya existe — seleccionada`, 'info');
       return;
     }
@@ -185,7 +190,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       if (!added) return;
       setUnidades((prev) => (prev.some((u) => u.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
       setForm((prev) => ({ ...prev, unidad: added }));
-      setNuevaUnid('');
+      limpiarInput();
       toast(`Medida "${added}" añadida`, 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo añadir la medida', 'error');
@@ -377,10 +382,11 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
             </select>
             <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
               <input
+                ref={nuevaUnidRef}
                 className="input"
                 style={{ flex: 1 }}
                 placeholder="Nueva unidad…"
-                value={nuevaUnid}
+                defaultValue=""
                 onChange={(e) => setNuevaUnid(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddUnidad(); } }}
                 maxLength={20}
