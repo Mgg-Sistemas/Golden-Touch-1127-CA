@@ -957,15 +957,17 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
   // pesos (bigbags/pesadas), conciliaciones, totales, análisis químico y humedades.
   // NO se tocan los minerales (catálogo/config) ni los cierres (histórico). La info queda
   // íntegra en el snapshot. Best-effort: el cierre ya está guardado y no se revierte.
+  // OJO con el orden por FK: recepciones_bigbags.pesada_id → recepciones_pesadas, así que
+  // los bigbags se borran ANTES que las pesadas (encadenado); el resto va en paralelo.
   await Promise.allSettled([
     supabase.from(TABLE).delete().not('id', 'is', null),
     supabase.from(TABLE_ANA).delete().not('id', 'is', null),
     supabase.from(TABLE_HPROV).delete().not('id', 'is', null),
     supabase.from(TABLE_HFIN).delete().not('id', 'is', null),
-    supabase.from(TABLE_BB).delete().not('id', 'is', null),
-    supabase.from(TABLE_PESADAS).delete().not('id', 'is', null),
     supabase.from(TABLE_CONCIL).delete().not('id', 'is', null),
     supabase.from(TABLE_TOT).delete().not('id', 'is', null),
+    supabase.from(TABLE_BB).delete().not('id', 'is', null)
+      .then(() => supabase.from(TABLE_PESADAS).delete().not('id', 'is', null)),
   ]);
 
   return data as CierreRecepcion;
