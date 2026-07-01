@@ -308,6 +308,33 @@ export async function editarMovimientoCajaManual(input: EditarMovimientoManualIn
   if (error) throw error;
 }
 
+/**
+ * Cambia SOLO la fecha (`at`) de CUALQUIER movimiento — incluidos los vinculados
+ * (pago de OC, traslado, conversión, directo, conciliación…). No toca montos ni saldos
+ * ni el otro lado de la operación: útil cuando el pago real fue otro día pero se cargó
+ * tarde al sistema. Si el movimiento es un pago de OC / compra o servicio directo, se
+ * sincroniza además la fecha de pago del documento vinculado para que coincida.
+ */
+export async function editarFechaMovimiento(mov: MovimientoCaja, fechaIso: string): Promise<void> {
+  if (!fechaIso) throw new Error('Indicá la fecha del movimiento.');
+  const { error } = await supabase.from(LIBRO).update({ at: fechaIso }).eq('id', mov.id);
+  if (error) throw error;
+  // Sincroniza la fecha de pago del/los documento(s) vinculado(s) para que TODO coincida
+  // (best-effort: si alguno falla no bloquea el cambio de fecha del movimiento).
+  const r = mov as unknown as Record<string, unknown>;
+  const refOrden = r.ref_orden_id as string | null | undefined;
+  const refNomina = r.ref_nomina_renglon_id as string | null | undefined;
+  const tareas: PromiseLike<unknown>[] = [
+    supabase.from('compras_directas').update({ pagada_at: fechaIso }).eq('caja_mov_id', mov.id),
+    supabase.from('servicios_directos').update({ pagada_at: fechaIso }).eq('caja_mov_id', mov.id),
+    refNomina
+      ? supabase.from('nomina_renglones').update({ pagada_en: fechaIso }).eq('id', refNomina)
+      : supabase.from('nomina_renglones').update({ pagada_en: fechaIso }).eq('caja_mov_id', mov.id),
+  ];
+  if (refOrden) tareas.push(supabase.from('ordenes').update({ pagada_en: fechaIso }).eq('id', refOrden));
+  await Promise.allSettled(tareas);
+}
+
 /* ───────────── Salida de dinero (anticipo · queda pendiente) ───────────── */
 
 export interface SalidaDineroInput {
