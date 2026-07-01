@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -71,8 +71,12 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     return () => { cancel = true; };
   }, [reload]);
 
-  // Realtime multiusuario: las compras directas se reflejan al instante.
-  useRealtime(['compras_directas', 'productos', 'proveedores'], () => { void reload(); });
+  // Realtime multiusuario: las compras directas se reflejan al instante. PERO no se
+  // recarga mientras hay un modal abierto (crear/editar/montar/pagar…): un refresh a
+  // mitad de carga borraba los materiales que se estaban cargando.
+  const modalAbiertoRef = useRef(false);
+  modalAbiertoRef.current = crear || !!editar || !!montar || !!ver || !!reabrir || !!eliminar;
+  useRealtime(['compras_directas', 'productos', 'proveedores'], () => { if (!modalAbiertoRef.current) void reload(); });
 
   const porEstado = useMemo(() => {
     const m: Record<string, CompraDirecta[]> = { en_proceso: [], por_pagar: [], finalizada: [] };
@@ -380,7 +384,6 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   const [nota, setNota] = useState(editCompra?.nota ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [seq, setSeq] = useState((editCompra?.items.length ?? 1) + 1);
 
   // Proveedor (opcional): se elige del directorio o se da de alta en el momento.
   const [proveedorId, setProveedorId] = useState(editCompra?.proveedor_id ?? '');
@@ -393,7 +396,8 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   const rifPartes = partirRif(provRif);
 
   function set(id: number, patch: Partial<LineaUI>) { setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l))); }
-  function add() { setLineas((ls) => [...ls, nuevaLinea(seq)]); setSeq((s) => s + 1); }
+  // Id garantizado único (max + 1): evita colisiones de key que podrían fusionar/perder renglones.
+  function add() { setLineas((ls) => [...ls, nuevaLinea(ls.reduce((m, l) => Math.max(m, l.id), 0) + 1)]); }
   function quitar(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
 
   // Alta de categoría en línea (se guarda en el catálogo de inventario y queda seleccionada en el renglón).
