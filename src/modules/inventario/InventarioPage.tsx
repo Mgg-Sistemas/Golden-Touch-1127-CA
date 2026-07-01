@@ -31,6 +31,7 @@ import {
   type ProductoInput,
 } from './inventario.repository';
 import { contarProduccionEnProceso } from '@/modules/produccion/produccion.repository';
+import { listComprasPendientesRecepcion, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import {
   registrarMovimiento,
@@ -142,6 +143,8 @@ export function InventarioPage() {
   const [recepcionesPendientes, setRecepcionesPendientes] = useState<Orden[]>([]);
   // Cuántas órdenes están pendientes por marcar la recepción (lo que cuenta el botón).
   const [recepcionesPorMarcar, setRecepcionesPorMarcar] = useState(0);
+  // Compras directas PAGADAS que esperan que el almacenista les dé entrada al inventario.
+  const [comprasRecep, setComprasRecep] = useState<CompraDirecta[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [almacenSel, setAlmacenSel] = useState<string | null>(null);
@@ -172,7 +175,7 @@ export function InventarioPage() {
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
-  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes'], () => { void reload(); });
+  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes', 'compras_directas'], () => { void reload(); });
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -193,7 +196,7 @@ export function InventarioPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prods, ords, pendientes, porMarcar, alms, exs, nEnProduccion] = await Promise.all([
+      const [prods, ords, pendientes, porMarcar, alms, exs, nEnProduccion, cRecep] = await Promise.all([
         listProductos(),
         listRecepcionesFinalizadas().catch(() => [] as Orden[]),
         listRecepcionesPorMarcar().catch(() => [] as Orden[]),
@@ -201,11 +204,13 @@ export function InventarioPage() {
         listAlmacenes().catch(() => [] as Almacen[]),
         listExistencias().catch(() => [] as Existencia[]),
         contarProduccionEnProceso().catch(() => 0),
+        listComprasPendientesRecepcion().catch(() => [] as CompraDirecta[]),
       ]);
       setProductos(prods);
       setRecepciones(ords);
       setRecepcionesPendientes(pendientes);
       setRecepcionesPorMarcar(porMarcar);
+      setComprasRecep(cRecep);
       setAlmacenes(alms);
       setExistencias(exs);
       setEnProduccion(nEnProduccion);
@@ -513,7 +518,7 @@ export function InventarioPage() {
             className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setUi((prev) => ({ ...prev, view: 'recepciones' }))}
           >
-            Recepciones {recepcionesPorMarcar > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepcionesPorMarcar}</span>}
+            Recepciones {(recepcionesPorMarcar + comprasRecep.length) > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepcionesPorMarcar + comprasRecep.length}</span>}
           </button>
           {canWrite && (
             <button
@@ -617,6 +622,7 @@ export function InventarioPage() {
         <RecepcionesPendientes
           ordenes={recepciones}
           pendientes={recepcionesPendientes}
+          comprasPendientes={comprasRecep}
           almacenes={almacenes}
           actor={productoActor}
           actorName={actorName}

@@ -64,6 +64,14 @@ export interface CompraDirecta {
   pagada_at: string | null;
   pagada_por: string | null;
   pagada_por_name: string | null;
+  /** Recepción en inventario (la hace el almacenista tras el pago). Cuando una compra
+   *  se paga y afecta inventario, NO entra el stock al pagar: queda «pendiente de
+   *  recepción» y el almacenista le da entrada eligiendo almacén/sub-almacén. */
+  recepcion_pendiente?: boolean | null;
+  recepcionada_at?: string | null;
+  recepcionada_por?: string | null;
+  recepcionada_por_name?: string | null;
+  recepcion_almacen?: string | null;
   /** Cuándo el analista la envió a pagar (montó con factura). */
   enviada_pagar_at: string | null;
   actor: string | null;
@@ -551,36 +559,83 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     movCajaId = movCaja.id;
   }
 
-  // 2) Entrada al inventario por cada material (costo = monto / cantidad).
-  //    Se OMITE cuando la compra está marcada "no afecta inventario" (los materiales
-  //    ya se cargaron a mano): así el pago no duplica el stock.
+  // 2) La ENTRADA al inventario ya NO ocurre al pagar: la mercancía queda «pendiente de
+  //    recepción» para que el ALMACENISTA le dé entrada eligiendo almacén/sub-almacén
+  //    (Inventario → Recepciones). Se marca pendiente solo si la compra afecta inventario;
+  //    si está marcada "no afecta inventario" (ya cargada a mano), no hay nada que recibir.
   const afectaInventario = compra.afecta_inventario !== false;
-  let primerMov: string | null = null;
-  if (afectaInventario) {
-    for (const it of items) {
-      const cantidad = Number(it.cantidad) || 0;
-      if (cantidad <= 0 || !it.producto_id) continue;
-      const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 10000) / 10000 : 0;
-      const mov = await registrarMovimiento({
-        producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
-        actor: input.actor, actor_name: input.actorName ?? null,
-        ref_tipo: 'compra_directa', ref_id: compra.id,
-        detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
-      });
-      if (!primerMov) primerMov = mov.id;
-    }
-  }
 
-  // 3) Finalizar + comprobante de pago.
+  // 3) Finalizar (pagada) + comprobante de pago. mov_id se completa en la recepción.
   const { error } = await supabase
     .from('compras_directas')
     .update({
       estado: 'finalizada', gasto: total, items,
       caja_id: input.cajaId, caja_mov_id: movCajaId, pago_legs: legs.length ? legs : null,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
-      mov_id: primerMov,
+      recepcion_pendiente: afectaInventario,
       pagada_at: new Date().toISOString(), pagada_por: input.actor, pagada_por_name: input.actorName ?? null,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    .eq('id', compra.id);
+  if (error) throw error;
+}
+
+/* ───────── Recepción en inventario (la da el ALMACENISTA tras el pago) ───────── */
+
+/** Compras directas PAGADAS que esperan que el almacenista les dé entrada al inventario. */
+export async function listComprasPendientesRecepcion(): Promise<CompraDirecta[]> {
+  const { data, error } = await supabase
+    .from('compras_directas')
+    .select('*')
+    .eq('estado', 'finalizada')
+    .eq('recepcion_pendiente', true)
+    .order('pagada_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
+}
+
+export interface RecepcionarCompraInput {
+  compra: CompraDirecta;
+  /** Almacén (o sub-almacén) destino elegido por el almacenista. */
+  almacen: string;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * El ALMACENISTA da ENTRADA al inventario de una compra directa pagada: registra la
+ * entrada de cada material (costo = monto ÷ cantidad → PMP) en el almacén/sub-almacén
+ * elegido y marca la recepción como hecha (deja de estar pendiente).
+ */
+export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): Promise<void> {
+  const { compra } = input;
+  if (compra.estado !== 'finalizada') throw new Error('Solo se reciben compras directas ya pagadas.');
+  if (compra.recepcion_pendiente === false) throw new Error('Esta compra ya fue recibida en el inventario.');
+  const almacen = (input.almacen ?? '').trim();
+  if (!almacen) throw new Error('Elegí el almacén/sub-almacén destino.');
+  const items = (compra.items ?? []).filter((it) => (Number(it.cantidad) || 0) > 0 && it.producto_id);
+  if (!items.length) throw new Error('La compra no tiene materiales para recibir.');
+
+  let primerMov: string | null = null;
+  for (const it of items) {
+    const cantidad = Number(it.cantidad) || 0;
+    const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 10000) / 10000 : 0;
+    const mov = await registrarMovimiento({
+      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'compra_directa', ref_id: compra.id,
+      detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
+    });
+    if (!primerMov) primerMov = mov.id;
+  }
+
+  const { error } = await supabase
+    .from('compras_directas')
+    .update({
+      recepcion_pendiente: false, recepcion_almacen: almacen, mov_id: primerMov,
+      recepcionada_at: new Date().toISOString(),
+      recepcionada_por: input.actor, recepcionada_por_name: input.actorName ?? null,
+      updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
   if (error) throw error;
