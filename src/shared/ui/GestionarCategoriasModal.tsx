@@ -63,7 +63,9 @@ export function GestionarCategoriasModal({
   const termino = activa.terminoSingular ?? 'categoría';
 
   const [editando, setEditando] = useState<string | null>(null);
-  const [valorEditado, setValorEditado] = useState('');
+  // Input de renombrar NO controlado (defaultValue + ref): un re-render (realtime) no
+  // debe pisar lo tecleado ni cortar el texto. Se lee del DOM al guardar.
+  const editRef = useRef<HTMLInputElement>(null);
   const [filtro, setFiltro] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aEliminar, setAEliminar] = useState<string | null>(null);
@@ -89,13 +91,9 @@ export function GestionarCategoriasModal({
       .sort((a, b) => a.localeCompare(b, 'es'));
   }, [activa.categorias, filtro, versionLocal]);
 
-  useEffect(() => {
-    if (editando) setValorEditado(editando);
-  }, [editando]);
-
   async function aplicarRename() {
     if (!editando) return;
-    const nuevoNombre = valorEditado.trim();
+    const nuevoNombre = (editRef.current?.value ?? '').trim();
     if (!nuevoNombre) { toast('El nombre no puede estar vacío', 'error'); return; }
     if (nuevoNombre === editando) { setEditando(null); return; }
     // Bloqueo de duplicados sin distinguir mayúsculas/minúsculas (contra OTROS valores).
@@ -255,8 +253,8 @@ export function GestionarCategoriasModal({
                     {enEdicion ? (
                       <input
                         className="input"
-                        value={valorEditado}
-                        onChange={(e) => setValorEditado(e.target.value)}
+                        ref={editRef}
+                        defaultValue={c}
                         autoFocus
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') void aplicarRename();
