@@ -300,6 +300,7 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {compra.estado === 'finalizada' && (compra.pagada_por_name || compra.pagada_por) && fila('Pagó (Tesorería)', compra.pagada_por_name || compra.pagada_por)}
       {compra.estado === 'finalizada' && compra.gasto_categoria && fila('Categoría de gasto', `${compra.gasto_categoria}${compra.gasto_subcategoria ? ` · ${compra.gasto_subcategoria}` : ''}`)}
       {fila(compra.estado === 'finalizada' ? 'Gasto total' : 'Total a pagar', total != null ? money(total) : '—')}
+      {compra.estado === 'finalizada' && (Number(compra.comision_bancaria) || 0) > 0 && fila('Comisión bancaria', <span>{money(Number(compra.comision_bancaria))} <span className="muted" style={{ fontSize: '.75rem' }}>(gasto aparte · no suma a la factura)</span></span>)}
       {compra.nota && fila('Nota', <span style={{ whiteSpace: 'pre-wrap' }}>{compra.nota}</span>)}
       {compra.adjunto_path && fila('Comprobante', <AdjuntoLink compra={compra} />)}
 
@@ -668,6 +669,8 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
   const [subId, setSubId] = useState('');
+  // Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
+  const [comision, setComision] = useState('');
   useEffect(() => { listCategoriasGasto().then(setCatsGasto).catch(() => setCatsGasto([])); }, []);
   const catNombre = catsGasto.find((c) => c.id === catId)?.nombre ?? null;
   const subNombre = catsGasto.find((c) => c.id === subId)?.nombre ?? null;
@@ -763,7 +766,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     }
     setSaving(true);
     try {
-      await pagarCompraDirecta({ compra, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre });
+      await pagarCompraDirecta({ compra, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision: Number(comision) || 0 });
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
       notify(`Compra pagada y finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
       onSaved();
@@ -813,6 +816,15 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                 placeholder={catId ? '🔍 Subcategoría…' : '— elegí primero la categoría —'} emptyText="Sin subcategorías"
                 options={(catId ? subcategoriasDe(catsGasto, catId) : []).map((c) => ({ value: c.id, label: c.nombre }))} />
             </div>
+          </div>
+        )}
+
+        {esPago && (
+          <div className="form-row">
+            <label>Comisión bancaria <span className="muted">(opcional)</span></label>
+            <input className="input mono" type="number" min={0} step="any" value={comision}
+              onChange={(e) => setComision(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
+            <small className="muted">Se descuenta de la caja como gasto aparte. NO suma al total de la factura ni al costo de los materiales.</small>
           </div>
         )}
 
