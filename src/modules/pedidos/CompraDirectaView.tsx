@@ -707,6 +707,13 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     const m = Number(v) || 0;
     setDescuentoPct(m > 0 && subtotal > 0 ? String(Math.round((m / subtotal) * 10000) / 100) : '');
   }
+  // Ajustar el TOTAL a mano: se sincroniza restando/quitando descuento (total = subtotal − desc + IVA).
+  function onTotal(v: string) {
+    const t = Number(v) || 0;
+    const desc = Math.max(0, Math.round((subtotal + ivaNum - t) * 100) / 100);
+    setDescuentoMonto(desc > 0 ? String(desc) : '');
+    setDescuentoPct(desc > 0 && subtotal > 0 ? String(Math.round((desc / subtotal) * 10000) / 100) : '');
+  }
 
   // Saldos multimoneda de la caja elegida (para pagar repartiendo por cuenta/moneda).
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
@@ -733,7 +740,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
 
   // Caja con varias monedas (Multimoneda) → se paga repartiendo por cuenta.
   const esMultimoneda = saldosCaja.length >= 2;
-  // El total a pagar está en USD (moneda de la caja Multimoneda). Equivalente en USD de cada pata.
+  // Conversión entre monedas con la tasa BCV editable (y COP de mercado).
   function legUsd(monedaLeg: string, n: number): number {
     if (!n || n <= 0) return 0;
     if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(n);
@@ -741,16 +748,27 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
     return round2(n);
   }
+  function desdeUsd(monedaLeg: string, usd: number): number {
+    if (!usd || usd <= 0) return 0;
+    if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(usd);
+    if (monedaLeg === 'Bs') return round2(usd * tasa);
+    if (monedaLeg === 'COP') return mercado?.copUsd ? round2(usd * mercado.copUsd) : 0;
+    return round2(usd);
+  }
+  // Convierte el total (en la MONEDA DE LA COMPRA) a la moneda de una billetera.
+  const convertir = (n: number, from: string, to: string): number => (from === to ? round2(n) : desdeUsd(to, legUsd(from, n)));
+  // Total objetivo en USD: la compra puede estar en $ o Bs (monedaCompra); si la caja
+  // es de otra moneda se paga el equivalente con la tasa editable.
+  const totalUsdObjetivo = legUsd(monedaCompra, total);
   const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
-  const cubreTotalMulti = sumUsdMulti >= total - 0.01;
+  const cubreTotalMulti = sumUsdMulti >= totalUsdObjetivo - 0.01;
   // No se puede pagar más que el total de la compra.
-  const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
+  const excedeTotalMulti = esMultimoneda && sumUsdMulti > totalUsdObjetivo + 0.01;
   const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
 
-  // Conversión del total a Bs con la tasa BCV (editable), para cualquier caja.
-  // El total se expresa en la moneda de la caja; lo llevamos a USD y a Bs.
-  const totalUsd = moneda === 'Bs' ? (tasa > 0 ? round2(total / tasa) : 0) : total;
-  const totalBs = moneda === 'Bs' ? total : (tasa > 0 ? round2(total * tasa) : 0);
+  // Equivalentes del total de la COMPRA (en su moneda) a USD y a Bs con la tasa editable.
+  const totalUsd = totalUsdObjetivo;
+  const totalBs = convertir(total, monedaCompra, 'Bs');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -779,19 +797,22 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
         .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 }))
         .filter((l) => l.monto > 0);
       if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
-      if (excedeTotalMulti) { setError(`No podés pagar más que el total de la compra. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(total, 'USD')} (te pasaste por ${montoCaja(round2(sumUsdMulti - total), 'USD')}).`); return; }
-      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
+      if (excedeTotalMulti) { setError(`No podés pagar más que el total de la compra. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(totalUsdObjetivo, 'USD')} (te pasaste por ${montoCaja(round2(sumUsdMulti - totalUsdObjetivo), 'USD')}).`); return; }
+      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(totalUsdObjetivo, 'USD')}).`); return; }
     } else if (saldosCaja.length === 1) {
       // Caja de UNA sola moneda con billetera: el dinero vive en caja_saldos (no en cajas.saldo),
-      // así que el egreso sale de la billetera real por ese único saldo.
+      // así que el egreso sale de la billetera real. Si la compra está en OTRA moneda que la
+      // billetera (ej. compra en $ y billetera en Bs), se descuenta el EQUIVALENTE con la tasa.
       const s = saldosCaja[0];
-      if (total > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
-      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: total }];
+      if (monedaCompra !== s.moneda && !(tasa > 0)) { setError('Indicá la tasa (Bs por $) para convertir el total a la moneda de la billetera.'); return; }
+      const montoLeg = convertir(total, monedaCompra, s.moneda);
+      if (montoLeg > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}). Requiere ${montoCaja(montoLeg, s.moneda)}.`); return; }
+      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: montoLeg }];
     }
     setSaving(true);
     try {
       await pagarCompraDirecta({ compra, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision: Number(comision) || 0 });
-      const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
+      const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, monedaCompra);
       notify(`Compra pagada y finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar la compra.'); setSaving(false); }
@@ -801,7 +822,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       {esPago ? (
-        <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `💳 Pagar · ${montoCaja(total, moneda)}`}</button>
+        <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `💳 Pagar · ${montoCaja(total, monedaCompra)}`}</button>
       ) : (
         <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : '🧾 Enviar a pagar'}</button>
       )}
@@ -984,6 +1005,11 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
                 <input className="input mono" type="number" min={0} step="any" value={descuentoMonto} onChange={(e) => onDescMonto(e.target.value)} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} /> {monedaCompra === 'Bs' ? 'Bs' : '$'}
               </label>
+            </div>
+            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
+              <span className="muted">Total ajustable:</span>
+              <input className="input mono" type="number" min={0} step="any" value={total || ''} onChange={(e) => onTotal(e.target.value)} style={{ width: 150, textAlign: 'right', fontWeight: 700 }} /> {monedaCompra === 'Bs' ? 'Bs' : '$'}
+              <span className="muted" style={{ fontSize: '.72rem' }}>ajustá el total y el descuento se sincroniza.</span>
             </div>
             <small className="muted">
               Subtotal {montoCaja(subtotal, monedaCompra)}{descuentoNum > 0 ? ` − Desc. ${montoCaja(descuentoNum, monedaCompra)}` : ''}{monedaCompra === 'Bs' && ivaNum > 0 ? ` + IVA ${montoCaja(ivaNum, 'Bs')}` : ''} = <strong>Total {montoCaja(total, monedaCompra)}</strong>{monedaCompra === 'Bs' ? ' · el IVA suma al total solo en Bs.' : '.'}
