@@ -6,6 +6,7 @@ import { toast } from '@/shared/ui/Toast';
 import { date, dateTime, money, num } from '@/shared/lib/format';
 import type { Almacen, ItemOrden, Orden } from '@/shared/lib/types';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
+import { recepcionarCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { nombreCortoAlmacen } from './almacenes.repository';
 
 interface RecepcionesPendientesProps {
@@ -13,6 +14,8 @@ interface RecepcionesPendientesProps {
   ordenes: Orden[];
   /** Órdenes pendientes por recepción (el almacenista debe recibirlas). */
   pendientes: Orden[];
+  /** Compras directas PAGADAS pendientes de que el almacenista les dé entrada. */
+  comprasPendientes: CompraDirecta[];
   /** Almacenes (con sub-almacenes) para elegir el destino de la mercancía. */
   almacenes: Almacen[];
   /** Email del usuario que recibe. */
@@ -179,6 +182,112 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
   );
 }
 
+/**
+ * Modal de recepción de una COMPRA DIRECTA pagada: el almacenista ve el detalle
+ * (materiales + cantidades + costo), elige el almacén/sub-almacén destino y le da
+ * ENTRADA al inventario (vía `recepcionarCompraDirecta`). Las cantidades vienen fijas
+ * de la compra (ya se pagaron); solo se elige el destino.
+ */
+function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSaved }: {
+  compra: CompraDirecta;
+  almacenes: Almacen[];
+  actor: string;
+  actorName: string | null;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [almacen, setAlmacen] = useState<string>(almacenesOrdenados(almacenes)[0]?.nombre ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const items = Array.isArray(compra.items) ? compra.items : [];
+  const totalUnidades = items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
+
+  async function handleConfirm() {
+    setError(null);
+    if (!almacen.trim()) { setError('Elegí el almacén/sub-almacén destino.'); return; }
+    setSaving(true);
+    try {
+      await recepcionarCompraDirecta({ compra, almacen: almacen.trim(), actor, actorName });
+      toast(`Materiales recibidos · ${compra.codigo ?? 'compra directa'} · stock actualizado en ${almacen.trim()}`, 'success');
+      await onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo recibir la compra');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Recibir · ${compra.codigo ?? 'Compra directa'}`}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleConfirm} disabled={saving}>
+            {saving ? 'Recibiendo…' : '📦 Dar entrada al inventario'}
+          </button>
+        </>
+      }
+    >
+      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+        Compra directa ya <strong>pagada</strong>. Elegí el <strong>almacén / sub-almacén destino</strong> y confirmá para dar
+        entrada al inventario de todos los materiales (con su costo).
+      </p>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+      {compra.proveedor_nombre && (
+        <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.5rem' }}>Proveedor: <strong>{compra.proveedor_nombre}</strong></div>
+      )}
+
+      <div className="form-row" style={{ marginBottom: '.6rem' }}>
+        <label>Almacén / sub-almacén destino *</label>
+        <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
+          <option value="">— elegí el almacén —</option>
+          {almacenesOrdenados(almacenes).map((a) => {
+            const padre = a.parent_id ? almacenes.find((x) => x.id === a.parent_id) : null;
+            const corto = nombreCortoAlmacen(a, almacenes);
+            return (
+              <option key={a.id} value={a.nombre}>
+                {padre ? `   ↳ ${padre.nombre} › ${corto}` : a.nombre}
+              </option>
+            );
+          })}
+        </select>
+        <small className="muted">La mercancía entra a este almacén y queda en la trazabilidad final.</small>
+      </div>
+
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Costo</th></tr></thead>
+          <tbody>
+            {items.map((it, i) => {
+              const cant = Number(it.cantidad) || 0;
+              const gasto = Number(it.gasto) || 0;
+              return (
+                <tr key={`${it.producto_id || it.producto_nombre}-${i}`}>
+                  <td>{it.producto_nombre}{it.producto_sku && <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.producto_sku}</div>}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{money(gasto)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ fontWeight: 700 }}>
+              <td>TOTAL</td>
+              <td className="mono" style={{ textAlign: 'right' }}>{num(totalUnidades)}</td>
+              <td className="mono" style={{ textAlign: 'right' }}>{money(Number(compra.gasto) || 0)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </Modal>
+  );
+}
+
 /** Modal con el detalle de una orden finalizada: ítems con cantidad y precio. */
 function DetalleRecepcionModal({ orden, onClose }: { orden: Orden; onClose: () => void }) {
   const items = Array.isArray(orden.items) ? orden.items : [];
@@ -263,13 +372,55 @@ function DetalleRecepcionModal({ orden, onClose }: { orden: Orden; onClose: () =
  *  · Abajo, el historial de órdenes ya finalizadas (click → detalle).
  */
 export function RecepcionesPendientes({
-  ordenes, pendientes, almacenes, actor, actorName, canWrite, onRecibida,
+  ordenes, pendientes, comprasPendientes, almacenes, actor, actorName, canWrite, onRecibida,
 }: RecepcionesPendientesProps) {
   const [detalle, setDetalle] = useState<Orden | null>(null);
   const [recibir, setRecibir] = useState<Orden | null>(null);
+  const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
 
   return (
     <>
+      {/* ─── Compras directas pagadas por recibir ─── */}
+      {comprasPendientes.length > 0 && (
+        <div className="card">
+          <div className="card-title">
+            <span>Compras directas por recibir</span>
+            <span className="muted mono">{num(comprasPendientes.length)} compra{comprasPendientes.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.75rem' }}>
+            {comprasPendientes.map((c) => {
+              const items = Array.isArray(c.items) ? c.items : [];
+              const totalUnidades = items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
+              return (
+                <div key={c.id} className="card" style={{ margin: 0, padding: '.85rem', borderColor: 'var(--warning, #f59e0b)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
+                    <div>
+                      <div className="mono" style={{ fontWeight: 700 }}>{c.codigo ?? 'Compra directa'}</div>
+                      <div className="muted" style={{ fontSize: '.75rem' }}>{date(c.pagada_at ?? c.created_at)}</div>
+                    </div>
+                    <span className="badge success">Pagada</span>
+                  </div>
+                  <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
+                    <div>{num(items.length)} material{items.length !== 1 ? 'es' : ''} · {num(totalUnidades)} und.</div>
+                    <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(Number(c.gasto) || 0)}</div>
+                  </div>
+                  {c.proveedor_nombre && (
+                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Proveedor: {c.proveedor_nombre}</div>
+                  )}
+                  <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem' }}>
+                    {canWrite && (
+                      <button type="button" className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setRecibirCompra(c)} title="Ver el detalle y dar entrada al inventario eligiendo el almacén">
+                        📦 Recibir
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ─── Pendientes por recepción ─── */}
       <div className="card">
         <div className="card-title">
@@ -397,6 +548,16 @@ export function RecepcionesPendientes({
           actor={actor}
           actorName={actorName}
           onClose={() => setRecibir(null)}
+          onSaved={onRecibida}
+        />
+      )}
+      {recibirCompra && (
+        <RecibirCompraModal
+          compra={recibirCompra}
+          almacenes={almacenes}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setRecibirCompra(null)}
           onSaved={onRecibida}
         />
       )}

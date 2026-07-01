@@ -281,9 +281,19 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
   return (
     <Modal title={`🛒 Compra Directa ${compra.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
       {fila('Código', <span className="mono">{compra.codigo ?? '—'}</span>)}
-      {fila('Estado', compra.estado === 'finalizada' ? '🏁 Finalizada (pagada · ingresó a inventario)' : compra.estado === 'por_pagar' ? '🧾 Por pagar (DIRECTO · espera Tesorería)' : '⏳ En proceso')}
+      {fila('Estado', compra.estado === 'finalizada'
+        ? (compra.afecta_inventario === false
+            ? '🏁 Finalizada (pagada · no ingresa a inventario)'
+            : compra.recepcion_pendiente
+              ? '🏁 Pagada · pendiente de recepción en inventario'
+              : '🏁 Finalizada (pagada · recibida en inventario)')
+        : compra.estado === 'por_pagar' ? '🧾 Por pagar (DIRECTO · espera Tesorería)' : '⏳ En proceso')}
       {fila('Proveedor', compra.proveedor_nombre || '—')}
-      {fila('Almacén destino', compra.almacen || '—')}
+      {fila('Almacén destino', (compra.recepcion_almacen || compra.almacen) || '—')}
+      {compra.estado === 'finalizada' && compra.afecta_inventario !== false && fila('Recepción',
+        compra.recepcion_pendiente
+          ? <span style={{ color: 'var(--warning)' }}>⏳ Pendiente · el almacenista le da entrada en Inventario → Recepciones</span>
+          : <span>📦 Recibida en {compra.recepcion_almacen || compra.almacen}{compra.recepcionada_por_name ? ` · ${compra.recepcionada_por_name}` : ''}{compra.recepcionada_at ? ` · ${dateTime(compra.recepcionada_at)}` : ''}</span>)}
       {fila('Generó (analista)', compra.actor_name || compra.actor || '—')}
       {fila('Creada', dateTime(compra.created_at))}
       {compra.estado === 'finalizada' && fila('Pagada', compra.pagada_at ? dateTime(compra.pagada_at) : (compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'))}
