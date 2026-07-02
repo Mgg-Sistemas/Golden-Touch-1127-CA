@@ -19,6 +19,7 @@ import {
   pctHumedadProv, mermaH2OProv, promedioHumedadProv,
   listHumedadFinal, mermaH2OFinal, pctHumedadFinal, mermaFinalProc, pctFinalProc,
   sincronizarHumedadFinalPorProcedencia, listProcedenciasConocidas,
+  listProcedencias, crearProcedencia, renombrarProcedencia, eliminarProcedencia, type ProcedenciaRow,
   listBigbags, crearBigbag, actualizarBigbag, eliminarBigbag, totalesBigbags,
   TARA_TIPO, TIPO_LABEL, TIPO_SINGULAR, tipoValido, type TipoPesaje,
   guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
@@ -78,6 +79,7 @@ export function RecepcionesPage() {
   const [provBorrar, setProvBorrar] = useState<HumedadProvRow | null>(null);
   const [config, setConfig] = useState(false);
   const [pesos, setPesos] = useState(false);
+  const [procCat, setProcCat] = useState(false);
   const [resumenOpen, setResumenOpen] = useState(false);
   const [concilOpen, setConcilOpen] = useState(false);
   const [totalesOpen, setTotalesOpen] = useState(false);
@@ -365,6 +367,9 @@ export function RecepcionesPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={() => setProcCat(true)} title="Catálogo de procedencias (agregar, renombrar, borrar)">
+            🏷 Procedencias
+          </button>
           <button className="btn btn-ghost" onClick={() => setPesos(true)} title="Pesos de bigbags (húmedos y secos)">
             ⚖ Añadir pesos
           </button>
@@ -662,7 +667,104 @@ export function RecepcionesPage() {
       )}
       {config && <ConfigMineralesModal onClose={() => setConfig(false)} onChanged={reload} />}
       {pesos && <PesosBigbagsModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setPesos(false)} />}
+      {procCat && <ProcedenciasCatalogoModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setProcCat(false)} />}
     </div>
+  );
+}
+
+/* ───────────── Modal: Catálogo de procedencias (agregar / renombrar / borrar) ───────────── */
+function ProcedenciasCatalogoModal({ canWrite, actor, actorName, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; onClose: () => void;
+}) {
+  const [rows, setRows] = useState<ProcedenciaRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [nueva, setNueva] = useState('');
+  const [creando, setCreando] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState('');
+  const [aBorrar, setABorrar] = useState<ProcedenciaRow | null>(null);
+
+  const cargar = useCallback(async () => {
+    try { setRows(await listProcedencias()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el catálogo', 'error'); }
+  }, []);
+  useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
+  useRealtime(['recepciones_procedencias'], () => { void cargar(); });
+
+  async function agregar() {
+    const n = nueva.trim();
+    if (!n) return;
+    setCreando(true);
+    try { await crearProcedencia({ nombre: n, actor, actorName }); setNueva(''); await cargar(); toast('Procedencia agregada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
+    finally { setCreando(false); }
+  }
+  async function guardarEdit(id: string) {
+    try { await renombrarProcedencia(id, editVal); setEditId(null); await cargar(); toast('Procedencia actualizada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo renombrar', 'error'); }
+  }
+  async function borrar(r: ProcedenciaRow) {
+    try { await eliminarProcedencia(r.id); setRows((prev) => prev.filter((x) => x.id !== r.id)); toast('Procedencia eliminada', 'success'); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    finally { setABorrar(null); }
+  }
+
+  return (
+    <Modal title="🏷 Catálogo de procedencias" size="md" onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+        Estas procedencias aparecen en el desplegable de los pesos y del análisis. Se guardan en <strong>MAYÚSCULAS</strong>.
+      </p>
+      {canWrite && (
+        <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.75rem' }}>
+          <input className="input" style={{ flex: 1 }} value={nueva} onChange={(e) => setNueva(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void agregar(); }} placeholder="Nueva procedencia (ej. COMERCIALIZACION EDINSON)" maxLength={80} />
+          <button className="btn btn-primary" onClick={() => void agregar()} disabled={creando || !nueva.trim()}>
+            {creando ? 'Añadiendo…' : '＋ Agregar'}
+          </button>
+        </div>
+      )}
+      {loading ? (
+        <div className="muted" style={{ padding: '1rem', textAlign: 'center' }}>Cargando…</div>
+      ) : !rows.length ? (
+        <div className="muted" style={{ padding: '1.25rem', textAlign: 'center', border: '1px dashed var(--border, #2a2f3a)', borderRadius: 'var(--r-md)' }}>
+          Sin procedencias. Agregá la primera arriba.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          {rows.map((r) => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.5rem .7rem', borderRadius: 'var(--r-md)', background: 'var(--bg-1, #141922)', border: '1px solid var(--border, #2a2f3a)' }}>
+              <span aria-hidden style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--brand, #ff8a00)', flex: '0 0 auto' }} />
+              {editId === r.id ? (
+                <input className="input" style={{ flex: 1 }} autoFocus value={editVal} onChange={(e) => setEditVal(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void guardarEdit(r.id); if (e.key === 'Escape') setEditId(null); }} maxLength={80} />
+              ) : (
+                <span style={{ flex: 1, fontWeight: 600, letterSpacing: '.02em' }}>{r.nombre}</span>
+              )}
+              {canWrite && (editId === r.id ? (
+                <>
+                  <button className="btn btn-sm btn-primary" onClick={() => void guardarEdit(r.id)}>💾</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setEditId(null)}>✕</button>
+                </>
+              ) : (
+                <>
+                  <button className="btn btn-sm btn-ghost" title="Renombrar" onClick={() => { setEditId(r.id); setEditVal(r.nombre); }}>✏</button>
+                  <button className="btn btn-sm btn-ghost" title="Eliminar" style={{ color: 'var(--danger, #e5484d)' }} onClick={() => setABorrar(r)}>🗑</button>
+                </>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      {aBorrar && (
+        <ConfirmDialog
+          title="Eliminar procedencia"
+          message={`¿Eliminar la procedencia «${aBorrar.nombre}» del catálogo? No afecta las recepciones ya cargadas.`}
+          confirmText="Eliminar" danger
+          onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)}
+        />
+      )}
+    </Modal>
   );
 }
 
