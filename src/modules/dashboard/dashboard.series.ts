@@ -60,6 +60,20 @@ function bucketLabel(start: Date, bucket: BucketKind): string {
   return start.toLocaleDateString('es-VE', { month: 'short', year: '2-digit' });
 }
 
+/**
+ * Recorta los buckets iniciales que están en cero (sin valor ni conteo), de modo
+ * que la serie arranque en el primer punto con datos reales. Evita el tramo plano
+ * de "$0" al inicio del rango cuando el sistema todavía no tenía inventario/actividad
+ * cargada. Si TODOS los buckets están en cero, devuelve la serie tal cual (para no
+ * dejar la gráfica vacía). Solo recorta el prefijo: los ceros intermedios/finales
+ * se conservan porque sí representan estado real.
+ */
+export function recortarCerosIniciales(buckets: SeriePoint[]): SeriePoint[] {
+  const primero = buckets.findIndex((b) => b.value !== 0 || b.count !== 0);
+  if (primero <= 0) return buckets; // -1 (todo en cero) o 0 (sin prefijo cero): sin cambios
+  return buckets.slice(primero);
+}
+
 /** Genera buckets vacíos en el rango (cerrado por inicio del bucket). */
 export function generarBuckets(rango: RangoFechas): SeriePoint[] {
   const out: SeriePoint[] = [];
@@ -132,7 +146,7 @@ export async function getSerieValorInventario(rango: RangoFechas): Promise<Serie
     bucket.count = 0;
   }
 
-  return buckets;
+  return recortarCerosIniciales(buckets);
 }
 
 /**
@@ -163,5 +177,5 @@ export async function getSerieProduccion(rango: RangoFechas): Promise<SeriePoint
     buckets[idx].count += cantidad;
     buckets[idx].value += cantidad * (Number(row.costo_unitario) || 0);
   }
-  return buckets;
+  return recortarCerosIniciales(buckets);
 }
