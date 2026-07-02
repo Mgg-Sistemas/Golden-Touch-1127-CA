@@ -83,7 +83,7 @@ export function DashboardPage() {
       <div className="page-head">
         <div>
           <h1>Dashboard</h1>
-          <p className="muted">Resumen operativo del sistema GOLDEN TOUCH 1127 C.A. al {date(new Date().toISOString())}.</p>
+          <p className="muted hint">Resumen operativo del sistema GOLDEN TOUCH 1127 C.A. al {date(new Date().toISOString())}.</p>
         </div>
       </div>
 
@@ -205,6 +205,15 @@ function Kpi({ icon, label, value, deltaClassName, deltaText, onClick, action }:
 
 function CriticosTable({ criticos }: { criticos: Producto[] }) {
   const navigate = useNavigate();
+  // Paginación: la lista de reabastecer puede ser larga (decenas de productos); se
+  // muestran de a 10 (o 25/50) para no estirar el dashboard.
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(0);
+  const total = criticos.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageSafe = Math.min(page, totalPages - 1);
+  const inicio = pageSafe * pageSize;
+  const visibles = criticos.slice(inicio, inicio + pageSize);
 
   if (!criticos.length) {
     return (
@@ -221,7 +230,7 @@ function CriticosTable({ criticos }: { criticos: Producto[] }) {
     <>
       <div className="card-title">
         <span>Productos a reabastecer</span>
-        <span className="muted mono">{num(criticos.length)} en alerta · click para abrir el detalle</span>
+        <span className="muted mono">{num(total)} en alerta · click para abrir el detalle</span>
       </div>
       <div className="table-wrap">
         <table className="table">
@@ -237,7 +246,7 @@ function CriticosTable({ criticos }: { criticos: Producto[] }) {
             </tr>
           </thead>
           <tbody>
-            {criticos.map((p) => {
+            {visibles.map((p) => {
               const stock = p.stock ?? 0;
               const min = p.stock_min ?? 0;
               const critical = stock < min;
@@ -281,6 +290,23 @@ function CriticosTable({ criticos }: { criticos: Producto[] }) {
             })}
           </tbody>
         </table>
+      </div>
+      {/* Paginador: tamaño de página (10/25/50) + navegación. */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', marginTop: '.6rem', flexWrap: 'wrap' }}>
+        <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.8rem' }}>
+          Mostrar
+          <select className="select" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }} style={{ width: 'auto' }}>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+          de {num(total)}
+        </label>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+          <button type="button" className="btn btn-sm btn-ghost" disabled={pageSafe <= 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Anterior</button>
+          <span className="muted mono" style={{ fontSize: '.8rem' }}>{pageSafe + 1}/{totalPages}</span>
+          <button type="button" className="btn btn-sm btn-ghost" disabled={pageSafe >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>Siguiente ›</button>
+        </div>
       </div>
     </>
   );

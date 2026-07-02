@@ -27,7 +27,7 @@ export function ProduccionPage() {
       <div className="page-head">
         <div>
           <h1>Producción</h1>
-          <p className="muted">Contratos de producción: control de material procesado, recuperación de casiterita y subproductos (hierro).</p>
+          <p className="muted hint">Contratos de producción: control de material procesado, recuperación de casiterita y subproductos (hierro).</p>
         </div>
         <div className="actions">
           {canWrite && <button className="btn btn-primary" onClick={() => viewRef.current?.openCreate()}>📜 Crear contrato</button>}

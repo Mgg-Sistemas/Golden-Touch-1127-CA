@@ -175,7 +175,7 @@ export function ServicioMantenimientoPage() {
       <div className="page-head">
         <div>
           <h1>🔧 Servicio de Mantenimiento</h1>
-          <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.85rem' }}>
+          <p className="muted hint" style={{ margin: '.2rem 0 0', fontSize: '.85rem' }}>
             Equipos de Control de Maquinaria agrupados por flota, con su estado de mantenimiento.
           </p>
         </div>

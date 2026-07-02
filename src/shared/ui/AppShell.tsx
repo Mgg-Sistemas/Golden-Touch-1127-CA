@@ -9,6 +9,7 @@ import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { AvisoMantenimientoBanner } from '@/shared/ui/AvisoMantenimientoBanner';
 import { AvisoCombustibleBajo } from '@/shared/ui/AvisoCombustibleBajo';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
+import { HintsToggle } from '@/shared/ui/HintsToggle';
 import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
 import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
@@ -366,6 +367,7 @@ export function AppShell() {
         <div className="top-actions">
           <TasaChip />
           <GlobalSearch />
+          <HintsToggle />
           <button
             type="button"
             className="notif-btn"

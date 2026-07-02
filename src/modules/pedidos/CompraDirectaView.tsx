@@ -29,28 +29,38 @@ import { FacturasDirectas } from './FacturasDirectas';
 
 type Vista = 'kanban' | 'lista';
 
-/** Columna del tablero. 'por_recibir' es VIRTUAL: son compras finalizadas (pagadas)
- *  que afectan inventario y todavía esperan que el almacenista les dé entrada. */
-type ColKey = 'en_proceso' | 'por_pagar' | 'por_recibir' | 'finalizada';
+/**
+ * Columna del tablero. Al montar, la compra queda con DOS pendientes independientes:
+ * recepción (almacén) y pago (Tesorería). En el tablero de Pedidos priorizamos la
+ * RECEPCIÓN (el pago se gestiona en paralelo desde Tesorería). Flujo natural:
+ * En proceso → 📦 Por recibir → 🧾 Por pagar → 🏁 Finalizada.
+ */
+type ColKey = 'en_proceso' | 'por_recibir' | 'por_pagar' | 'finalizada';
 
 const COLS: { key: ColKey; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
-  { key: 'por_pagar', label: 'Por pagar' },
   { key: 'por_recibir', label: 'Por recibir' },
+  { key: 'por_pagar', label: 'Por pagar' },
   { key: 'finalizada', label: 'Finalizada' },
 ];
 const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '🧾 Por pagar', finalizada: '🏁 Finalizada' };
 
-/** Una compra pagada afecta inventario y aún no fue recibida por el almacenista. */
+/** Montada, afecta inventario y todavía sin recibir (independiente de si ya se pagó). */
 function esPorRecibir(c: CompraDirecta): boolean {
-  return c.estado === 'finalizada' && c.afecta_inventario !== false && c.recepcion_pendiente === true;
+  return c.estado !== 'en_proceso' && c.afecta_inventario !== false && c.recepcion_pendiente === true;
 }
 
-/** Columna del tablero a la que pertenece la compra. */
+/** ¿Falta que Tesorería la pague? (montada y aún no pagada). */
+function esPorPagar(c: CompraDirecta): boolean {
+  return c.estado === 'por_pagar';
+}
+
+/** Columna del tablero a la que pertenece la compra (prioridad: recepción → pago). */
 function columnaDe(c: CompraDirecta): ColKey {
   if (c.estado === 'en_proceso') return 'en_proceso';
-  if (c.estado === 'por_pagar') return 'por_pagar';
-  return esPorRecibir(c) ? 'por_recibir' : 'finalizada';
+  if (esPorRecibir(c)) return 'por_recibir';
+  if (esPorPagar(c)) return 'por_pagar';
+  return 'finalizada';
 }
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
@@ -326,18 +336,24 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
   return (
     <Modal title={`🛒 Compra Directa ${compra.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
       {fila('Código', <span className="mono">{compra.codigo ?? '—'}</span>)}
-      {fila('Estado', compra.estado === 'finalizada'
-        ? (compra.afecta_inventario === false
-            ? '🏁 Finalizada (pagada · no ingresa a inventario)'
-            : compra.recepcion_pendiente
-              ? '🏁 Pagada · pendiente de recepción en inventario'
-              : '🏁 Finalizada (pagada · recibida en inventario)')
-        : compra.estado === 'por_pagar' ? '🧾 Por pagar (DIRECTO · espera Tesorería)' : '⏳ En proceso')}
+      {fila('Estado', compra.estado === 'en_proceso'
+        ? '⏳ En proceso'
+        : (() => {
+            // Montada: dos pendientes independientes (pago en Tesorería · recepción en almacén).
+            const pagada = compra.estado === 'finalizada';
+            const pago = pagada ? '✅ Pagada' : '🧾 Por pagar (Tesorería)';
+            const recep = compra.afecta_inventario === false
+              ? 'sin inventario'
+              : compra.recepcion_pendiente ? '📦 Por recibir' : '📦 Recibida';
+            return pagada && (compra.afecta_inventario === false || !compra.recepcion_pendiente)
+              ? '🏁 Finalizada · pagada y recibida'
+              : `${pago} · ${recep}`;
+          })())}
       {fila('Proveedor', compra.proveedor_nombre || '—')}
       {fila('Almacén destino', (compra.recepcion_almacen || compra.almacen) || '—')}
-      {compra.estado === 'finalizada' && compra.afecta_inventario !== false && fila('Recepción',
+      {compra.estado !== 'en_proceso' && compra.afecta_inventario !== false && fila('Recepción',
         compra.recepcion_pendiente
-          ? <span style={{ color: 'var(--warning)' }}>⏳ Pendiente · el almacenista le da entrada en Inventario → Recepciones</span>
+          ? <span style={{ color: 'var(--warning)' }}>⏳ Pendiente · el almacenista le da entrada (Por recibir / Inventario → Recepciones){compra.estado === 'por_pagar' ? ' · puede recibirse antes de que Tesorería pague' : ''}</span>
           : <span>📦 Recibida en {compra.recepcion_almacen || compra.almacen}{compra.recepcionada_por_name ? ` · ${compra.recepcionada_por_name}` : ''}{compra.recepcionada_at ? ` · ${dateTime(compra.recepcionada_at)}` : ''}</span>)}
       {fila('Generó (analista)', compra.actor_name || compra.actor || '—')}
       {fila('Creada', dateTime(compra.created_at))}

@@ -161,7 +161,7 @@ export function AcopioPage() {
       <div className="page-head">
         <div>
           <h1>📦 Centro de Costo PERAMANAL</h1>
-          <p className="muted">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
+          <p className="muted hint">Control de recepción de mineral por centro de acopio. Al cerrar una recepción, el mineral recibido suma stock al inventario.</p>
         </div>
         <div className="actions">
           <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>

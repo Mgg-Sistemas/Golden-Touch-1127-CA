@@ -120,7 +120,7 @@ export function AjustesPage() {
       <div className="page-head">
         <div>
           <h1>Ajustes</h1>
-          <p className="muted">Configura tu perfil y preferencias del sistema.</p>
+          <p className="muted hint">Configura tu perfil y preferencias del sistema.</p>
         </div>
       </div>
 

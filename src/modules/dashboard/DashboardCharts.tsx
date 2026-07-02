@@ -164,7 +164,7 @@ export function GraficaProduccion() {
     () => serie.map((s) => ({
       label: s.label,
       value: metric === 'count' ? s.count : Math.round(s.value),
-      tooltip: `${s.label}: ${metric === 'count' ? `${num(s.count)} und producidas` : money(s.value)}`,
+      tooltip: `${s.label}: ${metric === 'count' ? `${num(s.count)} Kg de casiterita` : money(s.value)}`,
     })),
     [serie, metric],
   );
@@ -174,8 +174,8 @@ export function GraficaProduccion() {
       <div className="card-title" style={{ marginBottom: '.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem' }}>
         <span>Producción finalizada</span>
         <div className="view-switch" style={{ marginTop: 0, padding: '.15rem' }}>
-          <button type="button" className={`view-switch-tab${metric === 'count' ? ' active' : ''}`} onClick={() => setMetric('count')} style={{ padding: '.35rem .75rem', fontSize: '.78rem' }}>
-            Unidades
+          <button type="button" className={`view-switch-tab${metric === 'count' ? ' active' : ''}`} onClick={() => setMetric('count')} style={{ padding: '.35rem .75rem', fontSize: '.78rem' }} title="Kg de casiterita producidos (contratos cerrados)">
+            Kg
           </button>
           <button type="button" className={`view-switch-tab${metric === 'valor' ? ' active' : ''}`} onClick={() => setMetric('valor')} style={{ padding: '.35rem .75rem', fontSize: '.78rem' }}>
             Valor $

@@ -191,7 +191,7 @@ export function ProveedoresPage() {
       >
         <div>
           <h1 style={{ margin: 0 }}>Proveedores</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>
+          <p className="muted hint" style={{ margin: '.25rem 0 0' }}>
             Base de proveedores que participan en órdenes y licitaciones.
           </p>
         </div>
