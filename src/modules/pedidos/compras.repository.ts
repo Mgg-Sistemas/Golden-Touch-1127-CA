@@ -13,7 +13,24 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { crearRetencion, borrarRetencionesDeCompra } from '@/modules/tesoreria/tesoreria.repository';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import type { Producto, CuentaCaja, TipoRetencion } from '@/shared/lib/types';
+
+/**
+ * Costo de un renglón EN USD para el inventario. El inventario se valoriza en USD:
+ * si la compra fue en Bs, se convierte el gasto del renglón a USD con la tasa del día
+ * (Bs ÷ tasa) redondeado a 2 decimales. En USD se deja tal cual. Sin tasa válida no
+ * se convierte (se evita dividir por 0). */
+function gastoRenglonUsd(gasto: number | null | undefined, moneda: string | null | undefined, tasaUsd: number): number {
+  const g = Number(gasto) || 0;
+  if (moneda === 'Bs' && tasaUsd > 0) return Math.round((g / tasaUsd) * 100) / 100;
+  return g;
+}
+
+/** Tasa USD del día (best-effort). 0 si no se puede resolver → no se convierte. */
+async function tasaUsdHoy(): Promise<number> {
+  try { const t = await getTasaHoy(); return Number(t.usd) || 0; } catch { return 0; }
+}
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
 export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
@@ -320,11 +337,14 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
   }
 
   // 3) Entrada al inventario por cada material (costo = gasto / cantidad).
+  //    Compras en Bs: el costo se lleva a USD con la tasa del día (2 decimales).
+  const tasaUsd = compra.moneda === 'Bs' ? await tasaUsdHoy() : 0;
   let primerMov: string | null = null;
   for (const it of items) {
     const cantidad = Number(it.cantidad) || 0;
     if (cantidad <= 0 || !it.producto_id) continue;
-    const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 10000) / 10000 : 0;
+    const gastoUsd = gastoRenglonUsd(it.gasto, compra.moneda, tasaUsd);
+    const costoUnit = gastoUsd > 0 ? Math.round((gastoUsd / cantidad) * 10000) / 10000 : 0;
     const mov = await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
@@ -722,10 +742,14 @@ export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): P
   const items = (compra.items ?? []).filter((it) => (Number(it.cantidad) || 0) > 0 && it.producto_id);
   if (!items.length) throw new Error('La compra no tiene materiales para recibir.');
 
+  // Compras en Bs: el costo de inventario se lleva a USD con la tasa del día (2 decimales).
+  const tasaUsd = compra.moneda === 'Bs' ? await tasaUsdHoy() : 0;
+
   let primerMov: string | null = null;
   for (const it of items) {
     const cantidad = Number(it.cantidad) || 0;
-    const costoUnit = (it.gasto || 0) > 0 ? Math.round(((it.gasto || 0) / cantidad) * 10000) / 10000 : 0;
+    const gastoUsd = gastoRenglonUsd(it.gasto, compra.moneda, tasaUsd);
+    const costoUnit = gastoUsd > 0 ? Math.round((gastoUsd / cantidad) * 10000) / 10000 : 0;
     const mov = await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
