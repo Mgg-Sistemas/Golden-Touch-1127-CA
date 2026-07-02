@@ -1526,7 +1526,7 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
               onChange={(e) => setLocal({ observacion: e.target.value })} placeholder="Observaciones de la conciliación…" />
           </div>
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>
-            Faltante = Peso Kg total − Reportado · No llegó = Faltante + Bolsas + Muestras · % = No llegó / Reportado × 100. Se guarda con «GUARDAR CONCILIACIÓN».
+            Diferencia = Reportado − Peso Kg total (+ «Kg a favor» verde / − «Kg Faltante» rojo) · Kg No Llegó = Diferencia + Peso de Bolsas + Muestras de Laboratorio · % = No llegó / Reportado × 100. Se guarda con «GUARDAR CONCILIACIÓN».
           </div>
         </div>
       )}
@@ -1941,29 +1941,35 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
             );
           })()}
 
-          {/* Humedad final guardada al cerrar */}
+          {/* Humedad final guardada al cerrar (por procedencia) */}
           {arr('humedad_final').length > 0 && (() => {
-            const filas = arr('humedad_final') as Array<{ peso_recogido: number | null }>;
+            const filas = arr('humedad_final') as Array<{ peso_recogido: number | null; procedencia?: string | null; neto_humedo?: number | null; auto?: boolean | null }>;
             const pesoKgSnap = (arr('recepciones') as Array<{ peso_kg?: number | null }>).reduce((a, r) => a + (Number(r.peso_kg) || 0), 0);
+            const mermaDe = (r: { peso_recogido: number | null; neto_humedo?: number | null; auto?: boolean | null }) =>
+              (r.auto ? mermaFinalProc(r.neto_humedo ?? null, r.peso_recogido) : mermaH2OFinal(pesoKgSnap, r.peso_recogido));
             const recogidoTot = filas.reduce((a, r) => a + (Number(r.peso_recogido) || 0), 0);
-            const mermaTot = filas.reduce((a, r) => a + (mermaH2OFinal(pesoKgSnap, r.peso_recogido) ?? 0), 0);
-            const pcts = filas.map((r) => pctHumedadFinal(pesoKgSnap, r.peso_recogido)).filter((x): x is number => x != null);
-            const pctLote = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
+            const netoHumTot = filas.reduce((a, r) => a + (Number(r.neto_humedo) || 0), 0);
+            const mermaTot = filas.reduce((a, r) => a + (mermaDe(r) ?? 0), 0);
+            const pctLote = netoHumTot > 0 ? (mermaTot / netoHumTot) * 100 : null;
             return (
               <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '.4rem' }}>
-                <div className="card-title" style={{ padding: '.45rem .7rem' }}><span>💧 Humedad final</span></div>
+                <div className="card-title" style={{ padding: '.45rem .7rem' }}><span>💧 Humedad final (por procedencia)</span></div>
                 <div className="table-wrap" style={{ overflowX: 'auto' }}><table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
-                  <thead><tr><th className="num">Peso (Kg) recogido</th><th className="num">Merma peso H2O</th><th className="num">% Humedad final</th></tr></thead>
+                  <thead><tr><th>Procedencia</th><th className="num">Neto húmedo</th><th className="num">Peso (Kg) recogido</th><th className="num">Merma peso H2O</th><th className="num">% Humedad final</th></tr></thead>
                   <tbody>
                     {filas.map((r, i) => (
                       <tr key={i}>
+                        <td style={{ fontWeight: 600 }}>{r.procedencia || <span className="muted">—</span>}</td>
+                        <td className="num mono">{fmt(r.neto_humedo)}</td>
                         <td className="num mono">{fmt(r.peso_recogido)}</td>
-                        <td className="num mono">{(() => { const m = mermaH2OFinal(pesoKgSnap, r.peso_recogido); return m == null ? '—' : fmt(m); })()}</td>
-                        <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(pctHumedadFinal(pesoKgSnap, r.peso_recogido))}</td>
+                        <td className="num mono">{(() => { const m = mermaDe(r); return m == null ? '—' : fmt(m); })()}</td>
+                        <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(r.auto ? pctFinalProc(r.neto_humedo ?? null, r.peso_recogido) : pctHumedadFinal(pesoKgSnap, r.peso_recogido))}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot><tr style={{ fontWeight: 800 }}>
+                    <td>TOTAL</td>
+                    <td className="num mono">{fmt(netoHumTot)}</td>
                     <td className="num mono">{fmt(recogidoTot)}</td>
                     <td className="num mono">{fmt(mermaTot)}</td>
                     <td className="num mono">{fmtH(pctLote)}</td>
