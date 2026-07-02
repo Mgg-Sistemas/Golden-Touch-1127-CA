@@ -32,6 +32,10 @@ export interface ServicioDirectoItem {
   /** Recarga de gas/oxígeno/extintores: cantidad de bombonas y KG a recargar. */
   bombonas?: number | null;
   kg_recarga?: number | null;
+  /** MANTENIMIENTO: insumo del inventario asociado (p. ej. el caucho), elegido de un
+   *  buscador. Opcional. */
+  insumo_producto_id?: string | null;
+  insumo_nombre?: string | null;
   /** Monto del renglón (se carga al finalizar). */
   gasto?: number | null;
 }
@@ -117,6 +121,8 @@ export interface LineaServicio {
   cantidad: number;
   bombonas?: number | null;
   kg_recarga?: number | null;
+  insumoProductoId?: string | null;
+  insumoNombre?: string | null;
 }
 
 export interface CrearServicioDirectoInput {
@@ -140,6 +146,8 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       cantidad: Number(l.cantidad) || 0,
       bombonas: l.bombonas != null && Number(l.bombonas) > 0 ? Number(l.bombonas) : null,
       kg_recarga: l.kg_recarga != null && Number(l.kg_recarga) > 0 ? Number(l.kg_recarga) : null,
+      insumoProductoId: l.insumoProductoId ?? null,
+      insumoNombre: (l.insumoNombre ?? '').trim() || null,
     }))
     .filter((l) => l.descripcion && l.cantidad > 0);
   if (!lineas.length) throw new Error('Agregá al menos un servicio con cantidad.');
@@ -148,6 +156,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
     categoria: l.categoria, descripcion: l.descripcion,
     equipo_id: l.equipoId, equipo_nombre: l.equipoNombre, cantidad: l.cantidad,
     bombonas: l.bombonas, kg_recarga: l.kg_recarga,
+    insumo_producto_id: l.insumoProductoId, insumo_nombre: l.insumoNombre,
   }));
   const resumen = items.length === 1 ? items[0].descripcion : `${items.length} servicios`;
   // Equipo de cabecera = el primero de los renglones que tenga equipo (para la columna de la lista).
@@ -437,6 +446,8 @@ export async function editarServicioDirectoEnProceso(input: EditarServicioDirect
       cantidad: Number(l.cantidad) || 0,
       bombonas: l.bombonas != null && Number(l.bombonas) > 0 ? Number(l.bombonas) : null,
       kg_recarga: l.kg_recarga != null && Number(l.kg_recarga) > 0 ? Number(l.kg_recarga) : null,
+      insumoProductoId: l.insumoProductoId ?? null,
+      insumoNombre: (l.insumoNombre ?? '').trim() || null,
     }))
     .filter((l) => l.descripcion && l.cantidad > 0);
   if (!lineas.length) throw new Error('Agregá al menos un servicio con cantidad.');
@@ -445,6 +456,7 @@ export async function editarServicioDirectoEnProceso(input: EditarServicioDirect
     categoria: l.categoria, descripcion: l.descripcion,
     equipo_id: l.equipoId, equipo_nombre: l.equipoNombre, cantidad: l.cantidad,
     bombonas: l.bombonas, kg_recarga: l.kg_recarga,
+    insumo_producto_id: l.insumoProductoId, insumo_nombre: l.insumoNombre,
   }));
   const resumen = items.length === 1 ? items[0].descripcion : `${items.length} servicios`;
   const conEquipo = lineas.find((l) => l.equipoId);

@@ -13,6 +13,8 @@ import {
 } from './servicios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
+import { listProductos } from '@/modules/inventario/inventario.repository';
+import type { Producto } from '@/shared/lib/types';
 
 /**
  * Solicitud de Servicio (SS). Mismo procedimiento que la SP de productos, pero
@@ -52,11 +54,13 @@ export function CrearServicioModal({
   // Catálogo de servicios + equipos de maquinaria.
   const [catalogo, setCatalogo] = useState<ServicioCatalogo[]>([]);
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  const [productos, setProductos] = useState<Producto[]>([]);
 
   // Builder del ítem de servicio.
   const [categoria, setCategoria] = useState<string>(CATEGORIAS_SERVICIO[0]);
   const [servicio, setServicio] = useState('');
   const [equipoId, setEquipoId] = useState('');
+  const [insumoId, setInsumoId] = useState('');   // insumo del inventario (mantenimiento, opcional)
   const [cantidad, setCantidad] = useState('1');
   const [medida, setMedida] = useState('');
   // Recarga de gas / oxígeno / extintores: cantidad de bombonas + KG a recargar.
@@ -67,9 +71,14 @@ export function CrearServicioModal({
     listServiciosActivos().then(setCatalogo).catch(() => setCatalogo([]));
     listEquipos().then((e) => setEquipos(e.filter((x) => x.activo))).catch(() => setEquipos([]));
     listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => setUnidadOpciones([]));
+    listProductos().then(setProductos).catch(() => setProductos([]));
   }, []);
 
   const esMantenimiento = categoria === CATEGORIA_MANTENIMIENTO;
+  const productoOptions = useMemo(
+    () => productos.filter((p) => p.estado === 'activo').map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` })),
+    [productos],
+  );
   const esGas = esRecargaGas(categoria, servicio);
   // Servicios del catálogo para la categoría elegida (nombres), para el desplegable.
   // En MANTENIMIENTO (Control de Maquinaria) la lista de "tipo de servicio" se
@@ -126,6 +135,8 @@ export function CrearServicioModal({
       equipo_nombre: equipoNombre,
       bombonas: gas && bombonas ? Number(bombonas) : null,
       kg_recarga: gas && kg ? Number(kg) : null,
+      insumo_producto_id: esMantenimiento && insumoId ? insumoId : null,
+      insumo_nombre: esMantenimiento && insumoId ? (productos.find((p) => p.id === insumoId)?.nombre ?? null) : null,
     };
   }
 
@@ -134,7 +145,7 @@ export function CrearServicioModal({
     if (!it) return false;
     setItems((prev) => [...prev, it]);
     // Reset del builder (conserva la categoría para cargar varios del mismo tipo).
-    setServicio(''); setEquipoId(''); setCantidad('1'); setMedida(''); setBombonas(''); setKg('');
+    setServicio(''); setEquipoId(''); setInsumoId(''); setCantidad('1'); setMedida(''); setBombonas(''); setKg('');
     return true;
   }
 
@@ -253,6 +264,18 @@ export function CrearServicioModal({
                 placeholder="🔍 Buscar equipo…" emptyText="Sin equipos" />
             </div>
           )}
+          {esMantenimiento && (
+            <div>
+              <label className="label">Insumo del inventario <span className="muted">(si el material está en stock, p. ej. el caucho)</span></label>
+              <SearchSelect value={insumoId} onChange={setInsumoId} options={productoOptions}
+                placeholder={productoOptions.length ? '🔍 Buscar en inventario…' : '— sin productos —'} emptyText="Sin coincidencias" />
+              {insumoId && (
+                <small className="muted">
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setInsumoId('')}>✕ Quitar insumo</button>
+                </small>
+              )}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end' }}>
             {esGas ? (
               <>
@@ -296,13 +319,14 @@ export function CrearServicioModal({
         {items.length > 0 && (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>
-              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th>Medida</th><th></th></tr></thead>
+              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th>Insumo</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th>Medida</th><th></th></tr></thead>
               <tbody>
                 {items.map((it, i) => (
                   <tr key={it.sku}>
                     <td>{it.nombre}</td>
                     <td>{it.categoria_servicio || '—'}</td>
                     <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
+                    <td>{it.insumo_nombre || <span className="muted">—</span>}</td>
                     <td style={{ textAlign: 'right' }}>{it.cantidad}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{it.bombonas ? it.bombonas : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{it.kg_recarga ? it.kg_recarga : '—'}</td>
