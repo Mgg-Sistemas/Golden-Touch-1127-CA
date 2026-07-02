@@ -60,7 +60,7 @@ import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto, updateProducto, getUnidades, findBySku } from '@/modules/inventario/inventario.repository';
+import { createProducto, updateProducto, getUnidades, nextSku } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, getNombresAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { Almacen } from '@/shared/lib/types';
@@ -2813,23 +2813,17 @@ function CrearOrdenModal({
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
     setCreandoNuevo(true);
     try {
-      const base = nombre.replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'PROD';
-      // SKU único a prueba de colisiones: nombres parecidos ("FILTRO…") truncan a
-      // la misma base, así que el sufijo debe ser único. Genero uno con alta
-      // entropía y verifico contra inventario; reintento si ya existe.
-      let sku = '';
-      for (let intento = 0; intento < 8; intento++) {
-        const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
-        const ts = Date.now().toString(36).slice(-4).toUpperCase();
-        sku = `NEW-${base}-${ts}${rnd}`;
-        if (!(await findBySku(sku))) break;
-      }
+      // SKU correlativo por categoría: prefijo de 3 letras + Nº incremental (p. ej.
+      // PROTEINA → PRO-001), con contador PERSISTENTE en la base (no reutiliza números
+      // ni colisiona entre usuarios).
+      // En MERCADO los productos nuevos entran SIEMPRE como VÍVERES (para que queden
+      // disponibles en Cocina); fuera de MERCADO, la categoría elegida.
+      const categoria = mercado ? 'VÍVERES' : (nuevoCategoria.trim().toUpperCase() || 'GENERAL');
+      const sku = await nextSku(categoria);
       const creado = await createProducto({
         sku,
         nombre,
-        // En MERCADO los productos nuevos entran SIEMPRE como VÍVERES (para que
-        // queden disponibles en Cocina); fuera de MERCADO, la categoría elegida.
-        categoria: mercado ? 'VÍVERES' : (nuevoCategoria.trim().toUpperCase() || 'GENERAL'),
+        categoria,
         unidad: nuevoUnidad.trim() || 'und',
         stock: 0,
         stock_min: 0,
@@ -3428,18 +3422,13 @@ function EditarOrdenModal({
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
     setCreandoNuevo(true);
     try {
-      const base = nombre.replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'PROD';
-      // SKU único a prueba de colisiones (igual que en la creación de la OP).
-      let sku = '';
-      for (let intento = 0; intento < 8; intento++) {
-        const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
-        const ts = Date.now().toString(36).slice(-4).toUpperCase();
-        sku = `NEW-${base}-${ts}${rnd}`;
-        if (!(await findBySku(sku))) break;
-      }
+      // SKU correlativo por categoría (prefijo 3 letras + Nº incremental, p. ej. PRO-001),
+      // con contador persistente en la base.
+      const categoria = nuevoCategoria.trim().toUpperCase() || 'GENERAL';
+      const sku = await nextSku(categoria);
       const creado = await createProducto({
         sku, nombre,
-        categoria: nuevoCategoria.trim().toUpperCase() || 'GENERAL',
+        categoria,
         unidad: nuevoUnidad.trim() || 'und',
         stock: 0, stock_min: 0, precio: 0,
         almacen: nuevoAlmacen || 'General',

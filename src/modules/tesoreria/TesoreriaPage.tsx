@@ -46,7 +46,7 @@ import {
   pagarCuentaConProductos, abonarCuentaConProductoRecibido, recibirDineroDeMGG,
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
-import { listProductos, createProducto, findBySku, getUnidades } from '@/modules/inventario/inventario.repository';
+import { listProductos, createProducto, getUnidades, nextSku } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
@@ -4518,16 +4518,11 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
       let pid = productoId;
       if (noRegistrado) {
         const nombre = nuevoNombre.trim().toUpperCase();
-        const base = nombre.replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'PROD';
-        let sku = '';
-        for (let i = 0; i < 8; i++) {
-          const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
-          const ts = Date.now().toString(36).slice(-4).toUpperCase();
-          sku = `NEW-${base}-${ts}${rnd}`;
-          if (!(await findBySku(sku))) break;
-        }
+        // SKU correlativo por categoría (prefijo 3 letras + Nº incremental, p. ej. PRO-001).
+        const categoria = nuevoCategoria.trim().toUpperCase() || 'GENERAL';
+        const sku = await nextSku(categoria);
         const creado = await createProducto({
-          sku, nombre, categoria: nuevoCategoria.trim().toUpperCase() || 'GENERAL',
+          sku, nombre, categoria,
           unidad: nuevoUnidad.trim() || 'und', stock: 0, stock_min: 0, precio: 0,
           almacen: almacen || 'General', estado: 'activo',
         });
