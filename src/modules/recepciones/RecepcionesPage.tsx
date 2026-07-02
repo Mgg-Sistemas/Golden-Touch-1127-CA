@@ -167,8 +167,15 @@ export function RecepcionesPage() {
       kgCentroAcopio, mermaNoLlego, pctNoLlego, kgRecibidos,
       mermaHumedad, pctHumedad: humPct, kgSecos, mermaFe, pctFe, kgFinales,
       tenores, tenorProm, kgNetoSn,
+      desgloseProc: humFin.filter((h) => h.auto).map((h) => ({
+        procedencia: h.procedencia || '—',
+        netoHumedo: toN(h.neto_humedo),
+        recogido: toN(h.peso_recogido),
+        merma: mermaFinalProc(h.neto_humedo ?? null, h.peso_recogido) ?? 0,
+        pct: pctFinalProc(h.neto_humedo ?? null, h.peso_recogido) ?? 0,
+      })),
     };
-  }, [concils, tots, filas, humProv, minerales, analisis, pesadasList]);
+  }, [concils, tots, filas, humProv, minerales, analisis, pesadasList, humFin]);
 
   /* ── Tabla de arriba: recepciones (kg) ── */
   async function guardarCampo(id: string, patch: Parameters<typeof actualizarRecepcion>[1]) {
@@ -2056,6 +2063,27 @@ function ResumenRecepcionModal({ resumen, onClose }: { resumen: ResumenRecepcion
           <tr><td style={cellL}>Kg Neto de Sn:</td><td style={{ ...cellV, fontSize: '1.05rem' }} colSpan={3}>{kg(resumen.kgNetoSn)}</td><td style={cellO}></td></tr>
         </tbody>
       </table>
+      {resumen.desgloseProc && resumen.desgloseProc.length > 0 && (
+        <div style={{ marginTop: '.8rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '.85rem', marginBottom: '.35rem' }}>Desglose por procedencia <span className="muted" style={{ fontWeight: 400 }}>(Humedad Final)</span></div>
+          <div className="table-wrap" style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ fontSize: '.8rem', whiteSpace: 'nowrap' }}>
+              <thead><tr><th>Procedencia</th><th className="num">Neto húmedo</th><th className="num">Recogido (seco)</th><th className="num">Merma H2O</th><th className="num">% Humedad final</th></tr></thead>
+              <tbody>
+                {resumen.desgloseProc.map((x, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 600 }}>{x.procedencia}</td>
+                    <td className="num mono">{kg(x.netoHumedo)}</td>
+                    <td className="num mono">{kg(x.recogido)}</td>
+                    <td className="num mono">{kg(x.merma)}</td>
+                    <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{kg(x.pct)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
         Se arma con los datos ya cargados: recepción/pesadas, conciliación, humedad, Fe (Totales) y análisis. El PDF abre en vista previa antes de descargar.
       </small>
