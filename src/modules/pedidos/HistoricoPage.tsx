@@ -141,7 +141,7 @@ export function HistoricoPage() {
       <div className="page-head">
         <div>
           <h1>Histórico de Pedidos / Compras</h1>
-          <p className="muted">
+          <p className="muted hint">
             Busca por código de pedido, OC, usuario, proveedor, SKU o cualquier dato del registro.
           </p>
         </div>

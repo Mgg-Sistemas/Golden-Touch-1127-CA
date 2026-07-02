@@ -150,32 +150,46 @@ export async function getSerieValorInventario(rango: RangoFechas): Promise<Serie
 }
 
 /**
- * Serie de producción: lee las órdenes de producción FINALIZADAS desde la tabla
- * `produccion` (por su fecha de finalización) y acumula por bucket:
- *  - count = unidades producidas (Σ cantidad)
- *  - value = valor producido (Σ cantidad × costo_unitario)
- * Antes dependía de movimientos `fin_fundicion` (que el módulo de producción
- * actual ya no genera), por eso la gráfica no se actualizaba.
+ * Serie de "Producción finalizada": en Golden Touch la producción son los CONTRATOS
+ * de acopio CERRADOS (`acopio_contratos`), que al cerrarse dan entrada a la casiterita
+ * recuperada. Se acumula por bucket según la fecha de cierre (`cerrado_at`):
+ *  - count = Kg de casiterita producidos (Σ kg_seco_limpio)
+ *  - value = valor $ producido (Σ Kg × costo $/Kg de la entrada al inventario, que es
+ *            la tasa de acopio vigente al cerrar el contrato)
+ * Antes leía la tabla `produccion` (fundición), que en GT no se usa, por eso salía en 0.
  */
 export async function getSerieProduccion(rango: RangoFechas): Promise<SeriePoint[]> {
   const { data, error } = await supabase
-    .from('produccion')
-    .select('fin_at, cantidad, costo_unitario, estado')
-    .eq('estado', 'finalizado')
-    .gte('fin_at', rango.desde.toISOString())
-    .lte('fin_at', rango.hasta.toISOString())
-    .order('fin_at', { ascending: true });
+    .from('acopio_contratos')
+    .select('cerrado_at, kg_seco_limpio, mov_cantidad, mov_id')
+    .eq('estado', 'cerrado')
+    .gte('cerrado_at', rango.desde.toISOString())
+    .lte('cerrado_at', rango.hasta.toISOString())
+    .order('cerrado_at', { ascending: true });
   if (error) throw error;
+  const rows = (data ?? []) as Array<{ cerrado_at: string | null; kg_seco_limpio: number | null; mov_cantidad: number | null; mov_id: string | null }>;
+
+  // Costo $/Kg de cada contrato: lo trae su movimiento de entrada de casiterita
+  // (precio_unitario = tasa de acopio al cerrar; fallback al costo promedio).
+  const movIds = rows.map((r) => r.mov_id).filter((x): x is string => !!x);
+  const costoPorMov = new Map<string, number>();
+  if (movIds.length) {
+    const { data: movs } = await supabase.from('movimientos').select('id, precio_unitario, costo_promedio').in('id', movIds);
+    for (const m of (movs ?? []) as Array<{ id: string; precio_unitario: number | null; costo_promedio: number | null }>) {
+      costoPorMov.set(m.id, Number(m.precio_unitario) || Number(m.costo_promedio) || 0);
+    }
+  }
 
   const buckets = generarBuckets(rango);
-  for (const row of (data ?? []) as Array<{ fin_at: string | null; cantidad: number; costo_unitario: number }>) {
-    if (!row.fin_at) continue;
-    const t = new Date(row.fin_at).getTime();
+  for (const r of rows) {
+    if (!r.cerrado_at) continue;
+    const t = new Date(r.cerrado_at).getTime();
     const idx = buckets.findIndex((b) => b.start.getTime() <= t && t < b.end.getTime());
     if (idx === -1) continue;
-    const cantidad = Number(row.cantidad) || 0;
-    buckets[idx].count += cantidad;
-    buckets[idx].value += cantidad * (Number(row.costo_unitario) || 0);
+    const kg = Number(r.kg_seco_limpio) || 0;
+    const costo = r.mov_id ? (costoPorMov.get(r.mov_id) ?? 0) : 0;
+    buckets[idx].count += kg;                               // Kg de casiterita producidos
+    buckets[idx].value += (Number(r.mov_cantidad) || kg) * costo; // Valor $ (Kg × tasa acopio)
   }
   return recortarCerosIniciales(buckets);
 }

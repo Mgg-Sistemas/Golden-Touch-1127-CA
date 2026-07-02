@@ -497,7 +497,7 @@ export function InventarioPage() {
       <div className="page-head">
         <div>
           <h1>Inventario</h1>
-          <p>
+          <p className="hint">
             Catálogo de productos. <span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
           </p>
         </div>

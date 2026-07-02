@@ -415,9 +415,10 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
   }
 
   // 2) Revertir la entrada al inventario de cada material (salida por la misma cantidad).
-  //    Solo si la compra HABÍA entrado al inventario; si estaba marcada "no afecta
-  //    inventario", no se movió stock, así que tampoco se revierte.
-  if (compra.afecta_inventario !== false) {
+  //    Solo si la compra HABÍA entrado al inventario: `mov_id` presente ⟺ el almacenista
+  //    ya la recibió (o el flujo legacy la ingresó). Si estaba «no afecta inventario» o
+  //    todavía estaba «por recibir» (pagada pero sin recepción), no hay stock que revertir.
+  if (compra.afecta_inventario !== false && compra.mov_id) {
     for (const it of compra.items) {
       const cantidad = Number(it.cantidad) || 0;
       if (cantidad <= 0 || !it.producto_id) continue;
@@ -551,9 +552,13 @@ export interface EnviarCompraAPagarInput {
 }
 
 /**
- * El analista MONTA la compra con la factura y los montos y la deja "Por pagar":
- * fija los montos por material y el total, y pasa a estado `por_pagar`. NO mueve caja
- * ni inventario (eso lo hace Tesorería al pagar). La factura se sube aparte (adjuntos).
+ * El analista MONTA la compra con la factura y los montos. Desde acá la compra queda
+ * con DOS pendientes INDEPENDIENTES que corren en paralelo:
+ *   · «Por pagar» en Tesorería (estado `por_pagar`, hasta que Tesorería la pague).
+ *   · «Por recibir» en el almacén (`recepcion_pendiente=true` si afecta inventario).
+ * La mercancía puede recibirse ANTES de que Tesorería pague (o viceversa). NO mueve
+ * caja ni inventario todavía (el pago lo hace Tesorería; la entrada, el almacenista).
+ * La factura se sube aparte (adjuntos).
  */
 export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promise<void> {
   const { compra } = input;
@@ -583,6 +588,9 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
       retencion_base: retencionPct > 0 ? retencionBase : 0,
       retencion_pct: retencionPct, retencion_monto: retencionMonto,
       afecta_inventario: input.afectaInventario !== false,
+      // Recepción pendiente DESDE el montaje: la mercancía entra a «Por recibir» aunque
+      // Tesorería todavía no haya pagado. Si no afecta inventario, no hay nada que recibir.
+      recepcion_pendiente: input.afectaInventario !== false,
       // Nota: solo se reemplaza si viene en el input (undefined = conservar la existente).
       ...(input.nota !== undefined ? { nota: input.nota?.trim() || null } : {}),
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
@@ -671,13 +679,16 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     }
   }
 
-  // 2) La ENTRADA al inventario ya NO ocurre al pagar: la mercancía queda «pendiente de
-  //    recepción» para que el ALMACENISTA le dé entrada eligiendo almacén/sub-almacén
-  //    (Inventario → Recepciones). Se marca pendiente solo si la compra afecta inventario;
-  //    si está marcada "no afecta inventario" (ya cargada a mano), no hay nada que recibir.
+  // 2) La ENTRADA al inventario NO ocurre al pagar: es INDEPENDIENTE del pago. La mercancía
+  //    ya quedó «pendiente de recepción» desde el montaje (o pudo recibirse ANTES de pagar).
+  //    El pago NO reabre una recepción ya hecha: se mantiene pendiente solo si la compra
+  //    afecta inventario y todavía NO fue recibida (cubre también compras montadas antes de
+  //    este cambio, que aún no tenían la marca).
   const afectaInventario = compra.afecta_inventario !== false;
+  const sigueSinRecibir = afectaInventario && !compra.recepcionada_at;
 
-  // 3) Finalizar (pagada) + comprobante de pago. mov_id se completa en la recepción.
+  // 3) Marcar pagada + comprobante de pago. Queda `finalizada` (pagada); si aún falta
+  //    recibir, sigue apareciendo en «Por recibir» hasta que el almacenista le dé entrada.
   const { error } = await supabase
     .from('compras_directas')
     .update({
@@ -685,7 +696,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
       caja_id: input.cajaId, caja_mov_id: movCajaId, pago_legs: legs.length ? legs : null,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
       comision_bancaria: comision,
-      recepcion_pendiente: afectaInventario,
+      recepcion_pendiente: sigueSinRecibir,
       pagada_at: new Date().toISOString(), pagada_por: input.actor, pagada_por_name: input.actorName ?? null,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
@@ -708,14 +719,15 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
 
 /* ───────── Recepción en inventario (la da el ALMACENISTA tras el pago) ───────── */
 
-/** Compras directas PAGADAS que esperan que el almacenista les dé entrada al inventario. */
+/** Compras directas MONTADAS (pagadas o aún por pagar) que esperan que el almacenista
+ *  les dé entrada al inventario. La recepción es independiente del pago. */
 export async function listComprasPendientesRecepcion(): Promise<CompraDirecta[]> {
   const { data, error } = await supabase
     .from('compras_directas')
     .select('*')
-    .eq('estado', 'finalizada')
+    .in('estado', ['por_pagar', 'finalizada'])
     .eq('recepcion_pendiente', true)
-    .order('pagada_at', { ascending: true });
+    .order('enviada_pagar_at', { ascending: true });
   if (error) throw error;
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
@@ -729,13 +741,14 @@ export interface RecepcionarCompraInput {
 }
 
 /**
- * El ALMACENISTA da ENTRADA al inventario de una compra directa pagada: registra la
- * entrada de cada material (costo = monto ÷ cantidad → PMP) en el almacén/sub-almacén
- * elegido y marca la recepción como hecha (deja de estar pendiente).
+ * El ALMACENISTA da ENTRADA al inventario de una compra directa: registra la entrada de
+ * cada material (costo = monto ÷ cantidad → PMP; en Bs se convierte a USD con la tasa del
+ * día) en el almacén/sub-almacén elegido y marca la recepción como hecha. Es INDEPENDIENTE
+ * del pago: puede recibirse aunque Tesorería todavía no haya pagado (queda `por_pagar`).
  */
 export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): Promise<void> {
   const { compra } = input;
-  if (compra.estado !== 'finalizada') throw new Error('Solo se reciben compras directas ya pagadas.');
+  if (compra.estado === 'en_proceso') throw new Error('La compra aún no fue montada: cargá la factura y los montos primero.');
   if (compra.recepcion_pendiente === false) throw new Error('Esta compra ya fue recibida en el inventario.');
   const almacen = (input.almacen ?? '').trim();
   if (!almacen) throw new Error('Elegí el almacén/sub-almacén destino.');

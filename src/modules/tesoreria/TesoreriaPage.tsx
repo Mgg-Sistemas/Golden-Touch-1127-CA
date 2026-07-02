@@ -300,7 +300,7 @@ export function TesoreriaPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>🏦 Tesorería</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>Flujo de dinero, registro de movimientos y pagos.</p>
+          <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Flujo de dinero, registro de movimientos y pagos.</p>
         </div>
         <div className="view-toggle" role="tablist" aria-label="Vista de tesorería">
           <button className={vista === 'tesoreria' ? 'active' : ''} onClick={() => setVista('tesoreria')}>🏦 Tesorería</button>

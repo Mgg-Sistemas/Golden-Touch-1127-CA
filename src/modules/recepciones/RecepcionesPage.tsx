@@ -373,7 +373,7 @@ export function RecepcionesPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.75rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>📋 Recepciones</h1>
-          <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.85rem' }}>
+          <p className="muted hint" style={{ margin: '.2rem 0 0', fontSize: '.85rem' }}>
             Cada cierre de caja del Centro de Acopio genera una recepción con el saldo de KG de casiterita.
             El laboratorio carga aparte el análisis químico. <strong>No entra al inventario al cerrar la caja.</strong>
           </p>

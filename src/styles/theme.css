@@ -480,6 +480,11 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 /* Utilidades */
 .muted { color: var(--text-muted); }
 .dim { color: var(--text-dim); }
+
+/* Hints / textos de ayuda ocultables con el botón (?) de la barra superior.
+   Al activar «ocultar», <body> lleva la clase `hints-off` y todo lo marcado
+   con `.hint` desaparece (los conteos/fechas en `.muted` NO se ven afectados). */
+body.hints-off .hint { display: none !important; }
 .flex { display: flex; }
 .flex-col { display: flex; flex-direction: column; }
 .gap-1 { gap: .5rem; } .gap-2 { gap: 1rem; } .gap-3 { gap: 1.5rem; }

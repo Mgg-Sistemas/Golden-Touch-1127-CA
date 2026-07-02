@@ -439,7 +439,7 @@ export function PedidosPage() {
       <div className="page-head">
         <div>
           <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicios' ? 'Servicios' : 'Órdenes'}</h1>
-          <p className="muted">
+          <p className="muted hint">
             {scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
               : scope === 'oc_lote'

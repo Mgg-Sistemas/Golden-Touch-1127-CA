@@ -163,7 +163,7 @@ export function SalidasPage() {
       <div className="page-head">
         <div>
           <h1>Salidas / Traslados</h1>
-          <p className="muted">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, el analista o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
+          <p className="muted hint">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, el analista o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
         </div>
         <div className="actions">
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen-unidad' })}>📊 Resumen de gasto (material)</button>

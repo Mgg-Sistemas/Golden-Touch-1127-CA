@@ -4,7 +4,11 @@ import { HashRouter } from 'react-router-dom';
 import { App } from './App';
 import { instalarSelectOnFocusMonto } from './shared/lib/selectOnFocus';
 import { instalarMayusculaAutomatica } from './shared/lib/mayusculaInputs';
+import { initHints } from './shared/ui/HintsToggle';
 import './styles/index.css';
+
+// Aplica la preferencia de "ocultar textos de ayuda" antes del primer render.
+initHints();
 
 // Al enfocar un campo numérico que muestra 0, selecciona el 0 para reemplazarlo.
 instalarSelectOnFocusMonto();
