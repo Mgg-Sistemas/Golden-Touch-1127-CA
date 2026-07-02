@@ -79,7 +79,7 @@ export function RecepcionesPage() {
   const [finBorrar, setFinBorrar] = useState<HumedadFinalRow | null>(null);
   const [config, setConfig] = useState(false);
   const [pesos, setPesos] = useState(false);
-  const [seccion, setSeccion] = useState<'resumenes' | null>(null);
+  const [resumenOpen, setResumenOpen] = useState(false);
   const [concilOpen, setConcilOpen] = useState(false);
   const [totalesOpen, setTotalesOpen] = useState(false);
   const [cierresOpen, setCierresOpen] = useState(false);
@@ -398,8 +398,7 @@ export function RecepcionesPage() {
           { key: 'resumenes', label: '📊 Resúmenes' },
         ] as const).map((b) => (
           <button key={b.key} className="btn btn-primary"
-            style={(b.key !== 'conciliacion' && seccion === b.key) ? { filter: 'brightness(0.82)' } : undefined}
-            onClick={() => { if (b.key === 'conciliacion') setConcilOpen(true); else if (b.key === 'totales') setTotalesOpen(true); else setSeccion(seccion === b.key ? null : (b.key as 'resumenes')); }}>
+            onClick={() => { if (b.key === 'conciliacion') setConcilOpen(true); else if (b.key === 'totales') setTotalesOpen(true); else setResumenOpen(true); }}>
             {b.label}
           </button>
         ))}
@@ -408,8 +407,8 @@ export function RecepcionesPage() {
         </button>
       </div>
 
-      {seccion === 'resumenes' && (
-        <ResumenRecepcionCard resumen={resumen} />
+      {resumenOpen && (
+        <ResumenRecepcionModal resumen={resumen} onClose={() => setResumenOpen(false)} />
       )}
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} onClose={() => setConcilOpen(false)} />}
@@ -1852,7 +1851,7 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
 
 /* ───────── Resumen «hoja de recepción» (Resúmenes → vista previa + PDF) ───────── */
 
-function ResumenRecepcionCard({ resumen }: { resumen: ResumenRecepcionData }) {
+function ResumenRecepcionModal({ resumen, onClose }: { resumen: ResumenRecepcionData; onClose: () => void }) {
   const kg = (n: number) => Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pc = (n: number) => `${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
   const bd = '1px solid var(--border, #2a3240)';
@@ -1861,12 +1860,18 @@ function ResumenRecepcionCard({ resumen }: { resumen: ResumenRecepcionData }) {
   const cellO: CSSProperties = { border: bd, padding: '.45rem .6rem', fontSize: '.78rem', color: 'var(--muted, #9aa4b2)' };
   const merma: CSSProperties = { background: 'rgba(148,163,184,.08)' };
   return (
-    <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
-        <strong>📊 Resumen · Hoja de recepción</strong>
-        <button className="btn btn-primary btn-sm" onClick={() => void descargarResumenRecepcionPdf(resumen)}>↓ PDF (vista previa)</button>
-      </div>
-      <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 760, fontSize: '.9rem' }}>
+    <Modal
+      title="📊 Resumen · Hoja de recepción"
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+          <button className="btn btn-primary" onClick={() => void descargarResumenRecepcionPdf(resumen)}>↓ PDF (vista previa)</button>
+        </>
+      }
+    >
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '.9rem' }}>
         <tbody>
           <tr><td style={cellL}>RECEPCIÓN#</td><td style={cellV} colSpan={3}>{resumen.numero || '—'}</td><td style={cellO}></td></tr>
           <tr><td style={cellL}>FECHA:</td><td style={cellV} colSpan={3}>{resumen.fecha || '—'}</td><td style={cellO}></td></tr>
@@ -1891,6 +1896,6 @@ function ResumenRecepcionCard({ resumen }: { resumen: ResumenRecepcionData }) {
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
         Se arma con los datos ya cargados: recepción/pesadas, conciliación, humedad, Fe (Totales) y análisis. El PDF abre en vista previa antes de descargar.
       </small>
-    </div>
+    </Modal>
   );
 }
