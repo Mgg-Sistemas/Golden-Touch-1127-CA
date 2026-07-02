@@ -150,6 +150,19 @@ export async function listComprasDirectas(): Promise<CompraDirecta[]> {
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
+/** Compra directa cuyo pago generó un movimiento de caja concreto (para el detalle
+ *  en Tesorería: qué materiales se compraron y cuál fue el requerimiento). */
+export async function getCompraDirectaByCajaMovId(movId: string): Promise<CompraDirecta | null> {
+  if (!movId) return null;
+  const { data, error } = await supabase
+    .from('compras_directas')
+    .select('*')
+    .eq('caja_mov_id', movId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? normalizar(data as Record<string, unknown>) : null;
+}
+
 /* ───────── Alta (varios materiales) ───────── */
 
 export interface LineaExistente { modo: 'existente'; productoId: string; cantidad: number; unidad?: string }

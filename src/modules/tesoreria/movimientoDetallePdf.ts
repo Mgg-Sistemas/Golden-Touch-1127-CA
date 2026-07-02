@@ -30,7 +30,21 @@ function esEgreso(m: MovimientoCaja): boolean {
     || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
 }
 
-async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
+/** Detalle de una compra/servicio directo pagado (qué se compró/contrató y el requerimiento). */
+export interface DirectoDetalle {
+  tipo: 'compra' | 'servicio';
+  codigo: string | null;
+  proveedor: string | null;
+  almacen?: string | null;
+  equipo?: string | null;
+  solicitante?: string | null;
+  requerimiento?: string | null;
+  moneda: string; // 'USD' | 'Bs'
+  gasto: number | null;
+  items: Array<{ nombre: string; extra?: string | null; cantidad: number; gasto: number | null }>;
+}
+
+async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null, directo?: DirectoDetalle | null) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     loadLogoDataUrl().catch(() => null),
     import('jspdf'),
@@ -120,6 +134,55 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null) {
     });
   }
 
+  // Compra / servicio directo pagado (qué se compró/contrató + el requerimiento).
+  if (directo) {
+    const mnd = directo.moneda === 'Bs' ? 'Bs' : 'USD';
+    const filasDir: Array<[string, string]> = [
+      ['Código', directo.codigo || '—'],
+      ['Proveedor', directo.proveedor || '—'],
+    ];
+    if (directo.almacen) filasDir.push(['Almacén destino', directo.almacen]);
+    if (directo.equipo) filasDir.push(['Equipo', directo.equipo]);
+    if (directo.solicitante) filasDir.push(['Solicitante', directo.solicitante]);
+    if (directo.requerimiento) filasDir.push(['Requerimiento', directo.requerimiento]);
+
+    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+    const afterY = (doc.lastAutoTable?.finalY ?? y) + 18;
+    autoTable(doc, {
+      startY: afterY,
+      head: [[directo.tipo === 'compra' ? 'Compra directa' : 'Servicio directo', '']],
+      body: filasDir,
+      margin: MARGIN,
+      styles: { fontSize: 9, cellPadding: 4, overflow: 'linebreak' },
+      headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 150, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
+    });
+
+    const esCompra = directo.tipo === 'compra';
+    const head = esCompra ? [['#', 'Material', 'Cant.', 'Precio']] : [['#', 'Servicio', 'Equipo', 'Cant.', 'Precio']];
+    const body = directo.items.map((it, i) => esCompra
+      ? [String(i + 1), it.extra ? `${it.nombre} · ${it.extra}` : it.nombre, String(Number(it.cantidad) || 0), it.gasto != null ? montoStr(it.gasto, mnd) : '—']
+      : [String(i + 1), it.nombre, it.extra || '—', String(Number(it.cantidad) || 0), it.gasto != null ? montoStr(it.gasto, mnd) : '—']);
+    const nCols = esCompra ? 4 : 5;
+    const foot = directo.gasto != null
+      ? [[{ content: 'TOTAL', colSpan: nCols - 1, styles: { halign: 'right' as const } }, montoStr(directo.gasto, mnd)]]
+      : undefined;
+
+    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+    const afterY2 = (doc.lastAutoTable?.finalY ?? afterY) + 10;
+    autoTable(doc, {
+      startY: afterY2,
+      head,
+      body,
+      foot,
+      margin: MARGIN,
+      styles: { fontSize: 9, cellPadding: 4, overflow: 'linebreak' },
+      headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },
+      footStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 24, halign: 'center' } },
+    });
+  }
+
   return doc;
 }
 
@@ -129,8 +192,8 @@ function nombreArchivo(mov: MovimientoCaja, orden: Orden | null): string {
 }
 
 /** Descarga el detalle del movimiento como PDF. */
-export async function descargarMovimientoDetallePdf(mov: MovimientoCaja, orden: Orden | null): Promise<void> {
-  const doc = await construirDetalleDoc(mov, orden);
+export async function descargarMovimientoDetallePdf(mov: MovimientoCaja, orden: Orden | null, directo?: DirectoDetalle | null): Promise<void> {
+  const doc = await construirDetalleDoc(mov, orden, directo);
   previewPdf(doc, nombreArchivo(mov, orden));
 }
 
