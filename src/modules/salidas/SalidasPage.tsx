@@ -469,11 +469,44 @@ function Historial({
   onConciliar: (s: MovimientoCaja) => void;
   onVerMaterial: (mov: Movimiento, esTraslado: boolean) => void;
 }) {
+  // Filtros del historial: búsqueda libre + rango de fechas (aplican a material y dinero).
+  const [q, setQ] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const ql = q.trim().toLowerCase();
+  const norm = (v: unknown) => (v ?? '').toString().toLowerCase();
+  const enRango = (at: string | null | undefined) => {
+    const dia = (at ?? '').slice(0, 10);
+    if (desde && dia < desde) return false;
+    if (hasta && dia > hasta) return false;
+    return true;
+  };
+  const filterBar = (
+    <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
+      <div style={{ position: 'relative' }}>
+        <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="🔍 Buscar (producto, almacén, quién, motivo…)" style={{ width: 260, paddingRight: q ? '1.6rem' : undefined }} />
+        {q && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setQ('')} title="Limpiar"
+          style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>}
+      </div>
+      <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+        Desde <input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
+      </label>
+      <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
+        Hasta <input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+      </label>
+      {(q || desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setQ(''); setDesde(''); setHasta(''); }}>✕ Limpiar</button>}
+    </div>
+  );
+
   // Material
   if (tipo === 'material') {
-    const rows = scope === 'salidas' ? salMat : trasMat;
     const esTraslado = scope === 'traslados';
+    const rows = (scope === 'salidas' ? salMat : trasMat).filter((m) =>
+      enRango(m.at) && (!ql || [m.producto?.nombre, m.producto?.sku, m.almacen, m.destino, m.solicitante, m.actor_name, m.actor, m.detalle].some((v) => norm(v).includes(ql))));
     return (
+      <>
+      {filterBar}
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead>
@@ -508,13 +541,17 @@ function Historial({
           </tbody>
         </table>
       </div>
+      </>
     );
   }
 
   // Dinero
-  const rows = scope === 'salidas' ? salDin : trasDin;
   const esTraslado = scope === 'traslados';
+  const rows = (scope === 'salidas' ? salDin : trasDin).filter((m) =>
+    enRango(m.at) && (!ql || [m.caja?.nombre, m.destino, m.motivo, m.moneda].some((v) => norm(v).includes(ql))));
   return (
+    <>
+    {filterBar}
     <div className="table-wrap">
       <table className="table" style={{ fontSize: '.85rem' }}>
         <thead>
@@ -555,6 +592,7 @@ function Historial({
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 

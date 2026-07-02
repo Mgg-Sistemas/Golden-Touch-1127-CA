@@ -196,7 +196,10 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
-  const [almacen, setAlmacen] = useState<string>(almacenesOrdenados(almacenes)[0]?.nombre ?? '');
+  // Por defecto, el almacén DESTINO de la compra (si es uno registrado); si no, el primero.
+  const ordenados = almacenesOrdenados(almacenes);
+  const destinoValido = ordenados.some((a) => a.nombre === compra.almacen) ? compra.almacen : '';
+  const [almacen, setAlmacen] = useState<string>(destinoValido || ordenados[0]?.nombre || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

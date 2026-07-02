@@ -211,6 +211,7 @@ const SECCIONES: Seccion[] = [
       'Traslado de dinero: mueve saldo entre cajas de la misma moneda.',
       'Cajas: se administran desde el botón de cajas (crear, renombrar, habilitar/deshabilitar y ajustar saldo).',
       'Cada salida queda en un historial; al hacer clic se ve su detalle, con opción de PDF y trazabilidad. El PDF se genera solo cuando lo pedís con el botón.',
+      'Filtrar el Historial: la pestaña Historial (de Salidas y de Traslados, material o dinero) tiene un buscador libre (producto, almacén, quién lo hizo, motivo, caja…) y un rango de fechas (Desde / Hasta), con botón para limpiar. Filtra la tabla al instante.',
     ],
   },
   {
