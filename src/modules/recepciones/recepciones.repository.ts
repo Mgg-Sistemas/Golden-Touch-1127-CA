@@ -750,9 +750,9 @@ export async function eliminarPesada(id: string): Promise<void> {
    Compara el Peso KG total recibido contra lo reportado por los centros de acopio
    (incluye aliados). Cálculos:
      Reportado  = Σ saldos KG de los centros
-     Faltante   = Peso KG total − Reportado            (en rojo)
-     No llegó   = Faltante + Kg bolsas + Muestras lab   (en rojo)
-     %No llegó  = No llegó / Reportado × 100            (en rojo) */
+     Diferencia = Reportado − Peso KG total   (+ = «Kg a favor» verde; − = «Kg Faltante» rojo)
+     No llegó   = Diferencia + Kg bolsas + Muestras lab
+     %No llegó  = No llegó / Reportado × 100 */
 
 const TABLE_CONCIL = 'recepciones_conciliaciones';
 
@@ -793,7 +793,9 @@ export function calcConciliacion(c: { peso_kg_total: number | null; kg_bolsas: n
   reportado: number; faltante: number; noLlego: number; porcentaje: number;
 } {
   const reportado = round2((c.centros ?? []).reduce((a, x) => a + (Number(x.kg) || 0), 0));
-  const faltante = round2(num(c.peso_kg_total) - reportado);
+  // Diferencia = Reportado − Peso KG total (+ = «a favor»; − = «faltante»).
+  const faltante = round2(reportado - num(c.peso_kg_total));
+  // Kg No Llegó = diferencia (lo que llegó de más o de menos) + peso de bolsas + muestras de laboratorio.
   const noLlego = round2(faltante + num(c.kg_bolsas) + num(c.muestras_lab));
   const porcentaje = reportado !== 0 ? round2((noLlego / reportado) * 100) : 0;
   return { reportado, faltante, noLlego, porcentaje };
