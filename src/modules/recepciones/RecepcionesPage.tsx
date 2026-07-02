@@ -17,7 +17,8 @@ import {
   promElemento, promedioLote, nLecturas, LETRAS_LECTURA, labelLectura,
   listHumedadProv, crearHumedadProv, actualizarHumedadProv, eliminarHumedadProv,
   pctHumedadProv, mermaH2OProv, promedioHumedadProv,
-  listHumedadFinal, crearHumedadFinal, actualizarHumedadFinal, eliminarHumedadFinal, mermaH2OFinal, pctHumedadFinal,
+  listHumedadFinal, mermaH2OFinal, pctHumedadFinal, mermaFinalProc, pctFinalProc,
+  sincronizarHumedadFinalPorProcedencia, listProcedenciasConocidas,
   listBigbags, crearBigbag, actualizarBigbag, eliminarBigbag, totalesBigbags,
   TARA_TIPO, TIPO_LABEL, TIPO_SINGULAR, tipoValido, type TipoPesaje,
   guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
@@ -72,11 +73,9 @@ export function RecepcionesPage() {
   const [anadiendo, setAnadiendo] = useState(false);
   const [guardandoLab, setGuardandoLab] = useState(false);
   const [addProv, setAddProv] = useState(false);
-  const [addFin, setAddFin] = useState(false);
   const [aBorrar, setABorrar] = useState<RecepcionLab | null>(null);
   const [anaBorrar, setAnaBorrar] = useState<AnalisisRow | null>(null);
   const [provBorrar, setProvBorrar] = useState<HumedadProvRow | null>(null);
-  const [finBorrar, setFinBorrar] = useState<HumedadFinalRow | null>(null);
   const [config, setConfig] = useState(false);
   const [pesos, setPesos] = useState(false);
   const [resumenOpen, setResumenOpen] = useState(false);
@@ -239,22 +238,7 @@ export function RecepcionesPage() {
     finally { setProvBorrar(null); }
   }
 
-  /* ── Humedad Final ── */
-  async function nuevaFin() {
-    setAddFin(true);
-    try { await crearHumedadFinal({ actor, actorName }); await reload(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar la fila', 'error'); }
-    finally { setAddFin(false); }
-  }
-  async function guardarFin(id: string, patch: Parameters<typeof actualizarHumedadFinal>[1]) {
-    try { await actualizarHumedadFinal(id, patch); await reload(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void reload(); }
-  }
-  async function borrarFin(r: HumedadFinalRow) {
-    try { await eliminarHumedadFinal(r.id); setHumFin((prev) => prev.filter((x) => x.id !== r.id)); toast('Fila eliminada', 'success'); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-    finally { setFinBorrar(null); }
-  }
+  /* ── Humedad Final: automática, una fila por procedencia (desde los pesos). ── */
 
   const pesoTotal = filas.reduce((a, f) => a + (Number(f.peso_kg) || 0), 0);
   // Tasa del centro de acopio para los Totales: la guardada en el cierre (recepción) o,
@@ -265,11 +249,13 @@ export function RecepcionesPage() {
   // Humedad provisional: promedio del lote (%) y merma total (suma).
   const provPctLote = promedioHumedadProv(humProv);
   const provMermaTotal = humProv.reduce((a, r) => a + (mermaH2OProv(r) ?? 0), 0);
-  // Humedad final: Merma = Peso KG (recepciones) − Peso recogido; % Humedad final = Merma / Peso KG × 100.
+  // Humedad final POR PROCEDENCIA (auto desde pesos): Merma = Neto húmedo − Peso seco final;
+  // % Humedad final = Merma / Neto húmedo × 100. (Filas antiguas manuales: base = Peso KG.)
   const finRecogidoTotal = humFin.reduce((a, r) => a + (Number(r.peso_recogido) || 0), 0);
-  const finMermaTotal = humFin.reduce((a, r) => a + (mermaH2OFinal(pesoTotal, r.peso_recogido) ?? 0), 0);
-  const finPcts = humFin.map((r) => pctHumedadFinal(pesoTotal, r.peso_recogido)).filter((x): x is number => x != null);
-  const finPctLote = finPcts.length ? finPcts.reduce((a, b) => a + b, 0) / finPcts.length : null;
+  const finNetoHumedoTotal = humFin.reduce((a, r) => a + (Number(r.neto_humedo) || 0), 0);
+  const mermaFinDe = (r: HumedadFinalRow) => (r.auto ? mermaFinalProc(r.neto_humedo ?? null, r.peso_recogido) : mermaH2OFinal(pesoTotal, r.peso_recogido));
+  const finMermaTotal = humFin.reduce((a, r) => a + (mermaFinDe(r) ?? 0), 0);
+  const finPctLote = finNetoHumedoTotal > 0 ? (finMermaTotal / finNetoHumedoTotal) * 100 : null;
 
   /**
    * Renderiza UN mineral como bloque vertical (tipo columna): título arriba y, debajo,
@@ -589,46 +575,40 @@ export function RecepcionesPage() {
               </div>
             </div>
 
-            {/* Humedad Final */}
+            {/* Humedad Final — automática, una fila por procedencia (desde los pesos) */}
             <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 380px', minWidth: 320 }}>
+              <div style={{ fontWeight: 800, letterSpacing: '.04em', textAlign: 'center', padding: '.5rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>Humedad Final</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
-                <span style={{ fontWeight: 700, letterSpacing: '.03em' }}>Humedad Final</span>
-                {canWrite && (
-                  <button className="btn btn-sm btn-primary" onClick={() => void nuevaFin()} disabled={addFin}
-                    title="Agregar una fila a Humedad Final">
-                    {addFin ? 'Añadiendo…' : '＋ Humedad Final'}
-                  </button>
-                )}
+                <span style={{ fontWeight: 800 }}>PESO (KG) <span className="muted" style={{ fontWeight: 400 }}>(TOTAL NETO SECO)</span></span>
+                <span className="mono" style={{ fontWeight: 800, fontSize: '1.05rem' }}>{fmt(finRecogidoTotal)}</span>
               </div>
               <div className="table-wrap" style={{ overflowX: 'auto' }}>
                 <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
                   <thead>
                     <tr>
-                      <th className="num">Peso (Kg) recogido</th>
+                      <th>Procedencia</th>
+                      <th className="num">Peso (Kg)<br />(neto húmedo)</th>
+                      <th className="num">Peso (Kg) recogido<br />(seco)</th>
                       <th className="num">Merma peso H2O</th>
                       <th className="num">% Humedad final</th>
-                      {canWrite && <th style={{ width: 34 }}></th>}
                     </tr>
                   </thead>
                   <tbody>
                     {!humFin.length && (
-                      <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>
-                        Sin filas. Usá «＋ Humedad Final».
+                      <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>
+                        Cargá los pesos por procedencia: la Humedad Final se completa sola.
                       </td></tr>
                     )}
                     {humFin.map((r) => {
-                      const merma = mermaH2OFinal(pesoTotal, r.peso_recogido);
-                      const pct = pctHumedadFinal(pesoTotal, r.peso_recogido);
+                      const merma = mermaFinDe(r);
+                      const pct = r.auto ? pctFinalProc(r.neto_humedo ?? null, r.peso_recogido) : pctHumedadFinal(pesoTotal, r.peso_recogido);
                       return (
                         <tr key={r.id}>
-                          <td className="num">
-                            <input className="input mono" type="number" min={0} step="any" defaultValue={r.peso_recogido ?? ''} disabled={!canWrite}
-                              onBlur={(e) => { const v = e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0); if (v !== r.peso_recogido) void guardarFin(r.id, { peso_recogido: v }); }}
-                              style={{ width: 120, textAlign: 'right' }} />
-                          </td>
+                          <td style={{ fontWeight: 600 }}>{r.procedencia || <span className="muted">—</span>}</td>
+                          <td className="num mono">{fmt(r.neto_humedo)}</td>
+                          <td className="num mono">{fmt(r.peso_recogido)}</td>
                           <td className="num mono">{merma == null ? '—' : fmt(merma)}</td>
                           <td className="num mono" style={{ fontWeight: 700, color: 'var(--primary-3)' }}>{fmtH(pct)}</td>
-                          {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Eliminar fila" onClick={() => setFinBorrar(r)}>🗑</button></td>}
                         </tr>
                       );
                     })}
@@ -636,18 +616,19 @@ export function RecepcionesPage() {
                   {humFin.length > 0 && (
                     <tfoot>
                       <tr style={{ fontWeight: 700 }}>
+                        <td style={{ fontWeight: 800 }}>TOTAL</td>
+                        <td className="num mono" style={{ fontWeight: 800 }}>{fmt(finNetoHumedoTotal)}</td>
                         <td className="num mono" style={{ fontWeight: 800 }}>{fmt(finRecogidoTotal)}</td>
                         <td className="num mono" style={{ fontWeight: 800 }}>{fmt(finMermaTotal)}</td>
                         <td className="num mono" style={{ fontWeight: 800 }}>{fmtH(finPctLote)}</td>
-                        {canWrite && <td></td>}
                       </tr>
                     </tfoot>
                   )}
                 </table>
               </div>
               <div className="muted" style={{ fontSize: '.72rem', padding: '.5rem .75rem' }}>
-Merma peso H2O = Peso KG (recepciones) − Peso recogido ·
-                <strong>% Humedad final</strong> = Merma peso H2O / Peso KG × 100.
+                Se completa <strong>sola</strong> desde los pesos (una fila por procedencia). <strong>Merma peso H2O</strong> = Neto húmedo − Peso seco final ·
+                <strong> % Humedad final</strong> = Merma / Neto húmedo × 100.
               </div>
             </div>
           </div>
@@ -679,15 +660,6 @@ Merma peso H2O = Peso KG (recepciones) − Peso recogido ·
           onConfirm={() => void borrarProv(provBorrar)} onCancel={() => setProvBorrar(null)}
         />
       )}
-      {finBorrar && (
-        <ConfirmDialog
-          title="Eliminar fila de Humedad Final"
-          message="¿Eliminar esta fila de humedad final?"
-          confirmText="Eliminar" danger
-          onConfirm={() => void borrarFin(finBorrar)} onCancel={() => setFinBorrar(null)}
-        />
-      )}
-
       {config && <ConfigMineralesModal onClose={() => setConfig(false)} onChanged={reload} />}
       {pesos && <PesosBigbagsModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setPesos(false)} />}
     </div>
@@ -864,6 +836,14 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   rowsRef.current = rows;
   const vistaRef = useRef<string | null>(null);
   vistaRef.current = vista;
+  // Memoria de procedencias (combobox) y sincronización automática de Humedad Final.
+  const [procMemoria, setProcMemoria] = useState<string[]>([]);
+  const refrescarMemoria = useCallback(() => { listProcedenciasConocidas().then(setProcMemoria).catch(() => {}); }, []);
+  useEffect(() => { refrescarMemoria(); }, [refrescarMemoria]);
+  // Recalcula la Humedad Final por procedencia desde los pesos (automático, sin botón).
+  const sincronizarHF = useCallback(async () => {
+    try { await sincronizarHumedadFinalPorProcedencia({ actor, actorName }); } catch { /* la realtime igual refresca luego */ }
+  }, [actor, actorName]);
 
   const cargar = useCallback(async (v: string | null) => {
     try {
@@ -894,17 +874,20 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
     const patch = campo === 'procedencia'
       ? { procedencia: raw.trim() || null }
       : { [campo]: raw === '' ? null : Number(raw) } as { peso_humedo?: number | null; peso_seco?: number | null };
-    try { await actualizarBigbag(id, patch); await trasEditarPesada(); }
+    try {
+      await actualizarBigbag(id, patch); await trasEditarPesada(); await sincronizarHF();
+      if (campo === 'procedencia') refrescarMemoria();
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); void cargar(vistaRef.current); }
   }
   async function nuevo() {
     setAdding(true);
-    try { await crearBigbag({ actor, actorName, pesadaId: vista, tipo: nuevoTipo }); await cargar(vista); await trasEditarPesada(); }
+    try { await crearBigbag({ actor, actorName, pesadaId: vista, tipo: nuevoTipo }); await cargar(vista); await trasEditarPesada(); await sincronizarHF(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir', 'error'); }
     finally { setAdding(false); }
   }
   async function borrar(r: BigbagRow) {
-    try { await eliminarBigbag(r.id); setRows((prev) => prev.filter((x) => x.id !== r.id)); await trasEditarPesada(); }
+    try { await eliminarBigbag(r.id); setRows((prev) => prev.filter((x) => x.id !== r.id)); await trasEditarPesada(); await sincronizarHF(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
     finally { setABorrar(null); }
   }
@@ -913,7 +896,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
     try {
       const p = await guardarPesada({ actor, actorName });
       toast(`PESOS GUARDADOS DÍA ${fmtDia(p.fecha)}`, 'success');
-      await cargar(null); setVista(null);
+      await cargar(null); setVista(null); await sincronizarHF();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron guardar los pesos', 'error'); }
     finally { setSaving(false); }
   }
@@ -921,20 +904,20 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
     try {
       await eliminarPesada(p.id);
       if (vista === p.id) setVista(null);
-      await cargar(vista === p.id ? null : vista);
+      await cargar(vista === p.id ? null : vista); await sincronizarHF();
       toast('Pesada eliminada', 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar la pesada', 'error'); }
     finally { setPesadaBorrar(null); }
   }
   async function toggleConsumida(p: PesadaRow) {
-    try { await actualizarPesada(p.id, { consumida: !p.consumida }); await cargar(vista); }
+    try { await actualizarPesada(p.id, { consumida: !p.consumida }); await cargar(vista); await sincronizarHF(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar', 'error'); }
   }
 
   // Cambia la CATEGORÍA de una fila (por fila: un mismo pesaje mezcla los 3 tipos).
   async function setTipoRow(id: string, t: TipoPesaje) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, tipo: t } : r)));
-    try { await actualizarBigbag(id, { tipo: t }); await trasEditarPesada(); }
+    try { await actualizarBigbag(id, { tipo: t }); await trasEditarPesada(); await sincronizarHF(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar la categoría', 'error'); void cargar(vistaRef.current); }
   }
 
@@ -965,9 +948,9 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
                 return (
                 <tr key={r.id}>
                   <td>
-                    <input key={`${r.id}-proc`} className="input" defaultValue={r.procedencia ?? ''} disabled={!canWrite}
+                    <input key={`${r.id}-proc`} className="input" list="rec-proc-memoria" defaultValue={r.procedencia ?? ''} disabled={!canWrite}
                       onBlur={(e) => { const v = e.target.value.toUpperCase(); if (v !== e.target.value) e.target.value = v; if (v !== (r.procedencia ?? '')) void guardarCampo(r.id, 'procedencia', v); }}
-                      placeholder="A, B, ALI…" style={{ width: 130 }} />
+                      placeholder="A, B, ALI…" style={{ width: 150 }} />
                   </td>
                   <td className="num">
                     <input key={`${r.id}-${campo}`} className="input mono" type="number" step="any" defaultValue={(r[campo] ?? '') as number | ''} disabled={!canWrite}
@@ -1013,6 +996,10 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   return (
     <Modal title="⚖ Añadir pesos — Bigbags" size="xl" onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      {/* Memoria de procedencias (combobox): elegí una ya usada o escribí una nueva. */}
+      <datalist id="rec-proc-memoria">
+        {procMemoria.map((p) => <option key={p} value={p} />)}
+      </datalist>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
         <div className="muted" style={{ fontSize: '.8rem' }}>
           TARA por categoría (un pesaje mezcla los 3): BIG BAG ×{fmt(TARA_TIPO.bigbag)} · SACO ×{fmt(TARA_TIPO.saco)} · BOLSA DE HIELO ×{fmt(TARA_TIPO.bolsa_hielo)}. TOTAL NETO = suma de pesos − tara (permite negativos).

@@ -359,6 +359,12 @@ const TABLE_HFIN = 'recepciones_humedad_final';
 export interface HumedadFinalRow {
   id: string;
   peso_recogido: number | null;
+  /** Procedencia (A, B, …). Las filas AUTO se generan una por procedencia desde los pesos. */
+  procedencia?: string | null;
+  /** true = fila generada/sincronizada automáticamente desde los pesos de bigbags. */
+  auto?: boolean | null;
+  /** Neto húmedo de esa procedencia (suma húmedos − tara). Base para la merma final. */
+  neto_humedo?: number | null;
   observacion?: string | null;
   created_by?: string | null;
   actor_name?: string | null;
@@ -405,6 +411,21 @@ export function pctHumedadFinal(pesoKg: number | null, pesoRecogido: number | nu
   const merma = mermaH2OFinal(pesoKg, pesoRecogido);
   if (merma == null || !Number.isFinite(pk) || pk <= 0) return null;
   return round3((merma / pk) * 100);
+}
+
+/** Merma final POR PROCEDENCIA = Neto húmedo − Peso seco final (peso recogido). */
+export function mermaFinalProc(netoHumedo: number | null, pesoSecoFinal: number | null): number | null {
+  const nh = Number(netoHumedo), ps = Number(pesoSecoFinal);
+  if (!Number.isFinite(nh) && !Number.isFinite(ps)) return null;
+  return round2((Number.isFinite(nh) ? nh : 0) - (Number.isFinite(ps) ? ps : 0));
+}
+
+/** % Humedad final POR PROCEDENCIA = Merma / Neto húmedo × 100. */
+export function pctFinalProc(netoHumedo: number | null, pesoSecoFinal: number | null): number | null {
+  const nh = Number(netoHumedo);
+  const merma = mermaFinalProc(netoHumedo, pesoSecoFinal);
+  if (merma == null || !Number.isFinite(nh) || nh <= 0) return null;
+  return round3((merma / nh) * 100);
 }
 
 /* ───────────── Bigbags (Pesos Húmedos / Pesos Secos) ─────────────
@@ -521,6 +542,78 @@ export function totalesBigbags(bigbags: BigbagRow[]): {
     nBigbags: bigbags.length, sumaHumedo, sumaSeco, bigBagHumedo, bigBagSeco,
     netoHumedo: round2(sumaHumedo + bigBagHumedo), netoSeco: round2(sumaSeco + bigBagSeco),
   };
+}
+
+/** Procedencias ya usadas (memoria para el combobox): de bigbags y de la tabla de recepciones. */
+export async function listProcedenciasConocidas(): Promise<string[]> {
+  const [bb, lab] = await Promise.all([
+    supabase.from(TABLE_BB).select('procedencia'),
+    supabase.from('recepciones_lab').select('procedencia'),
+  ]);
+  const set = new Set<string>();
+  for (const r of [...(bb.data ?? []), ...(lab.data ?? [])] as Array<{ procedencia: string | null }>) {
+    const p = (r.procedencia ?? '').trim().toUpperCase();
+    if (p) set.add(p);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/** Bigbags ACTIVOS de la recepción en curso: el set de trabajo (sin guardar) + los de
+ *  pesadas NO consumidas. Base para la Humedad Final por procedencia (sobrevive al
+ *  «Guardar pesos», que mueve los bigbags a una pesada pero siguen contando). */
+export async function listBigbagsActivos(): Promise<BigbagRow[]> {
+  const pesadas = await listPesadas();
+  const activas = pesadas.filter((p) => !p.consumida).map((p) => p.id);
+  const trabajo = await listBigbags(null);
+  let dePesadas: BigbagRow[] = [];
+  if (activas.length) {
+    const { data } = await supabase.from(TABLE_BB).select('*').in('pesada_id', activas)
+      .order('numero', { ascending: true });
+    dePesadas = (data ?? []) as BigbagRow[];
+  }
+  return [...trabajo, ...dePesadas];
+}
+
+/**
+ * Sincroniza la Humedad Final POR PROCEDENCIA desde los pesos: agrupa los bigbags
+ * activos por procedencia y, por cada una, calcula el neto húmedo y el peso seco
+ * final (neto seco) y los deja en una fila AUTO de Humedad Final. Merma final =
+ * neto húmedo − peso seco final. Las filas manuales (auto=false) no se tocan;
+ * las AUTO cuya procedencia desaparece se borran.
+ */
+export async function sincronizarHumedadFinalPorProcedencia(input: { actor: string; actorName?: string | null }): Promise<void> {
+  const bigbags = await listBigbagsActivos();
+  const grupos = new Map<string, BigbagRow[]>();
+  for (const b of bigbags) {
+    const key = (b.procedencia ?? '').trim().toUpperCase();
+    if (!key) continue; // sin procedencia no genera fila
+    const arr = grupos.get(key) ?? [];
+    arr.push(b);
+    grupos.set(key, arr);
+  }
+  const { data: exist } = await supabase.from(TABLE_HFIN).select('id, procedencia').eq('auto', true);
+  const byProc = new Map<string, string>();
+  for (const r of (exist ?? []) as Array<{ id: string; procedencia: string | null }>) {
+    byProc.set((r.procedencia ?? '').toUpperCase(), r.id);
+  }
+  const vistos = new Set<string>();
+  for (const [proc, rows] of grupos) {
+    vistos.add(proc);
+    const t = totalesBigbags(rows);
+    const patch = { neto_humedo: t.netoHumedo, peso_recogido: t.netoSeco, updated_at: new Date().toISOString() };
+    const id = byProc.get(proc);
+    if (id) {
+      await supabase.from(TABLE_HFIN).update(patch).eq('id', id);
+    } else {
+      await supabase.from(TABLE_HFIN).insert({
+        procedencia: proc, auto: true, ...patch,
+        created_by: input.actor, actor_name: input.actorName ?? null,
+      });
+    }
+  }
+  for (const [proc, id] of byProc) {
+    if (!vistos.has(proc)) await supabase.from(TABLE_HFIN).delete().eq('id', id);
+  }
 }
 
 /* ───────────── Pesadas guardadas (histórico modificable) ───────────── */
@@ -867,10 +960,15 @@ export async function listCierres(): Promise<CierreRecepcion[]> {
   return (data ?? []) as CierreRecepcion[];
 }
 
-/** Producto Casiterita (mineral) para el ingreso por RESGUARDO. */
+/** Producto Casiterita (mineral) para el ingreso por RESGUARDO. Único producto de
+ *  casiterita: SKU 'CASITERITA' (el mismo que usa Producción al cerrar contratos).
+ *  Se resuelve SIEMPRE por ese SKU para no duplicar (antes existía 'SNO2', ya fusionado);
+ *  solo si faltara, cae al primer mineral por categoría. */
 async function productoCasiterita(): Promise<{ id: string } | null> {
-  const { data } = await supabase.from('productos').select('id, sku, categoria')
-    .or('sku.eq.CASITERITA,sku.eq.SNO2,categoria.ilike.%mineral%').limit(1).maybeSingle();
+  const porSku = await supabase.from('productos').select('id').eq('sku', 'CASITERITA').maybeSingle();
+  if (porSku.data) return porSku.data as { id: string };
+  const { data } = await supabase.from('productos').select('id')
+    .ilike('categoria', '%mineral%').order('created_at', { ascending: true }).limit(1).maybeSingle();
   return (data as { id: string } | null) ?? null;
 }
 
