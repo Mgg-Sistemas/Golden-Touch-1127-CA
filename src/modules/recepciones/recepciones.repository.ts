@@ -163,6 +163,10 @@ export interface AnalisisRow {
   id: string;
   n_analisis: number | null;
   analisis: AnalisisLab;
+  /** Procedencia a la que pertenece este análisis (cada procedencia tiene su set). */
+  procedencia?: string | null;
+  /** N° de muestras/sobres de esta fila (texto libre: "34, 34, 645"). Informativo. */
+  muestras?: string | null;
   observacion?: string | null;
   created_by?: string | null;
   actor_name?: string | null;
@@ -180,23 +184,27 @@ export async function listAnalisis(): Promise<AnalisisRow[]> {
   return (data ?? []) as AnalisisRow[];
 }
 
-/** Crea una fila de análisis. El N° Análisis se autoasigna (máx + 1). */
-export async function crearAnalisis(input: { actor: string; actorName?: string | null }): Promise<AnalisisRow> {
-  const { data: rows } = await supabase.from(TABLE_ANA).select('n_analisis');
+/** Crea una fila de análisis en una procedencia. El N° Análisis se autoasigna (máx + 1) dentro de esa procedencia. */
+export async function crearAnalisis(input: { actor: string; actorName?: string | null; procedencia?: string | null }): Promise<AnalisisRow> {
+  const proc = (input.procedencia?.trim() || 'PERAMANAL').toUpperCase();
+  const { data: rows } = await supabase.from(TABLE_ANA).select('n_analisis').eq('procedencia', proc);
   let max = 0;
   for (const r of (rows ?? []) as Array<{ n_analisis: number | null }>) max = Math.max(max, num(r.n_analisis));
   const { data, error } = await supabase.from(TABLE_ANA).insert({
-    n_analisis: max + 1, analisis: {}, created_by: input.actor, actor_name: input.actorName ?? null,
+    n_analisis: max + 1, analisis: {}, procedencia: proc,
+    created_by: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) throw error;
   return data as AnalisisRow;
 }
 
-export async function actualizarAnalisisRow(id: string, patch: { n_analisis?: number | null; analisis?: AnalisisLab; observacion?: string | null }): Promise<void> {
+export async function actualizarAnalisisRow(id: string, patch: { n_analisis?: number | null; analisis?: AnalisisLab; observacion?: string | null; muestras?: string | null; procedencia?: string | null }): Promise<void> {
   const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.n_analisis !== undefined) upd.n_analisis = patch.n_analisis == null ? null : Math.max(1, Math.round(num(patch.n_analisis)));
   if (patch.analisis != null) upd.analisis = patch.analisis;
   if (patch.observacion !== undefined) upd.observacion = patch.observacion?.trim() || null;
+  if (patch.muestras !== undefined) upd.muestras = patch.muestras?.trim() || null;
+  if (patch.procedencia !== undefined) upd.procedencia = (patch.procedencia?.trim() || 'PERAMANAL').toUpperCase();
   const { error } = await supabase.from(TABLE_ANA).update(upd).eq('id', id);
   if (error) throw error;
 }
