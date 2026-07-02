@@ -188,7 +188,7 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
  * ENTRADA al inventario (vía `recepcionarCompraDirecta`). Las cantidades vienen fijas
  * de la compra (ya se pagaron); solo se elige el destino.
  */
-function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSaved }: {
+export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSaved }: {
   compra: CompraDirecta;
   almacenes: Almacen[];
   actor: string;

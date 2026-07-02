@@ -10,7 +10,9 @@ import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
 import { descargarCompraDirectaPdf } from './compraDirectaPdf';
 import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
-import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { getNombresAlmacenes, listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { RecibirCompraModal } from '@/modules/inventario/RecepcionesPendientes';
+import type { Almacen } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
@@ -27,12 +29,29 @@ import { FacturasDirectas } from './FacturasDirectas';
 
 type Vista = 'kanban' | 'lista';
 
-const COLS: { key: CompraDirecta['estado']; label: string }[] = [
+/** Columna del tablero. 'por_recibir' es VIRTUAL: son compras finalizadas (pagadas)
+ *  que afectan inventario y todavía esperan que el almacenista les dé entrada. */
+type ColKey = 'en_proceso' | 'por_pagar' | 'por_recibir' | 'finalizada';
+
+const COLS: { key: ColKey; label: string }[] = [
   { key: 'en_proceso', label: 'En proceso' },
   { key: 'por_pagar', label: 'Por pagar' },
+  { key: 'por_recibir', label: 'Por recibir' },
   { key: 'finalizada', label: 'Finalizada' },
 ];
 const ESTADO_LABEL: Record<string, string> = { en_proceso: '⏳ En proceso', por_pagar: '🧾 Por pagar', finalizada: '🏁 Finalizada' };
+
+/** Una compra pagada afecta inventario y aún no fue recibida por el almacenista. */
+function esPorRecibir(c: CompraDirecta): boolean {
+  return c.estado === 'finalizada' && c.afecta_inventario !== false && c.recepcion_pendiente === true;
+}
+
+/** Columna del tablero a la que pertenece la compra. */
+function columnaDe(c: CompraDirecta): ColKey {
+  if (c.estado === 'en_proceso') return 'en_proceso';
+  if (c.estado === 'por_pagar') return 'por_pagar';
+  return esPorRecibir(c) ? 'por_recibir' : 'finalizada';
+}
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -43,6 +62,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [compras, setCompras] = useState<CompraDirecta[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [almacenes, setAlmacenes] = useState<string[]>([]);
+  const [almacenesFull, setAlmacenesFull] = useState<Almacen[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
   const [cajas, setCajas] = useState<Caja[]>([]);
@@ -56,16 +76,17 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   const [reabrir, setReabrir] = useState<CompraDirecta | null>(null);
   const [reabriendo, setReabriendo] = useState(false);
   const [ver, setVer] = useState<CompraDirecta | null>(null);
+  const [recibir, setRecibir] = useState<CompraDirecta | null>(null);
 
   const reload = useCallback(async () => {
     // Los productos se cargan primero para pasarlos a getCategorias/getUnidades: así la
     // lista sale IGUAL que en Inventario (catálogo `taxonomias` + categorías/medidas ya
     // presentes en productos), no solo el catálogo.
     const pds = await listProductos();
-    const [cs, alms, cats, unis, cjs, provs] = await Promise.all([
-      listComprasDirectas(), getNombresAlmacenes(), getCategorias(pds), getUnidades(pds), listCajasActivas(), listProveedores(),
+    const [cs, alms, almsFull, cats, unis, cjs, provs] = await Promise.all([
+      listComprasDirectas(), getNombresAlmacenes(), listAlmacenes(), getCategorias(pds), getUnidades(pds), listCajasActivas(), listProveedores(),
     ]);
-    setCompras(cs); setProductos(pds); setAlmacenes(alms); setCategorias(cats); setUnidades(unis); setCajas(cjs); setProveedores(provs);
+    setCompras(cs); setProductos(pds); setAlmacenes(alms); setAlmacenesFull(almsFull); setCategorias(cats); setUnidades(unis); setCajas(cjs); setProveedores(provs);
   }, []);
 
   useEffect(() => {
@@ -79,12 +100,12 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   // recarga mientras hay un modal abierto (crear/editar/montar/pagar…): un refresh a
   // mitad de carga borraba los materiales que se estaban cargando.
   const modalAbiertoRef = useRef(false);
-  modalAbiertoRef.current = crear || !!editar || !!montar || !!ver || !!reabrir || !!eliminar;
+  modalAbiertoRef.current = crear || !!editar || !!montar || !!ver || !!reabrir || !!eliminar || !!recibir;
   useRealtime(['compras_directas', 'productos', 'proveedores'], () => { if (!modalAbiertoRef.current) void reload(); });
 
   const porEstado = useMemo(() => {
-    const m: Record<string, CompraDirecta[]> = { en_proceso: [], por_pagar: [], finalizada: [] };
-    compras.forEach((c) => { (m[c.estado] ??= []).push(c); });
+    const m: Record<ColKey, CompraDirecta[]> = { en_proceso: [], por_pagar: [], por_recibir: [], finalizada: [] };
+    compras.forEach((c) => { m[columnaDe(c)].push(c); });
     return m;
   }, [compras]);
 
@@ -139,7 +160,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
               <div className="kanban-col-body">
                 {(porEstado[col.key] ?? []).map((c) => (
                   <CompraCard key={c.id} compra={c}
-                    onMontar={() => setMontar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} onVer={() => setVer(c)} />
+                    onMontar={() => setMontar(c)} onPdf={() => handlePdf(c)} onEliminar={() => setEliminar(c)} onVer={() => setVer(c)} onRecibir={() => setRecibir(c)} />
                 ))}
                 {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
               </div>
@@ -158,7 +179,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td>{c.almacen}</td>
                   <td className="mono">{num(c.cantidad)}</td>
-                  <td>{ESTADO_LABEL[c.estado] ?? c.estado}</td>
+                  <td>{esPorRecibir(c) ? '📦 Por recibir' : (ESTADO_LABEL[c.estado] ?? c.estado)}</td>
                   <td className="mono">{c.gasto != null ? money(c.gasto) : '—'}</td>
                   <td>{c.actor_name || c.actor || '—'}</td>
                   <td className="muted">{dateTime(c.created_at)}</td>
@@ -168,6 +189,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(c)} title="Ver/descargar detalle en PDF">↓ PDF</button>
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setMontar(c)}>Cargar factura y montos</button>}
                     {c.estado === 'por_pagar' && <span className="badge" title="El pago se realiza desde Tesorería">🧾 DIRECTO · por pagar</span>}
+                    {esPorRecibir(c) && <button className="btn btn-sm btn-primary" onClick={() => setRecibir(c)} title="Dar entrada al inventario">📦 Recibir</button>}
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa">🗑 Eliminar</button>}
                   </td>
                 </tr>
@@ -186,6 +208,11 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       {montar && (
         <FinalizarCompraModal modo="montar" compra={montar} cajas={cajas} actor={actor} actorName={actorName}
           onClose={() => setMontar(null)} onSaved={async () => { setMontar(null); await reload(); }} />
+      )}
+
+      {recibir && (
+        <RecibirCompraModal compra={recibir} almacenes={almacenesFull} actor={actor} actorName={actorName ?? null}
+          onClose={() => setRecibir(null)} onSaved={async () => { setRecibir(null); await reload(); }} />
       )}
 
       {ver && (
@@ -218,9 +245,10 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
   );
 }
 
-function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer }: {
-  compra: CompraDirecta; onMontar: () => void; onPdf: () => void; onEliminar: () => void; onVer: () => void;
+function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer, onRecibir }: {
+  compra: CompraDirecta; onMontar: () => void; onPdf: () => void; onEliminar: () => void; onVer: () => void; onRecibir: () => void;
 }) {
+  const porRecibir = esPorRecibir(compra);
   return (
     <div className="card row-selectable" style={{ margin: 0, cursor: 'pointer' }} onClick={onVer} title="Ver detalle">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
@@ -251,11 +279,17 @@ function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer }: {
           <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#1a1a1a' }}>DIRECTO</span>
         </div>
       )}
+      {porRecibir && (
+        <div style={{ marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
+          <span className="badge" style={{ background: 'var(--warning, #f59e0b)', color: '#1a1a1a' }} title="Pagada · falta darle entrada al inventario">📦 Por recibir</span>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-sm btn-ghost" onClick={onVer} title="Ver detalle">👁 Ver</button>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onMontar}>Cargar factura y montos</button>}
         {compra.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onMontar} title="Editar factura, montos y nota (antes de que Tesorería pague)">✏ Editar</button>}
+        {porRecibir && <button className="btn btn-sm btn-primary" onClick={onRecibir} title="Dar entrada al inventario">📦 Recibir</button>}
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa">🗑 Eliminar</button>}
       </div>
     </div>
