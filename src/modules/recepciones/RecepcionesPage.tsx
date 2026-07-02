@@ -1471,7 +1471,21 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
                     </td>
                   </tr>
                   {resumenFila(fmt(t!.reportado), 'Kg Reportado por Centros de Acopio')}
-                  {resumenFila(fmt(t!.faltante), 'Kg Faltante', { rojo: true, verde: true })}
+                  {(() => {
+                    // Diferencia = lo que llegó − lo reportado. Positivo → verde «Kg a favor»;
+                    // negativo → rojo «Kg Faltante»; ~0 → neutro.
+                    const dif = t!.faltante;
+                    const cero = Math.abs(dif) < 0.005;
+                    const favor = dif > 0;
+                    const color = cero ? undefined : (favor ? 'var(--success, #22c55e)' : 'var(--danger, #e5484d)');
+                    const label = cero ? 'Sin diferencia' : (favor ? 'Kg a favor' : 'Kg Faltante');
+                    return (
+                      <tr>
+                        <td className="num mono" style={{ textAlign: 'right', width: 190, fontWeight: 800, color }}>{fmt(Math.abs(dif))}</td>
+                        <td style={{ fontWeight: 800, color }}>{label}</td>
+                      </tr>
+                    );
+                  })()}
                   <tr>
                     <td className="num" style={{ width: 190 }}>
                       <input className="input mono" type="number" step="any" value={draft.kg_bolsas || ''} disabled={!canWrite}
