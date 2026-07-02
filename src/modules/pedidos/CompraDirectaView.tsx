@@ -6,7 +6,7 @@ import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
-import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
+import { dateTime, num, dosDecimales } from '@/shared/lib/format';
 import { descargarCompraDirectaPdf } from './compraDirectaPdf';
 import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
@@ -66,6 +66,11 @@ function columnaDe(c: CompraDirecta): ColKey {
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
+}
+
+/** Formatea un monto de la compra en SU moneda: Bs muestra "Bs …", el resto "$ …". */
+function montoCD(n: number | null | undefined, moneda: string | null | undefined): string {
+  return montoCaja(n, moneda === 'Bs' ? 'Bs' : 'USD');
 }
 
 export function CompraDirectaView({ actor, actorName }: { actor: string; actorName?: string | null }) {
@@ -190,7 +195,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td>{c.almacen}</td>
                   <td className="mono">{num(c.cantidad)}</td>
                   <td>{esPorRecibir(c) ? '📦 Por recibir' : (ESTADO_LABEL[c.estado] ?? c.estado)}</td>
-                  <td className="mono">{c.gasto != null ? money(c.gasto) : '—'}</td>
+                  <td className="mono">{c.gasto != null ? montoCD(c.gasto, c.moneda) : '—'}</td>
                   <td>{c.actor_name || c.actor || '—'}</td>
                   <td className="muted">{dateTime(c.created_at)}</td>
                   <td className="muted">{c.finalizada_at ? dateTime(c.finalizada_at) : '—'}</td>
@@ -245,7 +250,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       {reabrir && (
         <ConfirmDialog
           title="Reabrir compra directa"
-          message={`¿Reabrir ${reabrir.codigo ?? 'la compra'}? Se devolverá ${reabrir.gasto != null ? money(reabrir.gasto) : 'el dinero'} a la caja y se revertirá la entrada al inventario. Quedará En proceso para editarla.`}
+          message={`¿Reabrir ${reabrir.codigo ?? 'la compra'}? Se devolverá ${reabrir.gasto != null ? montoCD(reabrir.gasto, reabrir.moneda) : 'el dinero'} a la caja y se revertirá la entrada al inventario. Quedará En proceso para editarla.`}
           confirmText={reabriendo ? 'Reabriendo…' : 'Reabrir'}
           onConfirm={confirmarReabrir}
           onCancel={() => setReabrir(null)}
@@ -280,7 +285,7 @@ function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer, onRecibir }: {
       </div>
       {(compra.estado === 'finalizada' || compra.estado === 'por_pagar') && (
         <div style={{ fontSize: '.8rem', marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
-          <div>{compra.estado === 'finalizada' ? 'Gasto' : 'A pagar'}: <strong className="mono">{compra.gasto != null ? money(compra.gasto) : '—'}</strong></div>
+          <div>{compra.estado === 'finalizada' ? 'Gasto' : 'A pagar'}: <strong className="mono">{compra.gasto != null ? montoCD(compra.gasto, compra.moneda) : '—'}</strong></div>
           <div className="muted"><AdjuntoLink compra={compra} /></div>
         </div>
       )}
@@ -364,8 +369,8 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {(Number(compra.descuento) || 0) > 0 && fila('Descuento', <span>{Number(compra.descuento).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {compra.moneda === 'Bs' ? 'Bs' : '$'}{(Number(compra.descuento_pct) || 0) > 0 ? ` (${Number(compra.descuento_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)` : ''} <span className="muted" style={{ fontSize: '.75rem' }}>(restado del total)</span></span>)}
       {(Number(compra.iva) || 0) > 0 && fila('IVA (16%)', <span>{Number(compra.iva).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs <span className="muted" style={{ fontSize: '.75rem' }}>(incluido en el total)</span></span>)}
       {(Number(compra.retencion_pct) || 0) > 0 && fila('Retención', <span>{compra.retencion_tipo || 'IVA'} · {Number(compra.retencion_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}% = {Number(compra.retencion_monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {compra.moneda === 'Bs' ? 'Bs' : '$'} <span className="muted" style={{ fontSize: '.75rem' }}>(en módulo Retenciones)</span></span>)}
-      {fila(compra.estado === 'finalizada' ? 'Gasto total' : 'Total a pagar', total != null ? money(total) : '—')}
-      {compra.estado === 'finalizada' && (Number(compra.comision_bancaria) || 0) > 0 && fila('Comisión bancaria', <span>{money(Number(compra.comision_bancaria))} <span className="muted" style={{ fontSize: '.75rem' }}>(gasto aparte · no suma a la factura)</span></span>)}
+      {fila(compra.estado === 'finalizada' ? 'Gasto total' : 'Total a pagar', total != null ? montoCD(total, compra.moneda) : '—')}
+      {compra.estado === 'finalizada' && (Number(compra.comision_bancaria) || 0) > 0 && fila('Comisión bancaria', <span>{montoCD(Number(compra.comision_bancaria), compra.moneda)} <span className="muted" style={{ fontSize: '.75rem' }}>(gasto aparte · no suma a la factura)</span></span>)}
       {compra.nota && fila('Nota', <span style={{ whiteSpace: 'pre-wrap' }}>{compra.nota}</span>)}
       {compra.adjunto_path && fila('Comprobante', <AdjuntoLink compra={compra} />)}
 
@@ -386,8 +391,8 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
                 <tr key={i}>
                   <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{cu != null ? money(cu) : '—'}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{g != null ? money(g) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{cu != null ? montoCD(cu, compra.moneda) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{g != null ? montoCD(g, compra.moneda) : '—'}</td>
                 </tr>
               );
             })}
@@ -396,7 +401,7 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
             <tfoot>
               <tr>
                 <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>TOTAL</td>
-                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(total)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{montoCD(total, compra.moneda)}</td>
               </tr>
             </tfoot>
           )}
@@ -1000,7 +1005,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
         <div className="card" style={{ margin: '.5rem 0' }}>
           {esPago
             ? <>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra a inventario en <strong>{compra.almacen}</strong></>
-            : <>Total a pagar: <strong className="mono">{money(total)}</strong> · queda <strong>Por pagar</strong>; Tesorería lo abona y entra a inventario en <strong>{compra.almacen}</strong></>}
+            : <>Total a pagar: <strong className="mono">{montoCaja(total, monedaCompra)}</strong> · queda <strong>Por pagar</strong>; Tesorería lo abona y entra a inventario en <strong>{compra.almacen}</strong></>}
         </div>
 
         {/* Conversión del total a Bs con la tasa BCV (editable) — para cualquier caja. */}

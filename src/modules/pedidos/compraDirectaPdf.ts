@@ -26,6 +26,11 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
 
   const gasto = compra.gasto != null ? Number(compra.gasto) : null;
   const totalItems = compra.items.length;
+  // Monto en la MONEDA de la compra (Bs → "Bs …"; el resto "$ …").
+  const mon = (n: number | null | undefined) => {
+    const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return compra.moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
+  };
 
   const ficha: Array<[string, string]> = [
     ['Código', compra.codigo || '—'],
@@ -33,7 +38,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     ['Almacén destino', compra.almacen || '—'],
     ['Materiales', `${totalItems} renglón(es)`],
     ['Estado', compra.estado === 'finalizada' ? 'Finalizada (ingresó a inventario)' : 'En proceso'],
-    ['Gasto total', gasto != null ? fmt.money(gasto) : '—'],
+    ['Gasto total', gasto != null ? mon(gasto) : '—'],
     ['Generó', compra.actor_name || compra.actor || '—'],
     ['Fecha de creación', fmt.dateTime(compra.created_at)],
     ['Fecha de compra', compra.finalizada_at ? fmt.dateTime(compra.finalizada_at) : '—'],
@@ -57,15 +62,15 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
       String(i + 1),
       it.producto_sku ? `${it.producto_nombre} · ${it.producto_sku}` : it.producto_nombre,
       fmt.num(cant),
-      cu != null ? fmt.money(cu) : '—',
-      g != null ? fmt.money(g) : '—',
+      cu != null ? mon(cu) : '—',
+      g != null ? mon(g) : '—',
     ];
   });
   autoTable(doc, {
     startY: startY + 14,
     head: [['#', 'Material', 'Cant.', 'Costo unit.', 'Precio']],
     body,
-    foot: gasto != null ? [[{ content: 'TOTAL', colSpan: 4, styles: { halign: 'right' } }, fmt.money(gasto)]] : undefined,
+    foot: gasto != null ? [[{ content: 'TOTAL', colSpan: 4, styles: { halign: 'right' } }, mon(gasto)]] : undefined,
     styles: { fontSize: 9, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
