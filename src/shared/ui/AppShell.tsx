@@ -18,6 +18,7 @@ import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
 import { supabase } from '@/shared/lib/supabase';
+import { prefetchRuta, prefetchRutasEnIdle } from '@/shared/lib/routePrefetch';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -136,6 +137,24 @@ export function AppShell() {
       if (ric && cancel) cancel(id as number); else window.clearTimeout(id as number);
     };
   }, [user]);
+
+  // Prefetch de rutas: en segundo plano (idle) baja el chunk de cada módulo al que
+  // el usuario tiene acceso, así al hacer clic en el menú la navegación es instantánea
+  // (no espera a descargar el JS). Deja cargar primero la página actual.
+  useEffect(() => {
+    if (!user) return;
+    const rutas = ([
+      ['dashboard', '/app/dashboard'], ['pedidos', '/app/pedidos'], ['inventario', '/app/inventario'],
+      ['salidas', '/app/salidas'], ['produccion', '/app/produccion'], ['tesoreria', '/app/tesoreria'],
+      ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
+      ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
+      ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['retenciones', '/app/retenciones'],
+      ['rrhh', '/app/rrhh'], ['usuarios', '/app/usuarios'], ['ajustes', '/app/ajustes'],
+    ] as Array<[ModuleKey, string]>)
+      .filter(([permiso]) => can(permiso))
+      .map(([, ruta]) => ruta);
+    return prefetchRutasEnIdle(rutas);
+  }, [user?.id, role]);
 
   // Cuando cualquier `notify()` persista en BD, refresca el contador de la campana.
   useEffect(() => onNotifRefresh(() => { void refreshUnread(); }), []);
@@ -467,8 +486,12 @@ function NavItem({
       </a>
     );
   }
+  // Prefetch al primer indicio de intención (hover/foco/touch): baja el chunk del
+  // módulo antes del clic, así la navegación se siente instantánea.
+  const precargar = () => prefetchRuta(to);
   return (
-    <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end>
+    <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end
+      onMouseEnter={precargar} onFocus={precargar} onTouchStart={precargar}>
       <span className="icn">{icon}</span> <span>{label}</span>
     </NavLink>
   );
