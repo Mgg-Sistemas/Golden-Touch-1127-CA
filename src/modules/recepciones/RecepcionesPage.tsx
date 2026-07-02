@@ -261,6 +261,8 @@ export function RecepcionesPage() {
   const mermaFinDe = (r: HumedadFinalRow) => (r.auto ? mermaFinalProc(r.neto_humedo ?? null, r.peso_recogido) : mermaH2OFinal(pesoTotal, r.peso_recogido));
   const finMermaTotal = humFin.reduce((a, r) => a + (mermaFinDe(r) ?? 0), 0);
   const finPctLote = finNetoHumedoTotal > 0 ? (finMermaTotal / finNetoHumedoTotal) * 100 : null;
+  // Desglose por procedencia (neto seco recogido) para Conciliación/Totales: de las filas auto de Humedad Final.
+  const desgloseProc = humFin.filter((r) => r.auto).map((r) => ({ procedencia: (r.procedencia || '—'), neto: Number(r.peso_recogido) || 0 }));
 
   // Análisis por procedencia: pestañas (catálogo + las presentes en los análisis) y la
   // procedencia efectiva seleccionada; solo se muestran/editan los análisis de esa procedencia.
@@ -421,8 +423,8 @@ export function RecepcionesPage() {
         <ResumenRecepcionModal resumen={resumen} onClose={() => setResumenOpen(false)} />
       )}
 
-      {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} onClose={() => setConcilOpen(false)} />}
-      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} cajaTasa={cajaTasa} onClose={() => setTotalesOpen(false)} />}
+      {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} onClose={() => setConcilOpen(false)} />}
+      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} cajaTasa={cajaTasa} onClose={() => setTotalesOpen(false)} />}
       {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCierresOpen(false)} />}
 
       {loading ? (
@@ -1253,8 +1255,8 @@ interface ConcilDraft {
   observacion: string;
 }
 
-function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; onClose: () => void;
+function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, desgloseProc, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; desgloseProc: Array<{ procedencia: string; neto: number }>; onClose: () => void;
 }) {
   const [lista, setLista] = useState<Conciliacion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1470,6 +1472,17 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
                       {canWrite && <div><button className="btn btn-sm btn-ghost" type="button" style={{ padding: '0 .3rem', fontSize: '.72rem' }} onClick={() => setLocal({ peso_kg_total: pesoRecogidoFinal })}>↺ Usar Humedad Final ({fmt(pesoRecogidoFinal)})</button></div>}
                     </td>
                   </tr>
+                  {desgloseProc.length > 0 && (
+                    <>
+                      <tr><td colSpan={2} className="muted" style={{ fontSize: '.72rem', fontWeight: 700, paddingTop: '.5rem' }}>Desglose por procedencia <span style={{ fontWeight: 400 }}>(neto seco recogido)</span></td></tr>
+                      {desgloseProc.map((d) => (
+                        <tr key={d.procedencia}>
+                          <td className="num mono" style={{ textAlign: 'right', width: 190 }}>{fmt(d.neto)}</td>
+                          <td className="muted" style={{ paddingLeft: '.6rem' }}>↳ {d.procedencia}</td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
                   {resumenFila(fmt(t!.reportado), 'Kg Reportado por Centros de Acopio')}
                   {(() => {
                     // Diferencia = lo que llegó − lo reportado. Positivo → verde «Kg a favor»;
@@ -1539,8 +1552,8 @@ interface TotalesDraft {
   humedad_prov: number; humedad_final: number; fe_esteril: number; observacion: string;
 }
 
-function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, cajaTasa, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; cajaTasa: number; onClose: () => void;
+function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, desgloseProc, cajaTasa, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; desgloseProc: Array<{ procedencia: string; neto: number }>; cajaTasa: number; onClose: () => void;
 }) {
   const [lista, setLista] = useState<TotalesDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1686,6 +1699,19 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
                     {canWrite && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', fontSize: '.72rem', marginLeft: '.3rem' }} onClick={() => setLocal({ pesos_kg: pesoRecogidoFinal })}>↺ Humedad Final ({fmt(pesoRecogidoFinal)})</button>}
                   </td>{canWrite && <td></td>}
                 </tr>
+                {desgloseProc.length > 0 && (
+                  <>
+                    <tr><td colSpan={5} className="muted" style={{ fontSize: '.72rem', fontWeight: 700, paddingTop: '.4rem' }}>Desglose por procedencia <span style={{ fontWeight: 400 }}>(neto seco recogido)</span></td></tr>
+                    {desgloseProc.map((d) => (
+                      <tr key={d.procedencia}>
+                        <td className="num mono" style={{ textAlign: 'right' }}>{fmt(d.neto)}</td>
+                        <td></td><td></td>
+                        <td className="muted">↳ {d.procedencia}</td>
+                        {canWrite && <td></td>}
+                      </tr>
+                    ))}
+                  </>
+                )}
                 <tr>
                   <td className="num"><input className="input mono" type="number" step="any" value={draft.humedad_prov || ''} disabled={!canWrite} onChange={(e) => setLocal({ humedad_prov: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 110, textAlign: 'right', color: 'var(--danger)' }} /></td>
                   <td></td><td></td><td style={ROJO}>HUMEDAD PROVISIONAL (LABORATORIO)</td>{canWrite && <td></td>}
