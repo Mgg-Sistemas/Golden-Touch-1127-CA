@@ -15,6 +15,12 @@ import { listServiciosDirectos, type ServicioDirecto } from '@/modules/pedidos/s
 import { FinalizarCompraModal } from '@/modules/pedidos/CompraDirectaView';
 import { FinalizarServicioModal } from '@/modules/pedidos/ServicioDirectoView';
 
+/** Monto en su moneda (Bs → "Bs …"; el resto "$ …"). */
+function montoMoneda(n: number | null | undefined, moneda: string | null | undefined): string {
+  const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
+}
+
 export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   cajas: Caja[]; actor: string; actorName: string | null; onPaid: () => void;
 }) {
@@ -66,7 +72,7 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
                     {c.nota?.trim() && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', whiteSpace: 'pre-wrap' }}>📝 {c.nota}</div>}</td>
                   <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>{c.actor_name || c.actor || '—'}<br />{dateTime(c.updated_at)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{c.gasto != null ? money(c.gasto) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{c.gasto != null ? montoMoneda(c.gasto, c.moneda) : '—'}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button className="btn btn-sm btn-primary" onClick={() => setPagarC(c)} title="Pagar y finalizar la compra">💳 Pagar</button>
                   </td>
