@@ -1003,6 +1003,10 @@ export interface ItemOrden {
   /** SERVICIOS de recarga (gas / oxígeno / extintores): cantidad de bombonas y KG a recargar. */
   bombonas?: number | null;
   kg_recarga?: number | null;
+  /** SERVICIOS de MANTENIMIENTO: insumo del inventario asociado (p. ej. el caucho que
+   *  se cambia), elegido de un buscador. Es opcional. */
+  insumo_producto_id?: string | null;
+  insumo_nombre?: string | null;
 }
 
 export interface EventoHistorial {

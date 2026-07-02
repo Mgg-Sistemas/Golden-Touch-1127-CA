@@ -11,6 +11,8 @@ import type { Caja, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+import { listProductos } from '@/modules/inventario/inventario.repository';
+import type { Producto } from '@/shared/lib/types';
 import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, TIPOS_RECARGA, type ServicioCatalogo } from './servicios.repository';
 import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
@@ -219,7 +221,7 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
       {servicio.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem' }}>🏷 {servicio.proveedor_nombre}</div>}
       {servicio.items.length > 1 && (
         <ul className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0', paddingLeft: '1rem' }}>
-          {servicio.items.map((it, i) => <li key={i}>{it.descripcion} · {num(it.cantidad)}{it.equipo_nombre ? ` · ${it.equipo_nombre}` : ''}{it.bombonas ? ` · ${num(it.bombonas)} bombona(s)` : ''}{it.kg_recarga ? ` · ${num(it.kg_recarga)} kg` : ''}</li>)}
+          {servicio.items.map((it, i) => <li key={i}>{it.descripcion} · {num(it.cantidad)}{it.equipo_nombre ? ` · ${it.equipo_nombre}` : ''}{it.insumo_nombre ? ` · 📦 ${it.insumo_nombre}` : ''}{it.bombonas ? ` · ${num(it.bombonas)} bombona(s)` : ''}{it.kg_recarga ? ` · ${num(it.kg_recarga)} kg` : ''}</li>)}
         </ul>
       )}
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', lineHeight: 1.5 }}>
@@ -290,7 +292,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       <div className="table-wrap" style={{ marginTop: '.6rem' }}>
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead><tr>
-            <th>Servicio</th><th>Categoría</th><th>Equipo</th>
+            <th>Servicio</th><th>Categoría</th><th>Equipo</th><th>Insumo</th>
             <th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th style={{ textAlign: 'right' }}>Monto</th>
           </tr></thead>
           <tbody>
@@ -299,6 +301,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
                 <td>{it.descripcion}</td>
                 <td>{it.categoria || <span className="muted">—</span>}</td>
                 <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
+                <td>{it.insumo_nombre || <span className="muted">—</span>}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{it.bombonas ? num(it.bombonas) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{it.kg_recarga ? num(it.kg_recarga) : '—'}</td>
@@ -316,7 +319,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
 
 /* ───────── Modal: nuevo servicio (categoría + tipo + equipo por renglón) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string; insumoId: string; insumoNombre: string }
 
 function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorName, onClose, onSaved }: {
   proveedores: Proveedor[]; equipos: MaquinariaEquipo[]; editServicio?: ServicioDirecto | null;
@@ -348,15 +351,23 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
     return [...base, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
   };
 
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '', insumoId: '', insumoNombre: '' });
   // Al editar: precarga los renglones existentes del servicio.
   const lineasIniciales = (): LineaUI[] => {
     if (!editServicio || !editServicio.items.length) return [nuevaLinea(1)];
     return editServicio.items.map((it, i) => ({
       id: i + 1, categoria: it.categoria ?? '', tipo: it.descripcion ?? '', equipoId: it.equipo_id ?? '',
       cantidad: String(it.cantidad ?? 1), bombonas: it.bombonas != null ? String(it.bombonas) : '', kg: it.kg_recarga != null ? String(it.kg_recarga) : '',
+      insumoId: it.insumo_producto_id ?? '', insumoNombre: it.insumo_nombre ?? '',
     }));
   };
+  // Productos del inventario para el buscador de insumo del mantenimiento.
+  const [productos, setProductos] = useState<Producto[]>([]);
+  useEffect(() => { listProductos().then(setProductos).catch(() => setProductos([])); }, []);
+  const productoOptions = useMemo(
+    () => productos.filter((p) => p.estado === 'activo').map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` })),
+    [productos],
+  );
   const [lineas, setLineas] = useState<LineaUI[]>(lineasIniciales);
   const [seq, setSeq] = useState((editServicio?.items.length ?? 1) + 1);
   const [solicitante, setSolicitante] = useState(editServicio?.solicitante ?? '');
@@ -399,6 +410,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         categoria: cat, descripcion: tipo, equipoId: eq?.id ?? null, equipoNombre: eq?.equipo ?? null, cantidad: cant,
         bombonas: gas && l.bombonas ? Number(l.bombonas) : null,
         kg_recarga: gas && l.kg ? Number(l.kg) : null,
+        insumoProductoId: !gas && l.insumoId ? l.insumoId : null,
+        insumoNombre: !gas && l.insumoId ? l.insumoNombre : null,
       });
     }
     if (nuevoProveedor) {
@@ -572,6 +585,17 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                 <div className="form-row">
                   <label>Cantidad</label>
                   <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
+                </div>
+                <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                  <label>Insumo del inventario <span className="muted">(si el material está en stock, p. ej. el caucho)</span></label>
+                  <SearchSelect value={l.insumoId}
+                    onChange={(v) => set(l.id, { insumoId: v, insumoNombre: productos.find((p) => p.id === v)?.nombre ?? '' })}
+                    options={productoOptions} placeholder={productoOptions.length ? '🔍 Buscar en inventario…' : '— sin productos —'} emptyText="Sin coincidencias" />
+                  {l.insumoId && (
+                    <small className="muted">
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => set(l.id, { insumoId: '', insumoNombre: '' })}>✕ Quitar insumo</button>
+                    </small>
+                  )}
                 </div>
               </div>
             )}
