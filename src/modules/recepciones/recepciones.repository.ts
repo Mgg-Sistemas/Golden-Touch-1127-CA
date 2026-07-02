@@ -544,13 +544,57 @@ export function totalesBigbags(bigbags: BigbagRow[]): {
   };
 }
 
-/** Procedencias ya usadas (memoria para el combobox): de bigbags y de la tabla de recepciones. */
+/* ───────────── Catálogo de procedencias (editable) ───────────── */
+
+const TABLE_PROC = 'recepciones_procedencias';
+
+export interface ProcedenciaRow {
+  id: string;
+  nombre: string;
+  orden: number;
+  created_at: string;
+}
+
+export async function listProcedencias(): Promise<ProcedenciaRow[]> {
+  const { data, error } = await supabase.from(TABLE_PROC).select('*')
+    .order('orden', { ascending: true }).order('nombre', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as ProcedenciaRow[];
+}
+
+export async function crearProcedencia(input: { nombre: string; actor: string; actorName?: string | null }): Promise<ProcedenciaRow> {
+  const nombre = input.nombre.trim().toUpperCase();
+  if (!nombre) throw new Error('Indicá el nombre de la procedencia.');
+  const { data, error } = await supabase.from(TABLE_PROC)
+    .insert({ nombre, created_by: input.actor, actor_name: input.actorName ?? null }).select('*').single();
+  if (error) throw (error.code === '23505' ? new Error('Esa procedencia ya existe.') : error);
+  return data as ProcedenciaRow;
+}
+
+export async function renombrarProcedencia(id: string, nombre: string): Promise<void> {
+  const n = nombre.trim().toUpperCase();
+  if (!n) throw new Error('El nombre no puede quedar vacío.');
+  const { error } = await supabase.from(TABLE_PROC).update({ nombre: n }).eq('id', id);
+  if (error) throw (error.code === '23505' ? new Error('Esa procedencia ya existe.') : error);
+}
+
+export async function eliminarProcedencia(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE_PROC).delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Procedencias para el combobox: las del catálogo + las ya usadas en bigbags/recepciones. */
 export async function listProcedenciasConocidas(): Promise<string[]> {
-  const [bb, lab] = await Promise.all([
+  const [cat, bb, lab] = await Promise.all([
+    supabase.from(TABLE_PROC).select('nombre'),
     supabase.from(TABLE_BB).select('procedencia'),
     supabase.from('recepciones_lab').select('procedencia'),
   ]);
   const set = new Set<string>();
+  for (const r of (cat.data ?? []) as Array<{ nombre: string | null }>) {
+    const p = (r.nombre ?? '').trim().toUpperCase();
+    if (p) set.add(p);
+  }
   for (const r of [...(bb.data ?? []), ...(lab.data ?? [])] as Array<{ procedencia: string | null }>) {
     const p = (r.procedencia ?? '').trim().toUpperCase();
     if (p) set.add(p);
