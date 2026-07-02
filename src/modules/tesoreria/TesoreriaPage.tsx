@@ -19,8 +19,8 @@ import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { DirectosPorPagarPanel } from './DirectosPorPagarPanel';
-import { listComprasDirectas, type CompraDirecta } from '@/modules/pedidos/compras.repository';
-import { listServiciosDirectos, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
+import { listComprasDirectas, getCompraDirectaByCajaMovId, type CompraDirecta } from '@/modules/pedidos/compras.repository';
+import { listServiciosDirectos, getServicioDirectoByCajaMovId, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa } from './cajaSaldos.repository';
 import {
@@ -71,7 +71,7 @@ import { descargarReportePdf, type ReporteMeta } from './reportePdf';
 import { CierreMesModal } from './CierreMesModal';
 import { CategoriasGastoModal } from './CategoriasGastoModal';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, ensureCategoriaGasto, categoriaLlevaCorrelativo, type CategoriaGasto } from './categoriasGasto.repository';
-import { descargarMovimientoDetallePdf } from './movimientoDetallePdf';
+import { descargarMovimientoDetallePdf, type DirectoDetalle } from './movimientoDetallePdf';
 import { descargarCuentaPorPagarPdf } from './cuentaPorPagarPdf';
 import { descargarResumenCuentasPdf } from './resumenCuentasPdf';
 import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo } from './enviarReporte';
@@ -580,6 +580,10 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
   const [cargandoOrden, setCargandoOrden] = useState(false);
   const [renglon, setRenglon] = useState<NominaRenglon | null>(null);
   const [cargandoReng, setCargandoReng] = useState(false);
+  // Compra / servicio directo pagado en este movimiento (qué se compró y el requerimiento).
+  const [compraDir, setCompraDir] = useState<CompraDirecta | null>(null);
+  const [servicioDir, setServicioDir] = useState<ServicioDirecto | null>(null);
+  const [cargandoDir, setCargandoDir] = useState(false);
   const [abriendo, setAbriendo] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
@@ -663,6 +667,18 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
       .finally(() => setCargandoReng(false));
   }, [mov.ref_nomina_renglon_id]);
 
+  // Si el movimiento es el pago de una compra/servicio directo, traemos la orden
+  // por su movimiento de caja para mostrar qué se compró/contrató y el requerimiento.
+  useEffect(() => {
+    const cat = mov.categoria ?? '';
+    if (cat !== 'compra_directa' && cat !== 'servicio_directo') { setCompraDir(null); setServicioDir(null); return; }
+    setCargandoDir(true);
+    const p = cat === 'compra_directa'
+      ? getCompraDirectaByCajaMovId(mov.id).then((c) => { setCompraDir(c); setServicioDir(null); })
+      : getServicioDirectoByCajaMovId(mov.id).then((s) => { setServicioDir(s); setCompraDir(null); });
+    p.catch(() => { setCompraDir(null); setServicioDir(null); }).finally(() => setCargandoDir(false));
+  }, [mov.id, mov.categoria]);
+
   async function verComprobante(path: string) {
     setAbriendo(true);
     try {
@@ -685,9 +701,25 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
 
   async function descargarPdf() {
     setGenerandoPdf(true);
-    try { await descargarMovimientoDetallePdf(mov, orden); }
+    try { await descargarMovimientoDetallePdf(mov, orden, directoDetallePdf()); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
     finally { setGenerandoPdf(false); }
+  }
+  // Arma el detalle de compra/servicio directo para el PDF (qué se compró + requerimiento).
+  function directoDetallePdf(): DirectoDetalle | null {
+    if (compraDir) return {
+      tipo: 'compra', codigo: compraDir.codigo, proveedor: compraDir.proveedor_nombre,
+      almacen: compraDir.almacen, requerimiento: compraDir.nota?.trim() || null,
+      moneda: compraDir.moneda === 'Bs' ? 'Bs' : 'USD', gasto: compraDir.gasto,
+      items: compraDir.items.map((it) => ({ nombre: it.producto_nombre, extra: it.producto_sku, cantidad: Number(it.cantidad) || 0, gasto: it.gasto ?? null })),
+    };
+    if (servicioDir) return {
+      tipo: 'servicio', codigo: servicioDir.codigo, proveedor: servicioDir.proveedor_nombre,
+      equipo: servicioDir.equipo_nombre, solicitante: servicioDir.solicitante ? `${servicioDir.solicitante}${servicioDir.unidad_solicitante ? ` · ${servicioDir.unidad_solicitante}` : ''}` : null,
+      requerimiento: servicioDir.descripcion?.trim() || null, moneda: 'USD', gasto: servicioDir.gasto,
+      items: servicioDir.items.map((it) => ({ nombre: it.descripcion, extra: it.equipo_nombre, cantidad: Number(it.cantidad) || 0, gasto: it.gasto ?? null })),
+    };
+    return null;
   }
 
   return (
@@ -886,6 +918,94 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
                     {abriendo ? 'Abriendo…' : `📎 Ver comprobante${renglon.comprobante_nombre ? ` · ${renglon.comprobante_nombre}` : ''}`}
                   </button>
                 ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se subió comprobante (opcional).</span>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Compra directa pagada — qué materiales se compraron y el requerimiento */}
+      {mov.categoria === 'compra_directa' && (
+        <div className="card" style={{ marginBottom: '.75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>🛒 Compra directa</div>
+          {cargandoDir && <div className="muted" style={{ fontSize: '.84rem' }}>Cargando la compra…</div>}
+          {!cargandoDir && !compraDir && <div className="muted" style={{ fontSize: '.84rem' }}>No se pudo cargar la compra vinculada.</div>}
+          {!cargandoDir && compraDir && (() => {
+            const mnd = compraDir.moneda === 'Bs' ? 'Bs' : 'USD';
+            return (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
+                  <div><span className="muted">Código:</span> <strong className="mono">{compraDir.codigo ?? '—'}</strong></div>
+                  <div><span className="muted">Proveedor:</span> <strong>{compraDir.proveedor_nombre || '—'}</strong></div>
+                  <div><span className="muted">Almacén destino:</span> <strong>{compraDir.almacen || '—'}</strong></div>
+                  <div><span className="muted">Solicitó:</span> <strong>{compraDir.actor_name || compraDir.actor || '—'}</strong></div>
+                </div>
+                {compraDir.nota?.trim() && (
+                  <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
+                    <span className="muted">Requerimiento / nota:</span> <span style={{ whiteSpace: 'pre-wrap' }}>{compraDir.nota}</span>
+                  </div>
+                )}
+                <div className="table-wrap" style={{ marginTop: '.6rem' }}>
+                  <table className="table">
+                    <thead><tr><th>#</th><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
+                    <tbody>
+                      {compraDir.items.map((it, i) => (
+                        <tr key={i}>
+                          <td className="muted">{i + 1}</td>
+                          <td>{it.producto_nombre}{it.producto_sku ? <span className="muted mono"> · {it.producto_sku}</span> : null}</td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{Number(it.cantidad) || 0}</td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{it.gasto != null ? monto(it.gasto, mnd) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {compraDir.gasto != null && (
+                      <tfoot><tr><td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{monto(compraDir.gasto, mnd)}</td></tr></tfoot>
+                    )}
+                  </table>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Servicio directo pagado — qué se contrató y el requerimiento */}
+      {mov.categoria === 'servicio_directo' && (
+        <div className="card" style={{ marginBottom: '.75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>🔧 Servicio directo</div>
+          {cargandoDir && <div className="muted" style={{ fontSize: '.84rem' }}>Cargando el servicio…</div>}
+          {!cargandoDir && !servicioDir && <div className="muted" style={{ fontSize: '.84rem' }}>No se pudo cargar el servicio vinculado.</div>}
+          {!cargandoDir && servicioDir && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
+                <div><span className="muted">Código:</span> <strong className="mono">{servicioDir.codigo ?? '—'}</strong></div>
+                <div><span className="muted">Proveedor:</span> <strong>{servicioDir.proveedor_nombre || '—'}</strong></div>
+                {servicioDir.equipo_nombre && <div><span className="muted">Equipo:</span> <strong>{servicioDir.equipo_nombre}</strong></div>}
+                {servicioDir.solicitante && <div><span className="muted">Solicitante:</span> <strong>{servicioDir.solicitante}{servicioDir.unidad_solicitante ? ` · ${servicioDir.unidad_solicitante}` : ''}</strong></div>}
+              </div>
+              {servicioDir.descripcion?.trim() && (
+                <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
+                  <span className="muted">Requerimiento:</span> <span style={{ whiteSpace: 'pre-wrap' }}>{servicioDir.descripcion}</span>
+                </div>
+              )}
+              <div className="table-wrap" style={{ marginTop: '.6rem' }}>
+                <table className="table">
+                  <thead><tr><th>#</th><th>Servicio</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
+                  <tbody>
+                    {servicioDir.items.map((it, i) => (
+                      <tr key={i}>
+                        <td className="muted">{i + 1}</td>
+                        <td>{it.descripcion}{it.categoria ? <span className="muted"> · {it.categoria}</span> : null}</td>
+                        <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{Number(it.cantidad) || 0}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{it.gasto != null ? monto(it.gasto, 'USD') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {servicioDir.gasto != null && (
+                    <tfoot><tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{monto(servicioDir.gasto, 'USD')}</td></tr></tfoot>
+                  )}
+                </table>
               </div>
             </>
           )}

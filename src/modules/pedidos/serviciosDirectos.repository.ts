@@ -97,6 +97,19 @@ export async function listServiciosDirectos(): Promise<ServicioDirecto[]> {
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
+/** Servicio directo cuyo pago generó un movimiento de caja concreto (para el detalle
+ *  en Tesorería: qué servicios se contrataron y cuál fue el requerimiento). */
+export async function getServicioDirectoByCajaMovId(movId: string): Promise<ServicioDirecto | null> {
+  if (!movId) return null;
+  const { data, error } = await supabase
+    .from('servicios_directos')
+    .select('*')
+    .eq('caja_mov_id', movId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? normalizar(data as Record<string, unknown>) : null;
+}
+
 /** Servicios directos casados a un equipo de Maquinaria (para su historial). Toma tanto
  *  los que tienen el equipo a nivel de cabecera como los que lo tienen en algún renglón. */
 export async function listServiciosDirectosDeEquipo(equipoId: string): Promise<ServicioDirecto[]> {
