@@ -32,6 +32,8 @@ export interface ResumenRecepcionData {
   tenores: number[];
   tenorProm: number;
   kgNetoSn: number;
+  /** Desglose por procedencia (Humedad Final): neto húmedo, recogido seco, merma y %. */
+  desgloseProc?: Array<{ procedencia: string; netoHumedo: number; recogido: number; merma: number; pct: number }>;
 }
 
 const NOMBRE_ARCHIVO = 'recepcion-resumen.pdf';
@@ -140,6 +142,27 @@ async function construirDoc(d: ResumenRecepcionData) {
       4: { cellWidth: 140 },
     },
   });
+
+  // Desglose por procedencia (Humedad Final): una fila por procedencia + total.
+  if (d.desgloseProc && d.desgloseProc.length) {
+    const startY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+    const tNH = d.desgloseProc.reduce((a, x) => a + (Number(x.netoHumedo) || 0), 0);
+    const tRec = d.desgloseProc.reduce((a, x) => a + (Number(x.recogido) || 0), 0);
+    const tMer = d.desgloseProc.reduce((a, x) => a + (Number(x.merma) || 0), 0);
+    const tPct = tNH > 0 ? (tMer / tNH) * 100 : 0;
+    autoTable(doc, {
+      startY: startY + 16,
+      head: [['Procedencia', 'Neto húmedo', 'Peso recogido (seco)', 'Merma H2O', '% Humedad final']],
+      body: d.desgloseProc.map((x) => [x.procedencia || '—', kg(x.netoHumedo), kg(x.recogido), kg(x.merma), pct(x.pct)]),
+      foot: [['TOTAL', kg(tNH), kg(tRec), kg(tMer), pct(tPct)]],
+      theme: 'grid',
+      margin: { left: MARGIN, right: MARGIN },
+      styles: { fontSize: 9, cellPadding: 4, lineColor: [0, 0, 0], lineWidth: 0.6, textColor: 20, valign: 'middle' },
+      headStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' },
+      footStyles: { fillColor: [255, 242, 204], textColor: 20, fontStyle: 'bold' },
+      columnStyles: { 0: { fontStyle: 'bold' }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    });
+  }
 
   return doc;
 }
