@@ -80,6 +80,9 @@ export function RecepcionesPage() {
   const [config, setConfig] = useState(false);
   const [pesos, setPesos] = useState(false);
   const [procCat, setProcCat] = useState(false);
+  // Análisis por procedencia: catálogo + procedencia seleccionada (pestaña).
+  const [catProc, setCatProc] = useState<ProcedenciaRow[]>([]);
+  const [procAnaSel, setProcAnaSel] = useState('PERAMANAL');
   const [resumenOpen, setResumenOpen] = useState(false);
   const [concilOpen, setConcilOpen] = useState(false);
   const [totalesOpen, setTotalesOpen] = useState(false);
@@ -94,12 +97,12 @@ export function RecepcionesPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [recs, anas, mins, hp, hf, cons, tt, pes] = await Promise.all([
+      const [recs, anas, mins, hp, hf, cons, tt, pes, cproc] = await Promise.all([
         listRecepciones(), listAnalisis(), listMinerales(true), listHumedadProv(), listHumedadFinal(),
-        listConciliaciones(), listTotales(), listPesadas(),
+        listConciliaciones(), listTotales(), listPesadas(), listProcedencias(),
       ]);
       setFilas(recs); setAnalisis(anas); setMinerales(mins); setHumProv(hp); setHumFin(hf);
-      setConcils(cons); setTots(tt); setPesadasList(pes);
+      setConcils(cons); setTots(tt); setPesadasList(pes); setCatProc(cproc);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las recepciones', 'error'); }
   }, []);
 
@@ -110,7 +113,7 @@ export function RecepcionesPage() {
     return () => { cancel = true; };
   }, [reload]);
 
-  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales', 'recepciones_humedad_prov', 'recepciones_humedad_final', 'recepciones_conciliaciones', 'recepciones_totales', 'recepciones_pesadas'], () => { void reload(); });
+  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales', 'recepciones_humedad_prov', 'recepciones_humedad_final', 'recepciones_conciliaciones', 'recepciones_totales', 'recepciones_pesadas', 'recepciones_procedencias'], () => { void reload(); });
 
   /* ── Resumen «hoja de recepción» (Resúmenes → PDF): toma los datos ya cargados
      (recepción/pesadas, conciliación, humedad, Fe y análisis) y arma la hoja clásica.
@@ -213,7 +216,7 @@ export function RecepcionesPage() {
   }
   async function nuevoAnalisis() {
     setAnadiendo(true);
-    try { await crearAnalisis({ actor, actorName }); await reload(); }
+    try { await crearAnalisis({ actor, actorName, procedencia: procSel }); await reload(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir el análisis', 'error'); }
     finally { setAnadiendo(false); }
   }
@@ -259,6 +262,18 @@ export function RecepcionesPage() {
   const finMermaTotal = humFin.reduce((a, r) => a + (mermaFinDe(r) ?? 0), 0);
   const finPctLote = finNetoHumedoTotal > 0 ? (finMermaTotal / finNetoHumedoTotal) * 100 : null;
 
+  // Análisis por procedencia: pestañas (catálogo + las presentes en los análisis) y la
+  // procedencia efectiva seleccionada; solo se muestran/editan los análisis de esa procedencia.
+  const procTabs = (() => {
+    const s = new Set<string>();
+    for (const p of catProc) { const nb = (p.nombre || '').toUpperCase(); if (nb) s.add(nb); }
+    for (const a of analisis) { const nb = (a.procedencia ?? 'PERAMANAL').toUpperCase(); if (nb) s.add(nb); }
+    if (!s.size) s.add('PERAMANAL');
+    return [...s].sort((a, b) => a.localeCompare(b, 'es'));
+  })();
+  const procSel = procTabs.includes(procAnaSel) ? procAnaSel : (procTabs[0] ?? 'PERAMANAL');
+  const analisisProc = analisis.filter((a) => (a.procedencia ?? 'PERAMANAL').toUpperCase() === procSel);
+
   /**
    * Renderiza UN mineral como bloque vertical (tipo columna): título arriba y, debajo,
    * una mini-tabla con una fila por N° Análisis y las casillas A, B, C, D… (las que tenga
@@ -268,7 +283,7 @@ export function RecepcionesPage() {
     const abc = m.columnas === 'abc';
     const n = nLecturas(m);
     const letras = LETRAS_LECTURA.slice(0, n);
-    const pl = promedioLote(analisis, m.clave, abc, n);
+    const pl = promedioLote(analisisProc, m.clave, abc, n);
     return (
       <div key={m.id} className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '.6rem', borderTop: `3px solid ${m.color || '#888'}` }}>
         <div style={{ fontWeight: 700, textAlign: 'center', padding: '.4rem .6rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
@@ -284,10 +299,10 @@ export function RecepcionesPage() {
               </tr>
             </thead>
             <tbody>
-              {!analisis.length && (
+              {!analisisProc.length && (
                 <tr><td colSpan={abc ? n + 2 : 2} className="muted" style={{ textAlign: 'center' }}>Sin análisis.</td></tr>
               )}
-              {analisis.map((r) => {
+              {analisisProc.map((r) => {
                 const prom = promElemento(r.analisis, m.clave, abc, n);
                 const el = (r.analisis?.[m.clave] && typeof r.analisis[m.clave] === 'object') ? r.analisis[m.clave] as AnalisisElemento : {};
                 const valUnica = (typeof r.analisis?.[m.clave] === 'number') ? r.analisis[m.clave] as number : '';
@@ -314,7 +329,7 @@ export function RecepcionesPage() {
                 );
               })}
             </tbody>
-            {analisis.length > 0 && (
+            {analisisProc.length > 0 && (
               <tfoot>
                 <tr style={{ fontWeight: 800 }}>
                   <td colSpan={abc ? n + 2 : 2} style={{ textAlign: 'center' }}>
@@ -334,14 +349,18 @@ export function RecepcionesPage() {
     return (
       <div className="card" style={{ padding: '.5rem .75rem', marginBottom: '.6rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <span className="muted" style={{ fontSize: '.78rem', fontWeight: 700 }}>Análisis cargados:</span>
-          {!analisis.length && <span className="muted" style={{ fontSize: '.78rem' }}>Ninguno. Usá «＋ Añadir valores».</span>}
-          {analisis.map((r) => (
+          <span className="muted" style={{ fontSize: '.78rem', fontWeight: 700 }}>Análisis de {procSel}:</span>
+          {!analisisProc.length && <span className="muted" style={{ fontSize: '.78rem' }}>Ninguno. Usá «＋ Añadir valores».</span>}
+          {analisisProc.map((r) => (
             <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '.25rem', border: '1px solid var(--border, #2a2f3a)', borderRadius: 8, padding: '.1rem .35rem' }}>
               <span className="muted" style={{ fontSize: '.72rem' }}>N°</span>
               <input className="input mono" type="number" min={1} defaultValue={r.n_analisis ?? ''} disabled={!canWrite}
                 onBlur={(e) => { const raw = e.target.value; const v = raw === '' ? null : Math.max(1, Math.round(Number(raw) || 1)); if (v !== r.n_analisis) void actualizarAnalisisRow(r.id, { n_analisis: v }).catch(() => void reload()); }}
                 style={{ width: 56, textAlign: 'right' }} />
+              <span className="muted" style={{ fontSize: '.72rem' }}>#</span>
+              <input className="input" defaultValue={r.muestras ?? ''} disabled={!canWrite}
+                onBlur={(e) => { const v = e.target.value.trim(); if (v !== (r.muestras ?? '')) void actualizarAnalisisRow(r.id, { muestras: v || null }).catch(() => void reload()); }}
+                placeholder="34, 34, 645" title="N° de muestras/sobres (separados por coma)" style={{ width: 120 }} />
               {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar este análisis" onClick={() => setAnaBorrar(r)}>🗑</button>}
             </span>
           ))}
@@ -499,6 +518,15 @@ export function RecepcionesPage() {
               <EmptyState message="No hay minerales configurados. Usá «Configurar minerales» para agregarlos." icon="⚗" />
             ) : (
               <div style={{ padding: '.6rem .75rem' }}>
+                {/* Pestañas de procedencia: cada una tiene su propio set de análisis. */}
+                <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.55rem' }}>
+                  <span className="muted" style={{ fontSize: '.72rem', fontWeight: 700 }}>Procedencia:</span>
+                  {procTabs.map((p) => (
+                    <button key={p} type="button" className={`btn btn-sm ${p === procSel ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={() => setProcAnaSel(p)} style={{ padding: '.2rem .6rem' }}>{p}</button>
+                  ))}
+                  <span className="muted" style={{ fontSize: '.68rem' }}>· agregá procedencias en 🏷 Procedencias</span>
+                </div>
                 {barraAnalisis()}
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   <div style={{ flex: '1 1 360px', minWidth: 300 }}>{colIzq.map(mineralBlock)}</div>
@@ -1443,7 +1471,21 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
                     </td>
                   </tr>
                   {resumenFila(fmt(t!.reportado), 'Kg Reportado por Centros de Acopio')}
-                  {resumenFila(fmt(t!.faltante), 'Kg Faltante', { rojo: true, verde: true })}
+                  {(() => {
+                    // Diferencia = lo que llegó − lo reportado. Positivo → verde «Kg a favor»;
+                    // negativo → rojo «Kg Faltante»; ~0 → neutro.
+                    const dif = t!.faltante;
+                    const cero = Math.abs(dif) < 0.005;
+                    const favor = dif > 0;
+                    const color = cero ? undefined : (favor ? 'var(--success, #22c55e)' : 'var(--danger, #e5484d)');
+                    const label = cero ? 'Sin diferencia' : (favor ? 'Kg a favor' : 'Kg Faltante');
+                    return (
+                      <tr>
+                        <td className="num mono" style={{ textAlign: 'right', width: 190, fontWeight: 800, color }}>{fmt(Math.abs(dif))}</td>
+                        <td style={{ fontWeight: 800, color }}>{label}</td>
+                      </tr>
+                    );
+                  })()}
                   <tr>
                     <td className="num" style={{ width: 190 }}>
                       <input className="input mono" type="number" step="any" value={draft.kg_bolsas || ''} disabled={!canWrite}
