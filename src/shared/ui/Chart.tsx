@@ -16,6 +16,13 @@ interface BaseProps {
 
 const PAD = { top: 14, right: 12, bottom: 36, left: 64 };
 
+/** Margen izquierdo según la etiqueta de eje Y más larga (para que no se corten
+ *  montos grandes como "$ 250.000,00"). Se acota entre 48 y 150 px. */
+function medirPadLeft(ticks: number[], fmt: (v: number) => string): number {
+  const largo = ticks.reduce((m, t) => Math.max(m, fmt(t).length), 3);
+  return Math.min(150, Math.max(48, Math.round(largo * 6.6 + 14)));
+}
+
 /** Devuelve los ticks redondeados para el eje Y. */
 function buildTicks(max: number, count = 4): number[] {
   if (max <= 0) return [0, 1];
@@ -34,23 +41,24 @@ function buildTicks(max: number, count = 4): number[] {
 
 export function LineChart({ data, height = 220, color = '#ff8a00', yFormatter = String, emptyMessage }: BaseProps) {
   const width = 720; // viewBox; el SVG escala vía 100% width
-  const innerW = width - PAD.left - PAD.right;
   const innerH = height - PAD.top - PAD.bottom;
 
-  const { path, points, ticks, max } = useMemo(() => {
-    if (!data.length) return { path: '', points: [] as Array<{ x: number; y: number; pt: ChartPoint }>, ticks: [0], max: 0 };
+  const { path, points, ticks, max, padLeft } = useMemo(() => {
+    if (!data.length) return { path: '', points: [] as Array<{ x: number; y: number; pt: ChartPoint }>, ticks: [0], max: 0, padLeft: PAD.left };
     const maxV = Math.max(1, ...data.map((d) => d.value));
     const tk = buildTicks(maxV);
     const scaledMax = Math.max(maxV, tk[tk.length - 1]);
+    const pl = medirPadLeft(tk, yFormatter);
+    const innerW = width - pl - PAD.right;
     const stepX = data.length === 1 ? 0 : innerW / (data.length - 1);
     const pts = data.map((pt, i) => ({
-      x: PAD.left + (data.length === 1 ? innerW / 2 : i * stepX),
+      x: pl + (data.length === 1 ? innerW / 2 : i * stepX),
       y: PAD.top + innerH - (pt.value / scaledMax) * innerH,
       pt,
     }));
     const p = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-    return { path: p, points: pts, ticks: tk, max: scaledMax };
-  }, [data, innerW, innerH]);
+    return { path: p, points: pts, ticks: tk, max: scaledMax, padLeft: pl };
+  }, [data, innerH, yFormatter]);
 
   if (!data.length) {
     return (
@@ -68,8 +76,8 @@ export function LineChart({ data, height = 220, color = '#ff8a00', yFormatter = 
         const y = PAD.top + innerH - (t / max) * innerH;
         return (
           <g key={t}>
-            <line x1={PAD.left} y1={y} x2={width - PAD.right} y2={y} stroke="rgba(226,232,240,0.18)" strokeDasharray="3,3" />
-            <text x={PAD.left - 8} y={y + 4} fontSize="11" fontWeight="600" textAnchor="end" fill="#e2e8f0">{yFormatter(t)}</text>
+            <line x1={padLeft} y1={y} x2={width - PAD.right} y2={y} stroke="rgba(226,232,240,0.18)" strokeDasharray="3,3" />
+            <text x={padLeft - 8} y={y + 4} fontSize="11" fontWeight="600" textAnchor="end" fill="#e2e8f0">{yFormatter(t)}</text>
           </g>
         );
       })}
@@ -171,18 +179,19 @@ export function BarChart({ data, height = 220, color = '#10b981', yFormatter = S
   const rotar = data.length > 6 || data.some((d) => d.label.length > 6);
   const padBottom = rotar ? 80 : PAD.bottom;
   const H = rotar ? height + 48 : height;
-  const innerW = width - PAD.left - PAD.right;
   const innerH = H - PAD.top - padBottom;
 
-  const { bars, ticks, max } = useMemo(() => {
-    if (!data.length) return { bars: [] as Array<{ x: number; y: number; w: number; h: number; pt: ChartPoint }>, ticks: [0], max: 0 };
+  const { bars, ticks, max, padLeft } = useMemo(() => {
+    if (!data.length) return { bars: [] as Array<{ x: number; y: number; w: number; h: number; pt: ChartPoint }>, ticks: [0], max: 0, padLeft: PAD.left };
     const maxV = Math.max(1, ...data.map((d) => d.value));
     const tk = buildTicks(maxV);
     const scaledMax = Math.max(maxV, tk[tk.length - 1]);
+    const pl = medirPadLeft(tk, yFormatter);
+    const innerW = width - pl - PAD.right;
     const slot = innerW / data.length;
     const w = Math.max(8, slot * 0.7);
     const bs = data.map((pt, i) => {
-      const x = PAD.left + slot * i + (slot - w) / 2;
+      const x = pl + slot * i + (slot - w) / 2;
       const h = (pt.value / scaledMax) * innerH;
       return {
         x,
@@ -192,8 +201,8 @@ export function BarChart({ data, height = 220, color = '#10b981', yFormatter = S
         pt,
       };
     });
-    return { bars: bs, ticks: tk, max: scaledMax };
-  }, [data, innerW, innerH]);
+    return { bars: bs, ticks: tk, max: scaledMax, padLeft: pl };
+  }, [data, innerH, yFormatter]);
 
   if (!data.length) {
     return (
@@ -214,8 +223,8 @@ export function BarChart({ data, height = 220, color = '#10b981', yFormatter = S
         const y = PAD.top + innerH - (t / max) * innerH;
         return (
           <g key={t}>
-            <line x1={PAD.left} y1={y} x2={width - PAD.right} y2={y} stroke="rgba(226,232,240,0.18)" strokeDasharray="3,3" />
-            <text x={PAD.left - 8} y={y + 4} fontSize="11" fontWeight="600" textAnchor="end" fill="#e2e8f0">{yFormatter(t)}</text>
+            <line x1={padLeft} y1={y} x2={width - PAD.right} y2={y} stroke="rgba(226,232,240,0.18)" strokeDasharray="3,3" />
+            <text x={padLeft - 8} y={y + 4} fontSize="11" fontWeight="600" textAnchor="end" fill="#e2e8f0">{yFormatter(t)}</text>
           </g>
         );
       })}
