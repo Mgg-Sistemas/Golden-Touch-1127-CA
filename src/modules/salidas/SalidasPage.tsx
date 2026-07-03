@@ -19,7 +19,7 @@ import {
 import {
   listSalidasMaterial, listTrasladosMaterial,
   listSolicitudesSalida, aprobarSolicitudSalida, ejecutarSolicitudSalida, cancelarSolicitudSalida,
-  editarSolicitudSalida,
+  editarSolicitudSalida, editarNotasSolicitudFinalizada,
 } from './salidas.repository';
 import { descargarSalidaDineroPdf, descargarTrasladoDineroPdf, descargarOrdenSalidaPdf } from './salidaPdf';
 import { SalidaMaterialForm } from './SalidaMaterialForm';
@@ -951,6 +951,11 @@ function SolicitudDetalleModal({
   const [editando, setEditando] = useState(false);
   // Se puede editar mientras esté POR APROBAR (aún no movió stock).
   const puedeEditar = canWrite && sol.estado === 'por_aprobar';
+  // En FINALIZADA solo se pueden editar las notas/motivo (anotación adicional, no cambia nada más).
+  const puedeEditarNota = canWrite && sol.estado === 'ejecutada';
+  const [editandoNota, setEditandoNota] = useState(false);
+  const [nMotivo, setNMotivo] = useState(sol.motivo ?? '');
+  const [nNota, setNNota] = useState(sol.nota_entrega ?? '');
 
   const ejecutarLabel =
     sol.tipo === 'dinero'
@@ -973,6 +978,14 @@ function SolicitudDetalleModal({
 
   const footer = editando ? (
     <button className="btn btn-ghost" onClick={() => setEditando(false)} disabled={busy}>Volver al detalle</button>
+  ) : editandoNota ? (
+    <>
+      <button className="btn btn-ghost" onClick={() => setEditandoNota(false)} disabled={busy}>Cancelar</button>
+      <button className="btn btn-primary" disabled={busy}
+        onClick={() => run(() => editarNotasSolicitudFinalizada(sol, { motivo: nMotivo, notaEntrega: nNota, actor }), 'Nota actualizada')}>
+        💾 Guardar nota
+      </button>
+    </>
   ) : (
     <>
       {sol.tipo === 'material' && (
@@ -984,6 +997,11 @@ function SolicitudDetalleModal({
       {puedeEditar && (
         <button className="btn btn-ghost" disabled={busy} onClick={() => setEditando(true)} title="Editar esta solicitud (mientras está por aprobar)">
           ✏ Editar
+        </button>
+      )}
+      {puedeEditarNota && (
+        <button className="btn btn-ghost" disabled={busy} onClick={() => setEditandoNota(true)} title="Agregar / editar la nota o motivo (no cambia nada más; sigue finalizada)">
+          📝 Editar nota
         </button>
       )}
       {puedeAprobar && sol.estado === 'por_aprobar' && (
@@ -1009,6 +1027,24 @@ function SolicitudDetalleModal({
     return (
       <ModalUI title={`Editar solicitud ${sol.codigo}`} size="lg" onClose={onClose} footer={footer}>
         <SolicitudEditForm sol={sol} actor={actor} productos={productos} existencias={existencias} onSaved={() => { onChanged(); onClose(); }} />
+      </ModalUI>
+    );
+  }
+
+  if (editandoNota) {
+    return (
+      <ModalUI title={`Nota · Solicitud ${sol.codigo}`} onClose={onClose} footer={footer}>
+        <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+          Solo edita la <strong>nota/motivo</strong>. No cambia productos, cantidades, montos ni el estado (sigue <strong>Finalizada</strong>).
+        </p>
+        <div className="form-row" style={{ marginBottom: '.6rem' }}>
+          <label>Motivo / detalle</label>
+          <textarea className="input" rows={2} value={nMotivo} onChange={(e) => setNMotivo(e.target.value)} placeholder="Motivo del movimiento…" />
+        </div>
+        <div className="form-row">
+          <label>Nota de entrega <span className="muted">(opcional)</span></label>
+          <textarea className="input" rows={2} value={nNota} onChange={(e) => setNNota(e.target.value)} placeholder="Nota adicional…" />
+        </div>
       </ModalUI>
     );
   }
