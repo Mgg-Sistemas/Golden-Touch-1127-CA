@@ -442,6 +442,31 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
   if (error) throw error;
 }
 
+/**
+ * Edita SOLO la nota/motivo de una solicitud ya FINALIZADA (ejecutada). Es una
+ * anotación adicional del usuario: NO cambia items, cantidades, montos, stock ni el
+ * estado (sigue «ejecutada»). También refleja el nuevo texto en el/los movimientos
+ * de esta solicitud (para que se vea en el historial y el PDF).
+ */
+export async function editarNotasSolicitudFinalizada(
+  s: SolicitudSalida,
+  input: { motivo?: string | null; notaEntrega?: string | null; actor: string },
+): Promise<void> {
+  if (s.estado !== 'ejecutada') throw new Error('Esta acción es solo para solicitudes finalizadas.');
+  const motivo = input.motivo !== undefined ? (input.motivo?.trim() || null) : (s.motivo ?? null);
+  const notaEntrega = input.notaEntrega !== undefined ? (input.notaEntrega?.trim() || null) : (s.nota_entrega ?? null);
+  const patch: Record<string, unknown> = {
+    motivo, nota_entrega: notaEntrega,
+    historial: appendHistorial(s, 'nota_editada', input.actor, { motivo }),
+  };
+  const { error } = await supabase.from(SOL).update(patch).eq('id', s.id);
+  if (error) throw error;
+  // Reflejar la nota en los movimientos de esta solicitud (historial de Salidas).
+  try {
+    await supabase.from('movimientos').update({ detalle: motivo }).eq('ref_tipo', 'solicitud_salida').eq('ref_id', s.id);
+  } catch { /* si el enlace no aplica, la nota igual queda en la solicitud */ }
+}
+
 /** Aprueba la solicitud (por_aprobar → aprobada). NO ejecuta el movimiento. */
 export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string): Promise<void> {
   if (s.estado !== 'por_aprobar') throw new Error('Solo se aprueban solicitudes por aprobar.');
