@@ -1097,6 +1097,7 @@ function SolicitudDetalleModal({
             </>
           )}
           {sol.motivo && <tr><td className="muted">Motivo</td><td>{sol.motivo}</td></tr>}
+          {sol.nota_entrega && <tr><td className="muted">Nota de entrega</td><td>📝 {sol.nota_entrega}</td></tr>}
           {sol.consumo_interno && <tr><td className="muted">Tipo</td><td><span className="badge">CONSUMO INTERNO</span></td></tr>}
           {sol.chofer_nombre && <tr><td className="muted">Chofer / responsable</td><td>{sol.chofer_nombre}{sol.chofer_cedula ? ` · C.I. ${sol.chofer_cedula}` : ''}</td></tr>}
           {(sol.vehiculo_descripcion || sol.vehiculo_placa) && <tr><td className="muted">Vehículo</td><td>{[sol.vehiculo_descripcion, sol.vehiculo_placa].filter(Boolean).join(' · ')}</td></tr>}
