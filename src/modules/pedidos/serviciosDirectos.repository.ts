@@ -198,10 +198,11 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
   return normalizar(data as Record<string, unknown>);
 }
 
-/** Elimina un servicio directo EN PROCESO (no movió caja). */
+/** Elimina un servicio directo que aún NO tocó la caja (En proceso o Por pagar).
+ *  Los Finalizados (ya pagados) requieren Reabrir primero (devuelve el dinero a la caja). */
 export async function eliminarServicioDirecto(servicio: ServicioDirecto): Promise<void> {
-  if (servicio.estado !== 'en_proceso')
-    throw new Error('Solo se pueden eliminar servicios directos que estén En proceso.');
+  if (servicio.estado === 'finalizada' || servicio.pagada_at)
+    throw new Error('Este servicio ya fue pagado. Reabrilo primero (devuelve el dinero a la caja) y luego eliminalo.');
   const { error } = await supabase.from('servicios_directos').delete().eq('id', servicio.id);
   if (error) throw error;
 }
