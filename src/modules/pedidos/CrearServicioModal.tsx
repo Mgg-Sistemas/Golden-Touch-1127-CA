@@ -9,6 +9,7 @@ import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import {
   CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas, TIPOS_RECARGA,
+  CATEGORIA_ELECTRODOMESTICOS, ELECTRODOMESTICOS, esElectrodomestico,
   listServiciosActivos, addServicioCatalogo, type ServicioCatalogo,
 } from './servicios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
@@ -60,6 +61,7 @@ export function CrearServicioModal({
   const [categoria, setCategoria] = useState<string>(CATEGORIAS_SERVICIO[0]);
   const [servicio, setServicio] = useState('');
   const [equipoId, setEquipoId] = useState('');
+  const [electro, setElectro] = useState('');   // electrodoméstico (mantenimiento de electrodomésticos)
   const [insumoId, setInsumoId] = useState('');   // insumo del inventario (mantenimiento, opcional)
   const [cantidad, setCantidad] = useState('1');
   const [medida, setMedida] = useState('');
@@ -75,6 +77,8 @@ export function CrearServicioModal({
   }, []);
 
   const esMantenimiento = categoria === CATEGORIA_MANTENIMIENTO;
+  const esElectro = esElectrodomestico(categoria);
+  const categoriaOpts = useMemo(() => Array.from(new Set<string>([...CATEGORIAS_SERVICIO, CATEGORIA_ELECTRODOMESTICOS])), []);
   const productoOptions = useMemo(
     () => productos.filter((p) => p.estado === 'activo').map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` })),
     [productos],
@@ -117,6 +121,9 @@ export function CrearServicioModal({
     if (esMantenimiento) {
       if (!equipoId) { toast('Seleccioná la máquina/vehículo del mantenimiento', 'error'); return null; }
       equipoNombre = equipos.find((e) => e.id === equipoId)?.equipo ?? null;
+    } else if (esElectro) {
+      if (!electro.trim()) { toast('Elegí el electrodoméstico', 'error'); return null; }
+      equipoNombre = electro.trim();
     }
     // Si el servicio no existe en el catálogo, lo guardamos para reutilizarlo.
     if (!serviciosCat.some((s) => s.toLowerCase() === nom.toLowerCase())) {
@@ -145,7 +152,7 @@ export function CrearServicioModal({
     if (!it) return false;
     setItems((prev) => [...prev, it]);
     // Reset del builder (conserva la categoría para cargar varios del mismo tipo).
-    setServicio(''); setEquipoId(''); setInsumoId(''); setCantidad('1'); setMedida(''); setBombonas(''); setKg('');
+    setServicio(''); setEquipoId(''); setElectro(''); setInsumoId(''); setCantidad('1'); setMedida(''); setBombonas(''); setKg('');
     return true;
   }
 
@@ -246,8 +253,8 @@ export function CrearServicioModal({
             <div>
               <label className="label">Categoría</label>
               <select className="select" value={categoria}
-                onChange={(e) => { setCategoria(e.target.value); setServicio(''); setEquipoId(''); }}>
-                {CATEGORIAS_SERVICIO.map((c) => <option key={c} value={c}>{c}</option>)}
+                onChange={(e) => { setCategoria(e.target.value); setServicio(''); setEquipoId(''); setElectro(''); }}>
+                {categoriaOpts.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
@@ -262,6 +269,13 @@ export function CrearServicioModal({
               <label className="label">Máquina / Vehículo (Control de Maquinaria)</label>
               <SearchSelect value={equipoId} onChange={setEquipoId} options={equipoOptions}
                 placeholder="🔍 Buscar equipo…" emptyText="Sin equipos" />
+            </div>
+          )}
+          {esElectro && (
+            <div>
+              <label className="label">Electrodoméstico</label>
+              <SearchCreateSelect options={[...ELECTRODOMESTICOS]} value={electro} onChange={setElectro}
+                placeholder="Elegí (cocina, nevera, lavadora, microondas…)" emptyText="Escribí para agregar otro" />
             </div>
           )}
           {esMantenimiento && (

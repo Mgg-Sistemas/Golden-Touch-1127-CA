@@ -524,7 +524,22 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
         // Se lee del DOM (ref) para no perder la última letra por un re-render.
         const nombre = (nombreRefs.current[l.id]?.value ?? l.nombre).trim().toUpperCase();
         if (!nombre) { setError('Indicá el nombre del material nuevo.'); return; }
-        payload.push({ modo: 'nuevo', nombre, categoria: l.categoria, unidad: l.unidad, cantidad: cant });
+        // Categoría: si tecleó una NUEVA sin pulsar «+ Añadir», la guardamos ahora en el
+        // catálogo del inventario (taxonomías) y la usamos — así queda sincronizada.
+        let categoria = l.categoria;
+        const tecleada = (nuevaCat[l.id] ?? '').trim();
+        if (tecleada) {
+          const yaExiste = cats.find((c) => c.toLowerCase() === tecleada.toLowerCase());
+          if (yaExiste) { categoria = yaExiste; }
+          else {
+            try {
+              const added = await addCategoria(tecleada);
+              if (added) { categoria = added; setCats((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es')))); }
+            } catch { /* si falla, cae a la categoría seleccionada */ }
+          }
+        }
+        if (!categoria) { setError('Elegí o creá una categoría para el material nuevo.'); return; }
+        payload.push({ modo: 'nuevo', nombre, categoria, unidad: l.unidad, cantidad: cant });
       }
     }
     // Validación del proveedor nuevo (si se eligió darlo de alta ahora).

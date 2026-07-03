@@ -13,7 +13,7 @@ import { list as listProveedores, insert as crearProveedor } from '@/modules/pro
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import type { Producto } from '@/shared/lib/types';
-import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, TIPOS_RECARGA, type ServicioCatalogo } from './servicios.repository';
+import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, TIPOS_RECARGA, CATEGORIA_ELECTRODOMESTICOS, ELECTRODOMESTICOS, esElectrodomestico, type ServicioCatalogo } from './servicios.repository';
 import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -319,7 +319,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
 
 /* ───────── Modal: nuevo servicio (categoría + tipo + equipo por renglón) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; cantidad: string; bombonas: string; kg: string; insumoId: string; insumoNombre: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; bombonas: string; kg: string; insumoId: string; insumoNombre: string }
 
 function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorName, onClose, onSaved }: {
   proveedores: Proveedor[]; equipos: MaquinariaEquipo[]; editServicio?: ServicioDirecto | null;
@@ -338,7 +338,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   useEffect(() => { listServiciosActivos().then(setCatalogo).catch(() => setCatalogo([])); }, []);
   // Categorías sugeridas: las base + las que ya existen en el catálogo (creable).
   const categoriaOptions = useMemo(() => {
-    const set = new Set<string>([...CATEGORIAS_SERVICIO]);
+    const set = new Set<string>([...CATEGORIAS_SERVICIO, CATEGORIA_ELECTRODOMESTICOS]);
     for (const c of catalogo) if (c.categoria) set.add(c.categoria);
     return Array.from(set);
   }, [catalogo]);
@@ -351,12 +351,13 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
     return [...base, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
   };
 
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', cantidad: '1', bombonas: '', kg: '', insumoId: '', insumoNombre: '' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', bombonas: '', kg: '', insumoId: '', insumoNombre: '' });
   // Al editar: precarga los renglones existentes del servicio.
   const lineasIniciales = (): LineaUI[] => {
     if (!editServicio || !editServicio.items.length) return [nuevaLinea(1)];
     return editServicio.items.map((it, i) => ({
       id: i + 1, categoria: it.categoria ?? '', tipo: it.descripcion ?? '', equipoId: it.equipo_id ?? '',
+      electro: esElectrodomestico(it.categoria) ? (it.equipo_nombre ?? '') : '',
       cantidad: String(it.cantidad ?? 1), bombonas: it.bombonas != null ? String(it.bombonas) : '', kg: it.kg_recarga != null ? String(it.kg_recarga) : '',
       insumoId: it.insumo_producto_id ?? '', insumoNombre: it.insumo_nombre ?? '',
     }));
@@ -405,9 +406,13 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       if (!cat) { setError('Indicá la categoría de cada servicio.'); return; }
       if (!tipo) { setError('Indicá el tipo de servicio en cada renglón.'); return; }
       if (cant <= 0) { setError(gas ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
+      const esElectro = esElectrodomestico(cat);
       const eq = equiposActivos.find((x) => x.id === l.equipoId) ?? null;
+      // Electrodomésticos: el "equipo" es el artículo elegido (sin id de maquinaria).
+      const equipoId = esElectro ? null : (eq?.id ?? null);
+      const equipoNombre = esElectro ? (l.electro.trim() || null) : (eq?.equipo ?? null);
       payload.push({
-        categoria: cat, descripcion: tipo, equipoId: eq?.id ?? null, equipoNombre: eq?.equipo ?? null, cantidad: cant,
+        categoria: cat, descripcion: tipo, equipoId, equipoNombre, cantidad: cant,
         bombonas: gas && l.bombonas ? Number(l.bombonas) : null,
         kg_recarga: gas && l.kg ? Number(l.kg) : null,
         insumoProductoId: !gas && l.insumoId ? l.insumoId : null,
@@ -576,12 +581,21 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                 solo Cantidad de bombonas y KG. En el resto, equipo + cantidad. */}
             {!esRecargaGas(l.categoria, l.tipo) && (
               <div className="form-grid">
-                <div className="form-row">
-                  <label>Equipo (Control de Maquinaria)</label>
-                  <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })} options={equipoOptions}
-                    placeholder={equipoOptions.length ? '🔍 Buscá el equipo / vehículo…' : '— sin equipos —'} emptyText="Sin equipos" />
-                  <small className="muted">Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
-                </div>
+                {esElectrodomestico(l.categoria) ? (
+                  <div className="form-row">
+                    <label>Electrodoméstico *</label>
+                    <SearchCreateSelect options={[...ELECTRODOMESTICOS]} value={l.electro} onChange={(v) => set(l.id, { electro: v })}
+                      placeholder="Elegí (cocina, nevera, lavadora, microondas…)" emptyText="Escribí para agregar otro" />
+                    <small className="muted">Artículo electrodoméstico al que se le hace el mantenimiento.</small>
+                  </div>
+                ) : (
+                  <div className="form-row">
+                    <label>Equipo (Control de Maquinaria)</label>
+                    <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })} options={equipoOptions}
+                      placeholder={equipoOptions.length ? '🔍 Buscá el equipo / vehículo…' : '— sin equipos —'} emptyText="Sin equipos" />
+                    <small className="muted">Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
+                  </div>
+                )}
                 <div className="form-row">
                   <label>Cantidad</label>
                   <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
