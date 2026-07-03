@@ -28,6 +28,23 @@ export function esRecargaGas(...textos: Array<string | null | undefined>): boole
 /** Tipos sugeridos para una recarga (gas / oxígeno / extintores). */
 export const TIPOS_RECARGA = ['Recarga de gas', 'Recarga de oxígeno', 'Recarga de extintores'] as const;
 
+/** Categoría de mantenimiento de electrodomésticos: en vez de un equipo de maquinaria,
+ *  se elige el artículo de una lista predeterminada de electrodomésticos. */
+export const CATEGORIA_ELECTRODOMESTICOS = 'MANTENIMIENTO DE ELECTRODOMÉSTICOS';
+
+/** Lista predeterminada de electrodomésticos (se puede escribir uno nuevo igual). */
+export const ELECTRODOMESTICOS = [
+  'Cocina', 'Nevera', 'Refrigerador', 'Congelador', 'Lavadora', 'Secadora',
+  'Microondas', 'Horno', 'Aire acondicionado', 'Ventilador', 'Licuadora',
+  'Televisor', 'Calentador de agua', 'Bomba de agua', 'Extractor', 'Campana', 'Cafetera',
+] as const;
+
+/** Detecta la categoría "mantenimiento de electrodomésticos" (tolerante a acentos). */
+export function esElectrodomestico(...textos: Array<string | null | undefined>): boolean {
+  const t = textos.filter(Boolean).join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return /electrodomestic/.test(t);
+}
+
 export interface ServicioCatalogo {
   id: string;
   categoria: string;
