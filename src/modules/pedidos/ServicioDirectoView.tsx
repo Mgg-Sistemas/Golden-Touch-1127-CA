@@ -158,6 +158,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                     <button className="btn btn-sm btn-ghost" onClick={() => setVer(s)} title="Ver detalle">👁 Ver</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => handlePdf(s)} title="Ver/descargar detalle en PDF">↓ PDF</button>
                     {s.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setFinalizar(s)}>Cargar factura y monto</button>}
+                    {s.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={() => setFinalizar(s)} title="Editar factura, montos, moneda y nota (antes de que Tesorería pague)">✏ Editar factura/monto</button>}
                     {s.estado === 'por_pagar' && <span className="badge" title="El pago se realiza desde Tesorería">🧾 DIRECTO · por pagar</span>}
                     {(s.estado === 'en_proceso' || s.estado === 'por_pagar') && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(s)} title="Eliminar servicio directo">🗑 Eliminar</button>}
                     {s.estado === 'finalizada' && <AdjuntoLink servicio={s} />}
@@ -181,7 +182,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
 
       {ver && (
         <ServicioDetalleModal servicio={ver} actor={actor} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)}
-          onReabrir={() => setReabrir(ver)} onEditar={() => { setEditar(ver); setVer(null); }} onEliminar={() => { setEliminar(ver); setVer(null); }} />
+          onReabrir={() => setReabrir(ver)} onEditar={() => { setEditar(ver); setVer(null); }} onMontar={() => { setFinalizar(ver); setVer(null); }} onEliminar={() => { setEliminar(ver); setVer(null); }} />
       )}
 
       {eliminar && (
@@ -246,6 +247,7 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
         <button className="btn btn-sm btn-ghost" onClick={onVer} title="Ver detalle">👁 Ver</button>
         <button className="btn btn-sm btn-ghost" onClick={onPdf} title="Ver/descargar detalle en PDF">↓ PDF</button>
         {servicio.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onFinalizar}>Cargar factura y monto</button>}
+        {servicio.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onFinalizar} title="Editar factura, montos, moneda y nota (antes de que Tesorería pague)">✏ Editar factura/monto</button>}
         {(servicio.estado === 'en_proceso' || servicio.estado === 'por_pagar') && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar servicio directo">🗑 Eliminar</button>}
       </div>
     </div>
@@ -263,13 +265,14 @@ function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
 
 /* ───────── Modal: detalle del servicio directo ───────── */
 
-function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEditar, onEliminar }: {
-  servicio: ServicioDirecto; actor: string; onClose: () => void; onPdf: () => void; onReabrir: () => void; onEditar: () => void; onEliminar: () => void;
+function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEditar, onMontar, onEliminar }: {
+  servicio: ServicioDirecto; actor: string; onClose: () => void; onPdf: () => void; onReabrir: () => void; onEditar: () => void; onMontar: () => void; onEliminar: () => void;
 }) {
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       {servicio.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={onEditar} title="Editar servicios / proveedor">✏ Editar</button>}
+      {servicio.estado === 'por_pagar' && <button className="btn btn-ghost" onClick={onMontar} title="Editar factura, montos, moneda y nota (antes de que Tesorería pague)">✏ Editar factura/monto</button>}
       {(servicio.estado === 'en_proceso' || servicio.estado === 'por_pagar') && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar servicio directo">🗑 Eliminar</button>}
       {servicio.estado === 'finalizada' && <button className="btn btn-ghost" style={{ color: 'var(--warning)' }} onClick={onReabrir} title="Reabrir para editar (devuelve el dinero a la caja)">↺ Reabrir</button>}
       <button className="btn btn-primary" onClick={onPdf}>↓ PDF</button>
@@ -281,7 +284,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
   return (
     <Modal title={`🔧 Servicio Directo ${servicio.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
       {fila('Código', <span className="mono">{servicio.codigo ?? '—'}</span>)}
-      {fila('Estado', servicio.estado === 'finalizada' ? '🏁 Finalizada (pagada)' : '⏳ En proceso')}
+      {fila('Estado', servicio.estado === 'finalizada' ? '🏁 Finalizada (pagada)' : (ESTADO_LABEL[servicio.estado] ?? '⏳ En proceso'))}
       {fila('Proveedor', servicio.proveedor_nombre || '—')}
       {fila('Equipo', servicio.equipo_nombre || '—')}
       {(servicio.solicitante || servicio.unidad_solicitante) && fila('Solicitante', `${servicio.solicitante || '—'}${servicio.unidad_solicitante ? ` · ${servicio.unidad_solicitante}` : ''}`)}
@@ -688,9 +691,10 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
   // Moneda del servicio (Bs o $): el analista la fija/edita al montar; se muestra en los montos.
   const [monedaServicio, setMonedaServicio] = useState<'USD' | 'Bs'>(servicio.moneda === 'Bs' ? 'Bs' : 'USD');
-  // Montos: en pagar ya vienen cargados (del montaje); en montar los carga el analista.
+  // Montos: en pagar ya vienen cargados (del montaje); al RE-montar un «por pagar» también
+  // se precargan para poder corregirlos (no solo en pagar).
   const montosIniciales: Record<number, string> = {};
-  if (esPago) servicio.items.forEach((it, i) => { if (it.gasto != null) montosIniciales[i] = String(it.gasto); });
+  servicio.items.forEach((it, i) => { if (it.gasto != null) montosIniciales[i] = String(it.gasto); });
   const [gastos, setGastos] = useState<Record<number, string>>(montosIniciales);
   const [files, setFiles] = useState<File[]>([]);
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
