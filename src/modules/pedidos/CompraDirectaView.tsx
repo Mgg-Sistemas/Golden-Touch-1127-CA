@@ -26,6 +26,7 @@ import {
 } from './compras.repository';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { FacturasDirectas } from './FacturasDirectas';
+import { PagoExternoFields, PAGO_EXTERNO_VACIO, pagoExternoDesdeRow, pagoExternoAInput, type PagoExternoState } from './PagoExternoFields';
 
 type Vista = 'kanban' | 'lista';
 
@@ -372,6 +373,14 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {fila(compra.estado === 'finalizada' ? 'Gasto total' : 'Total a pagar', total != null ? montoCD(total, compra.moneda) : '—')}
       {compra.estado === 'finalizada' && (Number(compra.comision_bancaria) || 0) > 0 && fila('Comisión bancaria', <span>{montoCD(Number(compra.comision_bancaria), compra.moneda)} <span className="muted" style={{ fontSize: '.75rem' }}>(gasto aparte · no suma a la factura)</span></span>)}
       {compra.nota && fila('Nota', <span style={{ whiteSpace: 'pre-wrap' }}>{compra.nota}</span>)}
+      {compra.pago_externo && fila('Pago a externo',
+        <span style={{ color: 'var(--warning)' }}>
+          💵 Pagó: <strong>{compra.pago_externo_nombre || '—'}</strong>
+          {compra.pago_externo_cedula ? ` · ${compra.pago_externo_cedula}` : ''}
+          {compra.pago_externo_telefono ? ` · 📞 ${compra.pago_externo_telefono}` : ''}
+          {compra.pago_externo_nota ? ` · ${compra.pago_externo_nota}` : ''}
+          <span className="muted" style={{ fontSize: '.75rem' }}> (reintegrar)</span>
+        </span>)}
       {compra.adjunto_path && fila('Comprobante', <AdjuntoLink compra={compra} />)}
 
       <div className="table-wrap" style={{ marginTop: '.6rem' }}>
@@ -463,6 +472,9 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   const [provEmail, setProvEmail] = useState('');
   const [provOrigen, setProvOrigen] = useState<OrigenProveedor>('nacional');
   const rifPartes = partirRif(provRif);
+
+  // Pago a externo: una persona externa pagó de su bolsillo y debe reintegrársele.
+  const [pagoExterno, setPagoExterno] = useState<PagoExternoState>(() => pagoExternoDesdeRow(editCompra) ?? PAGO_EXTERNO_VACIO);
 
   function set(id: number, patch: Partial<LineaUI>) { setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l))); }
   // Id garantizado único (max + 1): evita colisiones de key que podrían fusionar/perder renglones.
@@ -573,11 +585,12 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
         proveedorIdFinal = proveedorId;
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
+      const pe = pagoExternoAInput(pagoExterno);
       if (esEdicion && editCompra) {
-        const edit = await editarCompraDirectaEnProceso({ compra: editCompra, lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, nota, actor, actorName }, productos);
+        const edit = await editarCompraDirectaEnProceso({ compra: editCompra, lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, nota, pagoExterno: pe, actor, actorName }, productos);
         notify(`Compra directa ${edit.codigo ?? ''} actualizada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
       } else {
-        const creada = await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, nota, actor, actorName }, productos);
+        const creada = await crearCompraDirecta({ lineas: payload, almacen, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, nota, pagoExterno: pe, actor, actorName }, productos);
         notify(`Compra directa ${creada.codigo ?? ''} creada · ${payload.length} material(es)`, 'success', { link: '#/app/pedidos' });
       }
       onSaved();
@@ -738,6 +751,8 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
           <textarea className="input" rows={2} ref={notaRef} defaultValue={editCompra?.nota ?? ''}
             placeholder="Detalle u observación de esta compra (se muestra en el detalle y el PDF)…" />
         </div>
+
+        <PagoExternoFields value={pagoExterno} onChange={setPagoExterno} />
 
         <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan precios. El gasto por material y la caja se indican al finalizar.</p>
       </form>

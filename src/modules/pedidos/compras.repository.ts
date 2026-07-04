@@ -35,6 +35,33 @@ async function tasaUsdHoy(): Promise<number> {
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
 export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
 
+/** Datos de la persona externa que pagó (para reintegrarle). Cuando `activo` es false,
+ *  se limpian los datos. */
+export interface PagoExternoInput {
+  activo: boolean;
+  nombre?: string | null;
+  cedula?: string | null;
+  telefono?: string | null;
+  nota?: string | null;
+}
+
+/** Normaliza el input de pago externo a las columnas de la fila (o las limpia). */
+export function columnasPagoExterno(pe?: PagoExternoInput | null): Record<string, unknown> {
+  if (!pe || !pe.activo) {
+    return {
+      pago_externo: false, pago_externo_nombre: null, pago_externo_cedula: null,
+      pago_externo_telefono: null, pago_externo_nota: null,
+    };
+  }
+  return {
+    pago_externo: true,
+    pago_externo_nombre: (pe.nombre ?? '').trim() || null,
+    pago_externo_cedula: (pe.cedula ?? '').trim() || null,
+    pago_externo_telefono: (pe.telefono ?? '').trim() || null,
+    pago_externo_nota: (pe.nota ?? '').trim() || null,
+  };
+}
+
 const BUCKET = 'compras-directas';
 
 export type EstadoCompraDirecta = 'en_proceso' | 'por_pagar' | 'finalizada';
@@ -63,6 +90,13 @@ export interface CompraDirecta {
   proveedor_nombre: string | null;
   /** Nota / observación libre del analista. */
   nota: string | null;
+  /** Pago a externo: una persona externa pagó de su bolsillo y debe reintegrársele.
+   *  Se muestra en el detalle y en Tesorería (movimiento del pago). */
+  pago_externo?: boolean | null;
+  pago_externo_nombre?: string | null;
+  pago_externo_cedula?: string | null;
+  pago_externo_telefono?: string | null;
+  pago_externo_nota?: string | null;
   estado: EstadoCompraDirecta;
   gasto: number | null;
   /** Si la compra ingresa los materiales al inventario al pagar. Se pone en false
@@ -178,6 +212,8 @@ export interface CrearCompraInput {
   proveedorNombre?: string | null;
   /** Nota / observación libre. */
   nota?: string | null;
+  /** Pago a externo (opcional): datos de la persona externa que pagó. */
+  pagoExterno?: PagoExternoInput | null;
   actor: string;
   actorName?: string | null;
 }
@@ -237,6 +273,7 @@ export async function crearCompraDirecta(
       proveedor_id: input.proveedorId ?? null,
       proveedor_nombre: input.proveedorNombre?.trim() || null,
       nota: input.nota?.trim() || null,
+      ...columnasPagoExterno(input.pagoExterno),
       estado: 'en_proceso',
       actor: input.actor,
       actor_name: input.actorName ?? null,
@@ -469,6 +506,8 @@ export interface EditarCompraInput {
   proveedorId?: string | null;
   proveedorNombre?: string | null;
   nota?: string | null;
+  /** Pago a externo (opcional): datos de la persona externa que pagó. */
+  pagoExterno?: PagoExternoInput | null;
   actor: string;
   actorName?: string | null;
 }
@@ -528,6 +567,7 @@ export async function editarCompraDirectaEnProceso(
       proveedor_id: input.proveedorId ?? null,
       proveedor_nombre: input.proveedorNombre?.trim() || null,
       nota: input.nota?.trim() || null,
+      ...(input.pagoExterno !== undefined ? columnasPagoExterno(input.pagoExterno) : {}),
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.compra.id)

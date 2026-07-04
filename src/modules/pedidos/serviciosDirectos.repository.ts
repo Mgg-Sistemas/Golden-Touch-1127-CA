@@ -10,7 +10,10 @@
 import { supabase } from '@/shared/lib/supabase';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { columnasPagoExterno, type PagoExternoInput } from '@/modules/pedidos/compras.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
+
+export type { PagoExternoInput };
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
 export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
@@ -52,6 +55,12 @@ export interface ServicioDirecto {
   /** Quién solicitó el servicio y su unidad/área. */
   solicitante: string | null;
   unidad_solicitante: string | null;
+  /** Pago a externo: una persona externa pagó de su bolsillo y debe reintegrársele. */
+  pago_externo?: boolean | null;
+  pago_externo_nombre?: string | null;
+  pago_externo_cedula?: string | null;
+  pago_externo_telefono?: string | null;
+  pago_externo_nota?: string | null;
   estado: EstadoServicioDirecto;
   gasto: number | null;
   caja_id: string | null;
@@ -144,6 +153,8 @@ export interface CrearServicioDirectoInput {
   proveedorNombre?: string | null;
   solicitante?: string | null;
   unidadSolicitante?: string | null;
+  /** Pago a externo (opcional): datos de la persona externa que pagó. */
+  pagoExterno?: PagoExternoInput | null;
   actor: string;
   actorName?: string | null;
 }
@@ -188,6 +199,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       equipo_nombre: conEquipo?.equipoNombre ?? null,
       solicitante: input.solicitante?.trim() || null,
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
+      ...columnasPagoExterno(input.pagoExterno),
       estado: 'en_proceso',
       actor: input.actor,
       actor_name: input.actorName ?? null,
@@ -443,6 +455,8 @@ export interface EditarServicioDirectoInput {
   proveedorNombre?: string | null;
   solicitante?: string | null;
   unidadSolicitante?: string | null;
+  /** Pago a externo (opcional): datos de la persona externa que pagó. */
+  pagoExterno?: PagoExternoInput | null;
   actor: string;
   actorName?: string | null;
 }
@@ -486,6 +500,7 @@ export async function editarServicioDirectoEnProceso(input: EditarServicioDirect
       equipo_nombre: conEquipo?.equipoNombre ?? null,
       solicitante: input.solicitante?.trim() || null,
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
+      ...(input.pagoExterno !== undefined ? columnasPagoExterno(input.pagoExterno) : {}),
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.servicio.id)
