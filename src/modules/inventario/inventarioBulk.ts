@@ -110,6 +110,20 @@ function normalize(row: Row): Row {
 
 function toStr(v: unknown): string { return v == null ? '' : String(v).trim(); }
 function toNum(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : NaN; }
+
+/**
+ * Clave de comparación de NOMBRE para reconocer materiales que YA EXISTEN en el inventario
+ * y NO duplicarlos al importar. Normaliza para que variantes de forma cuenten como el mismo
+ * material: MAYÚSCULAS, sin acentos/diacríticos, sin espacios repetidos y sin espacios en los
+ * bordes. Ej.: "Tornillo  1/2", "TORNILLO 1/2" y "torníllo 1/2" → "TORNILLO 1/2".
+ */
+export function normNombre(v: unknown): string {
+  return String(v ?? '')
+    .normalize('NFD').replace(/\p{Diacritic}/gu, '') // quita acentos/diacríticos
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 function isLetter(v: unknown): boolean { return typeof v === 'string' && /[A-Za-zÁÉÍÓÚáéíóúÑñÜü]/.test(v); }
 
 /* ──────────── Análisis previo a la importación ──────────── */
@@ -132,6 +146,8 @@ export interface AnalisisImport {
   validas: number;
   conError: number;
   duplicadas: number;
+  /** Filas cuyo material YA EXISTE en el inventario (por nombre o SKU): se ACTUALIZAN, no se duplican. */
+  yaEnInventario: number;
   errorPorColumna: Record<string, number>;
   filas: FilaAnalizada[];
   estado: 'Validado' | 'Duplicados' | 'Error';
@@ -154,19 +170,19 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
   // Cargar SKUs y nombres existentes para detección de duplicados contra BD.
   const { data: existentes } = await supabase.from('productos').select('sku, nombre');
   const skuSetBd = new Set<string>((existentes ?? []).map((p) => String(p.sku).toUpperCase()));
-  const nombreSetBd = new Set<string>((existentes ?? []).map((p) => String(p.nombre).toUpperCase()));
+  // El nombre se coteja NORMALIZADO (sin acentos/espacios repetidos) para reconocer
+  // materiales que ya existen aunque el Excel los traiga con otra forma → no duplicar.
+  const nombreSetBd = new Set<string>((existentes ?? []).map((p) => normNombre(p.nombre)));
 
-  // Conteo por SKU/nombre dentro del archivo
+  // Conteo por SKU/nombre dentro del archivo (nombre por su clave normalizada).
   const skuCount = new Map<string, number>();
   const nombreCount = new Map<string, number>();
-  const previas: Array<{ sku: string; nombre: string }> = [];
   for (const r of raw) {
     const n = normalize(r);
     const sku = toStr(n.sku).toUpperCase();
-    const nombre = toStr(n.nombre).toUpperCase();
+    const nombreKey = normNombre(n.nombre);
     if (sku) skuCount.set(sku, (skuCount.get(sku) ?? 0) + 1);
-    if (nombre) nombreCount.set(nombre, (nombreCount.get(nombre) ?? 0) + 1);
-    previas.push({ sku, nombre });
+    if (nombreKey) nombreCount.set(nombreKey, (nombreCount.get(nombreKey) ?? 0) + 1);
   }
 
   const errorPorColumna: Record<string, number> = {};
@@ -177,6 +193,7 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     const norm = normalize(raw[i]);
     const sku = toStr(norm.sku).toUpperCase();
     const nombre = toStr(norm.nombre).toUpperCase();
+    const nombreKey = normNombre(norm.nombre); // clave normalizada para cotejar duplicados
     const errores: string[] = [];
 
     const sumCol = (col: string) => { errorPorColumna[col] = (errorPorColumna[col] ?? 0) + 1; };
@@ -214,15 +231,16 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     // Duplicado en archivo
     let dupArch: FilaAnalizada['duplicadoEnArchivo'] = null;
     const dupSkuArch = sku && (skuCount.get(sku) ?? 0) > 1;
-    const dupNomArch = nombre && (nombreCount.get(nombre) ?? 0) > 1;
+    const dupNomArch = nombreKey && (nombreCount.get(nombreKey) ?? 0) > 1;
     if (dupSkuArch && dupNomArch) dupArch = 'ambos';
     else if (dupSkuArch) dupArch = 'sku';
     else if (dupNomArch) dupArch = 'nombre';
 
-    // Duplicado contra BD
+    // Duplicado contra BD (el nombre se compara normalizado: reconoce el material aunque
+    // varíe en mayúsculas, acentos o espacios → se ACTUALIZA en vez de crear otro).
     let dupBd: FilaAnalizada['duplicadoEnBd'] = null;
     const dupSkuBd = sku && skuSetBd.has(sku);
-    const dupNomBd = nombre && nombreSetBd.has(nombre);
+    const dupNomBd = nombreKey && nombreSetBd.has(nombreKey);
     if (dupSkuBd && dupNomBd) dupBd = 'ambos';
     else if (dupSkuBd) dupBd = 'sku';
     else if (dupNomBd) dupBd = 'nombre';
@@ -246,6 +264,7 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
   const validas = filas.filter((f) => f.estado === 'valido').length;
   const conError = filas.filter((f) => f.estado === 'error').length;
   const duplicadas = filas.filter((f) => f.estado === 'duplicado').length;
+  const yaEnInventario = filas.filter((f) => f.duplicadoEnBd !== null).length;
 
   const estadoGeneral: AnalisisImport['estado'] =
     conError > 0 ? 'Error' : duplicadas > 0 ? 'Duplicados' : 'Validado';
@@ -255,6 +274,7 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     validas,
     conError,
     duplicadas,
+    yaEnInventario,
     errorPorColumna,
     filas,
     estado: estadoGeneral,
@@ -297,10 +317,10 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
   // cargamos los productos existentes (para el correlativo por categoría y para
   // reconocer por NOMBRE los que ya están, y así actualizarlos en vez de duplicar).
   const { data: existentesFull } = await supabase.from('productos').select('sku, nombre, categoria');
-  const skuPorNombre = new Map<string, string>();   // nombre (minúsc.) → sku ya existente
+  const skuPorNombre = new Map<string, string>();   // nombre NORMALIZADO → sku ya existente
   const runningProd: Array<{ sku: string; categoria: string }> = [];
   (existentesFull ?? []).forEach((p) => {
-    if (p.nombre) skuPorNombre.set(String(p.nombre).toLowerCase(), String(p.sku));
+    if (p.nombre) skuPorNombre.set(normNombre(p.nombre), String(p.sku));
     runningProd.push({ sku: String(p.sku), categoria: String(p.categoria ?? '') });
   });
   // Resuelve el SKU de una fila: 1) el del Excel si lo trae; 2) el del producto con
@@ -308,7 +328,7 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
   // categoría (contador en la base: atómico y sin reutilizar números).
   async function resolverSku(nombre: string, categoria: string, skuExcel: string): Promise<string> {
     if (skuExcel) return skuExcel;
-    const k = nombre.toLowerCase();
+    const k = normNombre(nombre);
     const ya = skuPorNombre.get(k);
     if (ya) return ya;
     const nuevo = await nextSku(categoria, runningProd as unknown as Producto[]);
