@@ -33,7 +33,8 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     ['Proveedor', servicio.proveedor_nombre || '—'],
     ['Equipo', servicio.equipo_nombre || '—'],
     ['Estado', servicio.estado === 'finalizada' ? 'Finalizada (pagada)' : 'En proceso'],
-    ['Monto total', gasto != null ? fmt.money(gasto) : '—'],
+    ['Moneda', servicio.moneda === 'Bs' ? 'Bs' : '$ (USD)'],
+    ['Monto total', fmt.montoMoneda(gasto, servicio.moneda)],
     ['Generó', servicio.actor_name || servicio.actor || '—'],
     ['Fecha de creación', fmt.dateTime(servicio.created_at)],
     ['Fecha de pago', servicio.finalizada_at ? fmt.dateTime(servicio.finalizada_at) : '—'],
@@ -62,15 +63,15 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
       fmt.num(cant),
       it.bombonas ? fmt.num(it.bombonas) : '—',
       it.kg_recarga ? fmt.num(it.kg_recarga) : '—',
-      g != null ? fmt.money(g) : '—',
-      cu != null ? fmt.money(cu) : '—',
+      fmt.montoMoneda(g, servicio.moneda),
+      fmt.montoMoneda(cu, servicio.moneda),
     ];
   });
   autoTable(doc, {
     startY: startY + 14,
     head: [['#', 'Servicio', 'Categoría', 'Equipo', 'Cant.', 'Bombonas', 'KG', 'Monto', 'Costo unit.']],
     body,
-    foot: gasto != null ? [[{ content: 'TOTAL', colSpan: 7, styles: { halign: 'right' } }, fmt.money(gasto), '']] : undefined,
+    foot: gasto != null ? [[{ content: 'TOTAL', colSpan: 7, styles: { halign: 'right' } }, fmt.montoMoneda(gasto, servicio.moneda), '']] : undefined,
     styles: { fontSize: 8.5, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },

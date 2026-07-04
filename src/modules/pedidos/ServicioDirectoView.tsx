@@ -6,7 +6,7 @@ import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
-import { dateTime, money, num, dosDecimales } from '@/shared/lib/format';
+import { dateTime, money, num, dosDecimales, montoMoneda } from '@/shared/lib/format';
 import type { Caja, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
@@ -150,7 +150,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                   <td>{s.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td>{s.equipo_nombre || <span className="muted">—</span>}</td>
                   <td>{ESTADO_LABEL[s.estado] ?? s.estado}</td>
-                  <td className="mono">{s.gasto != null ? money(s.gasto) : '—'}</td>
+                  <td className="mono">{s.gasto != null ? montoMoneda(s.gasto, s.moneda) : '—'}</td>
                   <td>{s.actor_name || s.actor || '—'}</td>
                   <td className="muted">{dateTime(s.created_at)}</td>
                   <td className="muted">{s.finalizada_at ? dateTime(s.finalizada_at) : '—'}</td>
@@ -232,14 +232,14 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
       </div>
       {servicio.estado === 'finalizada' && (
         <div style={{ fontSize: '.8rem', marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
-          <div>Monto: <strong className="mono">{servicio.gasto != null ? money(servicio.gasto) : '—'}</strong></div>
+          <div>Monto: <strong className="mono">{servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—'}</strong></div>
           <div className="muted"><AdjuntoLink servicio={servicio} /></div>
         </div>
       )}
       {servicio.estado === 'por_pagar' && (
         <div style={{ marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
           <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#1a1a1a' }}>DIRECTO</span>
-          <span className="muted mono" style={{ marginLeft: '.4rem' }}>A pagar: {servicio.gasto != null ? money(servicio.gasto) : '—'}</span>
+          <span className="muted mono" style={{ marginLeft: '.4rem' }}>A pagar: {servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—'}</span>
         </div>
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
@@ -288,7 +288,8 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {fila('Generó', servicio.actor_name || servicio.actor || '—')}
       {fila('Creado', dateTime(servicio.created_at))}
       {servicio.estado === 'finalizada' && fila('Pagado', servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—')}
-      {fila('Monto total', servicio.gasto != null ? money(servicio.gasto) : '—')}
+      {fila('Moneda', servicio.moneda === 'Bs' ? 'Bs' : '$ (USD)')}
+      {fila('Monto total', servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—')}
       {servicio.nota && fila('Nota / motivo', <span style={{ whiteSpace: 'pre-wrap' }}>{servicio.nota}</span>)}
       {servicio.pago_externo && fila('Pago a externo',
         <span style={{ color: 'var(--warning)' }}>
@@ -316,7 +317,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
                 <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{it.bombonas ? num(it.bombonas) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{it.kg_recarga ? num(it.kg_recarga) : '—'}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{it.gasto != null ? money(it.gasto) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{it.gasto != null ? montoMoneda(it.gasto, servicio.moneda) : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -386,6 +387,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   const [unidadSolicitante, setUnidadSolicitante] = useState(editServicio?.unidad_solicitante ?? '');
   // Nota / motivo libre (se muestra en el detalle y en el PDF).
   const [nota, setNota] = useState(editServicio?.nota ?? '');
+  // Moneda del servicio (Bs o $). Editable; se puede cambiar al editar.
+  const [moneda, setMoneda] = useState<'USD' | 'Bs'>(editServicio?.moneda === 'Bs' ? 'Bs' : 'USD');
   // Pago a externo: una persona externa pagó de su bolsillo y debe reintegrársele.
   const [pagoExterno, setPagoExterno] = useState<PagoExternoState>(() => pagoExternoDesdeRow(editServicio) ?? PAGO_EXTERNO_VACIO);
   // Catálogo de unidades solicitantes (mismo que el servicio/OP normal, sincronizado).
@@ -474,12 +477,12 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       }
       const pe = pagoExternoAInput(pagoExterno);
       if (esEdicion && editServicio) {
-        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, pagoExterno: pe, actor, actorName });
+        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, moneda, pagoExterno: pe, actor, actorName });
         for (const f of files) await agregarAdjuntoDirecto('servicio', edit.id, f, actor);
         notify(`Servicio directo ${edit.codigo ?? ''} actualizado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       } else {
         const creado = await crearServicioDirecto({
-          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, pagoExterno: pe, actor, actorName,
+          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, moneda, pagoExterno: pe, actor, actorName,
         });
         for (const f of files) await agregarAdjuntoDirecto('servicio', creado.id, f, actor);
         notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
@@ -570,6 +573,14 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
             <label>Unidad solicitante</label>
             <SearchCreateSelect options={unidadOpciones} value={unidadSolicitante}
               onChange={(v) => setUnidadSolicitante(v.toUpperCase())} placeholder="Unidad / área…" />
+          </div>
+          <div className="form-row">
+            <label>Moneda del servicio</label>
+            <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value as 'USD' | 'Bs')}>
+              <option value="USD">$ (USD)</option>
+              <option value="Bs">Bs</option>
+            </select>
+            <small className="muted">Los montos se muestran en esta moneda. Podés cambiarla al editar.</small>
           </div>
         </div>
 
@@ -675,6 +686,8 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
 }) {
   const esPago = modo === 'pagar';
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  // Moneda del servicio (Bs o $): el analista la fija/edita al montar; se muestra en los montos.
+  const [monedaServicio, setMonedaServicio] = useState<'USD' | 'Bs'>(servicio.moneda === 'Bs' ? 'Bs' : 'USD');
   // Montos: en pagar ya vienen cargados (del montaje); en montar los carga el analista.
   const montosIniciales: Record<number, string> = {};
   if (esPago) servicio.items.forEach((it, i) => { if (it.gasto != null) montosIniciales[i] = String(it.gasto); });
@@ -743,8 +756,8 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
       setSaving(true);
       try {
         for (const f of files) await agregarAdjuntoDirecto('servicio', servicio.id, f, actor);
-        await enviarServicioAPagar({ servicio, items, actor, actorName });
-        notify(`Servicio ${servicio.codigo ?? ''} enviado a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
+        await enviarServicioAPagar({ servicio, items, moneda: monedaServicio, actor, actorName });
+        notify(`Servicio ${servicio.codigo ?? ''} enviado a pagar · ${montoCaja(total, monedaServicio)} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
       return;
@@ -791,6 +804,17 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
 
         {servicio.equipo_nombre && (
           <div className="card" style={{ marginBottom: '.75rem' }}>🚜 Servicio del equipo <strong>{servicio.equipo_nombre}</strong> — se reflejará en su historial de Control de Maquinaria.</div>
+        )}
+
+        {!esPago && (
+          <div className="form-row" style={{ maxWidth: 220 }}>
+            <label>Moneda del servicio</label>
+            <select className="select" value={monedaServicio} onChange={(e) => setMonedaServicio(e.target.value as 'USD' | 'Bs')}>
+              <option value="USD">$ (USD)</option>
+              <option value="Bs">Bs</option>
+            </select>
+            <small className="muted">Los montos que cargues abajo son en esta moneda.</small>
+          </div>
         )}
 
         {esPago && (
@@ -852,14 +876,14 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
                     <td className="mono" style={{ textAlign: 'right' }}>{it.bombonas ? num(it.bombonas) : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{it.kg_recarga ? num(it.kg_recarga) : '—'}</td>
                     <td><input className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, esPago ? moneda : monedaServicio)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        <div className="card" style={{ margin: '.5rem 0' }}>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong></div>
+        <div className="card" style={{ margin: '.5rem 0' }}>{esPago ? 'Total a descontar' : 'Total del servicio'}: <strong className="mono">{montoCaja(total, esPago ? moneda : monedaServicio)}</strong></div>
 
         {esPago && cajaId && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
