@@ -3,6 +3,13 @@ export function money(n: number | null | undefined): string {
   return '$ ' + Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Formatea un monto en SU moneda: 'Bs' muestra "Bs …"; cualquier otra (o vacío) "$ …". */
+export function montoMoneda(n: number | null | undefined, moneda: string | null | undefined): string {
+  if (n == null || isNaN(n as number)) return '—';
+  const v = Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
+}
+
 /**
  * Redondea un monto en $ hacia arriba al siguiente múltiplo de 5, pensado para el
  * pago en efectivo (billetes físicos). Ej.: 233,33 → 235 · 231 → 235 · 236 → 240.
