@@ -726,7 +726,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
     if (servicioDir) return {
       tipo: 'servicio', codigo: servicioDir.codigo, proveedor: servicioDir.proveedor_nombre,
       equipo: servicioDir.equipo_nombre, solicitante: servicioDir.solicitante ? `${servicioDir.solicitante}${servicioDir.unidad_solicitante ? ` · ${servicioDir.unidad_solicitante}` : ''}` : null,
-      requerimiento: [servicioDir.descripcion?.trim(), servicioDir.nota?.trim()].filter(Boolean).join(' · ') || null, moneda: 'USD', gasto: servicioDir.gasto,
+      requerimiento: [servicioDir.descripcion?.trim(), servicioDir.nota?.trim()].filter(Boolean).join(' · ') || null, moneda: servicioDir.moneda === 'Bs' ? 'Bs' : 'USD', gasto: servicioDir.gasto,
       pagoExterno: textoPagoExterno(servicioDir),
       items: servicioDir.items.map((it) => ({ nombre: it.descripcion, extra: it.equipo_nombre, cantidad: Number(it.cantidad) || 0, gasto: it.gasto ?? null })),
     };
@@ -1032,12 +1032,12 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
                         <td>{it.descripcion}{it.categoria ? <span className="muted"> · {it.categoria}</span> : null}</td>
                         <td>{it.equipo_nombre || <span className="muted">—</span>}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{Number(it.cantidad) || 0}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{it.gasto != null ? monto(it.gasto, 'USD') : '—'}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{it.gasto != null ? monto(it.gasto, servicioDir.moneda === 'Bs' ? 'Bs' : 'USD') : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                   {servicioDir.gasto != null && (
-                    <tfoot><tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{monto(servicioDir.gasto, 'USD')}</td></tr></tfoot>
+                    <tfoot><tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Total</td><td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{monto(servicioDir.gasto, servicioDir.moneda === 'Bs' ? 'Bs' : 'USD')}</td></tr></tfoot>
                   )}
                 </table>
               </div>

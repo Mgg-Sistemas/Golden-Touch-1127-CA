@@ -65,6 +65,8 @@ export interface ServicioDirecto {
   pago_externo_nota?: string | null;
   estado: EstadoServicioDirecto;
   gasto: number | null;
+  /** Moneda del servicio ('USD' o 'Bs'). Los montos se muestran en esta moneda. */
+  moneda?: string | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   /** Desglose multimoneda del pago (para revertir exacto al reabrir). Null si fue caja simple. */
@@ -87,7 +89,7 @@ export interface ServicioDirecto {
 function normalizar(row: Record<string, unknown>): ServicioDirecto {
   const r = row as unknown as ServicioDirecto;
   const items = Array.isArray(r.items) ? r.items : [];
-  return { ...r, items, nota: r.nota ?? null };
+  return { ...r, items, nota: r.nota ?? null, moneda: r.moneda === 'Bs' ? 'Bs' : 'USD' };
 }
 
 /** Próximo correlativo SD-AAAA-#### (Servicio Directo), atómico en la base. */
@@ -157,6 +159,8 @@ export interface CrearServicioDirectoInput {
   unidadSolicitante?: string | null;
   /** Nota / motivo libre. */
   nota?: string | null;
+  /** Moneda del servicio ('USD' o 'Bs'). */
+  moneda?: string | null;
   /** Pago a externo (opcional): datos de la persona externa que pagó. */
   pagoExterno?: PagoExternoInput | null;
   actor: string;
@@ -204,6 +208,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       solicitante: input.solicitante?.trim() || null,
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
       nota: input.nota?.trim() || null,
+      moneda: input.moneda === 'Bs' ? 'Bs' : 'USD',
       ...columnasPagoExterno(input.pagoExterno),
       estado: 'en_proceso',
       actor: input.actor,
@@ -326,6 +331,8 @@ export interface EnviarServicioAPagarInput {
   servicio: ServicioDirecto;
   /** Servicios con su monto ya cargado por el analista. */
   items: ServicioDirectoItem[];
+  /** Moneda del servicio ('USD' o 'Bs'). Si viene, se actualiza. */
+  moneda?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -347,6 +354,7 @@ export async function enviarServicioAPagar(input: EnviarServicioAPagarInput): Pr
     .from('servicios_directos')
     .update({
       estado: 'por_pagar', gasto: total, items,
+      ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', servicio.id);
@@ -462,6 +470,8 @@ export interface EditarServicioDirectoInput {
   unidadSolicitante?: string | null;
   /** Nota / motivo libre. */
   nota?: string | null;
+  /** Moneda del servicio ('USD' o 'Bs'). */
+  moneda?: string | null;
   /** Pago a externo (opcional): datos de la persona externa que pagó. */
   pagoExterno?: PagoExternoInput | null;
   actor: string;
@@ -508,6 +518,7 @@ export async function editarServicioDirectoEnProceso(input: EditarServicioDirect
       solicitante: input.solicitante?.trim() || null,
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
       ...(input.nota !== undefined ? { nota: input.nota?.trim() || null } : {}),
+      ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
       ...(input.pagoExterno !== undefined ? columnasPagoExterno(input.pagoExterno) : {}),
       updated_at: new Date().toISOString(),
     })
