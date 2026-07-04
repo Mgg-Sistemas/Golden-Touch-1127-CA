@@ -722,7 +722,7 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '180px 1fr',
+        gridTemplateColumns: 'minmax(0, 160px) minmax(0, 1fr)',
         gap: '.75rem',
         alignItems: 'center',
         padding: '.4rem 0',

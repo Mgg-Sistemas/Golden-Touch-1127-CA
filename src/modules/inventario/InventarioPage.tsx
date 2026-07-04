@@ -31,6 +31,7 @@ import {
   type ProductoInput,
 } from './inventario.repository';
 import { contarProduccionEnProceso } from '@/modules/produccion/produccion.repository';
+import { resumenContratos } from '@/modules/produccion/contratos.repository';
 import { listComprasPendientesRecepcion, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import {
@@ -156,6 +157,9 @@ export function InventarioPage() {
   const [consumo, setConsumo] = useState<Map<string, ConsumoProducto>>(new Map());
   const [detalleLayout, setDetalleLayout] = useState<'kanban' | 'lista'>('lista');
   const [enProduccion, setEnProduccion] = useState(0);
+  // Casiterita que YA entró al inventario por contratos FINALIZADOS (cerrados) + su conteo.
+  const [kgCasiterita, setKgCasiterita] = useState(0);
+  const [contratosCerrados, setContratosCerrados] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ui, setUi] = useState<UiState>(INITIAL_UI);
@@ -196,7 +200,7 @@ export function InventarioPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prods, ords, pendientes, porMarcar, alms, exs, nEnProduccion, cRecep] = await Promise.all([
+      const [prods, ords, pendientes, porMarcar, alms, exs, nEnProduccion, cRecep, resContratos] = await Promise.all([
         listProductos(),
         listRecepcionesFinalizadas().catch(() => [] as Orden[]),
         listRecepcionesPorMarcar().catch(() => [] as Orden[]),
@@ -205,6 +209,7 @@ export function InventarioPage() {
         listExistencias().catch(() => [] as Existencia[]),
         contarProduccionEnProceso().catch(() => 0),
         listComprasPendientesRecepcion().catch(() => [] as CompraDirecta[]),
+        resumenContratos().catch(() => null),
       ]);
       setProductos(prods);
       setRecepciones(ords);
@@ -214,6 +219,8 @@ export function InventarioPage() {
       setAlmacenes(alms);
       setExistencias(exs);
       setEnProduccion(nEnProduccion);
+      setKgCasiterita(resContratos?.kgCasiteritaCerrados ?? 0);
+      setContratosCerrados(resContratos?.cerrados ?? 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo cargar el inventario.');
     } finally {
@@ -603,13 +610,15 @@ export function InventarioPage() {
           className="kpi"
           href="#/app/produccion"
           style={{ cursor: 'pointer', textDecoration: 'none', color: 'inherit' }}
-          title="Ver órdenes de producción en curso"
+          title="Casiterita ingresada al inventario por contratos finalizados (cerrados). Clic para ver Producción."
         >
           <div className="icon">🔥</div>
-          <div className="label">En producción</div>
-          <div className="value">{num(enProduccion)}</div>
-          <div className={enProduccion > 0 ? 'delta down' : 'delta'}>
-            {enProduccion > 0 ? `${num(enProduccion)} en curso` : 'ninguno en proceso'}
+          <div className="label">Casiterita producida</div>
+          <div className="value">{num(kgCasiterita)} <span style={{ fontSize: '.6em', fontWeight: 600 }}>Kg</span></div>
+          <div className="delta">
+            {contratosCerrados > 0
+              ? `ingresada · ${num(contratosCerrados)} contrato${contratosCerrados !== 1 ? 's' : ''} finalizado${contratosCerrados !== 1 ? 's' : ''}${enProduccion > 0 ? ` · ${num(enProduccion)} en producción` : ''}`
+              : (enProduccion > 0 ? `${num(enProduccion)} en producción` : 'sin contratos finalizados')}
           </div>
         </a>
       </div>

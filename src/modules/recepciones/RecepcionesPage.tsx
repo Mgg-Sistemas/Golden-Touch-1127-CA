@@ -538,8 +538,8 @@ export function RecepcionesPage() {
                 </div>
                 {barraAnalisis()}
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 360px', minWidth: 300 }}>{colIzq.map(mineralBlock)}</div>
-                  <div style={{ flex: '1 1 360px', minWidth: 300 }}>{colDer.map(mineralBlock)}</div>
+                  <div style={{ flex: '1 1 360px', minWidth: 0 }}>{colIzq.map(mineralBlock)}</div>
+                  <div style={{ flex: '1 1 360px', minWidth: 0 }}>{colDer.map(mineralBlock)}</div>
                 </div>
               </div>
             )}
@@ -554,7 +554,7 @@ export function RecepcionesPage() {
           {/* ───────── Humedad: Provisional y Final (una al lado de la otra) ───────── */}
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '1.25rem', alignItems: 'flex-start' }}>
             {/* Humedad Provisional */}
-            <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 460px', minWidth: 360 }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 460px', minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
                 <span style={{ fontWeight: 700, letterSpacing: '.03em' }}>Humedad Provisional</span>
                 {canWrite && (
@@ -618,7 +618,7 @@ export function RecepcionesPage() {
             </div>
 
             {/* Humedad Final — automática, una fila por procedencia (desde los pesos) */}
-            <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 380px', minWidth: 320 }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 380px', minWidth: 0 }}>
               <div style={{ fontWeight: 800, letterSpacing: '.04em', textAlign: 'center', padding: '.5rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>Humedad Final</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
                 <span style={{ fontWeight: 800 }}>PESO (KG) <span className="muted" style={{ fontWeight: 400 }}>(TOTAL NETO SECO)</span></span>
@@ -1073,7 +1073,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   /** Renderiza una tabla (húmedos o secos). `campo` = columna de peso editada. */
   function tabla(titulo: string, campo: 'peso_humedo' | 'peso_seco', formula: number, neto: number) {
     return (
-      <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 360px', minWidth: 320 }}>
+      <div className="card" style={{ padding: 0, overflow: 'hidden', flex: '1 1 360px', minWidth: 0 }}>
         <div style={{ fontWeight: 800, letterSpacing: '.04em', textAlign: 'center', padding: '.5rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>{titulo}</div>
         <div className="table-wrap" style={{ overflowX: 'auto' }}>
           <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
@@ -1404,7 +1404,7 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
 
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
             {/* Centros de acopio */}
-            <div className="card" style={{ flex: '1 1 380px', minWidth: 320, padding: 0, overflow: 'hidden' }}>
+            <div className="card" style={{ flex: '1 1 380px', minWidth: 0, padding: 0, overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.5rem .75rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
                 <strong style={{ fontSize: '.85rem', letterSpacing: '.03em' }}>CENTROS DE ACOPIO</strong>
                 {canWrite && <button className="btn btn-sm btn-ghost" onClick={addCentro}>＋ Añadir centro</button>}
@@ -1466,7 +1466,7 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
             </div>
 
             {/* Resumen */}
-            <div className="card" style={{ flex: '1 1 380px', minWidth: 320, padding: 0, overflow: 'hidden' }}>
+            <div className="card" style={{ flex: '1 1 380px', minWidth: 0, padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: '.5rem .75rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}><strong style={{ fontSize: '.85rem', letterSpacing: '.03em' }}>RESUMEN</strong></div>
               <table className="table" style={{ fontSize: '.85rem' }}>
                 <tbody>

@@ -73,7 +73,14 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* Red de seguridad anti-scroll horizontal en móvil: ningún elemento (incluso fixed/
+     absolute como toasts o el drawer) debe ensanchar la página. El scroll de tablas
+     vive dentro de .table-wrap. */
+  overflow-x: hidden;
 }
+
+/* Las imágenes de contenido nunca desbordan su contenedor en móvil. */
+img { max-width: 100%; height: auto; }
 
 body {
   min-height: 100vh;
@@ -337,6 +344,8 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   box-shadow: var(--shadow-md);
   font-size: .9rem;
   min-width: 240px;
+  /* En móvil no debe empujar el ancho de la página con textos largos. */
+  max-width: calc(100vw - 32px);
   animation: slideIn .25s ease;
 }
 .toast.success { border-left-color: var(--success); }

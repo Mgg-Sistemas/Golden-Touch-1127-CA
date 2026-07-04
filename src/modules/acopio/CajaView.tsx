@@ -103,10 +103,12 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
           {resumen.porCosto.length > 0 && (
             <details style={{ marginTop: '.5rem' }}>
               <summary className="muted" style={{ cursor: 'pointer', fontSize: '.78rem' }}>Por clasificación de costo (2 niveles)</summary>
-              <table className="table" style={{ fontSize: '.78rem', marginTop: '.4rem' }}>
-                <thead><tr><th>Clasificación</th><th>Sub-clasificación</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>%</th></tr></thead>
-                <tbody>{resumen.porCosto.map((c, i) => <tr key={i}><td>{c.clasificacion}</td><td>{c.subclasificacion || '—'}</td><td className="mono" style={{ textAlign: 'right' }}>{money(c.monto)}</td><td className="mono" style={{ textAlign: 'right' }}>{c.pct.toFixed(1)}%</td></tr>)}</tbody>
-              </table>
+              <div className="table-wrap">
+                <table className="table" style={{ fontSize: '.78rem', marginTop: '.4rem' }}>
+                  <thead><tr><th>Clasificación</th><th>Sub-clasificación</th><th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>%</th></tr></thead>
+                  <tbody>{resumen.porCosto.map((c, i) => <tr key={i}><td>{c.clasificacion}</td><td>{c.subclasificacion || '—'}</td><td className="mono" style={{ textAlign: 'right' }}>{money(c.monto)}</td><td className="mono" style={{ textAlign: 'right' }}>{c.pct.toFixed(1)}%</td></tr>)}</tbody>
+                </table>
+              </div>
             </details>
           )}
         </div>

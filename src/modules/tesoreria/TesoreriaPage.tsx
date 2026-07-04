@@ -726,7 +726,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
     if (servicioDir) return {
       tipo: 'servicio', codigo: servicioDir.codigo, proveedor: servicioDir.proveedor_nombre,
       equipo: servicioDir.equipo_nombre, solicitante: servicioDir.solicitante ? `${servicioDir.solicitante}${servicioDir.unidad_solicitante ? ` · ${servicioDir.unidad_solicitante}` : ''}` : null,
-      requerimiento: servicioDir.descripcion?.trim() || null, moneda: 'USD', gasto: servicioDir.gasto,
+      requerimiento: [servicioDir.descripcion?.trim(), servicioDir.nota?.trim()].filter(Boolean).join(' · ') || null, moneda: 'USD', gasto: servicioDir.gasto,
       pagoExterno: textoPagoExterno(servicioDir),
       items: servicioDir.items.map((it) => ({ nombre: it.descripcion, extra: it.equipo_nombre, cantidad: Number(it.cantidad) || 0, gasto: it.gasto ?? null })),
     };
@@ -1006,6 +1006,11 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
               {servicioDir.descripcion?.trim() && (
                 <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
                   <span className="muted">Requerimiento:</span> <span style={{ whiteSpace: 'pre-wrap' }}>{servicioDir.descripcion}</span>
+                </div>
+              )}
+              {servicioDir.nota?.trim() && (
+                <div style={{ marginTop: '.35rem', fontSize: '.84rem' }}>
+                  <span className="muted">Nota / motivo:</span> <span style={{ whiteSpace: 'pre-wrap' }}>{servicioDir.nota}</span>
                 </div>
               )}
               {servicioDir.pago_externo && (

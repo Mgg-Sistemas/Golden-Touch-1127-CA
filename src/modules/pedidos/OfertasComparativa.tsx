@@ -330,6 +330,7 @@ export function OfertasComparativa({
                             const difTotal = s.oferta.precio_total - totalUsd;
                             const pctTotal = s.oferta.precio_total > 0 ? (difTotal / s.oferta.precio_total) * 100 : 0;
                             return (
+                          <div className="table-wrap">
                           <table className="table" style={{ fontSize: '.8rem' }}>
                             <thead>
                               <tr>
@@ -385,6 +386,7 @@ export function OfertasComparativa({
                               </tr>
                             </tfoot>
                           </table>
+                          </div>
                             );
                           })()}
                           {puedeEditarOfertas && s.oferta.estado === 'pendiente' && (

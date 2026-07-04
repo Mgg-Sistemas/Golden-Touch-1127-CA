@@ -289,6 +289,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {fila('Creado', dateTime(servicio.created_at))}
       {servicio.estado === 'finalizada' && fila('Pagado', servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—')}
       {fila('Monto total', servicio.gasto != null ? money(servicio.gasto) : '—')}
+      {servicio.nota && fila('Nota / motivo', <span style={{ whiteSpace: 'pre-wrap' }}>{servicio.nota}</span>)}
       {servicio.pago_externo && fila('Pago a externo',
         <span style={{ color: 'var(--warning)' }}>
           💵 Pagó: <strong>{servicio.pago_externo_nombre || '—'}</strong>
@@ -383,6 +384,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   const [seq, setSeq] = useState((editServicio?.items.length ?? 1) + 1);
   const [solicitante, setSolicitante] = useState(editServicio?.solicitante ?? '');
   const [unidadSolicitante, setUnidadSolicitante] = useState(editServicio?.unidad_solicitante ?? '');
+  // Nota / motivo libre (se muestra en el detalle y en el PDF).
+  const [nota, setNota] = useState(editServicio?.nota ?? '');
   // Pago a externo: una persona externa pagó de su bolsillo y debe reintegrársele.
   const [pagoExterno, setPagoExterno] = useState<PagoExternoState>(() => pagoExternoDesdeRow(editServicio) ?? PAGO_EXTERNO_VACIO);
   // Catálogo de unidades solicitantes (mismo que el servicio/OP normal, sincronizado).
@@ -471,12 +474,12 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       }
       const pe = pagoExternoAInput(pagoExterno);
       if (esEdicion && editServicio) {
-        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, pagoExterno: pe, actor, actorName });
+        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, pagoExterno: pe, actor, actorName });
         for (const f of files) await agregarAdjuntoDirecto('servicio', edit.id, f, actor);
         notify(`Servicio directo ${edit.codigo ?? ''} actualizado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       } else {
         const creado = await crearServicioDirecto({
-          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, pagoExterno: pe, actor, actorName,
+          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, pagoExterno: pe, actor, actorName,
         });
         for (const f of files) await agregarAdjuntoDirecto('servicio', creado.id, f, actor);
         notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
@@ -649,6 +652,12 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
           <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
           {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
           {esEdicion && editServicio && <small className="muted" style={{ display: 'block' }}>Los adjuntos se agregan a la lista del servicio (podés verlos/borrarlos en el detalle).</small>}
+        </div>
+
+        <div className="form-row" style={{ marginTop: '.75rem' }}>
+          <label>Nota / motivo <span className="muted">(opcional)</span></label>
+          <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
+            placeholder="Motivo u observación de este servicio (se muestra en el detalle y el PDF)…" />
         </div>
 
         <PagoExternoFields value={pagoExterno} onChange={setPagoExterno} />

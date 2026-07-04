@@ -286,6 +286,10 @@ export interface ResumenContratos {
   totalContratos: number;
   kgCasiterita: number;
   kgCasiteritaActivos: number;
+  /** Contratos FINALIZADOS (cerrados): son los que ingresaron su casiterita al inventario. */
+  cerrados: number;
+  /** KG de casiterita que YA entraron al inventario (solo contratos cerrados). */
+  kgCasiteritaCerrados: number;
 }
 
 export async function resumenContratos(): Promise<ResumenContratos> {
@@ -299,8 +303,10 @@ export async function resumenContratos(): Promise<ResumenContratos> {
     a.totalContratos += 1;
     a.kgCasiterita += kg;
     if (r.estado === 'activo') { a.activos += 1; a.kgCasiteritaActivos += kg; }
+    // «cerrado» = finalizado: su casiterita ya entró como stock del producto CASITERITA.
+    if (r.estado === 'cerrado') { a.cerrados += 1; a.kgCasiteritaCerrados += kg; }
     return a;
-  }, { activos: 0, totalContratos: 0, kgCasiterita: 0, kgCasiteritaActivos: 0 });
+  }, { activos: 0, totalContratos: 0, kgCasiterita: 0, kgCasiteritaActivos: 0, cerrados: 0, kgCasiteritaCerrados: 0 });
 }
 
 /* ───────────── Catálogo del acopio (lugares de extracción, …) ───────────── */
