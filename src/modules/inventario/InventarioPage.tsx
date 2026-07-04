@@ -91,6 +91,14 @@ const INITIAL_UI: UiState = {
   filterAlmacen: '',
 };
 
+/** ¿El usuario tiene algún filtro que ACOTA los resultados (búsqueda, categoría, clase,
+ *  stock, fundición o un estado distinto de «Activos»)? Sirve para avisar «(filtrado)»
+ *  cuando el conteo/valor mostrado no es el total del almacén. */
+function hayFiltrosActivos(ui: UiState): boolean {
+  return !!(ui.filterText.trim() || ui.filterCat || ui.filterClass || ui.filterStock
+    || ui.filterFundicion || (ui.filterEstado && ui.filterEstado !== 'activo'));
+}
+
 /** Predicado de filtros compartido por inventario general y el detalle de almacén. */
 function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   const q = ui.filterText.trim().toLowerCase();
@@ -644,7 +652,10 @@ export function InventarioPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
               <button className="btn btn-ghost" onClick={() => setAlmacenSel(null)}>← Volver a almacenes</button>
               <h2 style={{ margin: 0 }}>▣ {almacenSel}</h2>
-              <span className="muted mono">{money(valoresAlm[almacenSel]?.valor ?? 0)} · {num(almacenRows.length)} producto(s)</span>
+              {/* Valor y conteo COINCIDEN con lo que se ve (respetan búsqueda/filtros): si el
+                  filtro deja 0 productos, el valor también es 0 (antes mostraba el total del
+                  almacén con 0 productos y confundía). */}
+              <span className="muted mono">{money(almacenRows.reduce((a, r) => a + (Number(r.stock) || 0) * (Number(r.precio) || 0), 0))} · {num(almacenRows.length)} producto(s){hayFiltrosActivos(ui) ? ' (filtrado)' : ''}</span>
               <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
                 <button className="btn btn-primary btn-sm" onClick={() => setConsumoAlmacen(almacenSel)} title="Gráfica de consumo por producto de este almacén">📊 Consumo</button>
                 <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}

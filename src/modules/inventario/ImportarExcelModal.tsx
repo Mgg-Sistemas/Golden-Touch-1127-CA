@@ -111,18 +111,18 @@ export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
           }
         />
         <EstadoCard icono="∑" color="#64748b" titulo="Total filas" subtitulo={String(analisis.total)} />
-        <EstadoCard icono="✓" color="#10b981" titulo="Válidas" subtitulo={String(analisis.validas)} />
+        <EstadoCard icono="✓" color="#10b981" titulo="Nuevas" subtitulo={String(analisis.validas)} />
+        <EstadoCard icono="♻" color="#3b82f6" titulo="Ya en inventario" subtitulo={`${analisis.yaEnInventario} (se actualizan)`} />
         <EstadoCard icono="⚠" color="#f59e0b" titulo="Duplicadas" subtitulo={String(analisis.duplicadas)} />
         <EstadoCard icono="❌" color="#ef4444" titulo="Con error" subtitulo={String(analisis.conError)} />
       </div>
 
       {confirmando && necesitaConfirmar && (
         <div className="card" style={{ borderLeft: '3px solid #f59e0b', padding: '.85rem 1rem', marginBottom: '1rem' }}>
-          <strong>⚠ Existen datos duplicados</strong>
+          <strong>⚠ Existen materiales que ya están en el inventario</strong>
           <p style={{ margin: '.35rem 0 0' }}>
-            {analisis.duplicadas} fila(s) coinciden por SKU o nombre con otras del archivo o con productos
-            existentes en el sistema. ¿Está seguro que desea subir el archivo? Los productos
-            existentes se actualizarán con los nuevos valores.
+            {analisis.yaEnInventario > 0 && <><strong>{analisis.yaEnInventario}</strong> material(es) del archivo <strong>ya existen en el inventario</strong> (se detectan por nombre —ignorando mayúsculas, acentos y espacios— o por SKU): NO se crean de nuevo, se <strong>ACTUALIZAN</strong> con los valores del Excel. </>}
+            {analisis.duplicadas} fila(s) en total coinciden (por archivo o por sistema). ¿Deseás continuar?
           </p>
         </div>
       )}
