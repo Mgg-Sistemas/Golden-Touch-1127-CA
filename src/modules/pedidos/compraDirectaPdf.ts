@@ -44,6 +44,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     ['Fecha de compra', compra.finalizada_at ? fmt.dateTime(compra.finalizada_at) : '—'],
     ['Adjunto', compra.adjunto_nombre || '—'],
     ...(compra.nota ? [['Nota', compra.nota] as [string, string]] : []),
+    ...(compra.pago_externo ? [['Pago a externo (reintegrar)', [compra.pago_externo_nombre || '—', compra.pago_externo_cedula, compra.pago_externo_telefono ? `Tel: ${compra.pago_externo_telefono}` : null, compra.pago_externo_nota].filter(Boolean).join(' · ')] as [string, string]] : []),
   ];
   autoTable(doc, {
     startY: y, body: ficha, theme: 'plain',

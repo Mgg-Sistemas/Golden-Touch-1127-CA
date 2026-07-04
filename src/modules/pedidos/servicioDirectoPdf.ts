@@ -38,6 +38,7 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     ['Fecha de creación', fmt.dateTime(servicio.created_at)],
     ['Fecha de pago', servicio.finalizada_at ? fmt.dateTime(servicio.finalizada_at) : '—'],
     ['Adjunto (factura)', servicio.adjunto_nombre || '—'],
+    ...(servicio.pago_externo ? [['Pago a externo (reintegrar)', [servicio.pago_externo_nombre || '—', servicio.pago_externo_cedula, servicio.pago_externo_telefono ? `Tel: ${servicio.pago_externo_telefono}` : null, servicio.pago_externo_nota].filter(Boolean).join(' · ')] as [string, string]] : []),
   ];
   autoTable(doc, {
     startY: y, body: ficha, theme: 'plain',

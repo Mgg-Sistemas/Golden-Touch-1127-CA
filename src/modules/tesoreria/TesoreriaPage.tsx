@@ -707,9 +707,19 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
   }
   // Arma el detalle de compra/servicio directo para el PDF (qué se compró + requerimiento).
   function directoDetallePdf(): DirectoDetalle | null {
+    // Texto del pago a externo (persona que pagó y a quien hay que reintegrar), para el PDF.
+    const textoPagoExterno = (d: {
+      pago_externo?: boolean | null; pago_externo_nombre?: string | null; pago_externo_cedula?: string | null;
+      pago_externo_telefono?: string | null; pago_externo_nota?: string | null;
+    }): string | null => {
+      if (!d.pago_externo) return null;
+      return [d.pago_externo_nombre || '—', d.pago_externo_cedula, d.pago_externo_telefono ? `Tel: ${d.pago_externo_telefono}` : null, d.pago_externo_nota]
+        .filter(Boolean).join(' · ');
+    };
     if (compraDir) return {
       tipo: 'compra', codigo: compraDir.codigo, proveedor: compraDir.proveedor_nombre,
       almacen: compraDir.almacen, requerimiento: compraDir.nota?.trim() || null,
+      pagoExterno: textoPagoExterno(compraDir),
       moneda: compraDir.moneda === 'Bs' ? 'Bs' : 'USD', gasto: compraDir.gasto,
       items: compraDir.items.map((it) => ({ nombre: it.producto_nombre, extra: it.producto_sku, cantidad: Number(it.cantidad) || 0, gasto: it.gasto ?? null })),
     };
@@ -717,6 +727,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
       tipo: 'servicio', codigo: servicioDir.codigo, proveedor: servicioDir.proveedor_nombre,
       equipo: servicioDir.equipo_nombre, solicitante: servicioDir.solicitante ? `${servicioDir.solicitante}${servicioDir.unidad_solicitante ? ` · ${servicioDir.unidad_solicitante}` : ''}` : null,
       requerimiento: servicioDir.descripcion?.trim() || null, moneda: 'USD', gasto: servicioDir.gasto,
+      pagoExterno: textoPagoExterno(servicioDir),
       items: servicioDir.items.map((it) => ({ nombre: it.descripcion, extra: it.equipo_nombre, cantidad: Number(it.cantidad) || 0, gasto: it.gasto ?? null })),
     };
     return null;
@@ -945,6 +956,15 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
                     <span className="muted">Requerimiento / nota:</span> <span style={{ whiteSpace: 'pre-wrap' }}>{compraDir.nota}</span>
                   </div>
                 )}
+                {compraDir.pago_externo && (
+                  <div className="card" style={{ marginTop: '.5rem', borderColor: 'var(--warning)', background: 'var(--bg-2)', padding: '.55rem .7rem', fontSize: '.84rem' }}>
+                    💵 <strong>Pago a externo · reintegrar</strong> — lo pagó otra persona:{' '}
+                    <strong>{compraDir.pago_externo_nombre || '—'}</strong>
+                    {compraDir.pago_externo_cedula ? ` · ${compraDir.pago_externo_cedula}` : ''}
+                    {compraDir.pago_externo_telefono ? ` · 📞 ${compraDir.pago_externo_telefono}` : ''}
+                    {compraDir.pago_externo_nota ? ` · ${compraDir.pago_externo_nota}` : ''}
+                  </div>
+                )}
                 <div className="table-wrap" style={{ marginTop: '.6rem' }}>
                   <table className="table">
                     <thead><tr><th>#</th><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
@@ -986,6 +1006,15 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
               {servicioDir.descripcion?.trim() && (
                 <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
                   <span className="muted">Requerimiento:</span> <span style={{ whiteSpace: 'pre-wrap' }}>{servicioDir.descripcion}</span>
+                </div>
+              )}
+              {servicioDir.pago_externo && (
+                <div className="card" style={{ marginTop: '.5rem', borderColor: 'var(--warning)', background: 'var(--bg-2)', padding: '.55rem .7rem', fontSize: '.84rem' }}>
+                  💵 <strong>Pago a externo · reintegrar</strong> — lo pagó otra persona:{' '}
+                  <strong>{servicioDir.pago_externo_nombre || '—'}</strong>
+                  {servicioDir.pago_externo_cedula ? ` · ${servicioDir.pago_externo_cedula}` : ''}
+                  {servicioDir.pago_externo_telefono ? ` · 📞 ${servicioDir.pago_externo_telefono}` : ''}
+                  {servicioDir.pago_externo_nota ? ` · ${servicioDir.pago_externo_nota}` : ''}
                 </div>
               )}
               <div className="table-wrap" style={{ marginTop: '.6rem' }}>

@@ -28,6 +28,7 @@ import { descargarServicioDirectoPdf } from './servicioDirectoPdf';
 import { FacturasDirectas } from './FacturasDirectas';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
+import { PagoExternoFields, PAGO_EXTERNO_VACIO, pagoExternoDesdeRow, pagoExternoAInput, type PagoExternoState } from './PagoExternoFields';
 
 type Vista = 'kanban' | 'lista';
 
@@ -288,6 +289,14 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {fila('Creado', dateTime(servicio.created_at))}
       {servicio.estado === 'finalizada' && fila('Pagado', servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—')}
       {fila('Monto total', servicio.gasto != null ? money(servicio.gasto) : '—')}
+      {servicio.pago_externo && fila('Pago a externo',
+        <span style={{ color: 'var(--warning)' }}>
+          💵 Pagó: <strong>{servicio.pago_externo_nombre || '—'}</strong>
+          {servicio.pago_externo_cedula ? ` · ${servicio.pago_externo_cedula}` : ''}
+          {servicio.pago_externo_telefono ? ` · 📞 ${servicio.pago_externo_telefono}` : ''}
+          {servicio.pago_externo_nota ? ` · ${servicio.pago_externo_nota}` : ''}
+          <span className="muted" style={{ fontSize: '.75rem' }}> (reintegrar)</span>
+        </span>)}
       {servicio.adjunto_path && fila('Factura', <AdjuntoLink servicio={servicio} />)}
 
       <div className="table-wrap" style={{ marginTop: '.6rem' }}>
@@ -374,6 +383,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   const [seq, setSeq] = useState((editServicio?.items.length ?? 1) + 1);
   const [solicitante, setSolicitante] = useState(editServicio?.solicitante ?? '');
   const [unidadSolicitante, setUnidadSolicitante] = useState(editServicio?.unidad_solicitante ?? '');
+  // Pago a externo: una persona externa pagó de su bolsillo y debe reintegrársele.
+  const [pagoExterno, setPagoExterno] = useState<PagoExternoState>(() => pagoExternoDesdeRow(editServicio) ?? PAGO_EXTERNO_VACIO);
   // Catálogo de unidades solicitantes (mismo que el servicio/OP normal, sincronizado).
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   useEffect(() => { listActivosPedido('unidad_solicitante').then(setUnidadOpciones).catch(() => setUnidadOpciones([])); }, []);
@@ -458,13 +469,14 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       if (uniClean && !unidadOpciones.some((u) => u.toLowerCase() === uniClean.toLowerCase())) {
         await addCatalogoPedido('unidad_solicitante', uniClean).catch(() => {});
       }
+      const pe = pagoExternoAInput(pagoExterno);
       if (esEdicion && editServicio) {
-        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, actor, actorName });
+        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, pagoExterno: pe, actor, actorName });
         for (const f of files) await agregarAdjuntoDirecto('servicio', edit.id, f, actor);
         notify(`Servicio directo ${edit.codigo ?? ''} actualizado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       } else {
         const creado = await crearServicioDirecto({
-          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, actor, actorName,
+          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, pagoExterno: pe, actor, actorName,
         });
         for (const f of files) await agregarAdjuntoDirecto('servicio', creado.id, f, actor);
         notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
@@ -638,6 +650,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
           {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
           {esEdicion && editServicio && <small className="muted" style={{ display: 'block' }}>Los adjuntos se agregan a la lista del servicio (podés verlos/borrarlos en el detalle).</small>}
         </div>
+
+        <PagoExternoFields value={pagoExterno} onChange={setPagoExterno} />
 
         <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>En este método no se cargan montos al crear. La factura, el monto y la caja se indican al finalizar.</p>
       </form>

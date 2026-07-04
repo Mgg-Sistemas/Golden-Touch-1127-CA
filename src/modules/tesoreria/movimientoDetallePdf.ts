@@ -39,6 +39,8 @@ export interface DirectoDetalle {
   equipo?: string | null;
   solicitante?: string | null;
   requerimiento?: string | null;
+  /** Pago a externo: si otra persona lo pagó y debe reintegrársele (texto ya armado). */
+  pagoExterno?: string | null;
   moneda: string; // 'USD' | 'Bs'
   gasto: number | null;
   items: Array<{ nombre: string; extra?: string | null; cantidad: number; gasto: number | null }>;
@@ -145,6 +147,7 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null, dir
     if (directo.equipo) filasDir.push(['Equipo', directo.equipo]);
     if (directo.solicitante) filasDir.push(['Solicitante', directo.solicitante]);
     if (directo.requerimiento) filasDir.push(['Requerimiento', directo.requerimiento]);
+    if (directo.pagoExterno) filasDir.push(['Pago a externo (reintegrar)', directo.pagoExterno]);
 
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
     const afterY = (doc.lastAutoTable?.finalY ?? y) + 18;
