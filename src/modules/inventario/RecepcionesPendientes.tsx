@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
-import { date, dateTime, money, num } from '@/shared/lib/format';
+import { date, dateTime, money, num, montoMoneda } from '@/shared/lib/format';
 import type { Almacen, ItemOrden, Orden } from '@/shared/lib/types';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { recepcionarCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { nombreCortoAlmacen } from './almacenes.repository';
 
 interface RecepcionesPendientesProps {
@@ -206,6 +207,18 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
   const items = Array.isArray(compra.items) ? compra.items : [];
   const totalUnidades = items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
 
+  // El inventario se valoriza en USD. Si la compra fue en Bs, al recibir el costo de cada
+  // material se convierte a $ con la tasa del día (Bs ÷ tasa BCV) redondeado a 2 decimales.
+  const esBs = compra.moneda === 'Bs';
+  const [tasa, setTasa] = useState(0);
+  useEffect(() => {
+    if (!esBs) return;
+    getTasaHoy().then((t) => { if (t.usd != null && Number(t.usd) > 0) setTasa(Number(t.usd)); }).catch(() => { /* sin tasa */ });
+  }, [esBs]);
+  // Costo en $ (lo que ENTRA al inventario) de un gasto de renglón en la moneda de la compra.
+  const gastoUsd = (gasto: number): number => (esBs ? (tasa > 0 ? Math.round((gasto / tasa) * 100) / 100 : 0) : gasto);
+  const totalUsd = items.reduce((a, it) => a + gastoUsd(Number(it.gasto) || 0), 0);
+
   async function handleConfirm() {
     setError(null);
     if (!almacen.trim()) { setError('Elegí el almacén/sub-almacén destino.'); return; }
@@ -245,6 +258,13 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
         <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.5rem' }}>Proveedor: <strong>{compra.proveedor_nombre}</strong></div>
       )}
 
+      {esBs && (
+        <div className="card" style={{ marginBottom: '.5rem', fontSize: '.8rem', borderColor: 'var(--warning)' }}>
+          Compra en <strong>Bs</strong>. El inventario se valoriza en <strong>$</strong>: cada material entra convertido a dólares con la
+          {tasa > 0 ? <> tasa del día <strong className="mono">Bs {tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / $</strong>.</> : <> <strong>tasa del día</strong> (no se pudo cargar ahora; se aplica al confirmar).</>}
+        </div>
+      )}
+
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
         <label>Almacén / sub-almacén destino *</label>
         <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
@@ -264,7 +284,7 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
 
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Costo</th></tr></thead>
+          <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Costo{esBs ? ' (Bs)' : ''}</th>{esBs && <th style={{ textAlign: 'right' }}>Entra ($)</th>}</tr></thead>
           <tbody>
             {items.map((it, i) => {
               const cant = Number(it.cantidad) || 0;
@@ -273,7 +293,8 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
                 <tr key={`${it.producto_id || it.producto_nombre}-${i}`}>
                   <td>{it.producto_nombre}{it.producto_sku && <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.producto_sku}</div>}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{money(gasto)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(gasto, compra.moneda)}</td>
+                  {esBs && <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)' }}>{tasa > 0 ? money(gastoUsd(gasto)) : '—'}</td>}
                 </tr>
               );
             })}
@@ -282,7 +303,8 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
             <tr style={{ fontWeight: 700 }}>
               <td>TOTAL</td>
               <td className="mono" style={{ textAlign: 'right' }}>{num(totalUnidades)}</td>
-              <td className="mono" style={{ textAlign: 'right' }}>{money(Number(compra.gasto) || 0)}</td>
+              <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(Number(compra.gasto) || 0, compra.moneda)}</td>
+              {esBs && <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)' }}>{tasa > 0 ? money(totalUsd) : '—'}</td>}
             </tr>
           </tfoot>
         </table>
@@ -405,7 +427,7 @@ export function RecepcionesPendientes({
                   </div>
                   <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
                     <div>{num(items.length)} material{items.length !== 1 ? 'es' : ''} · {num(totalUnidades)} und.</div>
-                    <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(Number(c.gasto) || 0)}</div>
+                    <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{montoMoneda(Number(c.gasto) || 0, c.moneda)}</div>
                   </div>
                   {c.proveedor_nombre && (
                     <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Proveedor: {c.proveedor_nombre}</div>

@@ -708,9 +708,20 @@ tr.row-selectable:active { transform: scale(0.998); }
 
   .page-head h1 { font-size: 1.2rem; }
   .page-head p { font-size: .8rem; }
-  /* Barra de acciones en filas ordenadas que llenan el ancho (no se desbordan). */
-  .page-head .actions { width: 100%; }
-  .page-head .actions .btn { font-size: .8rem; padding: .45rem .7rem; flex: 1 1 auto; }
+  /* Barra de acciones/pestañas: tira horizontal DESLIZABLE (no se encima ni se corta el
+     texto). Cada botón conserva su ancho natural; si no caben, se desliza en horizontal. */
+  .page-head .actions {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    padding-bottom: .3rem;
+  }
+  .page-head .actions .btn {
+    font-size: .8rem; padding: .45rem .7rem;
+    flex: 0 0 auto; white-space: nowrap;
+  }
 
   .kpi-grid { grid-template-columns: 1fr 1fr; gap: .65rem; }
   .kpi { padding: .85rem .95rem; }
@@ -748,8 +759,9 @@ tr.row-selectable:active { transform: scale(0.998); }
 @media (max-width: 480px) {
   :root { --sidebar-w: 56px; }
   .kpi-grid { grid-template-columns: 1fr; }
-  .page-head .actions { flex-wrap: wrap; }
-  .page-head .actions .btn { flex: 1; min-width: 0; }
+  /* Se mantiene la tira deslizable (no forzar columnas que encogen y enciman el texto). */
+  .page-head .actions { flex-wrap: nowrap; }
+  .page-head .actions .btn { flex: 0 0 auto; min-width: 0; }
   .kanban-col { flex: 0 0 86vw; }
 }
 
