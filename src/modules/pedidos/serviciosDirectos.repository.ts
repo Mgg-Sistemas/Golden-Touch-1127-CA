@@ -55,6 +55,8 @@ export interface ServicioDirecto {
   /** Quién solicitó el servicio y su unidad/área. */
   solicitante: string | null;
   unidad_solicitante: string | null;
+  /** Nota / motivo libre del analista (se muestra en el detalle y en el PDF). */
+  nota: string | null;
   /** Pago a externo: una persona externa pagó de su bolsillo y debe reintegrársele. */
   pago_externo?: boolean | null;
   pago_externo_nombre?: string | null;
@@ -85,7 +87,7 @@ export interface ServicioDirecto {
 function normalizar(row: Record<string, unknown>): ServicioDirecto {
   const r = row as unknown as ServicioDirecto;
   const items = Array.isArray(r.items) ? r.items : [];
-  return { ...r, items };
+  return { ...r, items, nota: r.nota ?? null };
 }
 
 /** Próximo correlativo SD-AAAA-#### (Servicio Directo), atómico en la base. */
@@ -153,6 +155,8 @@ export interface CrearServicioDirectoInput {
   proveedorNombre?: string | null;
   solicitante?: string | null;
   unidadSolicitante?: string | null;
+  /** Nota / motivo libre. */
+  nota?: string | null;
   /** Pago a externo (opcional): datos de la persona externa que pagó. */
   pagoExterno?: PagoExternoInput | null;
   actor: string;
@@ -199,6 +203,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       equipo_nombre: conEquipo?.equipoNombre ?? null,
       solicitante: input.solicitante?.trim() || null,
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
+      nota: input.nota?.trim() || null,
       ...columnasPagoExterno(input.pagoExterno),
       estado: 'en_proceso',
       actor: input.actor,
@@ -455,6 +460,8 @@ export interface EditarServicioDirectoInput {
   proveedorNombre?: string | null;
   solicitante?: string | null;
   unidadSolicitante?: string | null;
+  /** Nota / motivo libre. */
+  nota?: string | null;
   /** Pago a externo (opcional): datos de la persona externa que pagó. */
   pagoExterno?: PagoExternoInput | null;
   actor: string;
@@ -500,6 +507,7 @@ export async function editarServicioDirectoEnProceso(input: EditarServicioDirect
       equipo_nombre: conEquipo?.equipoNombre ?? null,
       solicitante: input.solicitante?.trim() || null,
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
+      ...(input.nota !== undefined ? { nota: input.nota?.trim() || null } : {}),
       ...(input.pagoExterno !== undefined ? columnasPagoExterno(input.pagoExterno) : {}),
       updated_at: new Date().toISOString(),
     })

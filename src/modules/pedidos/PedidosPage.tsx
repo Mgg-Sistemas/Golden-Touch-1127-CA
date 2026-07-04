@@ -2410,6 +2410,7 @@ function OrdenDetailModal({
         // En órdenes de SERVICIO se muestra la Categoría del servicio en vez de la Finalidad.
         const esServicioOrden = o.tipo === 'servicio' || o.items.some((it) => it.es_servicio);
         return (
+      <div className="items-table-wrap">
       <table className="items-table">
         <thead>
           <tr>
@@ -2494,6 +2495,7 @@ function OrdenDetailModal({
           </tfoot>
         )}
       </table>
+      </div>
         );
       })()}
 
@@ -3927,6 +3929,7 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
       {rows && rows.length > 0 && (
         <>
           <h4 style={{ marginTop: '1rem' }}>Resumen por proveedor</h4>
+          <div className="items-table-wrap">
           <table className="items-table">
             <thead>
               <tr>
@@ -3949,8 +3952,10 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
               ))}
             </tbody>
           </table>
+          </div>
 
           <h4 style={{ marginTop: '1.25rem' }}>Detalle</h4>
+          <div className="items-table-wrap">
           <table className="items-table">
             <thead>
               <tr>
@@ -3975,6 +3980,7 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </Modal>

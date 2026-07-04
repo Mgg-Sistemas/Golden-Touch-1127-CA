@@ -175,6 +175,7 @@ export function RepartirProveedoresModal({
       <div className="card" style={{ marginTop: '.8rem', background: 'var(--surface-2)' }}>
         <div className="card-title" style={{ fontSize: '.85rem' }}><span>Órdenes a generar ({grupos.length})</span></div>
         {!grupos.length ? <p className="muted" style={{ margin: 0 }}>Asigná ítems para ver las órdenes.</p> : (
+          <div className="table-wrap">
           <table className="table" style={{ fontSize: '.82rem' }}>
             <thead><tr><th>Proveedor</th><th className="num">Ítems</th><th className="num">Total (BCV)</th><th className="num">Total divisa</th></tr></thead>
             <tbody>
@@ -189,6 +190,7 @@ export function RepartirProveedoresModal({
             </tbody>
             <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={2} style={{ textAlign: 'right' }}>Total</td><td className="num mono">{money(totalGeneral)}</td><td></td></tr></tfoot>
           </table>
+          </div>
         )}
       </div>
       {pendientes.length > 0 && (
