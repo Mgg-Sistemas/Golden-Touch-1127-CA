@@ -18,6 +18,7 @@ import {
   type MovResumenRow,
   type NuevoProductoRow,
 } from './resumenInventario';
+import { TrazabilidadProductoModal } from './TrazabilidadProductoModal';
 
 type Bloque = 'nuevos' | 'entradas' | 'salidas' | 'traslados';
 
@@ -40,6 +41,7 @@ export function ResumenInventarioModal({ defaultEmail, onClose }: { defaultEmail
   const [busy, setBusy] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [emails, setEmails] = useState(defaultEmail);
+  const [trazaId, setTrazaId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -125,11 +127,11 @@ export function ResumenInventarioModal({ defaultEmail, onClose }: { defaultEmail
             <KpiCard titulo="Traslados" valor={num(resumen.traslados.count)} nota={money(resumen.traslados.valor)} activo={drill === 'traslados'} onClick={() => setDrill((d) => d === 'traslados' ? null : 'traslados')} />
           </div>
 
-          {/* Detalle del bloque seleccionado */}
-          {drill === 'nuevos' && <NuevosTabla filas={resumen.nuevos.filas} />}
-          {drill === 'entradas' && <MovTabla titulo="Entradas" filas={resumen.entradas.filas} />}
-          {drill === 'salidas' && <MovTabla titulo="Salidas" filas={resumen.salidas.filas} />}
-          {drill === 'traslados' && <MovTabla titulo="Traslados" filas={resumen.traslados.filas} />}
+          {/* Detalle del bloque seleccionado (tocá una fila = trazabilidad del producto) */}
+          {drill === 'nuevos' && <NuevosTabla filas={resumen.nuevos.filas} onProducto={setTrazaId} />}
+          {drill === 'entradas' && <MovTabla titulo="Entradas" filas={resumen.entradas.filas} onProducto={setTrazaId} />}
+          {drill === 'salidas' && <MovTabla titulo="Salidas" filas={resumen.salidas.filas} onProducto={setTrazaId} />}
+          {drill === 'traslados' && <MovTabla titulo="Traslados" filas={resumen.traslados.filas} onProducto={setTrazaId} />}
 
           {/* Total por almacenes y sub-almacenes */}
           <div className="card" style={{ padding: '.6rem', marginTop: '.4rem' }}>
@@ -163,6 +165,8 @@ export function ResumenInventarioModal({ defaultEmail, onClose }: { defaultEmail
           </div>
         </>
       )}
+
+      {trazaId && <TrazabilidadProductoModal productoId={trazaId} onClose={() => setTrazaId(null)} />}
     </Modal>
   );
 }
@@ -189,11 +193,11 @@ function KpiCard({ titulo, valor, nota, destacado, activo, onClick }: {
   );
 }
 
-function MovTabla({ titulo, filas }: { titulo: string; filas: MovResumenRow[] }) {
+function MovTabla({ titulo, filas, onProducto }: { titulo: string; filas: MovResumenRow[]; onProducto: (id: string) => void }) {
   const total = filas.reduce((a, f) => a + f.valor, 0);
   return (
     <div className="card" style={{ padding: '.6rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)' }}>
-      <div className="card-title" style={{ marginBottom: '.4rem' }}><span>{titulo} · {filas.length} · {money(total)}</span></div>
+      <div className="card-title" style={{ marginBottom: '.4rem' }}><span>{titulo} · {filas.length} · {money(total)}</span><span className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>Tocá una fila para ver su trazabilidad</span></div>
       <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.78rem' }}>
           <thead>
@@ -201,10 +205,10 @@ function MovTabla({ titulo, filas }: { titulo: string; filas: MovResumenRow[] })
           </thead>
           <tbody>
             {filas.map((f) => (
-              <tr key={f.id}>
+              <tr key={f.id} onClick={() => f.producto_id && onProducto(f.producto_id)} style={{ cursor: f.producto_id ? 'pointer' : 'default' }} title={f.producto_id ? 'Ver trazabilidad del producto' : undefined}>
                 <td className="muted">{dateTime(f.at)}</td>
                 <td className="mono">{f.sku}</td>
-                <td>{f.nombre}</td>
+                <td>🔎 {f.nombre}</td>
                 <td>{f.almacen}</td>
                 <td className="muted">{f.destino || f.detalle || '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(f.cantidad)}</td>
@@ -219,10 +223,10 @@ function MovTabla({ titulo, filas }: { titulo: string; filas: MovResumenRow[] })
   );
 }
 
-function NuevosTabla({ filas }: { filas: NuevoProductoRow[] }) {
+function NuevosTabla({ filas, onProducto }: { filas: NuevoProductoRow[]; onProducto: (id: string) => void }) {
   return (
     <div className="card" style={{ padding: '.6rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)' }}>
-      <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Productos nuevos · {filas.length}</span></div>
+      <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Productos nuevos · {filas.length}</span><span className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>Tocá una fila para ver su trazabilidad</span></div>
       <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.78rem' }}>
           <thead>
@@ -230,10 +234,10 @@ function NuevosTabla({ filas }: { filas: NuevoProductoRow[] }) {
           </thead>
           <tbody>
             {filas.map((f) => (
-              <tr key={f.sku}>
+              <tr key={f.sku} onClick={() => f.producto_id && onProducto(f.producto_id)} style={{ cursor: f.producto_id ? 'pointer' : 'default' }} title={f.producto_id ? 'Ver trazabilidad del producto' : undefined}>
                 <td className="muted">{dateTime(f.at)}</td>
                 <td className="mono">{f.sku}</td>
-                <td>{f.nombre}</td>
+                <td>🔎 {f.nombre}</td>
                 <td className="muted">{f.categoria}</td>
                 <td>{f.almacen}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(f.stock)}</td>

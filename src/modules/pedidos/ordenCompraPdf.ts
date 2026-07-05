@@ -1,8 +1,9 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
-import { loadLogoDataUrl, loadFirmaDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/lib/pdfLogo';
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { firmaDeAprobador } from './aprobadoresOc';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -102,19 +103,23 @@ function nombrePersona(email: string | null | undefined, map: Map<string, string
 }
 
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
-  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personasMap }, logoDataUrl, firmaDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personasMap }, logoDataUrl, firmaGerente, firmaLeydis, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
     loadLogoDataUrl().catch(() => null),
-    loadFirmaDataUrl().catch(() => null),
+    loadFirmaDataUrl().catch(() => null),     // JESUS LOZADA (admin/gerente) · firma.png
+    loadFirma2DataUrl().catch(() => null),    // LEYDIS RENGEL (jefa de administración) · firma2.jpeg
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
 
-  // La firma del Gerente General solo se estampa cuando la OC ya fue aprobada
-  // (confirmada). Es la aprobación de OC (oc_aprobada_*), no la del pedido.
+  // La firma solo se estampa cuando la OC ya fue aprobada (confirmada). Es la
+  // aprobación de OC (oc_aprobada_*), no la del pedido.
   const ocAprobada = Boolean(orden.oc_aprobada_en || orden.oc_aprobada_por);
   const ocAprobPor = orden.oc_aprobada_por ?? orden.aprobada_por ?? null;
   const ocAprobEn = orden.oc_aprobada_en ?? orden.aprobada_en ?? null;
+  // La firma que se estampa depende de QUIÉN aprobó la OC: LEYDIS RENGEL usa su
+  // firma (firma2.jpeg); JESUS LOZADA / cualquier otro admin usa firma.png.
+  const quienFirma = firmaDeAprobador(ocAprobPor);
 
   const esConsolidada = ordenes.length > 1;
   const totalGeneral = ordenes.reduce((a, o) => a + Number(o.total ?? 0), 0);
@@ -494,13 +499,19 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     y = MARGIN;
   }
 
-  // Firma manuscrita del Gerente General sobre la línea de "Firma autorizada"
-  // (abajo a la izquierda), únicamente si la OC ya está aprobada.
-  if (ocAprobada && firmaDataUrl) {
+  // Firma del autorizador sobre la línea de "Firma autorizada" (abajo a la
+  // izquierda), únicamente si la OC ya está aprobada. LEYDIS RENGEL estampa su
+  // firma (firma2.jpeg); JESUS LOZADA / admin estampan firma.png.
+  if (ocAprobada) {
     try {
       const SIG_W = 150;
-      const SIG_H = 67; // conserva el aspecto real de firma.png (707×317 ≈ 2.23)
-      doc.addImage(firmaDataUrl, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
+      if (quienFirma === 'leydis' && firmaLeydis) {
+        const SIG_H = Math.min(80, (SIG_W * firmaLeydis.h) / (firmaLeydis.w || 1)); // conserva proporción real
+        doc.addImage(firmaLeydis.dataUrl, 'JPEG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
+      } else if (firmaGerente) {
+        const SIG_H = 67; // conserva el aspecto real de firma.png (707×317 ≈ 2.23)
+        doc.addImage(firmaGerente, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
+      }
     } catch {
       /* firma opcional */
     }
