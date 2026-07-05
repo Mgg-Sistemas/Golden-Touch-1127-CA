@@ -16,6 +16,7 @@ export interface MovResumenRow {
   id: string;
   at: string;
   tipo: string;
+  producto_id: string;
   sku: string;
   nombre: string;
   almacen: string;
@@ -28,6 +29,7 @@ export interface MovResumenRow {
 }
 
 export interface NuevoProductoRow {
+  producto_id: string;
   sku: string;
   nombre: string;
   categoria: string;
@@ -81,6 +83,7 @@ function filaDeMov(m: Movimiento): MovResumenRow {
     id: m.id,
     at: m.at,
     tipo: m.tipo,
+    producto_id: m.producto_id,
     sku: m.producto?.sku ?? '—',
     nombre: m.producto?.nombre ?? '—',
     almacen: m.almacen ?? '—',
@@ -167,14 +170,15 @@ export async function cargarResumenInventario(desde: string | null, hasta: strin
   // 3) Productos nuevos (alta) en el rango.
   let qp = supabase
     .from('productos')
-    .select('sku, nombre, categoria, almacen, stock, precio, created_at')
+    .select('id, sku, nombre, categoria, almacen, stock, precio, created_at')
     .order('created_at', { ascending: false });
   if (gte) qp = qp.gte('created_at', gte);
   if (lte) qp = qp.lte('created_at', lte);
   const { data: nuevosData } = await qp;
-  const nuevosFilas: NuevoProductoRow[] = ((nuevosData ?? []) as Array<Pick<Producto, 'sku' | 'nombre' | 'categoria' | 'almacen' | 'stock' | 'precio' | 'created_at'>>).map((p) => {
+  const nuevosFilas: NuevoProductoRow[] = ((nuevosData ?? []) as Array<Pick<Producto, 'id' | 'sku' | 'nombre' | 'categoria' | 'almacen' | 'stock' | 'precio' | 'created_at'>>).map((p) => {
     const stock = Number(p.stock) || 0;
     return {
+      producto_id: p.id,
       sku: p.sku,
       nombre: p.nombre,
       categoria: p.categoria,
