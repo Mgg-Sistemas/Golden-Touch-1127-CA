@@ -983,6 +983,9 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   const sincronizarHF = useCallback(async () => {
     try { await sincronizarHumedadFinalPorProcedencia({ actor, actorName }); } catch { /* la realtime igual refresca luego */ }
   }, [actor, actorName]);
+  // Sincroniza al montar: así los pesos YA guardados (de pesadas activas) generan su
+  // fila de Humedad Final aunque no se toque nada (antes quedaban sin reflejarse).
+  useEffect(() => { void sincronizarHF(); }, [sincronizarHF]);
 
   const cargar = useCallback(async (v: string | null) => {
     try {

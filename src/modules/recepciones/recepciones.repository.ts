@@ -637,8 +637,10 @@ export async function sincronizarHumedadFinalPorProcedencia(input: { actor: stri
   const bigbags = await listBigbagsActivos();
   const grupos = new Map<string, BigbagRow[]>();
   for (const b of bigbags) {
-    const key = (b.procedencia ?? '').trim().toUpperCase();
-    if (!key) continue; // sin procedencia no genera fila
+    // GT maneja un único centro de acopio (Peramanal): los bigbags SIN procedencia
+    // se agrupan por defecto en PERAMANAL, así los pesos guardados siempre generan su
+    // fila de Humedad Final (antes se saltaban y la tabla quedaba vacía).
+    const key = (b.procedencia ?? '').trim().toUpperCase() || 'PERAMANAL';
     const arr = grupos.get(key) ?? [];
     arr.push(b);
     grupos.set(key, arr);
