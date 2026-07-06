@@ -627,21 +627,36 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                     <small className="muted">Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
                   </div>
                 )}
-                <div className="form-row">
-                  <label>Cantidad</label>
-                  <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
-                </div>
-                <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-                  <label>Insumo del inventario <span className="muted">(si el material está en stock, p. ej. el caucho)</span></label>
-                  <SearchSelect value={l.insumoId}
-                    onChange={(v) => set(l.id, { insumoId: v, insumoNombre: productos.find((p) => p.id === v)?.nombre ?? '' })}
-                    options={productoOptions} placeholder={productoOptions.length ? '🔍 Buscar en inventario…' : '— sin productos —'} emptyText="Sin coincidencias" />
-                  {l.insumoId && (
-                    <small className="muted">
-                      <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => set(l.id, { insumoId: '', insumoNombre: '' })}>✕ Quitar insumo</button>
-                    </small>
-                  )}
-                </div>
+                {(() => {
+                  const insProd = l.insumoId ? productos.find((p) => p.id === l.insumoId) : null;
+                  const stock = insProd ? Number(insProd.stock) || 0 : null;
+                  const excede = stock != null && (Number(l.cantidad) || 0) > stock;
+                  return (
+                    <>
+                      <div className="form-row">
+                        <label>Cantidad{stock != null ? ' (según existencia)' : ''}</label>
+                        <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={stock != null ? 0 : 1} max={stock ?? undefined} step="any" defaultValue={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required style={excede ? { borderColor: 'var(--danger)' } : undefined} />
+                        {stock != null && (
+                          <small className={excede ? '' : 'muted'} style={excede ? { color: 'var(--danger)' } : undefined}>
+                            {excede ? `⚠ Supera la existencia disponible (${num(stock)} ${insProd?.unidad ?? ''}).` : `Existencia disponible: ${num(stock)} ${insProd?.unidad ?? ''}.`}
+                          </small>
+                        )}
+                      </div>
+                      <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                        <label>Insumo del inventario <span className="muted">(si el material está en stock, p. ej. el caucho)</span></label>
+                        <SearchSelect value={l.insumoId}
+                          onChange={(v) => set(l.id, { insumoId: v, insumoNombre: productos.find((p) => p.id === v)?.nombre ?? '' })}
+                          options={productoOptions} placeholder={productoOptions.length ? '🔍 Buscar en inventario…' : '— sin productos —'} emptyText="Sin coincidencias" />
+                        {insProd && (
+                          <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                            📦 En stock: <strong className="mono">{num(stock ?? 0)} {insProd.unidad ?? ''}</strong>
+                            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => set(l.id, { insumoId: '', insumoNombre: '' })}>✕ Quitar insumo</button>
+                          </small>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
             {esRecargaGas(l.categoria, l.tipo) && (
