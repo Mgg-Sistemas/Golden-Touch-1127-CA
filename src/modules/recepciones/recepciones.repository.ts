@@ -637,8 +637,10 @@ export async function sincronizarHumedadFinalPorProcedencia(input: { actor: stri
   const bigbags = await listBigbagsActivos();
   const grupos = new Map<string, BigbagRow[]>();
   for (const b of bigbags) {
-    const key = (b.procedencia ?? '').trim().toUpperCase();
-    if (!key) continue; // sin procedencia no genera fila
+    // GT maneja un único centro de acopio (Peramanal): los bigbags SIN procedencia
+    // se agrupan por defecto en PERAMANAL, así los pesos guardados siempre generan su
+    // fila de Humedad Final (antes se saltaban y la tabla quedaba vacía).
+    const key = (b.procedencia ?? '').trim().toUpperCase() || 'PERAMANAL';
     const arr = grupos.get(key) ?? [];
     arr.push(b);
     grupos.set(key, arr);
@@ -1140,13 +1142,21 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function promElemento(analisis: AnalisisLab | null | undefined, key: string, abc: boolean, n = 3): number | null {
   const v = analisis?.[key];
   if (!abc) {
+    if (v == null || String(v).trim() === '') return null;
     const x = Number(v);
-    return v == null || !Number.isFinite(x) ? null : round3(x);
+    return !Number.isFinite(x) ? null : round3(x);
   }
   const e = (v && typeof v === 'object') ? v as AnalisisElemento : null;
   if (!e) return null;
   const cant = Math.min(8, Math.max(1, Math.round(n)));
-  const vals = LETRAS_LECTURA.slice(0, cant).map((L) => Number(e[L])).filter((x) => Number.isFinite(x));
+  // OJO: solo cuentan las casillas REALMENTE con dato. Hay que descartar null/undefined
+  // y string vacío ANTES de convertir a número, porque Number('') y Number(null) dan 0
+  // (finito) y contarían la casilla vacía como un 0 → dividiría de más (ej. B=0,57, C=0,23
+  // con A vacío daba 0,80/3=0,27 en vez de 0,80/2=0,40).
+  const vals = LETRAS_LECTURA.slice(0, cant)
+    .map((L) => e[L])
+    .filter((raw) => raw != null && String(raw).trim() !== '' && Number.isFinite(Number(raw)))
+    .map((raw) => Number(raw));
   if (!vals.length) return null;
   // Promedio SOLO de las casillas con dato: suma / cantidad de casillas llenas.
   const suma = vals.reduce((a, b) => a + b, 0);

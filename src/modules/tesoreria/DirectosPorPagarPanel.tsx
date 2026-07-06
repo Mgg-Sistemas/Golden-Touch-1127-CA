@@ -21,6 +21,16 @@ function montoMoneda(n: number | null | undefined, moneda: string | null | undef
   return moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
 }
 
+/** Equivalente a la otra moneda con la tasa de conversión del documento (si el analista convirtió). */
+function equivConversion(gasto: number | null | undefined, moneda: string | null | undefined, tasa: number | null | undefined): string | null {
+  const g = Number(gasto) || 0;
+  const t = Number(tasa) || 0;
+  if (g <= 0 || t <= 0) return null;
+  const otra = moneda === 'Bs' ? 'USD' : 'Bs';
+  const val = moneda === 'Bs' ? g / t : g * t;
+  return `≈ ${montoMoneda(Math.round(val * 100) / 100, otra)} · tasa ${t.toLocaleString('es-VE', { maximumFractionDigits: 2 })}`;
+}
+
 export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   cajas: Caja[]; actor: string; actorName: string | null; onPaid: () => void;
 }) {
@@ -72,7 +82,8 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
                     {c.nota?.trim() && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', whiteSpace: 'pre-wrap' }}>📝 {c.nota}</div>}</td>
                   <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>{c.actor_name || c.actor || '—'}<br />{dateTime(c.updated_at)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{c.gasto != null ? montoMoneda(c.gasto, c.moneda) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{c.gasto != null ? montoMoneda(c.gasto, c.moneda) : '—'}
+                    {equivConversion(c.gasto, c.moneda, c.tasa_conversion) && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{equivConversion(c.gasto, c.moneda, c.tasa_conversion)}</div>}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button className="btn btn-sm btn-primary" onClick={() => setPagarC(c)} title="Pagar y finalizar la compra">💳 Pagar</button>
                   </td>
@@ -94,7 +105,8 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
                   <td>{s.descripcion}{s.items.length > 1 ? <span className="muted"> · {s.items.length} ítems</span> : null}</td>
                   <td>{s.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>{s.actor_name || s.actor || '—'}<br />{dateTime(s.updated_at)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{s.gasto != null ? montoMoneda(s.gasto, s.moneda) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{s.gasto != null ? montoMoneda(s.gasto, s.moneda) : '—'}
+                    {equivConversion(s.gasto, s.moneda, s.tasa_conversion) && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{equivConversion(s.gasto, s.moneda, s.tasa_conversion)}</div>}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button className="btn btn-sm btn-primary" onClick={() => setPagarS(s)} title="Pagar y finalizar el servicio">💳 Pagar</button>
                   </td>

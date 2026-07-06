@@ -720,13 +720,13 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
       tipo: 'compra', codigo: compraDir.codigo, proveedor: compraDir.proveedor_nombre,
       almacen: compraDir.almacen, requerimiento: compraDir.nota?.trim() || null,
       pagoExterno: textoPagoExterno(compraDir),
-      moneda: compraDir.moneda === 'Bs' ? 'Bs' : 'USD', gasto: compraDir.gasto,
+      moneda: compraDir.moneda === 'Bs' ? 'Bs' : 'USD', tasaConversion: compraDir.tasa_conversion ?? null, gasto: compraDir.gasto,
       items: compraDir.items.map((it) => ({ nombre: it.producto_nombre, extra: it.producto_sku, cantidad: Number(it.cantidad) || 0, gasto: it.gasto ?? null })),
     };
     if (servicioDir) return {
       tipo: 'servicio', codigo: servicioDir.codigo, proveedor: servicioDir.proveedor_nombre,
       equipo: servicioDir.equipo_nombre, solicitante: servicioDir.solicitante ? `${servicioDir.solicitante}${servicioDir.unidad_solicitante ? ` · ${servicioDir.unidad_solicitante}` : ''}` : null,
-      requerimiento: [servicioDir.descripcion?.trim(), servicioDir.nota?.trim()].filter(Boolean).join(' · ') || null, moneda: servicioDir.moneda === 'Bs' ? 'Bs' : 'USD', gasto: servicioDir.gasto,
+      requerimiento: [servicioDir.descripcion?.trim(), servicioDir.nota?.trim()].filter(Boolean).join(' · ') || null, moneda: servicioDir.moneda === 'Bs' ? 'Bs' : 'USD', tasaConversion: servicioDir.tasa_conversion ?? null, gasto: servicioDir.gasto,
       pagoExterno: textoPagoExterno(servicioDir),
       items: servicioDir.items.map((it) => ({ nombre: it.descripcion, extra: it.equipo_nombre, cantidad: Number(it.cantidad) || 0, gasto: it.gasto ?? null })),
     };

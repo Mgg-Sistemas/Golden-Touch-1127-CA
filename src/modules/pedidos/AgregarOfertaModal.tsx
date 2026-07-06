@@ -10,6 +10,7 @@ import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, Or
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
 
 /** Estrellas ★ según un promedio 1–5. */
 function estrellas(avg: number): string {
@@ -108,6 +109,19 @@ export function AgregarOfertaModal({
   // Al EDITAR: adjuntos ya guardados que se conservan (se pueden quitar uno a uno).
   const [adjuntosExistentes, setAdjuntosExistentes] = useState<{ path: string; filename: string }[]>(ofertaEditar?.adjuntos ?? []);
   const [submitting, setSubmitting] = useState(false);
+
+  // Tasa BCV (Bs por $) para el conversor: los precios se guardan en $, pero el
+  // proveedor suele cotizar en Bs. Prellenada con la tasa del día (editable).
+  const [tasa, setTasa] = useState<number>(0);
+  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
+  // Conversor auxiliar Bs↔$ (no toca las columnas; ayuda a pasar el precio del proveedor).
+  const [convMonto, setConvMonto] = useState('');
+  const [convDir, setConvDir] = useState<'bs_a_usd' | 'usd_a_bs'>('bs_a_usd');
+  const convResultado = (() => {
+    const m = Number(convMonto) || 0;
+    if (m <= 0 || !(tasa > 0)) return null;
+    return convDir === 'bs_a_usd' ? round2(m / tasa) : round2(m * tasa);
+  })();
 
   function quitarAdjuntoExistente(idx: number) {
     setAdjuntosExistentes((prev) => prev.filter((_, k) => k !== idx));
@@ -506,6 +520,32 @@ export function AgregarOfertaModal({
         </div>
       )}
 
+      {/* Conversor Bs↔$ a la tasa del día (o la que se escriba): ayuda a pasar el precio
+          que el proveedor dio en Bs a $ (o al revés) para tipearlo en las columnas. */}
+      <div className="card" style={{ padding: '.6rem .8rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
+        <div className="form-row" style={{ margin: 0 }}>
+          <label style={{ fontSize: '.72rem' }}>Conversor · monto</label>
+          <input className="input mono" type="number" min={0} step="any" value={convMonto} onChange={(e) => setConvMonto(e.target.value)} placeholder="0,00" style={{ width: 140 }} />
+        </div>
+        <div className="form-row" style={{ margin: 0 }}>
+          <label style={{ fontSize: '.72rem' }}>Dirección</label>
+          <select className="select" value={convDir} onChange={(e) => setConvDir(e.target.value as 'bs_a_usd' | 'usd_a_bs')} style={{ width: 150 }}>
+            <option value="bs_a_usd">Bs → $</option>
+            <option value="usd_a_bs">$ → Bs</option>
+          </select>
+        </div>
+        <div className="form-row" style={{ margin: 0 }}>
+          <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$)</label>
+          <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" style={{ width: 120 }} />
+        </div>
+        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Equivale a</div>
+          <strong className="mono" style={{ fontSize: '1.05rem' }}>
+            {convResultado != null ? (convDir === 'bs_a_usd' ? money(convResultado) : `Bs ${convResultado.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : '—'}
+          </strong>
+        </div>
+      </div>
+
       <div className="form-row">
         <label>Cotización por ítem · Pago en Bs (BCV) vs Pago en USD <span className="muted" style={{ fontWeight: 400 }}>(podés llenar solo una columna si el proveedor cotiza en una sola moneda)</span></label>
         <div className="table-wrap">
@@ -569,11 +609,13 @@ export function AgregarOfertaModal({
                     <td className="num">
                       <input type="number" className="input mono" style={{ width: 90, textAlign: 'right' }} min={0} step={0.01}
                         defaultValue={it.precio} onChange={(e) => updateItem(idx, { precio: Number(e.target.value) || 0 })} />
+                      {tasa > 0 && it.precio > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
                     </td>
                     <td className="num mono">{money(totalBs)}</td>
                     <td className="num">
                       <input type="number" className="input mono" style={{ width: 90, textAlign: 'right' }} min={0} step={0.01}
                         defaultValue={it.precio_usd} onChange={(e) => updateItem(idx, { precio_usd: Number(e.target.value) || 0 })} />
+                      {tasa > 0 && it.precio_usd > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio_usd * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
                     </td>
                     <td className="num mono">{money(totalU)}</td>
                     <td className="num mono" style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(dif)}</td>

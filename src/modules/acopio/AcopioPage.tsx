@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
@@ -24,7 +24,7 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, cerrarYAbrirCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, gastosDetalleCategoria, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { listCajas, crearMovimientoCaja, cerrarYAbrirCaja, proximoNumeroCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, gastosDetalleCategoria, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
 import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
@@ -64,6 +64,9 @@ export function AcopioPage() {
   const [historico, setHistorico] = useState(false);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [cerrando, setCerrando] = useState(false);
+  // Número de la caja NUEVA que se abre al cerrar: se indica la primera vez y luego
+  // se prellena incremental. Al abrir el modal se sugiere el próximo correlativo.
+  const [numeroCierre, setNumeroCierre] = useState('');
   // Switch «Listar movimientos»: la tabla de movimientos arranca oculta y se muestra al activarlo.
   const [listar, setListar] = useState(false);
   // Resumen único que alimenta TODAS las tarjetas (misma fuente que la tabla de movimientos).
@@ -124,6 +127,7 @@ export function AcopioPage() {
       await cerrarYAbrirCaja({
         cajaActual,
         actor, actorName,
+        numeroNueva: numeroCierre.trim() || null,
         snapshot: {
           numero: cajaActual?.numero ?? 'Caja',
           nombre: cajaActual?.nombre ?? null,
@@ -168,7 +172,7 @@ export function AcopioPage() {
           <button className="btn btn-ghost" onClick={() => setHistorico(true)}>🗂 Histórico cierres</button>
           <button className="btn btn-ghost" onClick={() => setMartillos(true)}>🔨 Consumo Martillos</button>
           <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
-          {canWrite && <button className="btn btn-ghost" onClick={() => setConfirmarCierre(true)} title="Cierra la caja actual y abre una nueva con el saldo acumulado">🔒 Cerrar caja</button>}
+          {canWrite && <button className="btn btn-ghost" onClick={() => { proximoNumeroCaja().then(setNumeroCierre).catch(() => setNumeroCierre('')); setConfirmarCierre(true); }} title="Cierra la caja actual y abre una nueva con el saldo acumulado">🔒 Cerrar caja</button>}
           <label className="switch-inline" title="Mostrar u ocultar la lista de movimientos del centro de acopio">
             <span className="switch">
               <input type="checkbox" checked={listar} onChange={(e) => setListar(e.target.checked)} />
@@ -223,13 +227,27 @@ export function AcopioPage() {
       {historico && <HistoricoCajasModal onClose={() => setHistorico(false)} />}
 
       {confirmarCierre && (
-        <ConfirmDialog
+        <Modal
           title="🔒 Cerrar caja"
-          message={`Se cerrará la caja actual (${cajaActual?.numero ?? '—'}) y se guardará en el histórico con sus movimientos y saldos. Se abrirá una caja nueva: el saldo ${money(resumen.saldoUsd)} entra como «USD entregados». El Saldo en Kg (${num(resumen.saldoKg)} Kg) se REINICIA en 0 — todo el acumulado de casiterita se despacha a Recepción. La tasa y los gastos también se reinician.${contratosActivos.length ? ` Se incluirá${contratosActivos.length > 1 ? 'n' : ''} ${contratosActivos.length} contrato(s) activo(s) como referencia en la foto del cierre (no se cierran).` : ''} ¿Confirmás el cierre?`}
-          confirmText={cerrando ? 'Cerrando…' : 'Cerrar caja'}
-          onConfirm={() => { if (!cerrando) void cerrarCaja(); }}
-          onCancel={() => { if (!cerrando) setConfirmarCierre(false); }}
-        />
+          compact
+          onClose={() => { if (!cerrando) setConfirmarCierre(false); }}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => { if (!cerrando) setConfirmarCierre(false); }} disabled={cerrando}>Cancelar</button>
+              <button className="btn btn-primary" onClick={() => { if (!cerrando) void cerrarCaja(); }} disabled={cerrando || !numeroCierre.trim()}>{cerrando ? 'Cerrando…' : 'Cerrar caja'}</button>
+            </>
+          }
+        >
+          <p style={{ marginTop: 0 }}>
+            Se cerrará la caja actual (<strong>{cajaActual?.numero ?? '—'}</strong>) y se guardará en el histórico con sus movimientos y saldos. Se abrirá una caja nueva: el saldo <strong>{money(resumen.saldoUsd)}</strong> entra como «USD entregados». El Saldo en Kg (<strong>{num(resumen.saldoKg)} Kg</strong>) se REINICIA en 0 — todo el acumulado de casiterita se despacha a Recepción. La tasa y los gastos también se reinician.
+            {contratosActivos.length ? ` Se incluirá${contratosActivos.length > 1 ? 'n' : ''} ${contratosActivos.length} contrato(s) activo(s) como referencia en la foto del cierre (no se cierran).` : ''}
+          </p>
+          <div className="form-row" style={{ marginBottom: 0 }}>
+            <label>N° de la caja nueva</label>
+            <input className="input" value={numeroCierre} onChange={(e) => setNumeroCierre(e.target.value)} placeholder="Ej. Caja 5" autoFocus />
+            <small className="muted">Indicalo la primera vez; luego se sugiere incremental automáticamente. Podés editarlo.</small>
+          </div>
+        </Modal>
       )}
 
       {movAcopio && (

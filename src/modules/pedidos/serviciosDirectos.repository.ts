@@ -67,6 +67,8 @@ export interface ServicioDirecto {
   gasto: number | null;
   /** Moneda del servicio ('USD' o 'Bs'). Los montos se muestran en esta moneda. */
   moneda?: string | null;
+  /** Tasa Bs/$ con la que se convirtió la moneda del documento (conversor). Referencia para Tesorería. */
+  tasa_conversion?: number | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   /** Desglose multimoneda del pago (para revertir exacto al reabrir). Null si fue caja simple. */
@@ -333,6 +335,8 @@ export interface EnviarServicioAPagarInput {
   items: ServicioDirectoItem[];
   /** Moneda del servicio ('USD' o 'Bs'). Si viene, se actualiza. */
   moneda?: string | null;
+  /** Tasa Bs/$ usada al convertir la moneda con el conversor (referencia para Tesorería). */
+  tasaConversion?: number | null;
   actor: string;
   actorName?: string | null;
 }
@@ -355,6 +359,7 @@ export async function enviarServicioAPagar(input: EnviarServicioAPagarInput): Pr
     .update({
       estado: 'por_pagar', gasto: total, items,
       ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
+      ...(input.tasaConversion !== undefined ? { tasa_conversion: input.tasaConversion != null && input.tasaConversion > 0 ? Math.round(Number(input.tasaConversion) * 100) / 100 : null } : {}),
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', servicio.id);

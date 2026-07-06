@@ -544,11 +544,22 @@ export interface ContratoAcopio {
   id: string;
   numero: string;
   seq: number;
+  /** Tipo de contrato: 'produccion' (molienda) o 'minero' (compra a minero). */
+  tipo?: string | null;
   fecha: string;
   hora?: string | null;
   supervisor?: string | null;
   lugar_extraccion?: string | null;
   molino?: string | null;
+  /** Contrato minero: sacos (UND), precio de la casiterita ($/Kg) y tasa establecida. */
+  cantidad_sacos?: number | null;
+  precio_casiterita?: number | null;
+  tasa?: number | null;
+  /** Contrato minero (columnas generadas): utilidad del minero (70%) y de GT (30%) en Kg,
+   *  y monto a pagar al minero (= utilidad minero × precio casiterita). */
+  utilidad_minero?: number | null;
+  utilidad_gt?: number | null;
+  monto_pagar_minero?: number | null;
   // Inputs principales (réplica del Excel).
   ton_procesadas: number;
   kg_humedo: number;

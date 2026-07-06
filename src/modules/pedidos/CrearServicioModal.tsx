@@ -284,7 +284,8 @@ export function CrearServicioModal({
               <SearchSelect value={insumoId} onChange={setInsumoId} options={productoOptions}
                 placeholder={productoOptions.length ? '🔍 Buscar en inventario…' : '— sin productos —'} emptyText="Sin coincidencias" />
               {insumoId && (
-                <small className="muted">
+                <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                  📦 En stock: <strong className="mono">{Number(productos.find((p) => p.id === insumoId)?.stock) || 0} {productos.find((p) => p.id === insumoId)?.unidad ?? ''}</strong>
                   <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setInsumoId('')}>✕ Quitar insumo</button>
                 </small>
               )}
@@ -307,10 +308,25 @@ export function CrearServicioModal({
               </>
             ) : (
               <>
-                <div style={{ width: 120 }}>
+                <div style={{ width: 140 }}>
                   <label className="label">Cantidad</label>
-                  <input className="input" value={cantidad} inputMode="decimal"
-                    onChange={(e) => setCantidad(e.target.value)} />
+                  {(() => {
+                    const insProd = insumoId ? productos.find((p) => p.id === insumoId) : null;
+                    const stock = insProd ? Number(insProd.stock) || 0 : null;
+                    const excede = stock != null && (Number(String(cantidad).replace(',', '.')) || 0) > stock;
+                    return (
+                      <>
+                        <input className="input" value={cantidad} inputMode="decimal"
+                          onChange={(e) => setCantidad(e.target.value)}
+                          style={excede ? { borderColor: 'var(--danger)' } : undefined} />
+                        {stock != null && (
+                          <small className={excede ? '' : 'muted'} style={excede ? { color: 'var(--danger)', display: 'block' } : { display: 'block' }}>
+                            {excede ? `⚠ Supera la existencia (${stock} ${insProd?.unidad ?? ''}).` : `Disp.: ${stock} ${insProd?.unidad ?? ''}`}
+                          </small>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div style={{ width: 160 }}>
                   <label className="label">Medida</label>

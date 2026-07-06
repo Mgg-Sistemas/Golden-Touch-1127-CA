@@ -368,6 +368,9 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
 export interface EditarSolicitudSalidaInput {
   /** Material: lista editada de renglones (cantidad / precio / observación). */
   items?: ItemSalida[] | null;
+  /** Traslado: almacén origen/destino (se pueden cambiar antes de aprobar). */
+  almacenOrigen?: string | null;
+  almacenDestino?: string | null;
   solicitante?: string;
   unidadSolicitante?: string | null;
   destino?: string | null;
@@ -414,9 +417,27 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
   if (input.direccionDestino !== undefined) patch.direccion_destino = input.direccionDestino?.trim() || null;
   if (input.consumoInterno !== undefined) patch.consumo_interno = !!input.consumoInterno;
 
+  // Traslado: permitir cambiar almacén origen y destino (antes de aprobar). Cada
+  // renglón del traslado sale del origen, así que se re-apunta al nuevo origen.
+  let nuevoOrigen: string | null | undefined;
+  let nuevoDestino: string | null | undefined;
+  if (s.scope === 'traslado') {
+    nuevoOrigen = input.almacenOrigen !== undefined ? (input.almacenOrigen?.trim() || null) : (s.almacen_origen ?? null);
+    nuevoDestino = input.almacenDestino !== undefined ? (input.almacenDestino?.trim() || null) : (s.almacen_destino ?? null);
+    if (input.almacenOrigen !== undefined || input.almacenDestino !== undefined) {
+      if (!nuevoOrigen) throw new Error('Indicá el almacén de origen.');
+      if (!nuevoDestino) throw new Error('Indicá el almacén destino.');
+      if (nuevoOrigen === nuevoDestino) throw new Error('El almacén origen y destino deben ser distintos.');
+      patch.almacen_origen = nuevoOrigen;
+      patch.almacen_destino = nuevoDestino;
+    }
+  }
+
   if (s.tipo === 'material' && input.items !== undefined) {
-    const items = (input.items ?? []).filter((i) => i && i.producto_id && (Number(i.cantidad) || 0) > 0);
+    let items = (input.items ?? []).filter((i) => i && i.producto_id && (Number(i.cantidad) || 0) > 0);
     if (!items.length) throw new Error('La solicitud debe tener al menos un material con cantidad.');
+    // En traslado, todos los renglones salen del almacén origen (el elegido/actual).
+    if (s.scope === 'traslado' && nuevoOrigen) items = items.map((i) => ({ ...i, almacen: nuevoOrigen! }));
     const cantTotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0), 0);
     const montoTotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
     patch.items = items;

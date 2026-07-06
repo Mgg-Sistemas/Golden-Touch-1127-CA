@@ -128,6 +128,8 @@ export interface CompraDirecta {
   comision_bancaria?: number | null;
   /** Moneda de la compra ('USD' o 'Bs'). El IVA solo aplica/​suma cuando es 'Bs'. */
   moneda?: string | null;
+  /** Tasa Bs/$ con la que el analista convirtió la moneda del documento (conversor). Referencia para Tesorería. */
+  tasa_conversion?: number | null;
   /** Monto de IVA (16%) — suma al total cuando la moneda es Bs. */
   iva?: number | null;
   /** Descuento aplicado (monto) y su % — resta al total. */
@@ -588,6 +590,8 @@ export interface EnviarCompraAPagarInput {
   afectaInventario?: boolean;
   /** Moneda de la compra ('USD' o 'Bs'). */
   moneda?: string;
+  /** Tasa Bs/$ usada al convertir la moneda con el conversor (referencia para Tesorería). */
+  tasaConversion?: number | null;
   /** Monto de IVA (16%): suma al total SOLO cuando la moneda es 'Bs'. */
   iva?: number;
   /** Descuento en monto y su % — resta al total. */
@@ -636,7 +640,8 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
     .from('compras_directas')
     .update({
       estado: 'por_pagar', gasto: total, items,
-      moneda, iva, descuento, descuento_pct: descuentoPct,
+      moneda, tasa_conversion: input.tasaConversion != null && input.tasaConversion > 0 ? Math.round(Number(input.tasaConversion) * 100) / 100 : null,
+      iva, descuento, descuento_pct: descuentoPct,
       retencion_tipo: retencionPct > 0 ? (input.retencionTipo ?? null) : null,
       retencion_base: retencionPct > 0 ? retencionBase : 0,
       retencion_pct: retencionPct, retencion_monto: retencionMonto,

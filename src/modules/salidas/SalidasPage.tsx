@@ -705,8 +705,16 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
   const [vehiculoPlaca, setVehiculoPlaca] = useState(sol.vehiculo_placa ?? '');
   const [dirDespacho, setDirDespacho] = useState(sol.direccion_despacho ?? '');
   const [dirDestino, setDirDestino] = useState(sol.direccion_destino ?? '');
+  // Traslado: almacén origen/destino editables (antes de aprobar).
+  const [almOrigen, setAlmOrigen] = useState(sol.almacen_origen ?? '');
+  const [almDestino, setAlmDestino] = useState(sol.almacen_destino ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Lista de almacenes conocidos (desde las existencias) para los selectores de traslado.
+  const almacenesNombres = useMemo(
+    () => [...new Set(existencias.map((e) => e.almacen).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'es')),
+    [existencias],
+  );
 
   function setItem(key: number, patch: Partial<ItemEdit>) {
     setItems((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -726,13 +734,13 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
     const activos = new Map(productos.filter((p) => p.estado === 'activo').map((p) => [p.id, p]));
     return existencias
       .filter((e) => (Number(e.stock) || 0) > 0 && activos.has(e.producto_id))
-      .filter((e) => (esTraslado ? e.almacen === sol.almacen_origen : true))
+      .filter((e) => (esTraslado ? e.almacen === (almOrigen || sol.almacen_origen) : true))
       .map((e) => {
         const p = activos.get(e.producto_id)!;
         return { value: `${e.producto_id}|${e.almacen}`, label: `${p.nombre} · ${p.sku} — ${e.almacen}`, nombre: p.nombre };
       })
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
-  }, [existencias, productos, esTraslado, sol.almacen_origen]);
+  }, [existencias, productos, esTraslado, sol.almacen_origen, almOrigen]);
 
   function agregarMaterial(key: string) {
     if (!key) return;
@@ -781,8 +789,14 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
     if (sol.tipo === 'material' && !itemsLimpios.length) { setError('Debe quedar al menos un material con cantidad mayor que 0.'); return; }
     setSaving(true);
     try {
+      if (esTraslado) {
+        if (!almOrigen.trim() || !almDestino.trim()) { setError('Indicá el almacén de origen y el destino.'); setSaving(false); return; }
+        if (almOrigen === almDestino) { setError('El almacén origen y destino deben ser distintos.'); setSaving(false); return; }
+      }
       await editarSolicitudSalida(sol, {
         items: sol.tipo === 'material' ? itemsLimpios : undefined,
+        almacenOrigen: esTraslado ? almOrigen : undefined,
+        almacenDestino: esTraslado ? almDestino : undefined,
         solicitante,
         unidadSolicitante: unidadSolic,
         destino: esTraslado ? undefined : destino,
@@ -818,10 +832,31 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
         </div>
       </div>
 
+      {esTraslado && (
+        <div className="form-grid" style={{ marginTop: '.25rem' }}>
+          <div className="form-row">
+            <label>Almacén de origen</label>
+            <select className="select" value={almOrigen} onChange={(e) => setAlmOrigen(e.target.value)}>
+              {!almacenesNombres.includes(almOrigen) && almOrigen && <option value={almOrigen}>{almOrigen}</option>}
+              {almacenesNombres.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <small className="muted">Al cambiarlo, los materiales se toman de este almacén (con su stock).</small>
+          </div>
+          <div className="form-row">
+            <label>Almacén destino</label>
+            <select className="select" value={almDestino} onChange={(e) => setAlmDestino(e.target.value)}>
+              <option value="">— elegir —</option>
+              {!almacenesNombres.includes(almDestino) && almDestino && <option value={almDestino}>{almDestino}</option>}
+              {almacenesNombres.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+
       {sol.tipo === 'material' && (
         <>
           <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.5rem 0 .35rem' }}>
-            Materiales <span className="muted" style={{ textTransform: 'none' }}>(se puede cambiar cantidad, costo y observación; el producto y el almacén no se cambian)</span>
+            Materiales <span className="muted" style={{ textTransform: 'none' }}>(se puede cambiar cantidad, costo, observación y añadir materiales{esTraslado ? '; salen del almacén origen elegido' : '; cada uno sale de su almacén'})</span>
           </label>
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.82rem' }}>

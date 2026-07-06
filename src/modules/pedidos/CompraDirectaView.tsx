@@ -367,6 +367,7 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {compra.estado === 'finalizada' && (compra.pagada_por_name || compra.pagada_por) && fila('Pagó (Tesorería)', compra.pagada_por_name || compra.pagada_por)}
       {compra.estado === 'finalizada' && compra.gasto_categoria && fila('Categoría de gasto', `${compra.gasto_categoria}${compra.gasto_subcategoria ? ` · ${compra.gasto_subcategoria}` : ''}`)}
       {fila('Moneda', compra.moneda === 'Bs' ? 'Bs' : '$ (USD)')}
+      {(Number(compra.tasa_conversion) || 0) > 0 && total != null && fila('Convertido a la tasa', <span>{num(compra.tasa_conversion)} Bs/$ · equivale a <strong className="mono">{montoCD(compra.moneda === 'Bs' ? total / Number(compra.tasa_conversion) : total * Number(compra.tasa_conversion), compra.moneda === 'Bs' ? 'USD' : 'Bs')}</strong></span>)}
       {(Number(compra.descuento) || 0) > 0 && fila('Descuento', <span>{Number(compra.descuento).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {compra.moneda === 'Bs' ? 'Bs' : '$'}{(Number(compra.descuento_pct) || 0) > 0 ? ` (${Number(compra.descuento_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)` : ''} <span className="muted" style={{ fontSize: '.75rem' }}>(restado del total)</span></span>)}
       {(Number(compra.iva) || 0) > 0 && fila('IVA (16%)', <span>{Number(compra.iva).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs <span className="muted" style={{ fontSize: '.75rem' }}>(incluido en el total)</span></span>)}
       {(Number(compra.retencion_pct) || 0) > 0 && fila('Retención', <span>{compra.retencion_tipo || 'IVA'} · {Number(compra.retencion_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}% = {Number(compra.retencion_monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {compra.moneda === 'Bs' ? 'Bs' : '$'} <span className="muted" style={{ fontSize: '.75rem' }}>(en módulo Retenciones)</span></span>)}
@@ -784,6 +785,10 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const [comision, setComision] = useState('');
   // Moneda de la compra (Bs/$) e IVA (solo suma al total cuando es Bs).
   const [monedaCompra, setMonedaCompra] = useState<'USD' | 'Bs'>(compra.moneda === 'Bs' ? 'Bs' : 'USD');
+  // Conversor: al convertir, se re-montan los inputs de gasto (no controlados) con `convKey`
+  // y se recuerda la tasa usada (`tasaConversion`) para guardarla y mostrarla en Tesorería.
+  const [convKey, setConvKey] = useState(0);
+  const [tasaConversion, setTasaConversion] = useState<number | null>(compra.tasa_conversion ?? null);
   const [iva, setIva] = useState(compra.iva ? String(compra.iva) : '');
   // Descuento en % y en monto (se sincronizan entre sí y con el total).
   const [descuentoPct, setDescuentoPct] = useState(compra.descuento_pct ? String(compra.descuento_pct) : '');
@@ -826,6 +831,31 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     const desc = Math.max(0, Math.round((subtotal + ivaNum - t) * 100) / 100);
     setDescuentoMonto(desc > 0 ? String(desc) : '');
     setDescuentoPct(desc > 0 && subtotal > 0 ? String(Math.round((desc / subtotal) * 10000) / 100) : '');
+  }
+
+  // Conversor de moneda: convierte TODOS los montos de $↔Bs a la tasa (del día o la que
+  // el usuario haya escrito) y cambia la moneda del documento. El IVA (solo Bs) se limpia
+  // al pasar a $. Guarda la tasa usada para reflejarla en Tesorería.
+  function convertirMoneda() {
+    const t = Number(tasa) || 0;
+    if (t <= 0) { setError('Cargá la tasa (Bs por $) para convertir.'); return; }
+    const destino: 'USD' | 'Bs' = monedaCompra === 'USD' ? 'Bs' : 'USD';
+    const factor = destino === 'Bs' ? t : 1 / t;
+    const conv = (s: string | undefined) => {
+      const v = Number(s) || 0;
+      return v > 0 ? String(Math.round(v * factor * 100) / 100) : (s ?? '');
+    };
+    setGastos((m) => {
+      const next: Record<number, string> = {};
+      compra.items.forEach((_it, i) => { next[i] = conv(m[i]); });
+      return next;
+    });
+    setDescuentoMonto((d) => conv(d));
+    if (destino === 'USD') setIva(''); // el IVA solo aplica en Bs
+    setMonedaCompra(destino);
+    setTasaConversion(t);
+    setConvKey((k) => k + 1);
+    setError(null);
   }
 
   // Saldos multimoneda de la caja elegida (para pagar repartiendo por cuenta/moneda).
@@ -894,7 +924,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       setSaving(true);
       try {
         for (const f of files) await agregarAdjuntoDirecto('compra', compra.id, f, actor);
-        await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, iva: ivaNum, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, retencionTipo: retTipo, retencionBase: subtotal, retencionPct: Number(retPct) || 0, nota: notaRef.current?.value ?? '', actor, actorName });
+        await enviarCompraAPagar({ compra, items, afectaInventario, moneda: monedaCompra, tasaConversion, iva: ivaNum, descuento: descuentoNum, descuentoPct: Number(descuentoPct) || 0, retencionTipo: retTipo, retencionBase: subtotal, retencionPct: Number(retPct) || 0, nota: notaRef.current?.value ?? '', actor, actorName });
         notify(`Compra ${compra.codigo ?? ''} enviada a pagar · ${montoCaja(total, 'USD')} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
@@ -1024,7 +1054,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                   <tr key={i}>
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
-                    <td><input className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" disabled={esPago} defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
+                    <td><input key={`g-${i}-${convKey}`} className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" disabled={esPago} defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
                     <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
                   </tr>
                 );
@@ -1108,10 +1138,17 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
           <div className="form-row">
             <label>Moneda de la compra</label>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select className="select" style={{ maxWidth: 150 }} value={monedaCompra} onChange={(e) => setMonedaCompra(e.target.value === 'Bs' ? 'Bs' : 'USD')}>
+              <select className="select" style={{ maxWidth: 150 }} value={monedaCompra} onChange={(e) => { setMonedaCompra(e.target.value === 'Bs' ? 'Bs' : 'USD'); setTasaConversion(null); }}>
                 <option value="USD">$ (USD)</option>
                 <option value="Bs">Bs</option>
               </select>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={convertirMoneda} disabled={!(Number(tasa) > 0)}
+                title={Number(tasa) > 0 ? `Convierte todos los montos a la tasa ${num(tasa)}` : 'Cargá la tasa abajo para convertir'}>
+                ⇄ Convertir a {monedaCompra === 'USD' ? 'Bs' : '$'}
+              </button>
+              {tasaConversion != null && tasaConversion > 0 && (
+                <span className="muted" style={{ fontSize: '.72rem' }}>convertido a tasa <strong className="mono">{num(tasaConversion)}</strong></span>
+              )}
               {monedaCompra === 'Bs' && (
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
                   <span className="muted">IVA (16%):</span>

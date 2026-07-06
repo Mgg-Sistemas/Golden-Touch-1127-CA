@@ -42,6 +42,8 @@ export interface DirectoDetalle {
   /** Pago a externo: si otra persona lo pagó y debe reintegrársele (texto ya armado). */
   pagoExterno?: string | null;
   moneda: string; // 'USD' | 'Bs'
+  /** Tasa Bs/$ con la que el analista convirtió la moneda del documento (si aplica). */
+  tasaConversion?: number | null;
   gasto: number | null;
   items: Array<{ nombre: string; extra?: string | null; cantidad: number; gasto: number | null }>;
 }
@@ -147,6 +149,11 @@ async function construirDetalleDoc(mov: MovimientoCaja, orden: Orden | null, dir
     if (directo.equipo) filasDir.push(['Equipo', directo.equipo]);
     if (directo.solicitante) filasDir.push(['Solicitante', directo.solicitante]);
     if (directo.requerimiento) filasDir.push(['Requerimiento', directo.requerimiento]);
+    if (directo.tasaConversion != null && directo.tasaConversion > 0 && directo.gasto != null) {
+      const otra = mnd === 'Bs' ? 'USD' : 'Bs';
+      const equiv = mnd === 'Bs' ? directo.gasto / directo.tasaConversion : directo.gasto * directo.tasaConversion;
+      filasDir.push(['Convertido a la tasa', `${directo.tasaConversion.toLocaleString('es-VE', { maximumFractionDigits: 2 })} Bs/$ · equivale a ${montoStr(Math.round(equiv * 100) / 100, otra)}`]);
+    }
     if (directo.pagoExterno) filasDir.push(['Pago a externo (reintegrar)', directo.pagoExterno]);
 
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime

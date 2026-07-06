@@ -7,7 +7,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { CatalogoAcopio, ContratoAcopio, TipoCatalogoAcopio } from '@/shared/lib/types';
 import {
   nextSeqContrato, numeroContrato, crearContrato, actualizarContrato, horaSistema, formulasContrato,
-  aplicarMaterialDeMesa,
+  formulasMinero, aplicarMaterialDeMesa, type TipoContrato,
   listCatalogosAcopio, addCatalogoAcopio, updateCatalogoAcopio, setCatalogoAcopioActivo, eliminarCatalogoAcopio,
 } from './contratos.repository';
 
@@ -32,6 +32,8 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   const [fecha] = useState(() => contrato?.fecha ?? new Date().toISOString().slice(0, 10));
   const [hora] = useState(() => contrato?.hora ?? horaSistema());
 
+  // Tipo (switch): producción / minero. Determina el prefijo del número y los campos extra.
+  const [tipo, setTipo] = useState<TipoContrato>(contrato?.tipo === 'minero' ? 'minero' : 'produccion');
   const [supervisor, setSupervisor] = useState(contrato?.supervisor ?? '');
   const [lugar, setLugar] = useState(contrato?.lugar_extraccion ?? '');
   const [molino, setMolino] = useState(contrato?.molino ?? '');
@@ -39,6 +41,12 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   const [kgHum, setKgHum] = useState(contrato?.kg_humedo ? String(contrato.kg_humedo) : '');
   const [kgSec, setKgSec] = useState(contrato?.kg_secos ? String(contrato.kg_secos) : '');
   const [kgLim, setKgLim] = useState(contrato?.kg_seco_limpio ? String(contrato.kg_seco_limpio) : '');
+  // Contrato minero: sacos (UND), precio de la casiterita ($/Kg) y tasa establecida.
+  const [sacos, setSacos] = useState(contrato?.cantidad_sacos ? String(contrato.cantidad_sacos) : '');
+  const [precioCas, setPrecioCas] = useState(contrato?.precio_casiterita ? String(contrato.precio_casiterita) : '');
+  const [tasa, setTasa] = useState(contrato?.tasa ? String(contrato.tasa) : '');
+  // N° de contrato editable la PRIMERA vez (luego se prellena incremental).
+  const [numeroManual, setNumeroManual] = useState('');
   // En contratos nuevos la observación arranca con "Material de Mesa:" (como en el Excel).
   // En existentes, se muestra el «Material de Mesa: X» según el Pesos Mojado de KG Mesas
   // (así el valor cargado allí siempre se ve, no solo al cerrar el contrato).
@@ -57,12 +65,19 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
 
   const lugaresActivos = useMemo(() => lugares.filter((l) => l.activo), [lugares]);
   const supervisoresActivos = useMemo(() => supervisores.filter((s) => s.activo), [supervisores]);
-  const numero = editando ? contrato!.numero : numeroContrato(proxSeq);
+  const esMinero = tipo === 'minero';
+  const numeroSugerido = numeroContrato(proxSeq, tipo);
+  // Al crear: prellenar el N° editable con el sugerido (cambia con el tipo/secuencia)
+  // mientras el usuario no lo haya tocado.
+  useEffect(() => { if (!editando) setNumeroManual(numeroSugerido); }, [numeroSugerido, editando]);
+  const numero = editando ? contrato!.numero : (numeroManual || numeroSugerido);
 
   // Preview en vivo de las fórmulas (idénticas a la BD / al Excel).
   const f = useMemo(() => formulasContrato({
     tonProcesadas: Number(ton) || 0, kgHumedo: Number(kgHum) || 0, kgSecos: Number(kgSec) || 0, kgSecoLimpio: Number(kgLim) || 0,
   }), [ton, kgHum, kgSec, kgLim]);
+  // Cálculos del contrato minero (utilidad minero 70% / GT 30% / monto a pagar).
+  const fm = useMemo(() => formulasMinero({ kgSecoLimpio: Number(kgLim) || 0, precioCasiterita: Number(precioCas) || 0 }), [kgLim, precioCas]);
 
   async function guardar() {
     if (!lugar.trim()) { toast('Indicá el lugar de extracción.', 'error'); return; }
@@ -70,12 +85,13 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
     setBusy(true);
     try {
       const input = {
-        supervisor, lugarExtraccion: lugar, molino,
+        tipo, supervisor, lugarExtraccion: lugar, molino,
         tonProcesadas: Number(ton) || 0, kgHumedo: Number(kgHum) || 0, kgSecos: Number(kgSec) || 0,
         kgSecoLimpio: Number(kgLim) || 0, observaciones: obs,
+        cantidadSacos: Number(sacos) || 0, precioCasiterita: Number(precioCas) || 0, tasa: Number(tasa) || 0,
       };
       if (editando) { await actualizarContrato(contrato!.id, input); toast('Contrato actualizado', 'success'); }
-      else { const c = await crearContrato({ ...input, actor, actorName }); toast(`Contrato ${c.numero} creado`, 'success'); }
+      else { const c = await crearContrato({ ...input, numeroManual, actor, actorName }); toast(`Contrato ${c.numero} creado`, 'success'); }
       onSaved();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar el contrato', 'error'); }
     finally { setBusy(false); }
@@ -97,7 +113,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   );
 
   return (
-    <Modal title={editando ? `Contrato ${contrato!.numero}` : 'Nuevo contrato de producción'} size="xl" onClose={onClose} footer={footer}>
+    <Modal title={editando ? `Contrato ${contrato!.numero}` : `Nuevo contrato de ${esMinero ? 'minero' : 'producción'}`} size="xl" onClose={onClose} footer={footer}>
       <div className="card" style={{ padding: '1rem' }}>
         <div className="card-title">
           <span>Datos del contrato · <strong className="mono" style={{ color: 'var(--primary-3)' }}>{numero}</strong>
@@ -105,9 +121,20 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
           </span>
         </div>
 
+        {/* Switch de tipo: Producción / Minero (solo al crear). */}
+        {!editando && (
+          <div className="view-toggle" role="tablist" style={{ marginBottom: '.6rem' }}>
+            <button type="button" className={tipo === 'produccion' ? 'active' : ''} onClick={() => setTipo('produccion')} disabled={ro}>⚙ Contrato producción</button>
+            <button type="button" className={tipo === 'minero' ? 'active' : ''} onClick={() => setTipo('minero')} disabled={ro}>⛏ Contrato minero</button>
+          </div>
+        )}
+
         {/* Encabezado */}
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
-          <div className="form-row"><label>N° de contrato (automático)</label><input className="input mono" value={numero} readOnly /></div>
+          <div className="form-row">
+            <label>N° de contrato {editando ? '' : '(editá el primero; luego es incremental)'}</label>
+            <input className="input mono" value={editando ? numero : numeroManual} onChange={(e) => setNumeroManual(e.target.value)} readOnly={editando || ro} placeholder={numeroSugerido} />
+          </div>
           <div className="form-row"><label>Fecha (automática)</label><input className="input" value={date(fecha)} readOnly /></div>
           <div className="form-row"><label>Hora (automática)</label><input className="input mono" value={hora} readOnly /></div>
         </div>
@@ -142,6 +169,23 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
             <small className="muted">Igual a «Kg seco, limpio (Casiterita)». No se modifica.</small>
           </div>
         </div>
+
+        {/* Contrato MINERO: sacos + precio + tasa y el pago al minero. */}
+        {esMinero && (
+          <>
+            <div className="card-title" style={{ marginTop: '.4rem' }}><span>⛏ Contrato minero</span></div>
+            <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
+              <div className="form-row"><label>Cantidad de sacos (UND)</label><input className="input mono" name="f-sacos" type="number" min={0} step="1" defaultValue={sacos} onChange={(e) => setSacos(e.target.value)} disabled={ro} /></div>
+              <div className="form-row"><label>Precio Casiterita ($/Kg)</label><input className="input mono" name="f-precio-cas" type="number" min={0} step="any" defaultValue={precioCas} onChange={(e) => setPrecioCas(e.target.value)} disabled={ro} /></div>
+              <div className="form-row"><label>Tasa establecida ($/Kg al acopio)</label><input className="input mono" name="f-tasa" type="number" min={0} step="any" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} disabled={ro} /><small className="muted">Todo el peso limpio pasa al centro de acopio a esta tasa.</small></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '.6rem', marginTop: '.4rem' }}>
+              <Calc label="Utilidad del minero (Kg × 70%)" value={`${num(fm.utilidadMinero)} Kg`} />
+              <Calc label="Golden Touch (Kg × 30%)" value={`${num(fm.utilidadGt)} Kg`} />
+              <Calc label="Monto a pagar minero (util. × precio)" value={`$ ${num(fm.montoPagarMinero)}`} />
+            </div>
+          </>
+        )}
 
         {/* Resultados automáticos (fórmulas del Excel) */}
         <div className="card-title" style={{ marginTop: '.4rem' }}><span>🧮 Resultados automáticos</span></div>

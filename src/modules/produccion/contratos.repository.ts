@@ -25,8 +25,16 @@ async function casiteritaProductoId(): Promise<string> {
   return (nuevo as { id: string }).id;
 }
 
+/** Tipo de contrato: producción (molienda propia) o minero (compra a minero). */
+export type TipoContrato = 'produccion' | 'minero';
 /** Prefijo del correlativo de contratos. */
 export const CONTRATO_PREFIJO = 'Producción GT';
+export const CONTRATO_PREFIJO_MINERO = 'Minero GT';
+/** Prefijo según el tipo de contrato. */
+export const prefijoContrato = (tipo: TipoContrato) => (tipo === 'minero' ? CONTRATO_PREFIJO_MINERO : CONTRATO_PREFIJO);
+/** % de utilidad del minero y de Golden Touch sobre el Kg seco limpio (Casiterita). */
+export const PCT_UTILIDAD_MINERO = 0.70;
+export const PCT_UTILIDAD_GT = 0.30;
 /**
  * Correlativo MÍNIMO desde el que arrancan los contratos en el sistema.
  * Los contratos #1–#45 ya existían hechos a mano (cargados en la caja como
@@ -34,8 +42,8 @@ export const CONTRATO_PREFIJO = 'Producción GT';
  * continuar la secuencia real sin pisarla.
  */
 export const SEQ_INICIAL_CONTRATO = 46;
-/** Formatea el correlativo: 1 → "Producción GT-01". */
-export const numeroContrato = (seq: number) => `${CONTRATO_PREFIJO}-${String(seq).padStart(2, '0')}`;
+/** Formatea el correlativo: 1 → "Producción GT-01" (o "Minero GT-01"). */
+export const numeroContrato = (seq: number, tipo: TipoContrato = 'produccion') => `${prefijoContrato(tipo)}-${String(seq).padStart(2, '0')}`;
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM». */
 export function horaSistema(): string {
@@ -71,6 +79,8 @@ export async function nextSeqContrato(): Promise<number> {
 
 /** Datos editables de un contrato (los inputs; las fórmulas las calcula la BD). */
 export interface ContratoInput {
+  /** Tipo de contrato: 'produccion' (molienda) o 'minero' (compra a minero). */
+  tipo?: TipoContrato;
   supervisor?: string | null;
   lugarExtraccion: string;
   molino?: string | null;
@@ -79,12 +89,19 @@ export interface ContratoInput {
   kgSecos?: number;
   kgSecoLimpio?: number;
   observaciones?: string | null;
+  /** Contrato minero: sacos (UND), precio de la casiterita ($/Kg) y tasa establecida. */
+  cantidadSacos?: number;
+  precioCasiterita?: number;
+  tasa?: number;
+  /** N° manual del contrato (la primera vez); si no viene, el sistema autoincrementa. */
+  numeroManual?: string | null;
 }
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 function payloadContrato(input: ContratoInput): Record<string, unknown> {
   return {
+    tipo: input.tipo === 'minero' ? 'minero' : 'produccion',
     supervisor: input.supervisor?.trim() || null,
     lugar_extraccion: input.lugarExtraccion.trim(),
     molino: input.molino?.trim() || null,
@@ -92,7 +109,26 @@ function payloadContrato(input: ContratoInput): Record<string, unknown> {
     kg_humedo: n(input.kgHumedo),
     kg_secos: n(input.kgSecos),
     kg_seco_limpio: n(input.kgSecoLimpio),
+    cantidad_sacos: n(input.cantidadSacos),
+    precio_casiterita: n(input.precioCasiterita),
+    tasa: n(input.tasa),
     observaciones: input.observaciones?.trim() || null,
+  };
+}
+
+/**
+ * Cálculos del contrato MINERO (para el preview en vivo; iguales a las columnas
+ * generadas de la BD): Utilidad del minero = Kg seco limpio × 70%; Golden Touch = × 30%;
+ * Monto a pagar al minero = Utilidad del minero × Precio Casiterita.
+ */
+export function formulasMinero(i: { kgSecoLimpio?: number; precioCasiterita?: number }) {
+  const lim = n(i.kgSecoLimpio), precio = n(i.precioCasiterita);
+  const utilidadMinero = Math.round(lim * PCT_UTILIDAD_MINERO * 1000) / 1000;
+  const utilidadGt = Math.round(lim * PCT_UTILIDAD_GT * 1000) / 1000;
+  return {
+    utilidadMinero,
+    utilidadGt,
+    montoPagarMinero: Math.round(utilidadMinero * precio * 100) / 100,
   };
 }
 
@@ -121,13 +157,20 @@ export async function crearContrato(input: ContratoInput & { actor: string; acto
   await addCatalogoAcopio('lugar_extraccion', lugar).catch(() => { /* ya existe: ok */ });
   if (input.supervisor?.trim()) await addCatalogoAcopio('supervisor', input.supervisor).catch(() => {});
 
+  const tipo: TipoContrato = input.tipo === 'minero' ? 'minero' : 'produccion';
+  // N° manual (la primera vez): si el usuario escribió un número, se usa y su seq
+  // se deriva de los dígitos; si no, el sistema autoincrementa (correlativo real).
+  const manual = input.numeroManual?.trim() || '';
+  const seqManual = manual ? Number((/(\d+)/.exec(manual) ?? [])[1]) : NaN;
+
   // Correlativo + reintento ante colisión (alta concurrente).
   for (let intento = 0; intento < 5; intento++) {
-    const seq = await nextSeqContrato();
+    const seq = Number.isFinite(seqManual) && intento === 0 ? seqManual : await nextSeqContrato();
+    const numero = manual && intento === 0 ? manual : numeroContrato(seq, tipo);
     const { data, error } = await supabase
       .from('acopio_contratos')
       .insert({
-        numero: numeroContrato(seq),
+        numero,
         seq,
         fecha: new Date().toISOString().slice(0, 10),
         hora: horaSistema(),
@@ -216,10 +259,10 @@ async function revertirEntradaCasiterita(c: ContratoMov, actor: string, actorNam
 export async function cerrarContrato(id: string, actor: string, actorName?: string | null): Promise<void> {
   const { data, error } = await supabase
     .from('acopio_contratos')
-    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad, mesa_peso_mojado, observaciones')
+    .select('numero, estado, tipo, tasa, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad, mesa_peso_mojado, observaciones')
     .eq('id', id).single();
   if (error) throw error;
-  const c = data as ContratoMov & { mesa_peso_mojado: number | null; observaciones: string | null };
+  const c = data as ContratoMov & { tipo: string | null; tasa: number | null; mesa_peso_mojado: number | null; observaciones: string | null };
   if (c.estado === 'cerrado') return;
 
   // Al cerrar, volcamos el «Pesos Mojado» (cargado en KG Mesas) a la observación
@@ -231,15 +274,18 @@ export async function cerrarContrato(id: string, actor: string, actorName?: stri
   if (cantidad > 0) {
     movProductoId = await casiteritaProductoId();
     movAlmacen = CASITERITA_ALMACEN;
-    // El costo de la casiterita que entra es la TASA del material en acopio
-    // (Facturado + Gastos + Nóminas) ÷ Kg cerrados. Así el movimiento (y su PMP)
-    // queda valorizado a la tasa vigente de acopio.
-    const tasa = await tasaActualAcopio().catch(() => 0);
+    // Costo de la casiterita que entra al inventario:
+    //  · Minero: la TASA ESTABLECIDA en el contrato ($/Kg). Todo el peso limpio
+    //    pasa al centro de acopio con esa tasa.
+    //  · Producción: la TASA vigente de acopio (Facturado + Gastos + Nóminas) ÷ Kg.
+    const esMinero = c.tipo === 'minero';
+    const tasaMinero = Number(c.tasa) || 0;
+    const tasa = esMinero ? tasaMinero : await tasaActualAcopio().catch(() => 0);
     const mov = await registrarMovimiento({
       producto_id: movProductoId, tipo: 'entrada', delta: cantidad, almacen: movAlmacen,
       actor, actor_name: actorName ?? null,
-      ref_tipo: 'contrato_produccion', ref_id: id, ref_codigo: c.numero,
-      detalle: `Contrato ${c.numero} · Casiterita · tasa acopio ${tasa.toFixed(2)} $/Kg`,
+      ref_tipo: esMinero ? 'contrato_minero' : 'contrato_produccion', ref_id: id, ref_codigo: c.numero,
+      detalle: `Contrato ${c.numero} · Casiterita · ${esMinero ? 'tasa establecida' : 'tasa acopio'} ${tasa.toFixed(2)} $/Kg`,
       precio_unitario: tasa > 0 ? tasa : undefined,
     });
     movId = mov.id;

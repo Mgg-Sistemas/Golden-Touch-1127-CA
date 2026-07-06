@@ -519,6 +519,13 @@ function siguienteNumeroCaja(cajas: CajaCierre[]): string {
   return `Caja ${max + 1}`;
 }
 
+/** Número sugerido para la próxima caja (incremental desde el mayor existente).
+ *  Sirve para prellenar el input del cierre: la primera vez el usuario lo puede
+ *  cambiar y a partir de ahí sigue incremental. */
+export async function proximoNumeroCaja(): Promise<string> {
+  return siguienteNumeroCaja(await listCajas());
+}
+
 /**
  * CIERRE de caja del Centro de Acopio. Congela la caja abierta (sus movimientos y
  * los saldos de las tarjetas quedan en histórico, `resumen_json`) y abre una caja
@@ -534,6 +541,9 @@ export async function cerrarYAbrirCaja(input: {
   snapshot: import('@/shared/lib/types').CierreSnapshot;
   actor: string;
   actorName?: string | null;
+  /** Número para la caja NUEVA que se abre. Si no viene, se autoincrementa. El usuario
+   *  lo indica al cerrar (la primera vez) y luego se prellena incremental. */
+  numeroNueva?: string | null;
 }): Promise<CajaCierre> {
   const { snapshot, actor, actorName } = input;
   const hoy = hoyVE();
@@ -565,7 +575,8 @@ export async function cerrarYAbrirCaja(input: {
   //    el saldo de KG de casiterita NO se arrastra: se REINICIA en 0 porque todo el
   //    acumulado se despacha a Recepción (paso 6). La caja nueva arranca su Kg desde 0.
   const cajasTrasCerrar = [...cajas.filter((c) => c.id !== cerrando!.id), { ...cerrando }];
-  const nueva = await crearCaja({ numero: siguienteNumeroCaja(cajasTrasCerrar), fecha_inicio: hoy }, actor);
+  const numeroNueva = input.numeroNueva?.trim() || siguienteNumeroCaja(cajasTrasCerrar);
+  const nueva = await crearCaja({ numero: numeroNueva, fecha_inicio: hoy }, actor);
   const { error: e2 } = await supabase.from('acopio_cajas').update({
     saldo_inicial_usd: snapshot.resumen.saldoUsd,
     saldo_inicial_kg: 0,
