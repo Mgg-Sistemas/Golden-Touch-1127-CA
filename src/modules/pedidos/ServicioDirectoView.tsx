@@ -292,6 +292,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {fila('Creado', dateTime(servicio.created_at))}
       {servicio.estado === 'finalizada' && fila('Pagado', servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—')}
       {fila('Moneda', servicio.moneda === 'Bs' ? 'Bs' : '$ (USD)')}
+      {(Number(servicio.tasa_conversion) || 0) > 0 && servicio.gasto != null && fila('Convertido a la tasa', <span>{num(servicio.tasa_conversion)} Bs/$ · equivale a <strong className="mono">{montoMoneda(servicio.moneda === 'Bs' ? Number(servicio.gasto) / Number(servicio.tasa_conversion) : Number(servicio.gasto) * Number(servicio.tasa_conversion), servicio.moneda === 'Bs' ? 'USD' : 'Bs')}</strong></span>)}
       {fila('Monto total', servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—')}
       {servicio.nota && fila('Nota / motivo', <span style={{ whiteSpace: 'pre-wrap' }}>{servicio.nota}</span>)}
       {servicio.pago_externo && fila('Pago a externo',
@@ -696,6 +697,9 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   const montosIniciales: Record<number, string> = {};
   servicio.items.forEach((it, i) => { if (it.gasto != null) montosIniciales[i] = String(it.gasto); });
   const [gastos, setGastos] = useState<Record<number, string>>(montosIniciales);
+  // Conversor (modo montar): re-monta los inputs de monto con `convKey` y recuerda la tasa usada.
+  const [convKey, setConvKey] = useState(0);
+  const [tasaConversion, setTasaConversion] = useState<number | null>(servicio.tasa_conversion ?? null);
   const [files, setFiles] = useState<File[]>([]);
   const [catsGasto, setCatsGasto] = useState<CategoriaGasto[]>([]);
   const [catId, setCatId] = useState('');
@@ -712,6 +716,27 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
     () => Math.round(servicio.items.reduce((a, _it, i) => a + (Number(gastos[i]) || 0), 0) * 100) / 100,
     [gastos, servicio.items],
   );
+
+  // Conversor de moneda (modo montar): convierte todos los montos de $↔Bs a la tasa
+  // (del día o la que escriba el usuario) y cambia la moneda del servicio. Guarda la tasa usada.
+  function convertirMoneda() {
+    const t = Number(tasa) || 0;
+    if (t <= 0) { setError('Cargá la tasa (Bs por $) para convertir.'); return; }
+    const destino: 'USD' | 'Bs' = monedaServicio === 'USD' ? 'Bs' : 'USD';
+    const factor = destino === 'Bs' ? t : 1 / t;
+    setGastos((m) => {
+      const next: Record<number, string> = {};
+      servicio.items.forEach((_it, i) => {
+        const v = Number(m[i]) || 0;
+        next[i] = v > 0 ? String(Math.round(v * factor * 100) / 100) : (m[i] ?? '');
+      });
+      return next;
+    });
+    setMonedaServicio(destino);
+    setTasaConversion(t);
+    setConvKey((k) => k + 1);
+    setError(null);
+  }
 
   const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
   const [saldosTodas, setSaldosTodas] = useState<CajaSaldo[]>([]);
@@ -760,7 +785,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
       setSaving(true);
       try {
         for (const f of files) await agregarAdjuntoDirecto('servicio', servicio.id, f, actor);
-        await enviarServicioAPagar({ servicio, items, moneda: monedaServicio, actor, actorName });
+        await enviarServicioAPagar({ servicio, items, moneda: monedaServicio, tasaConversion, actor, actorName });
         notify(`Servicio ${servicio.codigo ?? ''} enviado a pagar · ${montoCaja(total, monedaServicio)} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
@@ -811,13 +836,26 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
         )}
 
         {!esPago && (
-          <div className="form-row" style={{ maxWidth: 220 }}>
+          <div className="form-row">
             <label>Moneda del servicio</label>
-            <select className="select" value={monedaServicio} onChange={(e) => setMonedaServicio(e.target.value as 'USD' | 'Bs')}>
-              <option value="USD">$ (USD)</option>
-              <option value="Bs">Bs</option>
-            </select>
-            <small className="muted">Los montos que cargues abajo son en esta moneda.</small>
+            <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <select className="select" style={{ maxWidth: 150 }} value={monedaServicio} onChange={(e) => { setMonedaServicio(e.target.value as 'USD' | 'Bs'); setTasaConversion(null); }}>
+                <option value="USD">$ (USD)</option>
+                <option value="Bs">Bs</option>
+              </select>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
+                <span className="muted" style={{ fontSize: '.8rem' }}>Tasa BCV (Bs/$):</span>
+                <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" style={{ width: 120, textAlign: 'right' }} />
+              </label>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={convertirMoneda} disabled={!(Number(tasa) > 0)}
+                title={Number(tasa) > 0 ? `Convierte todos los montos a la tasa ${num(tasa)}` : 'Cargá la tasa para convertir'}>
+                ⇄ Convertir a {monedaServicio === 'USD' ? 'Bs' : '$'}
+              </button>
+              {tasaConversion != null && tasaConversion > 0 && (
+                <span className="muted" style={{ fontSize: '.72rem' }}>convertido a tasa <strong className="mono">{num(tasaConversion)}</strong></span>
+              )}
+            </div>
+            <small className="muted">Los montos que cargues abajo son en esta moneda. El conversor los pasa de $ a Bs (o viceversa) a la tasa del día o la que escribas.</small>
           </div>
         )}
 
@@ -879,7 +917,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{it.bombonas ? num(it.bombonas) : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{it.kg_recarga ? num(it.kg_recarga) : '—'}</td>
-                    <td><input className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
+                    <td><input key={`g-${i}-${convKey}`} className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
                     <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, esPago ? moneda : monedaServicio)}</td>
                   </tr>
                 );
