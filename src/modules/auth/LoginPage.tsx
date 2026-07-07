@@ -8,6 +8,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [verClave, setVerClave] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Login con huella (WebAuthn): solo si el navegador lo soporta. Si este equipo
@@ -121,15 +122,33 @@ export function LoginPage() {
 
           <div className="form-row">
             <label htmlFor="password">Contraseña</label>
-            <input
-              id="password"
-              type="password"
-              className="input"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                id="password"
+                type={verClave ? 'text' : 'password'}
+                className="input"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                style={{ paddingRight: '2.6rem', width: '100%' }}
+              />
+              <button
+                type="button"
+                onClick={() => setVerClave((v) => !v)}
+                title={verClave ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                aria-label={verClave ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                aria-pressed={verClave}
+                style={{
+                  position: 'absolute', top: 0, right: 0, height: '100%', width: '2.6rem',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                  fontSize: '1.05rem', color: 'var(--muted, #888)',
+                }}
+              >
+                {verClave ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
           {error && (

@@ -65,9 +65,16 @@ export function SalidasPage() {
   const { can, appUser, isAdmin, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
   // Aprueban y ejecutan: admin, quien tenga FULL en salidas, cualquier ANALISTA
-  // (analista, analista_de_*) y cualquier JEFE/JEFA (jefe_*, jefa_*). El obrero solo
-  // crea solicitudes.
-  const puedeAprobar = isAdmin || can('salidas', 'full') || /^(analista|jef[ae])/.test(role ?? '');
+  // (analista_de_*) y cualquier JEFE/JEFA (jefe_*, jefa_*). El obrero solo crea solicitudes.
+  // EXCEPCIÓN: el «Analista» base y el «Analista de Compras» NO pueden aprobar ni ejecutar
+  // órdenes de salida ni traslados (aunque su rol empiece por «analista»). La lista manda
+  // por encima del FULL: solo el admin queda exento del bloqueo.
+  const ROLES_SIN_APROBAR_SALIDAS = ['analista', 'analista_de_compras'];
+  const rol = role ?? '';
+  const puedeAprobar = isAdmin || (
+    !ROLES_SIN_APROBAR_SALIDAS.includes(rol) &&
+    (can('salidas', 'full') || /^(analista|jef[ae])/.test(rol))
+  );
   const actor = appUser?.email ?? 'sistema';
   // Nombre COMPLETO (nombre + apellido) de la persona logueada, para que las
   // solicitudes/movimientos muestren "Nombre Apellido" y no solo el nombre.
