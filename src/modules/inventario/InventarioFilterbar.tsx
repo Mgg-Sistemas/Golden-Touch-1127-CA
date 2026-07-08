@@ -43,9 +43,15 @@ export function InventarioFilterbar({ values, categorias, onChange, almacenes }:
           title="Filtrar por almacén"
         >
           <option value="">Todos los almacenes</option>
-          {almacenes.map((a) => (
-            <option key={a} value={a}>{a}</option>
-          ))}
+          {almacenes.map((a) => {
+            // Los subalmacenes ("BASE / SUB") se muestran sangrados bajo su almacén base;
+            // el almacén base (sin " / ") trae TODOS sus subalmacenes al elegirlo.
+            const idx = a.indexOf(' / ');
+            const esSub = idx >= 0;
+            return (
+              <option key={a} value={a}>{esSub ? `   ↳ ${a.slice(idx + 3)}` : a}</option>
+            );
+          })}
         </select>
       )}
       <select

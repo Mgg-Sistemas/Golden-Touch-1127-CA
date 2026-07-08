@@ -261,14 +261,29 @@ export function InventarioPage() {
 
   const filtered = useMemo<ProductoDecorado[]>(() => {
     // Filtro por almacén: muestra solo los productos con existencia en ese almacén,
-    // con el stock y el costo (PMP) propios del almacén elegido.
+    // con el stock y el costo (PMP) propios del almacén elegido. Si se elige un almacén
+    // BASE (sin subalmacén), incluye TODOS sus subalmacenes ("BASE / *"): cada producto
+    // sale UNA vez con el stock SUMADO y el costo (PMP) PONDERADO de esos subalmacenes.
     if (ui.filterAlmacen) {
       const prodMap = new Map(productos.map((p) => [p.id, p]));
-      const virtuales = existencias
-        .filter((e) => e.almacen === ui.filterAlmacen)
-        .map((e) => {
-          const p = prodMap.get(e.producto_id);
-          return p ? ({ ...p, stock: e.stock, precio: e.costo_promedio, almacen: ui.filterAlmacen } as Producto) : null;
+      const sel = ui.filterAlmacen;
+      const esBase = !sel.includes(' / ');
+      const pertenece = (alm: string) =>
+        esBase ? (alm === sel || alm.startsWith(`${sel} / `)) : alm === sel;
+      const acc = new Map<string, { stock: number; valor: number }>();
+      for (const e of existencias) {
+        if (!pertenece(e.almacen)) continue;
+        const st = Number(e.stock) || 0;
+        const cur = acc.get(e.producto_id) ?? { stock: 0, valor: 0 };
+        cur.stock += st;
+        cur.valor += st * (Number(e.costo_promedio) || 0);
+        acc.set(e.producto_id, cur);
+      }
+      const virtuales = [...acc.entries()]
+        .map(([pid, v]) => {
+          const p = prodMap.get(pid);
+          const costo = v.stock > 0 ? v.valor / v.stock : 0;
+          return p ? ({ ...p, stock: v.stock, precio: costo, almacen: sel } as Producto) : null;
         })
         .filter((p): p is Producto => p !== null);
       return decorate(virtuales, DEFAULT_POLICY).filter((p) => coincideFiltros(p, ui));
@@ -277,10 +292,19 @@ export function InventarioPage() {
   }, [decorated, ui, existencias, productos]);
 
   // Nombres de almacenes (con existencias) para el filtro por almacén del inventario general.
+  // Se ofrece SIEMPRE el almacén BASE (sin subalmacén) además de cada subalmacén, para poder
+  // ver TODO el almacén de una: elegir "LOS PINOS" trae todos los productos de sus subalmacenes.
   const almacenNombres = useMemo<string[]>(() => {
     const set = new Set<string>();
-    existencias.forEach((e) => { if (e.almacen) set.add(e.almacen); });
-    almacenes.forEach((a) => { if (a.nombre) set.add(a.nombre); });
+    const add = (nombre?: string | null) => {
+      const full = (nombre ?? '').trim();
+      if (!full) return;
+      set.add(full);
+      const base = full.split(' / ')[0].trim();
+      if (base) set.add(base);
+    };
+    existencias.forEach((e) => add(e.almacen));
+    almacenes.forEach((a) => add(a.nombre));
     return [...set].sort((a, b) => a.localeCompare(b, 'es'));
   }, [existencias, almacenes]);
 
@@ -794,7 +818,8 @@ export function InventarioPage() {
           <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} almacenes={almacenNombres} />
           {ui.filterAlmacen && (
             <div className="muted" style={{ fontSize: '.82rem', margin: '-.35rem 0 .6rem' }}>
-              Mostrando stock y costo del almacén <strong style={{ color: 'var(--text)' }}>{ui.filterAlmacen}</strong>.
+              Mostrando stock y costo del almacén <strong style={{ color: 'var(--text)' }}>{ui.filterAlmacen}</strong>
+              {!ui.filterAlmacen.includes(' / ') && <> (incluye todos sus subalmacenes; el stock se suma por producto)</>}.
             </div>
           )}
           {loading ? (
