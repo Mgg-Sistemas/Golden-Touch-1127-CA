@@ -288,6 +288,13 @@ export async function updateProducto(
   id: string,
   patch: Partial<ProductoInput>,
 ): Promise<Producto> {
+  // Si el patch trae PRECIO, capturamos el anterior para propagar SOLO cuando cambió
+  // (así un cambio de nombre/estado no pisa el costo por almacén).
+  let precioAnterior: number | null = null;
+  if (patch.precio !== undefined) {
+    const { data: prev } = await supabase.from('productos').select('precio').eq('id', id).maybeSingle();
+    precioAnterior = prev ? Number((prev as { precio: number | null }).precio) : null;
+  }
   const { data, error } = await supabase
     .from('productos')
     .update(patch)
@@ -295,6 +302,18 @@ export async function updateProducto(
     .select('*')
     .single();
   if (error) throw error;
+  // Al EDITAR el precio unitario desde inventario, se PROPAGA como costo (PMP) a las
+  // existencias del producto en TODOS sus almacenes. Así Salidas/Traslados —que descuentan
+  // al costo por almacén (existencias.costo_promedio)— reflejan el precio nuevo y no el
+  // inicial. Solo se dispara cuando el precio realmente cambió.
+  if (patch.precio !== undefined && Number.isFinite(Number(patch.precio)) && Number(patch.precio) !== precioAnterior) {
+    const nuevoCosto = Math.round((Number(patch.precio) || 0) * 10000) / 10000;
+    const { error: eEx } = await supabase
+      .from('existencias')
+      .update({ costo_promedio: nuevoCosto, updated_at: new Date().toISOString() })
+      .eq('producto_id', id);
+    if (eEx) throw eEx;
+  }
   return data as Producto;
 }
 
