@@ -76,6 +76,7 @@ import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
+import { puedeAprobarOc } from './aprobadoresOc';
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
@@ -324,12 +325,12 @@ export function PedidosPage() {
   const canWrite = isAdmin || can('pedidos', 'escritura');
   const canManageProcurement = canWrite;
   // APROBAR la Solicitud de Pedido (pendiente → aprobada) la hace COMPRAS
-  // (analista). La firma final de la OC (oc_creada → oc_aprobada) queda
-  // reservada EXCLUSIVAMENTE al rol Administrador (regla de negocio, reforzada
-  // además por un trigger en la base: trg_enforce_admin_aprueba_orden, que solo
-  // gatea oc_aprobada_por).
+  // (analista). La firma final de la OC (oc_creada → oc_aprobada) la pueden hacer
+  // el Administrador (JESUS LOZADA) y la Jefa de administración (LEYDIS RENGEL),
+  // según aprobadoresOc.ts. Reforzado en la base por el trigger enforce_admin_aprueba_orden,
+  // que ahora gatea oc_aprobada_por con puede_aprobar_oc() (admin o jefa_de_administracion).
   const puedeAprobarSolicitud = canManageProcurement; // SP: Compras (analista/admin)
-  const puedeAprobarPedidos = isAdmin;                // OC: solo Administrador
+  const puedeAprobarPedidos = puedeAprobarOc(usuario?.role, usuario?.email); // OC: admin o Jefa de administración
 
   // Quien no gestiona compras solo trabaja Órdenes de Pedido: lo mantenemos en ese scope.
   useEffect(() => {
