@@ -15,8 +15,10 @@ import type { CuentaCaja } from '@/shared/lib/types';
 
 export type { PagoExternoInput };
 
-/** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
-export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
+/** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja.
+ *  `cajaId` opcional habilita el multipago ENTRE CAJAS (cada pata de su propia caja);
+ *  si no viene, sale de la caja principal del pago. */
+export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; cajaId?: string | null; }
 
 const BUCKET = 'servicios-directos';
 
@@ -286,7 +288,7 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
     let primero: string | null = null;
     for (const leg of legs) {
       const r = await egresarDivisa({
-        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: leg.cajaId ?? input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'servicio_directo',
         gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
         actor: input.actor, actorName: input.actorName ?? null,
@@ -397,7 +399,7 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<v
     let primero: string | null = null;
     for (const leg of legs) {
       const r = await egresarDivisa({
-        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: leg.cajaId ?? input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'servicio_directo',
         gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
         actor: input.actor, actorName: input.actorName ?? null,

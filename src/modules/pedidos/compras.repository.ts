@@ -32,8 +32,10 @@ async function tasaUsdHoy(): Promise<number> {
   try { const t = await getTasaHoy(); return Number(t.usd) || 0; } catch { return 0; }
 }
 
-/** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja. */
-export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; }
+/** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja.
+ *  `cajaId` opcional habilita el multipago ENTRE CAJAS (cada pata de su propia caja);
+ *  si no viene, sale de la caja principal del pago. */
+export interface PagoLeg { cuenta: CuentaCaja; moneda: string; monto: number; cajaId?: string | null; }
 
 /** Datos de la persona externa que pagó (para reintegrarle). Cuando `activo` es false,
  *  se limpian los datos. */
@@ -359,7 +361,7 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     let primero: string | null = null;
     for (const leg of legs) {
       const r = await egresarDivisa({
-        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: leg.cajaId ?? input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'compra_directa',
         gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
         actor: input.actor, actorName: input.actorName ?? null,
@@ -700,7 +702,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     let primero: string | null = null;
     for (const leg of legs) {
       const r = await egresarDivisa({
-        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: leg.cajaId ?? input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, categoria: 'compra_directa',
         gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
         actor: input.actor, actorName: input.actorName ?? null,
@@ -725,7 +727,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     const conceptoCom = `Comisión bancaria · ${compra.codigo ?? compra.producto_nombre}`;
     if (legs.length) {
       await egresarDivisa({
-        cajaId: input.cajaId, cuenta: legs[0].cuenta, moneda: legs[0].moneda, monto: comision,
+        cajaId: legs[0].cajaId ?? input.cajaId, cuenta: legs[0].cuenta, moneda: legs[0].moneda, monto: comision,
         concepto: conceptoCom, categoria: 'gasto', gastoCategoria: 'Comisión bancaria',
         actor: input.actor, actorName: input.actorName ?? null,
       });

@@ -16,7 +16,7 @@ import type { Almacen } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
-import { saldosDeCaja, listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
+import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
@@ -858,11 +858,19 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     setError(null);
   }
 
-  // Saldos multimoneda de la caja elegida (para pagar repartiendo por cuenta/moneda).
-  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  // Multipago ENTRE CAJAS: además de la caja principal, se pueden sumar otras cajas
+  // (ej. 50$ en divisas de una caja + 50$ en Bs de otra). `cajasExtra` = ids adicionales.
+  const [cajasExtra, setCajasExtra] = useState<string[]>([]);
   // Billetera de TODAS las cajas (para mostrar el saldo real en el selector; cajas.saldo suele estar en 0).
   const [saldosTodas, setSaldosTodas] = useState<CajaSaldo[]>([]);
   useEffect(() => { listSaldos().then(setSaldosTodas).catch(() => setSaldosTodas([])); }, []);
+  // Saldos (billeteras con saldo > 0) de la caja principal + las cajas extra. Cada saldo
+  // trae su `caja_id`, así el pago egresa cada pata de SU caja.
+  const cajasSel = useMemo(() => [cajaId, ...cajasExtra].filter(Boolean), [cajaId, cajasExtra]);
+  const saldosCaja = useMemo(
+    () => saldosTodas.filter((s) => cajasSel.includes(s.caja_id) && Number(s.saldo) > 0),
+    [saldosTodas, cajasSel],
+  );
   // Saldo a mostrar de una caja: su billetera (en la moneda de la caja), o cajas.saldo si no tiene billetera.
   const saldoMostrar = (c: Caja): number => {
     const rows = saldosTodas.filter((s) => s.caja_id === c.id);
@@ -873,11 +881,8 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const [legMontos, setLegMontos] = useState<Record<string, string>>({});
   const [tasa, setTasa] = useState<number>(0);
   const [mercado, setMercado] = useState<TasasMercado | null>(null);
-  useEffect(() => {
-    if (!cajaId) { setSaldosCaja([]); return; }
-    saldosDeCaja(cajaId).then((rows) => setSaldosCaja(rows.filter((r) => Number(r.saldo) > 0))).catch(() => setSaldosCaja([]));
-    setLegMontos({});
-  }, [cajaId]);
+  // Al cambiar la caja principal se reinician las cajas extra y los montos por moneda.
+  useEffect(() => { setCajasExtra([]); setLegMontos({}); }, [cajaId]);
   useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
 
@@ -937,7 +942,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     let legs: PagoLeg[] | undefined;
     if (esMultimoneda) {
       legs = saldosCaja
-        .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 }))
+        .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, cajaId: s.caja_id }))
         .filter((l) => l.monto > 0);
       if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
       if (excedeTotalMulti) { setError(`No podés pagar más que el total de la compra. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(totalUsdObjetivo, 'USD')} (te pasaste por ${montoCaja(round2(sumUsdMulti - totalUsdObjetivo), 'USD')}).`); return; }
@@ -950,7 +955,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       if (monedaCompra !== s.moneda && !(tasa > 0)) { setError('Indicá la tasa (Bs por $) para convertir el total a la moneda de la billetera.'); return; }
       const montoLeg = convertir(total, monedaCompra, s.moneda);
       if (montoLeg > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}). Requiere ${montoCaja(montoLeg, s.moneda)}.`); return; }
-      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: montoLeg }];
+      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: montoLeg, cajaId: s.caja_id }];
     }
     setSaving(true);
     try {
@@ -992,8 +997,31 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
           <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 320 }}
             placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
             options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
-          <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Es Multimoneda: repartí el pago por moneda abajo.' : ''}</small>
+          <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Repartí el pago por moneda/caja abajo.' : ''}</small>
         </div>
+        )}
+
+        {/* Multipago ENTRE CAJAS: sumar otra caja para repartir el pago (ej. 50$ en divisas
+            de una caja + 50$ en Bs de otra). Al agregar una 2da caja aparece la grilla. */}
+        {esPago && cajas.length > 1 && (
+          <div className="form-row">
+            <label>Pagar con varias cajas <span className="muted">(opcional)</span></label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 220 }}>
+                <SearchSelect value="" onChange={(id) => { if (id) setCajasExtra((xs) => (xs.includes(id) ? xs : [...xs, id])); }}
+                  placeholder="+ Añadir otra caja…"
+                  options={cajas.filter((c) => c.id !== cajaId && !cajasExtra.includes(c.id)).map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
+              </div>
+              {cajasExtra.map((id) => (
+                <span key={id} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', background: 'var(--bg-1)' }}>
+                  {cajas.find((c) => c.id === id)?.nombre ?? id}
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .25rem', lineHeight: 1 }} title="Quitar caja"
+                    onClick={() => setCajasExtra((xs) => xs.filter((x) => x !== id))}>✕</button>
+                </span>
+              ))}
+            </div>
+            <small className="muted">Sumá otra caja para pagar parte en una moneda/caja y el resto en otra (ej. 50$ divisas + 50$ Bs al cambio).</small>
+          </div>
         )}
 
         {/* Categoría / subcategoría de gasto: etiqueta el movimiento en Tesorería,
@@ -1091,16 +1119,17 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
         {/* Multipago por cuenta: repartí el total entre las monedas de la caja Multimoneda. */}
         {esPago && esMultimoneda && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
-            <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda · ¿cuánto sale de cada una?</div>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda/caja · ¿cuánto sale de cada una?</div>
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.84rem' }}>
-                <thead><tr><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar (en su moneda)</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
+                <thead><tr><th>Caja</th><th>Moneda</th><th style={{ textAlign: 'right' }}>Disponible</th><th style={{ textAlign: 'right' }}>A pagar (en su moneda)</th><th style={{ textAlign: 'right' }}>Equiv. USD</th></tr></thead>
                 <tbody>
                   {saldosCaja.map((s) => {
                     const n = Number(legMontos[s.id]) || 0;
                     const excede = n > Number(s.saldo);
                     return (
                       <tr key={s.id}>
+                        <td>{cajas.find((c) => c.id === s.caja_id)?.nombre ?? '—'}</td>
                         <td><span className="badge">{s.moneda}</span>{cuentaLabel(s.cuenta)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(Number(s.saldo), s.moneda)}</td>
                         <td style={{ textAlign: 'right' }}>
@@ -1116,7 +1145,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
+                    <td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
                       {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(total, 'USD')}
                     </td>
