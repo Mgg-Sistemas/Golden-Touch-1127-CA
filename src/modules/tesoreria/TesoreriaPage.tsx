@@ -170,6 +170,7 @@ export function TesoreriaPage() {
   const [resumenMovOpen, setResumenMovOpen] = useState(false);
 
   // Filtros del registro de movimientos
+  const [fCaja, setFCaja] = useState<string>('');   // billetera/caja (server-side, listLibroMayor)
   const [fMoneda, setFMoneda] = useState<string>('');
   const [monedasReg, setMonedasReg] = useState<string[]>(['Bs', 'USD', 'USDT', 'COP']);
   useEffect(() => { listMonedas().then(setMonedasReg).catch(() => { /* base */ }); }, []);
@@ -185,7 +186,7 @@ export function TesoreriaPage() {
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
-      listLibroMayor({ moneda: fMoneda || undefined, tipo: fTipo || undefined, desde: fDesde || undefined, hasta: fHasta || undefined }),
+      listLibroMayor({ cajaId: fCaja || undefined, moneda: fMoneda || undefined, tipo: fTipo || undefined, desde: fDesde || undefined, hasta: fHasta || undefined }),
       listOrdenesPorPagar().catch(() => [] as OrdenPorPagar[]),
       listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
       listCuentasPorPagar(true).catch(() => [] as CuentaPorPagar[]),
@@ -200,7 +201,7 @@ export function TesoreriaPage() {
     const directosPorPagar = cd.filter((c) => c.estado === 'por_pagar').length + sd.filter((s) => s.estado === 'por_pagar').length;
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
     setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length + directosPorPagar); setCreditosCount(crPendientes.length + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
-  }, [fMoneda, fTipo, fDesde, fHasta]);
+  }, [fCaja, fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
   useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos', 'compras_directas', 'servicios_directos'], () => { void reload(); });
@@ -287,6 +288,7 @@ export function TesoreriaPage() {
     titulo: 'REPORTE DE MOVIMIENTOS',
     subtitulo: [
       fDesde && `Desde ${fDesde}`, fHasta && `Hasta ${fHasta}`,
+      fCaja && `Billetera ${cajas.find((c) => c.id === fCaja)?.nombre ?? ''}`.trim(),
       fMoneda && `Moneda ${fMoneda}`, fTipo && `Tipo ${fTipo}`,
       fBuscar.trim() && `Búsqueda "${fBuscar.trim()}"`,
     ].filter(Boolean).join(' · ') || 'Todos los movimientos',
@@ -464,7 +466,11 @@ export function TesoreriaPage() {
                   Hasta <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
                 </label>
                 {(fDesde || fHasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setFDesde(''); setFHasta(''); }}>✕ Fechas</button>}
-                <select className="select" value={fMoneda} onChange={(e) => setFMoneda(e.target.value)} style={{ width: 'auto' }}>
+                <select className="select" value={fCaja} onChange={(e) => setFCaja(e.target.value)} style={{ width: 'auto' }} title="Filtrar por billetera / caja">
+                  <option value="">Toda billetera</option>
+                  {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+                <select className="select" value={fMoneda} onChange={(e) => setFMoneda(e.target.value)} style={{ width: 'auto' }} title="Filtrar por moneda (USDT, Bs, USD…)">
                   <option value="">Toda moneda</option>
                   {monedasReg.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
