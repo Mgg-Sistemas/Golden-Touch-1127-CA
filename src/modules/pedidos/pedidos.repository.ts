@@ -665,6 +665,9 @@ export async function indicarMetodoPago(
   metodos: PagoMetodo[],
   actorEmail: string,
   soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null; conIva?: boolean },
+  /** Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería. `undefined` = no tocar;
+   *  `null` = quitar la existente; string = nuevo path en el bucket `op-imagenes`. */
+  imagenPath?: string | null,
 ): Promise<Orden> {
   // Flujo normal: confirmada_metodo → oc_aprobada. Contra entrega: tras recibir
   // (recibida) se indica el método para pagar SOLO lo recibido → oc_aprobada.
@@ -707,6 +710,8 @@ export async function indicarMetodoPago(
     metodo_pago: limpios,
     metodo_pago_por: actorEmail,
     metodo_pago_en: new Date().toISOString(),
+    // Imagen del pago (QR): undefined = no tocar; null = quitar; string = nuevo path.
+    ...(imagenPath !== undefined ? { metodo_pago_imagen_path: imagenPath } : {}),
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
     iva_aplicado: aplicaIva,

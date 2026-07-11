@@ -78,7 +78,9 @@ export function SalidaMaterialForm({
   useRealtime(['pedido_catalogos'], () => { void cargarUnidades(); });
 
   async function agregarUnidadNueva() {
-    const v = nuevaUnidad.trim().toUpperCase();
+    // Leemos el valor REAL del DOM (ref), no el estado: el input es no-controlado y el
+    // estado puede quedar atrás (ej. "COMPRA" tecleado rápido guardaba "COMP").
+    const v = (nuevaUnidadRef.current?.value ?? nuevaUnidad).trim().toUpperCase();
     if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
     if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
       setUnidadSolicitante(v);
