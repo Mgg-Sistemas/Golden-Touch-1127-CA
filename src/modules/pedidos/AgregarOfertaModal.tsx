@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
@@ -73,6 +73,14 @@ export function AgregarOfertaModal({
   const [provDireccion, setProvDireccion] = useState('');
   const [provOrigen, setProvOrigen] = useState<OrigenProveedor>('nacional');
   const rifPartes = partirRif(provRif);
+  // Los inputs del proveedor nuevo son no-controlados (defaultValue): si el navegador
+  // los AUTOCOMPLETA, el DOM se llena pero el estado de React puede quedar atrás. Estos
+  // refs permiten leer el valor REAL del DOM en el submit y no rechazar datos válidos.
+  const razonRef = useRef<HTMLInputElement>(null);
+  const rifNumeroRef = useRef<HTMLInputElement>(null);
+  const telefonoRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const direccionRef = useRef<HTMLInputElement>(null);
 
   // Calificación histórica de los proveedores (se guarda al finalizar cada pedido).
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
@@ -238,24 +246,30 @@ export function AgregarOfertaModal({
       // 1) Resolver proveedor (existente o crear uno nuevo)
       let provId = proveedorId;
       if (nuevoProveedor) {
-        if (!provRazon.trim() || !rifPartes.numero) {
+        // Leemos el valor REAL del DOM (refs) por si el navegador autocompletó los campos
+        // sin disparar onChange: en ese caso el estado quedaría vacío y rechazaría datos válidos.
+        const razonReal = (razonRef.current?.value ?? provRazon).trim();
+        const rifNumeroReal = (rifNumeroRef.current?.value ?? rifPartes.numero).replace(/\D/g, '').slice(0, 10);
+        const telefonoReal = (telefonoRef.current?.value ?? provTelefono).replace(/\D/g, '').slice(0, 15);
+        const emailReal = (emailRef.current?.value ?? provEmail).trim();
+        const direccionReal = (direccionRef.current?.value ?? provDireccion).trim();
+        if (!razonReal || !rifNumeroReal) {
           toast('Razón social y RIF (con número) son obligatorios para el nuevo proveedor', 'error');
           setSubmitting(false);
           return;
         }
-        const emailClean = provEmail.trim();
-        if (emailClean && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)) {
+        if (emailReal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReal)) {
           toast('El correo del proveedor no tiene un formato válido', 'error');
           setSubmitting(false);
           return;
         }
         const creado = await crearProveedor({
-          razon_social: provRazon.trim().toUpperCase(),
-          rif: `${rifPartes.letra}-${rifPartes.numero}`,
+          razon_social: razonReal.toUpperCase(),
+          rif: `${rifPartes.letra}-${rifNumeroReal}`,
           contacto: null,
-          telefono: provTelefono.trim() || null,
-          email: emailClean || null,
-          direccion: provDireccion.trim().toUpperCase() || null,
+          telefono: telefonoReal || null,
+          email: emailReal || null,
+          direccion: direccionReal.toUpperCase() || null,
           categorias: [],
           origen: provOrigen,
           estado: 'activo',
@@ -380,6 +394,7 @@ export function AgregarOfertaModal({
               <input
                 className="input"
                 name="prov-razon"
+                ref={razonRef}
                 defaultValue={provRazon}
                 onChange={(e) => {
                   e.target.value = e.target.value.toUpperCase();
@@ -404,6 +419,7 @@ export function AgregarOfertaModal({
                 <input
                   className="input mono"
                   name="prov-rif-numero"
+                  ref={rifNumeroRef}
                   defaultValue={rifPartes.numero}
                   onChange={(e) => {
                     const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
@@ -423,6 +439,7 @@ export function AgregarOfertaModal({
               <input
                 className="input"
                 name="prov-telefono"
+                ref={telefonoRef}
                 inputMode="numeric"
                 defaultValue={provTelefono}
                 onChange={(e) => {
@@ -440,6 +457,7 @@ export function AgregarOfertaModal({
                 className="input"
                 type="email"
                 name="prov-email"
+                ref={emailRef}
                 defaultValue={provEmail}
                 onChange={(e) => setProvEmail(e.target.value)}
                 placeholder="correo@dominio.com"
@@ -451,6 +469,7 @@ export function AgregarOfertaModal({
             <input
               className="input"
               name="prov-direccion"
+              ref={direccionRef}
               defaultValue={provDireccion}
               onChange={(e) => {
                 e.target.value = e.target.value.toUpperCase();
