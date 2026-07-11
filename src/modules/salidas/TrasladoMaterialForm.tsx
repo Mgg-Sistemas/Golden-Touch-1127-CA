@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
@@ -67,6 +67,7 @@ export function TrasladoMaterialForm({
   const [unidadSolicitante, setUnidadSolicitante] = useState('');
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   const [nuevaUnidad, setNuevaUnidad] = useState('');
+  const nuevaUnidadRef = useRef<HTMLInputElement>(null);
   const [addingUnidad, setAddingUnidad] = useState(false);
   const cargarUnidades = useCallback(async () => {
     const uns = await listActivosPedido('unidad_solicitante').catch(() => [] as string[]);
@@ -76,10 +77,12 @@ export function TrasladoMaterialForm({
   useRealtime(['pedido_catalogos'], () => { void cargarUnidades(); });
 
   async function agregarUnidadNueva() {
-    const v = nuevaUnidad.trim().toUpperCase();
+    // Leemos el valor REAL del DOM (ref), no el estado: el input es no-controlado y el
+    // estado puede quedar atrás (ej. "COMPRA" tecleado rápido guardaba "COMP").
+    const v = (nuevaUnidadRef.current?.value ?? nuevaUnidad).trim().toUpperCase();
     if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
     if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
-      setUnidadSolicitante(v); setNuevaUnidad(''); return;
+      setUnidadSolicitante(v); setNuevaUnidad(''); if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = ''; return;
     }
     try {
       setAddingUnidad(true);
@@ -87,6 +90,7 @@ export function TrasladoMaterialForm({
       await cargarUnidades();
       setUnidadSolicitante(v);
       setNuevaUnidad('');
+      if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = '';
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error');
     } finally {
@@ -212,7 +216,7 @@ export function TrasladoMaterialForm({
             options={unidadOpciones.map((u) => ({ value: u, label: u }))}
             placeholder="Departamento / unidad que solicita" />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-            <input className="input" name="tm-nueva-unidad" defaultValue={nuevaUnidad} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevaUnidad(e.target.value); }}
+            <input className="input" name="tm-nueva-unidad" ref={nuevaUnidadRef} defaultValue={nuevaUnidad} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevaUnidad(e.target.value); }}
               placeholder="¿No está? Escribí la unidad nueva…"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
             <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>

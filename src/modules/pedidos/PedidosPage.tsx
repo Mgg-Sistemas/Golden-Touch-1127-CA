@@ -860,7 +860,7 @@ export function PedidosPage() {
           orden={modal.orden}
           proveedores={proveedores}
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos, soporte, nuevoProveedorId) => {
+          onSent={async (metodos, soporte, nuevoProveedorId, imagenPath) => {
             try {
               const actorMp = usuario?.email ?? user?.email ?? 'sistema';
               // Si se CAMBIÓ el proveedor: la OC vuelve a aprobación del Gerente General
@@ -872,7 +872,7 @@ export function PedidosPage() {
                 await refresh();
                 return;
               }
-              await indicarMetodoPago(modal.orden, metodos, actorMp, soporte);
+              await indicarMetodoPago(modal.orden, metodos, actorMp, soporte, imagenPath);
               const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
               notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
               setModal({ kind: 'none' });
@@ -1239,7 +1239,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean }, nuevoProveedorId: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
 }) {
   // Al CAMBIAR el método (OC ya "Confirmada pagar") precargamos el/los método(s) ya
   // indicados; si es la primera vez, arranca con un método por defecto.
@@ -1263,6 +1263,15 @@ function MetodoPagoModal({
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>(orden.retencion_modo ?? 'se_paga_despues');
   // OC por factura: con IVA (suma 16% al total) o sin IVA (no agrega nada).
   const [conIva, setConIva] = useState(!!orden.iva_aplicado);
+  // Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería para escanear y pagar.
+  const [qrFile, setQrFile] = useState<File | null>(null);
+  const [qrPath, setQrPath] = useState<string | null>(orden.metodo_pago_imagen_path ?? null);
+  const [qrPreview, setQrPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (qrFile) { const u = URL.createObjectURL(qrFile); setQrPreview(u); return () => URL.revokeObjectURL(u); }
+    if (qrPath) { getImagenOrdenSignedUrl(qrPath).then(setQrPreview).catch(() => setQrPreview(null)); return; }
+    setQrPreview(null);
+  }, [qrFile, qrPath]);
   const baseTotal = orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null ? orden.recibido_total : orden.total;
   const ivaMonto = Math.round(Number(baseTotal) * 0.16 * 100) / 100;
 
@@ -1314,7 +1323,16 @@ function MetodoPagoModal({
       }
     }
     setSaving(true);
-    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, conIva: comprobanteTipo === 'factura' && conIva }, null); }
+    // Imagen del pago (QR): si se cargó una nueva, se sube; si se quitó la existente, se manda null;
+    // si no se tocó, undefined (no cambia). Best-effort: si la subida falla, se avisa y no se envía.
+    let imagenPath: string | null | undefined = undefined;
+    if (qrFile) {
+      try { imagenPath = await subirImagenOrden(qrFile); }
+      catch { setError('No se pudo subir la imagen del pago (QR). Probá de nuevo.'); setSaving(false); return; }
+    } else if (!qrPath && orden.metodo_pago_imagen_path) {
+      imagenPath = null;
+    }
+    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, conIva: comprobanteTipo === 'factura' && conIva }, null, imagenPath); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -1355,6 +1373,26 @@ function MetodoPagoModal({
             ⚠ Al cambiar el proveedor, la OC <strong>vuelve a aprobación del Gerente General</strong> (no se envía a pagar ahora). Ítems y total se mantienen.
           </div>
         )}
+      </div>
+
+      {/* Imagen del pago (QR): opcional. Ej. el QR de Binance/CR20 para que Tesorería lo escanee y pague. */}
+      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
+        <div className="card-title" style={{ marginBottom: '.45rem' }}>Imagen del pago <span className="muted" style={{ fontWeight: 400 }}>(opcional · ej. QR de Binance/CR20)</span></div>
+        <div style={{ display: 'flex', gap: '.75rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div>
+            <input type="file" accept="image/*,application/pdf" onChange={(e) => { const f = e.target.files?.[0] ?? null; setQrFile(f); if (f) setQrPath(null); }} />
+            <div className="muted" style={{ fontSize: '.74rem', marginTop: '.3rem' }}>La verá Tesorería al pagar, así <strong>solo escanea y paga</strong>. Imagen o PDF (máx. 10 MB).</div>
+            {(qrFile || qrPath) && (
+              <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.35rem' }}
+                onClick={() => { setQrFile(null); setQrPath(null); }}>✕ Quitar imagen</button>
+            )}
+          </div>
+          {qrPreview && (
+            <a href={qrPreview} target="_blank" rel="noreferrer" title="Ver en grande">
+              <img src={qrPreview} alt="QR / imagen del pago" style={{ maxWidth: 140, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'contain', background: '#fff' }} />
+            </a>
+          )}
+        </div>
       </div>
 
       {/* Soporte: Nota de entrega (directo a Tesorería) vs Factura (pasa por Retenciones) */}

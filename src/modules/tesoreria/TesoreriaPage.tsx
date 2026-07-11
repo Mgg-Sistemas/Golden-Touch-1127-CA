@@ -59,7 +59,7 @@ import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg, type AbonoComision,
-  getOrdenById, urlAdjuntoOc,
+  getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl,
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { ChatOrden } from '@/modules/pedidos/ChatOrden';
@@ -5093,6 +5093,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [error, setError] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
   const moneda = caja?.moneda ?? 'USD';
+  // Imagen del pago (QR) que cargó Compras: Tesorería la ve para escanear y pagar directo.
+  const [qrPagoUrl, setQrPagoUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const p = o.metodo_pago_imagen_path;
+    if (!p) { setQrPagoUrl(null); return; }
+    getImagenOrdenSignedUrl(p).then(setQrPagoUrl).catch(() => setQrPagoUrl(null));
+  }, [o.metodo_pago_imagen_path]);
 
   // Saldos multimoneda de la caja elegida (para el multipago por cuenta).
   const [primarySaldos, setPrimarySaldos] = useState<CajaSaldo[]>([]);
@@ -5398,6 +5405,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 )}
               </div>
             ))}
+            {/* Imagen del pago (QR) que cargó Compras: escaneá y pagá directo. */}
+            {qrPagoUrl && (
+              <div style={{ marginTop: '.5rem', borderTop: '1px dashed var(--border)', paddingTop: '.5rem' }}>
+                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.3rem' }}>📷 Imagen / QR del pago — escaneá y pagá:</div>
+                <a href={qrPagoUrl} target="_blank" rel="noreferrer" title="Ver en grande">
+                  <img src={qrPagoUrl} alt="QR / imagen del pago" style={{ maxWidth: 220, maxHeight: 260, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'contain', background: '#fff' }} />
+                </a>
+              </div>
+            )}
           </div>
         )}
 

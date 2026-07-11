@@ -1085,6 +1085,9 @@ export interface Orden {
   metodo_pago?: PagoMetodo[] | null;
   metodo_pago_por?: string | null;
   metodo_pago_en?: string | null;
+  /** Imagen adjunta al método de pago (ej. QR de Binance/CR20). Path en bucket `op-imagenes`;
+   *  Tesorería la ve al pagar para escanear directo. */
+  metodo_pago_imagen_path?: string | null;
   /** Pago de la OC desde Tesorería. */
   pagada_por?: string | null;
   pagada_en?: string | null;
