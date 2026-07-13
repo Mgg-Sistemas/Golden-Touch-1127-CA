@@ -1385,10 +1385,13 @@ export async function recibirOrdenParcial(
     if (!it.productoId || rec <= 0) return;
     const { data: prod, error: pErr } = await supabase
       .from('productos')
-      .select('stock, precio, precio_promedio, almacen')
+      .select('stock, precio, precio_promedio, almacen, no_inventariable')
       .eq('id', it.productoId)
       .maybeSingle();
     if (pErr) throw pErr;
+    // Productos genéricos/surtidos (p. ej. "MONTE SURTIDO") NO se stockean: la OC los
+    // paga pero no aumentan existencias. Se marcan con no_inventariable en el inventario.
+    if (prod?.no_inventariable) return;
     const stockAntes = Number(prod?.stock ?? 0);
     const stockDespues = stockAntes + rec;
     const almacenProd = destinoFinal || (prod?.almacen as string) || 'General';
