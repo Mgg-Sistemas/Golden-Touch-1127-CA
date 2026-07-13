@@ -392,11 +392,19 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
 
   // 3) Entrada al inventario por cada material (costo = gasto / cantidad).
   //    Compras en Bs: el costo se lleva a USD con la tasa del día (2 decimales).
+  //    Los productos genéricos/surtidos (no_inventariable) se pagan pero NO se stockean.
+  const idsProd = items.map((i) => i.producto_id).filter(Boolean) as string[];
+  const noInventariables = new Set<string>();
+  if (idsProd.length) {
+    const { data: flags } = await supabase
+      .from('productos').select('id, no_inventariable').in('id', idsProd);
+    for (const p of flags ?? []) if (p.no_inventariable) noInventariables.add(p.id);
+  }
   const tasaUsd = compra.moneda === 'Bs' ? await tasaUsdHoy() : 0;
   let primerMov: string | null = null;
   for (const it of items) {
     const cantidad = Number(it.cantidad) || 0;
-    if (cantidad <= 0 || !it.producto_id) continue;
+    if (cantidad <= 0 || !it.producto_id || noInventariables.has(it.producto_id)) continue;
     const gastoUsd = gastoRenglonUsd(it.gasto, compra.moneda, tasaUsd);
     const costoUnit = gastoUsd > 0 ? Math.round((gastoUsd / cantidad) * 10000) / 10000 : 0;
     const mov = await registrarMovimiento({
@@ -473,9 +481,17 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
   //    ya la recibió (o el flujo legacy la ingresó). Si estaba «no afecta inventario» o
   //    todavía estaba «por recibir» (pagada pero sin recepción), no hay stock que revertir.
   if (compra.afecta_inventario !== false && compra.mov_id) {
+    // Los genéricos/surtidos (no_inventariable) no entraron al stock: no hay nada que revertir.
+    const idsRev = compra.items.map((i) => i.producto_id).filter(Boolean) as string[];
+    const noInvRev = new Set<string>();
+    if (idsRev.length) {
+      const { data: flags } = await supabase
+        .from('productos').select('id, no_inventariable').in('id', idsRev);
+      for (const p of flags ?? []) if (p.no_inventariable) noInvRev.add(p.id);
+    }
     for (const it of compra.items) {
       const cantidad = Number(it.cantidad) || 0;
-      if (cantidad <= 0 || !it.producto_id) continue;
+      if (cantidad <= 0 || !it.producto_id || noInvRev.has(it.producto_id)) continue;
       await registrarMovimiento({
         producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.almacen,
         actor, actor_name: actorName ?? null,

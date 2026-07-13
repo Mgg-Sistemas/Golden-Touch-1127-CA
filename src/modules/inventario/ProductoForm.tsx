@@ -37,6 +37,7 @@ interface FormState {
   restock_pct: string;
   esReceta: boolean;
   receta_fundicion: RecetaFundicion | '';
+  noInventariable: boolean;
   // Detalle del producto (opcional).
   nombre_busqueda: string;
   marca: string;
@@ -63,6 +64,7 @@ function initialState(p: Producto | null, cats: string[], unids: string[]): Form
     restock_pct: p?.restock_pct != null ? String(p.restock_pct) : '',
     esReceta: !!p?.receta_fundicion,
     receta_fundicion: (p?.receta_fundicion ?? '') as RecetaFundicion | '',
+    noInventariable: !!p?.no_inventariable,
     nombre_busqueda: p?.nombre_busqueda ?? '',
     marca: p?.marca ?? '',
     modelo: p?.modelo ?? '',
@@ -251,6 +253,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       // Marcar receta no se des-marca al editar (lo añade el toggle o el alta desde producción).
       es_receta: form.esReceta || (producto?.es_receta ?? false),
       es_producible: producto?.es_producible ?? false,
+      no_inventariable: form.noInventariable,
       // Detalle del producto (se guardan en mayúsculas salvo descripción; vacío => null).
       nombre_busqueda: form.nombre_busqueda.trim().toUpperCase() || null,
       marca: form.marca.trim().toUpperCase() || null,
@@ -427,6 +430,32 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
+          )}
+        </div>
+
+        <div className="form-row">
+          <label>¿Es un genérico/surtido que NO se stockea?</label>
+          <div style={{ display: 'flex', gap: '.5rem' }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${form.noInventariable ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => update('noInventariable', true)}
+            >
+              Sí, no inventariable
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${!form.noInventariable ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => update('noInventariable', false)}
+            >
+              No, sí se stockea
+            </button>
+          </div>
+          {form.noInventariable && (
+            <p className="hint" style={{ marginTop: '.35rem' }}>
+              Se puede comprar (aparece en OC/compras y se paga), pero <b>no entra al inventario</b> ni
+              genera stock. Útil para surtidos como “MONTE SURTIDO” que agrupan varias cosas.
+            </p>
           )}
         </div>
 

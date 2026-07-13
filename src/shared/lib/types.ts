@@ -929,6 +929,9 @@ export interface Producto {
   /** Es un producto terminado producible (catálogo de "qué producir"). */
   es_producible?: boolean;
   en_fundicion?: boolean;
+  /** Genérico/surtido que NO se stockea: se compra pero no entra al inventario
+   *  (p. ej. "MONTE SURTIDO" = una serie de cosas). Se omite en toda entrada de stock. */
+  no_inventariable?: boolean;
   // Detalle del producto (todos opcionales): identificación y ficha técnica.
   /** Nombre/alias de búsqueda (p. ej. "CLORO" para "HIPOCLORITO DE SODIO"). */
   nombre_busqueda?: string | null;

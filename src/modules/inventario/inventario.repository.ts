@@ -21,6 +21,8 @@ export interface ProductoInput {
   precio_venta?: number | null;
   es_receta?: boolean;
   es_producible?: boolean;
+  /** Genérico/surtido que NO se stockea (no entra al inventario). */
+  no_inventariable?: boolean;
   // Detalle del producto (opcional).
   nombre_busqueda?: string | null;
   marca?: string | null;
