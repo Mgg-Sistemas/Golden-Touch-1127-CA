@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ConfirmDialog } from '@/shared/ui/Modal';
+import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
 import type {
+  ItemOrden,
   OfertaProveedor,
   Orden,
   Proveedor,
@@ -15,6 +16,7 @@ import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repo
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
 import { RepartirProveedoresModal } from './RepartirProveedoresModal';
+import { agruparVariantes, hayVariantes, totalesRepresentativos } from './variantesOferta';
 
 /** Resumen compacto de la ficha del producto para mostrar en la comparativa. */
 function resumenFicha(ficha: OfertaProveedor['ficha']): string {
@@ -68,6 +70,8 @@ export function OfertasComparativa({
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [confirmando, setConfirmando] = useState<ScoredOferta | null>(null);
+  // Selección de marca cuando un producto tiene varias alternativas (mismo sku).
+  const [seleccion, setSeleccion] = useState<{ s: ScoredOferta; elecciones: Record<string, number> } | null>(null);
   // Detalle por ítem que se despliega al hacer click en un proveedor.
   const [expandido, setExpandido] = useState<string | null>(null);
   // Oferta a eliminar (confirmación).
@@ -113,7 +117,39 @@ export function OfertasComparativa({
     }
   }
 
+  // Clave de agrupación de variantes (mismo producto, otra marca): el sku o el nombre.
+  const claveVar = (it: ItemOrden) => (it.sku && it.sku.trim()) || (it.nombre ?? '');
+
   async function confirmarAceptacion(s: ScoredOferta) {
+    // Si algún producto tiene VARIAS marcas/modelos (alternativas), hay que elegir UNA
+    // antes de crear la OC: se abre el selector de marca en vez de aceptar directo.
+    if (hayVariantes(s.oferta.items ?? [])) {
+      const def: Record<string, number> = {};
+      for (const g of agruparVariantes(s.oferta.items ?? [])) {
+        if (g.length > 1) {
+          // Por defecto, la variante MÁS BARATA del grupo (mejor precio).
+          let minIdx = 0;
+          g.forEach((it, i) => {
+            const t = (Number(it.cantidad) || 0) * (Number(it.precio) || 0);
+            const tm = (Number(g[minIdx].cantidad) || 0) * (Number(g[minIdx].precio) || 0);
+            if (t < tm) minIdx = i;
+          });
+          def[claveVar(g[0])] = minIdx;
+        }
+      }
+      setConfirmando(null);
+      setSeleccion({ s, elecciones: def });
+      return;
+    }
+    setConfirmando(null);
+    await ejecutarAceptacion(s, null);
+  }
+
+  /** Ejecuta la aceptación real (crea la OC). `override` fija los ítems elegidos. */
+  async function ejecutarAceptacion(
+    s: ScoredOferta,
+    override: { items: ItemOrden[]; precioTotal: number; precioDivisa: number | null } | null,
+  ) {
     try {
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
       await aprobarOrdenConOferta(
@@ -123,14 +159,30 @@ export function OfertasComparativa({
         s.oferta.precio_total,
         s.score.total,
         actorEmail,
+        override,
       );
       notify('Oferta elegida · pendiente por aprobación del Gerente General', 'success', { link: '#/app/pedidos' });
       onAccepted();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo elegir la oferta', 'error');
-    } finally {
-      setConfirmando(null);
     }
+  }
+
+  /** Confirma la selección de marcas y crea la OC solo con las variantes elegidas. */
+  async function confirmarSeleccion() {
+    if (!seleccion) return;
+    const s = seleccion.s;
+    const elegidos: ItemOrden[] = [];
+    for (const g of agruparVariantes(s.oferta.items ?? [])) {
+      if (g.length <= 1) { elegidos.push(g[0]); continue; }
+      const idx = seleccion.elecciones[claveVar(g[0])] ?? 0;
+      elegidos.push(g[idx] ?? g[0]);
+    }
+    const precioTotal = Math.round(elegidos.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0) * 100) / 100;
+    const usd = Math.round(elegidos.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_usd) || 0), 0) * 100) / 100;
+    const precioDivisa = elegidos.some((it) => Number(it.precio_usd) > 0) ? usd : null;
+    setSeleccion(null);
+    await ejecutarAceptacion(s, { items: elegidos, precioTotal, precioDivisa });
   }
 
   async function confirmarEliminar(of: OfertaProveedor) {
@@ -264,19 +316,30 @@ export function OfertasComparativa({
                       )}
                     </td>
                     <td className="num mono">
-                      {money(s.oferta.precio_total)}
-                      {s.oferta.precio_divisa != null && (() => {
-                        const bcv = Number(s.oferta.precio_total);
-                        const div = Number(s.oferta.precio_divisa);
-                        const dif = bcv - div;
-                        const pct = bcv > 0 ? (dif / bcv) * 100 : 0;
+                      {(() => {
+                        // Total representativo: si un producto tiene varias marcas (alternativas),
+                        // NO se suman; se cuenta una por producto. La marca se elige al aceptar.
+                        const rep = totalesRepresentativos(s.oferta.items ?? []);
+                        const bcv = rep.bcv > 0 ? rep.bcv : Number(s.oferta.precio_total) || 0;
+                        const tieneAlt = hayVariantes(s.oferta.items ?? []);
+                        const div = s.oferta.precio_divisa != null
+                          ? (rep.usd > 0 ? rep.usd : Number(s.oferta.precio_divisa))
+                          : (rep.usd > 0 ? rep.usd : null);
+                        const dif = div != null ? bcv - div : 0;
+                        const pct = bcv > 0 && div != null ? (dif / bcv) * 100 : 0;
                         return (
-                          <div style={{ fontSize: '.72rem', fontWeight: 400, marginTop: '.2rem' }}>
-                            <div className="muted">Divisa: {money(div)}</div>
-                            <div style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }} title="Diferencia BCV − divisa y su % sobre el BCV">
-                              {dif >= 0 ? '−' : '+'}{money(Math.abs(dif))} ({pct.toFixed(2)}%)
-                            </div>
-                          </div>
+                          <>
+                            {money(bcv)}
+                            {tieneAlt && <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600, color: 'var(--warning, #d97706)' }}>estimado · alternativas</div>}
+                            {div != null && (
+                              <div style={{ fontSize: '.72rem', fontWeight: 400, marginTop: '.2rem' }}>
+                                <div className="muted">Divisa: {money(div)}</div>
+                                <div style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }} title="Diferencia BCV − divisa y su % sobre el BCV">
+                                  {dif >= 0 ? '−' : '+'}{money(Math.abs(dif))} ({pct.toFixed(2)}%)
+                                </div>
+                              </div>
+                            )}
+                          </>
                         );
                       })()}
                     </td>
@@ -323,12 +386,21 @@ export function OfertasComparativa({
                             <span>Detalle de precios por ítem · {prov?.razon_social ?? '—'}</span>
                           </div>
                           {(() => {
-                            const totalUsd = s.oferta.precio_divisa != null
-                              ? Number(s.oferta.precio_divisa)
-                              : s.oferta.items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_usd) || 0), 0);
+                            // Total representativo: las variantes (mismo sku) NO se suman.
+                            const rep = totalesRepresentativos(s.oferta.items ?? []);
+                            const totalBcv = rep.bcv > 0 ? rep.bcv : Number(s.oferta.precio_total) || 0;
+                            const totalUsd = rep.usd > 0 ? rep.usd
+                              : (s.oferta.precio_divisa != null ? Number(s.oferta.precio_divisa) : 0);
                             const hayUsd = s.oferta.items.some((it) => Number(it.precio_usd) > 0) || s.oferta.precio_divisa != null;
-                            const difTotal = s.oferta.precio_total - totalUsd;
-                            const pctTotal = s.oferta.precio_total > 0 ? (difTotal / s.oferta.precio_total) * 100 : 0;
+                            const difTotal = totalBcv - totalUsd;
+                            const pctTotal = totalBcv > 0 ? (difTotal / totalBcv) * 100 : 0;
+                            // Skus con más de una marca/modelo = alternativas (se elige 1 al aceptar).
+                            const skusAlt = new Set(
+                              agruparVariantes(s.oferta.items ?? [])
+                                .filter((g) => g.length > 1)
+                                .map((g) => (g[0].sku && g[0].sku.trim()) || (g[0].nombre ?? '')),
+                            );
+                            const esAlt = (it: ItemOrden) => skusAlt.has((it.sku && it.sku.trim()) || (it.nombre ?? ''));
                             return (
                           <div className="table-wrap">
                           <table className="table" style={{ fontSize: '.8rem' }}>
@@ -359,6 +431,9 @@ export function OfertasComparativa({
                                   <tr key={`${it.productoId ?? it.sku ?? i}-${i}`}>
                                     <td>
                                       {it.nombre}
+                                      {esAlt(it) && (
+                                        <span className="badge warning" style={{ marginLeft: '.35rem', fontSize: '.62rem' }}>alternativa · se elige 1</span>
+                                      )}
                                       {(it.marca || it.modelo) && (
                                         <div style={{ fontSize: '.72rem', fontWeight: 600 }}>{[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>
                                       )}
@@ -376,9 +451,16 @@ export function OfertasComparativa({
                               })}
                             </tbody>
                             <tfoot>
+                              {skusAlt.size > 0 && (
+                                <tr>
+                                  <td colSpan={8} style={{ fontSize: '.7rem', color: 'var(--warning, #d97706)', paddingBottom: '.3rem' }}>
+                                    ⚠️ Las <strong>alternativas</strong> (mismo producto, otra marca) <strong>no se suman</strong>: el total cuenta <strong>una por producto</strong> (la más cara, estimado). Al aceptar se elige la marca definitiva.
+                                  </td>
+                                </tr>
+                              )}
                               <tr style={{ fontWeight: 700 }}>
-                                <td colSpan={3} style={{ textAlign: 'right' }}>TOTAL</td>
-                                <td className="num mono">{money(s.oferta.precio_total)}</td>
+                                <td colSpan={3} style={{ textAlign: 'right' }}>TOTAL{skusAlt.size > 0 ? ' *' : ''}</td>
+                                <td className="num mono">{money(totalBcv)}</td>
                                 <td></td>
                                 <td className="num mono">{hayUsd ? money(totalUsd) : '—'}</td>
                                 <td className="num mono" style={{ color: difTotal >= 0 ? 'var(--success)' : 'var(--danger)' }}>{hayUsd ? money(difTotal) : '—'}</td>
@@ -476,11 +558,57 @@ export function OfertasComparativa({
       {confirmando && (
         <ConfirmDialog
           title="Confirmar oferta ganadora"
-          message={`¿Elegir la oferta de ${proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'} por ${money(confirmando.oferta.precio_total)}? La orden quedará Pendiente por aprobación del Gerente General y las demás ofertas se descartarán.`}
-          confirmText="Elegir oferta"
+          message={`¿Elegir la oferta de ${proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'} por ${money(totalesRepresentativos(confirmando.oferta.items ?? []).bcv || confirmando.oferta.precio_total)}?${hayVariantes(confirmando.oferta.items ?? []) ? ' Como hay productos con varias marcas, a continuación elegís cuál comprar.' : ''} La orden quedará Pendiente por aprobación del Gerente General y las demás ofertas se descartarán.`}
+          confirmText={hayVariantes(confirmando.oferta.items ?? []) ? 'Elegir marca…' : 'Elegir oferta'}
           onConfirm={() => confirmarAceptacion(confirmando)}
           onCancel={() => setConfirmando(null)}
         />
+      )}
+
+      {seleccion && (
+        <Modal title="Elegí la marca/modelo por producto" onClose={() => setSeleccion(null)} size="md">
+          <p className="muted" style={{ marginTop: 0 }}>
+            Este proveedor cotizó algunos productos en <strong>varias marcas/modelos</strong>. Elegí <strong>UNA por producto</strong>:
+            solo esa entra a la orden de compra y se paga. Las demás quedan registradas en la oferta como referencia.
+          </p>
+          {agruparVariantes(seleccion.s.oferta.items ?? [])
+            .filter((g) => g.length > 1)
+            .map((g) => {
+              const key = claveVar(g[0]);
+              return (
+                <div className="form-row" key={key} style={{ borderTop: '1px solid var(--border)', paddingTop: '.5rem' }}>
+                  <label style={{ fontWeight: 700 }}>
+                    {g[0].nombre} <span className="muted mono" style={{ fontWeight: 400 }}>{g[0].sku}</span>
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', marginTop: '.25rem' }}>
+                    {g.map((it, idx) => {
+                      const cant = Number(it.cantidad) || 0;
+                      const precio = Number(it.precio) || 0;
+                      const precioU = Number(it.precio_usd) || 0;
+                      const marca = [it.marca, it.modelo].filter(Boolean).join(' · ') || '(sin marca)';
+                      const checked = (seleccion.elecciones[key] ?? 0) === idx;
+                      return (
+                        <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', padding: '.35rem .5rem', borderRadius: 6, background: checked ? 'var(--grad-primary-soft, rgba(255,138,0,.1))' : 'var(--bg-1)', border: `1px solid ${checked ? 'var(--brand, #ff8a00)' : 'var(--border)'}` }}>
+                          <input
+                            type="radio"
+                            name={`var-${key}`}
+                            checked={checked}
+                            onChange={() => setSeleccion((prev) => prev ? { ...prev, elecciones: { ...prev.elecciones, [key]: idx } } : prev)}
+                          />
+                          <span style={{ flex: 1, fontWeight: 600 }}>{marca}</span>
+                          <span className="mono">{money(cant * precio)}{precioU > 0 ? ` · USD ${money(cant * precioU)}` : ''}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', marginTop: '.8rem' }}>
+            <button className="btn btn-ghost" onClick={() => setSeleccion(null)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={() => confirmarSeleccion()}>Aceptar con estas marcas</button>
+          </div>
+        </Modal>
       )}
 
       {aEliminar && (
