@@ -61,6 +61,7 @@ export function CrearServicioModal({
   const [categoria, setCategoria] = useState<string>(CATEGORIAS_SERVICIO[0]);
   const [servicio, setServicio] = useState('');
   const [equipoId, setEquipoId] = useState('');
+  const [tipoFiltro, setTipoFiltro] = useState('');   // filtro del selector de equipo por tipo (VEHÍCULO, MOTO…)
   const [electro, setElectro] = useState('');   // electrodoméstico (mantenimiento de electrodomésticos)
   const [insumoId, setInsumoId] = useState('');   // insumo del inventario (mantenimiento, opcional)
   const [cantidad, setCantidad] = useState('1');
@@ -101,9 +102,17 @@ export function CrearServicioModal({
     const vistos = new Set(tipos.map((t) => t.toLowerCase()));
     return [...tipos, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
   }, [catalogo, categoria, esMantenimiento]);
-  const equipoOptions = useMemo(
-    () => equipos.map((e) => ({ value: e.id, label: e.placa ? `${e.equipo} · ${e.placa}` : e.equipo })),
+  // Tipos disponibles para filtrar el equipo (VEHÍCULO, MOTO, CAMIÓN…). Así el
+  // mantenimiento de una MOTO funciona igual que el de un vehículo, filtrando la lista.
+  const tiposEquipo = useMemo(
+    () => Array.from(new Set(equipos.map((e) => (e.tipo ?? '').trim()).filter(Boolean))).sort(),
     [equipos],
+  );
+  const equipoOptions = useMemo(
+    () => equipos
+      .filter((e) => !tipoFiltro || (e.tipo ?? '').trim().toUpperCase() === tipoFiltro.toUpperCase())
+      .map((e) => ({ value: e.id, label: e.placa ? `${e.equipo} · ${e.placa}` : e.equipo })),
+    [equipos, tipoFiltro],
   );
 
   /** Construye el ítem desde el builder (valida y guarda el servicio nuevo en el
@@ -265,10 +274,20 @@ export function CrearServicioModal({
             </div>
           </div>
           {esMantenimiento && (
-            <div>
-              <label className="label">Máquina / Vehículo (Control de Maquinaria)</label>
-              <SearchSelect value={equipoId} onChange={setEquipoId} options={equipoOptions}
-                placeholder="🔍 Buscar equipo…" emptyText="Sin equipos" />
+            <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '.5rem', alignItems: 'end' }}>
+              <div>
+                <label className="label">Filtrar por tipo</label>
+                <SearchSelect
+                  value={tipoFiltro}
+                  onChange={(v) => { setTipoFiltro(v); setEquipoId(''); }}
+                  options={[{ value: '', label: 'Todos' }, ...tiposEquipo.map((t) => ({ value: t, label: t }))]}
+                  placeholder="Todos" emptyText="Sin tipos" />
+              </div>
+              <div>
+                <label className="label">Máquina / Vehículo / Moto (Control de Maquinaria)</label>
+                <SearchSelect value={equipoId} onChange={setEquipoId} options={equipoOptions}
+                  placeholder={tipoFiltro ? `🔍 Buscar ${tipoFiltro.toLowerCase()}…` : '🔍 Buscar equipo…'} emptyText="Sin equipos" />
+              </div>
             </div>
           )}
           {esElectro && (

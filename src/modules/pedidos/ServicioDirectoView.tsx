@@ -335,7 +335,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
 
 /* ───────── Modal: nuevo servicio (categoría + tipo + equipo por renglón) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; electro: string; cantidad: string; bombonas: string; kg: string; insumoId: string; insumoNombre: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; tipoEquipo: string; electro: string; cantidad: string; bombonas: string; kg: string; insumoId: string; insumoNombre: string }
 
 function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorName, onClose, onSaved }: {
   proveedores: Proveedor[]; equipos: MaquinariaEquipo[]; editServicio?: ServicioDirecto | null;
@@ -344,8 +344,13 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   const esEdicion = !!editServicio;
   const provActivos = useMemo(() => proveedores.filter((p) => p.estado === 'activo'), [proveedores]);
   const equiposActivos = useMemo(() => equipos.filter((e) => e.activo), [equipos]);
-  const equipoOptions = useMemo(
-    () => equiposActivos.map((e) => ({ value: e.id, label: e.placa ? `${e.equipo} · ${e.placa}` : e.equipo })),
+  // Opciones de equipo (opcionalmente filtradas por tipo: VEHÍCULO, MOTO…). Así el
+  // mantenimiento de una MOTO se hace igual que el de un vehículo, filtrando la lista.
+  const opcionesEquipo = (tipoFiltro: string) => equiposActivos
+    .filter((e) => !tipoFiltro || (e.tipo ?? '').trim().toUpperCase() === tipoFiltro.toUpperCase())
+    .map((e) => ({ value: e.id, label: e.placa ? `${e.equipo} · ${e.placa}` : e.equipo }));
+  const tiposEquipo = useMemo(
+    () => Array.from(new Set(equiposActivos.map((e) => (e.tipo ?? '').trim()).filter(Boolean))).sort(),
     [equiposActivos],
   );
 
@@ -367,12 +372,12 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
     return [...base, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
   };
 
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', electro: '', cantidad: '1', bombonas: '', kg: '', insumoId: '', insumoNombre: '' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', tipoEquipo: '', electro: '', cantidad: '1', bombonas: '', kg: '', insumoId: '', insumoNombre: '' });
   // Al editar: precarga los renglones existentes del servicio.
   const lineasIniciales = (): LineaUI[] => {
     if (!editServicio || !editServicio.items.length) return [nuevaLinea(1)];
     return editServicio.items.map((it, i) => ({
-      id: i + 1, categoria: it.categoria ?? '', tipo: it.descripcion ?? '', equipoId: it.equipo_id ?? '',
+      id: i + 1, categoria: it.categoria ?? '', tipo: it.descripcion ?? '', equipoId: it.equipo_id ?? '', tipoEquipo: '',
       electro: esElectrodomestico(it.categoria) ? (it.equipo_nombre ?? '') : '',
       cantidad: String(it.cantidad ?? 1), bombonas: it.bombonas != null ? String(it.bombonas) : '', kg: it.kg_recarga != null ? String(it.kg_recarga) : '',
       insumoId: it.insumo_producto_id ?? '', insumoNombre: it.insumo_nombre ?? '',
@@ -622,9 +627,14 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                 ) : (
                   <div className="form-row">
                     <label>Equipo (Control de Maquinaria)</label>
-                    <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })} options={equipoOptions}
-                      placeholder={equipoOptions.length ? '🔍 Buscá el equipo / vehículo…' : '— sin equipos —'} emptyText="Sin equipos" />
-                    <small className="muted">Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
+                    <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '.4rem' }}>
+                      <SearchSelect value={l.tipoEquipo} onChange={(v) => set(l.id, { tipoEquipo: v, equipoId: '' })}
+                        options={[{ value: '', label: 'Todos los tipos' }, ...tiposEquipo.map((t) => ({ value: t, label: t }))]}
+                        placeholder="Todos los tipos" emptyText="Sin tipos" />
+                      <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })} options={opcionesEquipo(l.tipoEquipo)}
+                        placeholder={l.tipoEquipo ? `🔍 Buscá la ${l.tipoEquipo.toLowerCase()}…` : '🔍 Buscá el equipo / vehículo / moto…'} emptyText="Sin equipos" />
+                    </div>
+                    <small className="muted">Filtrá por tipo (ej. MOTO) y elegí el equipo. Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
                   </div>
                 )}
                 {(() => {
