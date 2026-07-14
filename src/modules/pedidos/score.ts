@@ -1,6 +1,7 @@
 import type { OfertaProveedor, PesosScore } from '@/shared/lib/types';
 import { DEFAULT_PESOS_SCORE } from '@/shared/lib/types';
 import type { ProveedorStats } from './evaluaciones.repository';
+import { totalesRepresentativos } from './variantesOferta';
 
 export interface ScoreBreakdown {
   total: number;          // 0..1
@@ -39,8 +40,15 @@ export function scoreOfertas(
   // Precio efectivo = el que realmente costaría a la empresa: si el proveedor dio
   // precio en divisa/efectivo (más barato), ese manda; si no, el de referencia BCV.
   // Así el ahorro por pagar en divisa pesa en la recomendación de la mejor oferta.
-  const precioEfectivo = (o: OfertaProveedor) =>
-    o.precio_divisa != null && Number(o.precio_divisa) > 0 ? Number(o.precio_divisa) : o.precio_total;
+  // Cuando un producto tiene VARIAS marcas (alternativas: mismo sku), NO se suman:
+  // se compara UNA variante por producto (total representativo desde los ítems), para
+  // que la oferta no parezca más cara por listar opciones que no se comprarán juntas.
+  const precioEfectivo = (o: OfertaProveedor) => {
+    const rep = totalesRepresentativos(o.items ?? []);
+    const bcv = rep.bcv > 0 ? rep.bcv : Number(o.precio_total) || 0;
+    const usd = rep.usd > 0 ? rep.usd : (o.precio_divisa != null ? Number(o.precio_divisa) : 0);
+    return usd > 0 ? usd : bcv;
+  };
 
   const precios = ofertas.map(precioEfectivo);
   const minP = Math.min(...precios);

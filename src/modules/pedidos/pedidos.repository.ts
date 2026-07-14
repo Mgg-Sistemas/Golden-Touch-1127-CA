@@ -388,7 +388,10 @@ export async function aprobarOrdenConOferta(
   ofertaItems: ItemOrden[],
   ofertaPrecioTotal: number,
   scoreCalculado: number | null,
-  actorEmail: string
+  actorEmail: string,
+  /** Selección de marca cuando un producto tenía varias alternativas (mismo sku): solo
+   *  los ítems elegidos entran a la OC, con sus totales ya recalculados. */
+  override?: { items: ItemOrden[]; precioTotal: number; precioDivisa: number | null } | null,
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
@@ -406,13 +409,16 @@ export async function aprobarOrdenConOferta(
   // Si la oferta trae precio con descuento (divisa), ESE pasa a ser el precio final
   // de la OC: se fija como total, se escalan los ítems para que cuadren y la OC queda
   // marcada como pago en divisa desde la creación (se refleja en toda la OC y la trazabilidad).
-  const precioDivisa = (ofRow?.precio_divisa as number | null) ?? null;
-  const usaDescuento = precioDivisa != null && precioDivisa > 0 && precioDivisa !== ofertaPrecioTotal;
-  const itemsFinal = usaDescuento ? escalarItemsADescuento(ofertaItems, ofertaPrecioTotal, precioDivisa) : ofertaItems;
+  // Si vino una SELECCIÓN de marca (alternativas), esos ítems/totales mandan y NO se
+  // escala por descuento (el precio elegido ya es el concreto de la variante elegida).
+  const precioDivisaDb = (ofRow?.precio_divisa as number | null) ?? null;
+  const precioDivisa = override ? override.precioDivisa : precioDivisaDb;
+  const usaDescuento = !override && precioDivisa != null && precioDivisa > 0 && precioDivisa !== ofertaPrecioTotal;
+  const itemsFinal = override ? override.items : (usaDescuento ? escalarItemsADescuento(ofertaItems, ofertaPrecioTotal, precioDivisa!) : ofertaItems);
   // DESCUENTO OBTENIDO (monto): se resta del total de la OC y queda registrado para la
   // trazabilidad y el PDF. Se sincroniza con la factura (el total final ya es neto).
   const descuentoObtenido = Math.max(0, Number((ofRow?.descuento_obtenido as number | null) ?? 0) || 0);
-  const totalBruto = usaDescuento ? precioDivisa : ofertaPrecioTotal;
+  const totalBruto = override ? override.precioTotal : (usaDescuento ? precioDivisa! : ofertaPrecioTotal);
   const totalFinal = Math.round((totalBruto - descuentoObtenido) * 100) / 100;
   const patch = {
     estado: 'oc_creada' as EstadoOrden,

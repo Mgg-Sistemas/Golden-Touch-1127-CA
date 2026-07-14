@@ -9,6 +9,7 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, OrigenProveedor, Proveedor } from '@/shared/lib/types';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
+import { hayVariantes, totalesRepresentativos } from './variantesOferta';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
 
@@ -189,9 +190,13 @@ export function AgregarOfertaModal({
   }
 
   // Totales: el de Bs a BCV es el precio_total de referencia; el de USD/divisa es
-  // la suma de los precios USD por ítem.
-  const precioTotal = items.reduce((a, i) => a + i.cantidad * i.precio, 0);   // Pago en Bs a BCV
-  const totalUsd = items.reduce((a, i) => a + i.cantidad * i.precio_usd, 0);  // Pago en USD
+  // la suma de los precios USD por ítem. IMPORTANTE: cuando un producto tiene varias
+  // marcas/modelos (mismo sku), son ALTERNATIVAS y NO se suman: se cuenta UNA por
+  // producto (la más cara). La marca definitiva se elige al aceptar la oferta.
+  const totalesRep = totalesRepresentativos(items);
+  const precioTotal = totalesRep.bcv;   // Pago en Bs a BCV (una variante por producto)
+  const totalUsd = totalesRep.usd;      // Pago en USD (una variante por producto)
+  const conAlternativas = hayVariantes(items);
   const descuentoNum = Math.max(0, Number(descuento) || 0);
   // Total NETO de la factura tras el descuento obtenido (referencia BCV y, si aplica, USD).
   const netoBcv = Math.max(0, Math.round((precioTotal - descuentoNum) * 100) / 100);
@@ -308,8 +313,9 @@ export function AgregarOfertaModal({
         };
       });
       // Total de referencia (Bs a BCV, en $) recalculado tras la copia: para una oferta
-      // solo-$ queda igual al total en USD; para Bs o mixtas, igual que antes.
-      const precioTotalGuardar = itemsGuardar.reduce((a, i) => a + i.cantidad * (Number(i.precio) || 0), 0);
+      // solo-$ queda igual al total en USD; para Bs o mixtas, igual que antes. Las
+      // variantes del mismo producto (alternativas) cuentan como UNA (la más cara).
+      const precioTotalGuardar = totalesRepresentativos(itemsGuardar).bcv;
       if (editando) {
         // Al editar: los adjuntos CONSERVADOS (los que no se quitaron) + los nuevos.
         const adjuntosFinal = [...adjuntosExistentes, ...adjuntos];
@@ -645,7 +651,7 @@ export function AgregarOfertaModal({
             </tbody>
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
-                <td colSpan={3} className="num">TOTAL</td>
+                <td colSpan={3} className="num">TOTAL{conAlternativas ? ' *' : ''}</td>
                 <td className="num mono">{money(precioTotal)}</td>
                 <td></td>
                 <td className="num mono">{money(totalUsd)}</td>
@@ -655,6 +661,12 @@ export function AgregarOfertaModal({
             </tfoot>
           </table>
         </div>
+        {conAlternativas && (
+          <div className="hint" style={{ marginTop: '.35rem', color: 'var(--warning, #d97706)' }}>
+            ⚠️ Hay <strong>productos con varias marcas/modelos</strong> (alternativas). El total <strong>NO suma todas</strong>:
+            cuenta <strong>una por producto</strong> (la de mayor precio, como estimado). La <strong>marca definitiva se elige al aceptar</strong> la oferta y solo esa entra a la OC.
+          </div>
+        )}
         <small className="muted">
           <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. Si el proveedor cotiza en una sola moneda, <strong>llená solo esa columna</strong> (la otra puede quedar en blanco). La <strong>Diferencia</strong> = (Bs − USD)
           y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
