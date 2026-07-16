@@ -1047,6 +1047,9 @@ export interface Orden {
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;
+  /** Moneda en que está expresado `total`. Por defecto 'USD' (el modelo valoriza en $).
+   *  Algunas órdenes (p. ej. servicios cotizados directo en bolívares) están en 'Bs'. */
+  total_moneda?: string | null;
   /** Descuento obtenido (monto $) restado del total de la OC. Opcional; editable. */
   descuento_obtenido?: number | null;
   /** Total alternativo si se paga en divisa/efectivo (precio con descuento del proveedor). */
