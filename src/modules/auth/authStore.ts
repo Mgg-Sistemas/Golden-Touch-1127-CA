@@ -57,6 +57,38 @@ export async function signIn(email: string, password: string) {
   return supabase.auth.signInWithPassword({ email, password });
 }
 
+/* ─────────── Bloqueo por intentos fallidos (3 strikes) ───────────
+   El login usa Supabase Auth: una clave incorrecta NO autentica, así que el conteo
+   de intentos vive en `usuarios` y se maneja con RPCs (SECURITY DEFINER). A los 3
+   intentos la cuenta queda `bloqueada` y solo el administrador la desbloquea (lo que
+   además fuerza el cambio de clave en el próximo ingreso). */
+
+/** ¿La cuenta de ese correo está bloqueada? (se consulta ANTES de intentar el login). */
+export async function estaBloqueado(email: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('auth_estado_bloqueo', { p_email: email });
+  if (error) throw error;
+  return Boolean(data);
+}
+
+export interface ResultadoFallo {
+  bloqueado: boolean;
+  intentos: number;
+  restantes: number;
+}
+
+/** Registra un intento fallido; si llega a 3 bloquea. Devuelve los intentos restantes. */
+export async function registrarFalloLogin(email: string): Promise<ResultadoFallo> {
+  const { data, error } = await supabase.rpc('auth_fallo_login', { p_email: email });
+  if (error) throw error;
+  const r = (data ?? {}) as Partial<ResultadoFallo>;
+  return { bloqueado: Boolean(r.bloqueado), intentos: Number(r.intentos ?? 0), restantes: Number(r.restantes ?? 0) };
+}
+
+/** Reinicia el contador de intentos del usuario recién autenticado. */
+export async function resetIntentosLogin(): Promise<void> {
+  await supabase.rpc('auth_reset_intentos');
+}
+
 export async function signOut() {
   return supabase.auth.signOut();
 }

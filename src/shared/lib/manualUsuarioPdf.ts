@@ -42,6 +42,7 @@ const SECCIONES: Seccion[] = [
     puntos: [
       'Escribí tu correo electrónico y tu contraseña, y presioná "Ingresar". El campo de contraseña tiene un ojito (👁️) para ver u ocultar la clave mientras la escribís.',
       'Si los datos son correctos, el sistema te lleva al tablero principal (Dashboard).',
+      'Bloqueo por 3 intentos fallidos: si escribís la clave incorrecta 3 veces, la cuenta se bloquea automáticamente y no podés entrar (ni con clave ni con huella). El sistema avisa cuántos intentos quedan. Solo el administrador puede desbloquearla (Usuarios -> abrir el usuario -> Desbloquear); al hacerlo la clave se resetea a "123456" y el usuario debe cambiarla obligatoriamente al ingresar.',
       'Cada usuario ve únicamente los módulos que su rol tiene permitidos.',
       'Para salir de forma segura usá el botón de cerrar sesión (⎋), abajo a la izquierda.',
       'Entrar con huella (opcional, por equipo): podés entrar con la huella (o Face ID / Windows Hello) del dispositivo. Primero entrá con tu clave, abrí el botón 🔒 (junto a tu usuario, abajo a la izquierda) y tocá "Activar huella en este equipo". Desde ahí, la pantalla de inicio muestra el botón "Entrar con huella". La huella nunca sale del dispositivo (no se guarda tu huella, solo una llave de seguridad), la contraseña sigue funcionando como respaldo y la activación queda atada a ese equipo (en otro hay que volver a activarla). Desde el mismo menú podés ver y quitar los dispositivos con huella. Requiere conexión segura (HTTPS).',
@@ -355,7 +356,8 @@ const SECCIONES: Seccion[] = [
     puntos: [
       'Alta y edición de usuarios con su nombre, cargo y departamento.',
       'Roles y permisos: se define, por rol, a qué módulos puede entrar cada persona y si puede solo ver o también modificar.',
-      'Cambio de clave de los usuarios.',
+      'Cambio de clave de los usuarios: en el detalle, "Resetear clave" la deja en "123456" y obliga a cambiarla al ingresar.',
+      'Desbloquear usuario (bloqueo por 3 intentos): cuando alguien falla la clave 3 veces, su cuenta queda bloqueada (etiqueta "Bloqueado" en la lista y el detalle). Solo el administrador la reactiva: al abrir el usuario aparece el botón "Desbloquear", que quita el bloqueo, reinicia el contador y resetea la clave a "123456"; el usuario entra con esa clave temporal y debe cambiarla obligatoriamente.',
       'Resumen de Actividad (supervisión): muestra quién está conectado ahora y cuánto tiempo lleva en el sistema (en vivo), el tiempo por usuario y el detalle de sesiones por rango de fechas. Se descarga en PDF con vista previa.',
       'Esto garantiza que cada quien acceda solo a lo que le corresponde.',
     ],
