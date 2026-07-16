@@ -32,6 +32,10 @@ export interface Usuario {
   departamento?: string | null;
   estado: EstadoGenerico;
   must_change_password?: boolean;
+  /** Bloqueo por 3 intentos de clave fallidos (solo el admin desbloquea). */
+  bloqueado?: boolean;
+  bloqueado_en?: string | null;
+  intentos_fallidos?: number;
   created_at: string;
   updated_at?: string | null;
 }

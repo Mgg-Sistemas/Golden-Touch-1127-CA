@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signIn, signOutLocal } from './authStore';
+import { signIn, signOutLocal, estaBloqueado, registrarFalloLogin, resetIntentosLogin } from './authStore';
 import { isSupabaseConfigured } from '@/shared/lib/supabase';
 import { isWebAuthnSupported, huellaHint, loginConHuella } from './webauthn.repository';
 
@@ -34,7 +34,11 @@ export function LoginPage() {
     setError(null);
     setHuellaBusy(true);
     try {
+      try {
+        if (await estaBloqueado(correo)) { setHuellaBusy(false); setError('Tu cuenta está bloqueada por 3 intentos fallidos. Pedile al administrador que la desbloquee.'); return; }
+      } catch { /* si el chequeo falla, se continúa */ }
       await loginConHuella(correo);
+      try { await resetIntentosLogin(); } catch { /* best-effort */ }
       navigate('/app');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo entrar con huella.');
@@ -43,20 +47,39 @@ export function LoginPage() {
     }
   }
 
+  const BLOQUEADO_MSG = 'Tu cuenta está bloqueada por 3 intentos fallidos. Pedile al administrador que la desbloquee.';
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!isSupabaseConfigured) {
       setError('Supabase no configurado. Crea .env.local con VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.');
       return;
     }
+    const correo = email.trim();
     setSubmitting(true);
     setError(null);
-    const { error: authError } = await signIn(email, password);
-    setSubmitting(false);
+    // 1) Si la cuenta ya está bloqueada, ni se intenta el login.
+    try {
+      if (await estaBloqueado(correo)) { setSubmitting(false); setError(BLOQUEADO_MSG); return; }
+    } catch { /* si el chequeo falla (red), se continúa con el login normal */ }
+    // 2) Intento de login.
+    const { error: authError } = await signIn(correo, password);
     if (authError) {
-      setError(authError.message);
+      // 3) Clave incorrecta → registrar el fallo y avisar cuántos intentos quedan.
+      let msg = 'Correo o contraseña incorrectos.';
+      try {
+        const r = await registrarFalloLogin(correo);
+        if (r.bloqueado) msg = BLOQUEADO_MSG;
+        else msg = `Clave incorrecta. Te queda(n) ${r.restantes} intento(s) antes de que se bloquee la cuenta.`;
+      } catch { /* si no se pudo registrar, se muestra el mensaje genérico */ }
+      setSubmitting(false);
+      setError(msg);
       return;
     }
+    // 4) Login OK → reiniciar el contador de intentos. El cambio de clave obligatorio
+    //    (tras un desbloqueo) lo fuerza PasswordChangeGate al entrar a /app.
+    try { await resetIntentosLogin(); } catch { /* best-effort */ }
+    setSubmitting(false);
     navigate('/app');
   }
 

@@ -195,6 +195,19 @@ export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'
   if (error) throw error;
 }
 
+/**
+ * Desbloquea un usuario que llegó al límite de 3 intentos de clave fallidos.
+ * Solo un admin (validado en la RPC `admin_desbloquear_usuario`). Además de quitar el
+ * bloqueo y reiniciar el contador, deja `must_change_password=true` y RESETEA la clave a
+ * "123456" (edge function): el usuario entra con esa clave temporal y debe cambiarla.
+ */
+export async function desbloquearUsuario(id: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_desbloquear_usuario', { p_user_id: id });
+  if (error) throw error;
+  // La clave se olvidó (por eso se bloqueó): se resetea a 123456 para que pueda reingresar.
+  await resetearClave(id);
+}
+
 /** Cambia la clave del usuario logueado y desactiva el flag must_change_password.
  *  El flag se limpia vía RPC `clear_must_change_password` (SECURITY DEFINER) porque
  *  las políticas RLS de `usuarios` no permiten que un usuario actualice su propia

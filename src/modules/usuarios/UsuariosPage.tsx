@@ -16,6 +16,7 @@ import {
   listUsuarios,
   loadRolesAndCache,
   resetearClave,
+  desbloquearUsuario,
   setEstadoUsuario,
   getDepartamentos,
   addDepartamento,
@@ -40,6 +41,7 @@ type ModalKind =
   | { kind: 'detail'; usuario: Usuario }
   | { kind: 'actividad' }
   | { kind: 'reset-confirm'; usuario: Usuario }
+  | { kind: 'desbloquear-confirm'; usuario: Usuario }
   | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' };
 
 type RoleQuickModal = 'none' | 'crear' | 'gestionar';
@@ -255,6 +257,11 @@ export function UsuariosPage() {
                 <tr key={u.id}>
                   <td>
                     <strong>{[u.nombre, u.apellido].filter(Boolean).join(' ') || u.nombre}</strong>
+                    {u.bloqueado && (
+                      <div style={{ fontSize: '.7rem', color: 'var(--danger)', fontWeight: 600 }}>
+                        🔒 Bloqueado (3 intentos fallidos)
+                      </div>
+                    )}
                     {u.must_change_password && (
                       <div className="muted" style={{ fontSize: '.7rem' }}>
                         ⚠ Debe cambiar clave al ingresar
@@ -381,6 +388,7 @@ export function UsuariosPage() {
           usuario={modal.usuario}
           onClose={() => setModal({ kind: 'none' })}
           onResetClave={() => setModal({ kind: 'reset-confirm', usuario: modal.usuario })}
+          onDesbloquear={() => setModal({ kind: 'desbloquear-confirm', usuario: modal.usuario })}
           onToggleEstado={() =>
             setModal({
               kind: 'toggle-confirm',
@@ -410,6 +418,25 @@ export function UsuariosPage() {
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error al resetear', 'error');
+            }
+          }}
+        />
+      )}
+
+      {modal.kind === 'desbloquear-confirm' && (
+        <ConfirmDialog
+          title="Desbloquear usuario"
+          message={`Se desbloqueará a ${modal.usuario.email} y su clave se reseteará a "123456". Al ingresar deberá cambiarla obligatoriamente. ¿Continuar?`}
+          confirmText="Desbloquear"
+          onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
+          onConfirm={async () => {
+            try {
+              await desbloquearUsuario(modal.usuario.id);
+              notify(`Usuario desbloqueado · ${modal.usuario.email} entra con 123456 y debe cambiar la clave`, 'success', { link: '#/app/usuarios' });
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'No se pudo desbloquear', 'error');
             }
           }}
         />
@@ -1020,10 +1047,11 @@ interface UsuarioDetailModalProps {
   usuario: Usuario;
   onClose: () => void;
   onResetClave: () => void;
+  onDesbloquear: () => void;
   onToggleEstado: () => void;
   onEdit: () => void;
 }
-function UsuarioDetailModal({ usuario, onClose, onResetClave, onToggleEstado, onEdit }: UsuarioDetailModalProps) {
+function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onToggleEstado, onEdit }: UsuarioDetailModalProps) {
   const isActive = usuario.estado === 'activo';
   return (
     <Modal
@@ -1037,6 +1065,11 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onToggleEstado, on
           <button className="btn btn-ghost" onClick={onResetClave}>
             🔑 Resetear clave
           </button>
+          {usuario.bloqueado && (
+            <button className="btn btn-success" onClick={onDesbloquear}>
+              🔓 Desbloquear
+            </button>
+          )}
           <button
             className={isActive ? 'btn btn-danger' : 'btn btn-success'}
             onClick={onToggleEstado}
@@ -1073,6 +1106,14 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onToggleEstado, on
       <div className="detail-row">
         <div className="k">Estado</div>
         <div className="v"><StatusBadge estado={usuario.estado} /></div>
+      </div>
+      <div className="detail-row">
+        <div className="k">Acceso</div>
+        <div className="v">
+          {usuario.bloqueado
+            ? <span className="badge danger">🔒 Bloqueado (3 intentos fallidos)</span>
+            : <span className="badge success">Normal</span>}
+        </div>
       </div>
       <div className="detail-row">
         <div className="k">Cambio de clave pendiente</div>
