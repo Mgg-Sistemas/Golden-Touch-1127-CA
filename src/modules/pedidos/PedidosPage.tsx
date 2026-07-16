@@ -7,7 +7,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { previewArchivo } from '@/shared/lib/reportePreview';
-import { dateTime, money, num, relTime } from '@/shared/lib/format';
+import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
 import { useSession } from '@/modules/auth/authStore';
@@ -770,7 +770,7 @@ export function PedidosPage() {
       {modal.kind === 'approve' && (
         <ConfirmDialog
           title="Aprobar orden"
-          message={`Aprobar ${modal.orden.codigo} por ${money(modal.orden.total)}.`}
+          message={`Aprobar ${modal.orden.codigo} por ${montoMoneda(modal.orden.total, modal.orden.total_moneda)}.`}
           confirmText="Aprobar"
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={async () => {
@@ -1352,8 +1352,8 @@ function MetodoPagoModal({
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Indicá <strong>con qué método(s)</strong> se va a pagar la OC ({orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null
-          ? <>recibido <strong>{money(orden.recibido_total)}</strong></>
-          : <>total <strong>{money(orden.total)}</strong></>}). Podés combinar
+          ? <>recibido <strong>{montoMoneda(orden.recibido_total, orden.total_moneda)}</strong></>
+          : <>total <strong>{montoMoneda(orden.total, orden.total_moneda)}</strong></>}). Podés combinar
         varios (<strong>multipago</strong>) y repartir el total <strong>por moneda</strong> (cuánto en $ por cada uno); si lo dejás en 0, el <strong>monto lo define Tesorería</strong> al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
@@ -1683,15 +1683,15 @@ function AbonosModal({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem', marginBottom: '.75rem' }}>
         <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
           <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{money(orden.total)}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{montoMoneda(orden.total, orden.total_moneda)}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
           <div className="muted" style={{ fontSize: '.7rem' }}>ABONADO</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(abonado)}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{montoMoneda(abonado, orden.total_moneda)}</div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
           <div className="muted" style={{ fontSize: '.7rem' }}>SALDO</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{money(saldo)}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{montoMoneda(saldo, orden.total_moneda)}</div>
         </div>
       </div>
 
@@ -1792,7 +1792,7 @@ function OrdenesTable({ ordenes, proveedorMap, canApproveSolicitud, onView, onAp
                   <div>{o.solicitante ?? '—'}</div>
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(o.total, o.total_moneda)}</td>
                 <td><StatusBadge estado={o.estado} /></td>
                 <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(o.created_at)}</td>
                 <td className="actions" onClick={(e) => e.stopPropagation()}>
@@ -1927,7 +1927,7 @@ const KanbanCard = memo(function KanbanCard({
         <span className="muted">· {dateTime(orden.created_at)}</span>
       </div>
       <div className="foot">
-        <span className="total">{money(orden.total)}</span>
+        <span className="total">{montoMoneda(orden.total, orden.total_moneda)}</span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
       </div>
     </div>
@@ -2368,7 +2368,7 @@ function OrdenDetailModal({
       {o.abonado_total != null && o.abonado_total > 0 && (
         <div className="detail-row">
           <div className="k">Abonado (crédito)</div>
-          <div className="v mono">{money(o.abonado_total)} <span className="muted">de {money(o.total)}</span></div>
+          <div className="v mono">{montoMoneda(o.abonado_total, o.total_moneda)} <span className="muted">de {montoMoneda(o.total, o.total_moneda)}</span></div>
         </div>
       )}
       {o.recibida_en && (
@@ -2376,7 +2376,7 @@ function OrdenDetailModal({
           <div className="k">Recepción</div>
           <div className="v">
             {dateTime(o.recibida_en)} <span className="muted">por {persona(o.recibida_por, personaMap)}</span>
-            {o.recibido_total != null && <div className="mono" style={{ fontSize: '.84rem' }}>Total recibido: {money(o.recibido_total)}{o.recibido_total < o.total && <span className="muted"> · de {money(o.total)}</span>}</div>}
+            {o.recibido_total != null && <div className="mono" style={{ fontSize: '.84rem' }}>Total recibido: {montoMoneda(o.recibido_total, o.total_moneda)}{o.recibido_total < o.total && <span className="muted"> · de {montoMoneda(o.total, o.total_moneda)}</span>}</div>}
           </div>
         </div>
       )}
@@ -2493,8 +2493,8 @@ function OrdenDetailModal({
               <td className="num">{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
               {conPrecio ? (
                 <>
-                  <td className="num">{money(it.precio)}</td>
-                  <td className="num">{money(it.cantidad * it.precio)}</td>
+                  <td className="num">{montoMoneda(it.precio, o.total_moneda)}</td>
+                  <td className="num">{montoMoneda(it.cantidad * it.precio, o.total_moneda)}</td>
                 </>
               ) : (
                 <td className="num">
@@ -2528,7 +2528,7 @@ function OrdenDetailModal({
           <tfoot>
             <tr>
               <td colSpan={6} className="num">TOTAL</td>
-              <td className="num">{money(o.total)}</td>
+              <td className="num">{montoMoneda(o.total, o.total_moneda)}</td>
               <td></td>
             </tr>
           </tfoot>

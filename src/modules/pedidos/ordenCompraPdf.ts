@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
-import { dateTime, money, num } from '@/shared/lib/format';
+import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
 import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/lib/pdfLogo';
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -428,8 +428,8 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
           it.sku,
           ficha ? `${it.nombre}\n${ficha}` : it.nombre,
           num(it.cantidad),
-          money(it.precio),
-          money(it.cantidad * it.precio),
+          montoMoneda(it.precio, o.total_moneda),
+          montoMoneda(it.cantidad * it.precio, o.total_moneda),
         ];
       }),
       foot: (() => {
@@ -438,12 +438,12 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         if (desc > 0) {
           const sub = Math.round((Number(o.total) + desc) * 100) / 100;
           return [
-            ['', '', '', 'Subtotal', money(sub)],
-            ['', '', '', 'Descuento obtenido', `− ${money(desc)}`],
-            ['', '', '', totalLabel, money(o.total)],
+            ['', '', '', 'Subtotal', montoMoneda(sub, o.total_moneda)],
+            ['', '', '', 'Descuento obtenido', `− ${montoMoneda(desc, o.total_moneda)}`],
+            ['', '', '', totalLabel, montoMoneda(o.total, o.total_moneda)],
           ];
         }
-        return [['', '', '', totalLabel, money(o.total)]];
+        return [['', '', '', totalLabel, montoMoneda(o.total, o.total_moneda)]];
       })(),
       theme: 'grid',
       headStyles: { fillColor: [255, 138, 0], textColor: 255 },

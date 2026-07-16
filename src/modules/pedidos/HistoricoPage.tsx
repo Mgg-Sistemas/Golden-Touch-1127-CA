@@ -4,7 +4,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
-import { dateTime, money } from '@/shared/lib/format';
+import { dateTime, montoMoneda } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
 import { listOrdenes, listProveedoresActivos } from './pedidos.repository';
@@ -280,7 +280,7 @@ export function HistoricoPage() {
                       <div className="muted" style={{ fontSize: '.72rem' }}>{o.solicitante_email}</div>
                     </td>
                     <td>{prov?.razon_social ?? '—'}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(o.total, o.total_moneda)}</td>
                     <td><StatusBadge estado={o.estado} /></td>
                     <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(o.created_at)}</td>
                     <td className="muted" style={{ fontSize: '.82rem' }}>
@@ -329,7 +329,7 @@ export function HistoricoPage() {
               {fila('Solicitante', `${o.solicitante ?? '—'}${o.solicitante_email ? ` · ${o.solicitante_email}` : ''}`)}
               {o.unidad_solicitante && fila('Unidad', o.unidad_solicitante)}
               {fila('Proveedor', prov?.razon_social ?? '—')}
-              {fila('Total', <strong className="mono">{money(o.total)}</strong>)}
+              {fila('Total', <strong className="mono">{montoMoneda(o.total, o.total_moneda)}</strong>)}
               {o.finalidad && fila('Finalidad', o.finalidad)}
               {o.motivo && fila('Motivo', o.motivo)}
               {o.notas && fila('Nota', o.notas)}
@@ -348,8 +348,8 @@ export function HistoricoPage() {
                     <tr key={`${it.sku}-${i}`}>
                       <td>{it.nombre}{it.marca ? ` · ${it.marca}` : ''}{it.equipo_nombre ? ` · ${it.equipo_nombre}` : ''}<div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div></td>
                       <td className="mono" style={{ textAlign: 'right' }}>{it.cantidad}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{money(it.precio)}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{money((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(it.precio, o.total_moneda)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda((Number(it.cantidad) || 0) * (Number(it.precio) || 0), o.total_moneda)}</td>
                     </tr>
                   ))}
                 </tbody>

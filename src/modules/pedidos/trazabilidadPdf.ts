@@ -1,6 +1,6 @@
 import type { jsPDF as jsPDFType } from 'jspdf';
 import { supabase } from '@/shared/lib/supabase';
-import { dateTime, money, num } from '@/shared/lib/format';
+import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type {
   EvaluacionRecepcion,
@@ -154,20 +154,20 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
       it.nombre,
       it.finalidad?.trim() || '—',
       num(it.cantidad),
-      money(it.precio),
-      money(it.cantidad * it.precio),
+      montoMoneda(it.precio, orden.total_moneda),
+      montoMoneda(it.cantidad * it.precio, orden.total_moneda),
     ]),
     foot: (() => {
       const desc = Math.max(0, Number(orden.descuento_obtenido) || 0);
       if (desc > 0) {
         const sub = Math.round((Number(orden.total) + desc) * 100) / 100;
         return [
-          ['', '', '', '', 'Subtotal', money(sub)],
-          ['', '', '', '', 'Descuento obtenido', `− ${money(desc)}`],
-          ['', '', '', '', 'TOTAL', money(orden.total)],
+          ['', '', '', '', 'Subtotal', montoMoneda(sub, orden.total_moneda)],
+          ['', '', '', '', 'Descuento obtenido', `− ${montoMoneda(desc, orden.total_moneda)}`],
+          ['', '', '', '', 'TOTAL', montoMoneda(orden.total, orden.total_moneda)],
         ];
       }
-      return [['', '', '', '', 'TOTAL', money(orden.total)]];
+      return [['', '', '', '', 'TOTAL', montoMoneda(orden.total, orden.total_moneda)]];
     })(),
     theme: 'grid',
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
@@ -304,7 +304,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ...((Number(orden.descuento_obtenido) || 0) > 0
       ? ([['Descuento obtenido', `− ${money(Number(orden.descuento_obtenido))} (subtotal ${money(Math.round((Number(orden.total) + Number(orden.descuento_obtenido)) * 100) / 100)})`]] as Array<[string, string]>)
       : []),
-    ['Total de la orden', money(orden.total)],
+    ['Total de la orden', montoMoneda(orden.total, orden.total_moneda)],
     ...(ofertaAceptada?.precio_divisa != null && Number(ofertaAceptada.precio_divisa) > 0 && Number(ofertaAceptada.precio_divisa) !== Number(ofertaAceptada.precio_total)
       ? ([['Precio con descuento (divisa)', `${money(Number(ofertaAceptada.precio_divisa))} · lista BCV ${money(Number(ofertaAceptada.precio_total))}`]] as Array<[string, string]>)
       : []),
