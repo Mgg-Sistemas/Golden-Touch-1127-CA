@@ -858,8 +858,8 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
                 <div><span className="muted">OP:</span> <strong className="mono">{orden.codigo}</strong></div>
                 <div><span className="muted">N°ODC:</span> <strong className="mono">{orden.oc_codigo ?? '—'}</strong></div>
-                <div><span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, 'USD')}</strong></div>
-                {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), 'USD')}</strong></div>}
+                <div><span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, orden.total_moneda ?? 'USD')}</strong></div>
+                {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), orden.total_moneda ?? 'USD')}</strong></div>}
                 <div><span className="muted">Solicitante:</span> <strong>{orden.solicitante || orden.solicitante_email}</strong></div>
                 {orden.condiciones_pago && <div><span className="muted">Condición:</span> <strong>{labelCondicionPago(orden.condiciones_pago)}</strong></div>}
                 {orden.pagada_en && <div><span className="muted">Pagada:</span> <strong>{dateTime(orden.pagada_en)}</strong></div>}
@@ -3530,9 +3530,9 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                   )}
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>
-                  {monto(r.montoAPagar, 'USD')}
+                  {monto(r.montoAPagar, r.orden.total_moneda ?? 'USD')}
                   {r.esContraEntrega && r.montoAPagar < Number(r.orden.total) && (
-                    <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, 'USD')}</div>
+                    <div className="muted" style={{ fontSize: '.68rem' }}>de {monto(r.orden.total, r.orden.total_moneda ?? 'USD')}</div>
                   )}
                 </td>
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
@@ -3597,12 +3597,17 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
     || Array.from(new Set((o.items ?? []).map((it) => (it.finalidad ?? '').trim()).filter(Boolean))).join(' · ')
     || '—';
 
-  const totalUsd = round2(rows.reduce((a, r) => a + Number(r.montoAPagar || 0), 0));
   // El comprobante solo es obligatorio si alguna OC NO es en efectivo.
   const comprobanteOpcional = rows.every((r) => pagoSinComprobante(r.orden.metodo_pago));
 
   const [tasa, setTasa] = useState<number>(0);
   useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
+  // Monto a pagar en USD-equivalente: las OC cuyo total está en Bs se convierten con la
+  // tasa BCV para que el motor (USD) sume y valide bien. Las USD quedan igual.
+  const usdDe = (r: OrdenPorPagar) => (r.orden.total_moneda === 'Bs' && tasa > 0)
+    ? round2(Number(r.montoAPagar || 0) / tasa)
+    : Number(r.montoAPagar || 0);
+  const totalUsd = round2(rows.reduce((a, r) => a + usdDe(r), 0));
   const totalEnMoneda = moneda === 'Bs' ? (tasa > 0 ? aBs(totalUsd, tasa) : 0) : totalUsd;
 
   async function submit(e: FormEvent) {
@@ -3618,7 +3623,7 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
       let pagadas = 0;
       for (const r of rows) {
         setProgreso(`Pagando ${r.orden.oc_codigo ?? r.orden.codigo}… (${pagadas + 1}/${rows.length})`);
-        const usd = Number(r.montoAPagar || 0);
+        const usd = usdDe(r);
         const montoOc = moneda === 'Bs' ? aBs(usd, tasa) : usd;
         await pagarOrdenCompra({
           orden: r.orden, cajaId, monto: montoOc,
@@ -5077,10 +5082,14 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
 }) {
   const o = row.orden;
   // Contra entrega: se paga SOLO lo recibido (montoAPagar = recibido_total).
-  const baseUsd = Number(row.montoAPagar ?? o.total) || 0;
+  // Si la OC está expresada en Bs (total_moneda='Bs'), se convierte a USD-equivalente con
+  // la tasa BCV para que TODO el motor (que trabaja en USD) valide y convierta bien; al
+  // pagar con una caja en Bs el monto vuelve a los mismos bolívares.
+  const ordenEnBs = (o.total_moneda ?? 'USD') === 'Bs';
+  const baseOrden = Number(row.montoAPagar ?? o.total) || 0;
   const pagoParcial = row.esContraEntrega && o.recibido_total != null && Number(o.recibido_total) < Number(o.total);
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
-  const [montoStr, setMontoStr] = useState(String(baseUsd));
+  const [montoStr, setMontoStr] = useState(String(baseOrden));
   const [factura, setFactura] = useState<File | null>(null);
   const [motivoPago, setMotivoPago] = useState('');
   // Anclaje opcional a un gasto (categoría → subcategoría).
@@ -5145,8 +5154,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
 
   // El monto a pagar está en USD. Si se paga con una caja en Bs, se convierte
   // con la tasa BCV del día (editable). Se autocompleta el monto según la moneda.
-  const totalUsd = baseUsd;
   const [tasa, setTasa] = useState<number>(0);
+  // Total de la OC en USD-equivalente: si la OC está en Bs, se divide por la tasa BCV.
+  const totalUsd = ordenEnBs ? (tasa > 0 ? round2(baseOrden / tasa) : 0) : baseOrden;
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
   const [tasaLista, setTasaLista] = useState(false);
   // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).

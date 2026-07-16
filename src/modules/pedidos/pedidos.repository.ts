@@ -977,7 +977,59 @@ function mapPorPagar(orden: Orden, pm: Map<string, Proveedor>): OrdenPorPagar {
  *     (Tesorería ya la ve y conoce el monto, pero no puede pagar todavía).
  *   · `oc_aprobada`       → método indicado por Compras → lista para pagar.
  *  Las de crédito NO aparecen: se saldan por abonos. */
+/**
+ * Auto-repara "pagos huérfanos": OC que YA tienen un egreso de pago (movimiento
+ * `pago_oc` casado en el Libro Mayor) pero quedaron en 'oc_aprobada'/'confirmada_metodo'
+ * porque el cierre de la orden no se completó (caída de red o fallo justo después del
+ * egreso). Las lleva a 'pagada' para que no sigan apareciendo en "pendientes por pagar"
+ * con la caja ya descontada. Es idempotente: se ejecuta al listar las OC por pagar.
+ *
+ * Seguro: los movimientos `pago_oc` solo los crea el pago de una OC (que en el mismo
+ * paso deja la orden en 'pagada'). Un abono a crédito usa la misma categoría pero sobre
+ * órdenes en 'cuenta_abierta', que NO entran acá. Por eso, un `pago_oc` casado a una OC
+ * todavía en aprobada/confirmada = pago que no terminó de cerrar → corresponde 'pagada'.
+ */
+export async function reconciliarPagosOcHuerfanos(): Promise<number> {
+  const { data: os } = await supabase.from(TABLE).select('*')
+    .in('estado', ['confirmada_metodo', 'oc_aprobada']);
+  const ordenes = (os ?? []) as Orden[];
+  if (!ordenes.length) return 0;
+  const ids = ordenes.map((o) => o.id);
+  const { data: movs } = await supabase.from('movimientos_caja')
+    .select('id, caja_id, ref_orden_id, actor, at')
+    .eq('categoria', 'pago_oc').eq('tipo', 'salida')
+    .in('ref_orden_id', ids)
+    .order('at', { ascending: false });
+  // El primero por orden = el más reciente (por el order desc de arriba).
+  const porOrden = new Map<string, { id: string; caja_id: string; actor: string | null; at: string }>();
+  for (const m of (movs ?? []) as Array<{ id: string; caja_id: string; ref_orden_id: string; actor: string | null; at: string }>) {
+    if (m.ref_orden_id && !porOrden.has(m.ref_orden_id)) porOrden.set(m.ref_orden_id, { id: m.id, caja_id: m.caja_id, actor: m.actor, at: m.at });
+  }
+  let reparadas = 0;
+  for (const o of ordenes) {
+    const mov = porOrden.get(o.id);
+    if (!mov) continue;
+    const patch = {
+      estado: 'pagada' as EstadoOrden,
+      pagada_por: mov.actor ?? o.oc_aprobada_por ?? null,
+      pagada_en: mov.at,
+      caja_id: mov.caja_id,
+      caja_mov_id: mov.id,
+      ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: mov.at } : {}),
+      historial: appendHistorial(o, 'pagada', mov.actor ?? 'sistema', {
+        conciliado: true, motivo: 'pago detectado en caja; cierre de OC reconciliado', caja_mov_id: mov.id,
+      }),
+    };
+    const { error } = await supabase.from(TABLE).update(patch).eq('id', o.id).eq('estado', o.estado);
+    if (!error) reparadas += 1;
+  }
+  return reparadas;
+}
+
 export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
+  // Antes de listar, reconciliamos pagos huérfanos (caja descontada pero OC sin cerrar)
+  // para que no aparezcan como pendientes cuando ya se pagaron. Best-effort.
+  await reconciliarPagosOcHuerfanos().catch(() => 0);
   const [{ data: os, error }, { data: provs }] = await Promise.all([
     supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada']).order('oc_aprobada_en', { ascending: true }),
     supabase.from('proveedores').select('*'),
