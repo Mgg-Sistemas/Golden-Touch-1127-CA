@@ -179,7 +179,68 @@ export async function nextCodigoCompraDirecta(): Promise<string> {
   return `CD-${year}-${String(seq).padStart(4, '0')}`;
 }
 
+/**
+ * Auto-repara "pagos huérfanos" de compras directas: CD que YA tienen su egreso de caja
+ * (movimiento `compra_directa` en el Libro Mayor, con motivo «Compra directa · <código>»)
+ * pero quedaron en `por_pagar` porque el cierre no llegó a completarse (caída de red o
+ * fallo justo después del egreso). Las lleva a `finalizada` para que no sigan apareciendo
+ * en «por pagar» con la caja ya descontada. Idempotente: corre al listar las compras.
+ *
+ * Seguro: el único proceso que crea un egreso `compra_directa` con motivo basado en el
+ * CÓDIGO es `pagarCompraDirecta` (Tesorería). El montaje (`enviarCompraAPagar`) NO mueve
+ * caja, y el pago-en-un-paso (`finalizarCompraDirecta`) usa el NOMBRE del producto y nunca
+ * deja la compra en `por_pagar`. Por eso, un egreso con motivo «Compra directa · <código>»
+ * ⇒ el pago salió pero no cerró → corresponde `finalizada`.
+ */
+export async function reconciliarComprasDirectasHuerfanas(): Promise<number> {
+  const { data: cds } = await supabase
+    .from('compras_directas')
+    .select('*')
+    .eq('estado', 'por_pagar')
+    .is('caja_mov_id', null);
+  const compras = (cds ?? []) as Array<Record<string, unknown>>;
+  if (!compras.length) return 0;
+  const motivos = compras.map((c) => `Compra directa · ${c.codigo}`);
+  const { data: movs } = await supabase
+    .from('movimientos_caja')
+    .select('id, caja_id, motivo, actor, actor_name, at')
+    .eq('categoria', 'compra_directa')
+    .eq('tipo', 'salida')
+    .in('motivo', motivos)
+    .order('at', { ascending: false });
+  // El primero por motivo = el más reciente (por el order desc). Con pago multimoneda
+  // (varios legs) enlaza el más reciente; la caja ya se descontó en todas las billeteras.
+  const porMotivo = new Map<string, { id: string; caja_id: string; actor: string | null; actor_name: string | null; at: string }>();
+  for (const m of (movs ?? []) as Array<{ id: string; caja_id: string; motivo: string; actor: string | null; actor_name: string | null; at: string }>) {
+    if (m.motivo && !porMotivo.has(m.motivo)) porMotivo.set(m.motivo, { id: m.id, caja_id: m.caja_id, actor: m.actor, actor_name: m.actor_name, at: m.at });
+  }
+  let reparadas = 0;
+  for (const c of compras) {
+    const mov = porMotivo.get(`Compra directa · ${c.codigo}`);
+    if (!mov) continue;
+    const afectaInventario = c.afecta_inventario !== false;
+    const sigueSinRecibir = afectaInventario && !c.recepcionada_at;
+    const { error } = await supabase
+      .from('compras_directas')
+      .update({
+        estado: 'finalizada', caja_id: mov.caja_id, caja_mov_id: mov.id,
+        recepcion_pendiente: sigueSinRecibir,
+        pagada_at: mov.at, pagada_por: mov.actor ?? 'reconciliacion',
+        pagada_por_name: mov.actor_name ?? 'Reconciliación pago huérfano',
+        finalizada_at: mov.at, updated_at: new Date().toISOString(),
+      })
+      .eq('id', c.id as string)
+      .eq('estado', 'por_pagar')
+      .is('caja_mov_id', null);
+    if (!error) reparadas += 1;
+  }
+  return reparadas;
+}
+
 export async function listComprasDirectas(): Promise<CompraDirecta[]> {
+  // Antes de listar, reconciliamos pagos huérfanos (caja descontada pero CD sin cerrar)
+  // para que no aparezcan como pendientes con la caja ya descontada. Best-effort.
+  await reconciliarComprasDirectasHuerfanas().catch(() => 0);
   const { data, error } = await supabase
     .from('compras_directas')
     .select('*')
