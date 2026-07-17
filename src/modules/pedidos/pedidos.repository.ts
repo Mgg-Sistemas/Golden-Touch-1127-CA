@@ -4,6 +4,7 @@ import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import type {
   AbonoCredito,
+  AdjuntoOferta,
   CuentaCaja,
   EstadoOrden,
   EventoHistorial,
@@ -392,6 +393,9 @@ export async function aprobarOrdenConOferta(
   /** Selección de marca cuando un producto tenía varias alternativas (mismo sku): solo
    *  los ítems elegidos entran a la OC, con sus totales ya recalculados. */
   override?: { items: ItemOrden[]; precioTotal: number; precioDivisa: number | null } | null,
+  /** Justificación del analista (por qué eligió esta oferta) + adjuntos de respaldo.
+   *  Se guarda en la OC para que el Gerente General (al aprobar) y Tesorería lo vean. */
+  seleccion?: { observacion: string | null; adjuntos: AdjuntoOferta[] } | null,
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
@@ -432,6 +436,8 @@ export async function aprobarOrdenConOferta(
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     oc_creada_por: actorEmail,
     oc_creada_en: nowIso,
+    oc_seleccion_observacion: seleccion?.observacion?.trim() || null,
+    oc_seleccion_adjuntos: seleccion?.adjuntos ?? [],
     historial: appendHistorial(o, 'oc_creada', actorEmail, {
       proveedorId: ofertaProveedorId,
       precio: totalFinal,

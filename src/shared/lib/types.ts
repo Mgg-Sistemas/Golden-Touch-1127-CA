@@ -1084,6 +1084,10 @@ export interface Orden {
   /** OC creada (oferta elegida, proveedor casado · sin confirmar). */
   oc_creada_por?: string | null;
   oc_creada_en?: string | null;
+  /** Justificación del analista al elegir la oferta (por qué ese proveedor) + adjuntos
+   *  (PDF/imágenes de respaldo). Los ve el Gerente General (al aprobar) y Tesorería. */
+  oc_seleccion_observacion?: string | null;
+  oc_seleccion_adjuntos?: AdjuntoOferta[] | null;
   /** OC aprobada/confirmada en lote (checklist). */
   oc_aprobada_por?: string | null;
   oc_aprobada_en?: string | null;

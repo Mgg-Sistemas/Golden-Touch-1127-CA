@@ -5387,6 +5387,31 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             }</div>
             <div style={{ gridColumn: '1 / -1' }}><span className="muted">Motivo:</span> {o.motivo?.trim() || <span className="muted">—</span>}</div>
             <div style={{ gridColumn: '1 / -1' }}><span className="muted">Nota (OP):</span> {o.notas?.trim() || <span className="muted">—</span>}</div>
+            {(o.oc_seleccion_observacion || (o.oc_seleccion_adjuntos && o.oc_seleccion_adjuntos.length > 0)) && (
+              <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--border)', paddingTop: '.4rem', marginTop: '.15rem' }}>
+                <span className="muted">Justificación de la elección (analista):</span>{' '}
+                {o.oc_seleccion_observacion
+                  ? <span style={{ whiteSpace: 'pre-wrap' }}>{o.oc_seleccion_observacion}</span>
+                  : <span className="muted">—</span>}
+                {o.oc_seleccion_adjuntos && o.oc_seleccion_adjuntos.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginTop: '.3rem' }}>
+                    {o.oc_seleccion_adjuntos.map((a, i) => (
+                      <button
+                        key={a.path}
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        title={a.filename}
+                        onClick={() => getPdfOfertaSignedUrl(a.path)
+                          .then((url) => previewArchivo(url, a.filename || (a.path.split('/').pop() ?? 'adjunto')))
+                          .catch(() => toast('No se pudo abrir el adjunto', 'error'))}
+                      >
+                        📎 {a.filename || `Adjunto ${i + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

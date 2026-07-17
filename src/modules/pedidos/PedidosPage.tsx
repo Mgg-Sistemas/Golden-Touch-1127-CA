@@ -54,7 +54,7 @@ import {
   labelMetodoPago,
   type PrecioHistorico,
 } from './pedidos.repository';
-import { listOfertasByOrden, labelCondicionPago } from './ofertas.repository';
+import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -2328,6 +2328,32 @@ function OrdenDetailModal({
         <div className="detail-row">
           <div className="k">OC creada</div>
           <div className="v">{dateTime(o.oc_creada_en)} <span className="muted">por {persona(o.oc_creada_por, personaMap)}</span></div>
+        </div>
+      )}
+      {(o.oc_seleccion_observacion || (o.oc_seleccion_adjuntos && o.oc_seleccion_adjuntos.length > 0)) && (
+        <div className="detail-row">
+          <div className="k">Justificación de la elección</div>
+          <div className="v">
+            {o.oc_seleccion_observacion && (
+              <div style={{ whiteSpace: 'pre-wrap', fontSize: '.88rem' }}>{o.oc_seleccion_observacion}</div>
+            )}
+            {o.oc_seleccion_adjuntos && o.oc_seleccion_adjuntos.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginTop: '.35rem' }}>
+                {o.oc_seleccion_adjuntos.map((a, i) => (
+                  <button
+                    key={a.path}
+                    className="btn btn-sm btn-ghost"
+                    title={a.filename}
+                    onClick={() => getPdfOfertaSignedUrl(a.path)
+                      .then((url) => previewArchivo(url, a.filename || (a.path.split('/').pop() ?? 'adjunto')))
+                      .catch(() => toast('No se pudo abrir el adjunto', 'error'))}
+                  >
+                    📎 {a.filename || `Adjunto ${i + 1}`}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
       {o.oc_aprobada_en && (

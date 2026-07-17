@@ -6,12 +6,13 @@ import { previewArchivo } from '@/shared/lib/reportePreview';
 import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
 import type {
+  AdjuntoOferta,
   ItemOrden,
   OfertaProveedor,
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, eliminarOferta } from './ofertas.repository';
+import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSignedUrl, eliminarOferta, subirAdjuntosOferta } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
@@ -70,8 +71,12 @@ export function OfertasComparativa({
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [confirmando, setConfirmando] = useState<ScoredOferta | null>(null);
+  // Justificación del analista al elegir la oferta (+ adjuntos PDF/imagen de respaldo).
+  const [obs, setObs] = useState('');
+  const [obsFiles, setObsFiles] = useState<File[]>([]);
+  const [subiendo, setSubiendo] = useState(false);
   // Selección de marca cuando un producto tiene varias alternativas (mismo sku).
-  const [seleccion, setSeleccion] = useState<{ s: ScoredOferta; elecciones: Record<string, number> } | null>(null);
+  const [seleccion, setSeleccion] = useState<{ s: ScoredOferta; elecciones: Record<string, number>; observacion: string; adjuntos: AdjuntoOferta[] } | null>(null);
   // Detalle por ítem que se despliega al hacer click en un proveedor.
   const [expandido, setExpandido] = useState<string | null>(null);
   // Oferta a eliminar (confirmación).
@@ -120,7 +125,22 @@ export function OfertasComparativa({
   // Clave de agrupación de variantes (mismo producto, otra marca): el sku o el nombre.
   const claveVar = (it: ItemOrden) => (it.sku && it.sku.trim()) || (it.nombre ?? '');
 
+  /** Sube los adjuntos de la justificación (si hay) y sigue el flujo: selector de marca
+   *  si el proveedor cotizó alternativas, o aceptación directa. */
   async function confirmarAceptacion(s: ScoredOferta) {
+    setSubiendo(true);
+    let adjuntos: AdjuntoOferta[] = [];
+    try {
+      if (obsFiles.length) {
+        adjuntos = await subirAdjuntosOferta(orden.id, s.oferta.proveedor_id, obsFiles);
+      }
+    } catch (e) {
+      setSubiendo(false);
+      toast(e instanceof Error ? e.message : 'No se pudieron subir los adjuntos', 'error');
+      return;
+    }
+    setSubiendo(false);
+    const observacion = obs.trim();
     // Si algún producto tiene VARIAS marcas/modelos (alternativas), hay que elegir UNA
     // antes de crear la OC: se abre el selector de marca en vez de aceptar directo.
     if (hayVariantes(s.oferta.items ?? [])) {
@@ -138,17 +158,19 @@ export function OfertasComparativa({
         }
       }
       setConfirmando(null);
-      setSeleccion({ s, elecciones: def });
+      setSeleccion({ s, elecciones: def, observacion, adjuntos });
       return;
     }
     setConfirmando(null);
-    await ejecutarAceptacion(s, null);
+    await ejecutarAceptacion(s, null, observacion, adjuntos);
   }
 
   /** Ejecuta la aceptación real (crea la OC). `override` fija los ítems elegidos. */
   async function ejecutarAceptacion(
     s: ScoredOferta,
     override: { items: ItemOrden[]; precioTotal: number; precioDivisa: number | null } | null,
+    observacion: string,
+    adjuntos: AdjuntoOferta[],
   ) {
     try {
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
@@ -160,7 +182,9 @@ export function OfertasComparativa({
         s.score.total,
         actorEmail,
         override,
+        { observacion: observacion || null, adjuntos },
       );
+      setObs(''); setObsFiles([]);
       notify('Oferta elegida · pendiente por aprobación del Gerente General', 'success', { link: '#/app/pedidos' });
       onAccepted();
     } catch (e) {
@@ -181,8 +205,10 @@ export function OfertasComparativa({
     const precioTotal = Math.round(elegidos.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0) * 100) / 100;
     const usd = Math.round(elegidos.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_usd) || 0), 0) * 100) / 100;
     const precioDivisa = elegidos.some((it) => Number(it.precio_usd) > 0) ? usd : null;
+    const observacion = seleccion.observacion;
+    const adjuntos = seleccion.adjuntos;
     setSeleccion(null);
-    await ejecutarAceptacion(s, { items: elegidos, precioTotal, precioDivisa });
+    await ejecutarAceptacion(s, { items: elegidos, precioTotal, precioDivisa }, observacion, adjuntos);
   }
 
   async function confirmarEliminar(of: OfertaProveedor) {
@@ -556,13 +582,51 @@ export function OfertasComparativa({
       )}
 
       {confirmando && (
-        <ConfirmDialog
-          title="Confirmar oferta ganadora"
-          message={`¿Elegir la oferta de ${proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'} por ${money(totalesRepresentativos(confirmando.oferta.items ?? []).bcv || confirmando.oferta.precio_total)}?${hayVariantes(confirmando.oferta.items ?? []) ? ' Como hay productos con varias marcas, a continuación elegís cuál comprar.' : ''} La orden quedará Pendiente por aprobación del Gerente General y las demás ofertas se descartarán.`}
-          confirmText={hayVariantes(confirmando.oferta.items ?? []) ? 'Elegir marca…' : 'Elegir oferta'}
-          onConfirm={() => confirmarAceptacion(confirmando)}
-          onCancel={() => setConfirmando(null)}
-        />
+        <Modal title="Confirmar oferta ganadora" onClose={() => { if (!subiendo) { setConfirmando(null); setObs(''); setObsFiles([]); } }} size="md">
+          <p style={{ marginTop: 0 }}>
+            ¿Elegir la oferta de <strong>{proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}</strong> por{' '}
+            <strong className="mono">{money(totalesRepresentativos(confirmando.oferta.items ?? []).bcv || confirmando.oferta.precio_total)}</strong>?
+            {hayVariantes(confirmando.oferta.items ?? []) && ' Como hay productos con varias marcas, a continuación elegís cuál comprar.'}
+          </p>
+          <p className="muted" style={{ marginTop: '-.3rem', fontSize: '.82rem' }}>
+            La orden quedará <strong>Pendiente por aprobación del Gerente General</strong> y las demás ofertas se descartarán.
+          </p>
+          <div className="form-row" style={{ borderTop: '1px solid var(--border)', paddingTop: '.7rem' }}>
+            <label style={{ fontWeight: 700 }}>Observación de la elección <span className="muted" style={{ fontWeight: 400 }}>(por qué elegís este proveedor)</span></label>
+            <textarea
+              className="input"
+              rows={3}
+              placeholder="Ej.: mejor precio y entrega inmediata; el más barato no tenía stock; calidad superior comprobada…"
+              value={obs}
+              onChange={(e) => setObs(e.target.value)}
+              style={{ resize: 'vertical' }}
+            />
+          </div>
+          <div className="form-row">
+            <label style={{ fontWeight: 700 }}>Adjuntos de respaldo <span className="muted" style={{ fontWeight: 400 }}>(PDF o imágenes · opcional)</span></label>
+            <input
+              type="file"
+              className="input"
+              accept="application/pdf,image/*"
+              multiple
+              onChange={(e) => setObsFiles(Array.from(e.target.files ?? []))}
+            />
+            {obsFiles.length > 0 && (
+              <div className="muted" style={{ fontSize: '.75rem', marginTop: '.3rem' }}>
+                {obsFiles.length} archivo(s): {obsFiles.map((f) => f.name).join(', ')}
+              </div>
+            )}
+            <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
+              Los verá el <strong>Gerente General</strong> (al aprobar) y <strong>Tesorería</strong> (al pagar). Máx. 10 MB por archivo.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', marginTop: '.8rem' }}>
+            <button className="btn btn-ghost" disabled={subiendo} onClick={() => { setConfirmando(null); setObs(''); setObsFiles([]); }}>Cancelar</button>
+            <button className="btn btn-primary" disabled={subiendo} onClick={() => confirmarAceptacion(confirmando)}>
+              {subiendo ? 'Subiendo…' : hayVariantes(confirmando.oferta.items ?? []) ? 'Elegir marca…' : 'Elegir oferta'}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {seleccion && (
