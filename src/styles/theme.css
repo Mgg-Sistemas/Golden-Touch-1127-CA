@@ -332,6 +332,9 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
+  /* No debe ensancharse más que su contenedor: se fija al ancho disponible y la tabla
+     ancha se desliza DENTRO (no empuja la página). */
+  max-width: 100%;
 }
 
 /* Toast */
