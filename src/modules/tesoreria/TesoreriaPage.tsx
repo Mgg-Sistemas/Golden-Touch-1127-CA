@@ -5458,12 +5458,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 <tr key={`${it.sku}-${i}`}>
                   <td className="mono">{it.sku}</td><td>{it.nombre}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{it.cantidad}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, 'USD')}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{monto(it.cantidad * it.precio, 'USD')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{monto(it.precio, o.total_moneda ?? 'USD')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{monto(it.cantidad * it.precio, o.total_moneda ?? 'USD')}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td colSpan={4} style={{ textAlign: 'right' }}><strong>TOTAL</strong></td><td className="mono" style={{ textAlign: 'right' }}><strong>{monto(o.total, 'USD')}</strong></td></tr></tfoot>
+            <tfoot><tr><td colSpan={4} style={{ textAlign: 'right' }}><strong>TOTAL</strong></td><td className="mono" style={{ textAlign: 'right' }}><strong>{monto(o.total, o.total_moneda ?? 'USD')}</strong></td></tr></tfoot>
           </table>
         </div>
 
@@ -5472,13 +5472,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
           <div className="card-title" style={{ marginBottom: '.5rem' }}>Conversión del total</div>
           <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <div>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Total en USD</div>
-              <strong className="mono" style={{ fontSize: '1.15rem' }}>{monto(totalUsd, 'USD')}</strong>
+              <div className="muted" style={{ fontSize: '.72rem' }}>{ordenEnBs ? 'Total en Bs' : 'Total en USD'}</div>
+              <strong className="mono" style={{ fontSize: '1.15rem' }}>{ordenEnBs ? monto(o.total, 'Bs') : monto(totalUsd, 'USD')}</strong>
             </div>
             <div style={{ fontSize: '1.2rem' }} className="muted">⇄</div>
             <div>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs</div>
-              <strong className="mono" style={{ fontSize: '1.15rem' }}>{tasa > 0 ? monto(totalBs, 'Bs') : '—'}</strong>
+              <div className="muted" style={{ fontSize: '.72rem' }}>{ordenEnBs ? 'Equivale en USD' : 'Equivale en Bs'}</div>
+              <strong className="mono" style={{ fontSize: '1.15rem' }}>{ordenEnBs ? monto(totalUsd, 'USD') : (tasa > 0 ? monto(totalBs, 'Bs') : '—')}</strong>
             </div>
             <div style={{ fontSize: '1.2rem' }} className="muted">⇄</div>
             <div>
