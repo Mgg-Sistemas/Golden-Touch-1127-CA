@@ -4,7 +4,10 @@
 
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  /* minmax(0,1fr) (no `1fr`): el `1fr` = minmax(auto,1fr) deja que una tabla ancha ESTIRE
+     la columna del contenido más allá de la pantalla. minmax(0,…) la fija al ancho real
+     y el scroll horizontal queda DENTRO de .table-wrap. */
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   grid-template-rows: var(--topbar-h) 1fr;
   grid-template-areas:
     "sidebar topbar"
@@ -662,7 +665,7 @@ tr.row-selectable:active { transform: scale(0.998); }
 
   /* Layout de una sola columna: el sidebar sale del flujo (drawer). */
   .app {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: var(--topbar-h) 1fr;
     grid-template-areas: "topbar" "main";
   }
@@ -702,9 +705,15 @@ tr.row-selectable:active { transform: scale(0.998); }
 
   .search-box { display: none; }
   .main { padding: 1rem; }
-  .topbar { padding: 0 1rem; }
-  .topbar .crumb { font-size: .8rem; }
-  .top-actions { gap: .4rem; min-width: 0; }
+  .topbar { padding: 0 .75rem; gap: .4rem; }
+  /* La miga se encoge y trunca (no empuja las acciones fuera de pantalla). */
+  .topbar .crumb { font-size: .8rem; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+  .topbar .crumb > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top-actions { gap: .4rem; min-width: 0; flex: 0 0 auto; }
+  /* Chip de tasas COMPACTO en móvil: solo "BCV $…" (el €, Binance y la fecha se ocultan
+     para que la CAMPANA de notificaciones no quede fuera de la pantalla). El detalle
+     completo sigue disponible al tocarlo (abre el historial) y dentro de Tesorería. */
+  .tasa-chip .tasa-eur, .tasa-chip .tasa-bin, .tasa-chip .tasa-fecha { display: none !important; }
 
   .page-head h1 { font-size: 1.2rem; }
   .page-head p { font-size: .8rem; }

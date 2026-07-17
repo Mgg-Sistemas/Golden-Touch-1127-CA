@@ -58,6 +58,7 @@ export function TasaChip() {
     <>
       <button
         type="button"
+        className="tasa-chip"
         onClick={() => setOpen(true)}
         title={`Tasas (Bs por unidad) · BCV ${tasa.fecha ?? ''}${bin ? ` · Binance Bs ${r2(bin)}` : ''} · clic para ver el historial`}
         style={{
@@ -69,9 +70,9 @@ export function TasaChip() {
       >
         <span style={{ color: 'var(--brand, #ff8a00)', fontWeight: 700 }}>BCV</span>
         <span className="mono">$ {r2(tasa.usd)}</span>
-        {tasa.eur != null && <span className="mono">€ {r2(tasa.eur)}</span>}
+        {tasa.eur != null && <span className="mono tasa-eur">€ {r2(tasa.eur)}</span>}
         {bin != null && (
-          <>
+          <span className="tasa-bin" style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem' }}>
             <span className="muted" style={{ opacity: 0.5 }}>·</span>
             <span style={{ color: '#f3ba2f', fontWeight: 700 }}>BIN</span>
             <span className="mono">Bs {r2(bin)}</span>
@@ -80,9 +81,9 @@ export function TasaChip() {
                 ▼ {margen.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
               </span>
             )}
-          </>
+          </span>
         )}
-        <span className="muted" style={{ fontSize: '.7rem' }}>{fechaCorta(tasa.fecha)}</span>
+        <span className="muted tasa-fecha" style={{ fontSize: '.7rem' }}>{fechaCorta(tasa.fecha)}</span>
       </button>
       {open && <HistorialTasasModal tasaHoy={tasa} onClose={() => setOpen(false)} onRefreshed={setTasa} />}
     </>
