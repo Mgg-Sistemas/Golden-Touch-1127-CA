@@ -1274,6 +1274,10 @@ function MetodoPagoModal({
   }, [qrFile, qrPath]);
   const baseTotal = orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null ? orden.recibido_total : orden.total;
   const ivaMonto = Math.round(Number(baseTotal) * 0.16 * 100) / 100;
+  // Moneda de la orden (Bs o $): los importes del método de pago se muestran en ella.
+  const monedaOrden = orden.total_moneda ?? 'USD';
+  const simboloMoneda = monedaOrden === 'Bs' ? 'Bs' : '$';
+  const mm = (x: number) => montoMoneda(x, monedaOrden);
 
   useEffect(() => {
     const pid = proveedorSel || orden.proveedor_id;
@@ -1312,7 +1316,7 @@ function MetodoPagoModal({
     if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
     // Multipago con reparto: si se cargó algún monto, todos deben sumar el total.
     if (esMultipago && hayMontos && !repartoOk) {
-      setError(`El reparto por moneda ($${money(sumMontos)}) debe sumar el total de la OC ($${money(Number(baseTotal))}).`); return;
+      setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar el total de la OC (${mm(Number(baseTotal))}).`); return;
     }
     if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
     // Validar datos del proveedor en los métodos que los requieren.
@@ -1414,11 +1418,11 @@ function MetodoPagoModal({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.5rem', marginBottom: '.6rem' }}>
               <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: !conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
                 <input type="radio" name="iva" checked={!conIva} onChange={() => setConIva(false)} />
-                <span style={{ fontSize: '.86rem' }}><strong>Sin IVA</strong> · total {money(baseTotal)}</span>
+                <span style={{ fontSize: '.86rem' }}><strong>Sin IVA</strong> · total {mm(Number(baseTotal))}</span>
               </label>
               <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
                 <input type="radio" name="iva" checked={conIva} onChange={() => setConIva(true)} />
-                <span style={{ fontSize: '.86rem' }}><strong>Con IVA (16%)</strong> · +{money(ivaMonto)} = {money(Number(baseTotal) + ivaMonto)}</span>
+                <span style={{ fontSize: '.86rem' }}><strong>Con IVA (16%)</strong> · +{mm(ivaMonto)} = {mm(Number(baseTotal) + ivaMonto)}</span>
               </label>
             </div>
             <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención</div>
@@ -1449,7 +1453,7 @@ function MetodoPagoModal({
               {/* Multipago: cuánto del total ($) va por este método/moneda. */}
               {legs.length > 1 && (
                 <div className="form-row" style={{ margin: 0, flex: '0 1 170px' }}>
-                  <label>Monto ($) en {l.moneda}</label>
+                  <label>Monto ({simboloMoneda}) en {l.moneda}</label>
                   <input className="input mono" type="number" min={0} step="any"
                     value={l.monto ? String(l.monto) : ''} placeholder="0,00"
                     onChange={(e) => setLeg(i, { monto: Math.round((Number(e.target.value) || 0) * 100) / 100 })} />
@@ -1473,15 +1477,15 @@ function MetodoPagoModal({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.86rem', gap: '.5rem', flexWrap: 'wrap' }}>
             <span className="muted">Reparto por moneda (opcional)</span>
             <strong className="mono" style={{ color: hayMontos ? (repartoOk ? 'var(--success)' : 'var(--danger)') : undefined }}>
-              ${money(sumMontos)} / ${money(Number(baseTotal))}
+              {mm(sumMontos)} / {mm(Number(baseTotal))}
             </strong>
           </div>
           <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
             {!hayMontos
-              ? 'Dejá los montos en 0 y Tesorería define cuánto va por cada uno, o indicá acá cuánto pagar por cada método (en $).'
+              ? `Dejá los montos en 0 y Tesorería define cuánto va por cada uno, o indicá acá cuánto pagar por cada método (en ${simboloMoneda}).`
               : repartoOk
               ? '✓ El reparto suma el total. Tesorería verá cuánto pagar por cada moneda.'
-              : <span style={{ color: 'var(--danger)' }}>⚠ Los montos deben sumar el total de la OC (${money(Number(baseTotal))}).</span>}
+              : <span style={{ color: 'var(--danger)' }}>⚠ Los montos deben sumar el total de la OC ({mm(Number(baseTotal))}).</span>}
           </small>
         </div>
       )}
