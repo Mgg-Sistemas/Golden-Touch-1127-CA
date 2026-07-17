@@ -326,7 +326,12 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  overflow: hidden;
+  /* Scroll HORIZONTAL cuando la tabla no cabe (móvil/tablet): antes era `overflow:hidden`
+     y las columnas de la derecha se CORTABAN sin poder verlas. Ahora se desliza el dedo.
+     El eje vertical queda oculto para preservar el redondeo de esquinas. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Toast */

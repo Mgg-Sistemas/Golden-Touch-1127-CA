@@ -56,6 +56,7 @@ const SECCIONES: Seccion[] = [
     puntos: [
       'Menú lateral (izquierda): es el índice del sistema. Está dividido en "Operación" (el trabajo del día a día) y "Sistema" (configuración).',
       'Podés ocultar o mostrar el menú con el botón ☰ de la barra superior para tener más espacio.',
+      'Uso desde el celular: el sistema se adapta al telefono. En pantallas chicas el menu lateral se vuelve un panel deslizable que se abre con el boton ☰ (se cierra tocando fuera o al elegir una opcion). Las tablas anchas (Tesoreria, Pedidos, Inventario) se deslizan con el dedo hacia los lados para ver todas las columnas; los formularios y tarjetas se acomodan en una sola columna y los modales ocupan toda la pantalla. No hay que instalar nada: se abre en el navegador del telefono.',
       'Barra superior: contiene el buscador general, el botón (?) de textos de ayuda y la campana de notificaciones.',
       'Botón (?) - mostrar/ocultar ayudas: los módulos traen textos explicativos (los "hints" o ayudas) que a veces saturan el visual. Con el botón (?) de la barra superior se ocultan o se muestran de golpe en todo el sistema; queda naranja cuando están visibles y apagado cuando están ocultos. La preferencia se recuerda en ese navegador.',
       'Aviso "El sistema se actualizó": cuando se publica una nueva versión, a todos los usuarios les aparece arriba un aviso fijo (no se puede ocultar) con el botón "Actualizar ahora". Al pulsarlo la app recarga y toma la última versión. Conviene guardar lo que se esté escribiendo antes de actualizar.',

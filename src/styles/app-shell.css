@@ -751,6 +751,19 @@ tr.row-selectable:active { transform: scale(0.998); }
   .modal-footer { flex-wrap: wrap; gap: .4rem; }
   .modal-footer .btn { flex: 1 1 auto; min-width: 0; }
   .modal-body { padding: 1rem; }
+
+  /* Inputs a 16px reales: iOS Safari hace ZOOM al enfocar un campo < 16px. A 16px
+     el teclado no descuadra la pantalla. (No cambia el look en desktop.) */
+  .input, .select, .textarea, .search { font-size: 16px; }
+
+  /* Tarjetas y títulos con acciones: más compactas y sin encimarse. */
+  .card { padding: 1rem; }
+  .card-title { flex-wrap: wrap; gap: .35rem .5rem; }
+  .filterbar { gap: .4rem; }
+
+  /* Tablas SIN contenedor .table-wrap (pocas): que igual se puedan deslizar y no
+     rompan el ancho de la página. */
+  .card > table.table, .modal-body > table.table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
 /* ============================================================
