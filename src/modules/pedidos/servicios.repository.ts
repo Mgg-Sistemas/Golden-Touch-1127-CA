@@ -16,17 +16,35 @@ export type CategoriaServicio = (typeof CATEGORIAS_SERVICIO)[number] | string;
 export const CATEGORIA_MANTENIMIENTO = 'MANTENIMIENTO';
 
 /**
- * Servicios de RECARGA de gas / oxígeno / extintores: para estos se piden, además,
- * la CANTIDAD DE BOMBONAS y los KG A RECARGAR. Detecta por el texto de la categoría
+ * Servicios de RECARGA (gas / oxígeno / extintores / agua): para estos se piden, además,
+ * DOS cantidades — la cantidad de recipientes (bombonas o cisternas) y el volumen
+ * (KG en gas/oxígeno/extintores, LITROS en agua). Detecta por el texto de la categoría
  * y/o el tipo de servicio (tolerante a acentos).
  */
 export function esRecargaGas(...textos: Array<string | null | undefined>): boolean {
   const t = textos.filter(Boolean).join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // NB: NO se agrega "agua" acá — "Recarga de agua" ya matchea por "recarga", y sumar
+  // "agua" haría que mantenimientos como "Bomba de agua" activaran los campos por error.
   return /(recarga|gas|oxigeno|extintor)/.test(t);
 }
 
-/** Tipos sugeridos para una recarga (gas / oxígeno / extintores). */
-export const TIPOS_RECARGA = ['Recarga de gas', 'Recarga de oxígeno', 'Recarga de extintores'] as const;
+/** Recarga de AGUA (cisterna): usa cantidad de cisternas/viajes y LITROS (no bombonas/KG).
+ *  Solo se consulta dentro de un contexto de recarga (para elegir las etiquetas). */
+export function esRecargaAgua(...textos: Array<string | null | undefined>): boolean {
+  const t = textos.filter(Boolean).join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return /(recarga de agua|cisterna)/.test(t);
+}
+
+/** Etiquetas de los dos campos de recarga según el tipo: agua → cisternas/litros; el
+ *  resto (gas/oxígeno/extintores) → bombonas/KG. Centraliza el texto para toda la UI. */
+export function etiquetasRecarga(...textos: Array<string | null | undefined>): { cantidad: string; volumen: string; cantidadCorta: string; volumenCorta: string } {
+  return esRecargaAgua(...textos)
+    ? { cantidad: 'Cantidad de cisternas', volumen: 'Litros a recargar', cantidadCorta: 'Cisternas', volumenCorta: 'Litros' }
+    : { cantidad: 'Cantidad de bombonas', volumen: 'KG a recargar', cantidadCorta: 'Bombonas', volumenCorta: 'KG' };
+}
+
+/** Tipos sugeridos para una recarga (gas / oxígeno / extintores / agua). */
+export const TIPOS_RECARGA = ['Recarga de gas', 'Recarga de oxígeno', 'Recarga de extintores', 'Recarga de agua (cisterna)'] as const;
 
 /** Categoría de mantenimiento de electrodomésticos: en vez de un equipo de maquinaria,
  *  se elige el artículo de una lista predeterminada de electrodomésticos. */

@@ -10,6 +10,7 @@ import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, Or
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { hayVariantes, totalesRepresentativos } from './variantesOferta';
+import { esRecargaAgua } from './servicios.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
 
@@ -607,11 +608,14 @@ export function AgregarOfertaModal({
                           {[it.categoria_servicio && `🗂 ${it.categoria_servicio}`, it.equipo_nombre && `🚜 ${it.equipo_nombre}`].filter(Boolean).join(' · ')}
                         </div>
                       )}
-                      {(it.bombonas || it.kg_recarga) && (
+                      {(it.bombonas || it.kg_recarga) && (() => {
+                        const agua = esRecargaAgua(it.categoria_servicio, it.nombre);
+                        return (
                         <div className="muted" style={{ fontSize: '.72rem' }}>
-                          ⛽ {[it.bombonas && `${it.bombonas} bombona(s)`, it.kg_recarga && `${it.kg_recarga} kg`].filter(Boolean).join(' · ')}
+                          {agua ? '💧 ' : '⛽ '}{[it.bombonas && `${it.bombonas} ${agua ? 'cisterna(s)' : 'bombona(s)'}`, it.kg_recarga && `${it.kg_recarga} ${agua ? 'litros' : 'kg'}`].filter(Boolean).join(' · ')}
                         </div>
-                      )}
+                        );
+                      })()}
                       <div style={{ display: 'flex', gap: '.3rem', marginTop: '.25rem' }}>
                         {/* No controlado (defaultValue) como los precios: así un re-render
                             por realtime no borra lo que se está tecleando. La key={it.uid}

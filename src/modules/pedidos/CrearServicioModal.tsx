@@ -8,7 +8,7 @@ import { crearOrden, subirImagenOrden } from './pedidos.repository';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import {
-  CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas, TIPOS_RECARGA,
+  CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas, etiquetasRecarga, TIPOS_RECARGA,
   CATEGORIA_ELECTRODOMESTICOS, ELECTRODOMESTICOS, esElectrodomestico,
   listServiciosActivos, addServicioCatalogo, type ServicioCatalogo,
 } from './servicios.repository';
@@ -85,6 +85,8 @@ export function CrearServicioModal({
     [productos],
   );
   const esGas = esRecargaGas(categoria, servicio);
+  // Etiquetas de los dos campos de recarga (agua → cisternas/litros; resto → bombonas/KG).
+  const etqRecarga = etiquetasRecarga(categoria, servicio);
   // Servicios del catálogo para la categoría elegida (nombres), para el desplegable.
   // En MANTENIMIENTO (Control de Maquinaria) la lista de "tipo de servicio" se
   // arma desde el catálogo de tipos de mantenimiento (cambio de aceite, filtro,
@@ -121,11 +123,12 @@ export function CrearServicioModal({
     const nom = servicio.trim();
     if (!nom) { toast('Elegí o escribí el servicio', 'error'); return null; }
     const gas = esRecargaGas(categoria, nom);
-    // En recargas (gas/oxígeno/extintores) la cantidad la dan las bombonas (no hay campo Cantidad).
+    const etq = etiquetasRecarga(categoria, nom);
+    // En recargas la cantidad la dan los recipientes (bombonas/cisternas), no hay campo Cantidad.
     const cant = gas
       ? (Number(String(bombonas).replace(',', '.')) || 0)
       : (Number(String(cantidad).replace(',', '.')) || 0);
-    if (cant <= 0) { toast(gas ? 'Indicá la cantidad de bombonas' : 'La cantidad debe ser mayor a 0', 'error'); return null; }
+    if (cant <= 0) { toast(gas ? `Indicá la ${etq.cantidad.toLowerCase()}` : 'La cantidad debe ser mayor a 0', 'error'); return null; }
     let equipoNombre: string | null = null;
     if (esMantenimiento) {
       if (!equipoId) { toast('Seleccioná la máquina/vehículo del mantenimiento', 'error'); return null; }
@@ -313,16 +316,16 @@ export function CrearServicioModal({
           <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end' }}>
             {esGas ? (
               <>
-                {/* Recarga de gas / oxígeno / extintores: solo bombonas + KG. */}
+                {/* Recarga: bombonas + KG (gas/oxígeno/extintores) o cisternas + litros (agua). */}
                 <div style={{ width: 160 }}>
-                  <label className="label">Cantidad de bombonas</label>
+                  <label className="label">{etqRecarga.cantidad}</label>
                   <input className="input mono" value={bombonas} inputMode="decimal"
                     onChange={(e) => setBombonas(e.target.value)} placeholder="Ej. 4" />
                 </div>
                 <div style={{ width: 160 }}>
-                  <label className="label">KG a recargar</label>
+                  <label className="label">{etqRecarga.volumen}</label>
                   <input className="input mono" value={kg} inputMode="decimal"
-                    onChange={(e) => setKg(e.target.value)} placeholder="Ej. 40" />
+                    onChange={(e) => setKg(e.target.value)} placeholder={etqRecarga.volumenCorta === 'Litros' ? 'Ej. 5000' : 'Ej. 40'} />
                 </div>
               </>
             ) : (
@@ -368,7 +371,7 @@ export function CrearServicioModal({
         {items.length > 0 && (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>
-              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th>Insumo</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th>Medida</th><th></th></tr></thead>
+              <thead><tr><th>Servicio</th><th>Categoría</th><th>Equipo</th><th>Insumo</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bomb./Cist.</th><th style={{ textAlign: 'right' }}>KG/Lts</th><th>Medida</th><th></th></tr></thead>
               <tbody>
                 {items.map((it, i) => (
                   <tr key={it.sku}>

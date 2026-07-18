@@ -13,7 +13,7 @@ import { list as listProveedores, insert as crearProveedor } from '@/modules/pro
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import type { Producto } from '@/shared/lib/types';
-import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, TIPOS_RECARGA, CATEGORIA_ELECTRODOMESTICOS, ELECTRODOMESTICOS, esElectrodomestico, type ServicioCatalogo } from './servicios.repository';
+import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, etiquetasRecarga, TIPOS_RECARGA, CATEGORIA_ELECTRODOMESTICOS, ELECTRODOMESTICOS, esElectrodomestico, type ServicioCatalogo } from './servicios.repository';
 import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -309,7 +309,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead><tr>
             <th>Servicio</th><th>Categoría</th><th>Equipo</th><th>Insumo</th>
-            <th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th style={{ textAlign: 'right' }}>Monto</th>
+            <th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Bomb./Cist.</th><th style={{ textAlign: 'right' }}>KG/Lts</th><th style={{ textAlign: 'right' }}>Monto</th>
           </tr></thead>
           <tbody>
             {servicio.items.map((it, i) => (
@@ -432,7 +432,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       const cant = gas ? (Number(l.bombonas) || 0) : (Number(l.cantidad) || 0);
       if (!cat) { setError('Indicá la categoría de cada servicio.'); return; }
       if (!tipo) { setError('Indicá el tipo de servicio en cada renglón.'); return; }
-      if (cant <= 0) { setError(gas ? 'Indicá la cantidad de bombonas.' : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
+      if (cant <= 0) { setError(gas ? `Indicá la ${etiquetasRecarga(cat, tipo).cantidad.toLowerCase()}.` : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
       const esElectro = esElectrodomestico(cat);
       const eq = equiposActivos.find((x) => x.id === l.equipoId) ?? null;
       // Electrodomésticos: el "equipo" es el artículo elegido (sin id de maquinaria).
@@ -669,19 +669,23 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                 })()}
               </div>
             )}
-            {esRecargaGas(l.categoria, l.tipo) && (
+            {esRecargaGas(l.categoria, l.tipo) && (() => {
+              const etq = etiquetasRecarga(l.categoria, l.tipo);
+              const esAgua = etq.volumenCorta === 'Litros';
+              return (
               <div className="form-grid">
                 <div className="form-row">
-                  <label>Cantidad de bombonas</label>
+                  <label>{etq.cantidad}</label>
                   <input className="input mono" name={`linea-bomb-${l.id}`} type="number" min={0} step="any" defaultValue={l.bombonas} onChange={(e) => set(l.id, { bombonas: e.target.value })} placeholder="Ej. 4" />
                 </div>
                 <div className="form-row">
-                  <label>KG a recargar</label>
-                  <input className="input mono" name={`linea-kg-${l.id}`} type="number" min={0} step="any" defaultValue={l.kg} onChange={(e) => set(l.id, { kg: e.target.value })} placeholder="Ej. 40" />
-                  <small className="muted">⛽ Recarga de gas / oxígeno / extintores.</small>
+                  <label>{etq.volumen}</label>
+                  <input className="input mono" name={`linea-kg-${l.id}`} type="number" min={0} step="any" defaultValue={l.kg} onChange={(e) => set(l.id, { kg: e.target.value })} placeholder={esAgua ? 'Ej. 5000' : 'Ej. 40'} />
+                  <small className="muted">{esAgua ? '💧 Recarga de agua (cisterna).' : '⛽ Recarga de gas / oxígeno / extintores.'}</small>
                 </div>
               </div>
-            )}
+              );
+            })()}
           </div>
         ))}
 
@@ -956,7 +960,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
 
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Servicio</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Bombonas</th><th style={{ textAlign: 'right' }}>KG</th><th style={{ width: 160 }}>Monto</th><th style={{ textAlign: 'right' }}>Costo unit.</th></tr></thead>
+            <thead><tr><th>Servicio</th><th>Equipo</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Bomb./Cist.</th><th style={{ textAlign: 'right' }}>KG/Lts</th><th style={{ width: 160 }}>Monto</th><th style={{ textAlign: 'right' }}>Costo unit.</th></tr></thead>
             <tbody>
               {servicio.items.map((it, i) => {
                 const g = Number(gastos[i]) || 0;
