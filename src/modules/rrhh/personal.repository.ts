@@ -25,6 +25,9 @@ export interface PersonalInput {
   departamento?: string | null;
   sueldo_base?: number;
   fecha_ingreso?: string | null;
+  telefono?: string | null;
+  contacto_emergencia?: string | null;
+  telefono_emergencia?: string | null;
 }
 
 function payload(input: PersonalInput) {
@@ -36,6 +39,9 @@ function payload(input: PersonalInput) {
     departamento: input.departamento?.trim() || null,
     sueldo_base: Math.round((Number(input.sueldo_base) || 0) * 100) / 100,
     fecha_ingreso: input.fecha_ingreso || null,
+    telefono: input.telefono?.trim() || null,
+    contacto_emergencia: input.contacto_emergencia?.trim() || null,
+    telefono_emergencia: input.telefono_emergencia?.trim() || null,
   };
 }
 
@@ -70,4 +76,49 @@ export async function eliminarPersonal(id: string): Promise<void> {
   const { data, error } = await supabase.from(TABLE).delete().eq('id', id).select('id');
   if (error) throw error;
   if (!data || data.length === 0) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+}
+
+/* ───────── Foto de la persona (para el carnet) ───────── */
+const FOTOS_BUCKET = 'personal-fotos';
+const MAX_FOTO_BYTES = 5 * 1024 * 1024;
+
+/** Sube (o reemplaza) la foto de una persona y guarda su path en `personal.foto_path`.
+ *  Borra la foto anterior si existía. Devuelve el nuevo path. */
+export async function subirFotoPersonal(id: string, file: File, fotoAnterior?: string | null): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('La foto debe ser una imagen.');
+  if (file.size > MAX_FOTO_BYTES) throw new Error('La foto no puede superar 5 MB.');
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const path = `${id}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from(FOTOS_BUCKET).upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+  const { error: updErr } = await supabase.from(TABLE).update({ foto_path: path }).eq('id', id);
+  if (updErr) throw updErr;
+  if (fotoAnterior) await supabase.storage.from(FOTOS_BUCKET).remove([fotoAnterior]).catch(() => {});
+  return path;
+}
+
+/** Quita la foto de una persona (borra el archivo y limpia `foto_path`). */
+export async function borrarFotoPersonal(id: string, fotoPath: string): Promise<void> {
+  const { error } = await supabase.from(TABLE).update({ foto_path: null }).eq('id', id);
+  if (error) throw error;
+  if (fotoPath) await supabase.storage.from(FOTOS_BUCKET).remove([fotoPath]).catch(() => {});
+}
+
+/** URL firmada (5 min) para ver/descargar la foto de una persona. */
+export async function getFotoPersonalUrl(path: string): Promise<string> {
+  const { data, error } = await supabase.storage.from(FOTOS_BUCKET).createSignedUrl(path, 300);
+  if (error || !data) throw error ?? new Error('No se pudo generar el enlace de la foto');
+  return data.signedUrl;
+}
+
+/** Descarga la foto y la convierte a data URL (para dibujarla en el carnet sin CORS). */
+export async function fotoPersonalDataUrl(path: string): Promise<string> {
+  const { data, error } = await supabase.storage.from(FOTOS_BUCKET).download(path);
+  if (error || !data) throw error ?? new Error('No se pudo descargar la foto');
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(data);
+  });
 }
