@@ -1018,7 +1018,8 @@ export interface ItemOrden {
   /** SERVICIOS: equipo de Control de Maquinaria casado al servicio (cuando es MANTENIMIENTO). */
   equipo_id?: string | null;
   equipo_nombre?: string | null;
-  /** SERVICIOS de recarga (gas / oxígeno / extintores): cantidad de bombonas y KG a recargar. */
+  /** SERVICIOS de recarga: cantidad de recipientes y volumen — bombonas y KG
+   *  (gas / oxígeno / extintores) o cisternas y litros (agua). */
   bombonas?: number | null;
   kg_recarga?: number | null;
   /** SERVICIOS de MANTENIMIENTO: insumo del inventario asociado (p. ej. el caucho que

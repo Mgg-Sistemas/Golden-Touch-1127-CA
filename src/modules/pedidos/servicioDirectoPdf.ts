@@ -1,7 +1,8 @@
 /* ============================================================
    Golden Touch · Servicio Directo · Comprobante PDF (vista previa)
    Cabecera + tabla de servicios (categoría, tipo, equipo, cantidad,
-   bombonas y KG en recargas de gas/oxígeno/extintores, y monto).
+   recipientes y volumen en recargas — bombonas/KG en gas/oxígeno/extintores,
+   cisternas/litros en agua — y monto).
    Se abre en vista previa; se descarga solo al pulsar Descargar.
    ============================================================ */
 import type { ServicioDirecto } from './serviciosDirectos.repository';
@@ -69,7 +70,7 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
   });
   autoTable(doc, {
     startY: startY + 14,
-    head: [['#', 'Servicio', 'Categoría', 'Equipo', 'Cant.', 'Bombonas', 'KG', 'Monto', 'Costo unit.']],
+    head: [['#', 'Servicio', 'Categoría', 'Equipo', 'Cant.', 'Bomb./Cist.', 'KG/Lts', 'Monto', 'Costo unit.']],
     body,
     foot: gasto != null ? [[{ content: 'TOTAL', colSpan: 7, styles: { halign: 'right' } }, fmt.montoMoneda(gasto, servicio.moneda), '']] : undefined,
     styles: { fontSize: 8.5, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },

@@ -4,6 +4,7 @@ import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/l
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { firmaDeAprobador } from './aprobadoresOc';
+import { esRecargaAgua } from './servicios.repository';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -418,11 +419,13 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       head: [['SKU', 'Descripción', 'Cantidad', 'Precio unit.', 'Subtotal']],
       body: o.items.map((it) => {
         // Marca/modelo cargados por el usuario (en la oferta) se muestran bajo el nombre.
-        // En servicios de recarga (gas/oxígeno/extintores) se muestran bombonas y KG.
+        // En servicios de recarga se muestran los recipientes y el volumen: bombonas/KG
+        // (gas/oxígeno/extintores) o cisternas/litros (agua).
+        const agua = esRecargaAgua(it.categoria_servicio, it.nombre);
         const ficha = [
           it.marca && `Marca: ${it.marca}`, it.modelo && `Modelo: ${it.modelo}`,
-          it.bombonas ? `Bombonas: ${num(it.bombonas)}` : '',
-          it.kg_recarga ? `KG a recargar: ${num(it.kg_recarga)}` : '',
+          it.bombonas ? `${agua ? 'Cisternas' : 'Bombonas'}: ${num(it.bombonas)}` : '',
+          it.kg_recarga ? `${agua ? 'Litros a recargar' : 'KG a recargar'}: ${num(it.kg_recarga)}` : '',
         ].filter(Boolean).join('   ');
         return [
           it.sku,

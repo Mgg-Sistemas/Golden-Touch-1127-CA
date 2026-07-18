@@ -55,6 +55,7 @@ import {
   type PrecioHistorico,
 } from './pedidos.repository';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl } from './ofertas.repository';
+import { esRecargaAgua } from './servicios.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -2509,11 +2510,17 @@ function OrdenDetailModal({
                     🏷 {[it.marca?.trim() && `Marca: ${it.marca.trim()}`, it.modelo?.trim() && `Modelo: ${it.modelo.trim()}`].filter(Boolean).join(' · ')}
                   </div>
                 )}
-                {(it.bombonas || it.kg_recarga) && (
+                {(it.bombonas || it.kg_recarga) && (() => {
+                  const agua = esRecargaAgua(it.categoria_servicio, it.nombre);
+                  return (
                   <div className="muted" style={{ fontSize: '.74rem', marginTop: '.1rem' }}>
-                    ⛽ {[it.bombonas && `${num(it.bombonas)} bombona(s)`, it.kg_recarga && `${num(it.kg_recarga)} kg a recargar`].filter(Boolean).join(' · ')}
+                    {agua ? '💧 ' : '⛽ '}{[
+                      it.bombonas && `${num(it.bombonas)} ${agua ? 'cisterna(s)' : 'bombona(s)'}`,
+                      it.kg_recarga && `${num(it.kg_recarga)} ${agua ? 'litros a recargar' : 'kg a recargar'}`,
+                    ].filter(Boolean).join(' · ')}
                   </div>
-                )}
+                  );
+                })()}
               </td>
               <td style={{ fontSize: '.84rem' }}>
                 {esServicioOrden
