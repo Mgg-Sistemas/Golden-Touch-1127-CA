@@ -1184,6 +1184,13 @@ export interface Personal {
   sueldo_base: number;          // sueldo MENSUAL (USD)
   activo: boolean;
   fecha_ingreso?: string | null;
+  /** Contacto de la persona (para el carnet y el QR). */
+  telefono?: string | null;
+  /** Contacto de emergencia: nombre y teléfono (para el carnet y el QR). */
+  contacto_emergencia?: string | null;
+  telefono_emergencia?: string | null;
+  /** Foto de la persona (bucket `personal-fotos`) para el carnet. */
+  foto_path?: string | null;
   datos_pago?: Record<string, unknown> | null;
   created_at: string;
   created_by?: string | null;
