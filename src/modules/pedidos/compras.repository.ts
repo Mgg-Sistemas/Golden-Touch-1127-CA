@@ -128,12 +128,14 @@ export interface CompraDirecta {
   recepcion_almacen?: string | null;
   /** Comisión bancaria cobrada al pagar (egreso extra de la caja, NO parte de la factura). */
   comision_bancaria?: number | null;
-  /** Moneda de la compra ('USD' o 'Bs'). El IVA solo aplica/​suma cuando es 'Bs'. */
+  /** Moneda de la compra ('USD' o 'Bs'). El IVA suma al total en ambas. */
   moneda?: string | null;
   /** Tasa Bs/$ con la que el analista convirtió la moneda del documento (conversor). Referencia para Tesorería. */
   tasa_conversion?: number | null;
-  /** Monto de IVA (16%) — suma al total cuando la moneda es Bs. */
+  /** Monto de IVA — suma al total (en la moneda de la compra, Bs o $). */
   iva?: number | null;
+  /** % de IVA con el que se calculó `iva` (16 por defecto; el monto puede ajustarse a mano). */
+  iva_pct?: number | null;
   /** Descuento aplicado (monto) y su % — resta al total. */
   descuento?: number | null;
   descuento_pct?: number | null;
@@ -350,15 +352,45 @@ export async function crearCompraDirecta(
 }
 
 /**
- * Elimina una compra directa que todavía está EN PROCESO (no movió caja ni inventario).
- * Las FINALIZADAS no se borran desde acá: ya descontaron dinero y dieron entrada al
- * inventario, así que revertirlas requeriría deshacer esos movimientos.
+ * Borra las facturas adjuntas de una compra: los archivos del Storage y sus registros.
+ * Best-effort — se llama DESPUÉS de eliminar la compra, así que si algo falla solo
+ * quedan archivos huérfanos (no bloquea el borrado).
+ */
+async function limpiarAdjuntosDeCompra(compraId: string, adjuntoPath?: string | null): Promise<void> {
+  const { data } = await supabase
+    .from('adjuntos_directos').select('path').eq('modulo', 'compra').eq('ref_id', compraId);
+  const paths = [...(data ?? []).map((a) => a.path as string), ...(adjuntoPath ? [adjuntoPath] : [])].filter(Boolean);
+  if (paths.length) await supabase.storage.from(BUCKET).remove(paths);
+  await supabase.from('adjuntos_directos').delete().eq('modulo', 'compra').eq('ref_id', compraId);
+}
+
+/**
+ * Elimina una compra directa que TODAVÍA no movió dinero ni inventario. Cubre las dos
+ * situaciones seguras del tablero:
+ *   · «En proceso» — ni siquiera se montó con factura.
+ *   · «Por recibir» / «Por pagar» aún SIN pagar — montada, pero Tesorería no la pagó y
+ *     el almacenista no le dio entrada, así que no hay caja ni stock que revertir.
+ *
+ * Las PAGADAS (`finalizada`) NO se borran acá: ya descontaron la caja. Para eliminarlas
+ * hay que REABRIRLAS primero (`reabrirCompraDirecta` devuelve el dinero y revierte el
+ * inventario) y recién entonces borrarlas. Las ya recibidas tampoco: movieron stock.
+ *
+ * Se limpian además las facturas adjuntas (registros + archivos del Storage), que no
+ * tienen FK y quedarían huérfanas.
  */
 export async function eliminarCompraDirecta(compra: CompraDirecta): Promise<void> {
-  if (compra.estado !== 'en_proceso')
-    throw new Error('Solo se pueden eliminar compras directas que estén En proceso.');
-  const { error } = await supabase.from('compras_directas').delete().eq('id', compra.id);
+  if (compra.estado === 'finalizada')
+    throw new Error('Esta compra ya fue pagada. Reabrila primero (devuelve el dinero a la caja) y después eliminala.');
+  if (compra.recepcionada_at)
+    throw new Error('Esta compra ya entró al inventario: no se puede eliminar.');
+  // `neq('estado','finalizada')` cubre la carrera con Tesorería: si la pagaron justo
+  // ahora, el borrado no toca ninguna fila y avisamos en vez de perder el pago.
+  const { data, error } = await supabase
+    .from('compras_directas').delete().eq('id', compra.id).neq('estado', 'finalizada').select('id');
   if (error) throw error;
+  if (!data || !data.length)
+    throw new Error('No se pudo eliminar: la compra acaba de pagarse, ya no existe o no tenés permiso.');
+  await limpiarAdjuntosDeCompra(compra.id, compra.adjunto_path).catch(() => { /* archivos huérfanos, no bloquea */ });
 }
 
 /* ───────── Adjunto en Storage ───────── */
@@ -671,8 +703,10 @@ export interface EnviarCompraAPagarInput {
   moneda?: string;
   /** Tasa Bs/$ usada al convertir la moneda con el conversor (referencia para Tesorería). */
   tasaConversion?: number | null;
-  /** Monto de IVA (16%): suma al total SOLO cuando la moneda es 'Bs'. */
+  /** Monto de IVA: suma al total, en la moneda de la compra (Bs o $). */
   iva?: number;
+  /** % de IVA con el que se calculó el monto (16 sugerido). El monto manda: se puede pisar. */
+  ivaPct?: number;
   /** Descuento en monto y su % — resta al total. */
   descuento?: number;
   descuentoPct?: number;
@@ -704,10 +738,12 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
   const subtotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
   if (subtotal <= 0) throw new Error('Cargá los montos de los materiales.');
   const moneda = input.moneda === 'Bs' ? 'Bs' : 'USD';
-  // Descuento (resta) e IVA (solo suma en Bs). Total = subtotal − descuento + IVA.
+  // Descuento (resta) e IVA (suma), ambos en la moneda de la compra.
+  // Total = subtotal − descuento + IVA.
   const descuento = Math.min(subtotal, Math.max(0, Math.round((Number(input.descuento) || 0) * 100) / 100));
   const descuentoPct = Math.max(0, Math.round((Number(input.descuentoPct) || 0) * 100) / 100);
-  const iva = moneda === 'Bs' ? Math.max(0, Math.round((Number(input.iva) || 0) * 100) / 100) : 0;
+  const iva = Math.max(0, Math.round((Number(input.iva) || 0) * 100) / 100);
+  const ivaPct = Math.max(0, Math.round((Number(input.ivaPct) || 0) * 100) / 100);
   const total = Math.round((subtotal - descuento + iva) * 100) / 100;
   if (total <= 0) throw new Error('El total no puede ser 0.');
   // Retención (el registro en Retenciones se crea al PAGAR; acá solo se guarda en la compra).
@@ -720,7 +756,7 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
     .update({
       estado: 'por_pagar', gasto: total, items,
       moneda, tasa_conversion: input.tasaConversion != null && input.tasaConversion > 0 ? Math.round(Number(input.tasaConversion) * 100) / 100 : null,
-      iva, descuento, descuento_pct: descuentoPct,
+      iva, iva_pct: ivaPct, descuento, descuento_pct: descuentoPct,
       retencion_tipo: retencionPct > 0 ? (input.retencionTipo ?? null) : null,
       retencion_base: retencionPct > 0 ? retencionBase : 0,
       retencion_pct: retencionPct, retencion_monto: retencionMonto,
@@ -764,10 +800,10 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   const items = (compra.items ?? []).map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
   const subtotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
-  // Total a pagar = subtotal − descuento + IVA (IVA solo en Bs). El IVA/descuento NO
-  // alteran el costo de inventario: los materiales entran por su subtotal.
+  // Total a pagar = subtotal − descuento + IVA (ambos en la moneda de la compra). El
+  // IVA/descuento NO alteran el costo de inventario: los materiales entran por su subtotal.
   const descuento = Math.min(subtotal, Math.max(0, Math.round((Number(compra.descuento) || 0) * 100) / 100));
-  const ivaCompra = compra.moneda === 'Bs' ? Math.max(0, Math.round((Number(compra.iva) || 0) * 100) / 100) : 0;
+  const ivaCompra = Math.max(0, Math.round((Number(compra.iva) || 0) * 100) / 100);
   const total = Math.round((subtotal - descuento + ivaCompra) * 100) / 100;
   if (total <= 0) throw new Error('La compra no tiene montos cargados.');
 
