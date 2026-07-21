@@ -273,14 +273,15 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     ['Aprobada por (SP)', nombrePersona(orden.aprobada_por, personasMap)],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
-  // OC por factura con IVA: desglose del 16%.
+  // OC por factura con IVA: desglose con el % que se aplicó (16 por defecto, editable).
   if (orden.comprobante_tipo === 'factura') {
     cond.push(['Tipo de soporte', 'Factura']);
     if (orden.iva_aplicado) {
       const iva = Number(orden.iva_monto ?? 0);
       const base = Number(orden.total) - iva;
+      const pct = Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 });
       cond.push(['Base imponible', money(base)]);
-      cond.push(['IVA (16%)', money(iva)]);
+      cond.push([`IVA (${pct}%)`, money(iva)]);
       cond.push(['Total con IVA', money(Number(orden.total))]);
     } else {
       cond.push(['IVA', 'Sin IVA']);

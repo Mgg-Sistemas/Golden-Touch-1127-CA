@@ -311,7 +311,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ...(orden.comprobante_tipo === 'factura'
       ? ([
           ['Tipo de soporte', 'Factura'],
-          ['IVA', orden.iva_aplicado ? `Con IVA (16%) · ${money(Number(orden.iva_monto ?? 0))}` : 'Sin IVA'],
+          ['IVA', orden.iva_aplicado ? `Con IVA (${Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%) · ${money(Number(orden.iva_monto ?? 0))}` : 'Sin IVA'],
         ] as Array<[string, string]>)
       : []),
     ['Almacén destino', orden.almacen_destino ?? '—'],

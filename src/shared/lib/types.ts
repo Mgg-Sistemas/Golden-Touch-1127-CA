@@ -1076,6 +1076,8 @@ export interface Orden {
   imagen_path?: string | null;
   /** OC por factura: si se aplicó IVA (16%) sobre el monto y cuánto. */
   iva_aplicado?: boolean | null;
+  /** % de IVA aplicado a la OC (16 por defecto, editable al confirmar el método de pago). */
+  iva_pct?: number | null;
   iva_monto?: number | null;
   historial: EventoHistorial[];
   aprobada_por?: string | null;
