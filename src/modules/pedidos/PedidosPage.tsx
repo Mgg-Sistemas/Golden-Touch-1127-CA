@@ -1240,7 +1240,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
 }) {
   // Al CAMBIAR el método (OC ya "Confirmada pagar") precargamos el/los método(s) ya
   // indicados; si es la primera vez, arranca con un método por defecto.
@@ -1262,8 +1262,10 @@ function MetodoPagoModal({
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>(orden.comprobante_tipo ?? 'nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>(orden.retencion_modo ?? 'se_paga_despues');
-  // OC por factura: con IVA (suma 16% al total) o sin IVA (no agrega nada).
+  // OC por factura: con IVA (suma el % al total) o sin IVA (no agrega nada).
+  // El % arranca en 16 (general) pero es EDITABLE: hay facturas con otra alícuota.
   const [conIva, setConIva] = useState(!!orden.iva_aplicado);
+  const [ivaPct, setIvaPct] = useState(String(Number(orden.iva_pct) > 0 ? orden.iva_pct : 16));
   // Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería para escanear y pagar.
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPath, setQrPath] = useState<string | null>(orden.metodo_pago_imagen_path ?? null);
@@ -1274,7 +1276,8 @@ function MetodoPagoModal({
     setQrPreview(null);
   }, [qrFile, qrPath]);
   const baseTotal = orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null ? orden.recibido_total : orden.total;
-  const ivaMonto = Math.round(Number(baseTotal) * 0.16 * 100) / 100;
+  const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
+  const ivaMonto = Math.round(Number(baseTotal) * (ivaPctNum / 100) * 100) / 100;
   // Moneda de la orden (Bs o $): los importes del método de pago se muestran en ella.
   const monedaOrden = orden.total_moneda ?? 'USD';
   const simboloMoneda = monedaOrden === 'Bs' ? 'Bs' : '$';
@@ -1337,7 +1340,7 @@ function MetodoPagoModal({
     } else if (!qrPath && orden.metodo_pago_imagen_path) {
       imagenPath = null;
     }
-    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, conIva: comprobanteTipo === 'factura' && conIva }, null, imagenPath); }
+    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, conIva: comprobanteTipo === 'factura' && conIva, ivaPct: ivaPctNum }, null, imagenPath); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -1423,9 +1426,24 @@ function MetodoPagoModal({
               </label>
               <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
                 <input type="radio" name="iva" checked={conIva} onChange={() => setConIva(true)} />
-                <span style={{ fontSize: '.86rem' }}><strong>Con IVA (16%)</strong> · +{mm(ivaMonto)} = {mm(Number(baseTotal) + ivaMonto)}</span>
+                <span style={{ fontSize: '.86rem', display: 'inline-flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                  <strong>Con IVA</strong>
+                  {/* El % es editable: 16 es el general, pero hay facturas con otra alícuota. */}
+                  <input className="input mono" type="number" min={0} max={100} step="any" value={ivaPct}
+                    onChange={(e) => { setConIva(true); setIvaPct(e.target.value); }}
+                    onClick={(e) => e.preventDefault()}
+                    title="Porcentaje de IVA de la factura (editable)"
+                    style={{ width: 62, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+                  <span>%</span>
+                  <span>· +{mm(ivaMonto)} = {mm(Number(baseTotal) + ivaMonto)}</span>
+                </span>
               </label>
             </div>
+            {conIva && ivaPctNum !== 16 && (
+              <div className="muted" style={{ fontSize: '.74rem', marginTop: '-.3rem', marginBottom: '.6rem' }}>
+                ⚠ Estás aplicando <strong>{ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}%</strong> en vez del 16% general — verificá que coincida con la factura.
+              </div>
+            )}
             <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención</div>
             <div style={{ display: 'grid', gap: '.35rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
@@ -2391,7 +2409,7 @@ function OrdenDetailModal({
           <div className="k">IVA (factura)</div>
           <div className="v">
             {o.iva_aplicado
-              ? <>Con IVA (16%) · <span className="mono">{money(Number(o.iva_monto ?? 0))}</span> <span className="muted">incluido en el total</span></>
+              ? <>Con IVA ({Number(o.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%) · <span className="mono">{money(Number(o.iva_monto ?? 0))}</span> <span className="muted">incluido en el total</span></>
               : <span className="muted">Sin IVA</span>}
           </div>
         </div>

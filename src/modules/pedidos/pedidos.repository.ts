@@ -676,7 +676,7 @@ export async function indicarMetodoPago(
   o: Orden,
   metodos: PagoMetodo[],
   actorEmail: string,
-  soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null; conIva?: boolean },
+  soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null; conIva?: boolean; ivaPct?: number },
   /** Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería. `undefined` = no tocar;
    *  `null` = quitar la existente; string = nuevo path en el bucket `op-imagenes`. */
   imagenPath?: string | null,
@@ -713,10 +713,14 @@ export async function indicarMetodoPago(
   const pagaEnDivisa = totalDivisa > 0 && limpios.some(
     (m) => m.moneda === 'USD' || m.moneda === 'USDT' || METODOS_DIVISA.includes(m.metodo),
   );
-  // OC por factura con IVA: se suma el 16% al total. Sin IVA: no agrega nada.
+  // OC por factura con IVA: se suma el % indicado al total (16 por defecto, editable).
+  // Sin IVA: no agrega nada.
   const aplicaIva = comprobanteTipo === 'factura' && !!soporte?.conIva;
+  const ivaPct = aplicaIva
+    ? Math.max(0, Math.min(100, Math.round((Number(soporte?.ivaPct ?? 16) || 0) * 100) / 100))
+    : 0;
   const baseTotal = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
-  const ivaMonto = aplicaIva ? Math.round(baseTotal * 0.16 * 100) / 100 : 0;
+  const ivaMonto = aplicaIva ? Math.round(baseTotal * (ivaPct / 100) * 100) / 100 : 0;
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
@@ -727,11 +731,12 @@ export async function indicarMetodoPago(
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
     iva_aplicado: aplicaIva,
+    iva_pct: ivaPct,
     iva_monto: aplicaIva ? ivaMonto : null,
     pago_en_divisa: pagaEnDivisa,
     // Al pagar en divisa, el `total` de la OC pasa a ser el monto con descuento (+IVA si aplica).
     ...(pagaEnDivisa || aplicaIva ? { total: baseTotal + ivaMonto } : {}),
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_monto: ivaMonto, pago_en_divisa: pagaEnDivisa }),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, pago_en_divisa: pagaEnDivisa }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
