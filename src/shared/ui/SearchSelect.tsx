@@ -231,17 +231,30 @@ export function SearchCreateSelect({
   const panelRef = useRef<HTMLDivElement>(null);
   const norm = (s: string) => normBusqueda(s);
 
+  // Texto LOCAL del input: manda mientras el campo está enfocado. Antes el input estaba
+  // controlado 100% por `value` (estado del padre): cada tecla iba al padre y volvía, y si
+  // el padre re-renderizaba pesado el estado quedaba 1-2 letras atrás. El input mostraba lo
+  // tecleado (buffer del navegador) pero la opción «Usar «…» (nuevo)» — dibujada desde ese
+  // estado atrasado — salía CORTADA ("MANTENIMIENTO DE " en vez de "…MOLINO"). Con estado
+  // local, input y opción salen SIEMPRE del mismo texto y nunca se desfasan.
+  const [text, setText] = useState(value);
+  const focusedRef = useRef(false);
+  // Resincroniza con el valor externo solo cuando el campo NO está enfocado (cambio
+  // programático: precarga al editar, transformación del padre como mayúsculas, reset…).
+  // Mientras se teclea, el estado local es la única fuente de verdad.
+  useEffect(() => { if (!focusedRef.current) setText(value); }, [value]);
+
   const filtered = useMemo(() => {
-    const q = norm(value);
+    const q = norm(text);
     if (!q) return options;
     return options.filter((o) => norm(o).includes(q));
-  }, [options, value]);
-  const exact = options.some((o) => norm(o) === norm(value));
-  const showCreate = value.trim() !== '' && !exact;
+  }, [options, text]);
+  const exact = options.some((o) => norm(o) === norm(text));
+  const showCreate = text.trim() !== '' && !exact;
   // Lista navegable con teclado: primero la opción «crear» (si aplica), luego las coincidencias.
   const items = useMemo(
-    () => [...(showCreate ? [{ create: true, val: value }] : []), ...filtered.map((o) => ({ create: false, val: o }))],
-    [showCreate, value, filtered],
+    () => [...(showCreate ? [{ create: true, val: text }] : []), ...filtered.map((o) => ({ create: false, val: o }))],
+    [showCreate, text, filtered],
   );
 
   useEffect(() => {
@@ -254,7 +267,7 @@ export function SearchCreateSelect({
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  function pick(v: string) { onChange(v); setOpen(false); }
+  function pick(v: string) { setText(v); onChange(v); setOpen(false); }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHi((h) => Math.min(h + 1, items.length - 1)); }
@@ -271,19 +284,20 @@ export function SearchCreateSelect({
         className="input"
         autoComplete="off"
         disabled={disabled}
-        value={value}
+        value={text}
         placeholder={placeholder}
-        onFocus={() => { if (!disabled) { setOpen(true); setHi(-1); } }}
-        onChange={(e) => { onChange(e.target.value); setOpen(true); setHi(-1); }}
+        onFocus={() => { focusedRef.current = true; if (!disabled) { setOpen(true); setHi(-1); } }}
+        onBlur={() => { focusedRef.current = false; }}
+        onChange={(e) => { setText(e.target.value); onChange(e.target.value); setOpen(true); setHi(-1); }}
         onKeyDown={onKeyDown}
       />
-      <DropdownPortal anchorRef={inputRef} panelRef={panelRef} open={open && !disabled && (items.length > 0 || !value)}>
+      <DropdownPortal anchorRef={inputRef} panelRef={panelRef} open={open && !disabled && (items.length > 0 || !text)}>
         {items.length === 0 && <div className="muted" style={{ padding: '.5rem .7rem', fontSize: '.85rem' }}>{emptyText}</div>}
         {items.map((it, i) => (
           <div
             key={(it.create ? '__new__' : '') + it.val}
             role="option"
-            aria-selected={!it.create && norm(it.val) === norm(value)}
+            aria-selected={!it.create && norm(it.val) === norm(text)}
             onMouseDown={(e) => { e.preventDefault(); pick(it.val); }}
             onMouseEnter={() => setHi(i)}
             style={optStyle(i === hi, !it.create && norm(it.val) === norm(value))}
