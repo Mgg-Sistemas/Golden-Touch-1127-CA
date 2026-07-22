@@ -48,11 +48,17 @@ export interface CocinaMovimiento {
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 
-/** Productos de la categoría VÍVERES (activos). El stock y el precio (PMP) salen del inventario. */
+/** ¿La categoría del producto es de víveres? Basta con que CONTENGA "viver" para
+ *  abarcar variantes como "Víveres", "VIVERES" o "Víveres y Art. Limpieza". */
+export const esCategoriaViveres = (categoria: string | null | undefined): boolean =>
+  norm(categoria ?? '').includes('viver');
+
+/** TODOS los víveres del inventario GENERAL (activos), sin importar el almacén donde
+ *  estén ubicados. El stock y el precio (PMP) salen del inventario. */
 export async function listViveres(): Promise<Producto[]> {
   const prods = await listProductos();
   return prods
-    .filter((p) => p.estado === 'activo' && norm(p.categoria) === 'viveres')
+    .filter((p) => p.estado === 'activo' && esCategoriaViveres(p.categoria))
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
 
