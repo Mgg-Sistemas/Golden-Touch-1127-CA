@@ -300,7 +300,7 @@ export function SearchCreateSelect({
             aria-selected={!it.create && norm(it.val) === norm(text)}
             onMouseDown={(e) => { e.preventDefault(); pick(it.val); }}
             onMouseEnter={() => setHi(i)}
-            style={optStyle(i === hi, !it.create && norm(it.val) === norm(value))}
+            style={optStyle(i === hi, !it.create && norm(it.val) === norm(text))}
           >
             {it.create ? <span><span style={{ color: 'var(--primary-3, #ff8a00)' }}>➕ Usar</span> «{it.val}» <span className="muted">(nuevo)</span></span> : it.val}
           </div>
