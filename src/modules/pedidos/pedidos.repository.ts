@@ -676,7 +676,12 @@ export async function indicarMetodoPago(
   o: Orden,
   metodos: PagoMetodo[],
   actorEmail: string,
-  soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null; conIva?: boolean; ivaPct?: number },
+  soporte?: {
+    comprobanteTipo: 'nota_entrega' | 'factura';
+    retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null;
+    conIva?: boolean; ivaPct?: number; ivaMonto?: number;
+    conIgtf?: boolean; igtfPct?: number; igtfMonto?: number;
+  },
   /** Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería. `undefined` = no tocar;
    *  `null` = quitar la existente; string = nuevo path en el bucket `op-imagenes`. */
   imagenPath?: string | null,
@@ -713,14 +718,22 @@ export async function indicarMetodoPago(
   const pagaEnDivisa = totalDivisa > 0 && limpios.some(
     (m) => m.moneda === 'USD' || m.moneda === 'USDT' || METODOS_DIVISA.includes(m.metodo),
   );
-  // OC por factura con IVA: se suma el % indicado al total (16 por defecto, editable).
-  // Sin IVA: no agrega nada.
+  const baseTotal = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
+  // OC por factura con IVA: suma al total. El % es de referencia (16 por defecto) y el
+  // MONTO manda (se puede indicar por % o a mano), tal cual lo calculó/ajustó la UI.
   const aplicaIva = comprobanteTipo === 'factura' && !!soporte?.conIva;
   const ivaPct = aplicaIva
     ? Math.max(0, Math.min(100, Math.round((Number(soporte?.ivaPct ?? 16) || 0) * 100) / 100))
     : 0;
-  const baseTotal = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
-  const ivaMonto = aplicaIva ? Math.round(baseTotal * (ivaPct / 100) * 100) / 100 : 0;
+  const ivaMonto = aplicaIva ? Math.max(0, Math.round((Number(soporte?.ivaMonto ?? 0) || 0) * 100) / 100) : 0;
+  // IGTF (impuesto a las grandes transacciones financieras): independiente del comprobante
+  // (aplica al pagar en divisa). También por % (3 sugerido) o monto manual; suma al total.
+  const aplicaIgtf = !!soporte?.conIgtf;
+  const igtfPct = aplicaIgtf
+    ? Math.max(0, Math.min(100, Math.round((Number(soporte?.igtfPct ?? 3) || 0) * 100) / 100))
+    : 0;
+  const igtfMonto = aplicaIgtf ? Math.max(0, Math.round((Number(soporte?.igtfMonto ?? 0) || 0) * 100) / 100) : 0;
+  const totalFinal = Math.round((baseTotal + ivaMonto + igtfMonto) * 100) / 100;
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
@@ -733,10 +746,13 @@ export async function indicarMetodoPago(
     iva_aplicado: aplicaIva,
     iva_pct: ivaPct,
     iva_monto: aplicaIva ? ivaMonto : null,
+    igtf_aplicado: aplicaIgtf,
+    igtf_pct: igtfPct,
+    igtf_monto: aplicaIgtf ? igtfMonto : null,
     pago_en_divisa: pagaEnDivisa,
-    // Al pagar en divisa, el `total` de la OC pasa a ser el monto con descuento (+IVA si aplica).
-    ...(pagaEnDivisa || aplicaIva ? { total: baseTotal + ivaMonto } : {}),
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, pago_en_divisa: pagaEnDivisa }),
+    // Al pagar en divisa o al aplicar IVA/IGTF, el `total` de la OC pasa a ser el monto final.
+    ...(pagaEnDivisa || aplicaIva || aplicaIgtf ? { total: totalFinal } : {}),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, pago_en_divisa: pagaEnDivisa }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;

@@ -1240,7 +1240,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
 }) {
   // Al CAMBIAR el método (OC ya "Confirmada pagar") precargamos el/los método(s) ya
   // indicados; si es la primera vez, arranca con un método por defecto.
@@ -1262,10 +1262,18 @@ function MetodoPagoModal({
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>(orden.comprobante_tipo ?? 'nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>(orden.retencion_modo ?? 'se_paga_despues');
-  // OC por factura: con IVA (suma el % al total) o sin IVA (no agrega nada).
-  // El % arranca en 16 (general) pero es EDITABLE: hay facturas con otra alícuota.
+  // OC por factura: con IVA (suma al total) o sin IVA. El % arranca en 16 (general) pero
+  // es EDITABLE, y el MONTO también se puede poner a mano (se sincronizan entre sí).
   const [conIva, setConIva] = useState(!!orden.iva_aplicado);
   const [ivaPct, setIvaPct] = useState(String(Number(orden.iva_pct) > 0 ? orden.iva_pct : 16));
+  const [ivaMontoStr, setIvaMontoStr] = useState(Number(orden.iva_monto) > 0 ? String(orden.iva_monto) : '');
+  const ivaManualRef = useRef<boolean>(Number(orden.iva_monto) > 0);
+  // IGTF (impuesto a las grandes transacciones financieras): independiente del comprobante.
+  // Por % (3 sugerido) o monto manual (se sincronizan). Suma al total.
+  const [conIgtf, setConIgtf] = useState(!!orden.igtf_aplicado);
+  const [igtfPct, setIgtfPct] = useState(String(Number(orden.igtf_pct) > 0 ? orden.igtf_pct : 3));
+  const [igtfMontoStr, setIgtfMontoStr] = useState(Number(orden.igtf_monto) > 0 ? String(orden.igtf_monto) : '');
+  const igtfManualRef = useRef<boolean>(Number(orden.igtf_monto) > 0);
   // Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería para escanear y pagar.
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPath, setQrPath] = useState<string | null>(orden.metodo_pago_imagen_path ?? null);
@@ -1276,8 +1284,38 @@ function MetodoPagoModal({
     setQrPreview(null);
   }, [qrFile, qrPath]);
   const baseTotal = orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null ? orden.recibido_total : orden.total;
+  const baseNum = Number(baseTotal) || 0;
+  // IVA: % ↔ monto sincronizados. Con % cargado, el monto se recalcula sobre la base
+  // (a menos que el usuario lo haya escrito a mano); el % pasa a ser referencia.
   const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
-  const ivaMonto = Math.round(Number(baseTotal) * (ivaPctNum / 100) * 100) / 100;
+  useEffect(() => {
+    if (ivaManualRef.current) return;
+    const p = Number(ivaPct) || 0;
+    setIvaMontoStr(p > 0 && baseNum > 0 ? String(Math.round(baseNum * (p / 100) * 100) / 100) : '');
+  }, [ivaPct, baseNum]);
+  const ivaMonto = conIva ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
+  function onIvaPct(v: string) { ivaManualRef.current = false; setConIva(true); setIvaPct(v); }
+  function onIvaMonto(v: string) {
+    ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
+    const m = Number(v) || 0;
+    setIvaPct(m > 0 && baseNum > 0 ? String(Math.round((m / baseNum) * 10000) / 100) : '0');
+  }
+  // IGTF: se calcula sobre la base + IVA (lo que realmente se paga). % ↔ monto sincronizados.
+  const baseIgtf = Math.round((baseNum + ivaMonto) * 100) / 100;
+  const igtfPctNum = Math.max(0, Math.min(100, Math.round((Number(igtfPct) || 0) * 100) / 100));
+  useEffect(() => {
+    if (igtfManualRef.current) return;
+    const p = Number(igtfPct) || 0;
+    setIgtfMontoStr(p > 0 && baseIgtf > 0 ? String(Math.round(baseIgtf * (p / 100) * 100) / 100) : '');
+  }, [igtfPct, baseIgtf]);
+  const igtfMonto = conIgtf ? Math.max(0, Math.round((Number(igtfMontoStr) || 0) * 100) / 100) : 0;
+  function onIgtfPct(v: string) { igtfManualRef.current = false; setConIgtf(true); setIgtfPct(v); }
+  function onIgtfMonto(v: string) {
+    igtfManualRef.current = true; setConIgtf(true); setIgtfMontoStr(v);
+    const m = Number(v) || 0;
+    setIgtfPct(m > 0 && baseIgtf > 0 ? String(Math.round((m / baseIgtf) * 10000) / 100) : '0');
+  }
+  const totalFinal = Math.round((baseNum + ivaMonto + igtfMonto) * 100) / 100;
   // Moneda de la orden (Bs o $): los importes del método de pago se muestran en ella.
   const monedaOrden = orden.total_moneda ?? 'USD';
   const simboloMoneda = monedaOrden === 'Bs' ? 'Bs' : '$';
@@ -1313,7 +1351,7 @@ function MetodoPagoModal({
     // se exige método de pago (se indicará tras la nueva aprobación).
     if (cambioProveedor) {
       setSaving(true);
-      try { await onSent([], { comprobanteTipo, retencionModo: null, conIva: false }, proveedorSel); }
+      try { await onSent([], { comprobanteTipo, retencionModo: null, conIva: false, conIgtf: false }, proveedorSel); }
       catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cambiar el proveedor'); setSaving(false); }
       return;
     }
@@ -1340,7 +1378,14 @@ function MetodoPagoModal({
     } else if (!qrPath && orden.metodo_pago_imagen_path) {
       imagenPath = null;
     }
-    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, conIva: comprobanteTipo === 'factura' && conIva, ivaPct: ivaPctNum }, null, imagenPath); }
+    try {
+      await onSent(validos, {
+        comprobanteTipo,
+        retencionModo: comprobanteTipo === 'factura' ? retencionModo : null,
+        conIva: comprobanteTipo === 'factura' && conIva, ivaPct: ivaPctNum, ivaMonto,
+        conIgtf, igtfPct: igtfPctNum, igtfMonto,
+      }, null, imagenPath);
+    }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -1428,14 +1473,19 @@ function MetodoPagoModal({
                 <input type="radio" name="iva" checked={conIva} onChange={() => setConIva(true)} />
                 <span style={{ fontSize: '.86rem', display: 'inline-flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
                   <strong>Con IVA</strong>
-                  {/* El % es editable: 16 es el general, pero hay facturas con otra alícuota. */}
+                  {/* Se puede indicar por % (16 general, editable) o escribir el MONTO a mano. */}
                   <input className="input mono" type="number" min={0} max={100} step="any" value={ivaPct}
-                    onChange={(e) => { setConIva(true); setIvaPct(e.target.value); }}
-                    onClick={(e) => e.preventDefault()}
-                    title="Porcentaje de IVA de la factura (editable)"
-                    style={{ width: 62, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+                    onChange={(e) => onIvaPct(e.target.value)} onClick={(e) => e.stopPropagation()}
+                    title="Porcentaje de IVA (editable)"
+                    style={{ width: 58, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
                   <span>%</span>
-                  <span>· +{mm(ivaMonto)} = {mm(Number(baseTotal) + ivaMonto)}</span>
+                  <span className="muted">o</span>
+                  <input className="input mono" type="number" min={0} step="any" value={ivaMontoStr}
+                    onChange={(e) => onIvaMonto(e.target.value)} onClick={(e) => e.stopPropagation()}
+                    title="Monto del IVA (editable a mano)" placeholder="0,00"
+                    style={{ width: 92, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+                  <span>{simboloMoneda}</span>
+                  <span>= {mm(Number(baseTotal) + ivaMonto)}</span>
                 </span>
               </label>
             </div>
@@ -1455,6 +1505,48 @@ function MetodoPagoModal({
                 Se paga completo y luego se reembolsa
               </label>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* IGTF: impuesto a las grandes transacciones financieras (aplica al pagar en divisa).
+          Independiente del comprobante. Por % (3 sugerido) o monto manual; suma al total. */}
+      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
+        <div className="card-title" style={{ marginBottom: '.45rem' }}>IGTF <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>(impuesto a las grandes transacciones financieras)</span></div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.5rem' }}>
+          <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: !conIgtf ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+            <input type="radio" name="igtf" checked={!conIgtf} onChange={() => setConIgtf(false)} />
+            <span style={{ fontSize: '.86rem' }}><strong>Sin IGTF</strong></span>
+          </label>
+          <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: conIgtf ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+            <input type="radio" name="igtf" checked={conIgtf} onChange={() => setConIgtf(true)} />
+            <span style={{ fontSize: '.86rem', display: 'inline-flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+              <strong>Con IGTF</strong>
+              {/* Por % (3 sugerido, editable) o monto manual. */}
+              <input className="input mono" type="number" min={0} max={100} step="any" value={igtfPct}
+                onChange={(e) => onIgtfPct(e.target.value)} onClick={(e) => e.stopPropagation()}
+                title="Porcentaje de IGTF (3% general, editable)"
+                style={{ width: 58, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+              <span>%</span>
+              <span className="muted">o</span>
+              <input className="input mono" type="number" min={0} step="any" value={igtfMontoStr}
+                onChange={(e) => onIgtfMonto(e.target.value)} onClick={(e) => e.stopPropagation()}
+                title="Monto del IGTF (editable a mano)" placeholder="0,00"
+                style={{ width: 92, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+              <span>{simboloMoneda}</span>
+              <span>= +{mm(igtfMonto)}</span>
+            </span>
+          </label>
+        </div>
+        {conIgtf && (
+          <div className="muted" style={{ fontSize: '.74rem', marginTop: '.45rem' }}>
+            Se calcula sobre {mm(baseIgtf)} (total{ivaMonto > 0 ? ' + IVA' : ''}). Podés ajustar el monto a mano.
+          </div>
+        )}
+        {(conIva || conIgtf) && (
+          <div style={{ marginTop: '.55rem', paddingTop: '.5rem', borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '.5rem', fontSize: '.9rem' }}>
+            <span className="muted">Total a pagar:</span>
+            <strong className="mono">{mm(totalFinal)}</strong>
           </div>
         )}
       </div>
@@ -2412,6 +2504,12 @@ function OrdenDetailModal({
               ? <>Con IVA ({Number(o.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%) · <span className="mono">{money(Number(o.iva_monto ?? 0))}</span> <span className="muted">incluido en el total</span></>
               : <span className="muted">Sin IVA</span>}
           </div>
+        </div>
+      )}
+      {o.igtf_aplicado && (
+        <div className="detail-row">
+          <div className="k">IGTF</div>
+          <div className="v">Con IGTF ({Number(o.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%) · <span className="mono">{money(Number(o.igtf_monto ?? 0))}</span> <span className="muted">incluido en el total</span></div>
         </div>
       )}
       {o.abonado_total != null && o.abonado_total > 0 && (

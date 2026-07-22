@@ -1079,6 +1079,11 @@ export interface Orden {
   /** % de IVA aplicado a la OC (16 por defecto, editable al confirmar el método de pago). */
   iva_pct?: number | null;
   iva_monto?: number | null;
+  /** IGTF (impuesto a las grandes transacciones financieras) al indicar el método de pago:
+   *  por % (3 sugerido) o monto manual. Suma al total. */
+  igtf_aplicado?: boolean | null;
+  igtf_pct?: number | null;
+  igtf_monto?: number | null;
   historial: EventoHistorial[];
   aprobada_por?: string | null;
   aprobada_en?: string | null;
