@@ -274,18 +274,26 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
   // OC por factura con IVA: desglose con el % que se aplicó (16 por defecto, editable).
+  const iva = orden.iva_aplicado ? Number(orden.iva_monto ?? 0) : 0;
+  const igtf = orden.igtf_aplicado ? Number(orden.igtf_monto ?? 0) : 0;
   if (orden.comprobante_tipo === 'factura') {
     cond.push(['Tipo de soporte', 'Factura']);
     if (orden.iva_aplicado) {
-      const iva = Number(orden.iva_monto ?? 0);
-      const base = Number(orden.total) - iva;
+      const base = Number(orden.total) - iva - igtf;
       const pct = Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 });
       cond.push(['Base imponible', money(base)]);
       cond.push([`IVA (${pct}%)`, money(iva)]);
-      cond.push(['Total con IVA', money(Number(orden.total))]);
     } else {
       cond.push(['IVA', 'Sin IVA']);
     }
+  }
+  // IGTF (independiente del comprobante): se muestra si se aplicó.
+  if (orden.igtf_aplicado) {
+    const pct = Number(orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 });
+    cond.push([`IGTF (${pct}%)`, money(igtf)]);
+  }
+  if (orden.iva_aplicado || orden.igtf_aplicado) {
+    cond.push(['Total con impuestos', money(Number(orden.total))]);
   }
   // Precio en divisa/efectivo de la oferta aceptada (con diferencia y % vs BCV).
   if (ofertaAceptada?.precio_divisa != null) {

@@ -314,6 +314,9 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
           ['IVA', orden.iva_aplicado ? `Con IVA (${Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%) · ${money(Number(orden.iva_monto ?? 0))}` : 'Sin IVA'],
         ] as Array<[string, string]>)
       : []),
+    ...(orden.igtf_aplicado
+      ? ([['IGTF', `Con IGTF (${Number(orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%) · ${money(Number(orden.igtf_monto ?? 0))}`]] as Array<[string, string]>)
+      : []),
     ['Almacén destino', orden.almacen_destino ?? '—'],
     ['Fecha de aprobación', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
     ['Aprobada por', orden.aprobada_por ?? '—'],
