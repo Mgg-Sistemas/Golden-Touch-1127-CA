@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ConfirmDialog } from '@/shared/ui/Modal';
-import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num, dateTime } from '@/shared/lib/format';
@@ -254,39 +253,51 @@ function KpiCard({ titulo, valor, nota, destacado }: { titulo: string; valor: st
 }
 
 /* ───────────── Añadir movimiento (consumo de víveres) ───────────── */
-interface FilaUI { uid: string; productoId: string; cantidad: string; }
-let _seq = 0;
-const nuevaFila = (): FilaUI => ({ uid: `cf-${++_seq}`, productoId: '', cantidad: '1' });
-
 function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
   viveres: Producto[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const [tipo, setTipo] = useState<TipoComida>('almuerzo');
   const [platos, setPlatos] = useState('');
   const [nota, setNota] = useState('');
-  const [filas, setFilas] = useState<FilaUI[]>([nuevaFila()]);
+  // Selección tipo CHECK: producto_id → cantidad (texto). Marcar el check lo agrega
+  // con cantidad 1; desmarcar lo quita. Se pueden elegir varios de un vistazo.
+  const [sel, setSel] = useState<Record<string, string>>({});
+  const [busqueda, setBusqueda] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const prodMap = useMemo(() => new Map(viveres.map((p) => [p.id, p])), [viveres]);
 
-  function setFila(uid: string, patch: Partial<FilaUI>) { setFilas((fs) => fs.map((f) => (f.uid === uid ? { ...f, ...patch } : f))); }
-  function addFila() { setFilas((fs) => [...fs, nuevaFila()]); }
-  function removeFila(uid: string) { setFilas((fs) => (fs.length <= 1 ? fs : fs.filter((f) => f.uid !== uid))); }
+  function toggle(pid: string) {
+    setSel((s) => {
+      if (pid in s) { const { [pid]: _drop, ...rest } = s; return rest; }
+      return { ...s, [pid]: '1' };
+    });
+  }
+  function setCant(pid: string, v: string) { setSel((s) => ({ ...s, [pid]: v })); }
 
-  const lineas = filas.map((f) => {
-    const p = prodMap.get(f.productoId) ?? null;
-    const cant = Number(f.cantidad) || 0;
+  // Filtrado de la lista por texto (nombre / SKU), sin acentos ni mayúsculas.
+  const viveresFiltrados = useMemo(() => {
+    const q = norm(busqueda).trim();
+    if (!q) return viveres;
+    return viveres.filter((p) => norm(`${p.nombre} ${p.sku}`).includes(q));
+  }, [viveres, busqueda]);
+
+  // Líneas seleccionadas (para el resumen/validación/submit).
+  const lineas = useMemo(() => Object.entries(sel).map(([pid, cantStr]) => {
+    const p = prodMap.get(pid) ?? null;
+    const cant = Number(cantStr) || 0;
     const precio = Number(p?.precio) || 0;
-    return { f, p, cant, precio, subtotal: cant * precio, excede: !!p && cant > Number(p.stock) };
-  });
+    return { pid, p, cant, precio, subtotal: cant * precio, excede: !!p && cant > Number(p.stock) };
+  }), [sel, prodMap]);
   const total = lineas.reduce((a, l) => a + l.subtotal, 0);
+  const nSeleccionados = lineas.length;
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     const items: CocinaItem[] = lineas.filter((l) => l.p && l.cant > 0).map((l) => ({
       producto_id: l.p!.id, sku: l.p!.sku, nombre: l.p!.nombre, cantidad: l.cant, precio: l.precio, almacen: l.p!.almacen ?? null,
     }));
-    if (!items.length) { setError('Agregá al menos un víver con cantidad.'); return; }
+    if (!items.length) { setError('Marcá al menos un víver con cantidad mayor a 0.'); return; }
     const exc = lineas.find((l) => l.excede);
     if (exc) { setError(`No hay stock suficiente de ${exc.p?.nombre} (disponible ${num(Number(exc.p?.stock))}).`); return; }
     const nPlatos = Number(platos) || 0;
@@ -335,39 +346,50 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
           </div>
         </div>
 
-        {/* Víveres consumidos (solo categoría Víveres del inventario) */}
+        {/* Víveres consumidos: checklist de TODOS los víveres del inventario (cualquier almacén) */}
         <div className="form-row">
-          <label>Víveres consumidos <span className="muted">(solo productos de la categoría Víveres)</span></label>
-          <div className="table-wrap">
-            <table className="table" style={{ fontSize: '.84rem' }}>
-              <thead><tr><th>Producto</th><th style={{ textAlign: 'right' }}>Stock</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Precio</th><th style={{ textAlign: 'right' }}>Subtotal</th><th></th></tr></thead>
-              <tbody>
-                {filas.map((f) => {
-                  const l = lineas.find((x) => x.f.uid === f.uid)!;
-                  return (
-                    <tr key={f.uid}>
-                      <td style={{ minWidth: 220 }}>
-                        <SearchSelect value={f.productoId} onChange={(v) => setFila(f.uid, { productoId: v })}
-                          placeholder={viveres.length ? '🔍 Buscar víver…' : '— sin víveres —'}
-                          options={viveres.map((p) => ({ value: p.id, label: `${p.nombre} (${p.sku})` }))} />
-                      </td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{l.p ? `${num(Number(l.p.stock))} ${l.p.unidad ?? ''}` : '—'}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <input className="input mono" type="number" min={0} step="any" value={f.cantidad} onChange={(e) => setFila(f.uid, { cantidad: e.target.value })}
-                          style={{ width: 90, textAlign: 'right', borderColor: l.excede ? 'var(--danger)' : undefined }} />
-                      </td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{l.p ? money(l.precio) : '—'}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{money(l.subtotal)}</td>
-                      <td style={{ textAlign: 'right' }}>{filas.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeFila(f.uid)} title="Quitar">✕</button>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot><tr><td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL</td><td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(total)}</td><td></td></tr></tfoot>
-            </table>
+          <label>Víveres consumidos <span className="muted">(marcá los que se usaron · todos los víveres del inventario, sin importar el almacén)</span></label>
+          <input className="input" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+            placeholder={viveres.length ? '🔍 Buscar víver por nombre o SKU…' : '— sin víveres en el inventario —'}
+            style={{ marginBottom: '.5rem' }} disabled={!viveres.length} />
+          <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+            {viveresFiltrados.length === 0 ? (
+              <div className="muted" style={{ padding: '.7rem' }}>{viveres.length ? 'Sin coincidencias con la búsqueda.' : 'No hay productos de la categoría Víveres en el inventario.'}</div>
+            ) : viveresFiltrados.map((p) => {
+              const marcado = p.id in sel;
+              const cant = Number(sel[p.id]) || 0;
+              const excede = marcado && cant > Number(p.stock);
+              return (
+                <div key={p.id} style={{
+                  display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5rem', alignItems: 'center',
+                  padding: '.45rem .6rem', borderBottom: '1px solid var(--border)',
+                  background: marcado ? 'var(--primary-soft, rgba(255,138,0,.10))' : 'transparent',
+                }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '.55rem', cursor: 'pointer', minWidth: 0 }}>
+                    <input type="checkbox" checked={marcado} onChange={() => toggle(p.id)} style={{ flex: '0 0 auto' }} />
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ fontWeight: 600 }}>{p.nombre}</span> <span className="muted" style={{ fontSize: '.78rem' }}>({p.sku})</span>
+                      <span className="muted" style={{ display: 'block', fontSize: '.74rem' }}>
+                        📦 {num(Number(p.stock))} {p.unidad ?? ''} · {money(Number(p.precio) || 0)} · {p.almacen || 'sin almacén'}
+                      </span>
+                    </span>
+                  </label>
+                  {marcado && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flex: '0 0 auto' }}>
+                      <input className="input mono" type="number" min={0} step="any" value={sel[p.id]} autoFocus
+                        onChange={(e) => setCant(p.id, e.target.value)}
+                        style={{ width: 84, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
+                      <span className="muted" style={{ fontSize: '.74rem', minWidth: 54, textAlign: 'right' }}>{money(cant * (Number(p.precio) || 0))}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={addFila} disabled={!viveres.length}>＋ Agregar víver</button>
-          <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>Los precios salen del inventario (PMP). Al registrar, cada víver se <strong>descuenta del stock</strong>.</small>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+            <small className="muted">Los precios salen del inventario (PMP). Al registrar, cada víver se <strong>descuenta del stock</strong>.</small>
+            <span style={{ fontWeight: 700 }}>{nSeleccionados} seleccionado{nSeleccionados === 1 ? '' : 's'} · TOTAL {money(total)}</span>
+          </div>
         </div>
       </form>
     </Modal>
