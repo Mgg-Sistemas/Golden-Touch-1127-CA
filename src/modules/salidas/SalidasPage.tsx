@@ -637,7 +637,7 @@ function SolicitudesKanban({ sols, onVer, nombreDe }: {
               <strong style={{ fontSize: '.82rem' }}>{col.label}</strong>
               <span className={`badge ${SOL_ESTADO_CLASS[col.key]}`}>{items.length}</span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', maxHeight: '62vh', overflowY: 'auto', paddingRight: items.length > 3 ? '.2rem' : 0 }}>
               {items.map((s) => (
                 <button key={s.id} className="card" onClick={() => onVer(s)}
                   style={{ margin: 0, padding: '.55rem .65rem', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)' }}>
