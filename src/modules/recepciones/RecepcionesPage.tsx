@@ -827,7 +827,7 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
   useEffect(() => { void cargar(); }, [cargar]);
 
   async function agregar() {
-    if (!nombre.trim()) { toast('Indicá el nombre del mineral.', 'error'); return; }
+    if (!nombre.trim()) { toast('Indicá el nombre (mineral, letra o número).', 'error'); return; }
     setSaving(true);
     try {
       await addMineral({ nombre, subtitulo, columnas, n_lecturas: nLect, color });
@@ -859,11 +859,12 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
     <Modal title="⚙ Configurar minerales" size="xl" onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <div className="card-title" style={{ marginBottom: '.5rem' }}><span>Nuevo mineral</span></div>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}><span>Nuevo mineral / columna</span></div>
         <div className="form-grid">
           <div className="form-row">
             <label>Nombre</label>
-            <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Cu (Cobre)" />
+            <input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Cu (Cobre), A, 1…" />
+            <small className="muted">No hace falta que sea un mineral: puede ser una letra o un número.</small>
           </div>
           <div className="form-row">
             <label>Subtítulo (opcional)</label>
