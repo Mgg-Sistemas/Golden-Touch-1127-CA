@@ -37,3 +37,4 @@ guia-caja-peramanal.html
 # Supabase CLI (estado local)
 supabase/.temp/
 supabase/.branches/
+.playwright-mcp/

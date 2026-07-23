@@ -258,7 +258,7 @@ async function claveUnica(nombre: string): Promise<string> {
 
 export async function addMineral(input: { nombre: string; subtitulo?: string | null; columnas: 'abc' | 'prom'; n_lecturas?: number | null; color?: string | null }): Promise<MineralLab> {
   const nombre = input.nombre.trim();
-  if (!nombre) throw new Error('Indicá el nombre del mineral.');
+  if (!nombre) throw new Error('Indicá el nombre (mineral, letra o número).');
   const clave = await claveUnica(nombre);
   const { data: max } = await supabase.from(TABLE_MIN).select('orden').order('orden', { ascending: false }).limit(1).maybeSingle();
   const orden = (num((max as { orden?: number } | null)?.orden) || 0) + 1;
