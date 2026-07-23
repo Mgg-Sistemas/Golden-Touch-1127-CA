@@ -323,6 +323,9 @@ export interface TanqueCombustible {
   /** Saldo de APERTURA (litros con que se creó el tanque). No es un movimiento, pero
    *  el saldo corrido del libro arranca de aquí para que la última fila iguale el header. */
   saldo_inicial_litros?: number | null;
+  /** Valor $ de APERTURA (fijo). Base del saldo corrido para derivar el PMP del tanque. */
+  saldo_inicial_usd?: number | null;
+  /** Tasa $/L del tanque: es el PROMEDIO PONDERADO (PMP) = saldo_usd / saldo_litros. */
   tasa_usd_litro: number;
   ubicacion?: string | null;
   estado: 'activo' | 'inactivo';

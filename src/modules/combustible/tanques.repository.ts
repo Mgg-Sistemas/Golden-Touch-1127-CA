@@ -196,8 +196,10 @@ export async function crearTanque(input: TanqueInput & { actor: string }): Promi
       capacidad_calculada_litros: capacidadCalculada(geom) || null,
       saldo_litros: saldoLitros,
       saldo_usd: round(saldoLitros * tasa, 2),
-      // Saldo de apertura: el libro arranca su saldo corrido desde aquí.
+      // Saldo de apertura: el libro arranca su saldo corrido desde aquí (litros y valor $
+      // FIJOS). El valor de apertura es la base del PMP.
       saldo_inicial_litros: saldoLitros,
+      saldo_inicial_usd: round(saldoLitros * tasa, 2),
       tasa_usd_litro: tasa,
       ubicacion: input.ubicacion?.trim() || null,
       created_by: input.actor,
@@ -226,7 +228,10 @@ export async function actualizarTanque(id: string, input: TanqueInput): Promise<
     ubicacion: input.ubicacion?.trim() || null,
     updated_at: new Date().toISOString(),
   };
-  // Tasa USD/L editable: si viene, la guardamos y recalculamos el saldo en $ (saldo L × tasa).
+  // Tasa USD/L editable: OVERRIDE MANUAL. Normalmente la tasa es el PMP (se deriva sola de
+  // las compras), pero editar la tasa del tanque permite "aplanar" todo a un valor puntual
+  // (corrección). Al hacerlo, se re-valoriza el saldo y la APERTURA a esa tasa, y todos los
+  // movimientos, para que el PMP resultante coincida con lo indicado.
   const cambiaTasa = input.tasaUsdLitro != null;
   let tasaNueva = 0;
   if (cambiaTasa) {
@@ -234,11 +239,13 @@ export async function actualizarTanque(id: string, input: TanqueInput): Promise<
     const actual = await getTanque(id);
     patch.tasa_usd_litro = tasaNueva;
     patch.saldo_usd = round((Number(actual.saldo_litros) || 0) * tasaNueva, 2);
+    // El valor de apertura (base del PMP) se re-fija a la nueva tasa, así el saldo corrido
+    // del libro deriva exactamente esta tasa.
+    patch.saldo_inicial_usd = round((Number(actual.saldo_inicial_litros) || 0) * tasaNueva, 2);
   }
   const { error } = await supabase.from('combustible_tanques').update(patch).eq('id', id);
   if (error) throw error;
-  // TASA FIJA: editar la tasa del tanque es el ÚNICO punto donde cambia. Al hacerlo, se
-  // re-valorizan TODOS los movimientos del tanque a la nueva tasa (el monto $ es columna
+  // Re-valoriza TODOS los movimientos del tanque a la nueva tasa (el monto $ es columna
   // generada = litros × tasa), así "todo queda a esa tasa", no solo el saldo de cabecera.
   if (cambiaTasa) {
     const { error: e2 } = await supabase.from('combustible_tanque_movimientos')
@@ -338,11 +345,15 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   // creó, que no son un movimiento). Así la última fila iguala el saldo del header.
   const [{ data, error }, { data: tk }] = await Promise.all([
     supabase.from('combustible_tanque_movimientos').select('*').eq('tanque_id', tanqueId),
-    supabase.from('combustible_tanques').select('saldo_inicial_litros, tasa_usd_litro').eq('id', tanqueId).maybeSingle(),
+    supabase.from('combustible_tanques').select('saldo_inicial_litros, saldo_inicial_usd, tasa_usd_litro').eq('id', tanqueId).maybeSingle(),
   ]);
   if (error) throw error;
   const aperturaL = num((tk as { saldo_inicial_litros?: number | null } | null)?.saldo_inicial_litros);
   const tasaTk = num((tk as { tasa_usd_litro?: number | null } | null)?.tasa_usd_litro);
+  // Valor $ de apertura FIJO (no se re-valoriza con la tasa vigente): es la base del PMP.
+  // Compatibilidad: si el tanque aún no tiene saldo_inicial_usd, cae a litros × tasa.
+  const aperturaURaw = (tk as { saldo_inicial_usd?: number | null } | null)?.saldo_inicial_usd;
+  const aperturaU = aperturaURaw != null ? num(aperturaURaw) : round(aperturaL * tasaTk, 2);
   // Orden cronológico real por fecha + hora (+ created_at de desempate) para el saldo corrido.
   const rows = ((data ?? []) as MovimientoTanque[]).slice().sort((a, b) => {
     const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
@@ -353,7 +364,7 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   });
   // Saldos corridos (litros y USD), como en el Excel, partiendo de la apertura.
   let saldoL = aperturaL;
-  let saldoU = round(aperturaL * tasaTk, 2);
+  let saldoU = aperturaU;
   return rows.map((m) => {
     if (m.tipo === 'entrada' || m.tipo === 'retorno') { saldoL += num(m.litros); saldoU += num(m.monto_usd); }
     else { saldoL -= num(m.litros); saldoU -= num(m.monto_usd); }
@@ -399,7 +410,8 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
   };
 }
 
-/** ENTRADA: entra combustible al tanque a un costo; recalcula la tasa PMP. */
+/** ENTRADA (compra): entra combustible al tanque A SU COSTO y RE-PROMEDIA la tasa del
+ *  tanque (PMP = promedio ponderado por litros entre lo que venía y esta compra). */
 export async function registrarEntrada(input: {
   tanqueId: string;
   litros: number;
@@ -413,19 +425,18 @@ export async function registrarEntrada(input: {
   const costo = Math.max(0, num(input.costoLitro));
   const t = await getTanque(input.tanqueId);
 
-  // TASA FIJA: la tasa del tanque NO varía sola (sin promedio ponderado). La entrada se
-  // valoriza a la tasa vigente del tanque; solo cambia cuando se edita la tasa del tanque (✎).
-  // La PRIMERA entrada de un tanque sin tasa fija el valor con el costo informado.
-  const tasa = num(t.tasa_usd_litro) > 0 ? num(t.tasa_usd_litro) : costo;
+  // PMP: la entrada se valoriza a SU costo de compra (no a la tasa vieja). El nuevo valor
+  // y litros del tanque dan la tasa promedio ponderada: tasa = (valor + litros×costo) / (litros).
   const saldoL = num(t.saldo_litros) + litros;
-  const saldoU = num(t.saldo_usd) + litros * tasa;
+  const saldoU = num(t.saldo_usd) + litros * costo;
+  const tasa = saldoL > 0 ? saldoU / saldoL : costo;
 
   await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'entrada',
     litros,
-    tasa_usd_litro: round(tasa, 4),
+    tasa_usd_litro: round(costo, 4),
     created_by: input.actor,
     actor_name: input.actorName ?? null,
   });
@@ -660,15 +671,45 @@ async function revertirSaldoMovimiento(mov: { tanque_id: string; tipo: string; l
  *  movimientos en orden cronológico (fecha + hora). El saldo del último movimiento es
  *  el saldo vigente del tanque. Se usa tras editar un movimiento que afecta el balance. */
 export async function recomputarTanque(tanqueId: string): Promise<void> {
-  // TASA FIJA: se conserva la tasa vigente del tanque (no se promedia) y el saldo $ se
-  // re-valoriza a esa tasa (saldo L × tasa). Así editar/borrar un movimiento nunca mueve la tasa.
+  // PMP (promedio ponderado móvil): se re-arma el saldo recorriendo los movimientos en
+  // orden cronológico. Cada COMPRA (entrada) entra a SU costo y re-promedia la tasa; cada
+  // CONSUMO (uso/merma/traslado) sale al PROMEDIO VIGENTE (no baja ni sube el promedio) y
+  // se RE-VALORIZA su tasa a ese promedio para que el libro quede consistente. Así, editar
+  // la tasa de una compra o agregar una nueva promedia entre lo que venía y lo nuevo,
+  // ponderado por litros — y el resultado queda entre ambas tasas.
   const t = await getTanque(tanqueId);
-  const tasa = num(t.tasa_usd_litro);
-  const movs = await listMovimientosTanque(tanqueId); // ya ordenado por fecha+hora, con saldo corrido
-  const last = movs.length ? movs[movs.length - 1] : null;
-  // El saldo corrido ya incluye la apertura. Sin movimientos, el saldo es la pura apertura.
-  const saldoL = last ? num(last.saldo_litros) : num(t.saldo_inicial_litros);
-  await aplicarSaldoTanque(tanqueId, round(saldoL, 2), round(saldoL * tasa, 2), tasa);
+  const movs = await listMovimientosTanque(tanqueId); // ya en orden cronológico (fecha + hora)
+  let saldoL = num(t.saldo_inicial_litros);
+  let saldoU = num(t.saldo_inicial_usd);
+  const reescribir: Array<{ id: string; tasa: number }> = [];
+  for (const m of movs) {
+    const litros = num(m.litros);
+    const pmp = saldoL > 0 ? saldoU / saldoL : num(m.tasa_usd_litro);
+    if (m.tipo === 'entrada') {
+      // Compra: entra a su propio costo (no se toca su tasa).
+      saldoL += litros;
+      saldoU += litros * num(m.tasa_usd_litro);
+    } else if (m.tipo === 'retorno') {
+      // Retorno: vuelve al saldo al promedio vigente.
+      saldoL += litros;
+      saldoU += litros * pmp;
+      if (round(pmp, 4) !== round(num(m.tasa_usd_litro), 4)) reescribir.push({ id: m.id, tasa: round(pmp, 4) });
+    } else {
+      // Consumo (uso / merma / traslado): sale al promedio vigente.
+      saldoL -= litros;
+      saldoU -= litros * pmp;
+      if (round(pmp, 4) !== round(num(m.tasa_usd_litro), 4)) reescribir.push({ id: m.id, tasa: round(pmp, 4) });
+    }
+  }
+  // Re-valoriza en el libro los consumos/retornos cuya tasa cambió (el monto $ es columna
+  // generada = litros × tasa), así el saldo corrido de la tabla coincide con el header.
+  for (const r of reescribir) {
+    await supabase.from('combustible_tanque_movimientos')
+      .update({ tasa_usd_litro: r.tasa, updated_at: new Date().toISOString() }).eq('id', r.id);
+  }
+  // PMP final = valor / litros. Sin litros (tanque vacío) se conserva la última tasa.
+  const tasa = saldoL > 0 ? saldoU / saldoL : num(t.tasa_usd_litro);
+  await aplicarSaldoTanque(tanqueId, round(saldoL, 2), round(saldoU, 2), tasa);
 }
 
 /** Fila mínima para re-encadenar un medidor continuo (ini→fin) en orden cronológico. */
