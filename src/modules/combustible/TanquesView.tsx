@@ -25,7 +25,7 @@ import {
   actualizarMovimientoTanque,
   crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
-  consumoUso, resumenTanquesPeriodo, esBrasileros, type ReporteTanque, type ResumenTanquePeriodo,
+  consumoUso, resumenTanquesPeriodo, esBrasileros, postearConsumoCombustibleSemana, type ReporteTanque, type ResumenTanquePeriodo,
 } from './tanques.repository';
 import { descargarMovimientosTanquePdf } from './tanquePdf';
 import { descargarMovimientosTanqueExcel } from './tanqueExcel';
@@ -143,7 +143,7 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'consumoSemanal'>('none');
   const [detalle, setDetalle] = useState<MovimientoTanque | null>(null);
   const [aBorrar, setABorrar] = useState<MovimientoTanque | null>(null);
   const [editTanque, setEditTanque] = useState<TanqueCombustible | null>(null);
@@ -213,6 +213,7 @@ export function TanquesView() {
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
+          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumoSemanal')} title="Cargar en la caja de Peramanal el consumo de GT de una semana (respaldo del automático dominical)">🗓 Consumo semanal → caja</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => { setEditTanque(null); setModal('tanque'); }}>+ Tanque</button>}
           {canWrite && <button className="btn btn-primary btn-sm" onClick={() => setModal('mov')} disabled={!tanques.length}>+ Nuevo movimiento</button>}
         </div>
@@ -279,6 +280,9 @@ export function TanquesView() {
       )}
       {modal === 'conciliacion' && (
         <ConciliacionModal tanques={tanques} actor={actor} defaultEmail={user?.email ?? ''} onClose={() => setModal('none')} />
+      )}
+      {modal === 'consumoSemanal' && (
+        <ConsumoSemanalModal onClose={() => setModal('none')} onPosted={recargarTodo} />
       )}
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />
@@ -1621,6 +1625,85 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
             ))}
           </tbody>
         </table>
+      </div>
+    </Modal>
+  );
+}
+
+/** Fecha local 'YYYY-MM-DD' (sin corrimiento por UTC). */
+function fechaLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+/** Respaldo manual del proceso automático: postea en la caja de Peramanal el consumo de
+ *  combustible de GT de una semana (lunes→domingo). Idempotente: re-generar la misma
+ *  semana reemplaza el gasto en vez de duplicarlo. */
+function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPosted: () => void | Promise<void> }) {
+  // Por defecto, la última semana completa (lunes→domingo ya cerrada).
+  const { lunes, domingo } = (() => {
+    const hoy = new Date();
+    const dom = new Date(hoy);
+    dom.setDate(hoy.getDate() - hoy.getDay()); // domingo más reciente (o hoy si es domingo)
+    const lun = new Date(dom);
+    lun.setDate(dom.getDate() - 6);
+    return { lunes: fechaLocal(lun), domingo: fechaLocal(dom) };
+  })();
+  const [desde, setDesde] = useState(lunes);
+  const [hasta, setHasta] = useState(domingo);
+  const [busy, setBusy] = useState(false);
+
+  async function generar() {
+    if (!desde || !hasta || hasta < desde) { toast('El rango de fechas no es válido.', 'error'); return; }
+    setBusy(true);
+    try {
+      const monto = await postearConsumoCombustibleSemana(desde, hasta);
+      toast(
+        monto > 0
+          ? `Consumo de combustible cargado en la caja de Peramanal: ${money(monto)}.`
+          : 'No hubo consumo de GT en esa semana (no se cargó nada).',
+        monto > 0 ? 'success' : 'info',
+      );
+      await onPosted();
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo cargar el consumo', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="🗓 Consumo semanal de combustible → caja de Peramanal"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button className="btn btn-primary" onClick={() => void generar()} disabled={busy}>
+            {busy ? 'Generando…' : 'Generar consumo'}
+          </button>
+        </>
+      }
+    >
+      <p className="muted" style={{ fontSize: '.86rem', marginTop: 0 }}>
+        Carga en la caja de Peramanal <strong>abierta</strong> el consumo de GT de la semana
+        (movimientos de tanque tipo <strong>uso</strong>, a su costo por tasa PMP) como el gasto
+        <strong> «CONSUMO COMBUSTIBLE GT»</strong>. Esto lo hace <strong>solo cada domingo</strong> de
+        forma automática; este botón es el <strong>respaldo</strong> para re-generar una semana puntual.
+        Es idempotente: re-generar la misma semana <strong>reemplaza</strong> el gasto, no lo duplica.
+      </p>
+      <div className="form-grid" style={{ marginTop: '.6rem' }}>
+        <div className="form-row">
+          <label>Desde (lunes)</label>
+          <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>Hasta (domingo)</label>
+          <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+        </div>
       </div>
     </Modal>
   );
