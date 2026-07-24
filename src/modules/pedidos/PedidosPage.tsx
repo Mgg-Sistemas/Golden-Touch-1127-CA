@@ -29,7 +29,6 @@ import {
   actualizarOrdenEditable,
   cancelarOrden,
   crearOrden,
-  getUltimaCompraMercado,
   FINALIDAD_MERCADO,
   subirImagenOrden,
   getImagenOrdenSignedUrl,
@@ -473,6 +472,16 @@ export function PedidosPage() {
               title="Solicitud de Servicio (recargas, mantenimientos…) → Control de Servicio"
             >
               🔧 Nuevo servicio
+            </button>
+          )}
+          {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && (
+            <button
+              className="btn"
+              style={{ background: 'var(--brand, #ff8a00)', color: '#111', fontWeight: 700 }}
+              onClick={() => setModal({ kind: 'create', mercado: true })}
+              title="Solicitud de MERCADO para Cocina: trae víveres y artículos de limpieza como checklist, con unidad/solicitante COCINA y marcada como URGENTE"
+            >
+              🛒 Solicitud de mercado
             </button>
           )}
           {canWrite && scope !== 'compra_directa' && scope !== 'servicio_directo' && scope !== 'oc_lote' && scope !== 'servicios' && (
@@ -2903,11 +2912,19 @@ function OpImagenAdjunta({ path }: { path: string }) {
 /* ─────────────────────────────────────────────
    Modal: Crear orden
    ───────────────────────────────────────────── */
+/** ¿La categoría es de Cocina? Víveres o Artículos de Limpieza / Higiene (sin acentos). */
+function esViveresOLimpieza(cat?: string | null): boolean {
+  let c = (cat ?? '').toLowerCase();
+  try { c = c.normalize('NFD').replace(/\p{Diacritic}/gu, ''); } catch { /* fallback sin normalizar */ }
+  return c.includes('viver') || c.includes('limpieza') || c.includes('higiene');
+}
+
 interface CrearOrdenModalProps {
   productos: Producto[];
   usuario: Usuario | null;
   authEmail: string;
-  /** Si viene true, abre con MERCADO ya activado (desde la alerta de Cocina). */
+  /** Si viene true, abre en modo MERCADO (botón «Solicitud de mercado»): precarga
+   *  víveres + limpieza como checklist, unidad/solicitante COCINA y orden URGENTE. */
   mercadoInicial?: boolean;
   onClose: () => void;
   onCreated: () => void;
@@ -2941,55 +2958,27 @@ function CrearOrdenModal({
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
   const [codigo, setCodigo] = useState<string>('…');
   const [submitting, setSubmitting] = useState(false);
-  // Prioridad: marca la OP como URGENTE. Se refleja en PDF y trazabilidad.
-  const [urgente, setUrgente] = useState(false);
+  // Prioridad: marca la OP como URGENTE. En MERCADO arranca marcada (editable).
+  const [urgente, setUrgente] = useState(!!mercadoInicial);
   // Imagen adjunta opcional (foto del repuesto/equipo solicitado).
   const [imagenFile, setImagenFile] = useState<File | null>(null);
 
-  // MERCADO: pedido para restablecer el mercado (reposición de víveres). Al
-  // activarlo trae la ÚLTIMA compra de mercado para re-seleccionar qué comprar,
-  // y fija la finalidad general "PEDIDO PARA RESTABLECER EL MERCADO".
-  const [mercado, setMercado] = useState(false);
-  const [ultimaMercado, setUltimaMercado] = useState<Orden | null>(null);
-  const [mercadoLoading, setMercadoLoading] = useState(false);
-  const [mercadoSel, setMercadoSel] = useState<Set<string>>(new Set());
+  // MERCADO: solicitud para restablecer el mercado de Cocina. Se activa SOLO desde el
+  // botón «Solicitud de mercado» (mercadoInicial): trae TODOS los productos de categoría
+  // Víveres y Artículos de Limpieza / Higiene como checklist con cantidad editable. La
+  // unidad y el solicitante quedan en COCINA (editables) y la orden se marca URGENTE.
+  const [mercado] = useState(!!mercadoInicial);
   const mercadoCargado = useRef(false);
-
-  async function toggleMercado(on: boolean) {
-    setMercado(on);
-    if (on && !mercadoCargado.current) {
-      mercadoCargado.current = true;
-      setMercadoLoading(true);
-      try {
-        const u = await getUltimaCompraMercado();
-        setUltimaMercado(u);
-        setMercadoSel(new Set((u?.items ?? []).map((i) => i.sku))); // todos pre-marcados (por SKU)
-      } catch { setUltimaMercado(null); }
-      finally { setMercadoLoading(false); }
-    }
-  }
-  // Si se abre desde la alerta de Cocina, activamos MERCADO de una vez.
-  useEffect(() => { if (mercadoInicial) void toggleMercado(true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-
-  function toggleMercadoSel(sku: string) {
-    setMercadoSel((s) => { const n = new Set(s); if (n.has(sku)) n.delete(sku); else n.add(sku); return n; });
-  }
-  // Añade a la solicitud los productos marcados de la última compra (sin duplicar, por SKU).
-  function agregarMercadoSeleccionados() {
-    const elegidos = (ultimaMercado?.items ?? []).filter((i) => mercadoSel.has(i.sku));
-    if (!elegidos.length) { toast('Seleccioná al menos un producto de la última compra', 'error'); return; }
-    let añadidos = 0;
-    setItems((prev) => {
-      const next = [...prev];
-      for (const it of elegidos) {
-        if (next.some((x) => x.sku === it.sku)) continue;
-        next.push({ productoId: it.productoId, sku: it.sku, nombre: it.nombre, cantidad: it.cantidad || 1, precio: 0, unidad: it.unidad, comprar: true, finalidad: FINALIDAD_MERCADO });
-        añadidos++;
-      }
-      return next;
-    });
-    toast(añadidos ? `${añadidos} producto(s) añadidos desde la última compra` : 'Esos productos ya estaban en la solicitud', añadidos ? 'success' : 'info');
-  }
+  useEffect(() => {
+    if (!mercadoInicial || mercadoCargado.current) return;
+    mercadoCargado.current = true;
+    const base = productos.filter((p) => p.estado === 'activo' && esViveresOLimpieza(p.categoria));
+    setItems(base.map((p) => ({
+      productoId: p.id, sku: p.sku, nombre: p.nombre,
+      cantidad: 1, precio: 0, unidad: p.unidad, comprar: true, finalidad: FINALIDAD_MERCADO,
+    })));
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, []);
 
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
@@ -3044,8 +3033,8 @@ function CrearOrdenModal({
 
   // Solicitante (persona) y Unidad solicitante: por defecto los del usuario logueado,
   // pero EDITABLES — un analista puede registrar la solicitud a nombre de otra persona.
-  const [solicitanteNombre, setSolicitanteNombre] = useState((usuario?.nombre ?? authEmail).toUpperCase());
-  const [unidadSolicitante, setUnidadSolicitante] = useState((usuario?.departamento ?? '').toUpperCase());
+  const [solicitanteNombre, setSolicitanteNombre] = useState(mercadoInicial ? 'COCINA' : (usuario?.nombre ?? authEmail).toUpperCase());
+  const [unidadSolicitante, setUnidadSolicitante] = useState(mercadoInicial ? 'COCINA' : (usuario?.departamento ?? '').toUpperCase());
 
   // Catálogos para el alta de producto nuevo (almacenes/subalmacenes + unidades del inventario).
   const [almacenesList, setAlmacenesList] = useState<string[]>([]);
@@ -3196,7 +3185,7 @@ function CrearOrdenModal({
 
   return (
     <Modal
-      title="Nueva solicitud de pedido"
+      title={mercado ? '🛒 Solicitud de mercado (Cocina)' : 'Nueva solicitud de pedido'}
       size="lg"
       onClose={onClose}
       footer={
@@ -3216,7 +3205,7 @@ function CrearOrdenModal({
           <label>Unidad solicitante</label>
           {/* Desplegable de unidades del catálogo (en vivo). */}
           <SearchSelect value={unidadSolicitante} onChange={(v) => setUnidadSolicitante(v.toUpperCase())}
-            options={unidadOpciones.map((u) => ({ value: u, label: u }))}
+            options={(mercado && !unidadOpciones.includes('COCINA') ? ['COCINA', ...unidadOpciones] : unidadOpciones).map((u) => ({ value: u, label: u }))}
             placeholder="Departamento / unidad que solicita" />
           {/* Alta directa: si la unidad no está, se escribe y se agrega al catálogo de una vez. */}
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
@@ -3268,64 +3257,17 @@ function CrearOrdenModal({
         <span className="muted" style={{ fontSize: '.76rem' }}>Marca esta solicitud como prioritaria.</span>
       </label>
 
-      {/* MERCADO: reposición de víveres. Trae la última compra para re-seleccionar
-          qué comprar y fija la finalidad general automática. */}
-      <label
-        style={{
-          display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer',
-          padding: '.7rem .9rem', borderRadius: 8, marginBottom: mercado ? '.6rem' : '1rem',
-          border: `1px solid ${mercado ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
-          background: mercado ? 'rgba(255,138,0,.12)' : 'transparent',
-        }}
-      >
-        <input type="checkbox" checked={mercado} onChange={(e) => void toggleMercado(e.target.checked)} />
-        <span style={{ fontWeight: 700, letterSpacing: '.02em', color: mercado ? 'var(--brand, #ff8a00)' : 'inherit' }}>
-          🛒 MERCADO
-        </span>
-        <span className="muted" style={{ fontSize: '.76rem' }}>Pedido para restablecer el mercado: trae la última compra para re-seleccionar.</span>
-      </label>
-
+      {/* MERCADO: solo se activa desde el botón «Solicitud de mercado» (mercadoInicial).
+          Se precarga la lista de víveres + limpieza como checklist más abajo. */}
       {mercado && (
-        <div className="card" style={{ padding: '.7rem', marginBottom: '1rem', display: 'grid', gap: '.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem' }}>
-            <strong style={{ fontSize: '.85rem' }}>
-              Última compra de mercado
-              {ultimaMercado && <span className="muted mono" style={{ fontWeight: 400 }}> · {ultimaMercado.codigo} · {dateTime(ultimaMercado.created_at)}</span>}
-            </strong>
-            <span className="badge" style={{ background: 'var(--brand,#ff8a00)', color: '#111', fontSize: '.66rem', fontWeight: 700 }}>
-              Finalidad: {FINALIDAD_MERCADO}
-            </span>
-          </div>
-          {mercadoLoading ? (
-            <div className="muted" style={{ fontSize: '.82rem' }}>Cargando última compra…</div>
-          ) : !ultimaMercado || !ultimaMercado.items?.length ? (
-            <div className="muted" style={{ fontSize: '.82rem' }}>
-              No hay una compra de mercado anterior. Agregá los productos abajo (buscador o «+ Producto nuevo»).
-            </div>
-          ) : (
-            <>
-              <div className="muted" style={{ fontSize: '.74rem' }}>Marcá lo que vas a volver a comprar y tocá «Añadir seleccionados».</div>
-              <div style={{ maxHeight: 'min(32vh, 260px)', overflowY: 'auto', display: 'grid', gap: '.25rem' }}>
-                {ultimaMercado.items.map((it) => {
-                  const yaEsta = items.some((x) => x.sku === it.sku);
-                  const sel = mercadoSel.has(it.sku);
-                  return (
-                    <label key={it.sku} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.3rem .4rem', borderRadius: 6, opacity: yaEsta ? 0.55 : 1 }}>
-                      <input type="checkbox" checked={sel} disabled={yaEsta} onChange={() => toggleMercadoSel(it.sku)} />
-                      <span style={{ flex: 1 }}>{it.nombre} <span className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</span></span>
-                      <span className="muted mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{it.cantidad} {it.unidad}</span>
-                      {yaEsta && <span className="badge" style={{ fontSize: '.6rem' }}>ya añadido</span>}
-                    </label>
-                  );
-                })}
-              </div>
-              <div>
-                <button type="button" className="btn btn-sm btn-primary" onClick={agregarMercadoSeleccionados}>
-                  + Añadir seleccionados ({[...mercadoSel].filter((sku) => !items.some((x) => x.sku === sku)).length})
-                </button>
-              </div>
-            </>
-          )}
+        <div className="card" style={{ padding: '.7rem .9rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', border: '1px solid var(--brand, #ff8a00)', background: 'rgba(255,138,0,.12)' }}>
+          <span style={{ fontWeight: 700, color: 'var(--brand, #ff8a00)' }}>🛒 SOLICITUD DE MERCADO</span>
+          <span className="muted" style={{ fontSize: '.78rem', flex: 1, minWidth: 200 }}>
+            Se trajeron todos los <strong>víveres</strong> y <strong>artículos de limpieza</strong>. Marcá los que necesités y ajustá las cantidades.
+          </span>
+          <span className="badge" style={{ background: 'var(--brand,#ff8a00)', color: '#111', fontSize: '.66rem', fontWeight: 700 }}>
+            Finalidad: {FINALIDAD_MERCADO}
+          </span>
         </div>
       )}
 
