@@ -431,7 +431,7 @@ export function RecepcionesPage() {
       )}
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} onClose={() => setConcilOpen(false)} />}
-      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} cajaTasa={cajaTasa} onClose={() => setTotalesOpen(false)} />}
+      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} cajaTasa={cajaTasa} mermaProvTotal={provMermaTotal} mermaFinalTotal={finMermaTotal} onClose={() => setTotalesOpen(false)} />}
       {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCierresOpen(false)} />}
 
       {loading ? (
@@ -1563,8 +1563,13 @@ interface TotalesDraft {
   humedad_prov: number; humedad_final: number; fe_esteril: number; observacion: string;
 }
 
-function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, desgloseProc, cajaTasa, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; desgloseProc: Array<{ procedencia: string; neto: number }>; cajaTasa: number; onClose: () => void;
+function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, desgloseProc, cajaTasa, mermaProvTotal, mermaFinalTotal, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; desgloseProc: Array<{ procedencia: string; neto: number }>; cajaTasa: number;
+  /** Merma de peso H2O de la Humedad Provisional (suma del lote). */
+  mermaProvTotal: number;
+  /** Merma de peso H2O de la Humedad Final (suma del lote). */
+  mermaFinalTotal: number;
+  onClose: () => void;
 }) {
   const [lista, setLista] = useState<TotalesDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1606,11 +1611,27 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
   function addCentro() { setDraft((p) => (p ? { ...p, centros: [...p.centros, { nombre: '', sno2: null, precio: null }] } : p)); }
   function delCentro(i: number) { setDraft((p) => (p ? { ...p, centros: p.centros.filter((_, j) => j !== i) } : p)); }
 
+  // Humedad de Totales = calculada desde las mermas de peso H2O del lote (no se teclea):
+  //  · HUMEDAD PROVISIONAL (LABORATORIO) = merma peso H2O de Humedad Provisional
+  //  · HUMEDAD ADICIONAL (FINAL)         = merma H2O Provisional − merma H2O Final
+  const round2t = (n: number) => Math.round(n * 100) / 100;
+  const humProvCalc = round2t(mermaProvTotal);
+  const humAdicCalc = round2t(mermaProvTotal - mermaFinalTotal);
+  // Mantiene el borrador sincronizado con las mermas (para que el Total SnO2 final,
+  // que suma humedad_prov + humedad_final, se recalcule en vivo y se guarde correcto).
+  useEffect(() => {
+    setDraft((p) => {
+      if (!p) return p;
+      if (p.humedad_prov === humProvCalc && p.humedad_final === humAdicCalc) return p;
+      return { ...p, humedad_prov: humProvCalc, humedad_final: humAdicCalc };
+    });
+  }, [humProvCalc, humAdicCalc, mode]);
+
   async function guardar() {
     const d = draft; if (!d) return;
     setGuardando(true);
     try {
-      const campos = { centros: d.centros, gastos: d.gastos, pesos_kg: d.pesos_kg, humedad_prov: d.humedad_prov, humedad_final: d.humedad_final, fe_esteril: d.fe_esteril, observacion: d.observacion };
+      const campos = { centros: d.centros, gastos: d.gastos, pesos_kg: d.pesos_kg, humedad_prov: humProvCalc, humedad_final: humAdicCalc, fe_esteril: d.fe_esteril, observacion: d.observacion };
       if (d.id) { await actualizarTotales(d.id, { numero: d.numero, ...campos }); toast(`Totales N° ${d.numero} actualizados`, 'success'); }
       else { const c = await crearTotales({ numero: d.numero, actor, actorName }); await actualizarTotales(c.id, campos); toast(`Totales N° ${d.numero} guardados`, 'success'); }
       await cargar(); setMode('list'); setDraft(null);
@@ -1724,12 +1745,14 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
                   </>
                 )}
                 <tr>
-                  <td className="num"><input className="input mono" type="number" step="any" value={draft.humedad_prov || ''} disabled={!canWrite} onChange={(e) => setLocal({ humedad_prov: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 110, textAlign: 'right', color: 'var(--danger)' }} /></td>
-                  <td></td><td></td><td style={ROJO}>HUMEDAD PROVISIONAL (LABORATORIO)</td>{canWrite && <td></td>}
+                  <td className="num mono" style={{ textAlign: 'right', color: 'var(--danger)', fontWeight: 700 }} title="= Merma peso H2O de Humedad Provisional (calculado, no editable)">{fmt(humProvCalc)}</td>
+                  <td></td><td></td>
+                  <td style={ROJO}>HUMEDAD PROVISIONAL (LABORATORIO) <span className="muted" style={{ fontWeight: 400 }}>(= merma H2O provisional)</span></td>{canWrite && <td></td>}
                 </tr>
                 <tr>
-                  <td className="num"><input className="input mono" type="number" step="any" value={draft.humedad_final || ''} disabled={!canWrite} onChange={(e) => setLocal({ humedad_final: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 110, textAlign: 'right', color: 'var(--danger)' }} /></td>
-                  <td></td><td></td><td style={ROJO}>HUMEDAD ADICIONAL (FINAL)</td>{canWrite && <td></td>}
+                  <td className="num mono" style={{ textAlign: 'right', color: 'var(--danger)', fontWeight: 700 }} title="= Merma peso H2O de Humedad Provisional − Merma peso H2O de Humedad Final (calculado, no editable)">{fmt(humAdicCalc)}</td>
+                  <td></td><td></td>
+                  <td style={ROJO}>HUMEDAD ADICIONAL (FINAL) <span className="muted" style={{ fontWeight: 400 }}>(= merma H2O prov. − merma H2O final)</span></td>{canWrite && <td></td>}
                 </tr>
                 <tr>
                   <td className="num"><input className="input mono" type="number" step="any" value={draft.fe_esteril || ''} disabled={!canWrite} onChange={(e) => setLocal({ fe_esteril: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 110, textAlign: 'right' }} /></td>
