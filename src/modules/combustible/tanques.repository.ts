@@ -942,6 +942,22 @@ export async function combustibleDisponibleGeneral(): Promise<number> {
     .reduce((a, t) => a + num(t.saldo_litros), 0);
 }
 
+/**
+ * Postea (IDEMPOTENTE) el consumo de combustible de GT de una semana como un gasto en la
+ * caja de Peramanal abierta: suma los movimientos de tanque tipo 'uso' del rango (a su
+ * costo, tasa PMP) y crea/actualiza el gasto «CONSUMO COMBUSTIBLE GT». Es el respaldo
+ * MANUAL del proceso automático que corre cada domingo (por si el cron falló o para
+ * re-generar una semana puntual). Devuelve el monto $ posteado (0 si no hubo consumo).
+ * Fechas en 'YYYY-MM-DD' (lunes→domingo, ambos inclusive).
+ */
+export async function postearConsumoCombustibleSemana(desde: string, hasta: string): Promise<number> {
+  const { data, error } = await supabase.rpc('postear_consumo_combustible_semana', {
+    p_desde: desde, p_hasta: hasta, p_actor: 'manual',
+  });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
 /* ───────────── Conciliación (libro vs mina) ───────────── */
 
 export async function listConciliaciones(tanqueId?: string): Promise<ConciliacionCombustible[]> {
