@@ -1292,8 +1292,13 @@ function MetodoPagoModal({
     if (qrPath) { getImagenOrdenSignedUrl(qrPath).then(setQrPreview).catch(() => setQrPreview(null)); return; }
     setQrPreview(null);
   }, [qrFile, qrPath]);
-  const baseTotal = orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null ? orden.recibido_total : orden.total;
-  const baseNum = Number(baseTotal) || 0;
+  const usaRecibido = orden.condiciones_pago === 'contra_entrega' && orden.recibido_total != null;
+  const baseTotal = usaRecibido ? orden.recibido_total! : orden.total;
+  // Base NETA: si la OC ya trae IVA/IGTF sumados desde la oferta (arrastrados), los restamos
+  // para no duplicarlos — acá se vuelven a mostrar (precargados) y sumar. Fuente: la oferta.
+  const ivaPrevOc = !usaRecibido && orden.iva_aplicado ? Math.max(0, Number(orden.iva_monto) || 0) : 0;
+  const igtfPrevOc = !usaRecibido && orden.igtf_aplicado ? Math.max(0, Number(orden.igtf_monto) || 0) : 0;
+  const baseNum = Math.max(0, Math.round(((Number(baseTotal) || 0) - ivaPrevOc - igtfPrevOc) * 100) / 100);
   // IVA: % ↔ monto sincronizados. Con % cargado, el monto se recalcula sobre la base
   // (a menos que el usuario lo haya escrito a mano); el % pasa a ser referencia.
   const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
@@ -1352,7 +1357,8 @@ function MetodoPagoModal({
   const esMultipago = validos.length > 1;
   const sumMontos = Math.round(validos.reduce((a, l) => a + (Number(l.monto) || 0), 0) * 100) / 100;
   const hayMontos = validos.some((l) => (Number(l.monto) || 0) > 0);
-  const repartoOk = !esMultipago || !hayMontos || Math.abs(sumMontos - Number(baseTotal)) <= 0.01;
+  // El reparto debe sumar el TOTAL CON IMPUESTOS (base + IVA + IGTF), no la base sola.
+  const repartoOk = !esMultipago || !hayMontos || Math.abs(sumMontos - totalFinal) <= 0.01;
 
   async function handleSend() {
     setError(null);
@@ -1367,7 +1373,7 @@ function MetodoPagoModal({
     if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
     // Multipago con reparto: si se cargó algún monto, todos deben sumar el total.
     if (esMultipago && hayMontos && !repartoOk) {
-      setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar el total de la OC (${mm(Number(baseTotal))}).`); return;
+      setError(`El reparto por moneda (${mm(sumMontos)}) debe sumar el total de la OC (${mm(totalFinal)}).`); return;
     }
     if (esContraEntrega && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
     // Validar datos del proveedor en los métodos que los requieren.
@@ -1476,7 +1482,7 @@ function MetodoPagoModal({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.5rem', marginBottom: '.6rem' }}>
               <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: !conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
                 <input type="radio" name="iva" checked={!conIva} onChange={() => setConIva(false)} />
-                <span style={{ fontSize: '.86rem' }}><strong>Sin IVA</strong> · total {mm(Number(baseTotal))}</span>
+                <span style={{ fontSize: '.86rem' }}><strong>Sin IVA</strong> · total {mm(baseNum)}</span>
               </label>
               <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
                 <input type="radio" name="iva" checked={conIva} onChange={() => setConIva(true)} />
@@ -1494,7 +1500,7 @@ function MetodoPagoModal({
                     title="Monto del IVA (editable a mano)" placeholder="0,00"
                     style={{ width: 92, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
                   <span>{simboloMoneda}</span>
-                  <span>= {mm(Number(baseTotal) + ivaMonto)}</span>
+                  <span>= {mm(baseNum + ivaMonto)}</span>
                 </span>
               </label>
             </div>
@@ -1597,7 +1603,7 @@ function MetodoPagoModal({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.86rem', gap: '.5rem', flexWrap: 'wrap' }}>
             <span className="muted">Reparto por moneda (opcional)</span>
             <strong className="mono" style={{ color: hayMontos ? (repartoOk ? 'var(--success)' : 'var(--danger)') : undefined }}>
-              {mm(sumMontos)} / {mm(Number(baseTotal))}
+              {mm(sumMontos)} / {mm(totalFinal)}
             </strong>
           </div>
           <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
@@ -1605,7 +1611,7 @@ function MetodoPagoModal({
               ? `Dejá los montos en 0 y Tesorería define cuánto va por cada uno, o indicá acá cuánto pagar por cada método (en ${simboloMoneda}).`
               : repartoOk
               ? '✓ El reparto suma el total. Tesorería verá cuánto pagar por cada moneda.'
-              : <span style={{ color: 'var(--danger)' }}>⚠ Los montos deben sumar el total de la OC ({mm(Number(baseTotal))}).</span>}
+              : <span style={{ color: 'var(--danger)' }}>⚠ Los montos deben sumar el total de la OC ({mm(totalFinal)}).</span>}
           </small>
         </div>
       )}
