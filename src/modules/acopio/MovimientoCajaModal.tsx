@@ -134,10 +134,9 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
       {grupo && (
         <div className="form-row">
           <label>Categoría <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: grupoColor(grupo), verticalAlign: 'middle' }} /></label>
-          <select className="select" value={valor} onChange={(e) => setValor(e.target.value)}>
-            <option value="">— elegí —</option>
-            {valoresGrupo.map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-          </select>
+          <SearchSelect value={valor} onChange={setValor}
+            options={valoresGrupo.map((c) => ({ value: c.valor, label: c.valor }))}
+            placeholder="🔍 Elegí o buscá la categoría…" emptyText="Sin categorías en este grupo" />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
             <input key={`nv-cat-${nuevoValorKey}`} className="input" name="f-nueva-categoria" style={{ flex: 1 }} defaultValue={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva categoría a este grupo" />
             <button type="button" className="btn btn-sm btn-ghost" onClick={agregarValor}>Agregar</button>
@@ -164,17 +163,15 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
       <div className="form-grid">
         <div className="form-row">
           <label>Costo · Clasificación</label>
-          <select className="select" value={costoCl} onChange={(e) => { setCostoCl(e.target.value); setCostoSub(''); }}>
-            <option value="">— sin costo —</option>
-            {clasifCosto.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <SearchSelect value={costoCl} onChange={(v) => { setCostoCl(v); setCostoSub(''); }}
+            options={clasifCosto.map((c) => ({ value: c, label: c }))}
+            placeholder="🔍 Buscá la clasificación…" emptyText="Sin clasificaciones de costo" />
         </div>
         <div className="form-row">
           <label>Costo · Sub-clasificación</label>
-          <select className="select" value={costoSub} onChange={(e) => setCostoSub(e.target.value)} disabled={!costoCl}>
-            <option value="">— elegí —</option>
-            {subsCosto.map((c) => <option key={c.id} value={c.subclasificacion}>{c.subclasificacion}</option>)}
-          </select>
+          <SearchSelect value={costoSub} onChange={setCostoSub} disabled={!costoCl}
+            options={subsCosto.map((c) => ({ value: c.subclasificacion, label: c.subclasificacion }))}
+            placeholder={costoCl ? '🔍 Elegí la sub-clasificación…' : '— elegí la clasificación —'} emptyText="Sin sub-clasificaciones" />
           {costoCl && (
             <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
               <input key={`nv-sub-${nuevoValorKey}`} className="input" name="f-nueva-subclasificacion" style={{ flex: 1 }} defaultValue={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva sub-clasificación" />
