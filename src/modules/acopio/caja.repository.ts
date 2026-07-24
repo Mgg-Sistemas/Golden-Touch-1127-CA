@@ -499,6 +499,50 @@ export async function aceptarEntradaEnCajaAcopio(input: {
   }
 }
 
+/* ───────────── Gastos de Tesorería POR ACEPTAR (cola) ─────────────
+   Los gastos marcados «Es de Peramanal» en Tesorería ya no entran directo a los
+   movimientos: caen en esta cola. Acopio ve el detalle y Acepta (entra a los
+   movimientos, grupo Gastos/Nómina) o Rechaza (se descarta). Si Tesorería borra
+   el gasto, desaparece de la cola (o del movimiento si ya se aceptó). */
+
+export interface GastoPorAceptar {
+  id: string;
+  ref_tesoreria_mov_id: string;
+  descripcion: string | null;
+  /** Monto en $ (ya convertido si el gasto venía en Bs). */
+  monto: number;
+  es_nomina: boolean;
+  gasto_categoria: string | null;
+  gasto_subcategoria: string | null;
+  /** Moneda y monto originales del gasto (informativo). */
+  moneda: string | null;
+  monto_original: number | null;
+  actor: string | null;
+  actor_name: string | null;
+  estado: string;
+  created_at: string;
+}
+
+/** Gastos pendientes de aceptar en el Centro de Acopio (los que aún no se procesaron). */
+export async function listGastosPorAceptar(): Promise<GastoPorAceptar[]> {
+  const { data, error } = await supabase.from('acopio_gastos_por_aceptar')
+    .select('*').eq('estado', 'por_aceptar').order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as GastoPorAceptar[];
+}
+
+/** Acepta un gasto de la cola: entra a los movimientos de Acopio (Gastos o Nómina). */
+export async function aceptarGastoAcopio(id: string): Promise<void> {
+  const { error } = await supabase.rpc('aceptar_gasto_acopio', { p_id: id });
+  if (error) throw error;
+}
+
+/** Rechaza un gasto de la cola: se descarta (no entra a los movimientos de Acopio). */
+export async function rechazarGastoAcopio(id: string): Promise<void> {
+  const { error } = await supabase.rpc('rechazar_gasto_acopio', { p_id: id });
+  if (error) throw error;
+}
+
 /** Cierra una caja: fija fecha de cierre, saldo final y estado. */
 export async function cerrarCaja(id: string, saldoFinal: number, actor: string, fechaFin?: string): Promise<void> {
   const { error } = await supabase
