@@ -25,7 +25,7 @@ import {
   guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion, calcConciliacion,
   listTotales, crearTotales, actualizarTotales, eliminarTotales, calcTotales,
-  listCierres, cerrarRecepcion, eliminarCierre,
+  listCierres, cerrarRecepcion, eliminarCierre, reabrirCierre,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type AnalisisLab, type MineralLab,
   type HumedadProvRow, type HumedadFinalRow, type BigbagRow, type PesadaRow,
   type Conciliacion, type ConciliacionCentro, type TotalesDoc, type TotalCentro,
@@ -1805,6 +1805,8 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
   const [cerrando, setCerrando] = useState(false);
   const [ver, setVer] = useState<CierreRecepcion | null>(null);
   const [aBorrar, setABorrar] = useState<CierreRecepcion | null>(null);
+  const [aReabrir, setAReabrir] = useState<CierreRecepcion | null>(null);
+  const [reabriendo, setReabriendo] = useState(false);
 
   const cargar = useCallback(async () => {
     try { setLista(await listCierres()); }
@@ -1844,6 +1846,17 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
     finally { setABorrar(null); }
   }
+  async function reabrir(c: CierreRecepcion) {
+    setReabriendo(true);
+    try {
+      await reabrirCierre(c, { actor, actorName });
+      await cargar(); setVer(null); setAReabrir(null); setMode('list');
+      // Los datos volvieron a la hoja de trabajo: la refrescamos en el padre.
+      onCerrado?.();
+      toast(`Recepción N° ${c.numero} reabierta. Se revirtió su ingreso al inventario y volvió a la hoja de trabajo para modificar.`, 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir', 'error'); }
+    finally { setReabriendo(false); }
+  }
 
   const snap = (ver?.snapshot ?? {}) as Record<string, unknown>;
   const arr = (k: string): unknown[] => (Array.isArray(snap[k]) ? snap[k] as unknown[] : []);
@@ -1854,7 +1867,10 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
       {canWrite && <button className="btn btn-primary" onClick={() => void confirmarCierre()} disabled={cerrando}>{cerrando ? 'Cerrando…' : '🔒 CERRAR RECEPCIÓN'}</button>}
     </>
   ) : mode === 'detalle' ? (
-    <button className="btn btn-primary" onClick={() => { setVer(null); setMode('list'); }}>← Volver</button>
+    <>
+      <button className="btn btn-ghost" onClick={() => { setVer(null); setMode('list'); }}>← Volver</button>
+      {canWrite && ver && <button className="btn" style={{ background: 'var(--warning)', color: '#111', border: 'none' }} onClick={() => setAReabrir(ver)} disabled={reabriendo} title="Devolver esta recepción a la hoja de trabajo para modificarla (revierte su ingreso al inventario)">{reabriendo ? 'Reabriendo…' : '✏️ Reabrir / Modificar'}</button>}
+    </>
   ) : (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
@@ -2050,6 +2066,12 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
       {aBorrar && (
         <ConfirmDialog title="Eliminar cierre" message={`¿Eliminar el cierre de la Recepción N° ${aBorrar.numero}? (no revierte el inventario ya ingresado)`}
           confirmText="Eliminar" danger onConfirm={() => void borrar(aBorrar)} onCancel={() => setABorrar(null)} />
+      )}
+      {aReabrir && (
+        <ConfirmDialog title={`Reabrir Recepción N° ${aReabrir.numero}`}
+          message={`Se devolverán todos los datos de esta recepción a la hoja de trabajo para modificarla, y se REVERTIRÁ su ingreso al inventario (neto seco de casiterita + resguardos). La hoja de trabajo debe estar vacía. Al terminar, volvés a cerrarla. ¿Reabrir la Recepción N° ${aReabrir.numero}?`}
+          confirmText="Reabrir" requireText="REABRIR" requireLabel="Escribí REABRIR para confirmar"
+          onConfirm={() => void reabrir(aReabrir)} onCancel={() => setAReabrir(null)} />
       )}
     </Modal>
   );

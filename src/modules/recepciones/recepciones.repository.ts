@@ -1095,10 +1095,20 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
     ingresoCasiterita = { almacen: almacenFinal, kg: netoSecoTotal, tasa: tasaFinal };
   }
 
+  // Foto de las pesadas (ya marcadas «consumida» arriba) y de TODOS los bigbags
+  // (set de trabajo + los de cada pesada) para poder REABRIR el cierre con los pesos
+  // intactos. Antes no se guardaban y una recepción reabierta perdía las pesadas.
+  const [pesadasSnap, bigbagsSnapRes] = await Promise.all([
+    listPesadas(),
+    supabase.from(TABLE_BB).select('*'),
+  ]);
+  const bigbagsSnap = (bigbagsSnapRes.data ?? []) as BigbagRow[];
+
   const snapshot = {
     generado_at: new Date().toISOString(),
     recepciones: recs, analisis: anas, humedad_prov: hp, humedad_final: hf, minerales: mins,
-    conciliaciones, totales, ingresos_resguardo: ingresos, ingreso_casiterita: ingresoCasiterita,
+    conciliaciones, totales, pesadas: pesadasSnap, bigbags: bigbagsSnap,
+    ingresos_resguardo: ingresos, ingreso_casiterita: ingresoCasiterita,
   };
   const { data, error } = await supabase.from(TABLE_CIERRES).insert({
     numero, snapshot, observacion: input.observacion?.trim() || null,
@@ -1129,6 +1139,97 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
 
 export async function eliminarCierre(id: string): Promise<void> {
   const { error } = await supabase.from(TABLE_CIERRES).delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Cuenta filas de una tabla (para el guard de reabrir). */
+async function contarFilas(tabla: string): Promise<number> {
+  const { count, error } = await supabase.from(tabla).select('id', { count: 'exact', head: true });
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
+ * REABRE un cierre para modificarlo: restaura la foto a la hoja de trabajo (recepciones,
+ * análisis, humedades, conciliaciones, totales, pesadas y bigbags) REVIRTIENDO lo que ese
+ * cierre ingresó al inventario (neto seco de casiterita + resguardos), y borra el cierre.
+ * Luego se edita normal y se vuelve a cerrar (re-ingresa al inventario).
+ *
+ * Guard: la hoja de trabajo debe estar VACÍA (no se puede reabrir encima de una recepción
+ * en curso — colisionarían los IDs y se perdería lo cargado). Cierres viejos sin pesadas en
+ * la foto se reabren igual (sin esas pesadas), pero SÍ revierten su ingreso de inventario.
+ */
+export async function reabrirCierre(cierre: CierreRecepcion, input: { actor: string; actorName?: string | null }): Promise<void> {
+  // ── Guard: la hoja de trabajo debe estar vacía ──
+  const tablas = [TABLE, TABLE_ANA, TABLE_HPROV, TABLE_HFIN, TABLE_CONCIL, TABLE_TOT, TABLE_PESADAS, TABLE_BB];
+  const counts = await Promise.all(tablas.map(contarFilas));
+  if (counts.some((n) => n > 0)) {
+    throw new Error('Hay una recepción en curso con datos cargados. Cerrala o vaciala antes de reabrir un histórico.');
+  }
+
+  const snap = cierre.snapshot as {
+    recepciones?: RecepcionLab[]; analisis?: AnalisisRow[]; humedad_prov?: HumedadProvRow[];
+    humedad_final?: HumedadFinalRow[]; conciliaciones?: Conciliacion[]; totales?: TotalesDoc[];
+    pesadas?: PesadaRow[]; bigbags?: BigbagRow[];
+    ingresos_resguardo?: Array<{ centro: string; almacen: string; kg: number }>;
+    ingreso_casiterita?: { almacen: string; kg: number; tasa: number } | null;
+  };
+
+  // ── 1) Revertir el inventario que ingresó este cierre (salidas por el mismo Kg) ──
+  let cas: { id: string } | null = null;
+  const ic = snap.ingreso_casiterita;
+  if (ic && (Number(ic.kg) || 0) > 0 && (ic.almacen ?? '').trim()) {
+    cas = await productoCasiterita();
+    if (!cas) throw new Error('No se encontró el producto Casiterita para revertir el ingreso del neto seco.');
+    await registrarMovimiento({
+      producto_id: cas.id, tipo: 'salida', delta: -(Number(ic.kg) || 0), almacen: ic.almacen.trim(),
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'recepcion_reabrir', ref_id: String(cierre.numero),
+      detalle: `Reversión por reapertura de la Recepción N° ${cierre.numero}`,
+    });
+  }
+  for (const r of snap.ingresos_resguardo ?? []) {
+    const kg = Number(r.kg) || 0;
+    if (kg <= 0 || !(r.almacen ?? '').trim()) continue;
+    if (!cas) cas = await productoCasiterita();
+    if (!cas) throw new Error('No se encontró el producto Casiterita para revertir el ingreso por RESGUARDO.');
+    await registrarMovimiento({
+      producto_id: cas.id, tipo: 'salida', delta: -kg, almacen: r.almacen.trim(),
+      actor: input.actor, actor_name: input.actorName ?? null,
+      ref_tipo: 'recepcion_reabrir', ref_id: String(cierre.numero),
+      detalle: `Reversión RESGUARDO (${r.centro}) por reapertura de la Recepción N° ${cierre.numero}`,
+    });
+  }
+
+  // ── 2) Restaurar la hoja de trabajo desde la foto (re-inserta las filas con su ID) ──
+  // Las conciliaciones vuelven con `inventario_aplicado=false` (ya se revirtió) para que
+  // al re-cerrar se vuelva a ingresar. Las pesadas vuelven como DISPONIBLES (consumida=false).
+  const concilRestore = (snap.conciliaciones ?? []).map((c) => ({
+    ...c,
+    centros: (Array.isArray(c.centros) ? c.centros : []).map((ce) => ({ ...ce, inventario_aplicado: false })),
+  }));
+  const pesadasRestore = (snap.pesadas ?? []).map((p) => ({ ...p, consumida: false }));
+
+  const inserts: Array<Promise<unknown>> = [];
+  if (snap.recepciones?.length) inserts.push(reInsert(TABLE, snap.recepciones));
+  if (snap.analisis?.length) inserts.push(reInsert(TABLE_ANA, snap.analisis));
+  if (snap.humedad_prov?.length) inserts.push(reInsert(TABLE_HPROV, snap.humedad_prov));
+  if (snap.humedad_final?.length) inserts.push(reInsert(TABLE_HFIN, snap.humedad_final));
+  if (concilRestore.length) inserts.push(reInsert(TABLE_CONCIL, concilRestore));
+  if (snap.totales?.length) inserts.push(reInsert(TABLE_TOT, snap.totales));
+  await Promise.all(inserts);
+  // Pesadas antes que bigbags (FK bigbags.pesada_id → pesadas).
+  if (pesadasRestore.length) await reInsert(TABLE_PESADAS, pesadasRestore);
+  if (snap.bigbags?.length) await reInsert(TABLE_BB, snap.bigbags);
+
+  // ── 3) Borrar el cierre: ya vive de nuevo en la hoja de trabajo ──
+  await eliminarCierre(cierre.id);
+}
+
+/** Re-inserta filas de la foto tal cual (conservando su ID). */
+async function reInsert(tabla: string, filas: readonly unknown[]): Promise<void> {
+  if (!filas.length) return;
+  const { error } = await supabase.from(tabla).insert(filas as never);
   if (error) throw error;
 }
 
