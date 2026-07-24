@@ -181,6 +181,10 @@ export interface TransferenciaInter {
   actor_name?: string | null;
   created_at: string;
   confirmada_at?: string | null;
+  /** Dinero entrante: cada módulo acepta su copia por separado; la transferencia
+   *  pasa a 'recibida' (y se ACKea) recién cuando AMBOS aceptaron. */
+  aceptado_acopio?: boolean | null;
+  aceptado_tesoreria?: boolean | null;
 }
 
 export type TipoMovimientoCaja = 'ingreso' | 'salida' | 'traslado_salida' | 'traslado_entrada' | 'ajuste';

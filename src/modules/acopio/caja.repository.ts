@@ -459,6 +459,7 @@ export async function aceptarEntradaEnCajaAcopio(input: {
   const { row } = input;
   const cajaId = input.cajaId ?? null;
   if (row.estado !== 'por_confirmar') throw new Error('Esta transferencia ya fue procesada.');
+  if (row.aceptado_acopio) throw new Error('Esta transferencia ya fue aceptada en el Centro de Acopio.');
   const legs = (row.legs ?? []).filter((l) => Number(l.monto) > 0);
   if (!legs.length) throw new Error('La transferencia no tiene montos.');
   const montoUsd = legs.reduce((a, l) => a + num(l.monto), 0);
@@ -475,21 +476,26 @@ export async function aceptarEntradaEnCajaAcopio(input: {
   // La deuda a MGG por este USD entregado la registra crearMovimientoCaja (arriba),
   // que acumula la cuenta por pagar a MGG de forma incremental.
 
-  // 2) Marca la transferencia como recibida (la caja destino va en destino_caja_*).
+  // 2) Marca SOLO la parte de Acopio (el mismo dinero entra por separado en Tesorería).
+  //    Recién cuando AMBOS módulos aceptaron pasa a 'recibida' + ACK.
   const { error } = await supabase.from('transferencias_inter').update({
-    estado: 'recibida',
+    aceptado_acopio: true,
     destino_caja_id: cajaId,
     destino_caja_nombre: input.cajaNombre ?? null,
-    caja_nombre: input.cajaNombre ?? null,
-    confirmada_at: new Date().toISOString(),
   }).eq('id', row.id);
   if (error) throw error;
 
-  // 3) ACK al origen (best-effort: si falla, el origen reconcilia luego).
-  if (row.callback_base) {
-    await supabase.functions.invoke('transfer-enviar', {
-      body: { tipo: 'ack', transf_id: row.transf_id, callback_base: row.callback_base },
-    }).catch(() => { /* el ACK no bloquea */ });
+  // 3) ¿Ambos módulos ya aceptaron? (re-lee banderas frescas para evitar carreras)
+  const { data: fresh } = await supabase.from('transferencias_inter')
+    .select('aceptado_acopio, aceptado_tesoreria, callback_base, transf_id, estado').eq('id', row.id).single();
+  const fr = fresh as { aceptado_acopio?: boolean; aceptado_tesoreria?: boolean; callback_base?: string | null; transf_id: string; estado: string } | null;
+  if (fr && fr.estado !== 'recibida' && fr.aceptado_acopio && fr.aceptado_tesoreria) {
+    await supabase.from('transferencias_inter').update({ estado: 'recibida', confirmada_at: new Date().toISOString() }).eq('id', row.id);
+    if (fr.callback_base) {
+      await supabase.functions.invoke('transfer-enviar', {
+        body: { tipo: 'ack', transf_id: fr.transf_id, callback_base: fr.callback_base },
+      }).catch(() => { /* el ACK no bloquea */ });
+    }
   }
 }
 

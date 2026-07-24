@@ -2081,7 +2081,7 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
   const [sel, setSel] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  const entrantes = transfers.filter((t) => t.direccion === 'entrante' && t.estado === 'por_confirmar');
+  const entrantes = transfers.filter((t) => t.direccion === 'entrante' && t.estado === 'por_confirmar' && !t.aceptado_tesoreria);
   const salientes = transfers.filter((t) => t.direccion === 'saliente');
   const salientesVivas = salientes.filter((t) => t.estado !== 'recibida');
   const salientesRecibidas = salientes.filter((t) => t.estado === 'recibida');
@@ -2124,6 +2124,9 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
       {entrantes.length > 0 && (
         <div style={{ marginBottom: salientesVivas.length ? '.8rem' : 0 }}>
           <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.35rem' }}>Entrantes por confirmar · acreditá a la caja que recibe</div>
+          <div className="muted" style={{ fontSize: '.72rem', marginBottom: '.4rem', color: 'var(--brand, #ff8a00)' }}>
+            🏭 El mismo dinero se acepta por separado en cada módulo: acá acreditás la parte de <strong>Tesorería</strong> (a la caja elegida). En <strong>Acopio</strong>, el banner «Dinero por entrar» acredita su parte como «USD entregado». La transferencia se completa cuando ambos aceptan.
+          </div>
           <div style={{ display: 'grid', gap: '.45rem' }}>
             {entrantes.map((t) => (
               <div key={t.id} className="card" style={{ margin: 0, padding: '.55rem .7rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem' }}>

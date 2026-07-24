@@ -98,7 +98,7 @@ export function AcopioPage() {
   const reload = useCallback(async () => {
     const [ps, alms, cjs, ent, cts] = await Promise.all([
       listProductos(), getNombresAlmacenes(), listCajas(),
-      listEntrantesPorConfirmar().catch(() => []),
+      listEntrantesPorConfirmar('acopio').catch(() => []),
       listContratos().catch(() => [] as ContratoAcopio[]),
     ]);
     setProductos(ps);
