@@ -798,13 +798,17 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
     if (monedaLeg === 'COP') return mercado?.copUsd ? round2(n / mercado.copUsd) : 0;
     return round2(n);
   }
-  const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
-  const cubreTotalMulti = sumUsdMulti >= total - 0.01;
-  const excedeTotalMulti = esMultimoneda && sumUsdMulti > total + 0.01;
-  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
+  // El total del servicio, expresado en USD y Bs a partir de la MONEDA DE LA FACTURA
+  // (monedaServicio), no de la caja. El multipago normaliza cada leg a USD, así que la
+  // cobertura se compara en USD (antes se comparaba contra `total` crudo: si la factura
+  // era en Bs, exigía "cubrir" 8.000 USD con 8.000 Bs = 10,84 USD y nunca dejaba pagar).
+  const totalUsd = monedaServicio === 'Bs' ? (tasa > 0 ? round2(total / tasa) : 0) : total;
+  const totalBs = monedaServicio === 'Bs' ? total : (tasa > 0 ? round2(total * tasa) : 0);
 
-  const totalUsd = moneda === 'Bs' ? (tasa > 0 ? round2(total / tasa) : 0) : total;
-  const totalBs = moneda === 'Bs' ? total : (tasa > 0 ? round2(total * tasa) : 0);
+  const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
+  const cubreTotalMulti = sumUsdMulti >= totalUsd - 0.01;
+  const excedeTotalMulti = esMultimoneda && sumUsdMulti > totalUsd + 0.01;
+  const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -833,8 +837,8 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
         .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, cajaId: s.caja_id }))
         .filter((l) => l.monto > 0);
       if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
-      if (excedeTotalMulti) { setError(`No podés pagar más que el total del servicio. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(total, 'USD')}.`); return; }
-      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(total, 'USD')}).`); return; }
+      if (excedeTotalMulti) { setError(`No podés pagar más que el total del servicio. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(totalUsd, 'USD')}.`); return; }
+      if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(totalUsd, 'USD')}).`); return; }
     } else if (saldosCaja.length === 1) {
       const s = saldosCaja[0];
       if (total > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
@@ -1031,7 +1035,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
                   <tr>
                     <td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
-                      {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(total, 'USD')}
+                      {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(totalUsd, 'USD')}
                     </td>
                   </tr>
                 </tfoot>
