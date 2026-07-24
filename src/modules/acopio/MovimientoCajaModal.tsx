@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import type { CajaMovimiento, ClasificacionAcopio, CostoClase, GrupoClasificacion } from '@/shared/lib/types';
@@ -45,6 +45,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nuevoValor, setNuevoValor] = useState('');
+  const [confirmDel, setConfirmDel] = useState(false);
   // Bump al agregar categoría/sub para remontar los inputs no-controlados y limpiarlos.
   const [nuevoValorKey, setNuevoValorKey] = useState(0);
 
@@ -101,7 +102,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
   }
   async function eliminar() {
     if (!mov) return;
-    if (!window.confirm('¿Eliminar este movimiento?')) return;
+    setConfirmDel(false);
     setSaving(true);
     try { await eliminarMovimientoCaja(mov.id); toast('Eliminado', 'success'); onSaved(); }
     catch (e) { toast(e instanceof Error ? e.message : 'Error', 'error'); setSaving(false); }
@@ -110,7 +111,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      {!esNuevo && <button className="btn btn-danger" onClick={eliminar} disabled={saving}>Eliminar</button>}
+      {!esNuevo && <button className="btn btn-danger" onClick={() => setConfirmDel(true)} disabled={saving}>Eliminar</button>}
       <button className="btn btn-primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (esNuevo ? 'Registrar' : 'Guardar')}</button>
     </>
   );
@@ -194,6 +195,15 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
         {fld('Traslado de caja', 'f-traslado', traslado, setTraslado)}
         {fld('Kg Recibidos por MGG', 'f-kg-recibidos', kgRecibidos, setKgRecibidos)}
       </div>
+      {confirmDel && (
+        <ConfirmDialog
+          title="Eliminar movimiento"
+          message="¿Eliminar este movimiento de caja? Esta acción no se puede deshacer."
+          confirmText="Eliminar" danger
+          onConfirm={() => void eliminar()}
+          onCancel={() => setConfirmDel(false)}
+        />
+      )}
     </Modal>
   );
 }
