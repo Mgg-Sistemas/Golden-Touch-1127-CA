@@ -24,7 +24,8 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, cerrarYAbrirCaja, proximoNumeroCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, gastosDetalleCategoria, type CajaMovimientoInput, type ResumenCajaAcopio } from './caja.repository';
+import { listCajas, crearMovimientoCaja, cerrarYAbrirCaja, proximoNumeroCaja, listClasificacionesAll, resumenCajaAcopio, esCategoriaVehiculo, consumoGastosPorEquipo, gastosDetalleCategoria, listGastosPorAceptar, type CajaMovimientoInput, type ResumenCajaAcopio, type GastoPorAceptar } from './caja.repository';
+import { GastosPorAceptar } from './GastosPorAceptar';
 import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCajaPdf';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
@@ -54,6 +55,7 @@ export function AcopioPage() {
   const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [cajas, setCajas] = useState<CajaCierre[]>([]);
   const [entrantes, setEntrantes] = useState<TransferenciaInter[]>([]);
+  const [gastosPorAceptar, setGastosPorAceptar] = useState<GastoPorAceptar[]>([]);
   // Contratos de producción ACTIVOS — se incluyen como referencia en la foto del cierre.
   const [contratosActivos, setContratosActivos] = useState<ContratoAcopio[]>([]);
   const [editar, setEditar] = useState<RecepcionAcopio | null>(null);
@@ -96,16 +98,18 @@ export function AcopioPage() {
   }, [resumen.tasa]);
 
   const reload = useCallback(async () => {
-    const [ps, alms, cjs, ent, cts] = await Promise.all([
+    const [ps, alms, cjs, ent, cts, gpa] = await Promise.all([
       listProductos(), getNombresAlmacenes(), listCajas(),
       listEntrantesPorConfirmar('acopio').catch(() => []),
       listContratos().catch(() => [] as ContratoAcopio[]),
+      listGastosPorAceptar().catch(() => [] as GastoPorAceptar[]),
     ]);
     setProductos(ps);
     setAlmacenes(alms);
     setCajas(cjs);
     setEntrantes(ent);
     setContratosActivos(cts.filter((c) => c.estado === 'activo'));
+    setGastosPorAceptar(gpa);
   }, []);
 
   useEffect(() => {
@@ -113,7 +117,7 @@ export function AcopioPage() {
     reload().catch((e) => { if (!cancel) toast(e instanceof Error ? e.message : 'Error al cargar', 'error'); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'acopio_contratos', 'transferencias_inter', 'cajas', 'productos', 'existencias'], reload);
+  useRealtime(['acopio_recepciones', 'acopio_recepcion_lotes', 'acopio_caja_movimientos', 'acopio_clasificaciones', 'acopio_cajas', 'acopio_costo_clases', 'acopio_cuadres', 'acopio_cuadre_movimientos', 'acopio_contratos', 'acopio_gastos_por_aceptar', 'transferencias_inter', 'cajas', 'productos', 'existencias'], reload);
 
   // Caja a la que se asocian los movimientos nuevos (la ACTUALMENTE ABIERTA).
   const cajaActual = useMemo(() => cajas.find((c) => c.estado === 'abierta') ?? cajas[0] ?? null, [cajas]);
@@ -189,6 +193,9 @@ export function AcopioPage() {
 
       {/* Dinero que llega desde el otro sistema (puente inter-sistema) */}
       <DineroPorEntrar entrantes={entrantes} cajas={cajas} actor={actor} actorName={actorName} onReload={reload} />
+
+      {/* Gastos de Tesorería (Peramanal) pendientes de aceptar en los movimientos */}
+      {canWrite && <GastosPorAceptar gastos={gastosPorAceptar} onReload={reload} />}
 
       {/* Tarjeta protagonista: TASA ACTUAL DEL MATERIAL (varía con los gastos) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>

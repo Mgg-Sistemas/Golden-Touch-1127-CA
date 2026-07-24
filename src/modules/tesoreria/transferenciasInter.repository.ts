@@ -53,11 +53,20 @@ export async function listTransferenciasInter(): Promise<TransferenciaInter[]> {
 export async function listEntrantesPorConfirmar(modulo?: 'tesoreria' | 'acopio'): Promise<TransferenciaInter[]> {
   let q = supabase.from(TABLE).select('*')
     .eq('direccion', 'entrante').eq('estado', 'por_confirmar');
-  if (modulo === 'tesoreria') q = q.eq('aceptado_tesoreria', false);
-  else if (modulo === 'acopio') q = q.eq('aceptado_acopio', false);
+  // Cada módulo ve las que todavía no aceptó NI rechazó (aceptar/rechazar por separado).
+  if (modulo === 'tesoreria') q = q.eq('aceptado_tesoreria', false).eq('rechazado_tesoreria', false);
+  else if (modulo === 'acopio') q = q.eq('aceptado_acopio', false).eq('rechazado_acopio', false);
   const { data, error } = await q.order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as TransferenciaInter[];
+}
+
+/** Rechaza una entrante en un módulo: la quita de su cola sin acreditar dinero.
+ *  Es por módulo (simétrico a la aceptación): el otro módulo puede seguir aceptándola. */
+export async function rechazarEntrante(id: string, modulo: 'tesoreria' | 'acopio'): Promise<void> {
+  const patch = modulo === 'acopio' ? { rechazado_acopio: true } : { rechazado_tesoreria: true };
+  const { error } = await supabase.from(TABLE).update(patch).eq('id', id);
+  if (error) throw error;
 }
 
 /** Marca 'recibida' + ACK una entrante SOLO cuando ambos módulos ya la aceptaron.

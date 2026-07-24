@@ -185,6 +185,9 @@ export interface TransferenciaInter {
    *  pasa a 'recibida' (y se ACKea) recién cuando AMBOS aceptaron. */
   aceptado_acopio?: boolean | null;
   aceptado_tesoreria?: boolean | null;
+  /** Rechazo por módulo: quita la entrante de la cola de ese módulo sin acreditar. */
+  rechazado_acopio?: boolean | null;
+  rechazado_tesoreria?: boolean | null;
 }
 
 export type TipoMovimientoCaja = 'ingreso' | 'salida' | 'traslado_salida' | 'traslado_entrada' | 'ajuste';

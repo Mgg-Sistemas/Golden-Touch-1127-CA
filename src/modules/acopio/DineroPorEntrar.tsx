@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money } from '@/shared/lib/format';
 import type { CajaCierre, TransferenciaInter } from '@/shared/lib/types';
 import { aceptarEntradaEnCajaAcopio, DESC_ENTRADA_EXTERNA } from './caja.repository';
+import { rechazarEntrante } from '@/modules/tesoreria/transferenciasInter.repository';
 
 /** Suma los legs por moneda y arma un texto "USD 1.000,00 · Bs 5.000,00". */
 function resumenLegs(t: TransferenciaInter): string {
@@ -76,6 +77,7 @@ function DineroModal({ entrantes, cajas, actor, actorName, onClose, onReload }: 
   onReload: () => Promise<void>;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [aRechazar, setARechazar] = useState<TransferenciaInter | null>(null);
 
   async function aceptar(t: TransferenciaInter) {
     // El dinero entra directo a los movimientos de Acopio. Si hay una caja
@@ -92,6 +94,15 @@ function DineroModal({ entrantes, cajas, actor, actorName, onClose, onReload }: 
       toast('Entrada aceptada · dinero acreditado en los movimientos', 'success');
       await onReload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo aceptar', 'error'); setBusyId(null); }
+  }
+  async function rechazar(t: TransferenciaInter) {
+    setBusyId(t.id);
+    try {
+      await rechazarEntrante(t.id, 'acopio');
+      toast('Entrada rechazada · no se acreditó en el Centro de Acopio', 'success');
+      await onReload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo rechazar', 'error'); setBusyId(null); }
+    finally { setARechazar(null); }
   }
 
   return (
@@ -118,13 +129,25 @@ function DineroModal({ entrantes, cajas, actor, actorName, onClose, onReload }: 
                   <div className="mono" style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--success)' }}>{DESC_ENTRADA_EXTERNA}</div>
                   <div className="muted" style={{ fontSize: '.72rem' }}>Suma en «$Usd entregados» y en el saldo de los movimientos del Centro de Acopio.</div>
                 </div>
-                <button className="btn btn-primary" onClick={() => aceptar(t)} disabled={busyId === t.id}>
-                  {busyId === t.id ? 'Aceptando…' : '✓ ACEPTAR ENTRADA'}
-                </button>
+                <div style={{ display: 'flex', gap: '.5rem' }}>
+                  <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setARechazar(t)} disabled={busyId === t.id}>
+                    ✕ Rechazar
+                  </button>
+                  <button className="btn btn-primary" onClick={() => aceptar(t)} disabled={busyId === t.id}>
+                    {busyId === t.id ? 'Aceptando…' : '✓ ACEPTAR ENTRADA'}
+                  </button>
+                </div>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {aRechazar && (
+        <ConfirmDialog title="Rechazar entrada"
+          message={`¿Rechazar esta entrada de ${resumenLegs(aRechazar)}? No se acreditará en el Centro de Acopio. (Tesorería puede aceptarla por su lado igualmente.)`}
+          confirmText="Rechazar" danger
+          onConfirm={() => void rechazar(aRechazar)} onCancel={() => setARechazar(null)} />
       )}
     </Modal>
   );

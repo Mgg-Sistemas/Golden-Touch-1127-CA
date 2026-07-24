@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -25,7 +25,7 @@ import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinance
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa } from './cajaSaldos.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
-  listTransferenciasInter,
+  listTransferenciasInter, rechazarEntrante,
 } from './transferenciasInter.repository';
 import type { TransferenciaInter, TransferLeg } from '@/shared/lib/types';
 import { listMonedas, addMoneda } from './monedas';
@@ -2099,8 +2099,9 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
 }) {
   const [sel, setSel] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [aRechazar, setARechazar] = useState<TransferenciaInter | null>(null);
 
-  const entrantes = transfers.filter((t) => t.direccion === 'entrante' && t.estado === 'por_confirmar' && !t.aceptado_tesoreria);
+  const entrantes = transfers.filter((t) => t.direccion === 'entrante' && t.estado === 'por_confirmar' && !t.aceptado_tesoreria && !t.rechazado_tesoreria);
   const salientes = transfers.filter((t) => t.direccion === 'saliente');
   const salientesVivas = salientes.filter((t) => t.estado !== 'recibida');
   const salientesRecibidas = salientes.filter((t) => t.estado === 'recibida');
@@ -2133,6 +2134,16 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
     finally { setBusy(null); }
   }
 
+  async function rechazar(t: TransferenciaInter) {
+    setBusy(t.id);
+    try {
+      await rechazarEntrante(t.id, 'tesoreria');
+      toast('Entrada rechazada · no se acreditó en Tesorería', 'success');
+      await onChanged();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo rechazar', 'error'); }
+    finally { setBusy(null); setARechazar(null); }
+  }
+
   return (
     <div className="card" style={{ marginBottom: '1rem', borderColor: entrantes.length ? 'var(--brand, #ff8a00)' : undefined }}>
       <div className="card-title" style={{ marginBottom: '.5rem' }}>
@@ -2159,9 +2170,14 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
                     placeholder="🔍 Caja que recibe…" options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
                 )}
                 {canWrite && (
-                  <button className="btn btn-sm btn-primary" disabled={busy === t.id} onClick={() => confirmar(t)}>
-                    {busy === t.id ? 'Confirmando…' : '✓ Confirmar recepción'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '.4rem' }}>
+                    <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} disabled={busy === t.id} onClick={() => setARechazar(t)}>
+                      ✕ Rechazar
+                    </button>
+                    <button className="btn btn-sm btn-primary" disabled={busy === t.id} onClick={() => confirmar(t)}>
+                      {busy === t.id ? 'Confirmando…' : '✓ Confirmar recepción'}
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -2198,6 +2214,13 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.5rem' }}>
           {recibidas === 1 ? 'Confirmado' : `${recibidas} confirmadas`} por {destinosRecibidos}.
         </div>
+      )}
+
+      {aRechazar && (
+        <ConfirmDialog title="Rechazar entrada"
+          message={`¿Rechazar esta entrada de ${aRechazar.empresa_origen} (${aRechazar.resumen})? No se acreditará en Tesorería. (El Centro de Acopio puede aceptarla por su lado igualmente.)`}
+          confirmText="Rechazar" danger
+          onConfirm={() => void rechazar(aRechazar)} onCancel={() => setARechazar(null)} />
       )}
     </div>
   );
@@ -2931,6 +2954,22 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
     if (!cuentasDestino.includes(destinoCuenta)) setDestinoCuenta((cuentasDestino[0] ?? 'general') as CuentaCaja);
   }, [cuentasDestino, destinoCuenta]);
 
+  // Caja «natural» de la moneda destino (misma moneda): default y aviso de descuadre.
+  const cajaNaturalDestino = useMemo(() => cajas.find((c) => c.moneda === a) ?? null, [cajas, a]);
+  const monedaCajaDestino = useMemo(() => cajas.find((c) => c.id === destinoCajaId)?.moneda ?? null, [cajas, destinoCajaId]);
+  const destinoDescuadra = !!destinoCajaId && !!cajaNaturalDestino && monedaCajaDestino !== a;
+  // Al cambiar la moneda destino, apuntar a la caja de ESA moneda (si el destino está
+  // vacío o quedó en una caja de otra moneda existiendo la caja natural). Evita acreditar
+  // p. ej. Bs en la caja USDT y que el total de «Caja Bs» no lo refleje.
+  useEffect(() => {
+    if (!cajaNaturalDestino) return;
+    setDestinoCajaId((prev) => {
+      if (!prev) return cajaNaturalDestino.id;
+      const prevMoneda = cajas.find((c) => c.id === prev)?.moneda;
+      return prevMoneda === a ? prev : cajaNaturalDestino.id;
+    });
+  }, [a, cajaNaturalDestino, cajas]);
+
   // Sugerencia de tasa al cambiar las monedas o cargar el mercado (editable).
   useEffect(() => {
     if (!mercado || de === a) { if (de === a) setTasaStr('1'); return; }
@@ -3064,8 +3103,13 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
           <label>Entra en (caja destino)</label>
           <select className="select" value={destinoCajaId} onChange={(e) => setDestinoCajaId(e.target.value)}>
             <option value="">— Elegí caja —</option>
-            {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.moneda ? ` · ${c.moneda}` : ''}</option>)}
           </select>
+          {destinoDescuadra && (
+            <small style={{ color: 'var(--warning)', display: 'block', marginTop: '.25rem' }}>
+              ⚠️ Vas a acreditar {a} en <strong>{nombreCaja(destinoCajaId)}</strong> (caja {monedaCajaDestino}); el total de <strong>{cajaNaturalDestino?.nombre}</strong> no lo reflejará. Elegí <strong>{cajaNaturalDestino?.nombre}</strong> para que sume ahí.
+            </small>
+          )}
         </div>
         <div className="form-row">
           <label>Cuenta / billetera destino</label>
