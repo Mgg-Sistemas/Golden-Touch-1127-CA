@@ -623,8 +623,13 @@ function SolicitudesKanban({ sols, onVer, nombreDe }: {
   // Nombre completo de quien solicitó: se resuelve del usuario (email → "Nombre Apellido");
   // si no se encuentra, cae al texto guardado en la solicitud.
   const quienSolicito = (s: SolicitudSalida): string => {
+    // Prioriza el campo SOLICITANTE editable (quien pide); si está vacío, cae al
+    // nombre del creador (actor). Antes mostraba SIEMPRE al actor y por eso una
+    // edición del solicitante "no se tomaba" en la tarjeta.
+    const sol = (s.solicitante ?? '').trim();
+    if (sol) return sol;
     const n = nombreDe(s.actor);
-    return n && n !== s.actor ? n : (s.solicitante ?? '—');
+    return n && n !== s.actor ? n : (s.actor ?? '—');
   };
   if (!sols.length) return <EmptyState message="No hay solicitudes en esta vista. Creá una con el botón de arriba." icon="🗂" />;
   return (
@@ -1097,7 +1102,7 @@ function SolicitudDetalleModal({
         <tbody>
           <tr><td className="muted">Tipo</td><td>{sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de {sol.tipo === 'dinero' ? 'dinero' : 'material'}</td></tr>
           <tr><td className="muted">Estado</td><td><span className={`badge ${SOL_ESTADO_CLASS[sol.estado]}`}>{SOL_COLS.find((c) => c.key === sol.estado)?.label}</span></td></tr>
-          <tr><td className="muted">Solicitante</td><td>{(() => { const n = nombreDe(sol.actor); return n && n !== sol.actor ? n : (sol.solicitante ?? '—'); })()}</td></tr>
+          <tr><td className="muted">Solicitante</td><td>{(() => { const s = (sol.solicitante ?? '').trim(); if (s) return s; const n = nombreDe(sol.actor); return n && n !== sol.actor ? n : (sol.actor ?? '—'); })()}</td></tr>
           {sol.unidad_solicitante && <tr><td className="muted">Unidad solicitante</td><td>{sol.unidad_solicitante}</td></tr>}
           {sol.tipo === 'material' ? (
             <>
