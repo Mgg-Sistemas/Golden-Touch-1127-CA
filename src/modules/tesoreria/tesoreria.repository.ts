@@ -51,6 +51,9 @@ export async function registrarGasto(input: {
   cuenta?: CuentaCaja | null; moneda?: string | null;
   // Categoría/subcategoría de gasto (catálogo jerárquico) y correlativo opcional.
   gastoCategoria?: string | null; gastoSubcategoria?: string | null; gastoCorrelativo?: number | null;
+  /** Marca el gasto como del Centro de Acopio (Peramanal): un trigger crea el movimiento
+   *  espejo en la caja de Acopio (Gastos/Nómina según categoría). Solo aplica a USD/USDT. */
+  esPeramanal?: boolean;
   actor: string; actorName?: string | null;
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
@@ -91,6 +94,8 @@ export async function registrarGasto(input: {
     gasto_categoria: input.gastoCategoria ?? null,
     gasto_subcategoria: input.gastoSubcategoria ?? null,
     gasto_correlativo: correlativo,
+    // Reflejo en la caja de Acopio (Peramanal): el trigger solo actúa si es USD/USDT.
+    reflejar_acopio: !!input.esPeramanal,
     cuenta: usaSaldos ? cuentaSel : null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
