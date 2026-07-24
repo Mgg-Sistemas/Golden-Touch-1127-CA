@@ -93,16 +93,21 @@ type ViewMode = 'kanban' | 'lista';
 type Scope = 'pedidos' | 'oc' | 'compra_directa' | 'oc_lote' | 'servicios' | 'servicio_directo';
 
 // Columnas del kanban según el "scope" (Pedidos vs Órdenes de Compra).
-const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
-  { key: 'pendiente', label: 'Pendiente' },
+// Cada columna del Kanban muestra solo las 10 más recientes; el resto queda
+// disponible en el Histórico (que lista TODAS las órdenes). Las columnas de
+// "cola activa" (cargar ofertas / intake que espera acción) se marcan
+// `sinLimite` para mostrarlas completas y no ocultar trabajo pendiente.
+type KanbanCol = { key: EstadoOrden; label: string; sinLimite?: boolean };
+const KANBAN_COLS_PEDIDOS: KanbanCol[] = [
+  { key: 'pendiente', label: 'Pendiente', sinLimite: true },
   { key: 'aprobada', label: 'Aprobada' },
   { key: 'recibida', label: 'Recibida' },
   { key: 'finalizada', label: 'Finalizada' },
   { key: 'cancelada', label: 'Cancelada' },
 ];
 
-const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
-  { key: 'aprobada', label: 'Pendiente (cargar ofertas)' },              // OP aprobada → cargar cotizaciones
+const KANBAN_COLS_OC: KanbanCol[] = [
+  { key: 'aprobada', label: 'Pendiente (cargar ofertas)', sinLimite: true }, // OP aprobada → cargar cotizaciones
   { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' }, // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
   { key: 'confirmada_metodo', label: 'Confirmada (indicar método de pago)' }, // gerente confirmó → falta método
@@ -118,9 +123,9 @@ const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
 // Columnas del kanban de SERVICIOS. Mismo procedimiento/flujo que la OC
 // (solicitud con correlativo → aprobar → cotizar → aprueba Gerente General →
 // Tesorería), solo cambian las etiquetas para el contexto de servicios.
-const KANBAN_COLS_SERVICIOS: { key: EstadoOrden; label: string }[] = [
-  { key: 'pendiente', label: 'Solicitado' },                                  // SS creada → espera aprobación para cotizar
-  { key: 'aprobada', label: 'Aprobado (cotizar)' },                           // aprobada → cargar cotizaciones
+const KANBAN_COLS_SERVICIOS: KanbanCol[] = [
+  { key: 'pendiente', label: 'Solicitado', sinLimite: true },                 // SS creada → espera aprobación para cotizar
+  { key: 'aprobada', label: 'Aprobado (cotizar)', sinLimite: true },          // aprobada → cargar cotizaciones
   { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' },  // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },             // a crédito → abonos hasta saldar
   { key: 'confirmada_metodo', label: 'Confirmado (indicar método de pago)' }, // gerente confirmó → falta método
@@ -1946,10 +1951,14 @@ function OrdenesTable({ ordenes, proveedorMap, canApproveSolicitud, onView, onAp
 interface KanbanBoardProps {
   ordenes: Orden[];
   proveedorMap: Map<string, Proveedor>;
-  cols: { key: EstadoOrden; label: string }[];
+  cols: KanbanCol[];
   onOpen: (id: string) => void;
   noLeidos?: Map<string, number>;
 }
+
+// Máximo de tarjetas visibles por columna del Kanban (salvo columnas `sinLimite`).
+// El resto de las órdenes sigue disponible en el Histórico.
+const KANBAN_MAX_POR_COL = 10;
 function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBoardProps) {
   const byState = useMemo(() => {
     const map = new Map<EstadoOrden, Orden[]>();
@@ -1965,6 +1974,10 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBo
     <div className="kanban">
       {cols.map((col) => {
         const items = byState.get(col.key) ?? [];
+        // Las 10 más recientes (orden por created_at desc); el resto va al Histórico.
+        // Las columnas de cola activa (`sinLimite`) se muestran completas.
+        const visibles = col.sinLimite ? items : items.slice(0, KANBAN_MAX_POR_COL);
+        const ocultas = items.length - visibles.length;
         return (
           <div className="kanban-col" data-state={col.key} key={col.key}>
             <div className="kanban-col-head">
@@ -1975,15 +1988,23 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBo
               {items.length === 0 ? (
                 <div className="kanban-empty">Sin órdenes</div>
               ) : (
-                items.map((o) => (
-                  <KanbanCard
-                    key={o.id}
-                    orden={o}
-                    proveedor={o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null}
-                    onOpen={onOpen}
-                    noLeidos={noLeidos?.get(o.id) ?? 0}
-                  />
-                ))
+                <>
+                  {visibles.map((o) => (
+                    <KanbanCard
+                      key={o.id}
+                      orden={o}
+                      proveedor={o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null}
+                      onOpen={onOpen}
+                      noLeidos={noLeidos?.get(o.id) ?? 0}
+                    />
+                  ))}
+                  {ocultas > 0 && (
+                    <Link to="/app/pedidos/historico" className="kanban-mas" title="Ver el resto en el Histórico"
+                      style={{ display: 'block', textAlign: 'center', padding: '.5rem', fontSize: '.78rem', color: 'var(--brand, #ff8a00)', textDecoration: 'none', fontWeight: 600 }}>
+                      + {ocultas} más en el Histórico →
+                    </Link>
+                  )}
+                </>
               )}
             </div>
           </div>
