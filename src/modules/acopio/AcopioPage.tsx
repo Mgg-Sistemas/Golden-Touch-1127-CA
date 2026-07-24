@@ -29,6 +29,7 @@ import { descargarResumenCajaPdf, enviarResumenCajaPorCorreo } from './resumenCa
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { ConsumoMartillosModal } from './ConsumoMartillosModal';
+import { ConsumoAceiteModal } from './ConsumoAceiteModal';
 import type { ClasificacionAcopio } from '@/shared/lib/types';
 import { DineroPorEntrar } from './DineroPorEntrar';
 import { listEntrantesPorConfirmar } from '@/modules/tesoreria/transferenciasInter.repository';
@@ -61,6 +62,7 @@ export function AcopioPage() {
   const [categorias, setCategorias] = useState(false);
   const [resumenCaja, setResumenCaja] = useState(false);
   const [martillos, setMartillos] = useState(false);
+  const [aceite, setAceite] = useState(false);
   const [historico, setHistorico] = useState(false);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [cerrando, setCerrando] = useState(false);
@@ -171,6 +173,7 @@ export function AcopioPage() {
           <button className="btn btn-ghost" onClick={() => setResumenCaja(true)}>📊 Resumen caja</button>
           <button className="btn btn-ghost" onClick={() => setHistorico(true)}>🗂 Histórico cierres</button>
           <button className="btn btn-ghost" onClick={() => setMartillos(true)}>🔨 Consumo Martillos</button>
+          <button className="btn btn-ghost" onClick={() => setAceite(true)}>🛢 Consumo Aceite</button>
           <button className="btn btn-ghost" onClick={() => setCategorias(true)}>🏷 Categorías</button>
           {canWrite && <button className="btn btn-ghost" onClick={() => { proximoNumeroCaja().then(setNumeroCierre).catch(() => setNumeroCierre('')); setConfirmarCierre(true); }} title="Cierra la caja actual y abre una nueva con el saldo acumulado">🔒 Cerrar caja</button>}
           <label className="switch-inline" title="Mostrar u ocultar la lista de movimientos del centro de acopio">
@@ -223,6 +226,7 @@ export function AcopioPage() {
       {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} onClose={() => setResumenCaja(false)} />}
 
       {martillos && <ConsumoMartillosModal onClose={() => setMartillos(false)} />}
+      {aceite && <ConsumoAceiteModal onClose={() => setAceite(false)} />}
 
       {historico && <HistoricoCajasModal onClose={() => setHistorico(false)} />}
 

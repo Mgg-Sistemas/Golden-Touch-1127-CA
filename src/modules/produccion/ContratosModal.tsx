@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
-import { date, num } from '@/shared/lib/format';
+import { num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { CatalogoAcopio, ContratoAcopio, TipoCatalogoAcopio } from '@/shared/lib/types';
 import {
@@ -29,7 +29,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   const [supervisores, setSupervisores] = useState<CatalogoAcopio[]>([]);
   const [proxSeq, setProxSeq] = useState<number>(1);
   // Encabezado: en alta, fecha+hora automáticas; en edición, las del contrato.
-  const [fecha] = useState(() => contrato?.fecha ?? new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(() => contrato?.fecha ?? new Date().toISOString().slice(0, 10));
   const [hora] = useState(() => contrato?.hora ?? horaSistema());
 
   // Tipo (switch): producción / minero. Determina el prefijo del número y los campos extra.
@@ -85,7 +85,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
     setBusy(true);
     try {
       const input = {
-        tipo, supervisor, lugarExtraccion: lugar, molino,
+        tipo, supervisor, lugarExtraccion: lugar, molino, fecha,
         tonProcesadas: Number(ton) || 0, kgHumedo: Number(kgHum) || 0, kgSecos: Number(kgSec) || 0,
         kgSecoLimpio: Number(kgLim) || 0, observaciones: obs,
         cantidadSacos: Number(sacos) || 0, precioCasiterita: Number(precioCas) || 0, tasa: Number(tasa) || 0,
@@ -135,7 +135,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
             <label>N° de contrato {editando ? '' : '(editá el primero; luego es incremental)'}</label>
             <input className="input mono" value={editando ? numero : numeroManual} onChange={(e) => setNumeroManual(e.target.value)} readOnly={editando || ro} placeholder={numeroSugerido} />
           </div>
-          <div className="form-row"><label>Fecha (automática)</label><input className="input" value={date(fecha)} readOnly /></div>
+          <div className="form-row"><label>Fecha <span className="muted">(editable · re-ubica el contrato en la caja)</span></label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={ro} /></div>
           <div className="form-row"><label>Hora (automática)</label><input className="input mono" value={hora} readOnly /></div>
         </div>
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
