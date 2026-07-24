@@ -46,12 +46,35 @@ export async function listTransferenciasInter(): Promise<TransferenciaInter[]> {
   return (data ?? []) as TransferenciaInter[];
 }
 
-/** Entrantes pendientes de confirmar (el dinero aún no se acreditó). */
-export async function listEntrantesPorConfirmar(): Promise<TransferenciaInter[]> {
-  const { data, error } = await supabase.from(TABLE).select('*')
-    .eq('direccion', 'entrante').eq('estado', 'por_confirmar').order('created_at', { ascending: false });
+/** Entrantes pendientes de confirmar (el dinero aún no se acreditó en ESE módulo).
+ *  El dinero entrante se acepta por separado en cada módulo (Acopio y Tesorería):
+ *  `modulo` filtra las que ese módulo todavía no aceptó. Sin `modulo`, todas las
+ *  que siguen en 'por_confirmar' (aún les falta al menos un módulo). */
+export async function listEntrantesPorConfirmar(modulo?: 'tesoreria' | 'acopio'): Promise<TransferenciaInter[]> {
+  let q = supabase.from(TABLE).select('*')
+    .eq('direccion', 'entrante').eq('estado', 'por_confirmar');
+  if (modulo === 'tesoreria') q = q.eq('aceptado_tesoreria', false);
+  else if (modulo === 'acopio') q = q.eq('aceptado_acopio', false);
+  const { data, error } = await q.order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as TransferenciaInter[];
+}
+
+/** Marca 'recibida' + ACK una entrante SOLO cuando ambos módulos ya la aceptaron.
+ *  Re-lee las banderas frescas para no depender de una fila en memoria (evita
+ *  carreras entre el operador de Acopio y el de Tesorería). */
+async function completarSiAmbosAceptaron(id: string): Promise<void> {
+  const { data } = await supabase.from(TABLE)
+    .select('aceptado_acopio, aceptado_tesoreria, callback_base, transf_id, estado').eq('id', id).single();
+  const r = data as { aceptado_acopio?: boolean; aceptado_tesoreria?: boolean; callback_base?: string | null; transf_id: string; estado: string } | null;
+  if (!r || r.estado === 'recibida') return;
+  if (!(r.aceptado_acopio && r.aceptado_tesoreria)) return;
+  await supabase.from(TABLE).update({ estado: 'recibida', confirmada_at: new Date().toISOString() }).eq('id', id);
+  if (r.callback_base) {
+    await supabase.functions.invoke('transfer-enviar', {
+      body: { tipo: 'ack', transf_id: r.transf_id, callback_base: r.callback_base },
+    }).catch(() => { /* ACK best-effort */ });
+  }
 }
 
 /* ───────── Saliente (este sistema envía a otro) ───────── */
@@ -130,6 +153,7 @@ export async function confirmarTransferenciaEntrante(input: {
 }): Promise<void> {
   const { row } = input;
   if (row.estado !== 'por_confirmar') throw new Error('Esta transferencia ya fue procesada.');
+  if (row.aceptado_tesoreria) throw new Error('Esta transferencia ya fue aceptada en Tesorería.');
   const cajaId = row.caja_id || input.cajaId;
   if (!cajaId) throw new Error('Elegí la caja que recibe el dinero.');
   const legs = (row.legs ?? []).filter((l) => Number(l.monto) > 0);
@@ -144,14 +168,8 @@ export async function confirmarTransferenciaEntrante(input: {
     });
   }
 
-  await supabase.from(TABLE).update({
-    estado: 'recibida', caja_id: cajaId, confirmada_at: new Date().toISOString(),
-  }).eq('id', row.id);
-
-  // ACK al origen (no bloquea: si falla, el origen puede reconciliar manualmente).
-  if (row.callback_base) {
-    await supabase.functions.invoke('transfer-enviar', {
-      body: { tipo: 'ack', transf_id: row.transf_id, callback_base: row.callback_base },
-    }).catch(() => { /* el ACK es best-effort */ });
-  }
+  // El MISMO dinero externo entra por SEPARADO en cada módulo: acá solo se marca la
+  // parte de Tesorería. Recién cuando Acopio también lo acepte, pasa a 'recibida' + ACK.
+  await supabase.from(TABLE).update({ aceptado_tesoreria: true, caja_id: cajaId }).eq('id', row.id);
+  await completarSiAmbosAceptaron(row.id);
 }
