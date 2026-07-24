@@ -1186,7 +1186,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                   <tr>
                     <td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
-                      {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(total, 'USD')}
+                      {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(totalUsd, 'USD')}
                     </td>
                   </tr>
                 </tfoot>
@@ -1194,10 +1194,10 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
               {excedeTotalMulti
-                ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{montoCaja(round2(sumUsdMulti - total), 'USD')}</strong>. No podés pagar más que el total de la compra ({montoCaja(total, 'USD')}).</span>
+                ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{montoCaja(round2(sumUsdMulti - totalUsd), 'USD')}</strong>. No podés pagar más que el total de la compra ({montoCaja(totalUsd, 'USD')}).</span>
                 : cubreTotalMulti
                 ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
-                : <>Faltan <strong>{montoCaja(round2(total - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
+                : <>Faltan <strong>{montoCaja(round2(totalUsd - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
             </small>
           </div>
         )}
