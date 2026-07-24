@@ -1381,6 +1381,16 @@ export interface OfertaProveedor {
   /** Descuento obtenido (monto $) que el proveedor concede; se resta del total de la
    *  factura/OC. Opcional. */
   descuento_obtenido?: number | null;
+  /** IVA de la factura del proveedor: por % o monto manual. Se SUMA al total de la OC y
+   *  se arrastra a Tesorería (precargado al indicar el método de pago). */
+  iva_pct?: number | null;
+  iva_monto?: number | null;
+  iva_aplicado?: boolean | null;
+  /** IGTF (impuesto a las grandes transacciones financieras): por % o monto manual.
+   *  También se suma al total y se arrastra a Tesorería. */
+  igtf_pct?: number | null;
+  igtf_monto?: number | null;
+  igtf_aplicado?: boolean | null;
 }
 
 export interface EvaluacionRecepcion {

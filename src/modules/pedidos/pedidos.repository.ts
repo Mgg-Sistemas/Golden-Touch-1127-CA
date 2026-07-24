@@ -406,7 +406,8 @@ export async function aprobarOrdenConOferta(
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
-    .from('ofertas_proveedor').select('condiciones_pago, precio_divisa, descuento_obtenido')
+    .from('ofertas_proveedor')
+    .select('condiciones_pago, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, igtf_pct, igtf_monto, igtf_aplicado')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -423,16 +424,31 @@ export async function aprobarOrdenConOferta(
   // DESCUENTO OBTENIDO (monto): se resta del total de la OC y queda registrado para la
   // trazabilidad y el PDF. Se sincroniza con la factura (el total final ya es neto).
   const descuentoObtenido = Math.max(0, Number((ofRow?.descuento_obtenido as number | null) ?? 0) || 0);
+  // IVA / IGTF de la oferta: se ARRASTRAN a la OC (montos absolutos) y se SUMAN al total,
+  // y quedan guardados en la orden para que Tesorería los vea precargados (fuente única).
+  const ivaAplicado = !!(ofRow?.iva_aplicado);
+  const ivaPct = ivaAplicado ? Math.max(0, Math.min(100, Number((ofRow?.iva_pct as number | null) ?? 0) || 0)) : 0;
+  const ivaMonto = ivaAplicado ? Math.max(0, Math.round((Number((ofRow?.iva_monto as number | null) ?? 0) || 0) * 100) / 100) : 0;
+  const igtfAplicado = !!(ofRow?.igtf_aplicado);
+  const igtfPct = igtfAplicado ? Math.max(0, Math.min(100, Number((ofRow?.igtf_pct as number | null) ?? 0) || 0)) : 0;
+  const igtfMonto = igtfAplicado ? Math.max(0, Math.round((Number((ofRow?.igtf_monto as number | null) ?? 0) || 0) * 100) / 100) : 0;
+  const impuestos = ivaMonto + igtfMonto;
   const totalBruto = override ? override.precioTotal : (usaDescuento ? precioDivisa! : ofertaPrecioTotal);
-  const totalFinal = Math.round((totalBruto - descuentoObtenido) * 100) / 100;
+  const totalFinal = Math.round((totalBruto - descuentoObtenido + impuestos) * 100) / 100;
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
     items: itemsFinal,
     total: totalFinal,
-    total_divisa: precioDivisa != null ? Math.round((precioDivisa - descuentoObtenido) * 100) / 100 : null,
+    total_divisa: precioDivisa != null ? Math.round((precioDivisa - descuentoObtenido + impuestos) * 100) / 100 : null,
     pago_en_divisa: usaDescuento,
     descuento_obtenido: descuentoObtenido,
+    iva_aplicado: ivaAplicado,
+    iva_pct: ivaPct,
+    iva_monto: ivaAplicado ? ivaMonto : null,
+    igtf_aplicado: igtfAplicado,
+    igtf_pct: igtfPct,
+    igtf_monto: igtfAplicado ? igtfMonto : null,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     oc_creada_por: actorEmail,
@@ -719,7 +735,13 @@ export async function indicarMetodoPago(
   const pagaEnDivisa = totalDivisa > 0 && limpios.some(
     (m) => m.moneda === 'USD' || m.moneda === 'USDT' || METODOS_DIVISA.includes(m.metodo),
   );
-  const baseTotal = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
+  // Base NETA: `o.total`/`total_divisa` ya pueden traer IVA/IGTF sumados desde la oferta.
+  // Los restamos para no duplicarlos al re-sumar los del método de pago (que llegan
+  // precargados desde la oferta y pueden ajustarse acá). Fuente única: la oferta.
+  const ivaPrev = o.iva_aplicado ? Math.max(0, Number(o.iva_monto) || 0) : 0;
+  const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
+  const grossBase = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
+  const baseTotal = Math.max(0, Math.round((grossBase - ivaPrev - igtfPrev) * 100) / 100);
   // OC por factura con IVA: suma al total. El % es de referencia (16 por defecto) y el
   // MONTO manda (se puede indicar por % o a mano), tal cual lo calculó/ajustó la UI.
   const aplicaIva = comprobanteTipo === 'factura' && !!soporte?.conIva;

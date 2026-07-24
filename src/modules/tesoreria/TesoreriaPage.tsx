@@ -859,6 +859,8 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
                 <div><span className="muted">OP:</span> <strong className="mono">{orden.codigo}</strong></div>
                 <div><span className="muted">N°ODC:</span> <strong className="mono">{orden.oc_codigo ?? '—'}</strong></div>
                 <div><span className="muted">Total OC:</span> <strong className="mono">{monto(orden.total, orden.total_moneda ?? 'USD')}</strong></div>
+                {orden.iva_aplicado && <div><span className="muted">IVA:</span> <strong className="mono">{monto(Number(orden.iva_monto ?? 0), orden.total_moneda ?? 'USD')}</strong> <span className="muted">({Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}% · incluido)</span></div>}
+                {orden.igtf_aplicado && <div><span className="muted">IGTF:</span> <strong className="mono">{monto(Number(orden.igtf_monto ?? 0), orden.total_moneda ?? 'USD')}</strong> <span className="muted">({Number(orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}% · incluido)</span></div>}
                 {orden.recibido_total != null && <div><span className="muted">Recibido:</span> <strong className="mono">{monto(Number(orden.recibido_total), orden.total_moneda ?? 'USD')}</strong></div>}
                 <div><span className="muted">Solicitante:</span> <strong>{orden.solicitante || orden.solicitante_email}</strong></div>
                 {orden.condiciones_pago && <div><span className="muted">Condición:</span> <strong>{labelCondicionPago(orden.condiciones_pago)}</strong></div>}
@@ -3517,6 +3519,14 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                   {(noLeidos.get(r.orden.id) ?? 0) > 0 && (
                     <span className="badge" style={{ marginLeft: '.35rem', background: '#ff8a00', color: '#111', fontWeight: 700 }}
                       title="Mensajes sin leer en el chat de esta OC">💬 {noLeidos.get(r.orden.id)}</span>
+                  )}
+                  {r.orden.iva_aplicado && (
+                    <span className="badge" style={{ marginLeft: '.35rem', background: '#6d28d9', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
+                      title={`Incluye IVA (${Number(r.orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%): ${monto(Number(r.orden.iva_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>IVA</span>
+                  )}
+                  {r.orden.igtf_aplicado && (
+                    <span className="badge" style={{ marginLeft: '.35rem', background: '#b45309', color: '#fff', fontWeight: 700, fontSize: '.62rem', padding: '.05rem .35rem' }}
+                      title={`Incluye IGTF (${Number(r.orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%): ${monto(Number(r.orden.igtf_monto ?? 0), r.orden.total_moneda ?? 'USD')}`}>IGTF</span>
                   )}
                 </td>
                 <td className="mono">{r.orden.codigo}</td>

@@ -19,6 +19,14 @@ export interface CrearOfertaInput {
   precio_divisa?: number | null;
   /** Descuento obtenido (monto $) que se resta del total de la factura/OC. Opcional. */
   descuento_obtenido?: number | null;
+  /** Impuestos de la factura del proveedor (se SUMAN al total de la OC y se arrastran a
+   *  Tesorería). Por % o por monto manual. */
+  iva_pct?: number | null;
+  iva_monto?: number | null;
+  iva_aplicado?: boolean | null;
+  igtf_pct?: number | null;
+  igtf_monto?: number | null;
+  igtf_aplicado?: boolean | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
@@ -100,6 +108,12 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       precio_total: input.precio_total,
       precio_divisa: input.precio_divisa ?? null,
       descuento_obtenido: Math.max(0, Number(input.descuento_obtenido) || 0),
+      iva_pct: Math.max(0, Number(input.iva_pct) || 0),
+      iva_monto: Math.max(0, Number(input.iva_monto) || 0),
+      iva_aplicado: !!input.iva_aplicado,
+      igtf_pct: Math.max(0, Number(input.igtf_pct) || 0),
+      igtf_monto: Math.max(0, Number(input.igtf_monto) || 0),
+      igtf_aplicado: !!input.igtf_aplicado,
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
       notas: input.notas ?? null,
@@ -119,6 +133,7 @@ export async function actualizarOferta(
   id: string,
   patch: Partial<Pick<CrearOfertaInput,
     'proveedor_id' | 'items' | 'precio_total' | 'precio_divisa' | 'descuento_obtenido' |
+    'iva_pct' | 'iva_monto' | 'iva_aplicado' | 'igtf_pct' | 'igtf_monto' | 'igtf_aplicado' |
     'fecha_entrega_prometida' | 'condiciones_pago' | 'notas' | 'ficha' | 'adjuntos' |
     'pdf_path' | 'pdf_filename'>>
 ): Promise<OfertaProveedor> {
