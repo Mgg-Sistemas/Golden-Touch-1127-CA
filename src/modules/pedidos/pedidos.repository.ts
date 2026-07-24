@@ -1117,6 +1117,48 @@ function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, s
 }
 
 /**
+ * RESERVA ATÓMICA del cierre de pago de una OC. Marca la orden `pagada` en la base SOLO
+ * si sigue en su estado esperado (`o.estado`), gracias al `.eq('estado', o.estado)`. Es
+ * el candado de idempotencia: si dos llamadas compiten (doble clic, o un reintento tras
+ * un error de red / de storage que dejó el primer intento a medias), solo UNA cambia la
+ * fila; la otra recibe 0 filas y NO debe cobrar. Se llama ANTES de mover plata, así el
+ * doble clic ya no genera doble egreso. Devuelve true si esta llamada ganó la reserva.
+ */
+async function reservarCierrePagoOrden(o: Orden, actorEmail: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update({
+      estado: 'pagada' as EstadoOrden,
+      pagada_por: actorEmail,
+      pagada_en: new Date().toISOString(),
+      historial: appendHistorial(o, 'pagada', actorEmail, { oc_codigo: o.oc_codigo }),
+    })
+    .eq('id', o.id)
+    .eq('estado', o.estado)
+    .select('id');
+  if (error) throw error;
+  return !!(data && data.length);
+}
+
+/**
+ * Libera la reserva anterior: devuelve la OC a su estado previo. Se usa cuando el egreso
+ * falla DESPUÉS de reservar (p. ej. saldo insuficiente), para que la orden quede tal como
+ * estaba y no aparezca «pagada» sin dinero movido.
+ */
+async function liberarCierrePagoOrden(o: Orden): Promise<void> {
+  await supabase
+    .from(TABLE)
+    .update({
+      estado: o.estado,
+      pagada_por: o.pagada_por ?? null,
+      pagada_en: o.pagada_en ?? null,
+      historial: o.historial ?? null,
+    })
+    .eq('id', o.id)
+    .eq('estado', 'pagada');
+}
+
+/**
  * Paga una OC confirmada (estaba `oc_aprobada`): descuenta el monto de la caja
  * elegida (egreso en Tesorería / Libro Mayor, categoría 'pago_oc' casado con la
  * orden), adjunta la factura (y retención opcional) y deja la OC en `pagada`.
@@ -1133,37 +1175,48 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   if (monto <= 0) throw new Error('Indicá el monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
-  // 1) Egreso en Tesorería (valida saldo) casado con la orden → aparece en Libro Mayor.
-  const mov = await pagarOrden({
-    cajaId: input.cajaId, ordenId: o.id, monto,
-    concepto: conceptoPagoOc(o, input.motivoPago, undefined, seriales),
-    gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
-    actor: input.actorEmail, actorName: input.actorName ?? null,
-  });
+  // 0) RESERVA ATÓMICA del cierre ANTES de mover plata. Si un doble clic o un reintento
+  //    (tras un fallo previo) llega acá con la OC ya cerrada, no cobramos de nuevo.
+  if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
+    throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
 
-  // 1.b) Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
+  // 1) Egreso(s). Si falla (p. ej. saldo insuficiente), liberamos la reserva para que la
+  //    OC no quede «pagada» sin dinero movido.
   const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
+  let mov: { id: string };
   let comisionMovId: string | null = null;
-  if (comision) {
-    const movC = await egresarDivisa({
-      cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
-      concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+  try {
+    mov = await pagarOrden({
+      cajaId: input.cajaId, ordenId: o.id, monto,
+      concepto: conceptoPagoOc(o, input.motivoPago, undefined, seriales),
+      gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
-    comisionMovId = movC.id;
+    // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
+    if (comision) {
+      const movC = await egresarDivisa({
+        cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
+        concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+        actor: input.actorEmail, actorName: input.actorName ?? null,
+      });
+      comisionMovId = movC.id;
+    }
+  } catch (e) {
+    await liberarCierrePagoOrden(o).catch(() => { /* best-effort */ });
+    throw e;
   }
 
-  // 2) Adjuntos (factura obligatoria por flujo; retención opcional).
+  // 2) Adjuntos DESPUÉS del cierre atómico y best-effort: la OC ya está pagada y el dinero
+  //    ya salió, así que un fallo de storage NO debe descuadrar el pago (se recargan luego).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
   let retencionPath: string | null = null, retencionNombre: string | null = null;
-  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
-  if (input.retencion) { retencionPath = await subirAdjuntoOc(o.id, input.retencion, 'retencion'); retencionNombre = input.retencion.name; }
+  try {
+    if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+    if (input.retencion) { retencionPath = await subirAdjuntoOc(o.id, input.retencion, 'retencion'); retencionNombre = input.retencion.name; }
+  } catch { /* best-effort: los adjuntos se pueden recargar desde el detalle */ }
 
-  // 3) Cerrar el pago en la orden.
+  // 3) Completar los datos del pago (la OC ya quedó 'pagada' en la reserva).
   const patch = {
-    estado: 'pagada' as EstadoOrden,
-    pagada_por: input.actorEmail,
-    pagada_en: new Date().toISOString(),
     caja_id: input.cajaId,
     caja_mov_id: mov.id,
     factura_path: facturaPath, factura_nombre: facturaNombre,
@@ -1175,7 +1228,6 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     // Si la OC es por Factura, al pagar se marca automáticamente en Retenciones.
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
-    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...(seriales.length ? { seriales } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1216,37 +1268,41 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
   if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
+  // Reserva atómica ANTES de mover plata: bloquea el doble cobro por doble clic/reintento.
+  if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
+    throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
+
   // Un egreso por moneda (cada uno valida el saldo de su cuenta). Los seriales de
-  // billetes solo aplican a la pata en USD físico.
+  // billetes solo aplican a la pata en USD físico. Si algo falla, liberamos la reserva.
   const movIds: string[] = [];
-  for (const leg of legs) {
-    const serLeg = leg.moneda === 'USD' ? seriales : null;
-    const mov = await egresarDivisa({
-      cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
-      concepto: conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg), categoria: 'pago_oc', refOrdenId: o.id,
-      gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
-      actor: input.actorEmail, actorName: input.actorName ?? null,
-    });
-    movIds.push(mov.id);
+  try {
+    for (const leg of legs) {
+      const serLeg = leg.moneda === 'USD' ? seriales : null;
+      const mov = await egresarDivisa({
+        cajaId: input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+        concepto: conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg), categoria: 'pago_oc', refOrdenId: o.id,
+        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+        actor: input.actorEmail, actorName: input.actorName ?? null,
+      });
+      movIds.push(mov.id);
+    }
+  } catch (e) {
+    await liberarCierrePagoOrden(o).catch(() => { /* best-effort */ });
+    throw e;
   }
 
+  // Adjunto best-effort tras el cierre atómico (un fallo de storage no descuadra el pago).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
-  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+  try {
+    if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+  } catch { /* best-effort */ }
 
   const patch = {
-    estado: 'pagada' as EstadoOrden,
-    pagada_por: input.actorEmail,
-    pagada_en: new Date().toISOString(),
     caja_id: input.cajaId,
     caja_mov_id: movIds[0] ?? null,
     factura_path: facturaPath, factura_nombre: facturaNombre,
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
-    historial: appendHistorial(o, 'pagada', input.actorEmail, {
-      oc_codigo: o.oc_codigo,
-      multipago: legs.map((l) => ({ moneda: l.moneda, cuenta: l.cuenta, monto: l.monto })),
-      ...(seriales.length ? { seriales } : {}),
-    }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1318,50 +1374,58 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
   if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
-  const movIds: string[] = [];
-  for (const leg of legs) {
-    const serLeg = leg.moneda === 'USD' ? seriales : null;
-    const concepto = conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg);
-    // ¿La caja maneja este saldo en caja_saldos? Si sí, egreso multimoneda; si no, legado.
-    const { data: row } = await supabase.from('caja_saldos').select('id')
-      .eq('caja_id', leg.cajaId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
-    if (row) {
-      const mov = await egresarDivisa({
-        cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
-        concepto, categoria: 'pago_oc', refOrdenId: o.id,
-        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
-        actor: input.actorEmail, actorName: input.actorName ?? null,
-      });
-      movIds.push(mov.id);
-    } else {
-      const mov = await egresarLegacyOC({
-        cajaId: leg.cajaId, monto: leg.monto, concepto, refOrdenId: o.id,
-        gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
-        actor: input.actorEmail, actorName: input.actorName ?? null,
-      });
-      movIds.push(mov.id);
-    }
-  }
+  // Reserva atómica ANTES de mover plata: bloquea el doble cobro por doble clic/reintento.
+  if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
+    throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
 
-  // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
   const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
+  const movIds: string[] = [];
   let comisionMovId: string | null = null;
-  if (comision) {
-    const movC = await egresarDivisa({
-      cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
-      concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
-      actor: input.actorEmail, actorName: input.actorName ?? null,
-    });
-    comisionMovId = movC.id;
+  try {
+    for (const leg of legs) {
+      const serLeg = leg.moneda === 'USD' ? seriales : null;
+      const concepto = conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg);
+      // ¿La caja maneja este saldo en caja_saldos? Si sí, egreso multimoneda; si no, legado.
+      const { data: row } = await supabase.from('caja_saldos').select('id')
+        .eq('caja_id', leg.cajaId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
+      if (row) {
+        const mov = await egresarDivisa({
+          cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+          concepto, categoria: 'pago_oc', refOrdenId: o.id,
+          gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+          actor: input.actorEmail, actorName: input.actorName ?? null,
+        });
+        movIds.push(mov.id);
+      } else {
+        const mov = await egresarLegacyOC({
+          cajaId: leg.cajaId, monto: leg.monto, concepto, refOrdenId: o.id,
+          gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+          actor: input.actorEmail, actorName: input.actorName ?? null,
+        });
+        movIds.push(mov.id);
+      }
+    }
+    // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
+    if (comision) {
+      const movC = await egresarDivisa({
+        cajaId: comision.cajaId, cuenta: comision.cuenta, moneda: comision.moneda, monto: comision.monto,
+        concepto: `Comisión bancaria · ${o.oc_codigo ?? o.codigo}`, categoria: 'comision_bancaria', refOrdenId: o.id,
+        actor: input.actorEmail, actorName: input.actorName ?? null,
+      });
+      comisionMovId = movC.id;
+    }
+  } catch (e) {
+    await liberarCierrePagoOrden(o).catch(() => { /* best-effort */ });
+    throw e;
   }
 
+  // Adjunto best-effort tras el cierre atómico (un fallo de storage no descuadra el pago).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
-  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+  try {
+    if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+  } catch { /* best-effort */ }
 
   const patch = {
-    estado: 'pagada' as EstadoOrden,
-    pagada_por: input.actorEmail,
-    pagada_en: new Date().toISOString(),
     caja_id: legs[0].cajaId,
     caja_mov_id: movIds[0] ?? null,
     factura_path: facturaPath, factura_nombre: facturaNombre,
@@ -1371,11 +1435,6 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
     comision_caja_mov_id: comisionMovId,
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
-    historial: appendHistorial(o, 'pagada', input.actorEmail, {
-      oc_codigo: o.oc_codigo,
-      multipago: legs.map((l) => ({ cajaId: l.cajaId, moneda: l.moneda, cuenta: l.cuenta, monto: l.monto })),
-      ...(seriales.length ? { seriales } : {}),
-    }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
