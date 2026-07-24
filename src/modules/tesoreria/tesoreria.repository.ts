@@ -52,8 +52,11 @@ export async function registrarGasto(input: {
   // Categoría/subcategoría de gasto (catálogo jerárquico) y correlativo opcional.
   gastoCategoria?: string | null; gastoSubcategoria?: string | null; gastoCorrelativo?: number | null;
   /** Marca el gasto como del Centro de Acopio (Peramanal): un trigger crea el movimiento
-   *  espejo en la caja de Acopio (Gastos/Nómina según categoría). Solo aplica a USD/USDT. */
+   *  espejo en la caja de Acopio (Gastos/Nómina según categoría). */
   esPeramanal?: boolean;
+  /** Monto en $ para el reflejo en Acopio. Para gastos en Bs es la conversión con la
+   *  tasa personalizada (monto / tasa). Para USD/USDT puede omitirse (usa el nominal). */
+  acopioMontoUsd?: number | null;
   actor: string; actorName?: string | null;
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
@@ -94,8 +97,9 @@ export async function registrarGasto(input: {
     gasto_categoria: input.gastoCategoria ?? null,
     gasto_subcategoria: input.gastoSubcategoria ?? null,
     gasto_correlativo: correlativo,
-    // Reflejo en la caja de Acopio (Peramanal): el trigger solo actúa si es USD/USDT.
+    // Reflejo en la caja de Acopio (Peramanal): monto en $ (conversión Bs→$ o nominal).
     reflejar_acopio: !!input.esPeramanal,
+    acopio_monto_usd: input.esPeramanal ? (input.acopioMontoUsd ?? null) : null,
     cuenta: usaSaldos ? cuentaSel : null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();

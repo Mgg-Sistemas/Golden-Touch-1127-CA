@@ -1691,6 +1691,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const [concepto, setConcepto] = useState('');
   const [montoStr, setMontoStr] = useState('');
   const [esPeramanal, setEsPeramanal] = useState(false);
+  const [tasaPeramanalStr, setTasaPeramanalStr] = useState(''); // Bs por $ (custom) para gastos en Bs
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
@@ -1738,8 +1739,14 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const esMulti = saldosCaja.length > 0;
   const selSaldo = saldosCaja.find((s) => s.id === saldoSelId) ?? null;
   const monedaPago = esMulti ? (selSaldo?.moneda ?? caja?.moneda ?? 'Bs') : (caja?.moneda ?? 'Bs');
-  // El reflejo en la caja de Acopio solo aplica a gastos en dólares (USD/USDT).
+  // Reflejo en la caja de Acopio: en dólares va el monto tal cual; en Bs se convierte
+  // a $ con la tasa personalizada (monto / tasa).
   const esDolar = monedaPago === 'USD' || monedaPago === 'USDT';
+  const tasaPeramanalNum = Number(tasaPeramanalStr) || 0;
+  const montoNumRef = Number(montoStr) || 0;
+  const reflejoUsd = esDolar
+    ? montoNumRef
+    : (tasaPeramanalNum > 0 ? Math.round((montoNumRef / tasaPeramanalNum) * 100) / 100 : 0);
   const cuentaPago = esMulti ? (selSaldo?.cuenta ?? 'general') : null;
   const disponible = esMulti ? (Number(selSaldo?.saldo) || 0) : (Number(caja?.saldo) || 0);
 
@@ -1752,6 +1759,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
     const catN = catNombre.trim(); const subN = subNombre.trim();
     if (!catN) { setError('Elegí o creá la categoría del gasto.'); return; }
     if (!subN) { setError('Elegí o creá la subcategoría del gasto.'); return; }
+    if (esPeramanal && !esDolar && tasaPeramanalNum <= 0) { setError('Indicá la tasa (Bs por $) para reflejar el gasto en la caja de Acopio.'); return; }
     // Para RECEPCIÓN/EXPORTACIÓN el primer correlativo lo ingresa el usuario.
     let primerCorr: number | null = null;
     if (llevaCorrelativo && ultimoCorr == null) {
@@ -1767,7 +1775,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
       await registrarGasto({
         cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago,
         gastoCategoria: cat.nombre, gastoSubcategoria: subN, gastoCorrelativo: primerCorr,
-        esPeramanal: esPeramanal && esDolar, actor, actorName,
+        esPeramanal, acopioMontoUsd: esPeramanal ? reflejoUsd : null, actor, actorName,
       });
       notify(`Gasto registrado: ${monto(m, monedaPago)}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
@@ -1839,17 +1847,28 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
           <input className="input" name="g-concepto" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
           <small className="muted">Categoría y subcategoría son obligatorias (podés crearlas escribiéndolas). El gasto queda etiquetado y aparece en el registro de movimientos.</small>
         </div>
-        {/* Reflejo en la caja del Centro de Acopio (Peramanal). Solo dólares (USD/USDT). */}
+        {/* Reflejo en la caja del Centro de Acopio (Peramanal). En Bs se convierte a $ con tasa personalizada. */}
         <div className="form-row">
-          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: esDolar ? 'pointer' : 'not-allowed', opacity: esDolar ? 1 : 0.55 }}>
-            <input type="checkbox" checked={esPeramanal && esDolar} disabled={!esDolar}
-              onChange={(e) => setEsPeramanal(e.target.checked)} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={esPeramanal} onChange={(e) => setEsPeramanal(e.target.checked)} />
             <span>🏭 Es gasto del <strong>Centro de Acopio (Peramanal)</strong></span>
           </label>
+          {esPeramanal && !esDolar && (
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.45rem', flexWrap: 'wrap' }}>
+              <label className="muted" style={{ fontSize: '.8rem' }}>Tasa (Bs por $)</label>
+              <input className="input mono" type="number" min={0} step="any" value={tasaPeramanalStr}
+                onChange={(e) => setTasaPeramanalStr(e.target.value)} placeholder="Bs/$" style={{ width: 130, textAlign: 'right' }} />
+              <span className="muted" style={{ fontSize: '.82rem' }}>
+                ≈ <strong className="mono" style={{ color: 'var(--brand, #ff8a00)' }}>${reflejoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> a Acopio
+              </span>
+            </div>
+          )}
           <small className="muted">
-            {esDolar
-              ? 'Además del movimiento en Tesorería, se crea el movimiento en la caja de Acopio (columna Gastos o Nómina según la categoría) y afecta la tasa $/kg.'
-              : 'Solo disponible para gastos en dólares (USD/USDT). Elegí un saldo en dólares para habilitarlo.'}
+            {esPeramanal
+              ? (esDolar
+                  ? `Se crea el movimiento en la caja de Acopio por $${reflejoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (columna Gastos o Nómina según la categoría) y afecta la tasa $/kg.`
+                  : 'El gasto está en Bs: indicá la tasa (Bs por $) y se refleja convertido a $ en la caja de Acopio (Gastos o Nómina según la categoría), afectando la tasa $/kg.')
+              : 'Marcalo si el gasto es del Centro de Acopio: además del movimiento en Tesorería, se refleja en la caja de Acopio.'}
           </small>
         </div>
       </form>
