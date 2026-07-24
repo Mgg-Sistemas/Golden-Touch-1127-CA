@@ -95,6 +95,10 @@ export interface ContratoInput {
   tasa?: number;
   /** N° manual del contrato (la primera vez); si no viene, el sistema autoincrementa. */
   numeroManual?: string | null;
+  /** Fecha del contrato (YYYY-MM-DD). Editable. La caja de Peramanal ubica el contrato en
+   *  la caja/ventana que corresponde SEGÚN esta fecha, así que al cambiarla la caja se
+   *  re-sincroniza sola (no hay que copiar la fecha a ningún lado). */
+  fecha?: string;
 }
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -113,6 +117,8 @@ function payloadContrato(input: ContratoInput): Record<string, unknown> {
     precio_casiterita: n(input.precioCasiterita),
     tasa: n(input.tasa),
     observaciones: input.observaciones?.trim() || null,
+    // Solo se incluye si se indicó (al editar la fecha); en alta la fija crearContrato.
+    ...(input.fecha ? { fecha: input.fecha } : {}),
   };
 }
 
@@ -172,7 +178,7 @@ export async function crearContrato(input: ContratoInput & { actor: string; acto
       .insert({
         numero,
         seq,
-        fecha: new Date().toISOString().slice(0, 10),
+        fecha: input.fecha || new Date().toISOString().slice(0, 10),
         hora: horaSistema(),
         ...payloadContrato(input),
         created_by: input.actor,
