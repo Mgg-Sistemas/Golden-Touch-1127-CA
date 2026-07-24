@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime, montoMoneda } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
-import { listOrdenes, listProveedoresActivos } from './pedidos.repository';
+import { listOrdenes, listProveedoresActivos, eliminarOrdenCompra } from './pedidos.repository';
 import { descargarTrazabilidadPdf } from './trazabilidadPdf';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
@@ -49,6 +51,12 @@ export function HistoricoPage() {
   // Detalle de una orden del histórico (clic en la fila) + impresión PDF con vista previa.
   const [detalle, setDetalle] = useState<Orden | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  // Eliminar OC (revierte plata + stock). Gateado por permiso de escritura de Pedidos.
+  const { can, isAdmin } = usePermissions();
+  const { user } = useSession();
+  const puedeEliminar = isAdmin || can('pedidos', 'escritura');
+  const [eliminar, setEliminar] = useState<Orden | null>(null);
+  const [borrando, setBorrando] = useState(false);
 
   async function imprimirPdf(o: Orden, tipo: 'trazabilidad' | 'oc') {
     setPdfBusy(true);
@@ -59,6 +67,22 @@ export function HistoricoPage() {
       toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
     } finally {
       setPdfBusy(false);
+    }
+  }
+
+  async function confirmarEliminar() {
+    if (!eliminar) return;
+    setBorrando(true);
+    try {
+      await eliminarOrdenCompra(eliminar, user?.email ?? 'sistema', user?.email ?? null);
+      toast(`${eliminar.oc_codigo ?? eliminar.codigo} eliminada. Se revirtió lo que había movido (plata y stock).`, 'success');
+      setEliminar(null);
+      setDetalle(null);
+      await cargar();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo eliminar la orden', 'error');
+    } finally {
+      setBorrando(false);
     }
   }
 
@@ -313,6 +337,17 @@ export function HistoricoPage() {
             footer={
               <>
                 <button className="btn btn-ghost" onClick={() => setDetalle(null)} disabled={pdfBusy}>Cerrar</button>
+                {puedeEliminar && (
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => setEliminar(o)}
+                    disabled={pdfBusy || borrando}
+                    title="Eliminar la orden y revertir plata y stock que haya movido"
+                    style={{ marginRight: 'auto' }}
+                  >
+                    🗑️ Eliminar
+                  </button>
+                )}
                 {o.oc_codigo && (
                   <button className="btn btn-ghost" onClick={() => void imprimirPdf(o, 'oc')} disabled={pdfBusy} title="Imprimir la Orden de Compra (vista previa)">
                     📄 {esServicio ? 'Control de Servicio' : 'OC'} PDF
@@ -356,6 +391,27 @@ export function HistoricoPage() {
               </table>
             </div>
           </Modal>
+        );
+      })()}
+
+      {eliminar && (() => {
+        const movioPlata = ['pagada', 'cuenta_abierta', 'recibida', 'finalizada'].includes(eliminar.estado);
+        const movioStock = eliminar.afecta_inventario !== false && !!eliminar.recibida_en;
+        const reversa = [
+          movioPlata ? 'devuelve a la caja lo pagado (pago, patas, comisión y abonos)' : null,
+          movioStock ? 'revierte del inventario la mercancía recibida' : null,
+        ].filter(Boolean).join(' y ');
+        return (
+          <ConfirmDialog
+            title="Eliminar orden"
+            message={`¿Eliminar ${eliminar.oc_codigo ?? eliminar.codigo}?`
+              + (reversa ? ` Se ${reversa}.` : ' No movió plata ni stock, así que solo se borra.')
+              + ' También se borran sus ofertas, abonos, chat y adjuntos. Esta acción no se puede deshacer.'}
+            confirmText={borrando ? 'Eliminando…' : 'Eliminar'}
+            danger
+            onConfirm={confirmarEliminar}
+            onCancel={() => setEliminar(null)}
+          />
         );
       })()}
     </div>

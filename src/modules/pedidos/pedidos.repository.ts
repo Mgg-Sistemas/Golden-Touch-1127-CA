@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
-import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import type {
   AbonoCredito,
@@ -1930,4 +1931,83 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
     }
   }
   return out;
+}
+
+/**
+ * ELIMINA una orden/OC por completo, REVIRTIENDO todo lo que llegó a mover, sea cual
+ * sea su estado:
+ *   1) PLATA — cada egreso de Tesorería casado a la orden (`ref_orden_id`): el pago,
+ *      las patas del multipago, la comisión bancaria y los abonos a crédito. Cada uno
+ *      devuelve su monto a la (caja, cuenta, moneda) de origen (deja un ingreso de
+ *      auditoría 'reverso'), así ninguna caja queda descuadrada.
+ *   2) INVENTARIO — cada ENTRADA que generó la recepción (`movimientos`
+ *      ref_tipo='orden') se revierte con una salida de la misma cantidad (stock,
+ *      existencias y PMP), salvo los productos no inventariables.
+ *   3) La fila de la orden. Sus hijas por FK caen en cascada (ofertas, abonos, chat,
+ *      evaluaciones); `op_padre_id` de las hijas y las facturas quedan en NULL. Las
+ *      retenciones se intentan borrar (best-effort: requiere Tesorería).
+ *
+ * No hay transacción única (igual que reabrir compras): el orden elegido —primero
+ * revertir plata y stock, y recién al final borrar la orden— deja la base consistente
+ * aunque algo se corte antes del último paso.
+ */
+export async function eliminarOrdenCompra(o: Orden, actorEmail: string, actorName?: string | null): Promise<void> {
+  const etiqueta = o.oc_codigo ?? o.codigo ?? 'la orden';
+
+  // 1) PLATA — revertir todos los egresos de Tesorería casados a la orden.
+  const { data: egresos, error: eErr } = await supabase
+    .from('movimientos_caja')
+    .select('caja_id, cuenta, moneda, monto')
+    .eq('ref_orden_id', o.id)
+    .eq('tipo', 'salida');
+  if (eErr) throw eErr;
+  for (const m of egresos ?? []) {
+    const row = m as { caja_id: string; cuenta: CuentaCaja; moneda: string; monto: number };
+    if (!row.caja_id || !(Number(row.monto) > 0)) continue;
+    await revertirEgresoDivisa({
+      cajaId: row.caja_id, cuenta: row.cuenta, moneda: row.moneda, monto: Number(row.monto),
+      concepto: `Reversión por eliminación de ${etiqueta}`, actor: actorEmail, actorName: actorName ?? null,
+    });
+  }
+
+  // 2) INVENTARIO — revertir las entradas de la recepción (si la orden afectó stock).
+  if (o.afecta_inventario !== false) {
+    const { data: entradas } = await supabase
+      .from('movimientos')
+      .select('producto_id, delta')
+      .eq('ref_tipo', 'orden').eq('ref_id', o.id).eq('tipo', 'entrada');
+    const filas = (entradas ?? []) as { producto_id: string | null; delta: number }[];
+    const ids = [...new Set(filas.map((r) => r.producto_id).filter(Boolean))] as string[];
+    // Los genéricos/surtidos (no_inventariable) no sumaron stock: no hay nada que revertir.
+    const noInv = new Set<string>();
+    const almacenProd = new Map<string, string>();
+    if (ids.length) {
+      const { data: prods } = await supabase.from('productos').select('id, no_inventariable, almacen').in('id', ids);
+      for (const p of prods ?? []) {
+        const pr = p as { id: string; no_inventariable?: boolean; almacen?: string | null };
+        if (pr.no_inventariable) noInv.add(pr.id);
+        if (pr.almacen) almacenProd.set(pr.id, pr.almacen);
+      }
+    }
+    const destino = (o.almacen_destino && o.almacen_destino.trim()) || null;
+    for (const r of filas) {
+      const cant = Number(r.delta) || 0;
+      if (cant <= 0 || !r.producto_id || noInv.has(r.producto_id)) continue;
+      await registrarMovimiento({
+        producto_id: r.producto_id, tipo: 'salida', delta: -cant,
+        almacen: destino || almacenProd.get(r.producto_id) || 'General',
+        actor: actorEmail, actor_name: actorName ?? null,
+        ref_tipo: 'orden_eliminacion', ref_id: o.id, ref_codigo: o.codigo,
+        detalle: `Eliminación ${etiqueta} · revierte recepción`,
+      });
+    }
+  }
+
+  // 2.b) Quitar las retenciones vinculadas (best-effort: la RLS de retenciones exige
+  //      Tesorería; si el usuario no la tiene, quedan con orden_id en NULL por el FK).
+  await supabase.from('retenciones').delete().eq('orden_id', o.id).then(undefined, () => { /* best-effort */ });
+
+  // 3) Borrar la orden. Las hijas (ofertas, abonos, chat, evaluaciones) caen en cascada.
+  const { error: dErr } = await supabase.from(TABLE).delete().eq('id', o.id);
+  if (dErr) throw dErr;
 }
