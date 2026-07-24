@@ -1836,7 +1836,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
         )}
         <div className="form-row">
           <label>Concepto</label>
-          <input className="input" name="g-concepto" defaultValue={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
+          <input className="input" name="g-concepto" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
           <small className="muted">Categoría y subcategoría son obligatorias (podés crearlas escribiéndolas). El gasto queda etiquetado y aparece en el registro de movimientos.</small>
         </div>
         {/* Reflejo en la caja del Centro de Acopio (Peramanal). Solo dólares (USD/USDT). */}
