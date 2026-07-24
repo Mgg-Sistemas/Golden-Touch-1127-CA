@@ -1690,6 +1690,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
   const [concepto, setConcepto] = useState('');
   const [montoStr, setMontoStr] = useState('');
+  const [esPeramanal, setEsPeramanal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
@@ -1737,6 +1738,8 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   const esMulti = saldosCaja.length > 0;
   const selSaldo = saldosCaja.find((s) => s.id === saldoSelId) ?? null;
   const monedaPago = esMulti ? (selSaldo?.moneda ?? caja?.moneda ?? 'Bs') : (caja?.moneda ?? 'Bs');
+  // El reflejo en la caja de Acopio solo aplica a gastos en dólares (USD/USDT).
+  const esDolar = monedaPago === 'USD' || monedaPago === 'USDT';
   const cuentaPago = esMulti ? (selSaldo?.cuenta ?? 'general') : null;
   const disponible = esMulti ? (Number(selSaldo?.saldo) || 0) : (Number(caja?.saldo) || 0);
 
@@ -1763,7 +1766,8 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
       await ensureCategoriaGasto(subN, cat.id, actor);
       await registrarGasto({
         cajaId, monto: m, concepto, cuenta: cuentaPago, moneda: monedaPago,
-        gastoCategoria: cat.nombre, gastoSubcategoria: subN, gastoCorrelativo: primerCorr, actor, actorName,
+        gastoCategoria: cat.nombre, gastoSubcategoria: subN, gastoCorrelativo: primerCorr,
+        esPeramanal: esPeramanal && esDolar, actor, actorName,
       });
       notify(`Gasto registrado: ${monto(m, monedaPago)}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
@@ -1834,6 +1838,19 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
           <label>Concepto</label>
           <input className="input" name="g-concepto" defaultValue={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
           <small className="muted">Categoría y subcategoría son obligatorias (podés crearlas escribiéndolas). El gasto queda etiquetado y aparece en el registro de movimientos.</small>
+        </div>
+        {/* Reflejo en la caja del Centro de Acopio (Peramanal). Solo dólares (USD/USDT). */}
+        <div className="form-row">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: esDolar ? 'pointer' : 'not-allowed', opacity: esDolar ? 1 : 0.55 }}>
+            <input type="checkbox" checked={esPeramanal && esDolar} disabled={!esDolar}
+              onChange={(e) => setEsPeramanal(e.target.checked)} />
+            <span>🏭 Es gasto del <strong>Centro de Acopio (Peramanal)</strong></span>
+          </label>
+          <small className="muted">
+            {esDolar
+              ? 'Además del movimiento en Tesorería, se crea el movimiento en la caja de Acopio (columna Gastos o Nómina según la categoría) y afecta la tasa $/kg.'
+              : 'Solo disponible para gastos en dólares (USD/USDT). Elegí un saldo en dólares para habilitarlo.'}
+          </small>
         </div>
       </form>
     </Modal>
