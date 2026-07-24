@@ -421,6 +421,9 @@ export function RecepcionesPage() {
             {b.label}
           </button>
         ))}
+        <button className="btn btn-primary" onClick={() => setCierresOpen(true)} title="Ver el histórico de recepciones cerradas (con todos los detalles)">
+          📚 Histórico de recepciones
+        </button>
         <button className="btn" style={{ background: '#334155', color: '#fff', border: 'none' }} onClick={() => setCierresOpen(true)} title="Cerrar la recepción y guardar todo en el histórico">
           🔒 Cerrar recepción
         </button>
@@ -432,7 +435,7 @@ export function RecepcionesPage() {
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} onClose={() => setConcilOpen(false)} />}
       {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} cajaTasa={cajaTasa} mermaProvTotal={provMermaTotal} mermaFinalTotal={finMermaTotal} onClose={() => setTotalesOpen(false)} />}
-      {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setCierresOpen(false)} />}
+      {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onCerrado={() => void reload()} onClose={() => setCierresOpen(false)} />}
 
       {loading ? (
         <EmptyState message="Cargando recepciones…" icon="◔" />
@@ -1785,8 +1788,11 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
 }
 
 /* ───────────── Modal: Cerrar recepción (histórico de TODOS los datos) ───────────── */
-function CierresModal({ canWrite, actor, actorName, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; onClose: () => void;
+function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null;
+  /** Se llama al cerrar una recepción: refresca la hoja de trabajo del padre (queda en blanco). */
+  onCerrado?: () => void;
+  onClose: () => void;
 }) {
   const [lista, setLista] = useState<CierreRecepcion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1826,7 +1832,10 @@ function CierresModal({ canWrite, actor, actorName, onClose }: {
     try {
       const c = await cerrarRecepcion({ numero, actor, actorName, observacion: obs, almacen: almacen.trim() || null, subalmacen: subalmacen.trim() || null });
       await cargar(); setMode('list');
-      toast(`Recepción N° ${c.numero} cerrada`, 'success');
+      // La foto quedó guardada en el histórico y los datos de trabajo se borraron:
+      // refrescamos la hoja del padre para que quede EN BLANCO al instante.
+      onCerrado?.();
+      toast(`Recepción N° ${c.numero} cerrada. La hoja quedó en blanco; el histórico guardó todo.`, 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar la recepción', 'error'); }
     finally { setCerrando(false); }
   }
@@ -2082,9 +2091,15 @@ function ResumenRecepcionModal({ resumen, onClose }: { resumen: ResumenRecepcion
           <tr><td style={{ ...cellL, background: 'rgba(255,196,0,.14)' }}>Kg neto finales seco y limpio:</td><td style={{ ...cellV, background: 'rgba(255,196,0,.14)' }} colSpan={3}>{kg(resumen.kgFinales)}</td><td style={cellO}>Si el material viene sin Fe y limpio se repite el paso de Ops</td></tr>
           <tr>
             <td style={cellL}>Tenor Sn:</td>
-            <td style={cellV}>{resumen.tenores[0] != null ? kg(resumen.tenores[0]) : '—'}</td>
-            <td style={cellV}>{resumen.tenores[1] != null ? kg(resumen.tenores[1]) : '—'}</td>
-            <td style={cellV}>{resumen.tenores[2] != null ? kg(resumen.tenores[2]) : '—'}</td>
+            <td style={cellV} colSpan={3}>
+              {resumen.tenores.length ? (
+                <div style={{ display: 'flex', gap: '.4rem .9rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {resumen.tenores.map((t, i) => (
+                    <span key={i} title={`Muestra ${i + 1}`}>{kg(t)}</span>
+                  ))}
+                </div>
+              ) : '—'}
+            </td>
             <td style={cellO}>{resumen.tenorProm ? `Prom: ${kg(resumen.tenorProm)}` : ''}</td>
           </tr>
           <tr><td style={cellL}>Kg Neto de Sn:</td><td style={{ ...cellV, fontSize: '1.05rem' }} colSpan={3}>{kg(resumen.kgNetoSn)}</td><td style={cellO}></td></tr>
