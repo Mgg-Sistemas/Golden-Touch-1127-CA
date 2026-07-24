@@ -93,13 +93,11 @@ async function construirDoc(d: ResumenRecepcionData) {
     { content: pct(porc), styles: { fontSize: 8, fillColor: merma.fillColor } },
   ]);
 
-  // Fila del Tenor Sn: hasta 3 lecturas en celdas separadas.
-  const t = [d.tenores[0], d.tenores[1], d.tenores[2]].map((x) => (x == null ? '—' : kg(x)));
+  // Fila del Tenor Sn: TODAS las muestras/lecturas obtenidas, en una celda combinada.
+  const tenorTxt = d.tenores.length ? d.tenores.map((x) => kg(x)).join('   ·   ') : '—';
   const tenorFila = [
     { content: 'Tenor Sn:', styles: { fontStyle: 'bold' as const } },
-    { content: t[0], styles: V },
-    { content: t[1], styles: V },
-    { content: t[2], styles: V },
+    { content: tenorTxt, colSpan: 3, styles: { ...V, fontStyle: 'bold' as const } },
     { content: d.tenorProm ? `Prom: ${kg(d.tenorProm)}` : '', styles: { fontSize: 8 } },
   ];
 
