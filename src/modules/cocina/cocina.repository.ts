@@ -92,6 +92,8 @@ export interface CrearMovimientoCocinaInput {
   platos: number;
   items: CocinaItem[];
   nota?: string | null;
+  /** Fecha/hora del servicio (ISO). Permite cargar comidas de un día desfasado. Por defecto, ahora. */
+  at?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -129,6 +131,8 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
     items,
     valor_total: valorTotal,
     nota: input.nota?.trim() || null,
+    // Fecha del servicio: si viene una fecha desfasada se guarda esa; si no, el default (now()).
+    ...(input.at ? { at: input.at } : {}),
     actor: input.actor,
     actor_name: input.actorName ?? null,
   }).select('*').single();

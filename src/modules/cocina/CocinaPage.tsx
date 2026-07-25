@@ -259,6 +259,8 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
   const [tipo, setTipo] = useState<TipoComida>('almuerzo');
   const [platos, setPlatos] = useState('');
   const [nota, setNota] = useState('');
+  // Fecha del servicio (por defecto hoy): permite cargar comidas de un día desfasado.
+  const [fecha, setFecha] = useState(() => new Date().toLocaleDateString('en-CA'));
   // Selección tipo CHECK: producto_id → cantidad (texto). Marcar el check lo agrega
   // con cantidad 1; desmarcar lo quita. Se pueden elegir varios de un vistazo.
   const [sel, setSel] = useState<Record<string, string>>({});
@@ -302,9 +304,16 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
     if (exc) { setError(`No hay stock suficiente de ${exc.p?.nombre} (disponible ${num(Number(exc.p?.stock))}).`); return; }
     const nPlatos = Number(platos) || 0;
     if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
+    // Fecha del servicio: se combina el día elegido con la hora actual (para el orden dentro
+    // del día). Si es una fecha desfasada, queda registrado en ese día.
+    let at: string | undefined;
+    if (fecha) {
+      const d = new Date(`${fecha}T${new Date().toTimeString().slice(0, 8)}`);
+      if (!Number.isNaN(d.getTime())) at = d.toISOString();
+    }
     setSaving(true);
     try {
-      const r = await crearMovimientoCocina({ tipoComida: tipo, platos: nPlatos, items, nota: nota || null, actor, actorName });
+      const r = await crearMovimientoCocina({ tipoComida: tipo, platos: nPlatos, items, nota: nota || null, at, actor, actorName });
       notify(`Movimiento de cocina ${r.codigo} · ${labelTipoComida(tipo)} · ${money(Number(r.valor_total))}`, 'success', { link: '#/app/cocina' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar.'); setSaving(false); }
@@ -336,6 +345,10 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
         </div>
 
         <div className="form-grid">
+          <div className="form-row">
+            <label>Fecha del servicio <span className="muted">(para comidas de un día desfasado)</span></label>
+            <input className="input" type="date" value={fecha} max={new Date().toLocaleDateString('en-CA')} onChange={(e) => setFecha(e.target.value)} required />
+          </div>
           <div className="form-row">
             <label>¿Cuántos platos se realizaron?</label>
             <input className="input mono" type="number" min={0} step="any" value={platos} onChange={(e) => setPlatos(e.target.value)} placeholder="Ej.: 24" required />

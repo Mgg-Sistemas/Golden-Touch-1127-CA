@@ -201,6 +201,22 @@ export async function updateRecepcion(id: string, input: RecepcionInput): Promis
 }
 
 /**
+ * Cambia SOLO la fecha de una recepción, esté abierta o CERRADA. La fecha es un
+ * metadato del documento: no toca el stock ni los movimientos ya generados. Sirve
+ * para corregir la fecha de una recepción que se cargó/cerró con un día equivocado.
+ */
+export async function actualizarFechaRecepcion(id: string, fecha: string): Promise<RecepcionAcopio> {
+  const f = (fecha || '').trim();
+  if (!f) throw new Error('Indicá la fecha.');
+  const { error } = await supabase
+    .from('acopio_recepciones')
+    .update({ fecha: f, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+  return (await getRecepcion(id))!;
+}
+
+/**
  * CIERRA la recepción: suma el mineral recibido al inventario (producto +
  * almacén elegidos) con un único movimiento de entrada y bloquea la edición.
  */

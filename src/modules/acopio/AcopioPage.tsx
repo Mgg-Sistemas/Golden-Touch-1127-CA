@@ -18,6 +18,7 @@ import type { Producto, RecepcionAcopio } from '@/shared/lib/types';
 import {
   createRecepcion,
   updateRecepcion,
+  actualizarFechaRecepcion,
   cerrarRecepcion,
   anularRecepcion,
   deleteRecepcion,
@@ -701,6 +702,18 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar.'); setSaving(false); }
   }
 
+  // Corrige SOLO la fecha (metadato), esté abierta o cerrada. No toca el stock.
+  async function guardarFecha() {
+    setError(null);
+    if (!fecha) { setError('Indicá la fecha.'); return; }
+    setSaving(true);
+    try {
+      await actualizarFechaRecepcion(recepcion!.id, fecha);
+      toast('Fecha de la recepción actualizada', 'success');
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo actualizar la fecha.'); setSaving(false); }
+  }
+
   async function guardarYCerrar() {
     setError(null);
     if (!productoId) { setError('Elegí el producto (mineral) al que se suma el stock.'); return; }
@@ -767,6 +780,7 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
       <button type="button" className="btn btn-ghost" onClick={pdf} disabled={saving}>↓ PDF</button>
       {!esNueva && estado === 'abierta' && canWrite && (<button type="button" className="btn btn-danger" onClick={eliminar} disabled={saving}>Eliminar</button>)}
+      {estado === 'cerrada' && canWrite && (<button type="button" className="btn btn-ghost" onClick={() => void guardarFecha()} disabled={saving}>{saving ? 'Guardando…' : '💾 Guardar fecha'}</button>)}
       {estado === 'cerrada' && canWrite && (<button type="button" className="btn btn-danger" onClick={anular} disabled={saving}>Anular (revierte stock)</button>)}
       {editable && (
         <>
@@ -789,7 +803,9 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
 
         {/* Encabezado: Fecha / Centro de Acopio / Aliado */}
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
-          <div className="form-row"><label>FECHA</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={ro} /></div>
+          {/* La FECHA se puede corregir aunque la recepción esté CERRADA (es metadato: no
+              toca el stock). El resto de campos siguen bloqueados tras el cierre. */}
+          <div className="form-row"><label>FECHA {!esNueva && estado === 'cerrada' && canWrite && <span className="muted" style={{ fontSize: '.72rem' }}>(editable · corregí y «Guardar fecha»)</span>}</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite || estado === 'anulada'} /></div>
           <div className="form-row"><label>CENTRO DE ACOPIO</label><input className="input" name="rec-centro" defaultValue={centro} onChange={(e) => setCentro(e.target.value)} disabled={ro} /></div>
           <div className="form-row"><label>ALIADO</label><input className="input" name="rec-aliado" defaultValue={aliado} onChange={(e) => setAliado(e.target.value)} placeholder="Nombre del aliado" disabled={ro} /></div>
         </div>
