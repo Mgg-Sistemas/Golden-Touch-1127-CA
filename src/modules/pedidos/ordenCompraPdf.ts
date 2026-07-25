@@ -292,8 +292,13 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     const pct = Number(orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 });
     cond.push([`IGTF (${pct}%)`, money(igtf)]);
   }
-  if (orden.iva_aplicado || orden.igtf_aplicado) {
-    cond.push(['Total con impuestos', money(Number(orden.total))]);
+  // Descuento del método de pago (ej. pronto pago): resta del total.
+  const descPago = orden.descuento_pago_aplicado ? Math.max(0, Number(orden.descuento_pago_monto ?? 0)) : 0;
+  if (descPago > 0) {
+    cond.push(['Descuento (pronto pago)', `- ${money(descPago)}`]);
+  }
+  if (orden.iva_aplicado || orden.igtf_aplicado || descPago > 0) {
+    cond.push(['Total a pagar', money(Number(orden.total))]);
   }
   // Precio en divisa/efectivo de la oferta aceptada (con diferencia y % vs BCV).
   if (ofertaAceptada?.precio_divisa != null) {

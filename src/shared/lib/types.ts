@@ -1094,6 +1094,9 @@ export interface Orden {
   igtf_aplicado?: boolean | null;
   igtf_pct?: number | null;
   igtf_monto?: number | null;
+  /** Descuento indicado al confirmar el método de pago: RESTA del total a pagar (monto manual). */
+  descuento_pago_aplicado?: boolean | null;
+  descuento_pago_monto?: number | null;
   historial: EventoHistorial[];
   aprobada_por?: string | null;
   aprobada_en?: string | null;

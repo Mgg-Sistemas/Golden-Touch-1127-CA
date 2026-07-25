@@ -1254,7 +1254,7 @@ function MetodoPagoModal({
   orden: Orden;
   proveedores: Proveedor[];
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; conIva: boolean; ivaPct?: number; ivaMonto?: number; conIgtf?: boolean; igtfPct?: number; igtfMonto?: number; conDescuento?: boolean; descuentoMonto?: number }, nuevoProveedorId: string | null, imagenPath?: string | null) => Promise<void> | void;
 }) {
   // Al CAMBIAR el método (OC ya "Confirmada pagar") precargamos el/los método(s) ya
   // indicados; si es la primera vez, arranca con un método por defecto.
@@ -1288,6 +1288,12 @@ function MetodoPagoModal({
   const [igtfPct, setIgtfPct] = useState(String(Number(orden.igtf_pct) > 0 ? orden.igtf_pct : 3));
   const [igtfMontoStr, setIgtfMontoStr] = useState(Number(orden.igtf_monto) > 0 ? String(orden.igtf_monto) : '');
   const igtfManualRef = useRef<boolean>(Number(orden.igtf_monto) > 0);
+  // Descuento del método de pago (ej. pronto pago): RESTA del total a pagar.
+  // Por % (sobre el total con impuestos) o monto manual; se sincronizan entre sí.
+  const [conDescuento, setConDescuento] = useState(!!orden.descuento_pago_aplicado);
+  const [descuentoMontoStr, setDescuentoMontoStr] = useState(Number(orden.descuento_pago_monto) > 0 ? String(orden.descuento_pago_monto) : '');
+  const [descPct, setDescPct] = useState('');
+  const descManualRef = useRef<boolean>(Number(orden.descuento_pago_monto) > 0);
   // Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería para escanear y pagar.
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPath, setQrPath] = useState<string | null>(orden.metodo_pago_imagen_path ?? null);
@@ -1334,7 +1340,25 @@ function MetodoPagoModal({
     const m = Number(v) || 0;
     setIgtfPct(m > 0 && baseIgtf > 0 ? String(Math.round((m / baseIgtf) * 10000) / 100) : '0');
   }
-  const totalFinal = Math.round((baseNum + ivaMonto + igtfMonto) * 100) / 100;
+  // Descuento del método de pago: RESTA del total (acotado al total con impuestos).
+  // Se calcula sobre el total con impuestos (base + IVA + IGTF). % ↔ monto sincronizados.
+  const totalConImp = Math.round((baseNum + ivaMonto + igtfMonto) * 100) / 100;
+  const descPctNum = Math.max(0, Math.min(100, Math.round((Number(descPct) || 0) * 100) / 100));
+  useEffect(() => {
+    if (descManualRef.current) return;
+    const p = Number(descPct) || 0;
+    setDescuentoMontoStr(p > 0 && totalConImp > 0 ? String(Math.round(totalConImp * (p / 100) * 100) / 100) : '');
+  }, [descPct, totalConImp]);
+  const descuentoMonto = conDescuento
+    ? Math.min(Math.max(0, Math.round((Number(descuentoMontoStr) || 0) * 100) / 100), totalConImp)
+    : 0;
+  function onDescPct(v: string) { descManualRef.current = false; setConDescuento(true); setDescPct(v); }
+  function onDescMonto(v: string) {
+    descManualRef.current = true; setConDescuento(true); setDescuentoMontoStr(v);
+    const m = Number(v) || 0;
+    setDescPct(m > 0 && totalConImp > 0 ? String(Math.round((m / totalConImp) * 10000) / 100) : '0');
+  }
+  const totalFinal = Math.max(0, Math.round((totalConImp - descuentoMonto) * 100) / 100);
   // Moneda de la orden (Bs o $): los importes del método de pago se muestran en ella.
   const monedaOrden = orden.total_moneda ?? 'USD';
   const simboloMoneda = monedaOrden === 'Bs' ? 'Bs' : '$';
@@ -1404,6 +1428,7 @@ function MetodoPagoModal({
         retencionModo: comprobanteTipo === 'factura' ? retencionModo : null,
         conIva: comprobanteTipo === 'factura' && conIva, ivaPct: ivaPctNum, ivaMonto,
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
+        conDescuento, descuentoMonto,
       }, null, imagenPath);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
@@ -1563,10 +1588,47 @@ function MetodoPagoModal({
             Se calcula sobre {mm(baseIgtf)} (total{ivaMonto > 0 ? ' + IVA' : ''}). Podés ajustar el monto a mano.
           </div>
         )}
-        {(conIva || conIgtf) && (
-          <div style={{ marginTop: '.55rem', paddingTop: '.5rem', borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '.5rem', fontSize: '.9rem' }}>
-            <span className="muted">Total a pagar:</span>
-            <strong className="mono">{mm(totalFinal)}</strong>
+      </div>
+
+      {/* Descuento del método de pago (ej. pronto pago): RESTA del total a pagar. Monto manual. */}
+      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
+        <div className="card-title" style={{ marginBottom: '.45rem' }}>Descuento <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>(ej. pronto pago · resta del total)</span></div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.5rem' }}>
+          <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: !conDescuento ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+            <input type="radio" name="descpago" checked={!conDescuento} onChange={() => setConDescuento(false)} />
+            <span style={{ fontSize: '.86rem' }}><strong>Sin descuento</strong></span>
+          </label>
+          <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: conDescuento ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+            <input type="radio" name="descpago" checked={conDescuento} onChange={() => setConDescuento(true)} />
+            <span style={{ fontSize: '.86rem', display: 'inline-flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+              <strong>Con descuento</strong>
+              {/* Por % (sobre el total con impuestos) o monto manual. */}
+              <input className="input mono" type="number" min={0} max={100} step="any" value={descPct}
+                onChange={(e) => onDescPct(e.target.value)} onClick={(e) => e.stopPropagation()}
+                title="Porcentaje de descuento (sobre el total)" placeholder="0"
+                style={{ width: 58, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+              <span>%</span>
+              <span className="muted">o</span>
+              <input className="input mono" type="number" min={0} step="any" value={descuentoMontoStr}
+                onChange={(e) => onDescMonto(e.target.value)} onClick={(e) => e.stopPropagation()}
+                title="Monto del descuento (se resta del total)" placeholder="0,00"
+                style={{ width: 92, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+              <span>{simboloMoneda}</span>
+              <span style={{ color: 'var(--success)' }}>= −{mm(descuentoMonto)}</span>
+            </span>
+          </label>
+        </div>
+        {(conIva || conIgtf || conDescuento) && (
+          <div style={{ marginTop: '.55rem', paddingTop: '.5rem', borderTop: '1px dashed var(--border)', display: 'grid', gap: '.15rem', fontSize: '.9rem', justifyItems: 'end' }}>
+            {conDescuento && descuentoMonto > 0 && (
+              <div className="muted" style={{ fontSize: '.78rem' }}>
+                Subtotal {mm(totalConImp)} · descuento{descPctNum > 0 ? ` ${descPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}%` : ''} <span style={{ color: 'var(--success)' }}>−{mm(descuentoMonto)}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '.5rem' }}>
+              <span className="muted">Total a pagar:</span>
+              <strong className="mono">{mm(totalFinal)}</strong>
+            </div>
           </div>
         )}
       </div>

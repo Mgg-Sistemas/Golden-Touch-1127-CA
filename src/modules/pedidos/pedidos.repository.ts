@@ -698,6 +698,7 @@ export async function indicarMetodoPago(
     retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null;
     conIva?: boolean; ivaPct?: number; ivaMonto?: number;
     conIgtf?: boolean; igtfPct?: number; igtfMonto?: number;
+    conDescuento?: boolean; descuentoMonto?: number;
   },
   /** Imagen del pago (ej. QR de Binance/CR20) que verá Tesorería. `undefined` = no tocar;
    *  `null` = quitar la existente; string = nuevo path en el bucket `op-imagenes`. */
@@ -756,7 +757,16 @@ export async function indicarMetodoPago(
     ? Math.max(0, Math.min(100, Math.round((Number(soporte?.igtfPct ?? 3) || 0) * 100) / 100))
     : 0;
   const igtfMonto = aplicaIgtf ? Math.max(0, Math.round((Number(soporte?.igtfMonto ?? 0) || 0) * 100) / 100) : 0;
-  const totalFinal = Math.round((baseTotal + ivaMonto + igtfMonto) * 100) / 100;
+  // Descuento del método de pago: RESTA del total a pagar (ej. pronto pago). Monto manual.
+  // Se acota al total con impuestos para que nunca deje el total en negativo.
+  const aplicaDescuento = !!soporte?.conDescuento;
+  const descuentoMonto = aplicaDescuento
+    ? Math.min(
+        Math.max(0, Math.round((Number(soporte?.descuentoMonto ?? 0) || 0) * 100) / 100),
+        Math.round((baseTotal + ivaMonto + igtfMonto) * 100) / 100,
+      )
+    : 0;
+  const totalFinal = Math.max(0, Math.round((baseTotal + ivaMonto + igtfMonto - descuentoMonto) * 100) / 100);
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
@@ -772,10 +782,12 @@ export async function indicarMetodoPago(
     igtf_aplicado: aplicaIgtf,
     igtf_pct: igtfPct,
     igtf_monto: aplicaIgtf ? igtfMonto : null,
+    descuento_pago_aplicado: aplicaDescuento,
+    descuento_pago_monto: aplicaDescuento ? descuentoMonto : null,
     pago_en_divisa: pagaEnDivisa,
-    // Al pagar en divisa o al aplicar IVA/IGTF, el `total` de la OC pasa a ser el monto final.
-    ...(pagaEnDivisa || aplicaIva || aplicaIgtf ? { total: totalFinal } : {}),
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, pago_en_divisa: pagaEnDivisa }),
+    // Al pagar en divisa o al aplicar IVA/IGTF/descuento, el `total` de la OC pasa a ser el monto final.
+    ...(pagaEnDivisa || aplicaIva || aplicaIgtf || aplicaDescuento ? { total: totalFinal } : {}),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, descuento_pago_aplicado: aplicaDescuento, descuento_pago_monto: descuentoMonto, pago_en_divisa: pagaEnDivisa }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
