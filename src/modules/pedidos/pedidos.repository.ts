@@ -305,6 +305,44 @@ export async function actualizarOrdenEditable(
   return data as Orden;
 }
 
+/**
+ * Edita SOLO los precios de los ítems de una OC ya «confirmada para pagar»
+ * (`confirmada_metodo` u `oc_aprobada`), SIN devolverla a aprobación ni cambiar su
+ * estado. El total a pagar se ajusta por la DIFERENCIA de precio (delta), preservando
+ * los montos de IVA/IGTF/descuentos ya calculados. Queda registrado en la traza
+ * (historial) y, como Tesorería lee `total`, el monto a pagar se sincroniza solo.
+ */
+export async function editarPreciosOrdenPorPagar(
+  o: Orden,
+  items: ItemOrden[],
+  actorEmail: string,
+): Promise<Orden> {
+  if (o.estado !== 'confirmada_metodo' && o.estado !== 'oc_aprobada') {
+    throw new Error('Solo se pueden editar los precios de una OC confirmada para pagar.');
+  }
+  if (!items.length) throw new Error('La OC debe tener al menos un ítem.');
+  const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const comprados = (arr: ItemOrden[]) => arr.filter((i) => i.comprar !== false);
+  const baseBs = (arr: ItemOrden[]) => arr.reduce((a, i) => a + Number(i.cantidad) * Number(i.precio), 0);
+  const baseUsd = (arr: ItemOrden[]) => arr.reduce((a, i) => a + Number(i.cantidad) * (Number(i.precio_usd) || 0), 0);
+  const deltaBs = r2(baseBs(comprados(items)) - baseBs(comprados(o.items ?? [])));
+  const deltaUsd = r2(baseUsd(comprados(items)) - baseUsd(comprados(o.items ?? [])));
+  const enDivisa = !!o.pago_en_divisa;
+  // El `total` que paga Tesorería está en divisa cuando el pago es en divisa; si no, en Bs.
+  const totalNuevo = Math.max(0, r2((Number(o.total) || 0) + (enDivisa ? deltaUsd : deltaBs)));
+  const upd: Record<string, unknown> = {
+    items,
+    total: totalNuevo,
+    historial: appendHistorial(o, 'precios_editados', actorEmail, {
+      total_anterior: r2(Number(o.total) || 0), total_nuevo: totalNuevo, delta: enDivisa ? deltaUsd : deltaBs,
+    }),
+  };
+  if (enDivisa || o.total_divisa != null) upd.total_divisa = Math.max(0, r2((Number(o.total_divisa) || 0) + deltaUsd));
+  const { data, error } = await supabase.from(TABLE).update(upd).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 function appendHistorial(
   o: Orden,
   evento: string,

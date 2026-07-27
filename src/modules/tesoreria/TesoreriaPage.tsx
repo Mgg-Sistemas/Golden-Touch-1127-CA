@@ -59,8 +59,9 @@ import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg, type AbonoComision,
-  getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl,
+  getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl, editarPreciosOrdenPorPagar,
 } from '@/modules/pedidos/pedidos.repository';
+import type { ItemOrden } from '@/shared/lib/types';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { ChatOrden } from '@/modules/pedidos/ChatOrden';
 import { noLeidosPorOrden } from '@/modules/pedidos/ordenChat.repository';
@@ -3515,6 +3516,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   // Selección múltiple (tipo check) para pagar varias OC del MISMO proveedor a la vez.
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [pagarVarias, setPagarVarias] = useState<OrdenPorPagar[] | null>(null);
+  const [editarPrecios, setEditarPrecios] = useState<OrdenPorPagar | null>(null);
 
   const { user } = useSession();
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
@@ -3635,7 +3637,9 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                 </td>
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
                 <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
-                <td style={{ textAlign: 'right' }}>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button className="btn btn-sm btn-ghost" title="Editar los precios de esta OC (se ajusta el total y queda en la traza)"
+                    onClick={(e) => { e.stopPropagation(); setEditarPrecios(r); }}>✏️ Precios</button>{' '}
                   <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>
                     {espera ? 'Ver' : 'Ver / Pagar'}
                   </button>
@@ -3655,6 +3659,14 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         />
       )}
 
+      {editarPrecios && (
+        <EditarPreciosOcModal
+          row={editarPrecios} actor={actor}
+          onClose={() => setEditarPrecios(null)}
+          onSaved={async () => { setEditarPrecios(null); await reload(); onPaid(); }}
+        />
+      )}
+
       {pagarVarias && (
         <PagarVariasOcModal
           rows={pagarVarias} cajas={cajas} actor={actor} actorName={actorName}
@@ -3668,6 +3680,78 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
         cajas={cajas} actor={actor} actorName={actorName}
         onPaid={async () => { await reload(); onPaid(); }}
       />
+    </Modal>
+  );
+}
+
+/* ───────────── Editar precios de una OC confirmada para pagar ───────────── */
+
+function EditarPreciosOcModal({ row, actor, onClose, onSaved }: {
+  row: OrdenPorPagar; actor: string; onClose: () => void; onSaved: () => Promise<void> | void;
+}) {
+  const o = row.orden;
+  // El total que paga Tesorería está en divisa cuando el pago es en divisa; si no, en la
+  // moneda de la OC. Se edita el precio que ALIMENTA ese total (precio_usd o precio).
+  const enDivisa = !!o.pago_en_divisa;
+  const moneda = enDivisa ? 'USD' : (o.total_moneda ?? 'USD');
+  const priceKey: 'precio' | 'precio_usd' = enDivisa ? 'precio_usd' : 'precio';
+  const [items, setItems] = useState<ItemOrden[]>(() => (o.items ?? []).map((i) => ({ ...i })));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const idxComprar = items.map((it, i) => ({ it, i })).filter(({ it }) => it.comprar !== false);
+  function setPrecio(i: number, v: string) {
+    const n = Number(v);
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [priceKey]: Number.isFinite(n) ? n : 0 } : it)));
+  }
+  const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const baseNew = idxComprar.reduce((a, { it }) => a + Number(it.cantidad) * (Number(it[priceKey]) || 0), 0);
+  const baseOld = (o.items ?? []).filter((i) => i.comprar !== false)
+    .reduce((a, i) => a + Number(i.cantidad) * (Number(i[priceKey]) || 0), 0);
+  const totalNuevo = Math.max(0, r2((Number(o.total) || 0) + r2(baseNew - baseOld)));
+
+  async function guardar() {
+    setError(null); setSaving(true);
+    try {
+      await editarPreciosOrdenPorPagar(o, items, actor);
+      toast('Precios actualizados · el total a pagar quedó sincronizado', 'success');
+      await onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
+  }
+
+  return (
+    <Modal title={`✏️ Editar precios · ${o.oc_codigo ?? o.codigo}`} size="lg" onClose={() => !saving && onClose()} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar precios'}</button>
+      </>
+    }>
+      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+        Ajustá el <strong>precio unitario</strong> de cada ítem. El <strong>total a pagar</strong> se recalcula por la diferencia (se conservan IVA/IGTF/descuentos). El cambio queda en la <strong>traza</strong> de la OC y se sincroniza acá en Tesorería.
+      </p>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.82rem' }}>
+          <thead><tr><th>Producto</th><th className="num">Cant.</th><th className="num">Precio unit. ({moneda})</th><th className="num">Subtotal</th></tr></thead>
+          <tbody>
+            {idxComprar.map(({ it, i }) => (
+              <tr key={i}>
+                <td>{it.nombre}{it.marca ? <span className="muted"> · {it.marca}</span> : ''}</td>
+                <td className="num mono">{Number(it.cantidad)}</td>
+                <td className="num">
+                  <input className="input mono" type="number" min={0} step="any" style={{ width: 130, textAlign: 'right' }}
+                    value={String(it[priceKey] ?? 0)} onChange={(e) => setPrecio(i, e.target.value)} />
+                </td>
+                <td className="num mono">{monto(Number(it.cantidad) * (Number(it[priceKey]) || 0), moneda)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="card" style={{ marginTop: '.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+        <div className="muted" style={{ fontSize: '.8rem' }}>Total actual: <strong className="mono">{monto(Number(o.total) || 0, moneda)}</strong></div>
+        <div style={{ fontSize: '1.05rem' }}>Nuevo total a pagar: <strong className="mono" style={{ color: 'var(--primary-3, #ff8a00)' }}>{monto(totalNuevo, moneda)}</strong></div>
+      </div>
     </Modal>
   );
 }
