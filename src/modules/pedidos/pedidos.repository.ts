@@ -306,11 +306,13 @@ export async function actualizarOrdenEditable(
 }
 
 /**
- * Edita SOLO los precios de los ítems de una OC ya «confirmada para pagar»
- * (`confirmada_metodo` u `oc_aprobada`), SIN devolverla a aprobación ni cambiar su
- * estado. El total a pagar se ajusta por la DIFERENCIA de precio (delta), preservando
- * los montos de IVA/IGTF/descuentos ya calculados. Queda registrado en la traza
- * (historial) y, como Tesorería lee `total`, el monto a pagar se sincroniza solo.
+ * Edita los ítems de una OC ya «confirmada para pagar» (`confirmada_metodo` u
+ * `oc_aprobada`) SIN devolverla a aprobación ni cambiar su estado: permite ajustar
+ * precios de los ítems existentes y AGREGAR productos nuevos (los agregados llegan en
+ * `items` y no estaban en `o.items`). El total a pagar se ajusta por la DIFERENCIA
+ * (delta) que introduce el nuevo arreglo, preservando los montos de IVA/IGTF/descuentos
+ * ya calculados. Queda registrado en la traza (historial) y, como Tesorería lee `total`,
+ * el monto a pagar se sincroniza solo.
  */
 export async function editarPreciosOrdenPorPagar(
   o: Orden,
