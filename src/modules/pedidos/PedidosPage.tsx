@@ -79,6 +79,7 @@ import { OcPorLoteView } from './OcPorLoteView';
 import { puedeAprobarOc } from './aprobadoresOc';
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
+import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 
 /* ============================================================
@@ -2262,6 +2263,10 @@ function OrdenDetailModal({
   const canCerrarSolicitudObrero = finalizableRecibida && usuarioRole === 'obrero';
 
   const [enviarOpen, setEnviarOpen] = useState(false);
+  // Editar precios / agregar productos a una OC ya «Confirmada pagar» (o esperando método),
+  // sin devolverla a aprobación. El total se recalcula y se sincroniza a Tesorería.
+  const [editarPreciosOpen, setEditarPreciosOpen] = useState(false);
+  const puedeEditarPreciosPago = canManageProcurement && (isConfirmadaMetodo || isOcAprobada) && Number(o.total) > 0;
 
   // Marca/desmarca un ítem como "a comprar" en la etapa OP (antes de tener precio).
   // Así una OP con 4 productos puede quedar con solo 2 aprobados para comprar.
@@ -2375,6 +2380,12 @@ function OrdenDetailModal({
             💳 Indicar método de pago / Enviar para Pagar
           </button>
         </>
+      )}
+      {puedeEditarPreciosPago && (
+        <button className="btn btn-ghost" onClick={() => setEditarPreciosOpen(true)}
+          title="Corregir los precios y/o agregar productos (hasta 3) sin devolver la OC a aprobación. El total se recalcula y se sincroniza a Tesorería.">
+          ✏️ Editar precios / agregar productos
+        </button>
       )}
       {/* OC confirmada pagar: el pago se hace en Tesorería → Órdenes pendientes por pagar.
           Mientras no se haya pagado, Compras puede CAMBIAR el método de pago indicado. */}
@@ -2806,6 +2817,14 @@ function OrdenDetailModal({
         ordenCodigo={o.codigo}
         defaultEmail={actorEmail}
         onClose={() => setEnviarOpen(false)}
+      />
+    )}
+    {editarPreciosOpen && (
+      <EditarPreciosOcModal
+        orden={o}
+        actor={actorEmail || 'sistema'}
+        onClose={() => setEditarPreciosOpen(false)}
+        onSaved={async () => { setEditarPreciosOpen(false); await onAcceptedOffer(); }}
       />
     )}
     </>
