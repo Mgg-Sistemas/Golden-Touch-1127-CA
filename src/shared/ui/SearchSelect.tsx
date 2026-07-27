@@ -238,11 +238,13 @@ export function SearchCreateSelect({
   // estado atrasado — salía CORTADA ("MANTENIMIENTO DE " en vez de "…MOLINO"). Con estado
   // local, input y opción salen SIEMPRE del mismo texto y nunca se desfasan.
   const [text, setText] = useState(value);
-  const focusedRef = useRef(false);
-  // Resincroniza con el valor externo solo cuando el campo NO está enfocado (cambio
+  // Resincroniza con el valor externo SOLO cuando el desplegable está CERRADO (cambio
   // programático: precarga al editar, transformación del padre como mayúsculas, reset…).
-  // Mientras se teclea, el estado local es la única fuente de verdad.
-  useEffect(() => { if (!focusedRef.current) setText(value); }, [value]);
+  // Mientras está abierto (el usuario tecleando/eligiendo), el estado LOCAL es la única
+  // fuente de verdad — así un re-render pesado del padre nunca pisa lo tecleado ni lo
+  // borra (antes se usaba un `focusedRef` que podía quedar desincronizado y dejar la
+  // búsqueda sin filtrar). El filtrado siempre corre sobre este `text`.
+  useEffect(() => { if (!open) setText(value); }, [value, open]);
 
   const filtered = useMemo(() => {
     const q = norm(text);
@@ -286,8 +288,7 @@ export function SearchCreateSelect({
         disabled={disabled}
         value={text}
         placeholder={placeholder}
-        onFocus={() => { focusedRef.current = true; if (!disabled) { setOpen(true); setHi(-1); } }}
-        onBlur={() => { focusedRef.current = false; }}
+        onFocus={() => { if (!disabled) { setOpen(true); setHi(-1); } }}
         onChange={(e) => { setText(e.target.value); onChange(e.target.value); setOpen(true); setHi(-1); }}
         onKeyDown={onKeyDown}
       />
