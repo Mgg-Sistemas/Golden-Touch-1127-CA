@@ -213,7 +213,7 @@ export function TanquesView() {
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
-          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumoSemanal')} title="Cargar en la caja de Peramanal el consumo de GT de una semana (respaldo del automático dominical)">🗓 Consumo semanal → caja</button>}
+          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumoSemanal')} title="Cargar en la caja de Peramanal el consumo de GT de una semana (gasto + entrada de multimoneda por la misma cantidad). Respaldo del automático dominical, por si no se actualizó el fin de semana.">💰 CAJA</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => { setEditTanque(null); setModal('tanque'); }}>+ Tanque</button>}
           {canWrite && <button className="btn btn-primary btn-sm" onClick={() => setModal('mov')} disabled={!tanques.length}>+ Nuevo movimiento</button>}
         </div>
@@ -1662,7 +1662,7 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
       const monto = await postearConsumoCombustibleSemana(desde, hasta);
       toast(
         monto > 0
-          ? `Consumo de combustible cargado en la caja de Peramanal: ${money(monto)}.`
+          ? `Cargado en la caja de Peramanal: gasto ${money(monto)} + entrada de multimoneda ${money(monto)}.`
           : 'No hubo consumo de GT en esa semana (no se cargó nada).',
         monto > 0 ? 'success' : 'info',
       );
@@ -1677,7 +1677,7 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
 
   return (
     <Modal
-      title="🗓 Consumo semanal de combustible → caja de Peramanal"
+      title="💰 CAJA · consumo semanal de combustible → caja de Peramanal"
       onClose={onClose}
       footer={
         <>
@@ -1690,10 +1690,13 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
     >
       <p className="muted" style={{ fontSize: '.86rem', marginTop: 0 }}>
         Carga en la caja de Peramanal <strong>abierta</strong> el consumo de GT de la semana
-        (movimientos de tanque tipo <strong>uso</strong>, a su costo por tasa PMP) como el gasto
-        <strong> «CONSUMO COMBUSTIBLE GT»</strong>. Esto lo hace <strong>solo cada domingo</strong> de
-        forma automática; este botón es el <strong>respaldo</strong> para re-generar una semana puntual.
-        Es idempotente: re-generar la misma semana <strong>reemplaza</strong> el gasto, no lo duplica.
+        (movimientos de tanque tipo <strong>uso</strong>, a su costo por tasa PMP). Se registran
+        <strong> dos movimientos</strong> por la misma cantidad: el gasto
+        <strong> «CONSUMO COMBUSTIBLE GT»</strong> y una <strong>entrada de multimoneda</strong> que
+        lo compensa. Esto lo hace <strong>solo cada domingo</strong> de forma automática; este botón
+        es el <strong>respaldo</strong> para cuando <strong>no se actualizó el fin de semana</strong> y
+        se genera el lunes. Es idempotente: re-generar la misma semana <strong>reemplaza</strong> los
+        movimientos, no los duplica.
       </p>
       <div className="form-grid" style={{ marginTop: '.6rem' }}>
         <div className="form-row">
