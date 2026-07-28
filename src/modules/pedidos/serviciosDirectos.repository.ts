@@ -67,6 +67,10 @@ export interface ServicioDirecto {
   pago_externo_nota?: string | null;
   estado: EstadoServicioDirecto;
   gasto: number | null;
+  /** Se paga con ABONOS (cuotas): Tesorería registra pagos parciales hasta saldar. */
+  con_abonos?: boolean | null;
+  /** Suma abonada hasta ahora (en la moneda del servicio). Al llegar al total → finalizada. */
+  abonado_total?: number | null;
   /** Moneda del servicio ('USD' o 'Bs'). Los montos se muestran en esta moneda. */
   moneda?: string | null;
   /** Tasa Bs/$ con la que se convirtió la moneda del documento (conversor). Referencia para Tesorería. */
@@ -93,7 +97,10 @@ export interface ServicioDirecto {
 function normalizar(row: Record<string, unknown>): ServicioDirecto {
   const r = row as unknown as ServicioDirecto;
   const items = Array.isArray(r.items) ? r.items : [];
-  return { ...r, items, nota: r.nota ?? null, moneda: r.moneda === 'Bs' ? 'Bs' : 'USD' };
+  return {
+    ...r, items, nota: r.nota ?? null, moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
+    con_abonos: !!r.con_abonos, abonado_total: Number(r.abonado_total) || 0,
+  };
 }
 
 /** Próximo correlativo SD-AAAA-#### (Servicio Directo), atómico en la base. */
@@ -339,6 +346,8 @@ export interface EnviarServicioAPagarInput {
   moneda?: string | null;
   /** Tasa Bs/$ usada al convertir la moneda con el conversor (referencia para Tesorería). */
   tasaConversion?: number | null;
+  /** Se pagará con ABONOS (cuotas). Lo marca el analista al montar. */
+  conAbonos?: boolean | null;
   actor: string;
   actorName?: string | null;
 }
@@ -360,6 +369,7 @@ export async function enviarServicioAPagar(input: EnviarServicioAPagarInput): Pr
     .from('servicios_directos')
     .update({
       estado: 'por_pagar', gasto: total, items,
+      ...(input.conAbonos !== undefined ? { con_abonos: !!input.conAbonos } : {}),
       ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
       ...(input.tasaConversion !== undefined ? { tasa_conversion: input.tasaConversion != null && input.tasaConversion > 0 ? Math.round(Number(input.tasaConversion) * 100) / 100 : null } : {}),
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
@@ -430,6 +440,107 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<v
   if (error) throw error;
 }
 
+/* ───────── Abonos (cuotas) de un servicio directo ───────── */
+
+export interface AbonoServicio {
+  id: string;
+  servicio_id: string;
+  monto: number;
+  moneda: string | null;
+  caja_id: string | null;
+  caja_mov_id: string | null;
+  saldo_restante: number | null;
+  actor: string | null;
+  actor_name: string | null;
+  nota: string | null;
+  comprobante_path: string | null;
+  comprobante_nombre: string | null;
+  at: string;
+}
+
+export interface RegistrarAbonoServicioInput {
+  servicio: ServicioDirecto;
+  cajaId: string;
+  /** Monto del abono (en la moneda del servicio). */
+  monto: number;
+  gastoCategoria?: string | null;
+  gastoSubcategoria?: string | null;
+  nota?: string | null;
+  file?: File | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * TESORERÍA registra un ABONO (pago parcial) de un servicio "Por pagar": descuenta el
+ * monto de la caja elegida (egreso), lo acumula en `abonado_total` y, cuando la suma
+ * cubre el total, marca el servicio FINALIZADO. Cada abono queda en su bitácora con su
+ * saldo restante y comprobante opcional. NO toca inventario.
+ */
+export async function registrarAbonoServicio(input: RegistrarAbonoServicioInput): Promise<void> {
+  const { servicio } = input;
+  if (servicio.estado === 'finalizada') throw new Error('Este servicio ya está pagado.');
+  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
+  if (monto <= 0) throw new Error('Indicá el monto del abono.');
+  const total = Math.round((Number(servicio.gasto) || 0) * 100) / 100;
+  if (total <= 0) throw new Error('El servicio no tiene monto total cargado.');
+  const previo = Math.round((Number(servicio.abonado_total) || 0) * 100) / 100;
+  const restante = Math.round((total - previo) * 100) / 100;
+  if (monto > restante + 0.01) throw new Error(`El abono supera el saldo pendiente (${restante}).`);
+
+  // 1) Egreso de la caja (valida saldo) → pasa por Tesorería.
+  const concepto = `Abono servicio directo · ${servicio.codigo ?? servicio.descripcion}${servicio.equipo_nombre ? ` · ${servicio.equipo_nombre}` : ''}`;
+  const movCaja = await egresarGastoCaja({
+    cajaId: input.cajaId, monto, concepto, categoria: 'servicio_directo',
+    gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
+    actor: input.actor, actorName: input.actorName ?? null,
+  });
+
+  // 2) Comprobante opcional del abono.
+  let comprobantePath: string | null = null, comprobanteNombre: string | null = null;
+  if (input.file) { comprobantePath = await subirAdjuntoServicio(servicio.id, input.file); comprobanteNombre = input.file.name; }
+
+  const acumulado = Math.round((previo + monto) * 100) / 100;
+  const saldoRestante = Math.round((total - acumulado) * 100) / 100;
+  const saldado = acumulado >= total - 0.01;
+
+  // 3) Registrar el abono.
+  const { error: abErr } = await supabase.from('servicio_directo_abonos').insert({
+    servicio_id: servicio.id, monto, moneda: servicio.moneda ?? 'USD',
+    caja_id: input.cajaId, caja_mov_id: movCaja.id, saldo_restante: saldoRestante,
+    actor: input.actor, actor_name: input.actorName ?? null, nota: input.nota?.trim() || null,
+    comprobante_path: comprobantePath, comprobante_nombre: comprobanteNombre,
+  });
+  if (abErr) throw abErr;
+
+  // 4) Actualizar el servicio (acumulado + finalizar si saldó).
+  const patch: Record<string, unknown> = {
+    con_abonos: true, abonado_total: acumulado, updated_at: new Date().toISOString(),
+  };
+  if (saldado) {
+    patch.estado = 'finalizada';
+    patch.caja_id = input.cajaId; patch.caja_mov_id = movCaja.id;
+    patch.gasto_categoria = input.gastoCategoria ?? servicio.gasto_categoria ?? null;
+    patch.gasto_subcategoria = input.gastoSubcategoria ?? servicio.gasto_subcategoria ?? null;
+    patch.pagada_at = new Date().toISOString(); patch.pagada_por = input.actor; patch.pagada_por_name = input.actorName ?? null;
+    patch.finalizada_at = new Date().toISOString();
+  }
+  const { error } = await supabase.from('servicios_directos').update(patch).eq('id', servicio.id);
+  if (error) throw error;
+}
+
+/** Bitácora de abonos de un servicio (orden cronológico). */
+export async function listAbonosServicio(servicioId: string): Promise<AbonoServicio[]> {
+  const { data, error } = await supabase
+    .from('servicio_directo_abonos')
+    .select('*')
+    .eq('servicio_id', servicioId)
+    .order('at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as AbonoServicio[];
+}
+
 /* ───────── Reabrir (revertir Tesorería) ───────── */
 
 /**
@@ -441,6 +552,31 @@ export async function reabrirServicioDirecto(servicio: ServicioDirecto, actor: s
   if (servicio.estado !== 'finalizada') throw new Error('Solo se puede reabrir un servicio FINALIZADO.');
 
   const concepto = `Reapertura ${servicio.codigo ?? servicio.descripcion}`;
+
+  // Servicio pagado con ABONOS: se revierte CADA abono a su propia caja y se borran.
+  if (servicio.con_abonos) {
+    const abonos = await listAbonosServicio(servicio.id);
+    for (const ab of abonos) {
+      if (ab.caja_id && Number(ab.monto) > 0) {
+        await ingresarDineroCaja({
+          cajaId: ab.caja_id, monto: Number(ab.monto), concepto, categoria: 'reverso',
+          actor, actorName: actorName ?? null,
+        });
+      }
+    }
+    await supabase.from('servicio_directo_abonos').delete().eq('servicio_id', servicio.id);
+    const { error } = await supabase
+      .from('servicios_directos')
+      .update({
+        estado: 'en_proceso', gasto: null, caja_id: null, caja_mov_id: null, pago_legs: null,
+        abonado_total: 0, finalizada_at: null, pagada_at: null, pagada_por: null, pagada_por_name: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', servicio.id);
+    if (error) throw error;
+    return;
+  }
+
   const legs = Array.isArray(servicio.pago_legs) ? servicio.pago_legs.filter((l) => Number(l.monto) > 0) : [];
   if (legs.length) {
     for (const leg of legs) {

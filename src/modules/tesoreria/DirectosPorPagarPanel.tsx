@@ -6,12 +6,18 @@
    (en compras) entra al inventario, y queda FINALIZADA. Reusa los
    modales de pago de Compra/Servicio Directo.
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { money, dateTime } from '@/shared/lib/format';
+import { Modal } from '@/shared/ui/Modal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { notify } from '@/shared/lib/notify';
 import type { Caja } from '@/shared/lib/types';
 import { listComprasDirectas, type CompraDirecta } from '@/modules/pedidos/compras.repository';
-import { listServiciosDirectos, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
+import {
+  listServiciosDirectos, registrarAbonoServicio, listAbonosServicio,
+  type ServicioDirecto, type AbonoServicio,
+} from '@/modules/pedidos/serviciosDirectos.repository';
 import { FinalizarCompraModal } from '@/modules/pedidos/CompraDirectaView';
 import { FinalizarServicioModal } from '@/modules/pedidos/ServicioDirectoView';
 
@@ -38,6 +44,7 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   const [servicios, setServicios] = useState<ServicioDirecto[]>([]);
   const [pagarC, setPagarC] = useState<CompraDirecta | null>(null);
   const [pagarS, setPagarS] = useState<ServicioDirecto | null>(null);
+  const [abonarS, setAbonarS] = useState<ServicioDirecto | null>(null);
 
   const reload = useCallback(async () => {
     const [cs, ss] = await Promise.all([
@@ -106,9 +113,17 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
                   <td>{s.proveedor_nombre || <span className="muted">—</span>}</td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>{s.actor_name || s.actor || '—'}<br />{dateTime(s.updated_at)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{s.gasto != null ? montoMoneda(s.gasto, s.moneda) : '—'}
-                    {equivConversion(s.gasto, s.moneda, s.tasa_conversion) && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{equivConversion(s.gasto, s.moneda, s.tasa_conversion)}</div>}</td>
+                    {equivConversion(s.gasto, s.moneda, s.tasa_conversion) && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{equivConversion(s.gasto, s.moneda, s.tasa_conversion)}</div>}
+                    {s.con_abonos && (
+                      <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>
+                        <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#111' }}>ABONOS</span>{' '}
+                        abonado {montoMoneda(Number(s.abonado_total) || 0, s.moneda)} · saldo {montoMoneda(Math.max(0, (Number(s.gasto) || 0) - (Number(s.abonado_total) || 0)), s.moneda)}
+                      </div>
+                    )}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                    <button className="btn btn-sm btn-primary" onClick={() => setPagarS(s)} title="Pagar y finalizar el servicio">💳 Pagar</button>
+                    {s.con_abonos
+                      ? <button className="btn btn-sm btn-primary" onClick={() => setAbonarS(s)} title="Registrar un abono (pago parcial) del servicio">📆 Abonar</button>
+                      : <button className="btn btn-sm btn-primary" onClick={() => setPagarS(s)} title="Pagar y finalizar el servicio">💳 Pagar</button>}
                   </td>
                 </tr>
               ))}
@@ -131,6 +146,122 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
           onSaved={async () => { setPagarS(null); await reload(); onPaid(); }}
         />
       )}
+      {abonarS && (
+        <AbonosServicioModal
+          servicio={abonarS} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={() => setAbonarS(null)}
+          onSaved={async () => { setAbonarS(null); await reload(); onPaid(); }}
+        />
+      )}
     </div>
+  );
+}
+
+/* ───────── Abonos (cuotas) de un servicio directo · Tesorería ───────── */
+
+function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSaved }: {
+  servicio: ServicioDirecto; cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+}) {
+  const moneda = servicio.moneda ?? 'USD';
+  const total = Math.round((Number(servicio.gasto) || 0) * 100) / 100;
+  const abonado = Math.round((Number(servicio.abonado_total) || 0) * 100) / 100;
+  const saldo = Math.round((total - abonado) * 100) / 100;
+
+  const [abonos, setAbonos] = useState<AbonoServicio[]>([]);
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [monto, setMonto] = useState(String(saldo > 0 ? saldo : ''));
+  const [nota, setNota] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { listAbonosServicio(servicio.id).then(setAbonos).catch(() => setAbonos([])); }, [servicio.id]);
+
+  const montoNum = Math.round((Number(monto) || 0) * 100) / 100;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
+    if (montoNum <= 0) { setError('Indicá el monto del abono.'); return; }
+    if (montoNum > saldo + 0.01) { setError(`El abono supera el saldo pendiente (${montoMoneda(saldo, moneda)}).`); return; }
+    if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El comprobante debe ser PDF o imagen.'); return; }
+    setSaving(true);
+    try {
+      await registrarAbonoServicio({ servicio, cajaId, monto: montoNum, nota: nota || null, file, actor, actorName });
+      const saldado = montoNum >= saldo - 0.01;
+      notify(
+        saldado
+          ? `Servicio ${servicio.codigo ?? ''} saldado con el último abono · ${montoMoneda(montoNum, moneda)}`
+          : `Abono registrado · ${montoMoneda(montoNum, moneda)} · saldo ${montoMoneda(saldo - montoNum, moneda)}`,
+        'success', { link: '#/app/tesoreria' },
+      );
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar el abono.'); setSaving(false); }
+  }
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+      <button type="submit" form="sd-abono-form" className="btn btn-primary" disabled={saving}>
+        {saving ? 'Registrando…' : `Registrar abono · ${montoMoneda(montoNum, moneda)}`}
+      </button>
+    </>
+  );
+
+  return (
+    <Modal title={`📆 Abonos · ${servicio.codigo ?? servicio.descripcion}`} size="md" onClose={onClose} footer={footer}>
+      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+        <div><span className="muted">Total:</span> <strong className="mono">{montoMoneda(total, moneda)}</strong></div>
+        <div><span className="muted">Abonado:</span> <strong className="mono">{montoMoneda(abonado, moneda)}</strong></div>
+        <div><span className="muted">Saldo:</span> <strong className="mono" style={{ color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{montoMoneda(saldo, moneda)}</strong></div>
+      </div>
+
+      {abonos.length > 0 && (
+        <div className="table-wrap" style={{ marginBottom: '.6rem' }}>
+          <table className="table" style={{ fontSize: '.8rem' }}>
+            <thead><tr><th>Fecha</th><th className="num">Abono</th><th className="num">Saldo</th><th>Por</th></tr></thead>
+            <tbody>
+              {abonos.map((a) => (
+                <tr key={a.id}>
+                  <td className="muted">{dateTime(a.at)}</td>
+                  <td className="num mono">{montoMoneda(Number(a.monto), a.moneda ?? moneda)}</td>
+                  <td className="num mono">{a.saldo_restante != null ? montoMoneda(Number(a.saldo_restante), a.moneda ?? moneda) : '—'}</td>
+                  <td className="muted" style={{ fontSize: '.75rem' }}>{a.actor_name || a.actor || '—'}{a.nota ? ` · ${a.nota}` : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {saldo <= 0 ? (
+        <div className="card" style={{ borderColor: 'var(--success)' }}>Servicio <strong>saldado</strong>. No queda saldo por abonar.</div>
+      ) : (
+        <form id="sd-abono-form" onSubmit={submit}>
+          {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+          <div className="form-row">
+            <label>Caja (de dónde sale el dinero)</label>
+            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 340 }}
+              placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
+              options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${money(c.saldo)}` }))} />
+          </div>
+          <div className="form-row" style={{ maxWidth: 220 }}>
+            <label>Monto del abono ({moneda})</label>
+            <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0,00" />
+            <small className="muted">Máximo el saldo: {montoMoneda(saldo, moneda)}.{' '}
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMonto(String(saldo))}>Pagar saldo</button>
+            </small>
+          </div>
+          <div className="form-row">
+            <label>Comprobante <span className="muted">(PDF o imagen · opcional)</span></label>
+            <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          </div>
+          <div className="form-row">
+            <label>Nota <span className="muted">(opcional)</span></label>
+            <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: primer abono, transferencia…" />
+          </div>
+        </form>
+      )}
+    </Modal>
   );
 }
