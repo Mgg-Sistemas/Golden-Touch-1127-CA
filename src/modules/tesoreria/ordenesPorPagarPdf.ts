@@ -121,10 +121,10 @@ export async function descargarOrdenesPorPagarPdf(rows: OrdenPorPagar[]): Promis
   });
 
   const segmentos: Segmento[] = [
-    mkSeg('🛒 Compras Directas', comprasPP.map(filaCompra)),
-    mkSeg('📄 Órdenes de Compra (OC)', ocRows.map(filaOc)),
-    mkSeg('🔧 Servicios (Control de Servicio · CS)', csRows.map(filaOc)),
-    mkSeg('🧰 Servicios Directos', serviciosPP.map(filaServicio)),
+    mkSeg('COMPRAS DIRECTAS', comprasPP.map(filaCompra)),
+    mkSeg('ÓRDENES DE COMPRA (OC)', ocRows.map(filaOc)),
+    mkSeg('SERVICIOS (CONTROL DE SERVICIO · CS)', csRows.map(filaOc)),
+    mkSeg('SERVICIOS DIRECTOS', serviciosPP.map(filaServicio)),
   ].filter((s) => s.filas.length > 0);
 
   const totUsd = segmentos.reduce((a, s) => a + s.subUsd, 0);
