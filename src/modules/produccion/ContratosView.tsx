@@ -1,15 +1,16 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ConfirmDialog } from '@/shared/ui/Modal';
+import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { date, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import type { ContratoAcopio, EstadoContratoAcopio } from '@/shared/lib/types';
-import { listContratos, eliminarContrato, cerrarContrato, reabrirContrato } from './contratos.repository';
+import { listContratos, eliminarContrato, cerrarContrato, reabrirContrato, type TipoContrato } from './contratos.repository';
 import { ContratosModal, pct } from './ContratosModal';
 import { descargarContratosPdf } from './contratoPdf';
+import { descargarContratoDetallePdf } from './contratoDetallePdf';
 import { descargarContratosExcel } from './contratoExcel';
 import { enviarContratosPorCorreo } from './enviarContrato';
 
@@ -24,6 +25,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: 'none' } | { kind: 'crear' } | { kind: 'editar'; c: ContratoAcopio }>({ kind: 'none' });
   const [correoOpen, setCorreoOpen] = useState(false);
+  const [reportesOpen, setReportesOpen] = useState(false);
   const [confirmar, setConfirmar] = useState<{ titulo: string; mensaje: string; confirmText: string; danger?: boolean; run: () => Promise<void> } | null>(null);
   // Filtros (estilo Tesorería).
   const [fTexto, setFTexto] = useState('');
@@ -146,6 +148,8 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
       {/* Toolbar: crear + reportes + filtros (estilo Tesorería) */}
       <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
         <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-sm btn-primary" disabled={!contratos.length} title="Reportes: por contrato (buscable) o resumen general — con vista previa"
+            onClick={() => setReportesOpen(true)}>📄 Reportes</button>
           <button className="btn btn-sm btn-ghost" disabled={!filtrados.length} title="Descargar PDF (con el filtro aplicado)"
             onClick={() => void descargarContratosPdf(filtrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
           <button className="btn btn-sm btn-ghost" disabled={!filtrados.length} title="Descargar Excel (con el filtro aplicado)"
@@ -236,6 +240,9 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
           onSaved={async () => { setModal({ kind: 'none' }); await recargar(); }}
         />
       )}
+      {reportesOpen && (
+        <ReportesContratosModal contratos={contratos} onClose={() => setReportesOpen(false)} />
+      )}
       {correoOpen && (
         <CorreoReporteModal
           titulo="Enviar contratos de producción"
@@ -261,3 +268,99 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
     </div>
   );
 });
+
+/* ───────────── Modal: Reportes de contratos (switch) ─────────────
+   Dos modos con vista previa imprimible:
+   · Por contrato: se elige el tipo (producción/minero) y un contrato de una lista
+     buscable por número; al verlo se abre la vista previa del contrato (todos los
+     detalles, con las personas en el minero) para descargar.
+   · General (resumen): tabla-resumen de TODOS los contratos (opcional por tipo). */
+function ReportesContratosModal({ contratos, onClose }: { contratos: ContratoAcopio[]; onClose: () => void }) {
+  const [modo, setModo] = useState<'contrato' | 'general'>('contrato');
+  const [tipo, setTipo] = useState<TipoContrato>('produccion');
+  const [selId, setSelId] = useState('');
+  const [tipoGeneral, setTipoGeneral] = useState<'todos' | TipoContrato>('todos');
+  const [generando, setGenerando] = useState(false);
+
+  const esTipo = (c: ContratoAcopio, t: TipoContrato) => (c.tipo === 'minero' ? 'minero' : 'produccion') === t;
+  const delTipo = useMemo(() => contratos.filter((c) => esTipo(c, tipo)), [contratos, tipo]);
+  // Al cambiar de tipo, si el seleccionado ya no pertenece, se limpia.
+  useEffect(() => { if (selId && !delTipo.some((c) => c.id === selId)) setSelId(''); }, [delTipo, selId]);
+  const sel = useMemo(() => contratos.find((c) => c.id === selId) ?? null, [contratos, selId]);
+
+  async function verContrato() {
+    if (!sel) return;
+    setGenerando(true);
+    try { await descargarContratoDetallePdf(sel); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'); }
+    finally { setGenerando(false); }
+  }
+  async function verGeneral() {
+    const rows = tipoGeneral === 'todos' ? contratos : contratos.filter((c) => esTipo(c, tipoGeneral));
+    if (!rows.length) { toast('No hay contratos para ese tipo.', 'error'); return; }
+    setGenerando(true);
+    try { await descargarContratosPdf(rows, { filtro: tipoGeneral === 'todos' ? undefined : `tipo: ${tipoGeneral}` }); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'); }
+    finally { setGenerando(false); }
+  }
+
+  return (
+    <Modal title="📄 Reportes de contratos" size="md" onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      {/* Switch de modo */}
+      <div className="view-toggle" role="tablist" style={{ marginBottom: '.9rem' }}>
+        <button type="button" className={modo === 'contrato' ? 'active' : ''} onClick={() => setModo('contrato')}>📄 Reporte por contrato</button>
+        <button type="button" className={modo === 'general' ? 'active' : ''} onClick={() => setModo('general')}>📊 Reporte general (resumen)</button>
+      </div>
+
+      {modo === 'contrato' ? (
+        <>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+            Elegí el tipo de contrato y buscá el número; al verlo se abre la <strong>vista previa</strong> con todos los detalles para descargar.
+          </p>
+          <div className="view-toggle" role="tablist" style={{ marginBottom: '.7rem' }}>
+            <button type="button" className={tipo === 'produccion' ? 'active' : ''} onClick={() => setTipo('produccion')}>⚙ Producción</button>
+            <button type="button" className={tipo === 'minero' ? 'active' : ''} onClick={() => setTipo('minero')}>⛏ Minero</button>
+          </div>
+          <div className="form-row">
+            <label>Contrato de {tipo === 'minero' ? 'minero' : 'producción'} <span className="muted">({delTipo.length} disponible(s))</span></label>
+            <SearchSelect value={selId} onChange={setSelId} disabled={!delTipo.length}
+              placeholder={delTipo.length ? '🔍 Buscar por número…' : '— sin contratos de este tipo —'}
+              options={delTipo.map((c) => ({ value: c.id, label: `${c.numero} · ${date(c.fecha)}${c.lugar_extraccion ? ` · ${c.lugar_extraccion}` : ''}` }))} />
+          </div>
+          {sel && (
+            <div className="card" style={{ background: 'var(--surface-2)', marginTop: '.6rem', fontSize: '.82rem' }}>
+              <strong className="mono">{sel.numero}</strong> · {date(sel.fecha)} · {sel.estado === 'activo' ? '● Activo' : '✔ Cerrado'}<br />
+              <span className="muted">Lugar: {sel.lugar_extraccion || '—'} · Kg s/limpio: <span className="mono">{num(sel.kg_seco_limpio)}</span>
+                {sel.tipo === 'minero' && Array.isArray(sel.personas) && sel.personas.length > 0 && <> · 👤 {sel.personas.length} persona(s)</>}</span>
+            </div>
+          )}
+          <div style={{ marginTop: '.9rem', textAlign: 'right' }}>
+            <button className="btn btn-primary" disabled={!sel || generando} onClick={() => void verContrato()}>
+              {generando ? 'Generando…' : '👁 Ver vista previa'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+            Resumen general de todos los contratos en una tabla (con totales). Podés acotar por tipo. Se abre en <strong>vista previa</strong> para descargar.
+          </p>
+          <div className="form-row" style={{ maxWidth: 260 }}>
+            <label>Tipo de contrato</label>
+            <select className="select" value={tipoGeneral} onChange={(e) => setTipoGeneral(e.target.value as typeof tipoGeneral)}>
+              <option value="todos">Todos ({contratos.length})</option>
+              <option value="produccion">Solo producción</option>
+              <option value="minero">Solo minero</option>
+            </select>
+          </div>
+          <div style={{ marginTop: '.9rem', textAlign: 'right' }}>
+            <button className="btn btn-primary" disabled={!contratos.length || generando} onClick={() => void verGeneral()}>
+              {generando ? 'Generando…' : '👁 Ver vista previa'}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}

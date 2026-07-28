@@ -601,9 +601,17 @@ export interface ContratoAcopio {
   mov_almacen?: string | null;
   mov_cantidad?: number | null;
   observaciones?: string | null;
+  /** Contrato MINERO: personas involucradas (nombre + cédula). Vacío en producción. */
+  personas?: PersonaContrato[] | null;
   created_by?: string | null;
   actor_name?: string | null;
   created_at: string;
+}
+
+/** Persona (nombre + cédula) asociada a un contrato minero. */
+export interface PersonaContrato {
+  nombre: string;
+  cedula: string;
 }
 
 /* ───────────── Caja Peramanal (Centro de Acopio) ───────────── */
