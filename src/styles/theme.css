@@ -127,6 +127,10 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
 }
 .btn:hover { border-color: var(--primary); color: #fff; transform: translateY(-1px); }
 .btn:active { transform: translateY(0); }
+/* Botón deshabilitado: claramente inactivo (evita el "no hace nada" cuando falta un
+   requisito, p. ej. escribir la palabra de confirmación). */
+.btn:disabled, .btn[disabled] { opacity: .45; cursor: not-allowed; filter: grayscale(.35); }
+.btn:disabled:hover, .btn[disabled]:hover { border-color: var(--border-strong); color: var(--text); transform: none; }
 
 .btn-primary {
   background: var(--grad-primary);

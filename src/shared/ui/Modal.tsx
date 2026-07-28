@@ -45,7 +45,9 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Confirmar', danger, requireText, requireLabel, onConfirm, onCancel }: ConfirmDialogProps) {
   const [typed, setTyped] = useState('');
-  const matches = requireText == null || typed.trim() === requireText.trim();
+  // Comparación tolerante (sin distinguir may/min ni espacios): evita el "no pasa nada"
+  // cuando el usuario escribe la palabra en otra caja.
+  const matches = requireText == null || typed.trim().toLowerCase() === requireText.trim().toLowerCase();
   return (
     <Modal
       title={title}
@@ -70,9 +72,13 @@ export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Con
             className="input"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            placeholder={requireText}
+            onKeyDown={(e) => { if (e.key === 'Enter' && matches) { e.preventDefault(); onConfirm(); } }}
+            placeholder={`Escribí "${requireText}" aquí…`}
             autoFocus
           />
+          {!matches && typed.trim().length > 0 && (
+            <small className="muted">Escribí exactamente <strong>{requireText}</strong> para habilitar el botón.</small>
+          )}
         </div>
       )}
     </Modal>
