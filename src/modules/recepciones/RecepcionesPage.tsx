@@ -1543,7 +1543,7 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRe
               onChange={(e) => setLocal({ observacion: e.target.value })} placeholder="Observaciones de la conciliación…" />
           </div>
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>
-            Diferencia = Reportado − Peso Kg total (+ «Kg a favor» verde / − «Kg Faltante» rojo) · Kg No Llegó = Diferencia + Peso de Bolsas + Muestras de Laboratorio · % = No llegó / Reportado × 100. Se guarda con «GUARDAR CONCILIACIÓN».
+            Diferencia = Reportado − Peso Kg total (+ «Kg a favor» verde / − «Kg Faltante» rojo) · Kg No Llegó = Kg Faltante + Peso de Bolsas + Muestras de Laboratorio · % = No llegó / Reportado × 100. Se guarda con «GUARDAR CONCILIACIÓN».
           </div>
         </div>
       )}

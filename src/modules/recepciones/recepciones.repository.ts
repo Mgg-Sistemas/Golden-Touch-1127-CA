@@ -797,8 +797,10 @@ export function calcConciliacion(c: { peso_kg_total: number | null; kg_bolsas: n
   const reportado = round2((c.centros ?? []).reduce((a, x) => a + (Number(x.kg) || 0), 0));
   // Diferencia = Reportado − Peso KG total (+ = «a favor»; − = «faltante»).
   const faltante = round2(reportado - num(c.peso_kg_total));
-  // Kg No Llegó = diferencia (lo que llegó de más o de menos) + peso de bolsas + muestras de laboratorio.
-  const noLlego = round2(faltante + num(c.kg_bolsas) + num(c.muestras_lab));
+  // Kg No Llegó = Kg FALTANTE (la MAGNITUD de la diferencia, que es la que se muestra
+  // en pantalla) + peso de bolsas + muestras de laboratorio. Usa el valor ABSOLUTO: el
+  // faltante suma siempre a lo que no llegó, sin importar el signo de la diferencia.
+  const noLlego = round2(Math.abs(faltante) + num(c.kg_bolsas) + num(c.muestras_lab));
   const porcentaje = reportado !== 0 ? round2((noLlego / reportado) * 100) : 0;
   return { reportado, faltante, noLlego, porcentaje };
 }
