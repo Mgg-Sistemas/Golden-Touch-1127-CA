@@ -402,7 +402,7 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
 
         {/* Víveres consumidos: checklist de TODOS los víveres del inventario (cualquier almacén) */}
         <div className="form-row">
-          <label>Productos consumidos <span className="muted">(marcá los que se usaron · Víveres, Carnes, Proteínas y Limpieza del inventario, sin importar el almacén)</span></label>
+          <label>Productos consumidos <span className="muted">(marcá los que se usaron · Víveres, Carnes, Proteínas, Hortalizas/Legumbres y Limpieza del inventario, sin importar el almacén)</span></label>
           <input ref={searchRef} className="input" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
             placeholder={viveres.length ? '🔍 Buscar víver por nombre o SKU…' : '— sin víveres en el inventario —'}
             style={{ marginBottom: '.5rem' }} disabled={!viveres.length} />

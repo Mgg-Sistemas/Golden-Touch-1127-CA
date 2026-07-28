@@ -50,11 +50,11 @@ export interface CocinaMovimiento {
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 
 /** ¿La categoría del producto entra en Distribución de comidas? Abarca las familias de
- *  cocina: VÍVERES, CARNES, PROTEÍNAS y LIMPIEZA (el stem "limpi" cubre también la
- *  variante mal escrita "LIMPIENZA"). Se compara sin acentos ni mayúsculas. */
+ *  cocina: VÍVERES, CARNES, PROTEÍNAS, LIMPIEZA (el stem "limpi" cubre también la variante
+ *  mal escrita "LIMPIENZA") y HORTALIZAS Y LEGUMBRES. Se compara sin acentos ni mayúsculas. */
 export const esCategoriaViveres = (categoria: string | null | undefined): boolean => {
   const c = norm(categoria ?? '');
-  return ['viver', 'carne', 'proteina', 'limpi'].some((k) => c.includes(k));
+  return ['viver', 'carne', 'proteina', 'limpi', 'hortaliza', 'legumbre'].some((k) => c.includes(k));
 };
 
 /** TODOS los víveres del inventario GENERAL (activos), sin importar el almacén donde
