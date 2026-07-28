@@ -516,3 +516,16 @@ body.hints-off .hint { display: none !important; }
 .mono { font-family: var(--font-mono); }
 .hidden { display: none !important; }
 .divider { height: 1px; background: var(--border); margin: 1rem 0; }
+
+/* Impresión: al imprimir (o «Guardar como PDF») una vista previa marcada con
+   .reporte-print, se oculta todo lo demás y se imprime SOLO ese contenido, en
+   blanco y negro/legible. Sirve para el Reporte de existencias de combustible. */
+@media print {
+  body * { visibility: hidden !important; }
+  .reporte-print, .reporte-print * { visibility: visible !important; }
+  .reporte-print {
+    position: absolute; left: 0; top: 0; width: 100%;
+    padding: 1rem; color: #000; background: #fff;
+  }
+  .reporte-print .muted { color: #444 !important; }
+}

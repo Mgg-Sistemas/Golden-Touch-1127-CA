@@ -121,6 +121,110 @@ function GrupoTanques({ titulo, totales, grupo, canWrite, loading, estiloTop, va
   );
 }
 
+/* ───────────── Reporte de existencias por tanque (vista previa imprimible) ─────────────
+   Resumen ilustrativo de CUÁNTO combustible hay a la fecha: cada tanque con su barra de
+   llenado, litros disponibles, capacidad, tasa y valor; con los totales por grupo y el
+   total general. Es una VISTA PREVIA en pantalla; el botón imprime/guarda en PDF solo
+   este contenido (vía @media print → .reporte-print). */
+function fechaHoraVE(): string {
+  return new Intl.DateTimeFormat('es-VE', {
+    timeZone: 'America/Caracas', dateStyle: 'full', timeStyle: 'short',
+  }).format(new Date());
+}
+
+/** Fila ilustrativa de un tanque: barra de llenado + litros/cap/tasa/valor. */
+function FilaReporteTanque({ r }: { r: ReporteTanque }) {
+  const cap = Number(r.tanque.capacidad_litros) || 0;
+  const disp = Number(r.disponible) || 0;
+  const tasa = Number(r.tanque.tasa_usd_litro) || 0;
+  const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
+  const color = pct < 12 ? 'var(--danger)' : pct < 30 ? 'var(--warning)' : 'var(--primary)';
+  return (
+    <div style={{ padding: '.55rem 0', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: '.9rem' }}>{r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}
+          {r.tanque.estado !== 'activo' && <span className="badge" style={{ marginLeft: '.35rem' }}>inactivo</span>}
+        </strong>
+        <span className="mono" style={{ fontSize: '1rem', fontWeight: 800 }}>{num(disp)} <span style={{ fontSize: '.72rem', fontWeight: 500 }}>ltrs</span></span>
+      </div>
+      <div style={{ height: 9, borderRadius: 5, background: 'var(--surface-2)', margin: '.35rem 0', overflow: 'hidden', border: '1px solid var(--border)' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color }} />
+      </div>
+      <div className="muted" style={{ fontSize: '.74rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+        <span>Cap. <span className="mono">{num(cap)}</span> ltrs · <span className="mono">{pct.toFixed(0)}%</span> lleno</span>
+        <span>Tasa <span className="mono">{money(tasa)}</span>/ltr</span>
+        <span>Valor <span className="mono" style={{ color: 'var(--success)' }}>{money(disp * tasa)}</span></span>
+      </div>
+    </div>
+  );
+}
+
+/** Sección de un grupo: encabezado con total + filas de sus tanques. */
+function SeccionReporte({ titulo, grupo, totales }: {
+  titulo: string; grupo: ReporteTanque[]; totales: { litros: number; valor: number; tasa: number; count: number };
+}) {
+  if (!grupo.length) return null;
+  return (
+    <div style={{ marginTop: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap', borderBottom: '2px solid var(--primary)', paddingBottom: '.3rem' }}>
+        <strong style={{ fontSize: '1rem' }}>{titulo} <span className="muted" style={{ fontWeight: 500, fontSize: '.82rem' }}>· {totales.count} tanque(s)</span></strong>
+        <span className="mono" style={{ fontWeight: 800 }}>{num(totales.litros)} ltrs · <span style={{ color: 'var(--success)' }}>{money(totales.valor)}</span></span>
+      </div>
+      {grupo.map((r) => <FilaReporteTanque key={r.tanque.id} r={r} />)}
+    </div>
+  );
+}
+
+function ReporteExistenciasModal({ grupoGeneral, grupoBrasileros, totalGeneral, totalBrasileros, onClose }: {
+  grupoGeneral: ReporteTanque[]; grupoBrasileros: ReporteTanque[];
+  totalGeneral: { litros: number; valor: number; tasa: number; count: number };
+  totalBrasileros: { litros: number; valor: number; tasa: number; count: number };
+  onClose: () => void;
+}) {
+  // Total general = ambos grupos (son disjuntos: «general» excluye a «Los Brasileros»).
+  const litros = totalGeneral.litros + totalBrasileros.litros;
+  const valor = totalGeneral.valor + totalBrasileros.valor;
+  const count = totalGeneral.count + totalBrasileros.count;
+  const tasa = litros > 0 ? valor / litros : 0;
+  const emitido = useMemo(() => fechaHoraVE(), []);
+
+  const footer = (
+    <>
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <button className="btn btn-primary" onClick={() => window.print()} title="Imprimir o guardar como PDF esta vista previa">🖨 Imprimir / PDF</button>
+    </>
+  );
+
+  return (
+    <Modal title="📄 Reporte de existencias de combustible" size="lg" onClose={onClose} footer={footer}>
+      <div className="reporte-print">
+        <div style={{ textAlign: 'center', marginBottom: '.5rem' }}>
+          <h2 style={{ margin: 0 }}>Existencias de combustible a la fecha</h2>
+          <div className="muted" style={{ fontSize: '.8rem', textTransform: 'capitalize' }}>{emitido}</div>
+        </div>
+
+        {/* Total general destacado */}
+        <div className="card" style={{ margin: '.5rem 0', borderColor: 'var(--primary)', borderWidth: 2, background: 'linear-gradient(135deg, var(--surface-2), var(--surface))', textAlign: 'center' }}>
+          <div className="muted" style={{ fontSize: '.75rem', textTransform: 'uppercase', letterSpacing: '.04em' }}>Total disponible</div>
+          <div className="mono" style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary-3)' }}>{num(litros)} <span style={{ fontSize: '1rem', fontWeight: 500 }}>ltrs</span></div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', flexWrap: 'wrap', marginTop: '.35rem' }}>
+            <span className="muted" style={{ fontSize: '.82rem' }}>en <strong>{count}</strong> tanque(s)</span>
+            <span className="muted" style={{ fontSize: '.82rem' }}>Valor <strong className="mono" style={{ color: 'var(--success)' }}>{money(valor)}</strong></span>
+            <span className="muted" style={{ fontSize: '.82rem' }}>Tasa prom. <strong className="mono">{money(tasa)}</strong>/ltr</span>
+          </div>
+        </div>
+
+        <SeccionReporte titulo="Combustible disponible" grupo={grupoGeneral} totales={totalGeneral} />
+        <SeccionReporte titulo="Los Brasileros" grupo={grupoBrasileros} totales={totalBrasileros} />
+
+        <div className="muted" style={{ fontSize: '.72rem', marginTop: '1rem', textAlign: 'center' }}>
+          Golden Touch 1127 C.A. · Reporte generado automáticamente · Los valores usan la tasa (USD/ltr) de cada tanque.
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 const TIPO_MOV_LABEL: Record<TipoMovTanque, string> = {
   entrada: '⬇ Entrada (entra combustible)',
   uso: '⛽ Uso (consumo de equipo)',
@@ -143,7 +247,7 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'consumoSemanal'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'consumoSemanal' | 'reporte'>('none');
   const [detalle, setDetalle] = useState<MovimientoTanque | null>(null);
   const [aBorrar, setABorrar] = useState<MovimientoTanque | null>(null);
   const [editTanque, setEditTanque] = useState<TanqueCombustible | null>(null);
@@ -209,6 +313,7 @@ export function TanquesView() {
       <div className="filterbar" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: '.5rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="btn btn-ghost btn-sm" onClick={() => setHistorico(true)} disabled={!tanques.length} title="Movimientos de meses anteriores, por mes">📚 Histórico de Movimientos</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setModal('reporte')} disabled={!reporte.length} title="Vista previa del resumen de existencias por tanque a la fecha (imprimible)">📄 Reporte de existencias</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
@@ -283,6 +388,12 @@ export function TanquesView() {
       )}
       {modal === 'consumoSemanal' && (
         <ConsumoSemanalModal onClose={() => setModal('none')} onPosted={recargarTodo} />
+      )}
+      {modal === 'reporte' && (
+        <ReporteExistenciasModal
+          grupoGeneral={grupoGeneral} grupoBrasileros={grupoBrasileros}
+          totalGeneral={totalGeneral} totalBrasileros={totalBrasileros}
+          onClose={() => setModal('none')} />
       )}
       {modal === 'cubicacion' && sel && (
         <CubicacionModal tanque={sel} actor={actor} onClose={() => setModal('none')} onSaved={recargarTodo} />

@@ -268,8 +268,11 @@ export function RecepcionesPage() {
   const mermaFinDe = (r: HumedadFinalRow) => (r.auto ? mermaFinalProc(r.neto_humedo ?? null, r.peso_recogido) : mermaH2OFinal(pesoTotal, r.peso_recogido));
   const finMermaTotal = humFin.reduce((a, r) => a + (mermaFinDe(r) ?? 0), 0);
   const finPctLote = finNetoHumedoTotal > 0 ? (finMermaTotal / finNetoHumedoTotal) * 100 : null;
-  // Desglose por procedencia (neto seco recogido) para Conciliación/Totales: de las filas auto de Humedad Final.
+  // Desglose por procedencia (neto seco recogido) para Totales: de las filas auto de Humedad Final.
   const desgloseProc = humFin.filter((r) => r.auto).map((r) => ({ procedencia: (r.procedencia || '—'), neto: Number(r.peso_recogido) || 0 }));
+  // Para la CONCILIACIÓN se usa el NETO HÚMEDO RECEPCIONADO (no el peso seco): es lo que
+  // efectivamente se recibió del centro de acopio y contra lo que se concilia lo reportado.
+  const desgloseProcHumedo = humFin.filter((r) => r.auto).map((r) => ({ procedencia: (r.procedencia || '—'), neto: Number(r.neto_humedo) || 0 }));
 
   // Análisis por procedencia: pestañas (catálogo + las presentes en los análisis) y la
   // procedencia efectiva seleccionada; solo se muestran/editan los análisis de esa procedencia.
@@ -433,7 +436,7 @@ export function RecepcionesPage() {
         <ResumenRecepcionModal resumen={resumen} onClose={() => setResumenOpen(false)} />
       )}
 
-      {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} onClose={() => setConcilOpen(false)} />}
+      {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoHumedoRecep={finNetoHumedoTotal} desgloseProc={desgloseProcHumedo} onClose={() => setConcilOpen(false)} />}
       {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} cajaTasa={cajaTasa} mermaProvTotal={provMermaTotal} mermaFinalTotal={finMermaTotal} onClose={() => setTotalesOpen(false)} />}
       {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onCerrado={() => void reload()} onClose={() => setCierresOpen(false)} />}
 
@@ -1269,8 +1272,8 @@ interface ConcilDraft {
   observacion: string;
 }
 
-function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, desgloseProc, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; desgloseProc: Array<{ procedencia: string; neto: number }>; onClose: () => void;
+function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRecep, desgloseProc, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoHumedoRecep: number; desgloseProc: Array<{ procedencia: string; neto: number }>; onClose: () => void;
 }) {
   const [lista, setLista] = useState<Conciliacion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1293,9 +1296,9 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
 
   function nueva() {
     const numero = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
-    // Peso Kg Total = total de «Peso (Kg) recogido» de Humedad Final.
+    // Peso Kg Total = NETO HÚMEDO RECEPCIONADO (lo efectivamente recibido, no el peso seco).
     // Centro «Peramanal» = Saldo Kg de casiterita reportado por la caja del acopio (= peso de las recepciones del cierre).
-    setDraft({ id: null, numero, fecha: null, peso_kg_total: pesoRecogidoFinal || 0, kg_bolsas: 0, muestras_lab: 0,
+    setDraft({ id: null, numero, fecha: null, peso_kg_total: pesoHumedoRecep || 0, kg_bolsas: 0, muestras_lab: 0,
       centros: [{ nombre: 'Peramanal', kg: pesoTotal || null, categoria: null, entra_inventario: false, almacen: null }], observacion: '' });
     setMode('form');
   }
@@ -1482,13 +1485,13 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoRecogido
                       <input className="input mono" type="number" step="any" value={draft.peso_kg_total || ''} disabled={!canWrite}
                         onChange={(e) => setLocal({ peso_kg_total: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="Peso Kg Total" style={{ width: 160, textAlign: 'right' }} />
                     </td>
-                    <td style={{ fontWeight: 700 }}>Peso Kg Total <span className="muted" style={{ fontWeight: 400 }}>(= Peso (Kg) recogido · Humedad Final)</span>
-                      {canWrite && <div><button className="btn btn-sm btn-ghost" type="button" style={{ padding: '0 .3rem', fontSize: '.72rem' }} onClick={() => setLocal({ peso_kg_total: pesoRecogidoFinal })}>↺ Usar Humedad Final ({fmt(pesoRecogidoFinal)})</button></div>}
+                    <td style={{ fontWeight: 700 }}>Peso Kg Total <span className="muted" style={{ fontWeight: 400 }}>(= Neto húmedo recepcionado)</span>
+                      {canWrite && <div><button className="btn btn-sm btn-ghost" type="button" style={{ padding: '0 .3rem', fontSize: '.72rem' }} onClick={() => setLocal({ peso_kg_total: pesoHumedoRecep })}>↺ Usar húmedo recepcionado ({fmt(pesoHumedoRecep)})</button></div>}
                     </td>
                   </tr>
                   {desgloseProc.length > 0 && (
                     <>
-                      <tr><td colSpan={2} className="muted" style={{ fontSize: '.72rem', fontWeight: 700, paddingTop: '.5rem' }}>Desglose por procedencia <span style={{ fontWeight: 400 }}>(neto seco recogido)</span></td></tr>
+                      <tr><td colSpan={2} className="muted" style={{ fontSize: '.72rem', fontWeight: 700, paddingTop: '.5rem' }}>Desglose por procedencia <span style={{ fontWeight: 400 }}>(neto húmedo recepcionado)</span></td></tr>
                       {desgloseProc.map((d) => (
                         <tr key={d.procedencia}>
                           <td className="num mono" style={{ textAlign: 'right', width: 190 }}>{fmt(d.neto)}</td>
