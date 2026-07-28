@@ -7,7 +7,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import type { ContratoAcopio, EstadoContratoAcopio } from '@/shared/lib/types';
-import { listContratos, eliminarContrato, cerrarContrato, reabrirContrato, type TipoContrato } from './contratos.repository';
+import { listContratos, eliminarContrato, cerrarContrato, reabrirContrato, setContratoHistorico, type TipoContrato } from './contratos.repository';
 import { ContratosModal, pct } from './ContratosModal';
 import { descargarContratosPdf } from './contratoPdf';
 import { descargarContratoDetallePdf } from './contratoDetallePdf';
@@ -26,6 +26,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
   const [modal, setModal] = useState<{ kind: 'none' } | { kind: 'crear' } | { kind: 'editar'; c: ContratoAcopio }>({ kind: 'none' });
   const [correoOpen, setCorreoOpen] = useState(false);
   const [reportesOpen, setReportesOpen] = useState(false);
+  const [historicosOpen, setHistoricosOpen] = useState(false);
   const [confirmar, setConfirmar] = useState<{ titulo: string; mensaje: string; confirmText: string; danger?: boolean; run: () => Promise<void> } | null>(null);
   // Filtros (estilo Tesorería).
   const [fTexto, setFTexto] = useState('');
@@ -58,16 +59,20 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
     }
   }, [openContratoId, contratos, onOpenConsumed]);
 
+  // Vigentes (lista y métricas) vs Históricos (archivados, fuera de las métricas).
+  const vigentes = useMemo(() => contratos.filter((c) => !c.historico), [contratos]);
+  const historicos = useMemo(() => contratos.filter((c) => c.historico), [contratos]);
+
   // Opciones para los selectores de filtro.
   const opcs = useMemo(() => {
     const uniq = (sel: (c: ContratoAcopio) => string | null | undefined) =>
-      Array.from(new Set(contratos.map((c) => (sel(c) ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
+      Array.from(new Set(vigentes.map((c) => (sel(c) ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
     return { supervisores: uniq((c) => c.supervisor), lugares: uniq((c) => c.lugar_extraccion) };
-  }, [contratos]);
+  }, [vigentes]);
 
   const filtrados = useMemo(() => {
     const q = fTexto.trim().toLowerCase();
-    return contratos.filter((c) => {
+    return vigentes.filter((c) => {
       if (fEstado !== 'todos' && c.estado !== fEstado) return false;
       if (fSupervisor && (c.supervisor ?? '') !== fSupervisor) return false;
       if (fLugar && (c.lugar_extraccion ?? '') !== fLugar) return false;
@@ -80,18 +85,26 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
       }
       return true;
     });
-  }, [contratos, fTexto, fSupervisor, fLugar, fEstado, fDesde, fHasta]);
+  }, [vigentes, fTexto, fSupervisor, fLugar, fEstado, fDesde, fHasta]);
 
   const hayFiltro = !!(fTexto || fSupervisor || fLugar || fEstado !== 'todos' || fDesde || fHasta);
   function limpiar() { setFTexto(''); setFSupervisor(''); setFLugar(''); setFEstado('todos'); setFDesde(''); setFHasta(''); }
 
-  // Resumen para las tarjetas (sobre TODOS los contratos, no el filtro).
-  const resumen = useMemo(() => contratos.reduce((a, c) => {
+  // Resumen para las tarjetas (sobre los contratos VIGENTES, sin los archivados).
+  const resumen = useMemo(() => vigentes.reduce((a, c) => {
     const kg = Number(c.kg_seco_limpio) || 0;
     a.total += 1; a.kg += kg;
     if (c.estado === 'activo') { a.activos += 1; a.kgActivos += kg; }
     return a;
-  }, { activos: 0, total: 0, kg: 0, kgActivos: 0 }), [contratos]);
+  }, { activos: 0, total: 0, kg: 0, kgActivos: 0 }), [vigentes]);
+
+  async function archivar(c: ContratoAcopio, historico: boolean) {
+    try {
+      await setContratoHistorico(c.id, historico);
+      toast(historico ? `Contrato ${c.numero} enviado a Históricos` : `Contrato ${c.numero} restaurado`, 'success');
+      await recargar();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo archivar', 'error'); }
+  }
 
   function borrar(c: ContratoAcopio) {
     const aviso = c.estado === 'cerrado' && Number(c.mov_cantidad) > 0
@@ -150,6 +163,8 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
         <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-sm btn-primary" disabled={!contratos.length} title="Reportes: por contrato (buscable) o resumen general — con vista previa"
             onClick={() => setReportesOpen(true)}>📄 Reportes</button>
+          <button className="btn btn-sm btn-ghost" disabled={!historicos.length} title="Contratos archivados en Históricos (no cuentan en las métricas)"
+            onClick={() => setHistoricosOpen(true)}>📚 Históricos{historicos.length ? ` (${historicos.length})` : ''}</button>
           <button className="btn btn-sm btn-ghost" disabled={!filtrados.length} title="Descargar PDF (con el filtro aplicado)"
             onClick={() => void descargarContratosPdf(filtrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
           <button className="btn btn-sm btn-ghost" disabled={!filtrados.length} title="Descargar Excel (con el filtro aplicado)"
@@ -222,6 +237,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
                       <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                         <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setModal({ kind: 'editar', c })}>✎</button>
                         <button className="btn btn-sm btn-ghost" title={c.estado === 'activo' ? 'Cerrar' : 'Reabrir'} onClick={() => void cambiarEstado(c)}>{c.estado === 'activo' ? '🔒' : '↻'}</button>
+                        <button className="btn btn-sm btn-ghost" title="Enviar a Históricos (no cuenta en los KG de Casiterita)" onClick={() => void archivar(c, true)}>📚</button>
                         <button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => void borrar(c)}>🗑</button>
                       </td>
                     )}
@@ -241,7 +257,14 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
         />
       )}
       {reportesOpen && (
-        <ReportesContratosModal contratos={contratos} onClose={() => setReportesOpen(false)} />
+        <ReportesContratosModal contratos={vigentes} onClose={() => setReportesOpen(false)} />
+      )}
+      {historicosOpen && (
+        <HistoricosContratosModal
+          historicos={historicos} canWrite={canWrite}
+          onVer={(c) => { setHistoricosOpen(false); setModal({ kind: 'editar', c }); }}
+          onRestaurar={(c) => void archivar(c, false)}
+          onClose={() => setHistoricosOpen(false)} />
       )}
       {correoOpen && (
         <CorreoReporteModal
@@ -360,6 +383,54 @@ function ReportesContratosModal({ contratos, onClose }: { contratos: ContratoAco
             </button>
           </div>
         </>
+      )}
+    </Modal>
+  );
+}
+
+/* ───────────── Modal: Históricos de contratos ─────────────
+   Contratos archivados: NO aparecen en la lista principal ni suman en los KG de
+   Casiterita obtenidos. Se pueden ver en detalle (clic) o restaurar. */
+function HistoricosContratosModal({ historicos, canWrite, onVer, onRestaurar, onClose }: {
+  historicos: ContratoAcopio[]; canWrite: boolean;
+  onVer: (c: ContratoAcopio) => void; onRestaurar: (c: ContratoAcopio) => void; onClose: () => void;
+}) {
+  const kgTotal = historicos.reduce((a, c) => a + (Number(c.kg_seco_limpio) || 0), 0);
+  return (
+    <Modal title="📚 Contratos en Históricos" size="lg" onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+        {historicos.length} contrato(s) archivado(s) · <strong className="mono">{num(kgTotal)} Kg</strong> de casiterita.
+        No cuentan en las métricas ni en la lista principal. Hacé clic en una fila para ver el detalle.
+      </p>
+      {!historicos.length ? (
+        <EmptyState message="Sin contratos en históricos." icon="📚" />
+      ) : (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr>
+              <th>N° Contrato</th><th>Fecha</th><th>Supervisor</th><th>Lugar</th>
+              <th style={{ textAlign: 'right' }}>Kg s/limpio</th><th>Estado</th>{canWrite && <th></th>}
+            </tr></thead>
+            <tbody>
+              {historicos.map((c) => (
+                <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => onVer(c)} title="Ver detalle">
+                  <td className="mono"><strong>{c.numero}</strong></td>
+                  <td>{date(c.fecha)}</td>
+                  <td>{c.supervisor || '—'}</td>
+                  <td>{c.lugar_extraccion || '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: 'var(--primary-3)', fontWeight: 700 }}>{num(c.kg_seco_limpio)}</td>
+                  <td>{c.estado === 'activo' ? <span className="badge success">● Activo</span> : <span className="badge">✔ Cerrado</span>}</td>
+                  {canWrite && (
+                    <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                      <button className="btn btn-sm btn-ghost" title="Restaurar (vuelve a la lista y a las métricas)" onClick={() => onRestaurar(c)}>↩ Restaurar</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Modal>
   );
