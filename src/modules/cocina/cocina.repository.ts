@@ -184,6 +184,83 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
   return data as CocinaMovimiento;
 }
 
+export interface ActualizarMovimientoCocinaInput {
+  tipoComida: TipoComida;
+  platos: number;
+  items: CocinaItem[];
+  nota?: string | null;
+  at?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Edita un movimiento de cocina (tipo, platos, víveres, cantidades, nota y fecha) y
+ * RECONCILIA el inventario por la DIFERENCIA respecto a lo que se había consumido:
+ *   · si una cantidad baja (o se quita un víver) → la diferencia se REINTEGRA al stock (ajuste +).
+ *   · si una cantidad sube (o se agrega un víver) → se consume la diferencia (consumo −).
+ * Los víveres que no cambian no generan movimiento de inventario. No toca el PMP (sin precio).
+ */
+export async function actualizarMovimientoCocina(id: string, input: ActualizarMovimientoCocinaInput): Promise<CocinaMovimiento> {
+  const items = (input.items ?? []).filter((i) => i.producto_id && Number(i.cantidad) > 0);
+  if (!items.length) throw new Error('Agregá al menos un víver con cantidad.');
+  if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indicá cuántos platos se realizaron (mayor que 0).');
+
+  // 1) Movimiento actual (para calcular la diferencia de consumo por víver).
+  const { data: cur, error: eCur } = await supabase.from(TABLE).select('*').eq('id', id).single();
+  if (eCur) throw eCur;
+  const prev = cur as CocinaMovimiento;
+
+  type Info = { cant: number; sku: string; nombre: string; almacen: string | null };
+  const acumular = (arr: CocinaItem[]) => {
+    const m = new Map<string, Info>();
+    for (const it of arr ?? []) {
+      const p = m.get(it.producto_id);
+      m.set(it.producto_id, {
+        cant: (p?.cant ?? 0) + Number(it.cantidad || 0),
+        sku: it.sku, nombre: it.nombre, almacen: it.almacen ?? null,
+      });
+    }
+    return m;
+  };
+  const viejo = acumular(Array.isArray(prev.items) ? prev.items : []);
+  const nuevo = acumular(items);
+
+  // 2) Reconciliar inventario por la diferencia (stockDelta = viejo − nuevo).
+  for (const pid of new Set([...viejo.keys(), ...nuevo.keys()])) {
+    const o = viejo.get(pid); const n = nuevo.get(pid);
+    const stockDelta = round2((o?.cant ?? 0) - (n?.cant ?? 0)); // >0 reintegra, <0 consume más
+    if (Math.abs(stockDelta) < 1e-9) continue;
+    const meta = (n ?? o) as Info;
+    await registrarMovimiento({
+      producto_id: pid,
+      tipo: stockDelta > 0 ? 'ajuste' : 'consumo',
+      delta: stockDelta,
+      almacen: meta.almacen ?? null,
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+      ref_tipo: 'cocina',
+      ref_id: id,
+      ref_codigo: prev.codigo,
+      detalle: `Edición cocina ${prev.codigo ?? ''} · ${labelTipoComida(input.tipoComida)} · ${meta.sku} ${meta.nombre} · ${stockDelta > 0 ? `reintegro ${round2(Math.abs(stockDelta))}` : `consumo extra ${round2(Math.abs(stockDelta))}`}`,
+    });
+  }
+
+  // 3) Actualizar el registro con los nuevos datos.
+  const valorTotal = round2(items.reduce((a, i) => a + Number(i.cantidad) * Number(i.precio), 0));
+  const patch: Record<string, unknown> = {
+    tipo_comida: input.tipoComida,
+    platos: Math.trunc(input.platos),
+    items,
+    valor_total: valorTotal,
+    nota: input.nota?.trim() || null,
+  };
+  if (input.at) patch.at = input.at;
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as CocinaMovimiento;
+}
+
 export async function eliminarMovimientoCocina(id: string): Promise<void> {
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
