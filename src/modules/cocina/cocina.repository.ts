@@ -9,6 +9,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { push } from '@/modules/notificaciones/notif.repository';
 
 const TABLE = 'cocina_movimientos';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -48,10 +49,13 @@ export interface CocinaMovimiento {
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 
-/** ¿La categoría del producto es de víveres? Basta con que CONTENGA "viver" para
- *  abarcar variantes como "Víveres", "VIVERES" o "Víveres y Art. Limpieza". */
-export const esCategoriaViveres = (categoria: string | null | undefined): boolean =>
-  norm(categoria ?? '').includes('viver');
+/** ¿La categoría del producto entra en Distribución de comidas? Abarca las familias de
+ *  cocina: VÍVERES, CARNES, PROTEÍNAS y LIMPIEZA (el stem "limpi" cubre también la
+ *  variante mal escrita "LIMPIENZA"). Se compara sin acentos ni mayúsculas. */
+export const esCategoriaViveres = (categoria: string | null | undefined): boolean => {
+  const c = norm(categoria ?? '');
+  return ['viver', 'carne', 'proteina', 'limpi'].some((k) => c.includes(k));
+};
 
 /** TODOS los víveres del inventario GENERAL (activos), sin importar el almacén donde
  *  estén ubicados. El stock y el precio (PMP) salen del inventario. */
@@ -60,6 +64,45 @@ export async function listViveres(): Promise<Producto[]> {
   return prods
     .filter((p) => p.estado === 'activo' && esCategoriaViveres(p.categoria))
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+/* ───────────── Alerta de víveres bajos → Analistas de Compras ───────────── */
+
+const DEDUP_VIVERES_BAJOS = 'viveres-stock-bajo';
+
+/**
+ * Víveres cuyo stock cayó al 20% (o menos) de su stock mínimo. Requiere que el víver
+ * tenga `stock_min > 0` configurado (si es 0, no hay nivel de referencia y no alerta).
+ */
+export function viveresBajos(viveres: Producto[]): Producto[] {
+  return viveres.filter((p) =>
+    p.estado === 'activo' &&
+    Number(p.stock_min) > 0 &&
+    Number(p.stock) <= Number(p.stock_min) * 0.2,
+  );
+}
+
+/**
+ * Avisa a los Analistas de Compras cuando hay víveres al 20% o menos de su mínimo.
+ * La notificación va DIRIGIDA al rol `analista_de_compras` (la RLS de notificaciones
+ * filtra por destino = rol, así que solo ellos la ven en la campana). Con `dedup_key`
+ * para no repetir el aviso mientras siga sin leerse. Best-effort: nunca rompe el flujo.
+ */
+export async function alertarViveresBajosACompras(viveres: Producto[]): Promise<void> {
+  const bajos = viveresBajos(viveres);
+  if (!bajos.length) return;
+  const nombres = bajos.slice(0, 4).map((p) => p.nombre).join(', ');
+  const extra = bajos.length > 4 ? ` y ${bajos.length - 4} más` : '';
+  try {
+    await push({
+      destino: 'analista_de_compras',
+      kind: 'warning',
+      title: '🥫 Víveres para reponer (20% del mínimo)',
+      message: `${bajos.length} víver(es) al 20% o menos de su mínimo: ${nombres}${extra}.`,
+      link: '#/app/pedidos',
+      dedup_key: DEDUP_VIVERES_BAJOS,
+    });
+  } catch { /* la notificación no debe romper el flujo de cocina */ }
 }
 
 export interface CocinaFiltros {
