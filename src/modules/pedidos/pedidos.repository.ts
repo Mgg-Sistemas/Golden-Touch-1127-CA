@@ -515,6 +515,40 @@ export async function aprobarOrdenConOferta(
   return data as Orden;
 }
 
+/**
+ * Reabre la ELECCIÓN de oferta de una OC «Pendiente por aprobación (Gerente General)»
+ * (estado `oc_creada`): la devuelve a `aprobada` y REACTIVA todas sus ofertas (la
+ * aceptada y las descartadas vuelven a `pendiente`), para volver a mostrarlas TODAS y
+ * re-elegir, editar precios o cargarle IVA/IGTF/descuento a la oferta antes de aprobar.
+ * Al re-elegir, esos valores se arrastran de nuevo a la OC (y a Tesorería). No toca caja
+ * ni inventario (aún no se pagó). No aplica a OCs hijas de un reparto entre proveedores.
+ */
+export async function reabrirEleccionOferta(o: Orden, actorEmail: string): Promise<Orden> {
+  if (o.estado !== 'oc_creada')
+    throw new Error('Solo se puede reelegir la oferta mientras la OC está «Pendiente por aprobación del Gerente General».');
+  if (o.op_padre_id)
+    throw new Error('Esta OC proviene de un reparto entre proveedores; reelegí desde la orden padre.');
+  // 1) Reactivar TODAS las ofertas de la orden (aceptada + descartadas → pendiente).
+  const { error: ofErr } = await supabase
+    .from('ofertas_proveedor')
+    .update({ estado: 'pendiente', decidida_por_email: null, decidida_en: null, motivo_descarte: null })
+    .eq('orden_id', o.id);
+  if (ofErr) throw ofErr;
+  // 2) Devolver la OC a «aprobada» para reabrir la comparativa/elección. Se limpian los
+  //    datos de creación de la OC; al re-elegir se vuelven a fijar desde la oferta.
+  const patch: Record<string, unknown> = {
+    estado: 'aprobada' as EstadoOrden,
+    oc_creada_por: null,
+    oc_creada_en: null,
+    oc_seleccion_observacion: null,
+    oc_seleccion_adjuntos: [],
+    historial: appendHistorial(o, 'eleccion_reabierta', actorEmail, { oc_codigo: o.oc_codigo ?? null }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
 /** Un grupo del reparto: los ítems (ya con precio de la oferta de ese proveedor)
  *  que se le compran a UN proveedor, con su total BCV y total en divisa. */
 export interface GrupoReparto {
