@@ -327,6 +327,12 @@ export async function reabrirContrato(id: string, actor: string, actorName?: str
   if (uErr) throw uErr;
 }
 
+/** Archiva / desarchiva un contrato en Históricos (no toca inventario ni estado). */
+export async function setContratoHistorico(id: string, historico: boolean): Promise<void> {
+  const { error } = await supabase.from('acopio_contratos').update({ historico }).eq('id', id);
+  if (error) throw error;
+}
+
 export async function eliminarContrato(id: string, actor = 'sistema', actorName: string | null = null): Promise<void> {
   // Si estaba cerrado, revertimos primero la casiterita que había sumado al inventario.
   const { data } = await supabase
@@ -353,9 +359,11 @@ export interface ResumenContratos {
 export async function resumenContratos(): Promise<ResumenContratos> {
   const { data, error } = await supabase
     .from('acopio_contratos')
-    .select('estado, kg_seco_limpio');
+    .select('estado, kg_seco_limpio, historico');
   if (error) throw error;
-  const rows = (data ?? []) as Array<{ estado: string; kg_seco_limpio: number | null }>;
+  // Los contratos archivados en Históricos NO cuentan en las métricas vigentes.
+  const rows = ((data ?? []) as Array<{ estado: string; kg_seco_limpio: number | null; historico: boolean | null }>)
+    .filter((r) => !r.historico);
   return rows.reduce<ResumenContratos>((a, r) => {
     const kg = Number(r.kg_seco_limpio) || 0; // Casiterita = Kg seco, limpio
     a.totalContratos += 1;

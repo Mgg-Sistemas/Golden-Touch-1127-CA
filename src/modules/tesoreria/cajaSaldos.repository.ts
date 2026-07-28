@@ -140,22 +140,15 @@ export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: st
   const monto = round2(input.monto);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
 
-  const { data: actual } = await supabase
-    .from(SALDOS)
-    .select('id, saldo, tasa_prom')
-    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda)
-    .maybeSingle();
-  const saldoAntes = Number(actual?.saldo) || 0;
-  if (monto > saldoAntes)
-    throw new Error(`Saldo insuficiente en ${input.moneda}${input.cuenta !== 'general' ? ` (${input.cuenta})` : ''}. Disponible: ${saldoAntes}.`);
-  const saldoDespues = round2(saldoAntes - monto);
-  const tasaBs = input.moneda === 'Bs' ? null : (Number(actual?.tasa_prom) || null);
-
-  const { error: upErr } = await supabase
-    .from(SALDOS)
-    .update({ saldo: saldoDespues, updated_at: new Date().toISOString() })
-    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda);
-  if (upErr) throw upErr;
+  // Egreso ATÓMICO del saldo multimoneda (lock + valida fondos en el servidor; no cambia la tasa).
+  const { data: r, error: rErr } = await supabase.rpc('aplicar_saldo_divisa', {
+    p_caja_id: input.cajaId, p_cuenta: input.cuenta, p_moneda: input.moneda, p_delta: -monto, p_permitir_negativo: false,
+  });
+  if (rErr) throw new Error(rErr.message || 'No se pudo egresar de la caja.');
+  const res = r as { saldo_antes: number; saldo_despues: number; tasa_prom: number | null };
+  const saldoAntes = Number(res.saldo_antes) || 0;
+  const saldoDespues = Number(res.saldo_despues) || 0;
+  const tasaBs = input.moneda === 'Bs' ? null : (res.tasa_prom != null ? Number(res.tasa_prom) : null);
 
   const { data: mov, error: movErr } = await supabase.from('movimientos_caja').insert({
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: input.moneda, cuenta: input.cuenta,
@@ -183,22 +176,19 @@ export async function revertirEgresoDivisa(input: {
 }): Promise<void> {
   const monto = round2(input.monto);
   if (monto <= 0) return;
-  const { data: actual } = await supabase
-    .from(SALDOS)
-    .select('saldo, tasa_prom')
-    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda)
-    .maybeSingle();
-  const saldoAntes = Number(actual?.saldo) || 0;
-  const saldoDespues = round2(saldoAntes + monto);
-  const tasaProm = input.moneda === 'Bs' ? 1 : (actual?.tasa_prom != null ? round4(Number(actual.tasa_prom)) : null);
-  const { error: upErr } = await supabase.from(SALDOS).upsert(
-    { caja_id: input.cajaId, cuenta: input.cuenta, moneda: input.moneda, saldo: saldoDespues, tasa_prom: tasaProm, updated_at: new Date().toISOString() },
-    { onConflict: 'caja_id,cuenta,moneda' },
-  );
-  if (upErr) throw upErr;
+  // Reverso ATÓMICO: devuelve el monto al saldo (conserva la tasa promedio; permite quedar
+  // como esté). La RPC hace upsert si la fila no existe.
+  const { data: r, error: upErr } = await supabase.rpc('aplicar_saldo_divisa', {
+    p_caja_id: input.cajaId, p_cuenta: input.cuenta, p_moneda: input.moneda, p_delta: monto, p_permitir_negativo: true,
+  });
+  if (upErr) throw new Error(upErr.message || 'No se pudo revertir el egreso.');
+  const res = r as { saldo_antes: number; saldo_despues: number; tasa_prom: number | null };
+  const saldoAntes = Number(res.saldo_antes) || 0;
+  const saldoDespues = Number(res.saldo_despues) || 0;
+  const tasaProm = res.tasa_prom != null ? Number(res.tasa_prom) : null;
   await supabase.from('movimientos_caja').insert({
     caja_id: input.cajaId, tipo: 'ingreso', monto, moneda: input.moneda, cuenta: input.cuenta,
-    tasa_bs: input.moneda === 'Bs' ? null : (tasaProm ?? null), saldo_antes: saldoAntes, saldo_despues: saldoDespues,
+    tasa_bs: input.moneda === 'Bs' ? null : tasaProm, saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.concepto?.trim() || 'Reversión de egreso', categoria: 'reverso',
     actor: input.actor, actor_name: input.actorName ?? null,
   });

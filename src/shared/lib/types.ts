@@ -603,6 +603,10 @@ export interface ContratoAcopio {
   observaciones?: string | null;
   /** Contrato MINERO: personas involucradas (nombre + cédula). Vacío en producción. */
   personas?: PersonaContrato[] | null;
+  /** Archivado en Históricos: no aparece en la lista principal ni suma en los KG de
+   *  Casiterita obtenidos (su casiterita ya entró al inventario al cerrarse; esto solo
+   *  lo saca de las métricas/lista vigentes). */
+  historico?: boolean | null;
   created_by?: string | null;
   actor_name?: string | null;
   created_at: string;
