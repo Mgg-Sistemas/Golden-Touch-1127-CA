@@ -24,18 +24,29 @@ export function AvisoMantenimientoBanner() {
   useEffect(cargar, []);
   useRealtime(['aviso_mantenimiento'], cargar);
 
-  // Tick de 1s solo cuando hay una cuenta regresiva activa.
+  // Tick de 1s mientras el banner esté activo: refresca la cuenta regresiva y,
+  // sin cuenta regresiva, permite que el banner se auto-oculte al vencer la
+  // ventana de mantenimiento sin necesidad de recargar.
   const programadoMs = aviso?.programado_at ? new Date(aviso.programado_at).getTime() : null;
-  const cuentaActiva = !!(aviso?.activo && programadoMs && programadoMs > ahora);
   useEffect(() => {
-    if (!cuentaActiva) return;
+    if (!aviso?.activo) return;
     const t = setInterval(() => setAhora(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [cuentaActiva]);
+  }, [aviso?.activo]);
 
   const restante = useMemo(() => (programadoMs ? programadoMs - ahora : null), [programadoMs, ahora]);
 
-  if (!aviso?.activo) return null;
+  // Auto-expiración: aunque `activo` quede en true (p.ej. un despliegue que no
+  // alcanzó a apagarlo), el banner deja de mostrarse pasada la ventana de
+  // mantenimiento + un margen amplio. Así un flag olvidado nunca atrapa a los
+  // usuarios para siempre y «Actualizar ahora» sí lo quita al recargar.
+  const inicioMs = programadoMs ?? (aviso?.updated_at ? new Date(aviso.updated_at).getTime() : null);
+  const ventanaMin = aviso?.minutos && aviso.minutos > 0 ? aviso.minutos : 2;
+  const MARGEN_MIN = 20; // holgura para builds/colas lentas
+  const expiraMs = inicioMs != null ? inicioMs + (ventanaMin + MARGEN_MIN) * 60_000 : null;
+  const expirado = expiraMs != null && ahora > expiraMs;
+
+  if (!aviso?.activo || expirado) return null;
 
   const enCuentaRegresiva = restante != null && restante > 0;
   const mensaje = aviso.mensaje?.trim()
