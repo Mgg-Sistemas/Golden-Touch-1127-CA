@@ -1138,7 +1138,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                     <td><input key={`g-${i}-${convKey}`} className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" disabled={esPago} defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, monedaCompra)}</td>
                   </tr>
                 );
               })}
