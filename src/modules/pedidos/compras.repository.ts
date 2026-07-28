@@ -610,6 +610,51 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
   if (error) throw error;
 }
 
+/* ───────── Eliminar en UN paso (revirtiendo caja + inventario si hace falta) ───────── */
+
+/**
+ * Elimina una compra directa en UN solo paso, revirtiendo lo que haya movido:
+ *   · FINALIZADA (pagada): reabre primero — devuelve el dinero a la caja, revierte la
+ *     entrada al inventario y quita la retención — y luego borra la fila.
+ *   · Recibida pero aún «por pagar» (stock ingresado sin pago): revierte SOLO la entrada
+ *     al inventario y borra.
+ *   · En proceso / por pagar sin recibir: borra directo (no movió caja ni stock).
+ * Deja Tesorería e Inventario cuadrados. Se limpian además las facturas adjuntas.
+ *
+ * ⚠ Reversión NO atómica (misma deuda conocida que `reabrirCompraDirecta`): si algo falla
+ * a mitad puede quedar un estado parcial; el inventario se clampa a ≥ 0.
+ */
+export async function eliminarCompraDirectaConReverso(compra: CompraDirecta, actor: string, actorName?: string | null): Promise<void> {
+  if (compra.estado === 'finalizada') {
+    // Reabre: devuelve dinero a la caja + revierte inventario + quita retención (deja en_proceso).
+    await reabrirCompraDirecta(compra, actor, actorName);
+  } else if (compra.recepcionada_at && compra.mov_id && compra.afecta_inventario !== false) {
+    // Recibida sin pagar: revertir solo la entrada al inventario (salida por la misma cantidad).
+    const idsRev = compra.items.map((i) => i.producto_id).filter(Boolean) as string[];
+    const noInvRev = new Set<string>();
+    if (idsRev.length) {
+      const { data: flags } = await supabase.from('productos').select('id, no_inventariable').in('id', idsRev);
+      for (const p of flags ?? []) if (p.no_inventariable) noInvRev.add(p.id);
+    }
+    for (const it of compra.items) {
+      const cantidad = Number(it.cantidad) || 0;
+      if (cantidad <= 0 || !it.producto_id || noInvRev.has(it.producto_id)) continue;
+      await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.recepcion_almacen || compra.almacen,
+        actor, actor_name: actorName ?? null,
+        ref_tipo: 'compra_directa_eliminacion', ref_id: compra.id,
+        detalle: `Eliminación compra directa · ${it.producto_nombre}`,
+      });
+    }
+  }
+  // Borrar la fila (ya sin caja/inventario pendientes) + sus adjuntos.
+  const { data, error } = await supabase
+    .from('compras_directas').delete().eq('id', compra.id).select('id');
+  if (error) throw error;
+  if (!data || !data.length) throw new Error('No se pudo eliminar: la compra ya no existe o no tenés permiso.');
+  await limpiarAdjuntosDeCompra(compra.id, compra.adjunto_path).catch(() => { /* archivos huérfanos, no bloquea */ });
+}
+
 /* ───────── Editar una compra EN PROCESO (ítems / proveedor / almacén) ───────── */
 
 export interface EditarCompraInput {

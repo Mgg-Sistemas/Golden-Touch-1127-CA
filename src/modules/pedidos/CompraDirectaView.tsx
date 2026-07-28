@@ -21,7 +21,7 @@ import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesore
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
   crearCompraDirecta, enviarCompraAPagar, pagarCompraDirecta,
-  eliminarCompraDirecta, listComprasDirectas, reabrirCompraDirecta, editarCompraDirectaEnProceso,
+  eliminarCompraDirecta, eliminarCompraDirectaConReverso, listComprasDirectas, reabrirCompraDirecta, editarCompraDirectaEnProceso,
   urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
 } from './compras.repository';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
@@ -57,8 +57,14 @@ function esPorRecibir(c: CompraDirecta): boolean {
  * montadas que esperan recepción. Las pagadas hay que reabrirlas primero (devuelve el
  * dinero) — el repositorio vuelve a validarlo.
  */
-function sePuedeEliminar(c: CompraDirecta): boolean {
-  return c.estado !== 'finalizada' && !c.recepcionada_at;
+/** Ahora se puede eliminar en CUALQUIER estado: si ya movió caja/inventario, el borrado
+ *  revierte primero (ver `eliminarCompraDirectaConReverso`). */
+function sePuedeEliminar(_c: CompraDirecta): boolean {
+  return true;
+}
+/** ¿El borrado debe REVERTIR caja/inventario? (finalizada = pagada, o recibida en almacén). */
+function requiereReverso(c: CompraDirecta): boolean {
+  return c.estado === 'finalizada' || !!c.recepcionada_at;
 }
 
 /** ¿Falta que Tesorería la pague? (montada y aún no pagada). */
@@ -144,9 +150,14 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     const c = eliminar;
     if (!c) return;
     try {
-      await eliminarCompraDirecta(c);
-      notify('Compra directa eliminada', 'success', { link: '#/app/pedidos' });
-      setEliminar(null);
+      if (requiereReverso(c)) {
+        await eliminarCompraDirectaConReverso(c, actor, actorName);
+        notify(`Compra ${c.codigo ?? ''} eliminada · se revirtió caja e inventario`, 'success', { link: '#/app/pedidos' });
+      } else {
+        await eliminarCompraDirecta(c);
+        notify('Compra directa eliminada', 'success', { link: '#/app/pedidos' });
+      }
+      setEliminar(null); setVer(null);
       await reload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar la compra directa', 'error'); }
   }
@@ -216,7 +227,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                     {c.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={() => setMontar(c)}>Cargar factura y montos</button>}
                     {c.estado === 'por_pagar' && <span className="badge" title="El pago se realiza desde Tesorería">🧾 DIRECTO · por pagar</span>}
                     {esPorRecibir(c) && <button className="btn btn-sm btn-primary" onClick={() => setRecibir(c)} title="Dar entrada al inventario">📦 Recibir</button>}
-                    {sePuedeEliminar(c) && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title="Eliminar compra directa (todavía no movió caja ni inventario)">🗑 Eliminar</button>}
+                    {sePuedeEliminar(c) && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setEliminar(c)} title={requiereReverso(c) ? 'Eliminar (revierte caja e inventario y borra la compra)' : 'Eliminar compra directa'}>🗑 Eliminar</button>}
                   </td>
                 </tr>
               ))}
@@ -244,17 +255,20 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       {ver && (
         <CompraDetalleModal compra={ver} actor={actor} onClose={() => setVer(null)} onPdf={() => handlePdf(ver)}
           onReabrir={() => setReabrir(ver)} onEditar={() => { setEditar(ver); setVer(null); }}
-          onMontar={() => { setMontar(ver); setVer(null); }} />
+          onMontar={() => { setMontar(ver); setVer(null); }} onEliminar={() => setEliminar(ver)} />
       )}
 
       {eliminar && (
         <ConfirmDialog
           title="Eliminar compra directa"
           message={`¿Eliminar ${eliminar.codigo ?? 'la compra directa'} · ${eliminar.items.length > 1 ? `${eliminar.items.length} materiales` : eliminar.producto_nombre}?`
-            + (eliminar.estado === 'por_pagar'
-              ? ` Todavía no se pagó ni entró al inventario, así que no se toca la caja: desaparece de «Por recibir» y de «Por pagar» en Tesorería${eliminar.gasto != null ? ` (${montoCD(eliminar.gasto, eliminar.moneda)})` : ''}. Se borran también sus facturas adjuntas.`
-              : ' Se borran también sus facturas adjuntas.')
+            + (requiereReverso(eliminar)
+              ? ` Esta compra YA movió ${eliminar.estado === 'finalizada' ? 'caja e inventario' : 'inventario'}: al eliminarla se REVIERTE automáticamente ${eliminar.estado === 'finalizada' ? `el dinero a la caja${eliminar.gasto != null ? ` (${montoCD(eliminar.gasto, eliminar.moneda)})` : ''} y la entrada al inventario` : 'la entrada al inventario'} (como si se reabriera) y luego se borra. Se borran también sus facturas adjuntas.`
+              : eliminar.estado === 'por_pagar'
+                ? ` Todavía no se pagó ni entró al inventario, así que no se toca la caja: desaparece de «Por recibir» y de «Por pagar» en Tesorería${eliminar.gasto != null ? ` (${montoCD(eliminar.gasto, eliminar.moneda)})` : ''}. Se borran también sus facturas adjuntas.`
+                : ' Se borran también sus facturas adjuntas.')
             + ' Esta acción no se puede deshacer.'}
+          requireText={requiereReverso(eliminar) ? 'ELIMINAR' : undefined}
           confirmText="Eliminar"
           danger
           onConfirm={confirmarEliminar}
@@ -320,7 +334,7 @@ function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer, onRecibir }: {
         {compra.estado === 'en_proceso' && <button className="btn btn-sm btn-primary" onClick={onMontar}>Cargar factura y montos</button>}
         {compra.estado === 'por_pagar' && <button className="btn btn-sm btn-ghost" onClick={onMontar} title="Editar factura, montos y nota (antes de que Tesorería pague)">✏ Editar</button>}
         {porRecibir && <button className="btn btn-sm btn-primary" onClick={onRecibir} title="Dar entrada al inventario">📦 Recibir</button>}
-        {sePuedeEliminar(compra) && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title="Eliminar compra directa (todavía no movió caja ni inventario)">🗑 Eliminar</button>}
+        {sePuedeEliminar(compra) && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={onEliminar} title={requiereReverso(compra) ? 'Eliminar (revierte caja e inventario y borra la compra)' : 'Eliminar compra directa'}>🗑 Eliminar</button>}
       </div>
     </div>
   );
@@ -337,8 +351,8 @@ function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
 
 /* ───────── Modal: detalle de la compra directa ───────── */
 
-function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar, onMontar }: {
-  compra: CompraDirecta; actor: string; onClose: () => void; onPdf: () => void; onReabrir: () => void; onEditar: () => void; onMontar: () => void;
+function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar, onMontar, onEliminar }: {
+  compra: CompraDirecta; actor: string; onClose: () => void; onPdf: () => void; onReabrir: () => void; onEditar: () => void; onMontar: () => void; onEliminar: () => void;
 }) {
   const total = compra.gasto != null ? Number(compra.gasto) : null;
   const footer = (
@@ -347,6 +361,8 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {compra.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={onEditar} title="Editar materiales / proveedor">✏ Editar</button>}
       {compra.estado === 'por_pagar' && <button className="btn btn-ghost" onClick={onMontar} title="Editar factura, montos y nota (antes de que Tesorería pague)">✏ Editar</button>}
       {compra.estado === 'finalizada' && <button className="btn btn-ghost" style={{ color: 'var(--warning)' }} onClick={onReabrir} title="Reabrir para editar (revierte caja e inventario)">↺ Reabrir</button>}
+      <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => { onClose(); onEliminar(); }}
+        title={requiereReverso(compra) ? 'Eliminar (revierte caja e inventario y borra la compra)' : 'Eliminar compra directa'}>🗑 Eliminar</button>
       <button className="btn btn-primary" onClick={onPdf}>↓ PDF</button>
     </>
   );
