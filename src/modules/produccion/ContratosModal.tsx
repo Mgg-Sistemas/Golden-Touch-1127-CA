@@ -4,7 +4,7 @@ import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import type { CatalogoAcopio, ContratoAcopio, TipoCatalogoAcopio } from '@/shared/lib/types';
+import type { CatalogoAcopio, ContratoAcopio, PersonaContrato, TipoCatalogoAcopio } from '@/shared/lib/types';
 import {
   nextSeqContrato, numeroContrato, crearContrato, actualizarContrato, horaSistema, formulasContrato,
   formulasMinero, aplicarMaterialDeMesa, type TipoContrato,
@@ -45,6 +45,13 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   const [sacos, setSacos] = useState(contrato?.cantidad_sacos ? String(contrato.cantidad_sacos) : '');
   const [precioCas, setPrecioCas] = useState(contrato?.precio_casiterita ? String(contrato.precio_casiterita) : '');
   const [tasa, setTasa] = useState(contrato?.tasa ? String(contrato.tasa) : '');
+  // Contrato minero: personas involucradas (nombre + cédula), editable.
+  const [personas, setPersonas] = useState<PersonaContrato[]>(() =>
+    Array.isArray(contrato?.personas) ? contrato!.personas!.map((p) => ({ nombre: p.nombre ?? '', cedula: p.cedula ?? '' })) : []);
+  const addPersona = () => setPersonas((ps) => [...ps, { nombre: '', cedula: '' }]);
+  const setPersona = (i: number, campo: keyof PersonaContrato, v: string) =>
+    setPersonas((ps) => ps.map((p, j) => (j === i ? { ...p, [campo]: v } : p)));
+  const delPersona = (i: number) => setPersonas((ps) => ps.filter((_, j) => j !== i));
   // N° de contrato editable la PRIMERA vez (luego se prellena incremental).
   const [numeroManual, setNumeroManual] = useState('');
   // En contratos nuevos la observación arranca con "Material de Mesa:" (como en el Excel).
@@ -89,6 +96,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
         tonProcesadas: Number(ton) || 0, kgHumedo: Number(kgHum) || 0, kgSecos: Number(kgSec) || 0,
         kgSecoLimpio: Number(kgLim) || 0, observaciones: obs,
         cantidadSacos: Number(sacos) || 0, precioCasiterita: Number(precioCas) || 0, tasa: Number(tasa) || 0,
+        personas: esMinero ? personas : [],
       };
       if (editando) { await actualizarContrato(contrato!.id, input); toast('Contrato actualizado', 'success'); }
       else { const c = await crearContrato({ ...input, numeroManual, actor, actorName }); toast(`Contrato ${c.numero} creado`, 'success'); }
@@ -183,6 +191,28 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
               <Calc label="Utilidad del minero (Kg × 70%)" value={`${num(fm.utilidadMinero)} Kg`} />
               <Calc label="Golden Touch (Kg × 30%)" value={`${num(fm.utilidadGt)} Kg`} />
               <Calc label="Monto a pagar minero (util. × precio)" value={`$ ${num(fm.montoPagarMinero)}`} />
+            </div>
+
+            {/* Personas del contrato minero (nombre + cédula). Se imprimen en el reporte. */}
+            <div className="card-title" style={{ marginTop: '.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span>👤 Personas del contrato <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>(nombre y cédula)</span></span>
+              {!ro && <button type="button" className="btn btn-sm btn-ghost" onClick={addPersona}>＋ Añadir persona</button>}
+            </div>
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead><tr><th style={{ width: 40 }}>#</th><th>Nombre y apellido</th><th style={{ width: 200 }}>Cédula</th>{!ro && <th style={{ width: 40 }}></th>}</tr></thead>
+                <tbody>
+                  {!personas.length && <tr><td colSpan={ro ? 3 : 4} className="muted" style={{ textAlign: 'center' }}>Sin personas. Usá «＋ Añadir persona».</td></tr>}
+                  {personas.map((p, i) => (
+                    <tr key={i}>
+                      <td className="mono muted">{i + 1}</td>
+                      <td><input className="input" value={p.nombre} disabled={ro} onChange={(e) => setPersona(i, 'nombre', e.target.value.toUpperCase())} placeholder="Nombre y apellido" /></td>
+                      <td><input className="input mono" value={p.cedula} disabled={ro} onChange={(e) => setPersona(i, 'cedula', e.target.value)} placeholder="V-00.000.000" /></td>
+                      {!ro && <td style={{ textAlign: 'center' }}><button type="button" className="btn btn-sm btn-ghost" title="Quitar" onClick={() => delPersona(i)}>🗑</button></td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </>
         )}

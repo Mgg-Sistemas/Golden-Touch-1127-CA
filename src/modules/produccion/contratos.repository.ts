@@ -6,7 +6,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { tasaActualAcopio } from '@/modules/acopio/caja.repository';
-import type { CatalogoAcopio, ContratoAcopio, TipoCatalogoAcopio } from '@/shared/lib/types';
+import type { CatalogoAcopio, ContratoAcopio, PersonaContrato, TipoCatalogoAcopio } from '@/shared/lib/types';
 
 /** Producto del inventario al que entra la casiterita de los contratos (al cerrar). */
 export const CASITERITA_SKU = 'CASITERITA';
@@ -93,6 +93,8 @@ export interface ContratoInput {
   cantidadSacos?: number;
   precioCasiterita?: number;
   tasa?: number;
+  /** Contrato minero: personas involucradas (nombre + cédula). */
+  personas?: PersonaContrato[];
   /** N° manual del contrato (la primera vez); si no viene, el sistema autoincrementa. */
   numeroManual?: string | null;
   /** Fecha del contrato (YYYY-MM-DD). Editable. La caja de Peramanal ubica el contrato en
@@ -116,6 +118,10 @@ function payloadContrato(input: ContratoInput): Record<string, unknown> {
     cantidad_sacos: n(input.cantidadSacos),
     precio_casiterita: n(input.precioCasiterita),
     tasa: n(input.tasa),
+    // Personas del contrato minero: se normalizan (nombre + cédula, sin filas vacías).
+    personas: (input.personas ?? [])
+      .map((p) => ({ nombre: (p.nombre ?? '').trim(), cedula: (p.cedula ?? '').trim() }))
+      .filter((p) => p.nombre || p.cedula),
     observaciones: input.observaciones?.trim() || null,
     // Solo se incluye si se indicó (al editar la fecha); en alta la fija crearContrato.
     ...(input.fecha ? { fecha: input.fecha } : {}),
