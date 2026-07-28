@@ -109,50 +109,26 @@ export async function recomputeProductoAgg(productoId: string): Promise<void> {
 }
 
 /**
- * Registra un movimiento en un almacén concreto: actualiza la existencia
- * (stock + PMP de ese almacén) y recalcula los agregados del producto.
- * No es atómico (ver nota de transaccionalidad arriba).
+ * Registra un movimiento en un almacén concreto de forma ATÓMICA (una sola RPC en
+ * el servidor, con lock del producto): en la MISMA transacción inserta el kardex,
+ * actualiza la existencia (stock + PMP del almacén), recalcula los agregados del
+ * producto (stock total + costo global) y marca el flag de producción. Así, con
+ * varios usuarios a la vez, no hay lost-updates ni movimientos huérfanos.
+ *
+ * (Fase 2 de la deuda de transaccionalidad: sustituye el antiguo INSERT+UPDATE en
+ * dos pasos por `registrar_movimiento_stock(p jsonb)`.)
  */
 export async function registrarMovimiento(input: MovimientoInput): Promise<Movimiento> {
-  // El almacén suele venir explícito (producción, recepción, transferencia); en
-  // ese caso evitamos el round-trip a `productos` y resolvemos sólo el fallback.
-  let almacen = (input.almacen || '').trim();
-  if (!almacen) {
-    const producto = await findProducto(input.producto_id);
-    if (!producto) throw new Error('Producto no encontrado');
-    almacen = (producto.almacen || 'General').trim() || 'General';
-  }
-  const delta = Number(input.delta) || 0;
-
-  // Existencia actual de ESTE almacén (stock + costo propios).
-  const { data: exData, error: exErr } = await supabase
-    .from('existencias')
-    .select('stock, costo_promedio')
-    .eq('producto_id', input.producto_id)
-    .eq('almacen', almacen)
-    .maybeSingle();
-  if (exErr) throw exErr;
-  const stockAntes = Number(exData?.stock) || 0;
-  const costoAntes = Number(exData?.costo_promedio) || 0;
-  const stockDespues = Math.max(0, stockAntes + delta);
-
-  // ── PMP por almacén ──
-  // Solo las entradas con costo informado (delta > 0 y precio_unitario válido)
-  // recalculan el costo de este almacén. El resto conserva el costo vigente.
   const precioUnit =
     input.precio_unitario != null && Number.isFinite(Number(input.precio_unitario))
       ? Number(input.precio_unitario)
       : null;
-  const aplicaPMP = delta > 0 && precioUnit != null && precioUnit >= 0;
-  const costoPromedio = aplicaPMP ? calcularPMP(stockAntes, costoAntes, delta, precioUnit) : costoAntes;
-
-  const payload = {
+  const p = {
     producto_id: input.producto_id,
     tipo: input.tipo,
-    delta,
-    almacen,
-    stock_antes: stockAntes,
-    stock_despues: stockDespues,
+    delta: Number(input.delta) || 0,
+    // null → la RPC resuelve el almacén del producto (o 'General').
+    almacen: (input.almacen || '').trim() || null,
     actor: input.actor,
     actor_name: input.actor_name ?? null,
     ref_tipo: input.ref_tipo ?? 'manual',
@@ -165,39 +141,10 @@ export async function registrarMovimiento(input: MovimientoInput): Promise<Movim
     nota_entrega: input.nota_entrega ?? null,
     fecha_entrega: input.fecha_entrega ?? null,
     precio_unitario: precioUnit,
-    costo_promedio: costoPromedio,
     at: new Date().toISOString(),
   };
-
-  const { data, error } = await supabase
-    .from('movimientos')
-    .insert(payload)
-    .select('*')
-    .single();
+  const { data, error } = await supabase.rpc('registrar_movimiento_stock', { p });
   if (error) throw error;
-
-  // 2do paso: upsert de la existencia del almacén. Si falla queda el movimiento huérfano.
-  const { error: uErr } = await supabase
-    .from('existencias')
-    .upsert(
-      { producto_id: input.producto_id, almacen, stock: stockDespues, costo_promedio: costoPromedio, updated_at: new Date().toISOString() },
-      { onConflict: 'producto_id,almacen' },
-    );
-  if (uErr) throw uErr;
-
-  // 3er paso: recomputar agregados del producto (stock total + costo global).
-  await recomputeProductoAgg(input.producto_id);
-
-  // 4to paso: si el movimiento es de producción, marcamos el flag en el producto.
-  if (input.tipo === 'fundicion' || input.tipo === 'fin_fundicion') {
-    const enFundicion = input.tipo === 'fundicion';
-    const { error: fErr } = await supabase
-      .from('productos')
-      .update({ en_fundicion: enFundicion })
-      .eq('id', input.producto_id);
-    if (fErr) throw fErr;
-  }
-
   return data as Movimiento;
 }
 
