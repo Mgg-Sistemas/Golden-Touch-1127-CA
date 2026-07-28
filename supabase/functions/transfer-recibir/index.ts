@@ -84,6 +84,75 @@ Deno.serve(async (req) => {
     return json({ ok: true, cuenta_id: cuenta!.id });
   }
 
+  // ── CASITERITA (mineral): recepción AUTOMÁTICA en el almacén "LOS PINOS - CASITERITA" ──
+  // El otro sistema nos empuja Kg de casiterita. Acá se ACREDITA solo al inventario
+  // (entrada) y se registra la entrante como 'recibida'. Idempotente por transf_id; si
+  // una vez quedó en 'error' (p. ej. faltaba el producto), un reintento vuelve a acreditar.
+  if ((payload.recurso as string | undefined) === 'casiterita' && payload.tipo !== 'ack') {
+    const CASI_TABLE = 'transferencias_casiterita_inter';
+    const kg = round2(Number(payload.kg));
+    const { data: prevRow } = await supabase.from(CASI_TABLE)
+      .select('id, estado').eq('transf_id', transfId).maybeSingle();
+    const prev = prevRow as { id: string; estado: string } | null;
+    if (prev && prev.estado === 'recibida') return json({ ok: true, dedup: true, estado: 'recibida' });
+    if (kg <= 0) return json({ ok: true, skip: 'kg<=0' });
+
+    const almacenDestino = (payload.almacen_destino as string) || 'LOS PINOS - CASITERITA';
+    const costo = payload.costo_unitario != null ? round2(Number(payload.costo_unitario)) : null;
+
+    // 1) Producto casiterita receptor: secret INTER_CASITERITA_PRODUCTO_ID o búsqueda por nombre/categoría.
+    let productoId: string | null = Deno.env.get('INTER_CASITERITA_PRODUCTO_ID') || null;
+    if (!productoId) {
+      const { data: prods } = await supabase.from('productos')
+        .select('id, estado').or('nombre.ilike.%casiterita%,categoria.ilike.%casiterita%').limit(5);
+      const lista = (prods ?? []) as Array<{ id: string; estado?: string }>;
+      productoId = (lista.find((p) => (p.estado ?? 'activo') === 'activo') ?? lista[0])?.id ?? null;
+    }
+
+    // 2) Asegurar el almacén destino en el catálogo (best-effort; el crédito no depende de esto).
+    try {
+      const { data: al } = await supabase.from('almacenes').select('id').eq('nombre', almacenDestino).maybeSingle();
+      if (!al) await supabase.from('almacenes').insert({ nombre: almacenDestino, created_by: 'puente-casiterita' });
+    } catch { /* catálogo opcional */ }
+
+    // 3) Acreditar el inventario (entrada) — automático, con PMP (precio = costo que viajó).
+    let creditError: string | null = null;
+    if (productoId) {
+      const p = {
+        producto_id: productoId, tipo: 'entrada', delta: kg, almacen: almacenDestino,
+        actor: (payload.actor as string) ?? 'puente', actor_name: (payload.actor_name as string) ?? 'Puente casiterita',
+        ref_tipo: 'casiterita_inter', ref_id: transfId, ref_codigo: (payload.sku as string) ?? null,
+        proveedor_id: null,
+        detalle: `Casiterita recibida del otro sistema (${payload.empresa_origen ?? ''}) · ${payload.resumen ?? ''}`,
+        destino: null, solicitante: null, nota_entrega: null, fecha_entrega: null,
+        precio_unitario: costo, at: new Date().toISOString(),
+      };
+      const { error } = await supabase.rpc('registrar_movimiento_stock', { p });
+      if (error) creditError = error.message;
+    } else {
+      creditError = 'No hay producto CASITERITA en este sistema (definí INTER_CASITERITA_PRODUCTO_ID o creá un producto con "casiterita" en el nombre).';
+    }
+
+    // 4) Registrar/actualizar la entrante (recibida si acreditó; error si no, para reintentar).
+    const fila = {
+      transf_id: transfId, direccion: 'entrante', estado: creditError ? 'error' : 'recibida',
+      empresa_origen: payload.empresa_origen ?? 'desconocido', empresa_destino: payload.empresa_destino ?? 'desconocido',
+      producto_id: productoId, producto_nombre: (payload.producto_nombre as string) ?? 'Casiterita', sku: (payload.sku as string) ?? null,
+      kg, costo_unitario: costo, almacen_destino: almacenDestino,
+      resumen: payload.resumen ?? null, motivo: payload.motivo ?? null, callback_base: payload.callback_base ?? null,
+      mensaje_error: creditError, confirmada_at: creditError ? null : new Date().toISOString(),
+      actor: payload.actor ?? null, actor_name: payload.actor_name ?? null,
+    };
+    if (prev) await supabase.from(CASI_TABLE).update(fila).eq('id', prev.id);
+    else {
+      const { error: insErr } = await supabase.from(CASI_TABLE).insert(fila);
+      if (insErr && (insErr as { code?: string }).code !== '23505') return json({ error: insErr.message }, 500);
+    }
+    // Si no se pudo acreditar, devolver NO-OK para que el origen quede en 'error' y reintente.
+    if (creditError) return json({ error: creditError }, 422);
+    return json({ ok: true, recibida: true });
+  }
+
   // El recurso determina la tabla destino: dinero (default) o combustible (litros).
   const recurso = (payload.recurso as string | undefined) === 'combustible' ? 'combustible' : 'dinero';
   const TABLE = recurso === 'combustible' ? 'transferencias_combustible_inter' : 'transferencias_inter';
