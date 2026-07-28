@@ -296,19 +296,19 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
   const searchRef = useRef<HTMLInputElement>(null);
 
   function toggle(pid: string) {
-    const agregando = !(pid in sel);
     setSel((s) => {
       if (pid in s) { const { [pid]: _drop, ...rest } = s; return rest; }
       return { ...s, [pid]: '1' };
     });
-    // Al MARCAR un víver, se limpia la búsqueda y el cursor vuelve al buscador para
-    // encontrar el siguiente de una (sin tener que hacer clic de nuevo en el campo).
-    if (agregando) {
-      setBusqueda('');
-      requestAnimationFrame(() => searchRef.current?.focus());
-    }
+    // Al marcar, el foco pasa a la CANTIDAD (el input se autoenfoca al montarse).
   }
   function setCant(pid: string, v: string) { setSel((s) => ({ ...s, [pid]: v })); }
+  // Tras escribir la cantidad y presionar Enter, el cursor vuelve al buscador para
+  // encontrar el siguiente producto (se limpia la búsqueda para empezar de cero).
+  function irABusqueda() {
+    setBusqueda('');
+    requestAnimationFrame(() => searchRef.current?.focus());
+  }
 
   // Filtrado de la lista por texto (nombre / SKU), sin acentos ni mayúsculas.
   const viveresFiltrados = useMemo(() => {
@@ -430,8 +430,9 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
                   </label>
                   {marcado && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flex: '0 0 auto' }}>
-                      <input className="input mono" type="number" min={0} step="any" value={sel[p.id]}
+                      <input className="input mono" type="number" min={0} step="any" value={sel[p.id]} autoFocus
                         onChange={(e) => setCant(p.id, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); irABusqueda(); } }}
                         style={{ width: 84, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
                       <span className="muted" style={{ fontSize: '.74rem', minWidth: 54, textAlign: 'right' }}>{money(cant * (Number(p.precio) || 0))}</span>
                     </div>
