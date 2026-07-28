@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ConfirmDialog } from '@/shared/ui/Modal';
@@ -268,12 +268,20 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const prodMap = useMemo(() => new Map(viveres.map((p) => [p.id, p])), [viveres]);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   function toggle(pid: string) {
+    const agregando = !(pid in sel);
     setSel((s) => {
       if (pid in s) { const { [pid]: _drop, ...rest } = s; return rest; }
       return { ...s, [pid]: '1' };
     });
+    // Al MARCAR un víver, se limpia la búsqueda y el cursor vuelve al buscador para
+    // encontrar el siguiente de una (sin tener que hacer clic de nuevo en el campo).
+    if (agregando) {
+      setBusqueda('');
+      requestAnimationFrame(() => searchRef.current?.focus());
+    }
   }
   function setCant(pid: string, v: string) { setSel((s) => ({ ...s, [pid]: v })); }
 
@@ -316,7 +324,15 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
       const r = await crearMovimientoCocina({ tipoComida: tipo, platos: nPlatos, items, nota: nota || null, at, actor, actorName });
       notify(`Movimiento de cocina ${r.codigo} · ${labelTipoComida(tipo)} · ${money(Number(r.valor_total))}`, 'success', { link: '#/app/cocina' });
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar.'); setSaving(false); }
+    } catch (err) {
+      // Los errores de Supabase (PostgrestError) NO son instancias de Error; igual traen
+      // `message`. Se muestra el detalle real en vez del genérico para poder diagnosticar.
+      const msg = err instanceof Error ? err.message
+        : (err && typeof err === 'object' && 'message' in err && (err as { message?: unknown }).message)
+          ? String((err as { message: unknown }).message)
+          : 'No se pudo guardar.';
+      setError(msg); setSaving(false);
+    }
   }
 
   const footer = (
@@ -362,7 +378,7 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
         {/* Víveres consumidos: checklist de TODOS los víveres del inventario (cualquier almacén) */}
         <div className="form-row">
           <label>Víveres consumidos <span className="muted">(marcá los que se usaron · todos los víveres del inventario, sin importar el almacén)</span></label>
-          <input className="input" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+          <input ref={searchRef} className="input" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
             placeholder={viveres.length ? '🔍 Buscar víver por nombre o SKU…' : '— sin víveres en el inventario —'}
             style={{ marginBottom: '.5rem' }} disabled={!viveres.length} />
           <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
@@ -389,7 +405,7 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
                   </label>
                   {marcado && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flex: '0 0 auto' }}>
-                      <input className="input mono" type="number" min={0} step="any" value={sel[p.id]} autoFocus
+                      <input className="input mono" type="number" min={0} step="any" value={sel[p.id]}
                         onChange={(e) => setCant(p.id, e.target.value)}
                         style={{ width: 84, textAlign: 'right', borderColor: excede ? 'var(--danger)' : undefined }} />
                       <span className="muted" style={{ fontSize: '.74rem', minWidth: 54, textAlign: 'right' }}>{money(cant * (Number(p.precio) || 0))}</span>
