@@ -304,6 +304,17 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
           <span className="muted" style={{ fontSize: '.75rem' }}> (reintegrar)</span>
         </span>)}
       {servicio.adjunto_path && fila('Factura', <AdjuntoLink servicio={servicio} />)}
+      {servicio.con_abonos && fila('Pago', (
+        <span>
+          <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#111' }}>CON ABONOS</span>
+          {servicio.gasto != null && (
+            <span className="muted" style={{ marginLeft: '.5rem', fontSize: '.8rem' }}>
+              Abonado {montoCaja(Number(servicio.abonado_total) || 0, servicio.moneda ?? 'USD')} de {montoCaja(Number(servicio.gasto) || 0, servicio.moneda ?? 'USD')}
+              {' · '}saldo {montoCaja(Math.max(0, (Number(servicio.gasto) || 0) - (Number(servicio.abonado_total) || 0)), servicio.moneda ?? 'USD')}
+            </span>
+          )}
+        </span>
+      ))}
 
       <div className="table-wrap" style={{ marginTop: '.6rem' }}>
         <table className="table" style={{ fontSize: '.85rem' }}>
@@ -738,6 +749,8 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   const subNombre = catsGasto.find((c) => c.id === subId)?.nombre ?? null;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ¿Se pagará con abonos (cuotas)? Lo marca el analista al montar; Tesorería lo respeta.
+  const [conAbonos, setConAbonos] = useState<boolean>(!!servicio.con_abonos);
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
   const moneda = caja?.moneda ?? 'USD';
 
@@ -821,7 +834,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
       setSaving(true);
       try {
         for (const f of files) await agregarAdjuntoDirecto('servicio', servicio.id, f, actor);
-        await enviarServicioAPagar({ servicio, items, moneda: monedaServicio, tasaConversion, actor, actorName });
+        await enviarServicioAPagar({ servicio, items, moneda: monedaServicio, tasaConversion, conAbonos, actor, actorName });
         notify(`Servicio ${servicio.codigo ?? ''} enviado a pagar · ${montoCaja(total, monedaServicio)} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
@@ -985,6 +998,16 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
           </table>
         </div>
         <div className="card" style={{ margin: '.5rem 0' }}>{esPago ? 'Total a descontar' : 'Total del servicio'}: <strong className="mono">{montoCaja(total, esPago ? moneda : monedaServicio)}</strong></div>
+
+        {!esPago && (
+          <div className="form-row" style={{ margin: '.25rem 0 .5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={conAbonos} onChange={(e) => setConAbonos(e.target.checked)} />
+              <span>Se pagará <strong>con abonos</strong> (cuotas)</span>
+            </label>
+            <small className="muted">Si lo marcás, Tesorería registra pagos parciales que se acumulan hasta saldar el servicio (en vez de un solo pago). Igual se puede pagar todo de una desde Tesorería.</small>
+          </div>
+        )}
 
         {esPago && cajaId && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
