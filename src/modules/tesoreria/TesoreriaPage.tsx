@@ -3559,7 +3559,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       <>
         <button className="btn btn-ghost" disabled={!rows.length}
           onClick={() => descargarOrdenesPorPagarPdf(rows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}
-          title="Resumen en PDF de las OC por pagar (N°ODC, proveedor, finalidad y monto)">↓ Resumen PDF</button>
+          title="Resumen en PDF de TODO lo pendiente por pagar, por segmentos (Compras Directas, OC, Servicios/CS y Servicios Directos), con subtotal por segmento y total general en $ y Bs a la tasa del día">↓ Resumen PDF</button>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
@@ -5538,15 +5538,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         {/* Método de pago indicado en Compras (multipago) */}
         {o.metodo_pago && o.metodo_pago.length > 0 && (
           <div className="card" style={{ marginBottom: '.75rem' }}>
-            <div className="card-title" style={{ marginBottom: '.4rem' }}>Método de pago indicado{comprobanteOpcional ? ' · efectivo (sin comprobante)' : ''}</div>
+            <div className="card-title" style={{ marginBottom: '.5rem', fontSize: '1rem' }}>Método de pago indicado{comprobanteOpcional ? ' · efectivo (sin comprobante)' : ''}</div>
             {o.metodo_pago.map((m, i) => (
-              <div key={i} style={{ padding: '.15rem 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.85rem' }}>
-                  <span>{labelMetodoPago(m.metodo)}</span>
-                  <strong className="mono">{m.monto > 0 ? <>{monto(m.monto, 'USD')} <span className="muted" style={{ fontWeight: 400 }}>en {m.moneda}</span></> : m.moneda}</strong>
+              <div key={i} style={{ padding: '.3rem 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.05rem', alignItems: 'baseline', gap: '.5rem' }}>
+                  <strong>{labelMetodoPago(m.metodo)}</strong>
+                  <strong className="mono" style={{ fontSize: '1.1rem' }}>{m.monto > 0 ? <>{monto(m.monto, 'USD')} <span className="muted" style={{ fontWeight: 400, fontSize: '.85rem' }}>en {m.moneda}</span></> : m.moneda}</strong>
                 </div>
                 {m.datos && Object.keys(m.datos).length > 0 && (
-                  <div className="muted" style={{ fontSize: '.74rem', paddingLeft: '.3rem' }}>↳ {resumenDatosPago(m.metodo, m.datos)}</div>
+                  <div style={{ fontSize: '.98rem', paddingLeft: '.3rem', marginTop: '.2rem', lineHeight: 1.45, userSelect: 'text' }}>↳ {resumenDatosPago(m.metodo, m.datos)}</div>
                 )}
               </div>
             ))}
