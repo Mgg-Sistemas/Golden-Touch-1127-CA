@@ -49,6 +49,7 @@ import {
   adjuntarFacturaRecepcion,
   indicarMetodoPago,
   cambiarProveedorOrden,
+  reabrirEleccionOferta,
   METODOS_PAGO,
   labelMetodoPago,
   type PrecioHistorico,
@@ -157,6 +158,7 @@ function eventLabel(ev: string): string {
       oc_aprobada: 'Confirmada pagar',
       precios_editados: 'Precios editados · total a pagar actualizado',
       orden_modificada: 'Orden modificada',
+      eleccion_reabierta: 'Elección de oferta reabierta (reelegir)',
       abono: 'Abono registrado (crédito)',
       credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
@@ -181,6 +183,7 @@ function eventClass(ev: string): string {
       oc_aprobada: 'ok',
       precios_editados: 'info',
       orden_modificada: 'info',
+      eleccion_reabierta: 'warning',
       abono: 'info',
       credito_saldado: 'ok',
       pagada: 'ok',
@@ -2267,6 +2270,21 @@ function OrdenDetailModal({
   // sin devolverla a aprobación. El total se recalcula y se sincroniza a Tesorería.
   const [editarPreciosOpen, setEditarPreciosOpen] = useState(false);
   const puedeEditarPreciosPago = canManageProcurement && (isConfirmadaMetodo || isOcAprobada) && Number(o.total) > 0;
+  // Reelegir oferta: devuelve la OC (oc_creada) a la etapa de elección para mostrar todas
+  // las ofertas de nuevo (re-elegir, editar precios, cargar IVA/IGTF/descuento).
+  const [reelegirOpen, setReelegirOpen] = useState(false);
+  const [reelegiendo, setReelegiendo] = useState(false);
+  async function reelegirOferta() {
+    setReelegiendo(true);
+    try {
+      await reabrirEleccionOferta(o, actorEmail || 'sistema');
+      notify(`OC ${o.oc_codigo ?? o.codigo} · elección reabierta — elegí de nuevo entre todas las ofertas`, 'success', { link: '#/app/pedidos' });
+      setReelegirOpen(false);
+      await onAcceptedOffer();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo reabrir la elección', 'error');
+    } finally { setReelegiendo(false); }
+  }
 
   // Marca/desmarca un ítem como "a comprar" en la etapa OP (antes de tener precio).
   // Así una OP con 4 productos puede quedar con solo 2 aprobados para comprar.
@@ -2365,6 +2383,13 @@ function OrdenDetailModal({
         <>
           <button className="btn btn-ghost" onClick={onDesistir} title="Proveedor no cumplió">⚠ Proveedor desistió</button>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
+          {!o.op_padre_id && (
+            <button className="btn" style={{ background: 'var(--warning)', color: '#111', border: 'none' }}
+              onClick={() => setReelegirOpen(true)}
+              title="Volver a mostrar TODAS las ofertas para re-elegir, editar precios o cargarle IVA/IGTF/descuento antes de aprobar. La OC vuelve a la etapa de elección.">
+              🔄 Reelegir oferta
+            </button>
+          )}
         </>
       )}
       {isOcCreada && isAdmin && (
@@ -2825,6 +2850,17 @@ function OrdenDetailModal({
         actor={actorEmail || 'sistema'}
         onClose={() => setEditarPreciosOpen(false)}
         onSaved={async () => { setEditarPreciosOpen(false); await onAcceptedOffer(); }}
+      />
+    )}
+    {reelegirOpen && (
+      <ConfirmDialog
+        title={`Reelegir oferta · ${o.oc_codigo ?? o.codigo}`}
+        message={`La OC volverá a la etapa de elección y se mostrarán TODAS las ofertas de nuevo para que puedas re-elegir el proveedor, editar los precios o cargarle IVA/IGTF/descuento a la oferta. Al elegir otra vez, esos valores se sincronizan a la OC y a Tesorería. No mueve caja ni inventario. ¿Reabrir la elección de ${o.oc_codigo ?? o.codigo}?`}
+        confirmText={reelegiendo ? 'Reabriendo…' : 'Reelegir oferta'}
+        requireText="REELEGIR"
+        requireLabel="Escribí REELEGIR para confirmar"
+        onConfirm={() => void reelegirOferta()}
+        onCancel={() => setReelegirOpen(false)}
       />
     )}
     </>
