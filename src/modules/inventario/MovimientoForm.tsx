@@ -3,6 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { money, num, dosDecimales } from '@/shared/lib/format';
 import type { Existencia, Producto, TipoMovimiento } from '@/shared/lib/types';
 import { calcularPMP, type MovimientoInput } from './movimientos.repository';
+import { esCasiterita, DESTINO_EXTERNO_CASITERITA, DESTINO_EXTERNO_CASITERITA_LABEL } from './casiteritaInter.repository';
 
 interface MovimientoFormProps {
   producto: Producto;
@@ -85,6 +86,9 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const isFundicion = tipo === 'fundicion' || tipo === 'fin_fundicion';
   const esEntradaConCosto = tipo === 'entrada';
   const esTransferencia = tipo === 'transferencia';
+  // La casiterita se puede TRASLADAR al otro sistema (destino externo del puente).
+  const puedeExterno = esTransferencia && esCasiterita(producto);
+  const destinoEsExterno = esTransferencia && almacenDestino === DESTINO_EXTERNO_CASITERITA;
   const costoUnitNum = Number(costoUnit) || 0;
   const nuevoPMP =
     esEntradaConCosto && cantidadNum > 0
@@ -318,9 +322,12 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
               {opcionesAlmacen.filter((a) => a !== almacen).map((a) => (
                 <option key={a} value={a}>{a}</option>
               ))}
+              {puedeExterno && <option value={DESTINO_EXTERNO_CASITERITA}>🌉 {DESTINO_EXTERNO_CASITERITA_LABEL}</option>}
             </select>
             <small className="muted" style={{ fontSize: '.72rem' }}>
-              Se descuenta de {almacen} y se suma al destino llevando su costo (PMP).
+              {destinoEsExterno
+                ? <>Sale de {almacen} de ESTE sistema y se <strong>envía al otro sistema</strong> (puente), que lo recibe automático en <strong>LOS PINOS - CASITERITA</strong>.</>
+                : <>Se descuenta de {almacen} y se suma al destino llevando su costo (PMP).</>}
             </small>
           </div>
         )}
@@ -345,7 +352,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           }}
         >
           <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-            Vista previa {esTransferencia ? `· ${almacen} → ${almacenDestino || '—'}` : `· ${almacen}`}
+            Vista previa {esTransferencia ? `· ${almacen} → ${destinoEsExterno ? DESTINO_EXTERNO_CASITERITA_LABEL : (almacenDestino || '—')}` : `· ${almacen}`}
           </div>
           <div className="mono" style={{ fontSize: '.9rem' }}>
             {num(stockAlmacen)} → <strong>{num(stockResultante)}</strong>{' '}

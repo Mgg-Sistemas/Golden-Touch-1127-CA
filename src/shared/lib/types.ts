@@ -369,6 +369,32 @@ export interface TransferenciaCombustibleInter {
   confirmada_at?: string | null;
 }
 
+/** Puente inter-sistema de CASITERITA (mineral): este sistema envía Kg al otro,
+ *  que los recibe (automático) en el almacén "LOS PINOS - CASITERITA". */
+export interface TransferenciaCasiteritaInter {
+  id: string;
+  transf_id: string;
+  direccion: 'saliente' | 'entrante';
+  estado: 'enviada' | 'por_confirmar' | 'recibida' | 'rechazada' | 'error';
+  empresa_origen: string;
+  empresa_destino: string;
+  producto_id?: string | null;
+  producto_nombre: string;
+  sku?: string | null;
+  kg: number;
+  costo_unitario?: number | null;
+  almacen_origen?: string | null;
+  almacen_destino?: string | null;
+  resumen?: string | null;
+  motivo?: string | null;
+  callback_base?: string | null;
+  mensaje_error?: string | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  created_at: string;
+  confirmada_at?: string | null;
+}
+
 export interface MovimientoTanque {
   id: string;
   tanque_id: string;

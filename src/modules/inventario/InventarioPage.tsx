@@ -44,6 +44,7 @@ import { ProductosTable } from './ProductosTable';
 import { ProductoForm } from './ProductoForm';
 import { ProductoDetail } from './ProductoDetail';
 import { MovimientoForm } from './MovimientoForm';
+import { registrarTrasladoCasiteritaExterno, DESTINO_EXTERNO_CASITERITA, ALMACEN_DESTINO_CASITERITA } from './casiteritaInter.repository';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { ExportInventarioModal } from './ExportInventarioModal';
@@ -452,7 +453,21 @@ export function InventarioPage() {
   }
 
   async function handleRegistrarMovimiento(input: MovimientoInput, transfer?: { almacenDestino: string }) {
-    if (transfer) {
+    if (transfer && transfer.almacenDestino === DESTINO_EXTERNO_CASITERITA) {
+      // Traslado de CASITERITA al OTRO sistema (puente): sale del almacén local y se
+      // empuja al otro Supabase, que lo recibe automático en "LOS PINOS - CASITERITA".
+      const prod = productos.find((p) => p.id === input.producto_id);
+      if (!prod) throw new Error('No se encontró el producto de casiterita.');
+      await registrarTrasladoCasiteritaExterno({
+        producto: prod,
+        almacenOrigen: input.almacen || 'General',
+        kg: Math.abs(input.delta),
+        actor: input.actor,
+        actorName: input.actor_name,
+        detalle: input.detalle,
+      });
+      notify(`Casiterita enviada al otro sistema: ${Math.abs(input.delta)} Kg → ${ALMACEN_DESTINO_CASITERITA}`, 'success', { link: '#/app/inventario' });
+    } else if (transfer) {
       await transferir({
         producto_id: input.producto_id,
         almacenOrigen: input.almacen || 'General',
