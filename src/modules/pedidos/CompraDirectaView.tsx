@@ -57,10 +57,12 @@ function esPorRecibir(c: CompraDirecta): boolean {
  * montadas que esperan recepción. Las pagadas hay que reabrirlas primero (devuelve el
  * dinero) — el repositorio vuelve a validarlo.
  */
-/** Ahora se puede eliminar en CUALQUIER estado: si ya movió caja/inventario, el borrado
- *  revierte primero (ver `eliminarCompraDirectaConReverso`). */
-function sePuedeEliminar(_c: CompraDirecta): boolean {
-  return true;
+/** Se puede eliminar en cualquier estado MENOS FINALIZADA: una compra ya finalizada
+ *  (pagada y recibida, con caja e inventario movidos) NO se borra — si hay que corregirla
+ *  se usa "↺ Reabrir" primero. En estados previos, si ya movió inventario/caja el borrado
+ *  revierte antes (ver `eliminarCompraDirectaConReverso`). */
+function sePuedeEliminar(c: CompraDirecta): boolean {
+  return c.estado !== 'finalizada';
 }
 /** ¿El borrado debe REVERTIR caja/inventario? (finalizada = pagada, o recibida en almacén). */
 function requiereReverso(c: CompraDirecta): boolean {
@@ -361,8 +363,8 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {compra.estado === 'en_proceso' && <button className="btn btn-ghost" onClick={onEditar} title="Editar materiales / proveedor">✏ Editar</button>}
       {compra.estado === 'por_pagar' && <button className="btn btn-ghost" onClick={onMontar} title="Editar factura, montos y nota (antes de que Tesorería pague)">✏ Editar</button>}
       {compra.estado === 'finalizada' && <button className="btn btn-ghost" style={{ color: 'var(--warning)' }} onClick={onReabrir} title="Reabrir para editar (revierte caja e inventario)">↺ Reabrir</button>}
-      <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => { onClose(); onEliminar(); }}
-        title={requiereReverso(compra) ? 'Eliminar (revierte caja e inventario y borra la compra)' : 'Eliminar compra directa'}>🗑 Eliminar</button>
+      {sePuedeEliminar(compra) && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => { onClose(); onEliminar(); }}
+        title={requiereReverso(compra) ? 'Eliminar (revierte caja e inventario y borra la compra)' : 'Eliminar compra directa'}>🗑 Eliminar</button>}
       <button className="btn btn-primary" onClick={onPdf}>↓ PDF</button>
     </>
   );
