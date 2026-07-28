@@ -11,7 +11,7 @@ import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import type { Producto } from '@/shared/lib/types';
 import {
   listViveres, listMovimientosCocina, crearMovimientoCocina, eliminarMovimientoCocina,
-  resumirCocina, TIPOS_COMIDA, labelTipoComida,
+  resumirCocina, TIPOS_COMIDA, labelTipoComida, viveresBajos, alertarViveresBajosACompras,
   type CocinaMovimiento, type CocinaItem, type TipoComida, type ResumenCocina,
 } from './cocina.repository';
 import { descargarCocinaPdf } from './cocinaPdf';
@@ -66,6 +66,10 @@ export function CocinaPage() {
         listViveres().catch(() => [] as Producto[]),
       ]);
       setMovs(m); setViveres(v);
+      // Aviso automático a los Analistas de Compras si hay víveres al 20% o menos de su
+      // mínimo (best-effort, con dedup para no repetir). Se evalúa en cada carga/refresh,
+      // incluido después de registrar una comida (que baja el stock).
+      void alertarViveresBajosACompras(v);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo cargar Cocina', 'error');
     } finally { setLoading(false); }
@@ -91,6 +95,8 @@ export function CocinaPage() {
     listMovimientosCocina({ desde: hoyISO(), hasta: hoyISO() }).then(setMovsHoy).catch(() => setMovsHoy([]));
   }, [movs]);
   const resHoy = useMemo(() => resumirCocina(movsHoy), [movsHoy]);
+  // Víveres al 20% o menos de su mínimo (se avisa a Compras y se muestra acá).
+  const bajos = useMemo(() => viveresBajos(viveres), [viveres]);
 
   async function confirmarEliminar(m: CocinaMovimiento) {
     try {
@@ -122,6 +128,25 @@ export function CocinaPage() {
         <KpiCard titulo="Promedio por plato" valor={money(resHoy.promedioPorPlato)} nota="hoy" />
         <KpiCard titulo="Víveres en catálogo" valor={num(viveres.length)} nota="productos disponibles" />
       </div>
+
+      {/* Aviso de víveres bajos (20% o menos del mínimo): también se notifica a Compras */}
+      {bajos.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '1rem' }}>
+          <div className="card-title">
+            <span>🥫 Víveres para reponer <span className="muted" style={{ fontWeight: 400 }}>(20% o menos del mínimo)</span></span>
+            <span className="muted mono">{num(bajos.length)} · avisado a Compras</span>
+          </div>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            {bajos.slice(0, 12).map((p) => (
+              <span key={p.id} className="btn btn-sm btn-ghost" style={{ cursor: 'default' }}
+                title={`Stock ${num(Number(p.stock))} · mínimo ${num(Number(p.stock_min))} · umbral 20% = ${num(Number(p.stock_min) * 0.2)}`}>
+                {p.nombre} · {num(Number(p.stock))} {p.unidad ?? ''}
+              </span>
+            ))}
+            {bajos.length > 12 && <span className="muted" style={{ alignSelf: 'center' }}>…y {num(bajos.length - 12)} más</span>}
+          </div>
+        </div>
+      )}
 
       {/* Filtros de la tabla */}
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -377,7 +402,7 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
 
         {/* Víveres consumidos: checklist de TODOS los víveres del inventario (cualquier almacén) */}
         <div className="form-row">
-          <label>Víveres consumidos <span className="muted">(marcá los que se usaron · todos los víveres del inventario, sin importar el almacén)</span></label>
+          <label>Productos consumidos <span className="muted">(marcá los que se usaron · Víveres, Carnes, Proteínas y Limpieza del inventario, sin importar el almacén)</span></label>
           <input ref={searchRef} className="input" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
             placeholder={viveres.length ? '🔍 Buscar víver por nombre o SKU…' : '— sin víveres en el inventario —'}
             style={{ marginBottom: '.5rem' }} disabled={!viveres.length} />
