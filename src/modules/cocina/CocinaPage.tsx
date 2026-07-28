@@ -10,7 +10,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import type { Producto } from '@/shared/lib/types';
 import {
-  listViveres, listMovimientosCocina, crearMovimientoCocina, eliminarMovimientoCocina,
+  listViveres, listMovimientosCocina, crearMovimientoCocina, actualizarMovimientoCocina, eliminarMovimientoCocina,
   resumirCocina, TIPOS_COMIDA, labelTipoComida, viveresBajos, alertarViveresBajosACompras,
   type CocinaMovimiento, type CocinaItem, type TipoComida, type ResumenCocina,
 } from './cocina.repository';
@@ -34,6 +34,7 @@ export function CocinaPage() {
   const [viveres, setViveres] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta'>('none');
+  const [editando, setEditando] = useState<CocinaMovimiento | null>(null);
   const [aEliminar, setAEliminar] = useState<CocinaMovimiento | null>(null);
   const [notaAlerta, setNotaAlerta] = useState('');
   const [enviandoAlerta, setEnviandoAlerta] = useState(false);
@@ -209,7 +210,8 @@ export function CocinaPage() {
                         {m.nota ? <div>📝 {m.nota}</div> : null}
                       </td>
                       {canWrite && (
-                        <td style={{ textAlign: 'right' }}>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button className="btn btn-sm btn-ghost" title="Editar movimiento (tipo, platos, víveres, cantidades, nota y fecha)" onClick={() => setEditando(m)}>✏</button>
                           <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} title="Eliminar" onClick={() => setAEliminar(m)}>🗑</button>
                         </td>
                       )}
@@ -231,6 +233,10 @@ export function CocinaPage() {
       {modal === 'add' && (
         <AddMovimientoModal viveres={viveres} actor={actor} actorName={actorName}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await cargar(); }} />
+      )}
+      {editando && (
+        <AddMovimientoModal viveres={viveres} actor={actor} actorName={actorName} editar={editando}
+          onClose={() => setEditando(null)} onSaved={async () => { setEditando(null); await cargar(); }} />
       )}
       {modal === 'resumen' && (
         <ResumenModal viveres={viveres} onClose={() => setModal('none')} />
@@ -277,23 +283,45 @@ function KpiCard({ titulo, valor, nota, destacado }: { titulo: string; valor: st
   );
 }
 
-/* ───────────── Añadir movimiento (consumo de víveres) ───────────── */
-function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
-  viveres: Producto[]; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+/* ───────────── Añadir / editar movimiento (consumo de víveres) ───────────── */
+function AddMovimientoModal({ viveres, actor, actorName, editar, onClose, onSaved }: {
+  viveres: Producto[]; actor: string; actorName: string | null; editar?: CocinaMovimiento | null; onClose: () => void; onSaved: () => void;
 }) {
-  const [tipo, setTipo] = useState<TipoComida>('almuerzo');
-  const [platos, setPlatos] = useState('');
-  const [nota, setNota] = useState('');
+  const esEdicion = !!editar;
+  // Cantidades ya consumidas por este movimiento (al editar): liberan stock para la nueva cantidad.
+  const oldQty = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const it of editar?.items ?? []) m.set(it.producto_id, (m.get(it.producto_id) ?? 0) + Number(it.cantidad || 0));
+    return m;
+  }, [editar]);
+  // Datos de respaldo (sku/nombre/precio/almacén) de los víveres del movimiento, por si alguno
+  // ya no está en el listado activo del inventario (así no se pierde al editar).
+  const itemFallback = useMemo(() => {
+    const m = new Map<string, { sku: string; nombre: string; precio: number; almacen: string | null }>();
+    for (const it of editar?.items ?? []) m.set(it.producto_id, { sku: it.sku, nombre: it.nombre, precio: Number(it.precio) || 0, almacen: it.almacen ?? null });
+    return m;
+  }, [editar]);
+
+  const [tipo, setTipo] = useState<TipoComida>(editar?.tipo_comida ?? 'almuerzo');
+  const [platos, setPlatos] = useState(editar ? String(editar.platos ?? '') : '');
+  const [nota, setNota] = useState(editar?.nota ?? '');
   // Fecha del servicio (por defecto hoy): permite cargar comidas de un día desfasado.
-  const [fecha, setFecha] = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [fecha, setFecha] = useState(() => (editar?.at ? new Date(editar.at).toLocaleDateString('en-CA') : new Date().toLocaleDateString('en-CA')));
   // Selección tipo CHECK: producto_id → cantidad (texto). Marcar el check lo agrega
   // con cantidad 1; desmarcar lo quita. Se pueden elegir varios de un vistazo.
-  const [sel, setSel] = useState<Record<string, string>>({});
+  const [sel, setSel] = useState<Record<string, string>>(() => {
+    const s: Record<string, string> = {};
+    for (const it of editar?.items ?? []) s[it.producto_id] = String(it.cantidad ?? '');
+    return s;
+  });
   const [busqueda, setBusqueda] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const prodMap = useMemo(() => new Map(viveres.map((p) => [p.id, p])), [viveres]);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Stock disponible para un víver: al editar, se suma lo que este movimiento ya había
+  // consumido (que se reintegra), para no bloquear una edición válida.
+  const dispDe = (p: Producto) => Number(p.stock) + (esEdicion ? (oldQty.get(p.id) ?? 0) : 0);
 
   function toggle(pid: string) {
     setSel((s) => {
@@ -320,21 +348,27 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
   // Líneas seleccionadas (para el resumen/validación/submit).
   const lineas = useMemo(() => Object.entries(sel).map(([pid, cantStr]) => {
     const p = prodMap.get(pid) ?? null;
+    const fb = itemFallback.get(pid) ?? null;
     const cant = Number(cantStr) || 0;
-    const precio = Number(p?.precio) || 0;
-    return { pid, p, cant, precio, subtotal: cant * precio, excede: !!p && cant > Number(p.stock) };
-  }), [sel, prodMap]);
+    const precio = Number(p?.precio ?? fb?.precio) || 0;
+    // Disponible = stock actual + (al editar) lo que este movimiento ya consumía (se reintegra).
+    const disponible = p ? Number(p.stock) + (esEdicion ? (oldQty.get(pid) ?? 0) : 0) : Infinity;
+    const info = p
+      ? { id: p.id, sku: p.sku, nombre: p.nombre, almacen: p.almacen ?? null }
+      : fb ? { id: pid, sku: fb.sku, nombre: fb.nombre, almacen: fb.almacen } : null;
+    return { pid, info, cant, precio, subtotal: cant * precio, excede: cant > disponible };
+  }), [sel, prodMap, itemFallback, esEdicion, oldQty]);
   const total = lineas.reduce((a, l) => a + l.subtotal, 0);
   const nSeleccionados = lineas.length;
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    const items: CocinaItem[] = lineas.filter((l) => l.p && l.cant > 0).map((l) => ({
-      producto_id: l.p!.id, sku: l.p!.sku, nombre: l.p!.nombre, cantidad: l.cant, precio: l.precio, almacen: l.p!.almacen ?? null,
+    const items: CocinaItem[] = lineas.filter((l) => l.info && l.cant > 0).map((l) => ({
+      producto_id: l.info!.id, sku: l.info!.sku, nombre: l.info!.nombre, cantidad: l.cant, precio: l.precio, almacen: l.info!.almacen ?? null,
     }));
     if (!items.length) { setError('Marcá al menos un víver con cantidad mayor a 0.'); return; }
     const exc = lineas.find((l) => l.excede);
-    if (exc) { setError(`No hay stock suficiente de ${exc.p?.nombre} (disponible ${num(Number(exc.p?.stock))}).`); return; }
+    if (exc) { setError(`No hay stock suficiente de ${exc.info?.nombre} (disponible ${num(Number((prodMap.get(exc.pid)?.stock ?? 0)) + (esEdicion ? (oldQty.get(exc.pid) ?? 0) : 0))}).`); return; }
     const nPlatos = Number(platos) || 0;
     if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
     // Fecha del servicio: se combina el día elegido con la hora actual (para el orden dentro
@@ -346,8 +380,10 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
     }
     setSaving(true);
     try {
-      const r = await crearMovimientoCocina({ tipoComida: tipo, platos: nPlatos, items, nota: nota || null, at, actor, actorName });
-      notify(`Movimiento de cocina ${r.codigo} · ${labelTipoComida(tipo)} · ${money(Number(r.valor_total))}`, 'success', { link: '#/app/cocina' });
+      const r = esEdicion
+        ? await actualizarMovimientoCocina(editar!.id, { tipoComida: tipo, platos: nPlatos, items, nota: nota || null, at, actor, actorName })
+        : await crearMovimientoCocina({ tipoComida: tipo, platos: nPlatos, items, nota: nota || null, at, actor, actorName });
+      notify(`Movimiento de cocina ${r.codigo} ${esEdicion ? 'actualizado' : ''} · ${labelTipoComida(tipo)} · ${money(Number(r.valor_total))}`, 'success', { link: '#/app/cocina' });
       onSaved();
     } catch (err) {
       // Los errores de Supabase (PostgrestError) NO son instancias de Error; igual traen
@@ -363,12 +399,12 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cocina-add" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : `Registrar · ${money(total)}`}</button>
+      <button type="submit" form="cocina-add" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : `${esEdicion ? 'Guardar cambios' : 'Registrar'} · ${money(total)}`}</button>
     </>
   );
 
   return (
-    <Modal title="Añadir movimiento de cocina" size="lg" onClose={() => !saving && onClose()} footer={footer}>
+    <Modal title={esEdicion ? `✏ Editar movimiento ${editar?.codigo ?? ''}` : 'Añadir movimiento de cocina'} size="lg" onClose={() => !saving && onClose()} footer={footer}>
       <form id="cocina-add" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -412,7 +448,8 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
             ) : viveresFiltrados.map((p) => {
               const marcado = p.id in sel;
               const cant = Number(sel[p.id]) || 0;
-              const excede = marcado && cant > Number(p.stock);
+              const disp = dispDe(p);
+              const excede = marcado && cant > disp;
               return (
                 <div key={p.id} style={{
                   display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5rem', alignItems: 'center',
@@ -424,7 +461,7 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
                     <span style={{ minWidth: 0 }}>
                       <span style={{ fontWeight: 600 }}>{p.nombre}</span> <span className="muted" style={{ fontSize: '.78rem' }}>({p.sku})</span>
                       <span className="muted" style={{ display: 'block', fontSize: '.74rem' }}>
-                        📦 {num(Number(p.stock))} {p.unidad ?? ''} · {money(Number(p.precio) || 0)} · {p.almacen || 'sin almacén'}
+                        📦 {num(disp)} {p.unidad ?? ''}{esEdicion && (oldQty.get(p.id) ?? 0) > 0 ? <span title="Incluye lo que este movimiento ya consumía (se reintegra al editar)"> (incl. {num(oldQty.get(p.id) ?? 0)} de este mov.)</span> : ''} · {money(Number(p.precio) || 0)} · {p.almacen || 'sin almacén'}
                       </span>
                     </span>
                   </label>
@@ -442,7 +479,7 @@ function AddMovimientoModal({ viveres, actor, actorName, onClose, onSaved }: {
             })}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
-            <small className="muted">Los precios salen del inventario (PMP). Al registrar, cada víver se <strong>descuenta del stock</strong>.</small>
+            <small className="muted">Los precios salen del inventario (PMP). {esEdicion ? <>Al guardar, el inventario se <strong>ajusta por la diferencia</strong> (si bajás una cantidad, vuelve al stock; si la subís, se descuenta más).</> : <>Al registrar, cada víver se <strong>descuenta del stock</strong>.</>}</small>
             <span style={{ fontWeight: 700 }}>{nSeleccionados} seleccionado{nSeleccionados === 1 ? '' : 's'} · TOTAL {money(total)}</span>
           </div>
         </div>
