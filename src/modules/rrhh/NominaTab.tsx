@@ -84,7 +84,7 @@ export function NominaTab({ canWrite, actor, actorName }: { canWrite: boolean; a
                 <td className="muted">{dateTime(p.created_at)}</td>
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setVerPeriodo(p)} title="Ver detalle">👁</button>
-                  <button className="btn btn-sm btn-ghost" onClick={() => pdfNomina(p)} title="Comprobante de pago (PDF con firmas)">📄 PDF</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => pdfNomina(p)} title="Recibo de pago (PDF con fecha y líneas de firma: la persona y la Jefa de RRHH; se firman a mano al imprimir)">📄 Recibos</button>
                   {canWrite && p.pagados === 0 && <button className="btn btn-sm btn-ghost" onClick={() => borrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>}
                 </td>
               </tr>
@@ -404,7 +404,7 @@ function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResume
   return (
     <Modal title={`Nómina ${periodo.codigo}`} size="xl" onClose={onClose} footer={
       <>
-        <button className="btn btn-ghost" onClick={() => descargarNominaReciboPdf(rows, { periodo, cedulas }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length}>📄 Comprobantes (todos)</button>
+        <button className="btn btn-ghost" onClick={() => descargarNominaReciboPdf(rows, { periodo, cedulas }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length} title="Recibos de pago de TODA la nómina (uno por persona), con fecha y líneas de firma de la persona y la Jefa de RRHH">📄 Recibos de pago (todos)</button>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
@@ -427,7 +427,7 @@ function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResume
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.neto_usd)}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: r.estado === 'pagada' ? 'var(--success)' : 'var(--warning)' }}>{r.estado === 'pagada' ? 'Pagada' : 'Por pagar'}</span></td>
                 <td className="muted">{r.pagada_en ? `${dateTime(r.pagada_en)}${r.moneda_pago ? ` · ${r.moneda_pago}` : ''}` : '—'}</td>
-                <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => reciboDe(r)} title="Comprobante con firmas">📄</button></td>
+                <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => reciboDe(r)} title="Recibo de pago (con fecha y líneas de firma: la persona y la Jefa de RRHH)">📄</button></td>
               </tr>
             ))}
           </tbody>
