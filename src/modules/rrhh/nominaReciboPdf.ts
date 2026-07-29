@@ -51,12 +51,13 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
     doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text('Comprobante de Pago de Personal', tx, y + 32);
+    doc.text('Recibo de Pago de Personal', tx, y + 32);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.text(meta.periodo.codigo ?? '', PAGE_W - MARGIN, y + 16, { align: 'right' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    const fecha = meta.periodo.periodo_desde ? fmtDate(meta.periodo.periodo_desde) : (r.pagada_en ? fmtDate(r.pagada_en) : '');
-    doc.text(fecha, PAGE_W - MARGIN, y + 32, { align: 'right' });
+    // Fecha de EMISIÓN del recibo (hoy). El período y la fecha de pago van en el detalle.
+    const fechaEmision = fmtDate(new Date().toISOString());
+    doc.text(`Emitido: ${fechaEmision}`, PAGE_W - MARGIN, y + 32, { align: 'right' });
     y += Math.max(LOGO, 40) + 6;
 
     doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
@@ -65,19 +66,23 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     // Título grande.
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text('COMPROBANTE DE PAGO', MARGIN, y);
+    doc.text('RECIBO DE PAGO', MARGIN, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
     doc.text(`Motivo: ${labelMotivo(meta.periodo.tipo)}`, PAGE_W - MARGIN, y, { align: 'right' });
     y += 18;
 
     // Datos del trabajador.
     const cedula = meta.cedulas?.[r.personal_id ?? ''] || '';
+    const periodoStr = meta.periodo.periodo_desde
+      ? `${fmtDate(meta.periodo.periodo_desde)}${meta.periodo.periodo_hasta ? ' — ' + fmtDate(meta.periodo.periodo_hasta) : ''}`
+      : '—';
     autoTable(doc, {
       startY: y,
       body: [
         ['Trabajador', r.nombre, 'Cédula', cedula || '—'],
         ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
-        ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar', 'Días', String(r.dias_trabajados ?? '')],
+        ['Período', periodoStr, 'Fecha de pago', r.pagada_en ? fmtDate(r.pagada_en) : '—'],
+        ['Estado', r.estado === 'pagada' ? 'Pagado' : 'Por pagar', 'Días', String(r.dias_trabajados ?? '')],
       ],
       margin: MARGIN,
       theme: 'grid',
@@ -119,17 +124,23 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       doc.text(`Seriales de billetes: ${r.seriales_billetes.join(', ')}`, MARGIN, y + 10);
     }
 
-    // Firmas (al pie de la página).
-    const fy = PAGE_H - MARGIN - 50;
+    // Firmas (al pie de la página) — se firman A MANO al imprimir.
+    const fy = PAGE_H - MARGIN - 54;
     const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
+    // "Recibí conforme" sobre la firma del trabajador.
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
+    doc.text('Recibí conforme el pago aquí detallado.', MARGIN, fy - 12);
+    doc.setTextColor(0);
     doc.setDrawColor(120); doc.setLineWidth(0.7);
     doc.line(MARGIN, fy, MARGIN + colW, fy);
     doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text('Firma del trabajador', MARGIN + colW / 2, fy + 14, { align: 'center' });
-    doc.text(r.nombre, MARGIN + colW / 2, fy + 26, { align: 'center' });
-    doc.text('Firma RRHH', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
-    doc.text('Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + 26, { align: 'center' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text('Firma de la persona', MARGIN + colW / 2, fy + 14, { align: 'center' });
+    doc.text('Firma de la Jefa de RRHH', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90);
+    doc.text(`${r.nombre}${cedula ? ' · C.I. ' + cedula : ''}`, MARGIN + colW / 2, fy + 26, { align: 'center' });
+    doc.text('Jefatura de Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + 26, { align: 'center' });
+    doc.setTextColor(0);
   });
 
   return doc;
