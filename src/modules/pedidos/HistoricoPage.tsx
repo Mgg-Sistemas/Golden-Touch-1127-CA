@@ -286,6 +286,7 @@ export function HistoricoPage() {
                 <th>Estado</th>
                 <th>Fecha solicitud</th>
                 <th>OC emitida</th>
+                <th style={{ textAlign: 'center' }}>Trazabilidad</th>
               </tr>
             </thead>
             <tbody>
@@ -309,6 +310,11 @@ export function HistoricoPage() {
                     <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(o.created_at)}</td>
                     <td className="muted" style={{ fontSize: '.82rem' }}>
                       {o.oc_emitida_en ? dateTime(o.oc_emitida_en) : '—'}
+                    </td>
+                    <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                      <button className="btn btn-sm btn-ghost" disabled={pdfBusy}
+                        onClick={() => void imprimirPdf(o, 'trazabilidad')}
+                        title="Descargar la trazabilidad completa (vista previa)">🧾 Trazabilidad</button>
                     </td>
                   </tr>
                 );
