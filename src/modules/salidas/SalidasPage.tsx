@@ -170,7 +170,7 @@ export function SalidasPage() {
       <div className="page-head">
         <div>
           <h1>Salidas / Traslados</h1>
-          <p className="muted hint">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: el obrero la registra, el analista o el admin la aprueba, y al ejecutar se descuenta el stock.</p>
+          <p className="muted hint">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: se registra, un usuario con <strong>control full</strong> la <strong>aprueba</strong>, y quien tenga <strong>escritura</strong> la <strong>ejecuta</strong> (ahí se descuenta el stock).</p>
         </div>
         <div className="actions">
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen-unidad' })}>📊 Resumen de gasto (material)</button>
@@ -996,6 +996,10 @@ function SolicitudDetalleModal({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancel, setMotivoCancel] = useState('');
   const [editando, setEditando] = useState(false);
+  // APROBAR es solo para full control (admin / permiso full). EJECUTAR (descuenta stock)
+  // lo puede hacer también quien tenga permiso de ESCRITURA: ve el botón Ejecutar, pero
+  // NO el de Aprobar. Así separamos la autorización (full) de la ejecución (escritura).
+  const puedeEjecutar = puedeAprobar || canWrite;
   // Se puede editar mientras esté POR APROBAR (aún no movió stock).
   const puedeEditar = canWrite && sol.estado === 'por_aprobar';
   // En FINALIZADA solo se pueden editar las notas/motivo (anotación adicional, no cambia nada más).
@@ -1057,7 +1061,7 @@ function SolicitudDetalleModal({
           ✔ Aprobar
         </button>
       )}
-      {puedeAprobar && sol.estado === 'aprobada' && (
+      {puedeEjecutar && sol.estado === 'aprobada' && (
         <button className="btn btn-primary" disabled={busy}
           onClick={() => run(() => ejecutarSolicitudSalida(sol, actor, actorName), `Solicitud ${sol.codigo} ejecutada`)}>
           {ejecutarLabel}
@@ -1156,9 +1160,14 @@ function SolicitudDetalleModal({
         </tbody>
       </table>
 
-      {!puedeAprobar && sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
+      {puedeEjecutar && !puedeAprobar && sol.estado === 'por_aprobar' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-          Solo un analista, un jefe o el administrador puede aprobar y ejecutar esta solicitud.
+          Vas a poder <strong>ejecutar</strong> esta solicitud una vez que un usuario con <strong>control full</strong> la <strong>apruebe</strong>.
+        </div>
+      )}
+      {!puedeEjecutar && sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
+        <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
+          Solo un usuario autorizado puede aprobar o ejecutar esta solicitud.
         </div>
       )}
 
