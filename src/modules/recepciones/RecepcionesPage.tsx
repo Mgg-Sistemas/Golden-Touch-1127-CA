@@ -268,8 +268,9 @@ export function RecepcionesPage() {
   const mermaFinDe = (r: HumedadFinalRow) => (r.auto ? mermaFinalProc(r.neto_humedo ?? null, r.peso_recogido) : mermaH2OFinal(pesoTotal, r.peso_recogido));
   const finMermaTotal = humFin.reduce((a, r) => a + (mermaFinDe(r) ?? 0), 0);
   const finPctLote = finNetoHumedoTotal > 0 ? (finMermaTotal / finNetoHumedoTotal) * 100 : null;
-  // Desglose por procedencia (neto seco recogido) para Totales: de las filas auto de Humedad Final.
-  const desgloseProc = humFin.filter((r) => r.auto).map((r) => ({ procedencia: (r.procedencia || '—'), neto: Number(r.peso_recogido) || 0 }));
+  // Desglose por procedencia para Totales: PESO (Kg) NETO HÚMEDO de cada procedencia
+  // (el peso húmedo recepcionado, no el seco recogido), de las filas auto de Humedad Final.
+  const desgloseProc = humFin.filter((r) => r.auto).map((r) => ({ procedencia: (r.procedencia || '—'), neto: Number(r.neto_humedo) || 0 }));
   // Para la CONCILIACIÓN se usa el PESO HÚMEDO TOTAL RECEPCIONADO (BRUTO, «Peso Kgs Total»):
   // es el peso tal como llegó (SIN restar la merma de humedad), igual que en los libros
   // (faltante = Peso Kg total − reportado por el centro). Desglose por procedencia = suma de
@@ -1746,7 +1747,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
                 </tr>
                 {desgloseProc.length > 0 && (
                   <>
-                    <tr><td colSpan={5} className="muted" style={{ fontSize: '.72rem', fontWeight: 700, paddingTop: '.4rem' }}>Desglose por procedencia <span style={{ fontWeight: 400 }}>(neto seco recogido)</span></td></tr>
+                    <tr><td colSpan={5} className="muted" style={{ fontSize: '.72rem', fontWeight: 700, paddingTop: '.4rem' }}>Desglose por procedencia <span style={{ fontWeight: 400 }}>(Peso Kg · neto húmedo)</span></td></tr>
                     {desgloseProc.map((d) => (
                       <tr key={d.procedencia}>
                         <td className="num mono" style={{ textAlign: 'right' }}>{fmt(d.neto)}</td>
