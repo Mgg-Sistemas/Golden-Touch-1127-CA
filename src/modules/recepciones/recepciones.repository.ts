@@ -924,7 +924,9 @@ export function calcTotales(d: {
   const pesos = num(d.pesos_kg);
   const totalMonedaRecep = totalMonedaMinas;
   const tasaRecep = pesos !== 0 ? round4(totalMonedaRecep / pesos) : 0;
-  const totalSnO2Final = round2(pesos + num(d.humedad_prov) + num(d.humedad_final) + num(d.fe_esteril));
+  // Base = Pesos Kg (neto húmedo). Las mermas de humedad (guardadas en negativo) y el Fe
+  // estéril (impureza) se RESTAN para llegar al costo final (seco limpio).
+  const totalSnO2Final = round2(pesos + num(d.humedad_prov) + num(d.humedad_final) - Math.abs(num(d.fe_esteril)));
   // El ajuste de humedad/fe no aporta dinero: la moneda final es la de RECEPCIONADA.
   const totalMonedaFinal = totalMonedaRecep;
   const tasaFinal = totalSnO2Final !== 0 ? round4(totalMonedaFinal / totalSnO2Final) : 0;
