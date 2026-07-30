@@ -217,13 +217,39 @@ export async function ingresarDineroCaja(input: {
 
 const CATEGORIAS_VINCULADAS = new Set(['pago_oc', 'traslado', 'conversion', 'compra_directa', 'servicio_directo', 'reverso', 'conciliacion']);
 
-/** ¿Es un movimiento manual editable/borrable desde Tesorería? */
+/** ¿Es un movimiento manual EDITABLE desde Tesorería? (editar monto/motivo/fecha) */
 export function esMovimientoEditable(m: MovimientoCaja): boolean {
   if (!['salida', 'ingreso', 'ajuste'].includes(m.tipo)) return false;
   const r = m as unknown as Record<string, unknown>;
   if (r.ref_orden_id || r.ref_caja_id || r.estado_mineral || r.mineral_mov_id) return false;
   if (m.categoria && CATEGORIAS_VINCULADAS.has(m.categoria)) return false;
   return true;
+}
+
+/** Categorías cuyo movimiento depende de un DOCUMENTO externo (su borrado debe hacerse
+ *  anulando/reabriendo desde su módulo, para no dejar el documento sin respaldo o el
+ *  inventario descuadrado). NO se borran directamente desde el libro. */
+const CATEGORIAS_DOCUMENTO = new Set(['pago_oc', 'compra_directa', 'servicio_directo', 'reverso', 'conciliacion']);
+
+/**
+ * ¿Se puede BORRAR el movimiento desde Tesorería sincronizando el saldo?
+ * Sí para los manuales (ingreso/salida/ajuste) y también para TRASLADOS y CONVERSIONES:
+ * al borrar, cada movimiento revierte el saldo de SU caja (cada pata por separado).
+ * NO para los ligados a un documento (pago de OC, compra/servicio directo, nómina,
+ * conciliación de mineral, reverso), que se anulan/reabren desde su módulo.
+ */
+export function esMovimientoBorrable(m: MovimientoCaja): boolean {
+  if (!['salida', 'ingreso', 'ajuste', 'traslado_salida', 'traslado_entrada'].includes(m.tipo)) return false;
+  const r = m as unknown as Record<string, unknown>;
+  // Ligados a un documento/registro externo: no se borran acá.
+  if (r.ref_orden_id || r.ref_nomina_renglon_id || r.estado_mineral || r.mineral_mov_id) return false;
+  if (m.categoria && CATEGORIAS_DOCUMENTO.has(m.categoria)) return false;
+  return true;
+}
+
+/** ¿El movimiento es una pata de traslado o de conversión? (para avisar de borrar la otra pata) */
+export function esMovimientoPar(m: MovimientoCaja): boolean {
+  return m.tipo === 'traslado_salida' || m.tipo === 'traslado_entrada' || m.categoria === 'conversion' || m.categoria === 'traslado';
 }
 
 /** Efecto del movimiento sobre el saldo (saldo_despues − saldo_antes). */
@@ -250,14 +276,22 @@ async function aplicarDeltaSaldo(m: MovimientoCaja, delta: number): Promise<void
   await espejarSaldoGeneral(m.caja_id, moneda, delta);
 }
 
-/** Borra un movimiento manual y revierte su efecto en el saldo de la caja. */
-export async function eliminarMovimientoCajaManual(m: MovimientoCaja): Promise<void> {
-  if (!esMovimientoEditable(m))
-    throw new Error('Este movimiento está vinculado (OC, traslado, conciliación, conversión o directo) y no se edita acá: anulalo desde su módulo.');
+/**
+ * Borra un movimiento del libro y REVIERTE su efecto en el saldo de la caja (multimoneda
+ * o legacy). Cubre los manuales (ingreso/salida/ajuste), los TRASLADOS y las CONVERSIONES
+ * (cada pata revierte el saldo de su propia caja). Los ligados a un documento externo
+ * (pago de OC, compra/servicio directo, nómina, conciliación) NO se borran acá.
+ */
+export async function eliminarMovimientoCaja(m: MovimientoCaja): Promise<void> {
+  if (!esMovimientoBorrable(m))
+    throw new Error('Este movimiento está ligado a un documento (pago de OC, compra/servicio directo, nómina o conciliación de mineral) y no se borra acá: anulalo o reabrilo desde su módulo.');
   await aplicarDeltaSaldo(m, -efectoMov(m));
   const { error } = await supabase.from(LIBRO).delete().eq('id', m.id);
   if (error) throw error;
 }
+
+/** Compatibilidad: alias del borrado (antes solo manuales). Usa el criterio amplio. */
+export const eliminarMovimientoCajaManual = eliminarMovimientoCaja;
 
 export interface EditarMovimientoManualInput {
   mov: MovimientoCaja;

@@ -36,7 +36,7 @@ import {
   registrarGasto, disponibilidadFinanciera, listLibroMayor, ultimoCorrelativo,
   type Disponibilidad,
 } from './tesoreria.repository';
-import { esMovimientoEditable, editarMovimientoCajaManual, eliminarMovimientoCajaManual, editarFechaMovimiento } from '@/modules/salidas/cajas.repository';
+import { esMovimientoEditable, esMovimientoBorrable, esMovimientoPar, editarMovimientoCajaManual, eliminarMovimientoCaja, editarFechaMovimiento } from '@/modules/salidas/cajas.repository';
 import {
   listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
   type Contraparte, type TipoContraparte,
@@ -595,8 +595,12 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
 
-  // ── Editar / borrar movimiento MANUAL (gasto / ingreso / ajuste) ──
+  // ── Editar / borrar movimiento ──
+  // Editable (monto/motivo): solo manuales sueltos. Borrable (con sincronización de saldo):
+  // manuales + traslados + conversiones (los ligados a un documento se anulan desde su módulo).
   const editable = esMovimientoEditable(mov);
+  const borrable = esMovimientoBorrable(mov);
+  const esPar = esMovimientoPar(mov);
   const [editando, setEditando] = useState(false);
   // Editar SOLO la fecha — disponible para TODOS los movimientos (también los vinculados),
   // p.ej. cuando el pago real fue otro día pero se cargó tarde. No cambia montos ni saldos.
@@ -647,7 +651,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
   async function borrarMov() {
     setSavingEdit(true);
     try {
-      await eliminarMovimientoCajaManual(mov);
+      await eliminarMovimientoCaja(mov);
       toast('Movimiento borrado · saldo sincronizado', 'success');
       onChanged?.(); onClose();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar el movimiento', 'error'); setSavingEdit(false); setConfirmBorrar(false); }
@@ -756,7 +760,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
         <>
           {editable && <button className="btn btn-ghost" onClick={() => setEditando(true)} title="Editar este movimiento manual">✏ Editar</button>}
           {!editable && <button className="btn btn-ghost" onClick={() => { setEFecha((mov.at ?? '').slice(0, 16)); setEditandoFecha(true); }} title="Cambiar la fecha de este movimiento (p.ej. el pago real fue otro día)">📅 Editar fecha</button>}
-          {editable && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmBorrar(true)} title="Borrar este movimiento manual">🗑 Borrar</button>}
+          {borrable && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmBorrar(true)} title="Borrar este movimiento y sincronizar el saldo de la caja">🗑 Borrar</button>}
           <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
             {generandoPdf ? 'Generando…' : '↓ PDF'}
           </button>
@@ -768,6 +772,11 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
       {confirmBorrar && (
         <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>
           <strong>¿Borrar este movimiento?</strong> Se revertirá su efecto en el saldo de la caja. No se puede deshacer.
+          {esPar && (
+            <div className="muted" style={{ fontSize: '.78rem', marginTop: '.35rem' }}>
+              ⚠ Es una pata de un <strong>{mov.categoria === 'conversion' ? 'conversión' : 'traslado'}</strong>: esto borra <strong>solo esta pata</strong> y ajusta el saldo de <strong>esta</strong> caja. Si querés deshacer la operación completa, borrá también la <strong>otra pata</strong> en la otra caja/moneda.
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem' }}>
             <button className="btn btn-sm btn-ghost" onClick={() => setConfirmBorrar(false)} disabled={savingEdit}>Cancelar</button>
             <button className="btn btn-sm btn-primary" style={{ background: 'var(--danger)' }} onClick={borrarMov} disabled={savingEdit}>{savingEdit ? 'Borrando…' : 'Sí, borrar'}</button>
