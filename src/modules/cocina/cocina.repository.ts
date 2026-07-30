@@ -143,6 +143,65 @@ export interface CrearMovimientoCocinaInput {
 }
 
 /**
+ * Almacenes donde el producto TIENE stock (> 0), con el mayor stock primero. Si se
+ * indica un almacén preferido y tiene stock, va de primero. Es la base para descontar
+ * el consumo de cocina de donde REALMENTE hay existencias (no del «almacén por defecto»
+ * del producto, que puede estar vacío).
+ */
+async function almacenesConStock(productoId: string, preferido?: string | null): Promise<{ almacen: string; stock: number }[]> {
+  const { data, error } = await supabase
+    .from('existencias')
+    .select('almacen, stock')
+    .eq('producto_id', productoId)
+    .gt('stock', 0)
+    .order('stock', { ascending: false });
+  if (error) throw error;
+  const rows = (data ?? []).map((r) => ({ almacen: String(r.almacen), stock: Number(r.stock) || 0 }));
+  if (preferido) {
+    const i = rows.findIndex((r) => r.almacen === preferido);
+    if (i > 0) { const [p] = rows.splice(i, 1); rows.unshift(p); }
+  }
+  return rows;
+}
+
+/**
+ * Descuenta `cantidad` de un víver tomándola del/los almacén(es) con stock (mayor
+ * stock primero, o el preferido si lo tiene). Reparte el consumo entre varios almacenes
+ * si hace falta (derrame). Si el stock total no alcanza, el resto se descuenta igual del
+ * almacén preferido (o el primero con stock) para dejar la traza. Devuelve lo consumido.
+ */
+async function consumirDeInventario(o: {
+  productoId: string; cantidad: number; almacenPreferido?: string | null;
+  actor: string; actorName?: string | null; detalle: string;
+  refId?: string | null; refCodigo?: string | null;
+}): Promise<void> {
+  let restante = round2(Math.abs(o.cantidad));
+  if (restante <= 0) return;
+  const fuentes = await almacenesConStock(o.productoId, o.almacenPreferido);
+  for (const f of fuentes) {
+    if (restante <= 1e-9) break;
+    const toma = Math.min(restante, f.stock);
+    if (toma <= 0) continue;
+    await registrarMovimiento({
+      producto_id: o.productoId, tipo: 'consumo', delta: -toma, almacen: f.almacen,
+      actor: o.actor, actor_name: o.actorName ?? null, ref_tipo: 'cocina',
+      ref_id: o.refId ?? null, ref_codigo: o.refCodigo ?? null, detalle: o.detalle,
+    });
+    restante = round2(restante - toma);
+  }
+  if (restante > 1e-9) {
+    // No había stock suficiente en ningún almacén: se descuenta el resto del almacén
+    // preferido (o el primero con stock) para dejar el registro (la RPC no baja de 0).
+    const alm = o.almacenPreferido || fuentes[0]?.almacen || null;
+    await registrarMovimiento({
+      producto_id: o.productoId, tipo: 'consumo', delta: -restante, almacen: alm,
+      actor: o.actor, actor_name: o.actorName ?? null, ref_tipo: 'cocina',
+      ref_id: o.refId ?? null, ref_codigo: o.refCodigo ?? null, detalle: o.detalle,
+    });
+  }
+}
+
+/**
  * Registra un movimiento de cocina: descuenta cada víver del inventario (consumo)
  * y guarda el registro con su correlativo, valor (Σ cantidad×precio) y nº de platos.
  */
@@ -151,16 +210,15 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
   if (!items.length) throw new Error('Agregá al menos un víver con cantidad.');
   if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indicá cuántos platos se realizaron (mayor que 0).');
 
-  // 1) Descontar cada víver del inventario (consumo).
+  // 1) Descontar cada víver del inventario (consumo) desde el/los almacén(es) que
+  //    tengan stock (no del «almacén por defecto» del producto, que puede estar vacío).
   for (const it of items) {
-    await registrarMovimiento({
-      producto_id: it.producto_id,
-      tipo: 'consumo',
-      delta: -Math.abs(Number(it.cantidad)),
-      almacen: it.almacen ?? null,
+    await consumirDeInventario({
+      productoId: it.producto_id,
+      cantidad: Math.abs(Number(it.cantidad)),
+      almacenPreferido: it.almacen ?? null,
       actor: input.actor,
-      actor_name: input.actorName ?? null,
-      ref_tipo: 'cocina',
+      actorName: input.actorName ?? null,
       detalle: `Consumo cocina · ${labelTipoComida(input.tipoComida)} · ${it.sku} ${it.nombre}`,
     });
   }
@@ -232,18 +290,23 @@ export async function actualizarMovimientoCocina(id: string, input: ActualizarMo
     const stockDelta = round2((o?.cant ?? 0) - (n?.cant ?? 0)); // >0 reintegra, <0 consume más
     if (Math.abs(stockDelta) < 1e-9) continue;
     const meta = (n ?? o) as Info;
-    await registrarMovimiento({
-      producto_id: pid,
-      tipo: stockDelta > 0 ? 'ajuste' : 'consumo',
-      delta: stockDelta,
-      almacen: meta.almacen ?? null,
-      actor: input.actor,
-      actor_name: input.actorName ?? null,
-      ref_tipo: 'cocina',
-      ref_id: id,
-      ref_codigo: prev.codigo,
-      detalle: `Edición cocina ${prev.codigo ?? ''} · ${labelTipoComida(input.tipoComida)} · ${meta.sku} ${meta.nombre} · ${stockDelta > 0 ? `reintegro ${round2(Math.abs(stockDelta))}` : `consumo extra ${round2(Math.abs(stockDelta))}`}`,
-    });
+    const detalle = `Edición cocina ${prev.codigo ?? ''} · ${labelTipoComida(input.tipoComida)} · ${meta.sku} ${meta.nombre} · ${stockDelta > 0 ? `reintegro ${round2(Math.abs(stockDelta))}` : `consumo extra ${round2(Math.abs(stockDelta))}`}`;
+    if (stockDelta < 0) {
+      // Consumo extra: se descuenta del/los almacén(es) con stock.
+      await consumirDeInventario({
+        productoId: pid, cantidad: Math.abs(stockDelta), almacenPreferido: meta.almacen ?? null,
+        actor: input.actor, actorName: input.actorName ?? null, detalle, refId: id, refCodigo: prev.codigo,
+      });
+    } else {
+      // Reintegro: vuelve al almacén con más stock (o el indicado si no hay ninguno con stock).
+      const fuentes = await almacenesConStock(pid, meta.almacen ?? null);
+      await registrarMovimiento({
+        producto_id: pid, tipo: 'ajuste', delta: stockDelta,
+        almacen: fuentes[0]?.almacen ?? meta.almacen ?? null,
+        actor: input.actor, actor_name: input.actorName ?? null,
+        ref_tipo: 'cocina', ref_id: id, ref_codigo: prev.codigo, detalle,
+      });
+    }
   }
 
   // 3) Actualizar el registro con los nuevos datos.
