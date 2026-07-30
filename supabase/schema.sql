@@ -2196,11 +2196,15 @@ alter table public.acopio_caja_movimientos
   references public.acopio_martillos_movimientos(id) on delete cascade;
 create index if not exists idx_acopio_caja_ref_martillo on public.acopio_caja_movimientos(ref_martillo_id);
 
--- Gasto por consumo: cada movimiento con `consumidos` > 0 genera (o actualiza) un gasto en
--- la caja de Acopio (grupo Gastos Caja, clasif. "USO DE MARTILLOS") = consumidos × precio
--- vigente (Σ facturados / Σ cantidad entregados). Se ancla a la caja abierta (si hay).
+-- Gasto por consumo: cada movimiento con `consumidos` > 0 genera (o actualiza) DOS movimientos
+-- en la caja de Acopio ligados por ref_martillo_id, por el mismo monto = consumidos × precio
+-- vigente (Σ facturados / Σ cantidad entregados):
+--   · ENTRADA de multimoneda (grupo Movimientos de Caja, "CAJA MULTIMONEDAS MGG / CAJA PERAMANAL")
+--   · SALIDA / gasto (grupo Gastos Caja, "USO DE MARTILLOS")
+-- Así el consumo queda NEUTRO en el saldo (entrada + salida). La entrada compensatoria NO genera
+-- deuda a MGG (se excluye en sync_deuda_mgg_acopio). Se ancla a la caja abierta (si hay).
 create or replace function public._trg_martillo_gasto() returns trigger language plpgsql as $$
-declare v_precio numeric; v_caja uuid; v_gasto numeric;
+declare v_precio numeric; v_caja uuid; v_gasto numeric; v_desc text;
 begin
   select case when coalesce(sum(cantidad_entregados),0) > 0
               then sum(usd_facturados)/sum(cantidad_entregados) else 0 end
@@ -2209,19 +2213,54 @@ begin
   if coalesce(new.consumidos,0) > 0 and v_precio > 0 then
     v_gasto := round(new.consumidos * v_precio, 2);
     select id into v_caja from public.acopio_cajas where estado = 'abierta' order by created_at desc limit 1;
+    v_desc := trim(to_char(new.consumidos,'FM999999990.##')) || ' u × ' || trim(to_char(round(v_precio,2),'FM999999990.00')) || ' $/u'
+      || case when new.descripcion is not null and length(trim(new.descripcion)) > 0 then ' · ' || new.descripcion else '' end;
+    -- ENTRADA de multimoneda por la misma cantidad (compensa el consumo).
     insert into public.acopio_caja_movimientos
-      (fecha, descripcion, gastos, clasif_grupo, clasif_valor, caja_id, ref_martillo_id, created_by, actor_name)
+      (fecha, descripcion, usd_entregado, clasif_grupo, clasif_valor, caja_id, ref_martillo_id, created_by, actor_name, orden)
     values
-      (new.fecha,
-       'USO DE MARTILLOS · ' || trim(to_char(new.consumidos,'FM999999990.##')) || ' u × ' || trim(to_char(round(v_precio,2),'FM999999990.00')) || ' $/u'
-         || case when new.descripcion is not null and length(trim(new.descripcion)) > 0 then ' · ' || new.descripcion else '' end,
-       v_gasto, 'gastos_caja', 'USO DE MARTILLOS', v_caja, new.id, new.created_by, new.actor_name);
+      (new.fecha, 'ENTRADA MULTIMONEDA · USO DE MARTILLOS · ' || v_desc,
+       v_gasto, 'movimientos_caja', '2. CAJA MULTIMONEDAS MGG / CAJA PERAMANAL', v_caja, new.id, new.created_by, new.actor_name, 0);
+    -- SALIDA: gasto por el consumo de martillos.
+    insert into public.acopio_caja_movimientos
+      (fecha, descripcion, gastos, clasif_grupo, clasif_valor, caja_id, ref_martillo_id, created_by, actor_name, orden)
+    values
+      (new.fecha, 'USO DE MARTILLOS · ' || v_desc,
+       v_gasto, 'gastos_caja', 'USO DE MARTILLOS', v_caja, new.id, new.created_by, new.actor_name, 1);
   end if;
   return new;
 end$$;
 
 drop trigger if exists trg_martillo_gasto on public.acopio_martillos_movimientos;
 create trigger trg_martillo_gasto after insert or update on public.acopio_martillos_movimientos for each row execute function public._trg_martillo_gasto();
+
+-- Deuda a MGG por USD entregados = Σ usd_entregado, EXCLUYENDO las entradas compensatorias por
+-- consumo de martillos (ref_martillo_id): son un lavado interno, no dinero real entregado por MGG.
+create or replace function public.sync_deuda_mgg_acopio() returns trigger language plpgsql as $$
+declare v_total numeric; v_id uuid; v_abonado numeric;
+begin
+  select coalesce(sum(usd_entregado),0) into v_total
+    from public.acopio_caja_movimientos where ref_martillo_id is null;
+  v_total := round(v_total, 2);
+  select id, coalesce(abonado,0) into v_id, v_abonado
+    from public.cuentas_por_pagar
+    where tipo='proveedor' and moneda='USD' and contraparte ilike 'MGG'
+    order by created_at limit 1;
+  if v_id is null then
+    if v_total > 0 then
+      insert into public.cuentas_por_pagar(tipo,contraparte,monto,abonado,moneda,estado,nota)
+      values('proveedor','MGG',v_total,0,'USD','abierta',
+             'USD entregados (Acopio) · deuda a MGG — sincronizada con la tarjeta');
+    end if;
+  else
+    update public.cuentas_por_pagar
+      set monto = v_total,
+          estado = case when v_abonado >= v_total - 0.01 then 'saldada' else 'abierta' end,
+          updated_at = now()
+      where id = v_id;
+  end if;
+  return null;
+end$$;
 
 -- Seed de las 5 clasificaciones (hoja CLASIFICACIONES del Excel).
 insert into public.acopio_clasificaciones (grupo, valor, orden) values
