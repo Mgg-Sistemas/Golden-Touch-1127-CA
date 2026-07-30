@@ -1896,7 +1896,15 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
       // Los datos volvieron a la hoja de trabajo: la refrescamos en el padre.
       onCerrado?.();
       toast(`Recepción N° ${c.numero} reabierta. Se revirtió su ingreso al inventario y volvió a la hoja de trabajo para modificar.`, 'success');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo reabrir', 'error'); }
+    } catch (e) {
+      // Los errores de Supabase (PostgrestError) NO son instancias de Error pero traen
+      // `message`: mostramos el motivo real en vez del genérico para poder diagnosticar.
+      const msg = e instanceof Error ? e.message
+        : (e && typeof e === 'object' && 'message' in e && (e as { message?: unknown }).message)
+          ? String((e as { message: unknown }).message)
+          : 'No se pudo reabrir la recepción.';
+      toast(msg, 'error');
+    }
     finally { setReabriendo(false); }
   }
 

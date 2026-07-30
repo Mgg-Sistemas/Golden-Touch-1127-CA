@@ -59,6 +59,7 @@ export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Con
           <button
             className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
             disabled={!matches}
+            style={matches && requireText != null ? { boxShadow: '0 0 0 2px var(--success, #22c55e)' } : undefined}
             onClick={() => { if (matches) onConfirm(); }}
           >{confirmText}</button>
         </>
@@ -78,6 +79,9 @@ export function ConfirmDialog({ title = 'Confirmar', message, confirmText = 'Con
           />
           {!matches && typed.trim().length > 0 && (
             <small className="muted">Escribí exactamente <strong>{requireText}</strong> para habilitar el botón.</small>
+          )}
+          {matches && (
+            <small style={{ color: 'var(--success, #22c55e)', fontWeight: 600 }}>✓ Listo — tocá «{confirmText}» para confirmar.</small>
           )}
         </div>
       )}
