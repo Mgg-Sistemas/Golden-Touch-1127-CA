@@ -1541,7 +1541,21 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRe
                     </td>
                     <td style={{ fontWeight: 700 }}>Muestras tomadas por Laboratorio MGG</td>
                   </tr>
-                  {resumenFila(fmt(t!.noLlego), 'Kg No Llegó', { rojo: true, verde: true })}
+                  {(() => {
+                    // Kg No Llegó, con etiqueta según el signo de la diferencia:
+                    //  · a favor (reportado > peso)  → «KG A FAVOR» en verde
+                    //  · faltante (reportado < peso) → «KG FALTANTES» en rojo
+                    const favor = t!.faltante > 0;
+                    const cero = Math.abs(t!.faltante) < 0.005;
+                    const color = cero ? undefined : (favor ? 'var(--success, #22c55e)' : 'var(--danger, #e5484d)');
+                    const label = cero ? 'Kg No Llegó' : (favor ? 'KG A FAVOR' : 'KG FALTANTES');
+                    return (
+                      <tr>
+                        <td className="num mono" style={{ ...VERDE_BG, textAlign: 'right', width: 190, fontWeight: 800, color }}>{fmt(t!.noLlego)}</td>
+                        <td style={{ fontWeight: 800, color }}>{label}</td>
+                      </tr>
+                    );
+                  })()}
                   {resumenFila(`${fmt(t!.porcentaje)}%`, '% de lo que no llegó (descontando bolsas y muestras)', { rojo: true, verde: true })}
                 </tbody>
               </table>
@@ -1554,7 +1568,7 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRe
               onChange={(e) => setLocal({ observacion: e.target.value })} placeholder="Observaciones de la conciliación…" />
           </div>
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>
-            Diferencia = Reportado − Peso Kg total (+ «Kg a favor» verde / − «Kg Faltante» rojo) · Kg No Llegó = Kg Faltante + Peso de Bolsas + Muestras de Laboratorio · % = No llegó / Reportado × 100. Se guarda con «GUARDAR CONCILIACIÓN».
+            Diferencia = Reportado − Peso Kg total (+ «Kg a favor» verde / − «Kg Faltante» rojo) · Kg No Llegó = |Kg Faltante| + Peso de Bolsas + Muestras de Laboratorio; la etiqueta cambia según el signo: «KG A FAVOR» en verde si es positivo o «KG FALTANTES» en rojo si es negativo · % = No llegó / Reportado × 100. Se guarda con «GUARDAR CONCILIACIÓN».
           </div>
         </div>
       )}
