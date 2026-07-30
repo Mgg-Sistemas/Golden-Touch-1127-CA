@@ -12,6 +12,7 @@ import {
   listEventos, eventosPorUsuario, eventosPorDia, eventosPorModulo, agruparPorDia,
   describirEvento, type AuditoriaEvento,
 } from './auditoria.repository';
+import { descargarAuditoriaResumenPdf, descargarAuditoriaUsuarioPdf } from './auditoriaPdf';
 
 type Rango = 'hoy' | '7' | 'mes' | 'todo' | 'rango';
 const hoyISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -91,6 +92,25 @@ export function AuditoriaPage() {
     const porDiaU = agruparPorDia(evU);
     const conectadoU = conectados.some((c) => c.user_id === sel.user_id);
 
+    const pdfUsuario = async () => {
+      try {
+        await descargarAuditoriaUsuarioPdf({
+          nombre: sel.nombre, email: sel.email, rango: rangoTexto(d, h), conectado: conectadoU,
+          tiempoTotal: fmtDuracion(totalMinU), sesiones: sesU.length, acciones: evU.length, diasActivos: porDiaU.length,
+          porDia: conexionPorDia(sesU).map((r) => ({ dia: diaLegible(r.dia), tiempo: fmtDuracion(r.min) })),
+          timeline: porDiaU.flatMap(({ dia, eventos: evs }) => evs.map((e) => {
+            const desc = describirEvento(e);
+            return {
+              fecha: diaLegible(dia),
+              hora: new Date(e.at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }),
+              titulo: desc.titulo,
+              detalle: desc.detalle.join(' · '),
+            };
+          })),
+        });
+      } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    };
+
     return (
       <div className="page">
         <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
@@ -99,6 +119,7 @@ export function AuditoriaPage() {
             <h1 style={{ margin: '.4rem 0 0' }}>🔎 {sel.nombre} {conectadoU && <span className="badge success" style={{ fontSize: '.7rem' }}>● Conectado</span>}</h1>
             <p className="muted hint" style={{ margin: '.25rem 0 0' }}>{sel.email} · {rangoTexto(d, h)}</p>
           </div>
+          <button className="btn btn-ghost" onClick={() => void pdfUsuario()}>🖨 Vista previa PDF</button>
         </div>
 
         <RangoSelector rango={rango} setRango={setRango} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
@@ -143,6 +164,23 @@ export function AuditoriaPage() {
 
   const abrirUsuario = (u: { user_id: string; nombre: string; email: string }) => setSel(u);
 
+  const pdfResumen = async () => {
+    try {
+      await descargarAuditoriaResumenPdf({
+        rango: rangoTexto(d, h),
+        conectados: conectados.length,
+        tiempoTotal: fmtDuracion(conexTotal),
+        usuariosActivos: porUsuario.length,
+        accionesTotal: eventos.length,
+        usuarios: porUsuarioConEventos(porUsuario, evPorUsuario).map((u) => ({
+          nombre: u.nombre, email: u.email, sesiones: u.sesiones,
+          tiempo: fmtDuracion(u.totalMin), acciones: evCountByUser.get(u.user_id) ?? 0, conectado: u.conectado,
+        })),
+        modulos: evPorModulo.map((m) => ({ modulo: m.modulo, icono: m.icono, acciones: m.eventos })),
+      });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+  };
+
   return (
     <div className="page">
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
@@ -150,6 +188,7 @@ export function AuditoriaPage() {
           <h1 style={{ margin: 0 }}>🛡️ Auditoría de usuarios</h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Quién se conecta, cuánto tiempo y qué hace (cambios, aprobaciones, registros). Tocá un usuario para ver su detalle.</p>
         </div>
+        <button className="btn btn-ghost" onClick={() => void pdfResumen()} disabled={loading}>🖨 Vista previa PDF</button>
       </div>
 
       <RangoSelector rango={rango} setRango={setRango} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
