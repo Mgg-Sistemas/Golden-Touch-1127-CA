@@ -193,6 +193,7 @@ export function CocinaPage() {
               <thead><tr>
                 <th>Código</th><th>Tipo de comida</th><th>Fecha / Hora</th>
                 <th style={{ textAlign: 'right' }}>Platos</th><th style={{ textAlign: 'right' }}>Valor</th>
+                <th style={{ textAlign: 'right' }}>Prom./plato</th>
                 <th>Víveres</th>{canWrite && <th></th>}
               </tr></thead>
               <tbody>
@@ -205,6 +206,7 @@ export function CocinaPage() {
                       <td>{dateTime(m.at)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{num(m.platos)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{money(Number(m.valor_total))}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{Number(m.platos) > 0 ? money(Number(m.valor_total) / Number(m.platos)) : '—'}</td>
                       <td className="muted" style={{ fontSize: '.78rem' }}>
                         {(m.items ?? []).map((i) => `${num(i.cantidad)} ${i.nombre}`).join(' · ')}
                         {m.nota ? <div>📝 {m.nota}</div> : null}
@@ -223,6 +225,11 @@ export function CocinaPage() {
                 <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total ({movsFiltrados.length})</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(movsFiltrados.reduce((a, m) => a + (Number(m.platos) || 0), 0))}</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(movsFiltrados.reduce((a, m) => a + (Number(m.valor_total) || 0), 0))}</td>
+                {(() => {
+                  const tp = movsFiltrados.reduce((a, m) => a + (Number(m.platos) || 0), 0);
+                  const tv = movsFiltrados.reduce((a, m) => a + (Number(m.valor_total) || 0), 0);
+                  return <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{tp > 0 ? money(tv / tp) : '—'}</td>;
+                })()}
                 <td colSpan={canWrite ? 2 : 1}></td>
               </tr></tfoot>
             </table>
@@ -429,6 +436,9 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, onClose, onSave
           <div className="form-row">
             <label>¿Cuántos platos se realizaron?</label>
             <input className="input mono" type="number" min={0} step="any" value={platos} onChange={(e) => setPlatos(e.target.value)} placeholder="Ej.: 24" required />
+            {(Number(platos) || 0) > 0 && total > 0 && (
+              <small className="muted">Prom. por plato: <strong className="mono" style={{ color: 'var(--brand, #ff8a00)' }}>{money(total / (Number(platos) || 1))}</strong></small>
+            )}
           </div>
           <div className="form-row">
             <label>Nota (opcional)</label>
@@ -480,7 +490,10 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, onClose, onSave
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
             <small className="muted">Los precios salen del inventario (PMP). {esEdicion ? <>Al guardar, el inventario se <strong>ajusta por la diferencia</strong> (si bajás una cantidad, vuelve al stock; si la subís, se descuenta más).</> : <>Al registrar, cada víver se <strong>descuenta del stock</strong>.</>}</small>
-            <span style={{ fontWeight: 700 }}>{nSeleccionados} seleccionado{nSeleccionados === 1 ? '' : 's'} · TOTAL {money(total)}</span>
+            <span style={{ fontWeight: 700 }}>
+              {nSeleccionados} seleccionado{nSeleccionados === 1 ? '' : 's'} · TOTAL {money(total)}
+              {(Number(platos) || 0) > 0 && <> · Prom./plato <span style={{ color: 'var(--brand, #ff8a00)' }}>{money(total / (Number(platos) || 1))}</span></>}
+            </span>
           </div>
         </div>
       </form>
@@ -513,7 +526,8 @@ function ResumenModal({ viveres, onClose }: { viveres: Producto[]; onClose: () =
 
   const resumen: ResumenCocina = useMemo(() => resumirCocina(movs), [movs]);
   const barrasTop: ChartPoint[] = resumen.topProductos.slice(0, 10).map((p) => ({ label: p.nombre, value: p.valor, tooltip: `${p.nombre}: ${money(p.valor)} · ${num(p.cantidad)} und` }));
-  const barrasTipo: ChartPoint[] = (['desayuno', 'almuerzo', 'cena'] as const).map((t) => ({ label: labelTipoComida(t), value: resumen.porTipo[t].valor, tooltip: `${labelTipoComida(t)}: ${money(resumen.porTipo[t].valor)} · ${resumen.porTipo[t].platos} platos` }));
+  const promPlatoTipo = (t: TipoComida) => (resumen.porTipo[t].platos > 0 ? resumen.porTipo[t].valor / resumen.porTipo[t].platos : 0);
+  const barrasTipo: ChartPoint[] = (['desayuno', 'almuerzo', 'cena'] as const).map((t) => ({ label: labelTipoComida(t), value: resumen.porTipo[t].valor, tooltip: `${labelTipoComida(t)}: ${money(resumen.porTipo[t].valor)} · ${resumen.porTipo[t].platos} platos · prom. ${money(promPlatoTipo(t))}/plato` }));
   const etiquetaRango = rango === 'hoy' ? `Día ${desdeLegible(d)}` : `${desdeLegible(d)} a ${desdeLegible(h)}`;
 
   return (
@@ -543,6 +557,37 @@ function ResumenModal({ viveres, onClose }: { viveres: Producto[]; onClose: () =
           consumo total <strong className="mono">{money(resumen.valorTotal)}</strong> ·
           promedio por plato <strong className="mono">{money(resumen.promedioPorPlato)}</strong>
           <span className="muted"> · {resumen.movimientos} movimiento(s)</span>
+        </div>
+      </div>
+
+      {/* Desglose por tipo de comida con prom. por plato */}
+      <div className="card" style={{ marginBottom: '.75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.4rem' }}>Por tipo de comida</div>
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.84rem' }}>
+            <thead><tr>
+              <th>Tipo de comida</th>
+              <th style={{ textAlign: 'right' }}>Platos</th>
+              <th style={{ textAlign: 'right' }}>Consumo</th>
+              <th style={{ textAlign: 'right' }}>Prom./plato</th>
+            </tr></thead>
+            <tbody>
+              {(['desayuno', 'almuerzo', 'cena'] as const).map((t) => (
+                <tr key={t}>
+                  <td>{TIPOS_COMIDA.find((x) => x.value === t)?.icono} {labelTipoComida(t)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(resumen.porTipo[t].platos)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{money(resumen.porTipo[t].valor)}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 600, color: 'var(--brand, #ff8a00)' }}>{resumen.porTipo[t].platos > 0 ? money(promPlatoTipo(t)) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>Total</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(resumen.platos)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(resumen.valorTotal)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(resumen.promedioPorPlato)}</td>
+            </tr></tfoot>
+          </table>
         </div>
       </div>
 
