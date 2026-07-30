@@ -1646,6 +1646,18 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, netoHumedoTotal, 
     });
   }, [humProvCalc, humAdicCalc, mode]);
 
+  // La BASE «RECEPCIONADA» (Pesos Kg) sigue el NETO HÚMEDO recepcionado en vivo (p. ej.
+  // 2.570), para que el costo final = neto húmedo − humedad prov − humedad final − Fe estéril.
+  // Si no hay datos vivos (doc histórico, recepción ya cerrada) se respeta lo guardado.
+  useEffect(() => {
+    if (!(netoHumedoTotal > 0)) return;
+    setDraft((p) => {
+      if (!p) return p;
+      if (round2t(p.pesos_kg) === round2t(netoHumedoTotal)) return p;
+      return { ...p, pesos_kg: netoHumedoTotal };
+    });
+  }, [netoHumedoTotal, mode]);
+
   async function guardar() {
     const d = draft; if (!d) return;
     setGuardando(true);
