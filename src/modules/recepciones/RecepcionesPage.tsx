@@ -1095,14 +1095,15 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
         <div className="table-wrap" style={{ overflowX: 'auto' }}>
           <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
             <thead>
-              <tr><th>Procedencia</th><th className="num">Peso</th><th>Categoría</th>{canWrite && <th style={{ width: 30 }}></th>}</tr>
+              <tr><th className="num" style={{ width: 42 }}>Ítem</th><th>Procedencia</th><th className="num">Peso</th><th>Categoría</th>{canWrite && <th style={{ width: 30 }}></th>}</tr>
             </thead>
             <tbody>
-              {!rows.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin pesajes. Usá «＋ Añadir».</td></tr>}
-              {rows.map((r) => {
+              {!rows.length && <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin pesajes. Usá «＋ Añadir».</td></tr>}
+              {rows.map((r, i) => {
                 const t = tipoValido(r.tipo);
                 return (
                 <tr key={r.id}>
+                  <td className="num mono" style={{ fontWeight: 700, color: 'var(--muted, #8a93a3)' }}>{i + 1}</td>
                   <td>
                     <input key={`${r.id}-proc`} className="input" list="rec-proc-memoria" defaultValue={r.procedencia ?? ''} disabled={!canWrite}
                       onBlur={(e) => { const v = e.target.value.toUpperCase(); if (v !== e.target.value) e.target.value = v; if (v !== (r.procedencia ?? '')) void guardarCampo(r.id, 'procedencia', v); }}
@@ -1129,11 +1130,13 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
                 <td></td>
+                <td></td>
                 <td className="num mono" style={{ background: 'rgba(120,200,140,.25)', color: 'var(--danger, #e5484d)', fontWeight: 800 }}>{fmt(formula)}</td>
                 <td style={{ color: 'var(--danger, #e5484d)', fontWeight: 800 }}>TARA ENVASES</td>
                 {canWrite && <td></td>}
               </tr>
               <tr style={{ fontWeight: 800 }}>
+                <td></td>
                 <td></td>
                 <td className="num mono">{fmt(neto)}</td>
                 <td>TOTAL NETO</td>
