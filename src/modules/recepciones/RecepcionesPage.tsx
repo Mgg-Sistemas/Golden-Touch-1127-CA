@@ -444,7 +444,7 @@ export function RecepcionesPage() {
       )}
 
       {concilOpen && <ConciliacionModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoHumedoRecep={pesoTotal} desgloseProc={desgloseProcHumedo} onClose={() => setConcilOpen(false)} />}
-      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} pesoRecogidoFinal={finRecogidoTotal} desgloseProc={desgloseProc} cajaTasa={cajaTasa} mermaProvTotal={provMermaTotal} mermaFinalTotal={finMermaTotal} onClose={() => setTotalesOpen(false)} />}
+      {totalesOpen && <TotalesModal canWrite={canWrite} actor={actor} actorName={actorName} pesoTotal={pesoTotal} netoHumedoTotal={finNetoHumedoTotal} desgloseProc={desgloseProc} cajaTasa={cajaTasa} mermaProvTotal={provMermaTotal} mermaFinalTotal={finMermaTotal} onClose={() => setTotalesOpen(false)} />}
       {cierresOpen && <CierresModal canWrite={canWrite} actor={actor} actorName={actorName} onCerrado={() => void reload()} onClose={() => setCierresOpen(false)} />}
 
       {loading ? (
@@ -1577,8 +1577,8 @@ interface TotalesDraft {
   humedad_prov: number; humedad_final: number; fe_esteril: number; observacion: string;
 }
 
-function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal, desgloseProc, cajaTasa, mermaProvTotal, mermaFinalTotal, onClose }: {
-  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; pesoRecogidoFinal: number; desgloseProc: Array<{ procedencia: string; neto: number }>; cajaTasa: number;
+function TotalesModal({ canWrite, actor, actorName, pesoTotal, netoHumedoTotal, desgloseProc, cajaTasa, mermaProvTotal, mermaFinalTotal, onClose }: {
+  canWrite: boolean; actor: string; actorName: string | null; pesoTotal: number; netoHumedoTotal: number; desgloseProc: Array<{ procedencia: string; neto: number }>; cajaTasa: number;
   /** Merma de peso H2O de la Humedad Provisional (suma del lote). */
   mermaProvTotal: number;
   /** Merma de peso H2O de la Humedad Final (suma del lote). */
@@ -1605,7 +1605,9 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
     const numero = lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1;
     // Primer centro tomado del cierre de caja: nombre Peramanal, Total SnO2 = Saldo Kg de
     // casiterita y Precio/Tasa = tasa del cierre.
-    setDraft({ id: null, numero, fecha: null, centros: [{ nombre: 'Peramanal', sno2: pesoTotal || null, precio: cajaTasa || null }], gastos: 0, pesos_kg: pesoRecogidoFinal || pesoTotal || 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
+    // Pesos Kg (base RECEPCIONADA) = NETO HÚMEDO recepcionado (p. ej. 2.570). Las mermas de
+    // humedad (provisional/final) se RESTAN de acá para llegar al costo final (seco).
+    setDraft({ id: null, numero, fecha: null, centros: [{ nombre: 'Peramanal', sno2: pesoTotal || null, precio: cajaTasa || null }], gastos: 0, pesos_kg: netoHumedoTotal || pesoTotal || 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
     setMode('form');
   }
   // Si no hay totales guardados, abrir directamente el formulario (no una lista vacía).
@@ -1742,7 +1744,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
                   <td className="num mono">${fmt4(t.tasaRecep)}</td>
                   <td className="num mono">{fmt(t.totalMonedaRecep)}</td>
                   <td>PROMEDIO DE PRECIO DE COMPRA RECEPCIONADA
-                    {canWrite && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', fontSize: '.72rem', marginLeft: '.3rem' }} onClick={() => setLocal({ pesos_kg: pesoRecogidoFinal })}>↺ Humedad Final ({fmt(pesoRecogidoFinal)})</button>}
+                    {canWrite && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem', fontSize: '.72rem', marginLeft: '.3rem' }} onClick={() => setLocal({ pesos_kg: netoHumedoTotal })}>↺ Neto húmedo ({fmt(netoHumedoTotal)})</button>}
                   </td>{canWrite && <td></td>}
                 </tr>
                 {desgloseProc.length > 0 && (
@@ -1770,7 +1772,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
                 </tr>
                 <tr>
                   <td className="num"><input className="input mono" type="number" step="any" value={draft.fe_esteril || ''} disabled={!canWrite} onChange={(e) => setLocal({ fe_esteril: e.target.value === '' ? 0 : Number(e.target.value) })} placeholder="0,00" style={{ width: 110, textAlign: 'right' }} /></td>
-                  <td></td><td></td><td style={{ fontWeight: 700 }}>Fe estéril</td>{canWrite && <td></td>}
+                  <td></td><td></td><td style={{ fontWeight: 700 }}>Fe estéril <span className="muted" style={{ fontWeight: 400 }}>(se resta)</span></td>{canWrite && <td></td>}
                 </tr>
                 {bloque(fmt(t.totalSnO2Final), `$${fmt4(t.tasaFinal)}`, fmt(t.totalMonedaFinal), 'PROMEDIO DE PRECIO DE COSTO FINAL')}
               </tfoot>
@@ -1785,7 +1787,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, pesoRecogidoFinal
           <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem' }}>
             Total Moneda (centro) = Total SnO2 × Precio/Tasa · MINAS: SnO2 = Σ kg, Moneda = Σ(kg×precio), Precio = Moneda/SnO2 ·
             RECEPCIONADA: SnO2 = Pesos Kg, Moneda = Moneda de MINAS, Tasa = Moneda/Pesos Kg ·
-            COSTO FINAL: SnO2 = Pesos Kg + Humedad Prov + Humedad Final + Fe estéril, Moneda = Moneda RECEPCIONADA, Tasa = Moneda/SnO2.
+            COSTO FINAL: SnO2 = Pesos Kg (neto húmedo) − Humedad Prov − Humedad Final − Fe estéril, Moneda = Moneda RECEPCIONADA, Tasa = Moneda/SnO2.
           </div>
         </div>
       )}
