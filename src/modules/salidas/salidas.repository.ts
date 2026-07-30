@@ -6,11 +6,14 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type {
-  Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSalida,
+  Movimiento, EventoHistorial, SolicitudSalida, EstadoSolicitudSalida, ScopeSalida, TipoSalida, ItemSalida, Producto,
 } from '@/shared/lib/types';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { findProducto } from '@/modules/inventario/inventario.repository';
+import {
+  registrarTrasladoCasiteritaExterno, esCasiterita, DESTINO_EXTERNO_CASITERITA_LABEL,
+} from '@/modules/inventario/casiteritaInter.repository';
 import { salidaDinero, trasladoDinero } from './cajas.repository';
 
 export interface SalidaMaterialInput {
@@ -360,6 +363,121 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       direccion_destino: input.direccionDestino?.trim() || null,
       consumo_interno: input.consumoInterno ?? false,
       historial,
+      actor: input.actor,
+      actor_name: input.actorName ?? null,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as SolicitudSalida;
+}
+
+/* ───────────── Traslado de CASITERITA al OTRO sistema (directo) ───────────── */
+
+export interface TrasladoCasiteritaExternoInput {
+  /** Renglones de casiterita a enviar (uno o varios SKU de casiterita). */
+  lineas: { producto: Producto; cantidad: number; precioUnit?: number | null }[];
+  almacenOrigen: string;
+  motivo?: string | null;
+  fechaEntrega?: string | null;
+  unidadSolicitante?: string | null;
+  // transporte / direcciones (mismo formato que el traslado normal)
+  choferId?: string | null;
+  choferNombre?: string | null;
+  choferCedula?: string | null;
+  vehiculoId?: string | null;
+  vehiculoDescripcion?: string | null;
+  vehiculoPlaca?: string | null;
+  direccionDespacho?: string | null;
+  direccionDestino?: string | null;
+  solicitante: string;
+  actor: string;
+  actorName?: string | null;
+}
+
+/**
+ * Traslado de CASITERITA al OTRO sistema DESDE el módulo de Traslados: NO lleva
+ * solicitud de aprobación (pasa directo, igual que desde Inventario), pero SÍ deja
+ * el registro en Salidas ya en estado 'ejecutada' para que quede la trazabilidad
+ * junto a los demás traslados. Por cada renglón se ejecuta el puente inter-sistema
+ * (descuenta del origen + empuja los Kg al otro Supabase, recepción automática).
+ */
+export async function crearTrasladoCasiteritaExterno(input: TrasladoCasiteritaExternoInput): Promise<SolicitudSalida> {
+  if (!input.solicitante.trim()) throw new Error('Indicá quién hace el traslado.');
+  if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
+  const lineas = (input.lineas ?? []).filter((l) => l.producto && (Number(l.cantidad) || 0) > 0);
+  if (!lineas.length) throw new Error('Agregá al menos un renglón de casiterita con cantidad.');
+  for (const l of lineas) {
+    if (!esCasiterita(l.producto)) {
+      throw new Error(`Al otro sistema solo se envía CASITERITA (${l.producto.nombre} no lo es).`);
+    }
+  }
+
+  // 1) Ejecuta el puente por cada renglón (descuenta origen + entrega al otro sistema).
+  //    Si algún renglón falla, se corta acá: lo ya enviado queda registrado en el puente
+  //    (Inventario → transferencias inter-sistema) y no se crea el registro en Salidas.
+  for (const l of lineas) {
+    await registrarTrasladoCasiteritaExterno({
+      producto: l.producto,
+      almacenOrigen: input.almacenOrigen,
+      kg: Number(l.cantidad) || 0,
+      actor: input.actor,
+      actorName: input.actorName ?? null,
+      detalle: input.motivo ?? null,
+    });
+  }
+
+  // 2) Deja el registro en Salidas ya EJECUTADO (traslado directo, sin aprobación).
+  const items: ItemSalida[] = lineas.map((l) => ({
+    producto_id: l.producto.id,
+    producto_nombre: l.producto.nombre,
+    producto_sku: l.producto.sku ?? null,
+    unidad: l.producto.unidad ?? null,
+    cantidad: Number(l.cantidad) || 0,
+    precio_unit: Number(l.precioUnit) || Number(l.producto.precio) || 0,
+    almacen: input.almacenOrigen,
+  }));
+  const cantTotal = items.reduce((a, i) => a + i.cantidad, 0);
+  const montoTotal = items.reduce((a, i) => a + i.cantidad * i.precio_unit, 0);
+  const precioProm = cantTotal > 0 ? montoTotal / cantTotal : 0;
+
+  const { codigo, n: correlativoUsuario } = await nextCodigoSolicitudSalida('traslado', input.actor);
+  let historial = appendHistorial({ historial: [] }, 'creada', input.actor);
+  historial = appendHistorial({ historial }, 'ejecutada', input.actor, { nota: 'Traslado directo al otro sistema (sin aprobación)' });
+
+  const { data, error } = await supabase
+    .from(SOL)
+    .insert({
+      codigo,
+      correlativo_usuario: correlativoUsuario,
+      scope: 'traslado',
+      tipo: 'material',
+      estado: 'ejecutada',
+      items,
+      producto_id: items.length === 1 ? items[0].producto_id : null,
+      producto_nombre: items.length === 1 ? items[0].producto_nombre : `${items.length} materiales`,
+      almacen_origen: input.almacenOrigen,
+      almacen_destino: DESTINO_EXTERNO_CASITERITA_LABEL,
+      cantidad: cantTotal,
+      precio_unit: precioProm,
+      fecha_entrega: input.fechaEntrega || null,
+      solicitante: input.solicitante.trim(),
+      unidad_solicitante: input.unidadSolicitante?.trim() || null,
+      destino: DESTINO_EXTERNO_CASITERITA_LABEL,
+      motivo: input.motivo?.trim() || null,
+      chofer_id: input.choferId ?? null,
+      chofer_nombre: input.choferNombre?.trim() || null,
+      chofer_cedula: input.choferCedula?.trim() || null,
+      vehiculo_id: input.vehiculoId ?? null,
+      vehiculo_descripcion: input.vehiculoDescripcion?.trim() || null,
+      vehiculo_placa: input.vehiculoPlaca?.trim() || null,
+      direccion_despacho: input.direccionDespacho?.trim() || null,
+      direccion_destino: input.direccionDestino?.trim() || null,
+      consumo_interno: false,
+      historial,
+      ejecutada_por: input.actor,
+      ejecutada_en: new Date().toISOString(),
+      mov_ref: 'casiterita_inter',
       actor: input.actor,
       actor_name: input.actorName ?? null,
     })

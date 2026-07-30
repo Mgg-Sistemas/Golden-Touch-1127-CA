@@ -5,7 +5,10 @@ import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto, ItemSalida } from '@/shared/lib/types';
-import { crearSolicitudSalida } from './salidas.repository';
+import { crearSolicitudSalida, crearTrasladoCasiteritaExterno } from './salidas.repository';
+import {
+  esCasiterita, DESTINO_EXTERNO_CASITERITA, DESTINO_EXTERNO_CASITERITA_LABEL,
+} from '@/modules/inventario/casiteritaInter.repository';
 import { updateProducto } from '@/modules/inventario/inventario.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
@@ -36,10 +39,15 @@ export function TrasladoMaterialForm({
   const [origen, setOrigen] = useState(almacenes[0]);
   const [destino, setDestino] = useState(almacenes.find((a) => a !== almacenes[0]) ?? almacenes[0]);
 
-  // Productos con stock en el almacén de origen.
+  // Destino "otro sistema" (puente inter-sistema de CASITERITA): pasa DIRECTO, sin
+  // aprobación, pero igual deja el registro en Salidas.
+  const esExterno = destino === DESTINO_EXTERNO_CASITERITA;
+
+  // Productos con stock en el almacén de origen. Si el destino es el otro sistema,
+  // solo se pueden enviar productos de CASITERITA.
   const productosEnOrigen = useMemo(
-    () => activos.filter((p) => (Number(exMap.get(`${p.id}|${origen}`)?.stock) || 0) > 0),
-    [activos, exMap, origen],
+    () => activos.filter((p) => (Number(exMap.get(`${p.id}|${origen}`)?.stock) || 0) > 0 && (!esExterno || esCasiterita(p))),
+    [activos, exMap, origen, esExterno],
   );
 
   // Carrito de renglones (varios materiales, mismo origen → destino).
@@ -48,7 +56,7 @@ export function TrasladoMaterialForm({
   useEffect(() => {
     setLineas([{ id: 1, productoId: '', cantidad: '1' }]);
     setSeq(2);
-  }, [origen]);
+  }, [origen, esExterno]);
 
   function setLinea(id: number, patch: Partial<LineaUI>) {
     setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -138,6 +146,28 @@ export function TrasladoMaterialForm({
     if (new Set(ids).size !== ids.length) { setError('Hay un material repetido en dos renglones. Unilo en uno solo.'); return; }
     setSaving(true);
     try {
+      const resumen = items.length === 1 ? `${num(items[0].cantidad)} ${items[0].unidad ?? ''} de ${items[0].producto_nombre}` : `${items.length} materiales`;
+      if (esExterno) {
+        // CASITERITA → otro sistema: pasa DIRECTO (sin aprobación), deja el registro acá.
+        await crearTrasladoCasiteritaExterno({
+          lineas: lineasCalc
+            .filter((x) => x.producto && x.cantNum > 0)
+            .map((x) => ({ producto: x.producto!, cantidad: x.cantNum, precioUnit: x.precio })),
+          almacenOrigen: origen,
+          motivo: motivo.trim() || null,
+          fechaEntrega: fechaEntrega || null,
+          unidadSolicitante: unidadSolicitante.trim() || null,
+          choferId: transporte.choferId, choferNombre: transporte.choferNombre, choferCedula: transporte.choferCedula,
+          vehiculoId: transporte.vehiculoId, vehiculoDescripcion: transporte.vehiculoDescripcion, vehiculoPlaca: transporte.vehiculoPlaca,
+          direccionDespacho: transporte.direccionDespacho || null,
+          direccionDestino: transporte.direccionDestino || null,
+          solicitante: actorName || actor, actor, actorName,
+        });
+        notify(`Casiterita enviada al otro sistema: ${resumen} · directo desde ${origen} · registro creado`, 'success', { link: '#/app/salidas' });
+        onSaved();
+        onClose();
+        return;
+      }
       await crearSolicitudSalida({
         scope: 'traslado', tipo: 'material',
         items, almacenOrigen: origen, almacenDestino: destino,
@@ -160,7 +190,6 @@ export function TrasladoMaterialForm({
         if (fallos) toast(`Traslado creado, pero ${fallos} costo(s) no se pudo sincronizar con inventario.`, 'error');
         else toast(`Costo sincronizado con inventario (${cambios.length}).`, 'success');
       }
-      const resumen = items.length === 1 ? `${num(items[0].cantidad)} ${items[0].unidad ?? ''} de ${items[0].producto_nombre}` : `${items.length} materiales`;
       notify(`Solicitud de traslado creada: ${resumen} · ${origen} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
@@ -175,13 +204,13 @@ export function TrasladoMaterialForm({
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       <button type="submit" form="traslado-mat-form" className="btn btn-primary" disabled={saving || hayInvalida}>
-        {saving ? 'Creando…' : 'Crear solicitud'}
+        {saving ? (esExterno ? 'Enviando…' : 'Creando…') : (esExterno ? '🌉 Enviar al otro sistema' : 'Crear solicitud')}
       </button>
     </>
   );
 
   return (
-    <Modal title="Nueva solicitud de traslado de material" size="lg" onClose={onClose} footer={footer}>
+    <Modal title={esExterno ? 'Enviar casiterita al otro sistema' : 'Nueva solicitud de traslado de material'} size="lg" onClose={onClose} footer={footer}>
       <form id="traslado-mat-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -205,8 +234,10 @@ export function TrasladoMaterialForm({
             <label>Almacén destino</label>
             <select className="select" value={destino} onChange={(e) => setDestino(e.target.value)}>
               {almacenes.filter((a) => a !== origen).map((a) => <option key={a} value={a}>{a}</option>)}
+              <option value={DESTINO_EXTERNO_CASITERITA}>🌉 {DESTINO_EXTERNO_CASITERITA_LABEL}</option>
             </select>
             {mismoAlmacen && <small style={{ color: 'var(--danger)' }}>Elegí un destino distinto al origen.</small>}
+            {esExterno && <small style={{ color: 'var(--brand, #ff8a00)' }}>Solo CASITERITA. Va <strong>directo al otro sistema, sin aprobación</strong>, y queda el registro acá.</small>}
           </div>
         </div>
 
@@ -291,20 +322,22 @@ export function TrasladoMaterialForm({
           </div>
         </div>
 
-        {/* Consumo interno: el material se traslada para uso interno. */}
-        <div className="form-row" style={{ marginTop: '.25rem' }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
-            <input type="checkbox" checked={consumoInterno} onChange={(e) => setConsumoInterno(e.target.checked)} />
-            Consumo interno
-          </label>
-          <small className="muted">Se marca en el detalle y en la trazabilidad.</small>
-        </div>
+        {/* Consumo interno: el material se traslada para uso interno. (No aplica al otro sistema). */}
+        {!esExterno && (
+          <div className="form-row" style={{ marginTop: '.25rem' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={consumoInterno} onChange={(e) => setConsumoInterno(e.target.checked)} />
+              Consumo interno
+            </label>
+            <small className="muted">Se marca en el detalle y en la trazabilidad.</small>
+          </div>
+        )}
 
         {/* Transporte y direcciones (formato de salida en tránsito) */}
         <TransporteFields value={transporte} onChange={setTransporte} actor={actor} />
 
         <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: '.6rem 0 0', display: 'flex', justifyContent: 'space-between' }}>
-          <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es) · {origen} → {destino} · lleva el costo (PMP) del origen</span>
+          <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es) · {origen} → {esExterno ? DESTINO_EXTERNO_CASITERITA_LABEL : destino} · lleva el costo (PMP) del origen</span>
           <span className="mono" style={{ fontSize: '.9rem', fontWeight: 700 }}>Total: {money(total)}</span>
         </div>
       </form>
