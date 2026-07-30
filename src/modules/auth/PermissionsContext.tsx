@@ -119,6 +119,15 @@ export function RequireModule({ module, children }: { module: ModuleKey; childre
   return <Navigate to={fallback ? `/app/${fallback}` : '/app/sin-acceso'} replace />;
 }
 
+/** Envuelve una página SOLO para administradores; a los demás los redirige a su primer módulo. */
+export function RequireAdmin({ children }: { children: ReactNode }) {
+  const { loading, isAdmin, allowedModules } = usePermissions();
+  if (loading) return <div className="p-8 muted">Cargando…</div>;
+  if (isAdmin) return <>{children}</>;
+  const fallback = allowedModules[0];
+  return <Navigate to={fallback ? `/app/${fallback}` : '/app/sin-acceso'} replace />;
+}
+
 /** Redirige al primer módulo al que el usuario tiene acceso (usado como índice de /app). */
 export function HomeRedirect() {
   const { loading, allowedModules } = usePermissions();

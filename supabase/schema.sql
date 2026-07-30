@@ -1633,6 +1633,63 @@ end $$;
 grant execute on function public.latido_sesion() to authenticated;
 
 -- ─────────────────────────────────────────────────────────────
+-- AUDITORÍA DE USUARIOS (solo admin): registro central de acciones.
+-- Cada INSERT/UPDATE/DELETE en las tablas clave queda con quién (auth.uid()),
+-- cuándo, qué tabla/acción y el detalle (UPDATE = campos que cambiaron old→new).
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.auditoria_eventos (
+  id          bigint generated always as identity primary key,
+  at          timestamptz not null default now(),
+  user_id     uuid, email text, nombre text,
+  tabla       text not null,
+  accion      text not null check (accion in ('insert','update','delete')),
+  entidad_id  text, etiqueta text,
+  cambios     jsonb,   -- UPDATE: { col: [viejo, nuevo] }
+  datos       jsonb    -- INSERT/DELETE: fila
+);
+create index if not exists idx_aud_at    on public.auditoria_eventos(at desc);
+create index if not exists idx_aud_user  on public.auditoria_eventos(user_id, at desc);
+create index if not exists idx_aud_tabla on public.auditoria_eventos(tabla, at desc);
+alter table public.auditoria_eventos enable row level security;
+drop policy if exists aud_select_admin on public.auditoria_eventos;
+create policy aud_select_admin on public.auditoria_eventos for select using (public.is_admin());
+
+create or replace function public.fn_auditar() returns trigger language plpgsql security definer set search_path=public as $$
+declare
+  v_uid uuid := auth.uid(); v_email text; v_nombre text;
+  v_new jsonb; v_old jsonb; v_row jsonb; v_id text; v_cambios jsonb := '{}'::jsonb; k text;
+  v_ruido text[] := array['updated_at','created_at','ultimo_latido'];
+begin
+  select email, nombre into v_email, v_nombre from public.usuarios where id = v_uid;
+  if TG_OP = 'DELETE' then v_old := to_jsonb(OLD); v_row := v_old; else v_new := to_jsonb(NEW); v_row := v_new; end if;
+  v_id := coalesce(v_row->>'id','');
+  if TG_OP = 'UPDATE' then
+    v_old := to_jsonb(OLD);
+    for k in select jsonb_object_keys(v_new) loop
+      if k = any(v_ruido) then continue; end if;
+      if (v_new->k) is distinct from (v_old->k) then
+        v_cambios := v_cambios || jsonb_build_object(k, jsonb_build_array(v_old->k, v_new->k));
+      end if;
+    end loop;
+    if v_cambios = '{}'::jsonb then return null; end if;
+  end if;
+  insert into public.auditoria_eventos(user_id,email,nombre,tabla,accion,entidad_id,etiqueta,cambios,datos)
+  values(v_uid, v_email, v_nombre, TG_TABLE_NAME, lower(TG_OP), nullif(v_id,''),
+    nullif(coalesce(v_row->>'codigo', v_row->>'numero', v_row->>'nombre', v_row->>'sku',
+                    v_row->>'motivo', v_row->>'descripcion', v_row->>'concepto', ''), ''),
+    case when TG_OP='UPDATE' then v_cambios else null end,
+    case when TG_OP<>'UPDATE' then v_row else null end);
+  return null;
+end $$;
+-- Enganche a tablas clave (ver migración mig_auditoria.sql para la lista completa):
+--   solicitudes_salida, ordenes, movimientos_caja, acopio_caja_movimientos, cocina_movimientos,
+--   productos, recepciones_cierres, nomina_renglones, combustible_tanque_movimientos,
+--   maquinaria_equipos, maquinaria_mantenimientos, usuarios, roles_permisos, cajas,
+--   compras_directas, servicios_directos, cuentas_por_pagar, cuentas_por_cobrar, acopio_martillos_movimientos.
+-- create trigger trg_aud_<tabla> after insert or update or delete on public.<tabla>
+--   for each row execute function public.fn_auditar();
+
+-- ─────────────────────────────────────────────────────────────
 -- Alerta de Cocina → Compras: "hay que restablecer el mercado".
 -- (En la base productiva el insert/update gatea además con puede('cocina') /
 --  puede('pedidos'); aquí se documenta con is_staff()/is_admin().)

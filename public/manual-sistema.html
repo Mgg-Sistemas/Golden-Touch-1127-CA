@@ -252,6 +252,7 @@
       <li><a href="#scocina">Control de Alimentación (Cocina)</a></li>
       <li><a href="#smaq">Control de Maquinaria y Vehículos</a></li>
       <li><a href="#s9">Usuarios</a></li>
+      <li><a href="#sauditoria">Auditoría de usuarios (solo admin)</a></li>
       <li><a href="#s10">Ajustes</a></li>
       <li><a href="#srespaldo">Respaldo de Data</a></li>
     </ol>
@@ -750,6 +751,20 @@
       <li><strong>Cambio de clave de los usuarios:</strong> en el detalle del usuario, <strong>🔑 Resetear clave</strong> la deja en «123456» y obliga a cambiarla al ingresar.</li>
       <li><strong>🔓 Desbloquear usuario (bloqueo por 3 intentos):</strong> cuando alguien falla la clave <strong>3 veces</strong>, su cuenta queda <strong>bloqueada</strong> (se ve con la etiqueta <strong>🔒 Bloqueado</strong> en la lista y en su detalle). <strong>Solo el administrador</strong> puede reactivarla: al abrir el usuario aparece el botón <strong>🔓 Desbloquear</strong>, que quita el bloqueo, reinicia el contador de intentos y <strong>resetea la clave a «123456»</strong>; el usuario entra con esa clave temporal y <strong>debe cambiarla obligatoriamente</strong>.</li>
       <li><strong>📊 Resumen de Actividad (supervisión):</strong> botón que abre una vista de <strong>quién está conectado ahora</strong> y <strong>cuánto tiempo lleva en el sistema</strong> (presencia en vivo, se actualiza sola), más el <strong>tiempo por usuario</strong> y el <strong>detalle de sesiones</strong> por rango de fechas. Sirve para supervisar el uso del sistema. Se descarga en <strong>PDF con vista previa</strong>. <em>(La presencia se registra con un latido automático cada minuto mientras la app está abierta.)</em></li>
+    </ul>
+  </section>
+
+  <section class="modulo" id="sauditoria">
+    <h2>🛡️ Auditoría de usuarios <span class="badge">solo administradores</span></h2>
+    <p>Panel <strong>muy visual, solo para administradores</strong>, para supervisar <strong>qué hace cada usuario</strong> en el sistema: cuánto tiempo está conectado y todas sus acciones (si cambió un dato, si aprobó/ejecutó una solicitud, si registró un movimiento, etc.). Se llega desde el menú lateral (<strong>🛡️ Auditoría</strong>); los usuarios que no son administradores <strong>no ven ni pueden entrar</strong> a este módulo.</p>
+    <ul>
+      <li><strong>Rango de fechas:</strong> arriba se elige el período — <strong>Hoy</strong>, <strong>Últimos 7 días</strong>, <strong>Este mes</strong>, <strong>Todo</strong> o un <strong>Rango…</strong> personalizado. Todo el panel (KPIs, gráficos y tablas) se recalcula al instante.</li>
+      <li><strong>Tarjetas (KPIs):</strong> <strong>conectados ahora</strong> (latido de menos de 3 min), <strong>tiempo total conectado</strong>, <strong>usuarios activos</strong> y <strong>acciones registradas</strong> en el período.</li>
+      <li><strong>Gráficos:</strong> <strong>⏱ Tiempo conectado por usuario</strong>, <strong>⚡ Acciones por usuario</strong> (ambos <strong>se tocan para abrir el detalle del usuario</strong>), <strong>📈 Actividad por día</strong> (línea de tiempo) y <strong>🧩 Acciones por módulo</strong>.</li>
+      <li><strong>🟢 Conectados ahora:</strong> lista en vivo de quién está adentro y desde hace cuánto; se toca para ir a su detalle.</li>
+      <li><strong>Tabla de usuarios:</strong> por usuario, sus <strong>sesiones</strong>, <strong>tiempo conectado</strong>, <strong>acciones</strong> y estado. Al <strong>tocar un usuario</strong> se abre su <strong>detalle</strong>.</li>
+      <li><strong>Detalle del usuario:</strong> su <strong>tiempo conectado por día</strong> (gráfico), y la <strong>línea de tiempo de todas sus acciones agrupadas por día</strong>: cada acción dice <strong>qué hizo</strong> (p.ej. «Aprobó la solicitud SOL-012», «Editó producto VIV-019 · stock: 95 → 15», «Registró movimiento en Tesorería»), con la <strong>hora</strong> y, en los cambios, el <strong>valor anterior → nuevo</strong>. Se filtra por el mismo rango de fechas.</li>
+      <li><strong>De dónde salen los datos:</strong> el <strong>tiempo conectado</strong> viene del latido de presencia (cada minuto); las <strong>acciones</strong> se registran <strong>automáticamente</strong> en la base de datos cuando se crea, edita o elimina algo en los módulos clave (Salidas, Pedidos/Compras, Tesorería, Caja Peramanal, Cocina, Inventario, Recepciones, Nómina, Combustible, Maquinaria, Usuarios, Roles y permisos, Compras/Servicios directos, Cuentas por pagar/cobrar, Martillos). Es en <strong>tiempo real</strong>.</li>
     </ul>
   </section>
 

@@ -395,6 +395,21 @@ const SECCIONES: Seccion[] = [
     ],
   },
   {
+    icono: '🛡️',
+    titulo: 'Auditoría de usuarios (solo administradores)',
+    intro:
+      'Panel muy visual, SOLO para administradores, para supervisar qué hace cada usuario: cuánto tiempo está conectado y todas sus acciones (si cambió un dato, si aprobó/ejecutó una solicitud, si registró un movimiento, etc.). Se entra desde el menú lateral (Auditoría); quien no es administrador no ve ni puede entrar.',
+    puntos: [
+      'Rango de fechas: Hoy, Últimos 7 días, Este mes, Todo o un Rango personalizado. Todo el panel (KPIs, gráficos y tablas) se recalcula al instante.',
+      'KPIs: conectados ahora (latido < 3 min), tiempo total conectado, usuarios activos y acciones registradas en el período.',
+      'Gráficos: Tiempo conectado por usuario y Acciones por usuario (ambos se tocan para abrir el detalle del usuario), Actividad por día (línea de tiempo) y Acciones por módulo.',
+      'Conectados ahora: lista en vivo de quién está adentro y desde hace cuánto; se toca para ir a su detalle.',
+      'Tabla de usuarios: sesiones, tiempo conectado, acciones y estado por usuario. Al tocar un usuario se abre su detalle.',
+      'Detalle del usuario: su tiempo conectado por día (gráfico) y la línea de tiempo de TODAS sus acciones agrupadas por día — cada una dice qué hizo (p.ej. "Aprobó la solicitud SOL-012", "Editó producto VIV-019 · stock: 95 -> 15"), con la hora y, en los cambios, el valor anterior -> nuevo. Se filtra por el mismo rango.',
+      'De dónde salen los datos: el tiempo conectado, del latido de presencia (cada minuto); las acciones se registran AUTOMÁTICAMENTE en la base cuando se crea, edita o elimina algo en los módulos clave (Salidas, Pedidos/Compras, Tesorería, Caja Peramanal, Cocina, Inventario, Recepciones, Nómina, Combustible, Maquinaria, Usuarios, Roles y permisos, directos, cuentas por pagar/cobrar, martillos). En tiempo real.',
+    ],
+  },
+  {
     icono: '⚙',
     titulo: 'Ajustes',
     captura: 'ajustes',

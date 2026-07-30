@@ -38,7 +38,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function AppShell() {
   const { user } = useSession();
-  const { can, role, appUser } = usePermissions();
+  const { can, role, appUser, isAdmin } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
   const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('maquinaria');
@@ -310,6 +310,7 @@ export function AppShell() {
               label="Usuarios"
             />
           )}
+          {isAdmin && <NavItem to="/app/auditoria" icon="🛡️" label="Auditoría" />}
           {can('ajustes') && <NavItem to="/app/ajustes" icon="⚙" label="Ajustes" />}
           <a
             href={manualSistemaUrl}
