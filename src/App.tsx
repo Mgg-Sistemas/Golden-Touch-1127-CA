@@ -4,7 +4,7 @@ import { LandingPage } from './modules/landing/LandingPage';
 import { LoginPage } from './modules/auth/LoginPage';
 import { AppShell } from './shared/ui/AppShell';
 import { ProtectedRoute } from './modules/auth/ProtectedRoute';
-import { PermissionsProvider, RequireModule, HomeRedirect } from './modules/auth/PermissionsContext';
+import { PermissionsProvider, RequireModule, RequireAdmin, HomeRedirect } from './modules/auth/PermissionsContext';
 import { ToastHost } from './shared/ui/Toast';
 import { PasswordChangeGate } from './modules/usuarios/PasswordChangeGate';
 
@@ -25,6 +25,7 @@ const RetencionesPage = lazy(() => import('./modules/retenciones/RetencionesPage
 const RecepcionesPage = lazy(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
 const UsuariosPage = lazy(() => import('./modules/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
 const AjustesPage = lazy(() => import('./modules/ajustes/AjustesPage').then((m) => ({ default: m.AjustesPage })));
+const AuditoriaPage = lazy(() => import('./modules/auditoria/AuditoriaPage').then((m) => ({ default: m.AuditoriaPage })));
 const MaquinariaPage = lazy(() => import('./modules/maquinaria/MaquinariaPage').then((m) => ({ default: m.MaquinariaPage })));
 const ServicioMantenimientoPage = lazy(() => import('./modules/maquinaria/ServicioMantenimientoPage').then((m) => ({ default: m.ServicioMantenimientoPage })));
 const CambiarClavePage = lazy(() => import('./modules/usuarios/CambiarClavePage').then((m) => ({ default: m.CambiarClavePage })));
@@ -92,6 +93,7 @@ export function App() {
           <Route path="recepciones" element={<RequireModule module="recepciones"><Suspense fallback={<PageLoader />}><RecepcionesPage /></Suspense></RequireModule>} />
           <Route path="usuarios" element={<RequireModule module="usuarios"><Suspense fallback={<PageLoader />}><UsuariosPage /></Suspense></RequireModule>} />
           <Route path="ajustes" element={<RequireModule module="ajustes"><Suspense fallback={<PageLoader />}><AjustesPage /></Suspense></RequireModule>} />
+          <Route path="auditoria" element={<RequireAdmin><Suspense fallback={<PageLoader />}><AuditoriaPage /></Suspense></RequireAdmin>} />
           <Route path="sin-acceso" element={<SinAccesoPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
