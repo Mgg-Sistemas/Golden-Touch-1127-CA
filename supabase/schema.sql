@@ -608,7 +608,8 @@ end $$;
 -- Al ejecutar se realiza el movimiento real (movimientos / movimientos_caja) y se guarda mov_id.
 create table if not exists public.solicitudes_salida (
   id              uuid primary key default gen_random_uuid(),
-  codigo          text not null,                  -- SAL-AAAA-NNNN / TRA-AAAA-NNNN
+  codigo          text not null,                  -- correlativo POR USUARIO: SAL-NNN / TRA-NNN
+  correlativo_usuario int,                        -- número de la serie propia de cada usuario (por scope)
   scope           text not null check (scope in ('salida','traslado')),
   tipo            text not null check (tipo in ('material','dinero')),
   estado          text not null default 'por_aprobar' check (estado in ('por_aprobar','aprobada','ejecutada','cancelada')),

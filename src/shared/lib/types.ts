@@ -881,6 +881,8 @@ export interface ItemSalida {
 export interface SolicitudSalida {
   id: string;
   codigo: string;
+  /** Correlativo POR USUARIO (cada actor tiene su propia secuencia por scope). */
+  correlativo_usuario?: number | null;
   scope: ScopeSalida;
   tipo: TipoSalida;
   estado: EstadoSolicitudSalida;

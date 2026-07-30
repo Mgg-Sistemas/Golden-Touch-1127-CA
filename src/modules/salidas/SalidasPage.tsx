@@ -84,6 +84,9 @@ export function SalidasPage() {
   // El dinero se maneja directo desde Tesorería; Salidas solo opera material.
   const tipo: Tipo = 'material';
   const [vista, setVista] = useState<Vista>('kanban');
+  // Filtros de las solicitudes: por USUARIO (actor) y por SOLICITANTE (texto).
+  const [fUsuario, setFUsuario] = useState('');
+  const [fSolic, setFSolic] = useState('');
   const [modal, setModal] = useState<Modal>({ kind: 'none' });
   const [loading, setLoading] = useState(true);
 
@@ -156,6 +159,20 @@ export function SalidasPage() {
     () => solicitudes.filter((s) => s.scope === scopeSol && s.tipo === tipoSol),
     [solicitudes, scopeSol, tipoSol],
   );
+  // Usuarios (actores) presentes en las solicitudes de la vista, para el selector de filtro.
+  const usuariosDeVista = useMemo(() => {
+    const m = new Map<string, string>();
+    solsVista.forEach((s) => { if (s.actor) m.set(s.actor, s.actor_name || nombreDe(s.actor) || s.actor); });
+    return Array.from(m.entries()).map(([email, nombre]) => ({ email, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [solsVista, nombreDe]);
+  // Aplica los filtros por usuario (actor) y por solicitante (texto).
+  const solsFiltradas = useMemo(() => {
+    const q = fSolic.trim().toLowerCase();
+    return solsVista.filter((s) =>
+      (!fUsuario || s.actor === fUsuario) &&
+      (!q || (s.solicitante ?? '').toLowerCase().includes(q) || (s.actor_name ?? '').toLowerCase().includes(q)),
+    );
+  }, [solsVista, fUsuario, fSolic]);
 
   function abrirNuevo() {
     if (esSalida && esMaterial) setModal({ kind: 'salida-material' });
@@ -193,7 +210,29 @@ export function SalidasPage() {
       {loading ? (
         <EmptyState message="Cargando…" icon="◔" />
       ) : vista === 'kanban' ? (
-        <SolicitudesKanban sols={solsVista} nombreDe={nombreDe} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
+        <>
+          {/* Filtro por usuario (correlativo propio de cada uno) y por solicitante */}
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="form-row" style={{ margin: 0 }}>
+                <label style={{ fontSize: '.72rem' }}>Usuario (quién la hizo)</label>
+                <select className="select" value={fUsuario} onChange={(e) => setFUsuario(e.target.value)}>
+                  <option value="">Todos los usuarios</option>
+                  {usuariosDeVista.map((u) => <option key={u.email} value={u.email}>{u.nombre}</option>)}
+                </select>
+              </div>
+              <div className="form-row" style={{ margin: 0, flex: '1 1 220px' }}>
+                <label style={{ fontSize: '.72rem' }}>Solicitante</label>
+                <input className="input" value={fSolic} onChange={(e) => setFSolic(e.target.value)} placeholder="🔍 Buscar por solicitante…" />
+              </div>
+              {(fUsuario || fSolic) && (
+                <button className="btn btn-ghost" onClick={() => { setFUsuario(''); setFSolic(''); }}>✕ Limpiar</button>
+              )}
+              <span className="muted" style={{ marginLeft: 'auto', fontSize: '.8rem' }}>{solsFiltradas.length} solicitud(es)</span>
+            </div>
+          </div>
+          <SolicitudesKanban sols={solsFiltradas} nombreDe={nombreDe} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
+        </>
       ) : (
         <Historial
           scope={scope} tipo={tipo}

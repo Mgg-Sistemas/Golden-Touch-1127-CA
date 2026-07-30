@@ -181,16 +181,19 @@ function appendHistorial(s: Pick<SolicitudSalida, 'historial'>, evento: string, 
   return [...(s.historial ?? []), ev];
 }
 
-/** Próximo código SAL-AAAA-NNNN (salida) o TRA-AAAA-NNNN (traslado). */
-async function nextCodigoSolicitudSalida(scope: ScopeSalida): Promise<string> {
-  const year = new Date().getFullYear();
+/**
+ * Próximo correlativo POR USUARIO: cada usuario (actor) tiene su propia secuencia por
+ * scope (salida / traslado), que arranca en 1 y no se reinicia. Así Isner tiene SAL-001,
+ * SAL-002…, y Kelvin tiene su propio SAL-001, SAL-002… El número atómico lo da la RPC
+ * `next_correlativo` (clave por usuario+scope). Devuelve el código y el número.
+ */
+async function nextCodigoSolicitudSalida(scope: ScopeSalida, actor: string): Promise<{ codigo: string; n: number }> {
   const prefijo = scope === 'traslado' ? 'TRA' : 'SAL';
-  const { count, error } = await supabase
-    .from(SOL)
-    .select('id', { count: 'exact', head: true })
-    .eq('scope', scope);
+  const clave = `salida-${scope}-${(actor || 'sistema').trim().toLowerCase()}`;
+  const { data, error } = await supabase.rpc('next_correlativo', { p_clave: clave });
   if (error) throw error;
-  return `${prefijo}-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
+  const n = Number(data) || 1;
+  return { codigo: `${prefijo}-${String(n).padStart(3, '0')}`, n };
 }
 
 export async function listSolicitudesSalida(filtros?: {
@@ -319,12 +322,13 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
     ? (input.almacenOrigen ?? null)
     : (almacenesItems.length === 1 ? almacenesItems[0] : (input.almacenOrigen ?? null));
 
-  const codigo = await nextCodigoSolicitudSalida(input.scope);
+  const { codigo, n: correlativoUsuario } = await nextCodigoSolicitudSalida(input.scope, input.actor);
   const historial = appendHistorial({ historial: [] }, 'creada', input.actor);
   const { data, error } = await supabase
     .from(SOL)
     .insert({
       codigo,
+      correlativo_usuario: correlativoUsuario,
       scope: input.scope,
       tipo: input.tipo,
       estado: 'por_aprobar',
