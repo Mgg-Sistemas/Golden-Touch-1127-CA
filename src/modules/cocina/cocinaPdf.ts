@@ -79,13 +79,13 @@ export async function descargarCocinaPdf(input: {
   doc.text('Movimientos', MARGIN, y);
   autoTable(doc, {
     startY: y + 6,
-    head: [['CÓDIGO', 'TIPO', 'FECHA / HORA', 'PLATOS', 'VALOR $']],
-    body: input.movs.map((m) => [m.codigo ?? '—', labelTipoComida(m.tipo_comida), fmt.dateTime(m.at), String(m.platos), money(Number(m.valor_total))]),
-    foot: [['', '', 'TOTAL', String(r.platos), money(r.valorTotal)]],
+    head: [['CÓDIGO', 'TIPO', 'FECHA / HORA', 'PLATOS', 'VALOR $', 'PROM./PLATO']],
+    body: input.movs.map((m) => [m.codigo ?? '—', labelTipoComida(m.tipo_comida), fmt.dateTime(m.at), String(m.platos), money(Number(m.valor_total)), Number(m.platos) > 0 ? money(Number(m.valor_total) / Number(m.platos)) : '—']),
+    foot: [['', '', 'TOTAL', String(r.platos), money(r.valorTotal), money(r.promedioPorPlato)]],
     styles: { fontSize: 8, cellPadding: 3, valign: 'middle' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [245, 245, 245], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'right' },
-    columnStyles: { 0: { cellWidth: 90 }, 1: { cellWidth: 80 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 60, halign: 'right' }, 4: { cellWidth: 80, halign: 'right' } },
+    columnStyles: { 0: { cellWidth: 84 }, 1: { cellWidth: 72 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 50, halign: 'right' }, 4: { cellWidth: 72, halign: 'right' }, 5: { cellWidth: 72, halign: 'right' } },
     margin: MARGIN,
   });
 
