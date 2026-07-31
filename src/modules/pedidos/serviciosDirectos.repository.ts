@@ -9,7 +9,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
-import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
+import { egresarDivisa, revertirEgresoDivisa, saldosDeCaja } from '@/modules/tesoreria/cajaSaldos.repository';
 import { columnasPagoExterno, type PagoExternoInput } from '@/modules/pedidos/compras.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
 
@@ -455,7 +455,25 @@ export interface AbonoServicio {
   nota: string | null;
   comprobante_path: string | null;
   comprobante_nombre: string | null;
+  /** Cuenta/billetera de caja_saldos de la que salió (para revertir exacto al reabrir). */
+  cuenta: string | null;
   at: string;
+}
+
+/**
+ * Elige de qué CUENTA (billetera) de la caja sale el abono, en la moneda del servicio:
+ * la que tenga saldo suficiente (prioriza «general»); si ninguna sola cubre el monto,
+ * la de mayor saldo (el egreso multimoneda validará y avisará si no alcanza). Así el
+ * abono sale del SALDO REAL (caja_saldos), no del saldo legado (cajas.saldo).
+ */
+async function elegirCuentaAbono(cajaId: string, moneda: string, monto: number): Promise<CuentaCaja> {
+  const rows = await saldosDeCaja(cajaId).catch(() => []);
+  const enMoneda = rows
+    .filter((r) => r.moneda === moneda && Number(r.saldo) > 0)
+    .sort((a, b) => Number(b.saldo) - Number(a.saldo));
+  if (!enMoneda.length) throw new Error(`La caja no tiene saldo en ${moneda} para el abono.`);
+  const cubre = enMoneda.find((r) => Number(r.saldo) >= monto - 0.01);
+  return (cubre ?? enMoneda[0]).cuenta as CuentaCaja;
 }
 
 export interface RegistrarAbonoServicioInput {
@@ -489,10 +507,13 @@ export async function registrarAbonoServicio(input: RegistrarAbonoServicioInput)
   const restante = Math.round((total - previo) * 100) / 100;
   if (monto > restante + 0.01) throw new Error(`El abono supera el saldo pendiente (${restante}).`);
 
-  // 1) Egreso de la caja (valida saldo) → pasa por Tesorería.
+  // 1) Egreso de la caja en la MONEDA del servicio, del SALDO REAL multimoneda
+  //    (caja_saldos), no del saldo legado. Valida fondos en el servidor.
+  const monedaServ = servicio.moneda ?? 'USD';
   const concepto = `Abono servicio directo · ${servicio.codigo ?? servicio.descripcion}${servicio.equipo_nombre ? ` · ${servicio.equipo_nombre}` : ''}`;
-  const movCaja = await egresarGastoCaja({
-    cajaId: input.cajaId, monto, concepto, categoria: 'servicio_directo',
+  const cuentaAbono = await elegirCuentaAbono(input.cajaId, monedaServ, monto);
+  const movCaja = await egresarDivisa({
+    cajaId: input.cajaId, cuenta: cuentaAbono, moneda: monedaServ, monto, concepto, categoria: 'servicio_directo',
     gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
     actor: input.actor, actorName: input.actorName ?? null,
   });
@@ -507,7 +528,7 @@ export async function registrarAbonoServicio(input: RegistrarAbonoServicioInput)
 
   // 3) Registrar el abono.
   const { error: abErr } = await supabase.from('servicio_directo_abonos').insert({
-    servicio_id: servicio.id, monto, moneda: servicio.moneda ?? 'USD',
+    servicio_id: servicio.id, monto, moneda: monedaServ, cuenta: cuentaAbono,
     caja_id: input.cajaId, caja_mov_id: movCaja.id, saldo_restante: saldoRestante,
     actor: input.actor, actor_name: input.actorName ?? null, nota: input.nota?.trim() || null,
     comprobante_path: comprobantePath, comprobante_nombre: comprobanteNombre,
@@ -557,7 +578,15 @@ export async function reabrirServicioDirecto(servicio: ServicioDirecto, actor: s
   if (servicio.con_abonos) {
     const abonos = await listAbonosServicio(servicio.id);
     for (const ab of abonos) {
-      if (ab.caja_id && Number(ab.monto) > 0) {
+      if (!ab.caja_id || Number(ab.monto) <= 0) continue;
+      if (ab.cuenta) {
+        // Abono nuevo: salió del saldo multimoneda (caja_saldos) → se devuelve ahí mismo.
+        await revertirEgresoDivisa({
+          cajaId: ab.caja_id, cuenta: ab.cuenta as CuentaCaja, moneda: ab.moneda ?? (servicio.moneda ?? 'USD'),
+          monto: Number(ab.monto), concepto, actor, actorName: actorName ?? null,
+        });
+      } else {
+        // Abono viejo (saldo legado): se devuelve por el mismo camino legado.
         await ingresarDineroCaja({
           cajaId: ab.caja_id, monto: Number(ab.monto), concepto, categoria: 'reverso',
           actor, actorName: actorName ?? null,

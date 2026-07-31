@@ -12,7 +12,8 @@ import { money, dateTime } from '@/shared/lib/format';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
-import type { Caja } from '@/shared/lib/types';
+import type { Caja, CajaSaldo } from '@/shared/lib/types';
+import { listSaldos } from '@/modules/tesoreria/cajaSaldos.repository';
 import { listComprasDirectas, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import {
   listServiciosDirectos, registrarAbonoServicio, listAbonosServicio,
@@ -168,7 +169,8 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
   const saldo = Math.round((total - abonado) * 100) / 100;
 
   const [abonos, setAbonos] = useState<AbonoServicio[]>([]);
-  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
+  const [cajaId, setCajaId] = useState('');
   const [monto, setMonto] = useState(String(saldo > 0 ? saldo : ''));
   const [nota, setNota] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -176,6 +178,24 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { listAbonosServicio(servicio.id).then(setAbonos).catch(() => setAbonos([])); }, [servicio.id]);
+  useEffect(() => { listSaldos().then(setSaldos).catch(() => setSaldos([])); }, []);
+
+  // Saldo REAL de una caja en la moneda del servicio (suma sus billeteras en esa moneda,
+  // de caja_saldos). Si la caja aún no tiene saldos multimoneda, usa el saldo legado.
+  const saldoCajaEnMoneda = (cId: string): number => {
+    const rows = saldos.filter((s) => s.caja_id === cId && s.moneda === moneda);
+    if (rows.length) return Math.round(rows.reduce((a, r) => a + (Number(r.saldo) || 0), 0) * 100) / 100;
+    const c = cajas.find((x) => x.id === cId);
+    return Number(c?.saldo) || 0;
+  };
+  // Solo cajas con saldo en la moneda del servicio (de ahí puede salir el abono).
+  const cajasConSaldo = cajas.filter((c) => saldoCajaEnMoneda(c.id) > 0);
+  // Al cargar los saldos, elegí por defecto la primera caja con fondos en la moneda.
+  useEffect(() => {
+    if (!cajaId && cajasConSaldo.length) setCajaId(cajasConSaldo[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saldos]);
+  const dispCaja = cajaId ? saldoCajaEnMoneda(cajaId) : 0;
 
   const montoNum = Math.round((Number(monto) || 0) * 100) / 100;
 
@@ -184,6 +204,7 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (montoNum <= 0) { setError('Indicá el monto del abono.'); return; }
     if (montoNum > saldo + 0.01) { setError(`El abono supera el saldo pendiente (${montoMoneda(saldo, moneda)}).`); return; }
+    if (montoNum > dispCaja + 0.01) { setError(`La caja no tiene suficiente ${moneda}. Disponible: ${montoMoneda(dispCaja, moneda)}.`); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El comprobante debe ser PDF o imagen.'); return; }
     setSaving(true);
     try {
@@ -241,9 +262,10 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
           {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
           <div className="form-row">
             <label>Caja (de dónde sale el dinero)</label>
-            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 340 }}
-              placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
-              options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${money(c.saldo)}` }))} />
+            <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajasConSaldo.length} style={{ maxWidth: 340 }}
+              placeholder={cajasConSaldo.length ? '🔍 Buscar caja…' : `— sin cajas con saldo en ${moneda} —`}
+              options={cajasConSaldo.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoMoneda(saldoCajaEnMoneda(c.id), moneda)}` }))} />
+            {cajaId && <small className="muted">Disponible en la caja: <strong className="mono">{montoMoneda(dispCaja, moneda)}</strong> ({moneda})</small>}
           </div>
           <div className="form-row" style={{ maxWidth: 220 }}>
             <label>Monto del abono ({moneda})</label>
