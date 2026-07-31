@@ -9,6 +9,7 @@ import type {
   Proveedor,
 } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
 
 interface TrazabilidadData {
   orden: Orden;
@@ -78,6 +79,13 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   ]);
   const { orden, proveedorFinal, proveedoresPorId, ofertas, evaluacion, aprobadaPorNombre } = data;
 
+  // ¿Es una SOLICITUD/ORDEN de SERVICIO? (código CS/SS o clasificación "Servicios").
+  // Cambia los rótulos a "servicio" en vez de "compra/pedido/mercancía".
+  const esServicio =
+    /^CS/i.test(orden.oc_codigo ?? '') ||
+    /^SS/i.test(orden.codigo ?? '') ||
+    (orden.clasificacion ?? []).some((c) => /servicio/i.test(String(c)));
+
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const MARGIN = 42.52; // 1.5 cm
@@ -95,7 +103,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.text('Trazabilidad de solicitud de pedido', TEXT_X, y + 18);
+  doc.text(esServicio ? 'Trazabilidad de solicitud de servicio' : 'Trazabilidad de solicitud de pedido', TEXT_X, y + 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.text(
@@ -117,8 +125,8 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   const filasSolicitud: Array<[string, string]> = [
-    ['Unidad solicitante', orden.unidad_solicitante ?? '—'],
-    ['Solicitante', orden.solicitante ?? '—'],
+    ['Unidad solicitante', pdfSafe(orden.unidad_solicitante) || '—'],
+    ['Solicitante', pdfSafe(orden.solicitante) || '—'],
     ['Correo', orden.solicitante_email],
     ['Fecha de solicitud', dateTime(orden.created_at)],
     ['Prioridad', orden.urgente ? 'URGENTE' : 'Normal'],
@@ -129,8 +137,8 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
           ['Fecha de aprobación', dateTime(orden.aprobada_en)],
         ] as Array<[string, string]>)
       : []),
-    ['Clasificación', orden.clasificacion?.length ? orden.clasificacion.join(' · ') : '—'],
-    ['Nota / Justificación', orden.notas ?? '—'],
+    ['Clasificación', orden.clasificacion?.length ? pdfSafe(orden.clasificacion.join(' · ')) : '—'],
+    ['Nota / Justificación', pdfSafe(orden.notas) || '—'],
   ];
   autoTable(doc, {
     startY: y,
@@ -151,8 +159,8 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     head: [['SKU', 'Producto', 'Finalidad', 'Cantidad', 'Precio unit.', 'Subtotal']],
     body: orden.items.map((it) => [
       it.sku,
-      it.nombre,
-      it.finalidad?.trim() || '—',
+      pdfSafe(it.nombre),
+      pdfSafe(it.finalidad?.trim()) || '—',
       num(it.cantidad),
       montoMoneda(it.precio, orden.total_moneda),
       montoMoneda(it.cantidad * it.precio, orden.total_moneda),
@@ -196,7 +204,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
         const dif = div != null ? bcv - div : null;
         const pct = div != null && bcv > 0 ? (dif! / bcv) * 100 : null;
         return [
-          proveedoresPorId.get(of.proveedor_id)?.razon_social ?? '—',
+          pdfSafe(proveedoresPorId.get(of.proveedor_id)?.razon_social) || '—',
           money(bcv),
           div != null ? money(div) : '—',
           pct != null ? `${money(dif!)} (${pct.toFixed(2)}%)` : '—',
@@ -234,9 +242,9 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
           const precioU = Number(it.precio_usd) || 0;
           const dif = (precio - precioU) * cant;
           const pct = precio > 0 ? ((precio - precioU) / precio) * 100 : 0;
-          const nombreVar = (it.marca || it.modelo)
+          const nombreVar = pdfSafe((it.marca || it.modelo)
             ? `${it.nombre} (${[it.marca, it.modelo].filter(Boolean).join(' · ')})`
-            : it.nombre;
+            : it.nombre);
           return [
             nombreVar, num(cant), money(precio), money(cant * precio),
             precioU > 0 ? money(precioU) : '—', precioU > 0 ? money(cant * precioU) : '—',
@@ -288,19 +296,19 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     }
   }
 
-  // ─── 4. Orden de compra (proveedor aceptado) ───────────
+  // ─── 4. Orden de compra / servicio (proveedor aceptado) ───────────
   doc.setFont('helvetica', 'bold');
-  doc.text(`4. Orden de compra${orden.oc_codigo ? ` · ${orden.oc_codigo}` : ''}`, MARGIN, y);
+  doc.text(`4. Orden de ${esServicio ? 'servicio' : 'compra'}${orden.oc_codigo ? ` · ${orden.oc_codigo}` : ''}`, MARGIN, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
   const ofertaAceptada = ofertas.find((o) => o.estado === 'aceptada');
   const ocEvento = orden.historial?.find((h) => h.evento === 'oc_emitida');
   const documentosOc = ocEvento?.documentos ?? [];
   const filasOrden: Array<[string, string]> = [
-    ['N° de orden de compra', orden.oc_codigo ?? '—'],
-    ['Proveedor adjudicado', proveedorFinal?.razon_social ?? '—'],
+    [`N° de orden de ${esServicio ? 'servicio' : 'compra'}`, orden.oc_codigo ?? '—'],
+    ['Proveedor adjudicado', pdfSafe(proveedorFinal?.razon_social) || '—'],
     ['RIF', proveedorFinal?.rif ?? '—'],
-    ['Contacto', proveedorFinal?.contacto ?? '—'],
+    ['Contacto', pdfSafe(proveedorFinal?.contacto) || '—'],
     ...((Number(orden.descuento_obtenido) || 0) > 0
       ? ([['Descuento obtenido', `− ${money(Number(orden.descuento_obtenido))} (subtotal ${money(Math.round((Number(orden.total) + Number(orden.descuento_obtenido)) * 100) / 100)})`]] as Array<[string, string]>)
       : []),
@@ -322,7 +330,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     ['Aprobada por', orden.aprobada_por ?? '—'],
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
-    ['Documentos de la OC', documentosOc.length ? documentosOc.join(' · ') : '—'],
+    [`Documentos de la ${esServicio ? 'OS' : 'OC'}`, documentosOc.length ? documentosOc.join(' · ') : '—'],
   ];
   autoTable(doc, {
     startY: y,
@@ -336,7 +344,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 
   // ─── 5. Recepción ──────────────────────────────────────
   doc.setFont('helvetica', 'bold');
-  doc.text('5. Recepción de mercancía', MARGIN, y);
+  doc.text(esServicio ? '5. Recepción / ejecución del servicio' : '5. Recepción de mercancía', MARGIN, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
   const recibida = orden.historial?.find((h) => h.evento === 'recibida');
@@ -354,7 +362,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
           ? `${evaluacion.puntualidad_dias} días adelantado`
           : `${Math.abs(evaluacion.puntualidad_dias)} días atrasado`
     ) : '—'],
-    ['Comentario', evaluacion?.comentario ?? '—'],
+    ['Comentario', pdfSafe(evaluacion?.comentario) || '—'],
   ];
   autoTable(doc, {
     startY: y,
