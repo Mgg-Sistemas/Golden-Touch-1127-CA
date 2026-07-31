@@ -266,7 +266,14 @@ export function TrasladoMaterialForm({
             <div className="form-grid">
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Material #{idx + 1}</label>
-                <SearchSelect value={l.productoId} onChange={(v) => setLinea(l.id, { productoId: v, precio: undefined })} disabled={!productosEnOrigen.length}
+                <SearchSelect value={l.productoId} onChange={(v) => {
+                    // En el traslado de CASITERITA se trae de una vez la cantidad existente en
+                    // el inventario del almacén de origen (se puede editar a menos).
+                    const prod = activos.find((pp) => pp.id === v);
+                    const stockV = Number(exMap.get(`${v}|${origen}`)?.stock) || 0;
+                    const traerStock = (esExterno || (prod ? esCasiterita(prod) : false)) && stockV > 0;
+                    setLinea(l.id, { productoId: v, precio: undefined, ...(traerStock ? { cantidad: String(stockV) } : {}) });
+                  }} disabled={!productosEnOrigen.length}
                   placeholder={productosEnOrigen.length ? '🔍 Buscar producto…' : '— el almacén de origen no tiene materiales —'}
                   options={productosEnOrigen.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
                 <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precioDefault)}</strong></small>
