@@ -317,7 +317,7 @@ export function HistoricoPage() {
                       <button className="btn btn-sm btn-ghost" disabled={pdfBusy}
                         onClick={() => void imprimirPdf(o, 'trazabilidad')}
                         title="Descargar la trazabilidad completa (vista previa)">🧾 Trazabilidad</button>
-                      {(o.pagada_en || o.finalizada_en || (o.abonado_total ?? 0) > 0) && (
+                      {(o.pagada_en || o.finalizada_en || (o.abonado_total ?? 0) > 0 || o.estado === 'cuenta_abierta') && (
                         <button className="btn btn-sm btn-ghost" disabled={pdfBusy}
                           onClick={() => void imprimirPdf(o, 'pago')}
                           title="Descargar el comprobante de pago de la OC (vista previa)">💳 Pago</button>
@@ -366,7 +366,7 @@ export function HistoricoPage() {
                     📄 {esServicio ? 'Control de Servicio' : 'OC'} PDF
                   </button>
                 )}
-                {(o.pagada_en || o.finalizada_en || (o.abonado_total ?? 0) > 0) && (
+                {(o.pagada_en || o.finalizada_en || (o.abonado_total ?? 0) > 0 || o.estado === 'cuenta_abierta') && (
                   <button className="btn btn-ghost" onClick={() => void imprimirPdf(o, 'pago')} disabled={pdfBusy} title="Descargar el comprobante de pago de la OC (vista previa)">
                     💳 Comprobante de pago
                   </button>
