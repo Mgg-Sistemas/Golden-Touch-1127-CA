@@ -8,6 +8,7 @@
    Reutiliza `previewPdf` (visor embebido, descarga opcional).
    ============================================================ */
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
 
 export interface AuditoriaResumenPdfInput {
   rango: string;
@@ -56,23 +57,6 @@ async function nuevoDoc(orientacion: 'portrait' | 'landscape', titulo: string, s
 const HEAD_STYLE: { fillColor: [number, number, number]; textColor: [number, number, number]; fontStyle: 'bold'; halign: 'center' } = {
   fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center',
 };
-
-/**
- * jsPDF con helvetica solo dibuja glifos Latin-1: cualquier cosa fuera de rango
- * (flechas →, puntos suspensivos …, emojis de los íconos, ∅) sale como "!" o cajas.
- * Se reemplaza por equivalentes ASCII y se quitan los emojis para que el reporte
- * quede limpio. Los acentos (á, é, ñ…) SÍ son Latin-1 y se conservan.
- */
-function pdfSafe(s: string): string {
-  return String(s ?? '')
-    .replace(/→/g, '->')
-    .replace(/…/g, '...')
-    .replace(/∅/g, '(vacío)')
-    .replace(/—/g, '-')
-    .replace(/[^\x00-\xFF]/g, ' ')   // emojis y demás glifos no-Latin-1 → espacio
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
 
 export async function descargarAuditoriaResumenPdf(input: AuditoriaResumenPdfInput): Promise<void> {
   const fecha = new Date().toISOString().slice(0, 10);

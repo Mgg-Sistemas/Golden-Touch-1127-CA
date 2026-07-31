@@ -7,6 +7,7 @@
    ============================================================ */
 import type { ServicioDirecto } from './serviciosDirectos.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
 
 export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
@@ -30,18 +31,18 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
   const gasto = servicio.gasto != null ? Number(servicio.gasto) : null;
   const ficha: Array<[string, string]> = [
     ['Código', servicio.codigo || '—'],
-    ['Servicio(s)', servicio.descripcion],
-    ['Proveedor', servicio.proveedor_nombre || '—'],
-    ['Equipo', servicio.equipo_nombre || '—'],
+    ['Servicio(s)', pdfSafe(servicio.descripcion)],
+    ['Proveedor', pdfSafe(servicio.proveedor_nombre) || '—'],
+    ['Equipo', pdfSafe(servicio.equipo_nombre) || '—'],
     ['Estado', servicio.estado === 'finalizada' ? 'Finalizada (pagada)' : 'En proceso'],
     ['Moneda', servicio.moneda === 'Bs' ? 'Bs' : '$ (USD)'],
     ['Monto total', fmt.montoMoneda(gasto, servicio.moneda)],
-    ['Generó', servicio.actor_name || servicio.actor || '—'],
+    ['Generó', pdfSafe(servicio.actor_name || servicio.actor) || '—'],
     ['Fecha de creación', fmt.dateTime(servicio.created_at)],
     ['Fecha de pago', servicio.finalizada_at ? fmt.dateTime(servicio.finalizada_at) : '—'],
-    ['Adjunto (factura)', servicio.adjunto_nombre || '—'],
-    ...(servicio.nota ? [['Nota / motivo', servicio.nota] as [string, string]] : []),
-    ...(servicio.pago_externo ? [['Pago a externo (reintegrar)', [servicio.pago_externo_nombre || '—', servicio.pago_externo_cedula, servicio.pago_externo_telefono ? `Tel: ${servicio.pago_externo_telefono}` : null, servicio.pago_externo_nota].filter(Boolean).join(' · ')] as [string, string]] : []),
+    ['Adjunto (factura)', pdfSafe(servicio.adjunto_nombre) || '—'],
+    ...(servicio.nota ? [['Nota / motivo', pdfSafe(servicio.nota)] as [string, string]] : []),
+    ...(servicio.pago_externo ? [['Pago a externo (reintegrar)', pdfSafe([servicio.pago_externo_nombre || '—', servicio.pago_externo_cedula, servicio.pago_externo_telefono ? `Tel: ${servicio.pago_externo_telefono}` : null, servicio.pago_externo_nota].filter(Boolean).join(' · '))] as [string, string]] : []),
   ];
   autoTable(doc, {
     startY: y, body: ficha, theme: 'plain',
@@ -58,9 +59,9 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     const cu = g != null && cant > 0 ? g / cant : null;
     return [
       String(i + 1),
-      it.descripcion,
-      it.categoria || '—',
-      it.equipo_nombre || '—',
+      pdfSafe(it.descripcion),
+      pdfSafe(it.categoria) || '—',
+      pdfSafe(it.equipo_nombre) || '—',
       fmt.num(cant),
       it.bombonas ? fmt.num(it.bombonas) : '—',
       it.kg_recarga ? fmt.num(it.kg_recarga) : '—',
