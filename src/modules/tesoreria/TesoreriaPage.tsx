@@ -5452,17 +5452,19 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una cuenta.'); setSaving(false); return; }
         if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        await pagarOrdenCompraMultiCajas({ orden: o, legs, factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
+        const pagada = await pagarOrdenCompraMultiCajas({ orden: o, legs, factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
+        if (factura && !pagada.factura_path) toast('OC pagada, pero el comprobante no se pudo adjuntar (conexión lenta). Volvé a subirlo desde el detalle de la OC.', 'error');
         notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(sumUsdMulti, 'USD')}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
       }
       if (excedeTotalSimple) { setError(`No podés pagar más que el total de la OC (${monto(totalUsd, 'USD')}). El monto ingresado equivale a ${monto(montoUsdSimple, 'USD')}.`); setSaving(false); return; }
-      await pagarOrdenCompra({
+      const pagada = await pagarOrdenCompra({
         orden: o, cajaId, monto: Number(montoStr) || 0,
         factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
         seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName,
       });
+      if (factura && !pagada.factura_path) toast('OC pagada, pero el comprobante no se pudo adjuntar (conexión lenta). Volvé a subirlo desde el detalle de la OC.', 'error');
       notify(`OC ${o.oc_codigo ?? o.codigo} pagada · ${monto(Number(montoStr) || 0, moneda)}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar.'); setSaving(false); }
