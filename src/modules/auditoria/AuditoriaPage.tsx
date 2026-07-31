@@ -100,11 +100,14 @@ export function AuditoriaPage() {
           porDia: conexionPorDia(sesU).map((r) => ({ dia: diaLegible(r.dia), tiempo: fmtDuracion(r.min) })),
           timeline: porDiaU.flatMap(({ dia, eventos: evs }) => evs.map((e) => {
             const desc = describirEvento(e);
+            // Cap de campos para que la celda no crezca de más (igual que en pantalla).
+            const campos = desc.detalle.slice(0, 8).join(' · ');
+            const extra = desc.detalle.length > 8 ? ` (+${desc.detalle.length - 8})` : '';
             return {
               fecha: diaLegible(dia),
               hora: new Date(e.at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }),
               titulo: desc.titulo,
-              detalle: desc.detalle.join(' · '),
+              detalle: campos + extra,
             };
           })),
         });

@@ -60,14 +60,32 @@ const CAMPO_LABEL: Record<string, string> = {
 };
 const campoLabel = (k: string) => CAMPO_LABEL[k] ?? k.replace(/_/g, ' ');
 
-/** Valor legible corto para mostrar en un cambio. */
+/** Campos internos/ruidosos que NO aportan a un detalle legible (arreglos, JSON, marcas
+ *  de tiempo técnicas): se omiten del cambio para que la auditoría no vuelque basura. */
+const CAMPOS_OMITIR = new Set([
+  'items', 'historial', 'datos', 'meta', 'pago_legs', 'seriales_billetes', 'renglones',
+  'created_at', 'updated_at', 'oc_creada', 'oc_creada_en', 'aprobada_en', 'ejecutada_en',
+  'pagada_en', 'pagada_at', 'recepcionada_en', 'confirmada_en', 'finalizada_en',
+]);
+
+/** Valor legible corto para un cambio. Objetos/arreglos NO se muestran como "[object
+ *  Object]": se resumen (cantidad de elementos o "datos"). */
 function valLegible(v: unknown): string {
-  if (v === null || v === undefined) return '∅';
+  if (v === null || v === undefined) return '(vacío)';
   if (typeof v === 'boolean') return v ? 'sí' : 'no';
   if (typeof v === 'number') return v.toLocaleString('es-VE', { maximumFractionDigits: 2 });
+  if (Array.isArray(v)) return v.length ? `(${v.length} ${v.length === 1 ? 'elemento' : 'elementos'})` : '(vacío)';
+  if (typeof v === 'object') return '(datos)';
   const s = String(v);
   if (s.length > 40) return s.slice(0, 40) + '…';
   return s;
+}
+
+/** ¿El par de valores es puramente estructural (objeto/arreglo en ambos lados)? No
+ *  aporta como texto, así que se omite del detalle. */
+function cambioEstructural(par: [unknown, unknown]): boolean {
+  const esObj = (x: unknown) => x !== null && typeof x === 'object';
+  return esObj(par[0]) && esObj(par[1]);
 }
 
 export interface EventoDescrito { icono: string; modulo: string; titulo: string; detalle: string[] }
@@ -90,6 +108,8 @@ export function describirEvento(e: AuditoriaEvento): EventoDescrito {
   if (e.accion === 'update' && e.cambios) {
     for (const [k, par] of Object.entries(e.cambios)) {
       if (k === 'estado' && e.tabla === 'solicitudes_salida') continue; // ya en el título
+      if (CAMPOS_OMITIR.has(k)) continue;          // ruido interno (items, historial, timestamps…)
+      if (cambioEstructural(par)) continue;        // objeto→objeto: no aporta como texto
       detalle.push(`${campoLabel(k)}: ${valLegible(par[0])} → ${valLegible(par[1])}`);
     }
   }
