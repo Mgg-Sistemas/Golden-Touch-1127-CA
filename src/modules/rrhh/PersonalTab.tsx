@@ -12,6 +12,7 @@ import {
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import { generarCarnetPersonalDataUrl, generarCarnetReversoDataUrl, nombreArchivoCarnet } from './carnetPersonal';
+import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', telefono_emergencia: '' };
 
@@ -32,6 +33,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
   const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
+  const [constanciaPersona, setConstanciaPersona] = useState<Personal | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [cargos, setCargos] = useState<string[]>([]);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
@@ -128,6 +130,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setCarnetPersona(p)} title="Generar carnet con QR">🪪</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => toggleActivo(p)} title={p.activo ? 'Desactivar' : 'Activar'}>{p.activo ? '⏸' : '▶'}</button>
@@ -182,7 +185,82 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {carnetPersona && <CarnetModal persona={carnetPersona} canWrite={canWrite} onClose={() => setCarnetPersona(null)} onFotoCambio={() => void recargar()} />}
+      {constanciaPersona && <ConstanciaModal persona={constanciaPersona} onClose={() => setConstanciaPersona(null)} />}
     </div>
+  );
+}
+
+/* ───────── Constancia de trabajo (PDF · vista previa) ───────── */
+function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
+  const [dirigidoA, setDirigidoA] = useState('A quien pueda interesar:');
+  const [lugar, setLugar] = useState('Puerto Ordaz, Estado Bolívar');
+  const [incluirSalario, setIncluirSalario] = useState(Number(persona.sueldo_base) > 0);
+  const [firmante, setFirmante] = useState<FirmanteConstancia>('leydis');
+  const [generando, setGenerando] = useState(false);
+
+  const faltan = [
+    !persona.cedula ? 'cédula' : '',
+    !persona.cargo ? 'cargo' : '',
+    !persona.fecha_ingreso ? 'fecha de ingreso' : '',
+  ].filter(Boolean);
+
+  async function generar() {
+    setGenerando(true);
+    try {
+      await descargarConstanciaTrabajoPdf({ persona, dirigidoA, lugar, incluirSalario, firmante });
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar la constancia', 'error');
+    } finally { setGenerando(false); }
+  }
+
+  return (
+    <Modal
+      title={`Constancia de trabajo · ${persona.nombre} ${persona.apellido ?? ''}`.trim()}
+      size="md"
+      onClose={() => { if (!generando) onClose(); }}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={generando}>Cancelar</button>
+          <button className="btn btn-primary" onClick={() => void generar()} disabled={generando}>
+            {generando ? 'Generando…' : '📄 Generar (vista previa)'}
+          </button>
+        </>
+      }
+    >
+      <div className="muted" style={{ fontSize: '.85rem', marginBottom: '.7rem' }}>
+        Carta formal que hace constar que <strong>{persona.nombre} {persona.apellido}</strong> presta servicios en la
+        empresa: cargo{persona.departamento ? ', departamento' : ''}, fecha de ingreso y (opcional) el salario.
+      </div>
+
+      {faltan.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.7rem', fontSize: '.82rem' }}>
+          ⚠️ A esta persona le falta cargar: <strong>{faltan.join(', ')}</strong>. La constancia se genera igual (con «—»),
+          pero conviene completarla en <strong>✎ Editar</strong> para que quede formal.
+        </div>
+      )}
+
+      <div className="form-row">
+        <label>Dirigida a</label>
+        <input className="input" value={dirigidoA} onChange={(e) => setDirigidoA(e.target.value)} placeholder="A quien pueda interesar:" />
+      </div>
+      <div className="form-row">
+        <label>Lugar de expedición</label>
+        <input className="input" value={lugar} onChange={(e) => setLugar(e.target.value)} placeholder="Puerto Ordaz, Estado Bolívar" />
+      </div>
+      <div className="form-row">
+        <label>Firma al pie</label>
+        <select className="select" value={firmante} onChange={(e) => setFirmante(e.target.value as FirmanteConstancia)}>
+          <option value="leydis">LEYDIS RENGEL · Jefa de Administración</option>
+          <option value="gerente">JESÚS LOZADA · Gerente General</option>
+          <option value="ninguna">Sin firma (línea para firmar a mano)</option>
+        </select>
+      </div>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer', marginTop: '.3rem' }}>
+        <input type="checkbox" checked={incluirSalario} onChange={(e) => setIncluirSalario(e.target.checked)} />
+        Incluir el salario mensual {Number(persona.sueldo_base) > 0 ? `(${money(persona.sueldo_base)} USD)` : '(sin sueldo cargado)'}
+      </label>
+    </Modal>
   );
 }
 
