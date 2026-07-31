@@ -3,6 +3,12 @@
 `auto-update.sh` revisa `origin/main` y, **solo si avanzó**, hace `reset --hard` + `npm ci` +
 `build` + `reload nginx`. Pensado para correr por cron como `root`.
 
+> **El aviso "el sistema se actualizó" sale SOLO cuando hay un commit nuevo.** El build
+> hornea `VITE_APP_VERSION` con el **hash del commit desplegado** (el script lo fija
+> explícitamente) y lo publica en `version.json`; el cliente compara ambos. Como el cron
+> **no reconstruye si `main` no avanzó**, y la versión es el commit (no una fecha), un tick
+> del cron sin cambios **no cambia la versión ni muestra ningún aviso**.
+
 ## 1. Que `git fetch` no pida contraseña en cron (repo privado)
 Una sola vez, en el server, guardá el token de `Mgg-Sistemas`:
 ```bash

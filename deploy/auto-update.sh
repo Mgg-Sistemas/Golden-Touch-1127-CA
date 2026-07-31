@@ -72,7 +72,10 @@ trap 'aviso false' EXIT
   # .env.local / node_modules / dist están en .gitignore → reset no los borra
   git reset --hard "origin/$BRANCH"
   npm ci
-  VITE_BASE_PATH=/ npm run build
+  # VITE_APP_VERSION fijada al commit EXACTO desplegado: así version.json = commit y el
+  # aviso "el sistema se actualizó" solo aparece cuando main avanzó de verdad (nunca por
+  # un rebuild del mismo código). Este script ya solo construye cuando hay commit nuevo.
+  VITE_BASE_PATH=/ VITE_APP_VERSION="$(git rev-parse --short HEAD)" npm run build
   systemctl reload nginx
   echo "$(date '+%F %T') · deploy OK en ${REMOTE:0:7}"
 } >> "$LOG" 2>&1
