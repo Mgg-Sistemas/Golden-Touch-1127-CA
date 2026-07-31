@@ -57,6 +57,23 @@ const HEAD_STYLE: { fillColor: [number, number, number]; textColor: [number, num
   fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center',
 };
 
+/**
+ * jsPDF con helvetica solo dibuja glifos Latin-1: cualquier cosa fuera de rango
+ * (flechas →, puntos suspensivos …, emojis de los íconos, ∅) sale como "!" o cajas.
+ * Se reemplaza por equivalentes ASCII y se quitan los emojis para que el reporte
+ * quede limpio. Los acentos (á, é, ñ…) SÍ son Latin-1 y se conservan.
+ */
+function pdfSafe(s: string): string {
+  return String(s ?? '')
+    .replace(/→/g, '->')
+    .replace(/…/g, '...')
+    .replace(/∅/g, '(vacío)')
+    .replace(/—/g, '-')
+    .replace(/[^\x00-\xFF]/g, ' ')   // emojis y demás glifos no-Latin-1 → espacio
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 export async function descargarAuditoriaResumenPdf(input: AuditoriaResumenPdfInput): Promise<void> {
   const fecha = new Date().toISOString().slice(0, 10);
   const { doc, autoTable, MARGIN, y } = await nuevoDoc(
@@ -74,7 +91,7 @@ export async function descargarAuditoriaResumenPdf(input: AuditoriaResumenPdfInp
   autoTable(doc, {
     startY: y + 20,
     head: [['USUARIO', 'CORREO', 'SESIONES', 'TIEMPO CONECTADO', 'ACCIONES', 'ESTADO']],
-    body: input.usuarios.map((u) => [u.nombre, u.email, String(u.sesiones), u.tiempo, String(u.acciones), u.conectado ? 'Conectado' : '—']),
+    body: input.usuarios.map((u) => [pdfSafe(u.nombre), pdfSafe(u.email), String(u.sesiones), pdfSafe(u.tiempo), String(u.acciones), u.conectado ? 'Conectado' : '-']),
     styles: { fontSize: 8, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
     headStyles: HEAD_STYLE,
     columnStyles: {
@@ -95,7 +112,7 @@ export async function descargarAuditoriaResumenPdf(input: AuditoriaResumenPdfInp
     autoTable(doc, {
       startY: afterY + 32,
       head: [['MÓDULO', 'ACCIONES']],
-      body: input.modulos.map((m) => [`${m.icono} ${m.modulo}`, String(m.acciones)]),
+      body: input.modulos.map((m) => [pdfSafe(`${m.icono} ${m.modulo}`), String(m.acciones)]),
       styles: { fontSize: 8, cellPadding: 4, valign: 'middle' },
       headStyles: HEAD_STYLE,
       columnStyles: { 0: { cellWidth: 240 }, 1: { halign: 'right', cellWidth: 80 } },
@@ -129,7 +146,7 @@ export async function descargarAuditoriaUsuarioPdf(input: AuditoriaUsuarioPdfInp
     autoTable(doc, {
       startY: cursorY + 14,
       head: [['DÍA', 'TIEMPO']],
-      body: input.porDia.map((r) => [r.dia, r.tiempo]),
+      body: input.porDia.map((r) => [pdfSafe(r.dia), pdfSafe(r.tiempo)]),
       styles: { fontSize: 8, cellPadding: 3, valign: 'middle' },
       headStyles: HEAD_STYLE,
       columnStyles: { 0: { cellWidth: 140 }, 1: { halign: 'right', cellWidth: 100 } },
@@ -145,8 +162,8 @@ export async function descargarAuditoriaUsuarioPdf(input: AuditoriaUsuarioPdfInp
     startY: cursorY + 30,
     head: [['FECHA', 'HORA', 'ACCIÓN', 'DETALLE']],
     body: input.timeline.length
-      ? input.timeline.map((e) => [e.fecha, e.hora, e.titulo, e.detalle])
-      : [['—', '—', 'Sin acciones registradas en el período', '']],
+      ? input.timeline.map((e) => [pdfSafe(e.fecha), pdfSafe(e.hora), pdfSafe(e.titulo), pdfSafe(e.detalle)])
+      : [['-', '-', 'Sin acciones registradas en el período', '']],
     styles: { fontSize: 7.5, cellPadding: 3, valign: 'top', overflow: 'linebreak' },
     headStyles: HEAD_STYLE,
     columnStyles: {
