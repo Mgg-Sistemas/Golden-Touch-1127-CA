@@ -81,19 +81,36 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
   y += 18;
   doc.setLineWidth(0.5); doc.setDrawColor(180);
 
-  // ─── ¿Está realmente pagada? (aviso si aún no) ───
+  // ─── Estado del pago (compra normal vs. a crédito con abonos) ───
+  const moneda = orden.total_moneda ?? 'USD';
+  const totalOrden = Math.round(Number(orden.total || 0) * 100) / 100;
   const pagada = Boolean(orden.pagada_en || orden.finalizada_en);
-  if (!pagada) {
+  // Es a crédito si tiene abonos o la orden quedó como "cuenta abierta".
+  const esCredito = abonos.length > 0 || orden.estado === 'cuenta_abierta';
+  const totalAbonado = Math.round(abonos.reduce((s, a) => s + Number(a.monto || 0), 0) * 100) / 100;
+  // Lo realmente pagado: en crédito = suma de abonos; en compra normal pagada = total.
+  const pagadoReal = esCredito ? totalAbonado : (pagada ? totalOrden : 0);
+  const saldoPend = Math.round(Math.max(0, totalOrden - pagadoReal) * 100) / 100;
+  const saldada = pagadoReal > 0 && saldoPend <= 0.01;
+  const estadoTxt = esCredito
+    ? (saldada ? 'Crédito · saldada' : 'Crédito · cuenta abierta')
+    : (pagada ? 'Pagada / Finalizada' : 'Pendiente de pago');
+  const ultimoAbono = abonos.length ? abonos[abonos.length - 1].at : null;
+  const fechaPagoTxt = orden.pagada_en ? dateTime(orden.pagada_en)
+    : orden.finalizada_en ? dateTime(orden.finalizada_en)
+      : ultimoAbono ? dateTime(ultimoAbono) : '—';
+
+  // Aviso si todavía no se pagó nada (comprobante provisional).
+  if (pagadoReal <= 0.01) {
     doc.setFillColor(253, 246, 227); doc.setDrawColor(210, 150, 0); doc.setLineWidth(1);
     doc.roundedRect(MARGIN, y, PAGE_W - MARGIN * 2, 26, 4, 4, 'FD');
     doc.setTextColor(150, 100, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Esta orden aún no registra pago finalizado. El comprobante es provisional.', MARGIN + 12, y + 17);
+    doc.text(esCredito ? 'Cuenta a crédito sin abonos registrados aún. El comprobante es provisional.' : 'Esta orden aún no registra pago finalizado. El comprobante es provisional.', MARGIN + 12, y + 17);
     doc.setTextColor(0); doc.setDrawColor(180); doc.setLineWidth(0.5);
     y += 26 + 14;
   }
 
   // ─── Datos del pago ───
-  const moneda = orden.total_moneda ?? 'USD';
   const iva = orden.iva_aplicado ? Number(orden.iva_monto ?? 0) : 0;
   const igtf = orden.igtf_aplicado ? Number(orden.igtf_monto ?? 0) : 0;
   const descPago = orden.descuento_pago_aplicado ? Math.max(0, Number(orden.descuento_pago_monto ?? 0)) : 0;
@@ -101,10 +118,10 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
   const ficha: Array<[string, string]> = [
     ['Proveedor', pdfSafe(proveedor?.razon_social) || '—'],
     ...(proveedor?.rif ? [['RIF', proveedor.rif] as [string, string]] : []),
-    ['Estado', pagada ? 'Pagada / Finalizada' : 'Pendiente de pago'],
-    ['Fecha de pago', orden.pagada_en ? dateTime(orden.pagada_en) : (orden.finalizada_en ? dateTime(orden.finalizada_en) : '—')],
+    ['Estado', estadoTxt],
+    [esCredito ? 'Último abono' : 'Fecha de pago', fechaPagoTxt],
     ['Pagada por', pdfSafe(nombrePersona(orden.pagada_por ?? orden.finalizada_por, personasMap))],
-    ['Caja', pdfSafe(cajaNombre) || '—'],
+    ['Caja', pdfSafe(cajaNombre) || (esCredito ? 'Ver detalle de abonos' : '—')],
     ['Moneda', moneda === 'Bs' ? 'Bs' : '$ (USD)'],
   ];
   if (orden.pago_en_divisa && orden.total_divisa != null) {
@@ -113,7 +130,14 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
   if (iva > 0) ficha.push([`IVA (${Number(orden.iva_pct ?? 16).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)`, money(iva)]);
   if (igtf > 0) ficha.push([`IGTF (${Number(orden.igtf_pct ?? 3).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)`, money(igtf)]);
   if (descPago > 0) ficha.push(['Descuento (pronto pago)', `- ${money(descPago)}`]);
-  ficha.push(['TOTAL PAGADO', montoMoneda(Number(orden.total), moneda)]);
+  // En crédito se distingue el total de la orden, lo pagado y el saldo pendiente.
+  if (esCredito) {
+    ficha.push(['Total de la orden', montoMoneda(totalOrden, moneda)]);
+    ficha.push(['TOTAL PAGADO', montoMoneda(pagadoReal, moneda)]);
+    if (saldoPend > 0.01) ficha.push(['Saldo pendiente', montoMoneda(saldoPend, moneda)]);
+  } else {
+    ficha.push(['TOTAL PAGADO', montoMoneda(pagadoReal, moneda)]);
+  }
   if (orden.factura_path) ficha.push(['Factura del proveedor', pdfSafe(orden.factura_nombre) || 'Adjunta']);
   if (orden.seriales_billetes?.length) ficha.push(['Seriales de billetes (USD)', pdfSafe(orden.seriales_billetes.join(' · '))]);
 
@@ -125,6 +149,7 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
     didParseCell: (data) => {
       const label = String((data.row.raw as string[])?.[0] ?? '');
       if (label === 'TOTAL PAGADO') { data.cell.styles.fontStyle = 'bold'; data.cell.styles.fontSize = 11.5; if (data.column.index === 1) data.cell.styles.textColor = [255, 138, 0]; }
+      if (label === 'Saldo pendiente') { data.cell.styles.fontStyle = 'bold'; if (data.column.index === 1) data.cell.styles.textColor = [200, 50, 50]; }
     },
     margin: MARGIN,
   });
