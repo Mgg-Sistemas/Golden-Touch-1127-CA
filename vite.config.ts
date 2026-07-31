@@ -2,15 +2,35 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
-// Identificador de versión del build = hash corto del commit desplegado. Se hornea
-// en el cliente (import.meta.env.VITE_APP_VERSION) y se emite en `version.json`. El
-// cliente compara ambos para detectar un despliegue real y avisar al usuario.
+// Identificador de versión del build = COMMIT desplegado. Se hornea en el cliente
+// (import.meta.env.VITE_APP_VERSION) y se emite en `version.json`. El cliente compara
+// ambos para detectar un despliegue REAL y avisar al usuario.
+//
+// IMPORTANTE: la versión DEBE ser estable para un mismo commit. Si cambia en cada
+// build (p. ej. un timestamp), el aviso «el sistema se actualizó» salta aunque NO
+// haya ningún commit nuevo (un rebuild/cron sin cambios). Por eso el fallback nunca
+// usa la fecha: si no hay commit identificable, se usa la versión de package.json,
+// que solo cambia cuando se decide subirla.
 function appVersion(): string {
+  // 1) Override explícito del deploy/CI (lo más confiable): el SHA del commit.
+  const env = (
+    process.env.VITE_APP_VERSION || process.env.APP_VERSION ||
+    process.env.GITHUB_SHA || process.env.SOURCE_COMMIT || ''
+  ).trim();
+  if (env) return env.slice(0, 12);
+  // 2) Hash corto del commit (build con git disponible en la carpeta).
   try {
-    return execSync('git rev-parse --short HEAD').toString().trim();
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch { /* sin git en el entorno de build */ }
+  // 3) Fallback ESTABLE (NO usar Date.now()): versión de package.json. Así un rebuild
+  //    del mismo código no cambia la versión y no dispara avisos falsos.
+  try {
+    const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')) as { version?: string };
+    return `v${pkg.version ?? '0'}`;
   } catch {
-    return `b${Date.now()}`; // fallback si no hay git disponible en el build
+    return 'v0';
   }
 }
 const APP_VERSION = appVersion();
