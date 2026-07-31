@@ -3,6 +3,7 @@ import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
 import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/lib/pdfLogo';
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { firmaDeAprobador } from './aprobadoresOc';
 import { esRecargaAgua } from './servicios.repository';
 
@@ -125,6 +126,18 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const esConsolidada = ordenes.length > 1;
   const totalGeneral = ordenes.reduce((a, o) => a + Number(o.total ?? 0), 0);
 
+  // ¿Es una orden de SERVICIO? (Control de Servicio CS / Solicitud de Servicio SS, o
+  // clasificación "Servicios"). Cambia los títulos a "Orden de Servicio" / "Solicitud de
+  // Servicio", conservando la MISMA trazabilidad (solicitud -> aprobación -> orden).
+  const esServicio =
+    /^CS/i.test(orden.oc_codigo ?? '') ||
+    /^SS/i.test(orden.codigo ?? '') ||
+    (orden.clasificacion ?? []).some((c) => /servicio/i.test(String(c)));
+  const DOC_TITULO = esServicio ? 'ORDEN DE SERVICIO' : 'ORDEN DE COMPRA';
+  const REF_LABEL = esServicio ? 'Ref. solicitud' : 'Ref. pedido';
+  const SOL_HEAD = esServicio ? 'SOLICITUD DE SERVICIO' : 'SOLICITUD';
+  const SOL_ABBR = esServicio ? 'SS' : 'SP'; // Solicitud de Servicio / Solicitud de Pedido
+
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const MARGIN = 42.52; // 1.5 cm
@@ -142,13 +155,13 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const ocLabel = orden.oc_codigo ?? orden.codigo;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);
-  doc.text('ORDEN DE COMPRA', TEXT_X, y + 20);
+  doc.text(DOC_TITULO, TEXT_X, y + 20);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text(
     esConsolidada
-      ? `N° ${ocLabel}  ·  Consolida ${ordenes.length} OPs`
-      : `N° ${ocLabel}  ·  Ref. pedido: ${orden.codigo}`,
+      ? `N° ${ocLabel}  ·  Consolida ${ordenes.length} ${esServicio ? 'SS' : 'OPs'}`
+      : `N° ${ocLabel}  ·  ${REF_LABEL}: ${orden.codigo}`,
     TEXT_X,
     y + 38,
   );
@@ -194,7 +207,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setTextColor(176, 32, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
-    doc.text('ORDEN DE COMPRA CANCELADA', MARGIN + 12, y + 18);
+    doc.text(`${DOC_TITULO} CANCELADA`, MARGIN + 12, y + 18);
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
     doc.text(
@@ -233,19 +246,19 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   provLines.forEach((t, i) => doc.text(t, PAGE_W / 2, y + i * 12));
   y += Math.max(emisorLines.length, provLines.length) * 12 + 16;
 
-  // ─── SOLICITUD: unidad, quién solicitó y fechas ───
+  // ─── SOLICITUD: unidad, quién solicitó y fechas (trazabilidad) ───
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('SOLICITUD', MARGIN, y);
+  doc.text(SOL_HEAD, MARGIN, y);
   y += 12;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   const solicitud: Array<[string, string]> = [
-    ['Unidad solicitante', orden.unidad_solicitante || '—'],
-    ['Solicitado por', orden.solicitante || nombrePersona(orden.solicitante_email, personasMap)],
+    ['Unidad solicitante', pdfSafe(orden.unidad_solicitante) || '—'],
+    ['Solicitado por', pdfSafe(orden.solicitante || nombrePersona(orden.solicitante_email, personasMap))],
     ...(orden.ci_solicitante ? ([['Cédula del solicitante', orden.ci_solicitante]] as Array<[string, string]>) : []),
-    ['Fecha de solicitud (SP)', orden.created_at ? dateTime(orden.created_at) : '—'],
-    ['SP aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
+    [`Fecha de solicitud (${SOL_ABBR})`, orden.created_at ? dateTime(orden.created_at) : '—'],
+    [`${SOL_ABBR} aprobada el`, orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
   autoTable(doc, {
     startY: y,
@@ -266,11 +279,11 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const documentosOc = orden.historial?.find((h) => h.evento === 'oc_emitida')?.documentos ?? [];
   const clasificacion = orden.clasificacion ?? [];
   const cond: Array<[string, string]> = [
-    ['Clasificación', clasificacion.length ? clasificacion.join(' · ') : '—'],
+    ['Clasificación', clasificacion.length ? pdfSafe(clasificacion.join(' · ')) : '—'],
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
     ['Documentos', documentosOc.length ? documentosOc.join(' · ') : '—'],
-    ['Aprobada por (SP)', nombrePersona(orden.aprobada_por, personasMap)],
+    [`Aprobada por (${SOL_ABBR})`, pdfSafe(nombrePersona(orden.aprobada_por, personasMap))],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
   // OC por factura con IVA: desglose con el % que se aplicó (16 por defecto, editable).
@@ -443,7 +456,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         ].filter(Boolean).join('   ');
         return [
           it.sku,
-          ficha ? `${it.nombre}\n${ficha}` : it.nombre,
+          pdfSafe(ficha ? `${it.nombre}\n${ficha}` : it.nombre),
           num(it.cantidad),
           montoMoneda(it.precio, o.total_moneda),
           montoMoneda(it.cantidad * it.precio, o.total_moneda),
@@ -493,7 +506,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setFontSize(10);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    const split = doc.splitTextToSize(orden.notas, PAGE_W - MARGIN * 2);
+    const split = doc.splitTextToSize(pdfSafe(orden.notas), PAGE_W - MARGIN * 2);
     const altoNotas = 12 + split.length * 11 + 16;
     // Si las notas + el pie no caben en la página, saltamos a una nueva.
     if (y + altoNotas > pageH - FOOTER_RESERVA) {
