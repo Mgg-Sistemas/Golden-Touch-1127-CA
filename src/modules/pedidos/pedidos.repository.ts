@@ -1047,12 +1047,31 @@ export async function emitirOrdenCompra(o: Orden, actorEmail: string): Promise<O
 
 /* ───────── Pago de la OC desde Tesorería (oc_aprobada → pagada) ───────── */
 
+/**
+ * Corre una promesa con tope de tiempo. Si se pasa, RECHAZA (no cuelga). Se usa para
+ * la subida del comprobante en el pago de OC: como el pago ya cometió el egreso y el
+ * cierre de la OC ANTES de subir el adjunto (best-effort), una subida colgada NO debe
+ * congelar el modal para siempre. Al vencer, el pago igual queda y el comprobante se
+ * puede recargar desde el detalle de la OC.
+ */
+function conTimeout<T>(p: PromiseLike<T>, ms: number, msg: string): Promise<T> {
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(msg)), ms)),
+  ]);
+}
+const SUBIDA_ADJUNTO_TIMEOUT_MS = 45000;
+
 async function subirAdjuntoOc(ordenId: string, file: File, tipo: 'factura' | 'retencion'): Promise<string> {
   const safe = file.name.replace(/[^\w.-]+/g, '_');
   const path = `${ordenId}/${tipo}-${safe}`;
-  const { error } = await supabase.storage.from(BUCKET_OC).upload(path, file, {
-    upsert: true, contentType: file.type || 'application/pdf',
-  });
+  const { error } = await conTimeout(
+    supabase.storage.from(BUCKET_OC).upload(path, file, {
+      upsert: true, contentType: file.type || 'application/pdf',
+    }),
+    SUBIDA_ADJUNTO_TIMEOUT_MS,
+    `La subida del comprobante tardó demasiado (> ${SUBIDA_ADJUNTO_TIMEOUT_MS / 1000}s).`,
+  );
   if (error) throw error;
   return path;
 }
