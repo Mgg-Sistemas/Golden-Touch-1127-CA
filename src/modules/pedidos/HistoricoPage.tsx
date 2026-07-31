@@ -12,6 +12,7 @@ import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
 import { listOrdenes, listProveedoresActivos, eliminarOrdenCompra } from './pedidos.repository';
 import { descargarTrazabilidadPdf } from './trazabilidadPdf';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
+import { descargarComprobantePagoPdf } from './comprobantePagoPdf';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
 
 type FechaCampo = 'created_at' | 'aprobada_en' | 'oc_emitida_en' | 'finalizada_en';
@@ -58,10 +59,11 @@ export function HistoricoPage() {
   const [eliminar, setEliminar] = useState<Orden | null>(null);
   const [borrando, setBorrando] = useState(false);
 
-  async function imprimirPdf(o: Orden, tipo: 'trazabilidad' | 'oc') {
+  async function imprimirPdf(o: Orden, tipo: 'trazabilidad' | 'oc' | 'pago') {
     setPdfBusy(true);
     try {
       if (tipo === 'oc') await descargarOrdenCompraPdf(o.id);
+      else if (tipo === 'pago') await descargarComprobantePagoPdf(o.id);
       else await descargarTrazabilidadPdf(o.id);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
@@ -311,10 +313,15 @@ export function HistoricoPage() {
                     <td className="muted" style={{ fontSize: '.82rem' }}>
                       {o.oc_emitida_en ? dateTime(o.oc_emitida_en) : '—'}
                     </td>
-                    <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                    <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                       <button className="btn btn-sm btn-ghost" disabled={pdfBusy}
                         onClick={() => void imprimirPdf(o, 'trazabilidad')}
                         title="Descargar la trazabilidad completa (vista previa)">🧾 Trazabilidad</button>
+                      {(o.pagada_en || o.finalizada_en || (o.abonado_total ?? 0) > 0) && (
+                        <button className="btn btn-sm btn-ghost" disabled={pdfBusy}
+                          onClick={() => void imprimirPdf(o, 'pago')}
+                          title="Descargar el comprobante de pago de la OC (vista previa)">💳 Pago</button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -357,6 +364,11 @@ export function HistoricoPage() {
                 {o.oc_codigo && (
                   <button className="btn btn-ghost" onClick={() => void imprimirPdf(o, 'oc')} disabled={pdfBusy} title="Imprimir la Orden de Compra (vista previa)">
                     📄 {esServicio ? 'Control de Servicio' : 'OC'} PDF
+                  </button>
+                )}
+                {(o.pagada_en || o.finalizada_en || (o.abonado_total ?? 0) > 0) && (
+                  <button className="btn btn-ghost" onClick={() => void imprimirPdf(o, 'pago')} disabled={pdfBusy} title="Descargar el comprobante de pago de la OC (vista previa)">
+                    💳 Comprobante de pago
                   </button>
                 )}
                 <button className="btn btn-primary" onClick={() => void imprimirPdf(o, 'trazabilidad')} disabled={pdfBusy} title="Imprimir la trazabilidad completa (vista previa)">
