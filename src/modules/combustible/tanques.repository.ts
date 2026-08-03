@@ -942,6 +942,39 @@ export async function combustibleDisponibleGeneral(): Promise<number> {
     .reduce((a, t) => a + num(t.saldo_litros), 0);
 }
 
+/** Vista previa (SOLO LECTURA) de lo que el pase de consumo cargaría en la caja: litros
+ *  consumidos (tipo 'uso') del rango, la tasa tarjeta (PMP del grupo GENERAL, todos los
+ *  tanques menos «Brasileros») y el monto $ resultante — EXACTAMENTE con la misma fórmula
+ *  del RPC `postear_consumo_combustible_semana`. No escribe nada. Incluye el desglose por
+ *  equipo (litros) para el resumen antes de generar. */
+export interface PreviewConsumoSemana {
+  litros: number;
+  tasa: number;        // $/L (tasa tarjeta ponderada del grupo GENERAL)
+  usd: number;         // litros × tasa (lo que se cargará)
+  movimientos: number; // cantidad de movimientos 'uso' en el rango
+  porEquipo: { equipo: string; litros: number }[];
+}
+export async function previewConsumoCombustibleSemana(desde: string, hasta: string): Promise<PreviewConsumoSemana> {
+  const [movRes, tkRes] = await Promise.all([
+    supabase.from('combustible_tanque_movimientos').select('equipo, litros').eq('tipo', 'uso').gte('fecha', desde).lte('fecha', hasta),
+    supabase.from('combustible_tanques').select('nombre, saldo_litros, tasa_usd_litro'),
+  ]);
+  if (movRes.error) throw movRes.error;
+  const rows = (movRes.data ?? []) as Array<{ equipo: string | null; litros: number | null }>;
+  const litros = round(rows.reduce((a, r) => a + num(r.litros), 0), 2);
+  // Tasa tarjeta = promedio ponderado por litros del grupo GENERAL (excluye «Brasileros»),
+  // igual que el RPC y la UI de Combustible.
+  const grupo = ((tkRes.data ?? []) as Array<{ nombre: string | null; saldo_litros: number | null; tasa_usd_litro: number | null }>)
+    .filter((t) => !esBrasileros(t.nombre));
+  const sumL = grupo.reduce((a, t) => a + num(t.saldo_litros), 0);
+  const tasa = sumL > 0 ? round(grupo.reduce((a, t) => a + num(t.saldo_litros) * num(t.tasa_usd_litro), 0) / sumL, 4) : 0;
+  const usd = round(litros * tasa, 2);
+  const porEq = new Map<string, number>();
+  for (const r of rows) { const eq = (r.equipo ?? '').trim() || '— sin equipo —'; porEq.set(eq, (porEq.get(eq) ?? 0) + num(r.litros)); }
+  const porEquipo = Array.from(porEq, ([equipo, l]) => ({ equipo, litros: round(l, 2) })).sort((a, b) => b.litros - a.litros);
+  return { litros, tasa, usd, movimientos: rows.length, porEquipo };
+}
+
 /**
  * Postea (IDEMPOTENTE) el consumo de combustible de GT de una semana como un gasto en la
  * caja de Peramanal abierta: suma los movimientos de tanque tipo 'uso' del rango (a su
