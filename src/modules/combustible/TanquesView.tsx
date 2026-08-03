@@ -25,7 +25,8 @@ import {
   actualizarMovimientoTanque,
   crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
-  consumoUso, resumenTanquesPeriodo, esBrasileros, postearConsumoCombustibleSemana, type ReporteTanque, type ResumenTanquePeriodo,
+  consumoUso, resumenTanquesPeriodo, esBrasileros, postearConsumoCombustibleSemana,
+  previewConsumoCombustibleSemana, type PreviewConsumoSemana, type ReporteTanque, type ResumenTanquePeriodo,
 } from './tanques.repository';
 import { descargarMovimientosTanquePdf } from './tanquePdf';
 import { descargarMovimientosTanqueExcel } from './tanqueExcel';
@@ -1765,6 +1766,21 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
   const [desde, setDesde] = useState(lunes);
   const [hasta, setHasta] = useState(domingo);
   const [busy, setBusy] = useState(false);
+  // Vista previa (solo lectura): litros, tasa y $ que se cargarían, con la misma fórmula del pase.
+  const [preview, setPreview] = useState<PreviewConsumoSemana | null>(null);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+
+  useEffect(() => {
+    let cancel = false;
+    if (!desde || !hasta || hasta < desde) { setPreview(null); setPreviewErr(null); return; }
+    setPreviewing(true); setPreviewErr(null);
+    previewConsumoCombustibleSemana(desde, hasta)
+      .then((p) => { if (!cancel) setPreview(p); })
+      .catch((e) => { if (!cancel) { setPreview(null); setPreviewErr(e instanceof Error ? e.message : 'No se pudo calcular el resumen'); } })
+      .finally(() => { if (!cancel) setPreviewing(false); });
+    return () => { cancel = true; };
+  }, [desde, hasta]);
 
   async function generar() {
     if (!desde || !hasta || hasta < desde) { toast('El rango de fechas no es válido.', 'error'); return; }
@@ -1793,8 +1809,8 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancelar</button>
-          <button className="btn btn-primary" onClick={() => void generar()} disabled={busy}>
-            {busy ? 'Generando…' : 'Generar consumo'}
+          <button className="btn btn-primary" onClick={() => void generar()} disabled={busy || (preview != null && preview.litros <= 0)}>
+            {busy ? 'Generando…' : preview && preview.litros > 0 ? `Generar consumo · ${money(preview.usd)}` : 'Generar consumo'}
           </button>
         </>
       }
@@ -1818,6 +1834,46 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
           <label>Hasta (domingo)</label>
           <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
         </div>
+      </div>
+
+      {/* Resumen de lo que se enviará a la caja (litros × tasa = $). */}
+      <div className="card" style={{ marginTop: '.8rem', borderColor: 'var(--brand, #ff8a00)' }}>
+        <strong style={{ fontSize: '.9rem' }}>🧾 Resumen a cargar en la caja</strong>
+        {previewErr ? (
+          <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem', color: 'var(--danger)' }}>{previewErr}</div>
+        ) : previewing && !preview ? (
+          <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>Calculando…</div>
+        ) : preview && preview.litros > 0 ? (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem 1.4rem', marginTop: '.5rem', alignItems: 'baseline' }}>
+              <div><span className="muted">Litros consumidos:</span> <strong className="mono">{num(preview.litros)} L</strong></div>
+              <div><span className="muted">Tasa tarjeta:</span> <strong className="mono">{money(preview.tasa)}/L</strong></div>
+              <div><span className="muted">Movimientos:</span> <strong className="mono">{preview.movimientos}</strong></div>
+              <div style={{ marginLeft: 'auto' }}><span className="muted">Total a cargar:</span>{' '}
+                <strong className="mono" style={{ color: 'var(--brand, #ff8a00)', fontSize: '1.05rem' }}>{money(preview.usd)}</strong></div>
+            </div>
+            <div className="muted" style={{ fontSize: '.76rem', marginTop: '.3rem' }}>
+              Se registra el gasto <strong>«CONSUMO COMBUSTIBLE GT»</strong> por {money(preview.usd)} y una <strong>entrada de multimoneda</strong> por el mismo monto.
+            </div>
+            {preview.porEquipo.length > 0 && (
+              <details style={{ marginTop: '.5rem' }}>
+                <summary className="muted" style={{ fontSize: '.8rem', cursor: 'pointer' }}>Ver litros por equipo ({preview.porEquipo.length})</summary>
+                <div className="table-wrap" style={{ marginTop: '.35rem' }}>
+                  <table className="table" style={{ fontSize: '.8rem' }}>
+                    <thead><tr><th>Equipo</th><th style={{ textAlign: 'right' }}>Litros</th></tr></thead>
+                    <tbody>
+                      {preview.porEquipo.map((e) => (
+                        <tr key={e.equipo}><td>{e.equipo}</td><td className="mono" style={{ textAlign: 'right' }}>{num(e.litros)} L</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
+          </>
+        ) : (
+          <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>No hay consumo de GT (tipo «uso») en ese rango. No se cargaría nada.</div>
+        )}
       </div>
     </Modal>
   );
