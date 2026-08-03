@@ -391,7 +391,14 @@ export interface MovimientoTanqueCampos {
 async function insertarMovimiento(payload: Record<string, unknown>): Promise<MovimientoTanque> {
   const { data, error } = await supabase.from('combustible_tanque_movimientos').insert(payload).select('*').single();
   if (error) throw error;
-  return data as MovimientoTanque;
+  const mov = data as MovimientoTanque;
+  // Re-encadena los medidores CONTINUOS tras insertar (igual que al editar/borrar): el
+  // contador del surtidor (por tanque) y el horómetro (por equipo). Así, si el movimiento
+  // se carga FUERA de orden cronológico, el inicial de cada fila vuelve a colgar del final
+  // de la anterior en el tiempo y el delta se corrige — evita el «lt usados» negativo.
+  if (mov.tanque_id) await reencadenarContadorTanque(mov.tanque_id as string);
+  if (mov.equipo) await reencadenarHorometroEquipo(mov.equipo as string);
+  return mov;
 }
 
 function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
@@ -725,17 +732,23 @@ interface FilaMedidor {
 /**
  * Re-encadena un medidor CONTINUO (lectura inicial → final) sobre un conjunto de
  * movimientos ya acotado (por tanque para el contador del surtidor, por equipo para
- * el horómetro). El medidor es acumulativo: el INICIAL de cada movimiento = el FINAL
- * del anterior en el tiempo. Conserva el «delta» de cada fila (fin − ini = lo que pasó
- * por el medidor en ese movimiento) y lo re-apila en orden cronológico (fecha + hora)
- * desde la lectura BASE (la más baja, porque el medidor sólo crece). Sólo encadena las
- * filas con par completo (ini y fin). Devuelve cuántas filas cambió.
+ * el horómetro). El medidor es MONÓTONO creciente (un totalizador solo sube), así que
+ * la propia LECTURA FINAL absoluta ordena físicamente los movimientos — criterio robusto
+ * ante horas mal escritas (p. ej. «6:55:00 M» sin AM/PM). El INICIAL de cada fila se re-
+ * cuelga del FINAL de la anterior en ese orden; la primera conserva su inicial (lectura
+ * previa al primer registro). Solo encadena filas con par completo (ini y fin). Devuelve
+ * cuántas filas cambió.
  */
 async function reencadenarMedidor(rows: FilaMedidor[], iniCol: string, finCol: string): Promise<number> {
   const usables = rows
     .filter((r) => r.ini != null && r.fin != null)
     .slice()
     .sort((a, b) => {
+      // Orden físico = lectura final ascendente (el medidor solo crece). Fecha/hora/created_at
+      // SOLO desempatan lecturas iguales; nunca mandan por encima del medidor, para que una
+      // hora sin AM/PM no descoloque la cadena ni genere «lt usados» negativos.
+      const vf = num(a.fin) - num(b.fin);
+      if (vf !== 0) return vf;
       const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
       if (f !== 0) return f;
       const h = horaOrden(a.hora) - horaOrden(b.hora);
@@ -743,20 +756,25 @@ async function reencadenarMedidor(rows: FilaMedidor[], iniCol: string, finCol: s
       return (a.created_at ?? '').localeCompare(b.created_at ?? '');
     });
   if (usables.length === 0) return 0;
-  // Base = lectura más baja (el medidor es monótono creciente): es el «saldo previo».
-  let cursor = Math.min(...usables.map((r) => num(r.ini)));
+  // El medidor es ABSOLUTO: la lectura FINAL de cada fila es el dato físico leído del
+  // surtidor/horómetro y NO se toca. Lo que se re-encadena es el INICIAL: cada fila cuelga
+  // del FINAL de la fila anterior EN EL TIEMPO (la primera conserva su propio inicial, que
+  // es la lectura previa al primer registro). Así, si un movimiento se carga fuera de orden
+  // cronológico, el delta (fin − ini) se corrige SOLO — sin arrastrar un delta viejo ni
+  // inventar lecturas. (Antes se preservaba el delta y se re-apilaba desde la lectura más
+  // baja; eso perpetuaba un delta capturado mal al cargar fuera de orden, p. ej. dif = −22.)
   let cambios = 0;
+  let prevFin: number | null = null;
   for (const r of usables) {
-    const delta = num(r.fin) - num(r.ini); // lo registrado en este movimiento (se conserva)
-    const ini = round(cursor, 2);
-    const fin = round(cursor + delta, 2);
-    if (ini !== round(num(r.ini), 2) || fin !== round(num(r.fin), 2)) {
+    const fin = round(num(r.fin), 2);                              // dato físico: se conserva
+    const ini = prevFin == null ? round(num(r.ini), 2) : round(prevFin, 2);
+    if (ini !== round(num(r.ini), 2)) {
       const { error } = await supabase.from('combustible_tanque_movimientos')
         .update({ [iniCol]: ini, [finCol]: fin, updated_at: new Date().toISOString() }).eq('id', r.id);
       if (error) throw error;
       cambios++;
     }
-    cursor = fin;
+    prevFin = fin;
   }
   return cambios;
 }

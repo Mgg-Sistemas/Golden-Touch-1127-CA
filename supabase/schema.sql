@@ -500,9 +500,10 @@ create table if not exists public.combustible_tanque_movimientos (
   -- apuntan mutuamente, para que al borrar uno se revierta también el otro tanque.
   mov_vinculado_id    uuid references public.combustible_tanque_movimientos(id) on delete set null,
   contador_global_ini numeric, contador_global_fin numeric,
-  contador_global_dif numeric generated always as (coalesce(contador_global_fin,0) - coalesce(contador_global_ini,0)) stored,
+  -- Delta del contador = NULL si falta alguna lectura (antes daba −ini por el coalesce(fin,0)).
+  contador_global_dif numeric generated always as (case when contador_global_fin is null or contador_global_ini is null then null else contador_global_fin - contador_global_ini end) stored,
   horometro_ini       numeric, horometro_fin numeric,
-  horas_utilizadas    numeric generated always as (coalesce(horometro_fin,0) - coalesce(horometro_ini,0)) stored,
+  horas_utilizadas    numeric generated always as (case when horometro_fin is null or horometro_ini is null then null else horometro_fin - horometro_ini end) stored,
   tasa_usd_litro      numeric not null default 0,
   monto_usd           numeric generated always as (litros * tasa_usd_litro) stored,
   orden               int not null default 0,
