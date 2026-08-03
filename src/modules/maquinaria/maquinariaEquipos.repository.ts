@@ -6,7 +6,7 @@
    se traen del módulo de Combustible.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { ultimoHorometroEquipo, consumoPorEquipo } from '@/modules/combustible/tanques.repository';
+import { ultimoHorometroEquipo, kilometrajesVigentesPorEquipo, consumoPorEquipo } from '@/modules/combustible/tanques.repository';
 
 export interface MaquinariaEquipo {
   id: string;
@@ -31,6 +31,12 @@ export interface MaquinariaEquipo {
   mantenimiento_cada_hrs: number | null;
   /** Intervalo de mantenimiento por KILOMETRAJE (km). Alerta al acercarse al próximo múltiplo. */
   mantenimiento_cada_km: number | null;
+  /** Horómetro registrado al ÚLTIMO mantenimiento (base del contador de horas restantes).
+   *  Al concretar la compra del mantenimiento se reinicia a la lectura vigente → el próximo
+   *  toca `base + mantenimiento_cada_hrs`. null = todavía sin base (usa el múltiplo del horómetro). */
+  mantenimiento_base_hrs: number | null;
+  /** Kilometraje al último mantenimiento (base del contador de km restantes). */
+  mantenimiento_base_km: number | null;
   combustible_equipo: string | null;
   /** Grupo del submódulo Servicio de Mantenimiento (ver GRUPOS_MANTENIMIENTO). */
   grupo_mantenimiento: string | null;
@@ -82,6 +88,8 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     ficha_tecnica: v(input.ficha_tecnica), ficha_mantenimiento: v(input.ficha_mantenimiento),
     documentacion: v(input.documentacion), mantenimiento_cada_hrs: n(input.mantenimiento_cada_hrs),
     mantenimiento_cada_km: n(input.mantenimiento_cada_km),
+    // NB: mantenimiento_base_hrs/km NO se tocan acá (los maneja reiniciarMantenimientoDeEquipo,
+    // que escribe directo). Así editar la ficha del equipo no borra el contador.
     combustible_equipo: v(input.combustible_equipo),
     grupo_mantenimiento: v(input.grupo_mantenimiento),
     doc_fisico: !!input.doc_fisico, ficha_mantt: !!input.ficha_mantt, doc_drive: !!input.doc_drive,
@@ -121,6 +129,44 @@ export async function eliminarEquipo(id: string): Promise<void> {
   await supabase.from('maquinaria_mantenimientos').delete().eq('equipo_id', id);
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
+}
+
+/**
+ * REINICIA el contador de mantenimiento de un equipo: fija la base de horas (y de km, si
+ * hay lectura) en el horómetro/kilometraje VIGENTE, de modo que el próximo mantenimiento
+ * pase a tocar en `base + intervalo`. Se llama automáticamente cuando se concreta la compra
+ * del mantenimiento (servicio directo casado al equipo finalizado) y también desde el botón
+ * manual «Mantenimiento hecho». Best-effort: si el equipo no tiene lectura, no rompe nada.
+ * Devuelve las lecturas usadas como base (null si no había dato).
+ */
+export async function reiniciarMantenimientoDeEquipo(equipoId: string): Promise<{ horas: number | null; km: number | null }> {
+  if (!equipoId) return { horas: null, km: null };
+  const eq = await getEquipo(equipoId);
+  if (!eq) return { horas: null, km: null };
+  const vinc = (eq.combustible_equipo ?? '').trim();
+  // Horómetro vigente: de Combustible por el equipo vinculado; si no, la última lectura de la bitácora.
+  let horas: number | null = vinc ? await ultimoHorometroEquipo(vinc).catch(() => null) : null;
+  if (horas == null) {
+    const { data } = await supabase.from('maquinaria_mantenimientos')
+      .select('horometro').eq('equipo_id', equipoId).not('horometro', 'is', null)
+      .order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(1);
+    horas = data?.[0]?.horometro != null ? Number(data[0].horometro) : null;
+  }
+  // Kilometraje vigente (de Combustible), si el equipo lo maneja.
+  let km: number | null = null;
+  if (vinc) {
+    const kms = await kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>());
+    km = kms.get(vinc) ?? null;
+  }
+  // Escribe la base vía RPC SECURITY DEFINER: así el reinicio funciona aunque quien
+  // finaliza la compra (p. ej. Tesorería) no tenga permiso de escritura en Maquinaria.
+  // coalesce en el servidor no pisa con null la dimensión sin lectura.
+  if (horas != null || km != null) {
+    await supabase.rpc('reiniciar_mantenimiento_equipo', {
+      p_equipo_id: equipoId, p_horas: horas, p_km: km,
+    });
+  }
+  return { horas, km };
 }
 
 /* ───────── Integración con Combustible ───────── */
