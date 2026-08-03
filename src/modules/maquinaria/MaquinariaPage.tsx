@@ -11,7 +11,7 @@ import { EquipoFormModal } from './EquipoFormModal';
 import { BitacoraModal } from './BitacoraModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
-import { listEquipos, setEquipoActivo, eliminarEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { listEquipos, setEquipoActivo, eliminarEquipo, reiniciarMantenimientoDeEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
 import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
@@ -33,19 +33,24 @@ const MARGEN_ALERTA_PCT = 0.1;
 const normTxt = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 /**
- * HRS restantes hasta el próximo mantenimiento. El mantenimiento se hace cada N horas
- * ACUMULADAS de horómetro (N = mantenimiento_cada_hrs); el próximo toca en el siguiente
- * múltiplo de N. restantes = N − (horómetro mod N). Devuelve null si falta el dato.
+ * HRS restantes hasta el próximo mantenimiento. El mantenimiento se hace cada N horas.
+ *  · Con BASE (horómetro del último mantenimiento): restantes = N − (horómetro − base). Al
+ *    concretar la compra del mantenimiento la base se reinicia a la lectura vigente, así el
+ *    contador vuelve a N y el próximo toca en `base + N`. Puede ser ≤ 0 = VENCIDO.
+ *  · Sin base (compatibilidad): restantes = N − (horómetro mod N) (siguiente múltiplo de N).
+ * Devuelve null si falta el dato.
  */
-function hrsRestantes(frecuencia: number | null, horometro: number | null): number | null {
+function hrsRestantes(frecuencia: number | null, horometro: number | null, base: number | null): number | null {
   if (!frecuencia || frecuencia <= 0 || horometro == null) return null;
+  if (base != null) return Math.round((frecuencia - (horometro - base)) * 100) / 100;
   return ((frecuencia - (horometro % frecuencia)) % frecuencia);
 }
 
 /** Km restantes hasta el próximo mantenimiento (misma lógica que las HRS, pero por
- *  kilometraje): el servicio toca cada N km; restantes = N − (km mod N). */
-function kmRestantes(frecuencia: number | null, kilometraje: number | null): number | null {
+ *  kilometraje). Con base: N − (km − base); sin base: N − (km mod N). */
+function kmRestantes(frecuencia: number | null, kilometraje: number | null, base: number | null): number | null {
   if (!frecuencia || frecuencia <= 0 || kilometraje == null) return null;
+  if (base != null) return Math.round((frecuencia - (kilometraje - base)) * 100) / 100;
   return ((frecuencia - (kilometraje % frecuencia)) % frecuencia);
 }
 
@@ -112,10 +117,10 @@ export function MaquinariaPage() {
       const vinc = e.combustible_equipo ? e.combustible_equipo.trim() : null;
       const horo = (vinc ? horometros.get(vinc) : undefined) ?? bitMap.get(e.id)?.ultimoHorometro ?? null;
       const km = (vinc ? kilometrajes.get(vinc) : undefined) ?? null;
-      const restantes = hrsRestantes(e.mantenimiento_cada_hrs, horo);
+      const restantes = hrsRestantes(e.mantenimiento_cada_hrs, horo, e.mantenimiento_base_hrs);
       const margen = e.mantenimiento_cada_hrs ? e.mantenimiento_cada_hrs * MARGEN_ALERTA_PCT : 0;
       const alertaHrs = restantes != null && restantes <= margen;
-      const restantesKm = kmRestantes(e.mantenimiento_cada_km, km);
+      const restantesKm = kmRestantes(e.mantenimiento_cada_km, km, e.mantenimiento_base_km);
       const margenKm = e.mantenimiento_cada_km ? e.mantenimiento_cada_km * MARGEN_ALERTA_PCT : 0;
       const alertaKm = restantesKm != null && restantesKm <= margenKm;
       m.set(e.id, { restantes, horometro: horo, alerta: alertaHrs || alertaKm, alertaHrs, km, restantesKm, alertaKm });
@@ -157,6 +162,25 @@ export function MaquinariaPage() {
   async function toggleActivo(e: MaquinariaEquipo) {
     try { await setEquipoActivo(e.id, !e.activo); await cargar(); }
     catch (err) { toast(err instanceof Error ? err.message : 'No se pudo cambiar', 'error'); }
+  }
+
+  // Reinicia el contador de mantenimiento: fija la base en la lectura vigente (el próximo
+  // toca en base + intervalo). Uso manual «Mantenimiento hecho»; también corre solo al
+  // finalizar la compra del servicio casado al equipo.
+  const [reiniciando, setReiniciando] = useState<string | null>(null);
+  async function reiniciarMant(e: MaquinariaEquipo) {
+    setReiniciando(e.id);
+    try {
+      const { horas, km } = await reiniciarMantenimientoDeEquipo(e.id);
+      if (horas == null && km == null) {
+        toast(`${e.equipo}: no hay horómetro ni kilometraje vigente para fijar la base.`, 'warning');
+      } else {
+        const partes = [horas != null ? `${fmtNum(horas)} h` : null, km != null ? `${fmtNum(km)} km` : null].filter(Boolean).join(' · ');
+        toast(`Contador reiniciado para ${e.equipo}. Próximo mantenimiento a partir de ${partes}.`, 'success');
+      }
+      await cargar();
+    } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo reiniciar el contador', 'error'); }
+    finally { setReiniciando(null); }
   }
 
   async function confirmarBorrar(e: MaquinariaEquipo) {
@@ -246,9 +270,11 @@ export function MaquinariaPage() {
                             <>
                               <div title="Horas acumuladas (horómetro de Combustible)">{fmtNum(info.horometro)} h</div>
                               {info.restantes != null && (
-                                info.alertaHrs
-                                  ? <div style={{ color: 'var(--warning)', fontWeight: 700, fontSize: '.72rem' }} title={`Faltan ${fmtNum(info.restantes)} h para el próximo mantenimiento`}>⚠️ faltan {fmtNum(info.restantes)} h</div>
-                                  : <div className="muted" style={{ fontSize: '.72rem' }}>faltan {fmtNum(info.restantes)} h</div>
+                                info.restantes <= 0
+                                  ? <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '.72rem' }} title={`Mantenimiento VENCIDO por ${fmtNum(Math.abs(info.restantes))} h`}>🔴 vencido {fmtNum(Math.abs(info.restantes))} h</div>
+                                  : info.alertaHrs
+                                    ? <div style={{ color: 'var(--warning)', fontWeight: 700, fontSize: '.72rem' }} title={`Faltan ${fmtNum(info.restantes)} h para el próximo mantenimiento`}>⚠️ faltan {fmtNum(info.restantes)} h</div>
+                                    : <div className="muted" style={{ fontSize: '.72rem' }}>faltan {fmtNum(info.restantes)} h</div>
                               )}
                             </>
                           )}
@@ -256,15 +282,24 @@ export function MaquinariaPage() {
                             <>
                               <div title="Kilometraje vigente (odómetro de Combustible)">{fmtNum(info.km)} km</div>
                               {info.restantesKm != null && (
-                                info.alertaKm
-                                  ? <div style={{ color: 'var(--warning)', fontWeight: 700, fontSize: '.72rem' }} title={`Faltan ${fmtNum(info.restantesKm)} km para el próximo mantenimiento`}>⚠️ faltan {fmtNum(info.restantesKm)} km</div>
-                                  : <div className="muted" style={{ fontSize: '.72rem' }}>faltan {fmtNum(info.restantesKm)} km</div>
+                                info.restantesKm <= 0
+                                  ? <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '.72rem' }} title={`Mantenimiento VENCIDO por ${fmtNum(Math.abs(info.restantesKm))} km`}>🔴 vencido {fmtNum(Math.abs(info.restantesKm))} km</div>
+                                  : info.alertaKm
+                                    ? <div style={{ color: 'var(--warning)', fontWeight: 700, fontSize: '.72rem' }} title={`Faltan ${fmtNum(info.restantesKm)} km para el próximo mantenimiento`}>⚠️ faltan {fmtNum(info.restantesKm)} km</div>
+                                    : <div className="muted" style={{ fontSize: '.72rem' }}>faltan {fmtNum(info.restantesKm)} km</div>
                               )}
                             </>
                           )}
                         </>}
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    {canWrite && info?.alerta && (
+                      <button className="btn btn-sm btn-primary" disabled={reiniciando === e.id}
+                        title="Marcar el mantenimiento como realizado: reinicia el contador de horas/km restantes a partir de la lectura vigente"
+                        onClick={() => void reiniciarMant(e)}>
+                        {reiniciando === e.id ? '…' : '✔ Mantt. hecho'}
+                      </button>
+                    )}
                     <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" title={e.activo ? 'Desactivar (queda inactivo, no se borra)' : 'Reactivar'} onClick={() => void toggleActivo(e)}>{e.activo ? 'Desactivar' : 'Activar'}</button>}
