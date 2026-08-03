@@ -4,7 +4,7 @@ import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/l
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { firmaDeAprobador } from './aprobadoresOc';
+import { firmaDeAprobador, ELABORADOR_OC } from './aprobadoresOc';
 import { esRecargaAgua } from './servicios.repository';
 
 interface OcData {
@@ -564,6 +564,24 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setFontSize(9);
   }
   doc.text('Recibido por proveedor', PAGE_W - MARGIN, pageH - 66, { align: 'right' });
+
+  // ─── Bloque "Elaborado por": quien preparó la OC (Compras), aparte de la firma del
+  // aprobador. Va centrado sobre el pie, con su cargo y CI. ───
+  doc.setFontSize(8);
+  doc.setTextColor(90);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Elaborado por', PAGE_W / 2, pageH - 46, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(120);
+  doc.text(
+    `${ELABORADOR_OC.nombre} · ${ELABORADOR_OC.cargo} · C.I. ${ELABORADOR_OC.ci}`,
+    PAGE_W / 2,
+    pageH - 37,
+    { align: 'center' },
+  );
+  doc.setTextColor(0);
+
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text(

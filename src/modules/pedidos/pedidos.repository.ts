@@ -3,6 +3,7 @@ import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
+import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type {
   AbonoCredito,
   AdjuntoOferta,
@@ -1616,6 +1617,16 @@ export async function finalizarPedido(o: Orden, actorEmail: string): Promise<Ord
     .select('*')
     .single();
   if (error) throw error;
+  // OC de SERVICIO (Solicitud → Control de Servicio) casada a un equipo de Maquinaria:
+  // al finalizarse la compra del mantenimiento, REINICIA el contador (horas/km restantes)
+  // del equipo a la lectura vigente. Best-effort: si falla no revierte la finalización.
+  if (o.tipo === 'servicio') {
+    const equipoIds = new Set<string>();
+    for (const it of o.items ?? []) if (it.equipo_id) equipoIds.add(it.equipo_id);
+    for (const id of equipoIds) {
+      try { await reiniciarMantenimientoDeEquipo(id); } catch { /* la finalización ya quedó hecha */ }
+    }
+  }
   return data as Orden;
 }
 

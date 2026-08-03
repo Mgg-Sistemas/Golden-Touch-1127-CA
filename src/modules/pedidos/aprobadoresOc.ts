@@ -9,6 +9,15 @@
    quién lo genere o descargue.
    ============================================================ */
 
+/** MARIANA TOVAR — Analista de Compras: ELABORA las Órdenes de Compra. Se estampa como
+ *  «Elaborado por» en el PDF de la OC, aparte de la firma de quien la aprueba. Igual que los
+ *  aprobadores, va fijo acá: si cambia la persona/cargo/CI se edita este único lugar. */
+export const ELABORADOR_OC = {
+  nombre: 'MARIANA TOVAR',
+  cargo: 'Analista de Compras',
+  ci: 'V-27.293.907',
+} as const;
+
 /** JESUS LOZADA — Gerente / admin. Su firma es `public/firma.png`. */
 export const APROBADOR_JESUS_EMAIL = 'touchgolden1127@gmail.com';
 /** LEYDIS RENGEL — Jefa de administración. Su firma es `public/firma2.jpeg`. */
