@@ -25,7 +25,7 @@ import {
   guardarPesada, listPesadas, recomputarPesada, actualizarPesada, eliminarPesada,
   listConciliaciones, crearConciliacion, actualizarConciliacion, eliminarConciliacion, calcConciliacion,
   listTotales, crearTotales, actualizarTotales, eliminarTotales, calcTotales,
-  listCierres, cerrarRecepcion, eliminarCierre, reabrirCierre,
+  listCierres, cerrarRecepcion, eliminarCierre, reabrirCierre, cierreTienePesosEnFoto,
   type RecepcionLab, type AnalisisRow, type AnalisisElemento, type AnalisisLab, type MineralLab,
   type HumedadProvRow, type HumedadFinalRow, type BigbagRow, type PesadaRow,
   type Conciliacion, type ConciliacionCentro, type TotalesDoc, type TotalCentro,
@@ -1891,11 +1891,17 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
   async function reabrir(c: CierreRecepcion) {
     setReabriendo(true);
     try {
-      await reabrirCierre(c, { actor, actorName });
+      const { pesosRestaurados } = await reabrirCierre(c, { actor, actorName });
       await cargar(); setVer(null); setAReabrir(null); setMode('list');
       // Los datos volvieron a la hoja de trabajo: la refrescamos en el padre.
       onCerrado?.();
-      toast(`Recepción N° ${c.numero} reabierta. Se revirtió su ingreso al inventario y volvió a la hoja de trabajo para modificar.`, 'success');
+      if (pesosRestaurados) {
+        toast(`Recepción N° ${c.numero} reabierta. Se revirtió su ingreso al inventario y volvió a la hoja de trabajo para modificar.`, 'success');
+      } else {
+        // Foto vieja (cerrada antes de la foto de pesos): los bigbags/pesadas no estaban en la
+        // foto y NO se pudieron restaurar. Se avisa para que se recarguen a mano.
+        toast(`Recepción N° ${c.numero} reabierta, pero sus BIG BAGS/PESADAS no estaban en la foto (cierre de una versión anterior) y deberás recargarlos a mano.`, 'warning');
+      }
     } catch (e) {
       // Los errores de Supabase (PostgrestError) NO son instancias de Error pero traen
       // `message`: mostramos el motivo real en vez del genérico para poder diagnosticar.
@@ -2119,7 +2125,7 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
       )}
       {aReabrir && (
         <ConfirmDialog title={`Reabrir Recepción N° ${aReabrir.numero}`}
-          message={`Se devolverán todos los datos de esta recepción a la hoja de trabajo para modificarla, y se REVERTIRÁ su ingreso al inventario (neto seco de casiterita + resguardos). La hoja de trabajo debe estar vacía. Al terminar, volvés a cerrarla. ¿Reabrir la Recepción N° ${aReabrir.numero}?`}
+          message={`Se devolverán todos los datos de esta recepción a la hoja de trabajo para modificarla, y se REVERTIRÁ su ingreso al inventario (neto seco de casiterita + resguardos). La hoja de trabajo debe estar vacía. Al terminar, volvés a cerrarla.${cierreTienePesosEnFoto(aReabrir) ? '' : ' ⚠️ ATENCIÓN: esta recepción se cerró con una versión anterior y su foto NO incluye los BIG BAGS/PESADAS: al reabrir NO se restaurarán y tendrás que recargarlos a mano.'} ¿Reabrir la Recepción N° ${aReabrir.numero}?`}
           confirmText="Reabrir" requireText="REABRIR" requireLabel="Escribí REABRIR para confirmar"
           onConfirm={() => void reabrir(aReabrir)} onCancel={() => setAReabrir(null)} />
       )}

@@ -35,6 +35,13 @@ export function TrasladoMaterialForm({
     existencias.forEach((e) => m.set(`${e.producto_id}|${e.almacen}`, e));
     return m;
   }, [existencias]);
+  // Stock TOTAL por producto (todos los almacenes). Para el envío al otro sistema se
+  // vacía TODA la casiterita del inventario, no solo la del almacén de origen.
+  const totalStockMap = useMemo(() => {
+    const m = new Map<string, number>();
+    existencias.forEach((e) => m.set(e.producto_id, (m.get(e.producto_id) || 0) + (Number(e.stock) || 0)));
+    return m;
+  }, [existencias]);
 
   const [origen, setOrigen] = useState(almacenes[0]);
   const [destino, setDestino] = useState(almacenes.find((a) => a !== almacenes[0]) ?? almacenes[0]);
@@ -46,8 +53,10 @@ export function TrasladoMaterialForm({
   // Productos con stock en el almacén de origen. Si el destino es el otro sistema,
   // solo se pueden enviar productos de CASITERITA.
   const productosEnOrigen = useMemo(
-    () => activos.filter((p) => (Number(exMap.get(`${p.id}|${origen}`)?.stock) || 0) > 0 && (!esExterno || esCasiterita(p))),
-    [activos, exMap, origen, esExterno],
+    () => activos.filter((p) => esExterno
+      ? (esCasiterita(p) && (Number(totalStockMap.get(p.id)) || 0) > 0)
+      : ((Number(exMap.get(`${p.id}|${origen}`)?.stock) || 0) > 0)),
+    [activos, exMap, totalStockMap, origen, esExterno],
   );
 
   // Carrito de renglones (varios materiales, mismo origen → destino).
@@ -110,7 +119,9 @@ export function TrasladoMaterialForm({
   const lineasCalc = lineas.map((l) => {
     const producto = activos.find((p) => p.id === l.productoId) ?? null;
     const ex = exMap.get(`${l.productoId}|${origen}`);
-    const stock = Number(ex?.stock) || 0;
+    // Envío al otro sistema: se muestra/usa el stock TOTAL (todos los almacenes), porque
+    // se vacía toda la casiterita del inventario. Traslado normal: solo el del origen.
+    const stock = esExterno ? (Number(totalStockMap.get(l.productoId)) || 0) : (Number(ex?.stock) || 0);
     const precioDefault = (Number(ex?.costo_promedio) || 0) || (producto?.precio ?? 0) || 0;
     const precio = l.precio !== undefined && l.precio !== '' ? (Number(l.precio) || 0) : precioDefault;
     const precioCambiado = !!producto && l.precio !== undefined && l.precio !== '' && Math.abs(precio - (producto.precio ?? 0)) > 0.0001;
@@ -237,7 +248,7 @@ export function TrasladoMaterialForm({
               <option value={DESTINO_EXTERNO_CASITERITA}>🌉 {DESTINO_EXTERNO_CASITERITA_LABEL}</option>
             </select>
             {mismoAlmacen && <small style={{ color: 'var(--danger)' }}>Elegí un destino distinto al origen.</small>}
-            {esExterno && <small style={{ color: 'var(--brand, #ff8a00)' }}>Solo CASITERITA. Va <strong>directo al otro sistema, sin aprobación</strong>, y queda el registro acá.</small>}
+            {esExterno && <small style={{ color: 'var(--brand, #ff8a00)' }}>Solo CASITERITA. Se envía <strong>TODA la del inventario (todos los almacenes) → el stock queda en 0</strong>. Va directo al otro sistema, sin aprobación, y queda el registro acá.</small>}
           </div>
         </div>
 
@@ -270,19 +281,23 @@ export function TrasladoMaterialForm({
                     // En el traslado de CASITERITA se trae de una vez la cantidad existente en
                     // el inventario del almacén de origen (se puede editar a menos).
                     const prod = activos.find((pp) => pp.id === v);
-                    const stockV = Number(exMap.get(`${v}|${origen}`)?.stock) || 0;
+                    const stockV = esExterno
+                      ? (Number(totalStockMap.get(v)) || 0)
+                      : (Number(exMap.get(`${v}|${origen}`)?.stock) || 0);
                     const traerStock = (esExterno || (prod ? esCasiterita(prod) : false)) && stockV > 0;
                     setLinea(l.id, { productoId: v, precio: undefined, ...(traerStock ? { cantidad: String(stockV) } : {}) });
                   }} disabled={!productosEnOrigen.length}
                   placeholder={productosEnOrigen.length ? '🔍 Buscar producto…' : '— el almacén de origen no tiene materiales —'}
                   options={productosEnOrigen.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
-                <small className="muted">Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precioDefault)}</strong></small>
+                <small className="muted">Disponible{esExterno ? ' (todos los almacenes)' : ''}: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precioDefault)}</strong></small>
               </div>
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Cantidad{producto?.unidad ? ` (${producto.unidad})` : ''}</label>
                 <div style={{ display: 'flex', gap: '.4rem', alignItems: 'flex-start' }}>
                   <input className="input mono" type="number" min={0} max={stock || undefined} step="any" style={{ flex: 1, minWidth: 0 }}
                     value={l.cantidad}
+                    disabled={esExterno}
+                    title={esExterno ? 'Se envía TODA la casiterita del inventario (todos los almacenes).' : undefined}
                     onChange={(e) => {
                       const v = e.target.value; const n = Number(v);
                       if (Number.isFinite(n) && n > stock) { setLinea(l.id, { cantidad: String(stock) }); return; }
@@ -294,7 +309,7 @@ export function TrasladoMaterialForm({
                 </div>
                 {excede
                   ? <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>
-                  : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && <>· queda {num(Math.max(0, stock - cantNum))} en origen</>}</small>}
+                  : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && (esExterno ? <>· el inventario de casiterita queda en <strong>0</strong></> : <>· queda {num(Math.max(0, stock - cantNum))} en origen</>)}</small>}
               </div>
             </div>
             {/* Costo unitario editable: si se cambia, se actualiza el costo del producto en inventario. */}
