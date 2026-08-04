@@ -416,25 +416,29 @@ export async function crearTrasladoCasiteritaExterno(input: TrasladoCasiteritaEx
   // 1) Ejecuta el puente por cada renglón (descuenta origen + entrega al otro sistema).
   //    Si algún renglón falla, se corta acá: lo ya enviado queda registrado en el puente
   //    (Inventario → transferencias inter-sistema) y no se crea el registro en Salidas.
+  const enviados: { producto: Producto; kg: number; precioUnit: number }[] = [];
   for (const l of lineas) {
-    await registrarTrasladoCasiteritaExterno({
+    // barrerTodo: vacía la casiterita de TODOS los almacenes → el inventario queda en 0.
+    const { kg } = await registrarTrasladoCasiteritaExterno({
       producto: l.producto,
       almacenOrigen: input.almacenOrigen,
-      kg: Number(l.cantidad) || 0,
+      barrerTodo: true,
       actor: input.actor,
       actorName: input.actorName ?? null,
       detalle: input.motivo ?? null,
     });
+    enviados.push({ producto: l.producto, kg, precioUnit: Number(l.precioUnit) || Number(l.producto.precio) || 0 });
   }
 
   // 2) Deja el registro en Salidas ya EJECUTADO (traslado directo, sin aprobación).
-  const items: ItemSalida[] = lineas.map((l) => ({
-    producto_id: l.producto.id,
-    producto_nombre: l.producto.nombre,
-    producto_sku: l.producto.sku ?? null,
-    unidad: l.producto.unidad ?? null,
-    cantidad: Number(l.cantidad) || 0,
-    precio_unit: Number(l.precioUnit) || Number(l.producto.precio) || 0,
+  //    La cantidad es la REALMENTE enviada (todo el stock de casiterita, todos los almacenes).
+  const items: ItemSalida[] = enviados.map((e) => ({
+    producto_id: e.producto.id,
+    producto_nombre: e.producto.nombre,
+    producto_sku: e.producto.sku ?? null,
+    unidad: e.producto.unidad ?? null,
+    cantidad: e.kg,
+    precio_unit: e.precioUnit,
     almacen: input.almacenOrigen,
   }));
   const cantTotal = items.reduce((a, i) => a + i.cantidad, 0);

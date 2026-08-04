@@ -1154,6 +1154,17 @@ async function contarFilas(tabla: string): Promise<number> {
 }
 
 /**
+ * ¿La foto del cierre INCLUYE los pesos (bigbags/pesadas)? Los cierres hechos ANTES de la
+ * feature de foto de pesos (commit 8feaca2) no traen esas claves: al reabrirlos, los big bags
+ * NO se pueden restaurar (se perdieron al cerrar). Se distingue por la PRESENCIA de la clave
+ * (una recepción sin bigbags igual guarda `bigbags: []`), no por su longitud.
+ */
+export function cierreTienePesosEnFoto(cierre: CierreRecepcion): boolean {
+  const snap = (cierre.snapshot ?? {}) as Record<string, unknown>;
+  return 'bigbags' in snap || 'pesadas' in snap;
+}
+
+/**
  * REABRE un cierre para modificarlo: restaura la foto a la hoja de trabajo (recepciones,
  * análisis, humedades, conciliaciones, totales, pesadas y bigbags) REVIRTIENDO lo que ese
  * cierre ingresó al inventario (neto seco de casiterita + resguardos), y borra el cierre.
@@ -1162,8 +1173,11 @@ async function contarFilas(tabla: string): Promise<number> {
  * Guard: la hoja de trabajo debe estar VACÍA (no se puede reabrir encima de una recepción
  * en curso — colisionarían los IDs y se perdería lo cargado). Cierres viejos sin pesadas en
  * la foto se reabren igual (sin esas pesadas), pero SÍ revierten su ingreso de inventario.
+ *
+ * Devuelve `pesosRestaurados=false` cuando la foto es de una versión vieja SIN pesos: en ese
+ * caso los bigbags/pesadas NO vuelven (la UI avisa que hay que recargarlos a mano).
  */
-export async function reabrirCierre(cierre: CierreRecepcion, input: { actor: string; actorName?: string | null }): Promise<void> {
+export async function reabrirCierre(cierre: CierreRecepcion, input: { actor: string; actorName?: string | null }): Promise<{ pesosRestaurados: boolean }> {
   // ── Guard: la hoja de trabajo debe estar vacía ──
   const tablas = [TABLE, TABLE_ANA, TABLE_HPROV, TABLE_HFIN, TABLE_CONCIL, TABLE_TOT, TABLE_PESADAS, TABLE_BB];
   const counts = await Promise.all(tablas.map(contarFilas));
@@ -1228,6 +1242,9 @@ export async function reabrirCierre(cierre: CierreRecepcion, input: { actor: str
 
   // ── 3) Borrar el cierre: ya vive de nuevo en la hoja de trabajo ──
   await eliminarCierre(cierre.id);
+
+  // Aviso para la UI: si la foto es vieja (sin la clave de pesos), los bigbags NO volvieron.
+  return { pesosRestaurados: cierreTienePesosEnFoto(cierre) };
 }
 
 /** Re-inserta filas de la foto tal cual (conservando su ID). */
