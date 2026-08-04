@@ -694,14 +694,16 @@ export function AgregarOfertaModal({
                     </td>
                     <td className="num">{it.cantidad}</td>
                     <td className="num">
-                      <input type="number" className="input mono" style={{ width: 90, textAlign: 'right' }} min={0} step={0.01}
-                        defaultValue={it.precio} onChange={(e) => updateItem(idx, { precio: Number(e.target.value) || 0 })} />
+                      <input className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}
+                        defaultValue={it.precio ? String(it.precio) : ''} onFocus={(e) => e.target.select()}
+                        onChange={(e) => { const v = e.target.value.replace(/[^0-9.,]/g, ''); if (v !== e.target.value) e.target.value = v; updateItem(idx, { precio: Number(v.replace(',', '.')) || 0 }); }} />
                       {tasa > 0 && it.precio > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
                     </td>
                     <td className="num mono">{money(totalBs)}</td>
                     <td className="num">
-                      <input type="number" className="input mono" style={{ width: 90, textAlign: 'right' }} min={0} step={0.01}
-                        defaultValue={it.precio_usd} onChange={(e) => updateItem(idx, { precio_usd: Number(e.target.value) || 0 })} />
+                      <input className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}
+                        defaultValue={it.precio_usd ? String(it.precio_usd) : ''} onFocus={(e) => e.target.select()}
+                        onChange={(e) => { const v = e.target.value.replace(/[^0-9.,]/g, ''); if (v !== e.target.value) e.target.value = v; updateItem(idx, { precio_usd: Number(v.replace(',', '.')) || 0 }); }} />
                       {tasa > 0 && it.precio_usd > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio_usd * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
                     </td>
                     <td className="num mono">{money(totalU)}</td>
