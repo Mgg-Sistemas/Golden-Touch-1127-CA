@@ -91,9 +91,12 @@ export function construirMovimientosAcopio(args: {
     if (e.t === 'c') {
       const kg = n(e.c.kg_seco_limpio);
       saldoKg = saldoKg + kg;
+      // El rótulo en la caja distingue el TIPO de contrato: los mineros se guardan como
+      // «CONTRATO MINERO GT»; los de molienda propia, «CONTRATO PRODUCCIÓN GT».
+      const esMinero = (e.c.tipo ?? '') === 'minero';
       return {
         id: `c-${e.c.id}`, contratoId: e.c.id, fecha: e.c.fecha,
-        descripcion: `CONTRATO PRODUCCIÓN GT - #${e.c.seq}`,
+        descripcion: `CONTRATO ${esMinero ? 'MINERO' : 'PRODUCCIÓN'} GT - #${e.c.seq}`,
         usdEntregado: null, kgCerrados: kg, precioUsdKg: null, usdFacturados: 0,
         gastosGt: null, nominasGt: null, trasladoCaja: null,
         saldoUsd, kgRecibidosMgg: null, saldoKgCasiterita: saldoKg,
