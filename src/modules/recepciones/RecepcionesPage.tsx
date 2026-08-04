@@ -113,7 +113,18 @@ export function RecepcionesPage() {
     return () => { cancel = true; };
   }, [reload]);
 
-  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales', 'recepciones_humedad_prov', 'recepciones_humedad_final', 'recepciones_conciliaciones', 'recepciones_totales', 'recepciones_pesadas', 'recepciones_procedencias'], () => { void reload(); });
+  useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales', 'recepciones_humedad_prov', 'recepciones_humedad_final', 'recepciones_conciliaciones', 'recepciones_totales', 'recepciones_pesadas', 'recepciones_bigbags', 'recepciones_procedencias'], () => { void reload(); });
+
+  // La Humedad Final se alimenta de los BIG BAGS por procedencia. El modal de pesos ya
+  // sincroniza al editar, pero lo aseguramos también acá: ante CUALQUIER cambio de bigbags
+  // o pesadas (venga de donde venga, incluido otro usuario o al reabrir/restaurar) se
+  // recalcula la Humedad Final. Loop-safe: el sync SOLO escribe en recepciones_humedad_final
+  // (no en bigbags/pesadas), así que esta suscripción nunca se auto-dispara.
+  const sincronizarHF = useCallback(async () => {
+    try { await sincronizarHumedadFinalPorProcedencia({ actor, actorName }); } catch { /* la realtime refresca igual */ }
+  }, [actor, actorName]);
+  useEffect(() => { void sincronizarHF(); }, [sincronizarHF]);
+  useRealtime(['recepciones_bigbags', 'recepciones_pesadas'], () => { void sincronizarHF(); });
 
   /* ── Resumen «hoja de recepción» (Resúmenes → PDF): toma los datos ya cargados
      (recepción/pesadas, conciliación, humedad, Fe y análisis) y arma la hoja clásica.

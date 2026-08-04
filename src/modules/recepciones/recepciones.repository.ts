@@ -1043,12 +1043,14 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
   const [recs, anas, hp, hf, mins, todasConcil, todosTot, pesadas] = await Promise.all([
     listRecepciones(), listAnalisis(), listHumedadProv(), listHumedadFinal(), listMinerales(false), listConciliaciones(), listTotales(), listPesadas(),
   ]);
+  // Para el INGRESO al inventario se usa la conciliación del N° y el Totales más reciente,
+  // pero la FOTO del cierre guarda TODO (todas las conciliaciones y todos los totales de la
+  // hoja de trabajo), porque al cerrar se borran TODOS: así al reabrir se restaura completo.
   const conciliaciones = todasConcil.filter((c) => c.numero === numero);
   // El documento de Totales lleva su propio correlativo (no está ligado al N° de
   // recepción), así que se toma el MÁS RECIENTE: listTotales viene ordenado por
   // numero desc y created_at desc, por lo que todosTot[0] es el último.
   const totalesUsado = todosTot[0] ?? null;
-  const totales = totalesUsado ? [totalesUsado] : [];
 
   // ── Ingreso al inventario de los RESGUARDO pendientes (sin tasa) ──
   let cas: { id: string } | null = null;
@@ -1111,7 +1113,9 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
   const snapshot = {
     generado_at: new Date().toISOString(),
     recepciones: recs, analisis: anas, humedad_prov: hp, humedad_final: hf, minerales: mins,
-    conciliaciones, totales, pesadas: pesadasSnap, bigbags: bigbagsSnap,
+    // Foto COMPLETA: todas las conciliaciones y todos los totales (no solo los usados),
+    // más las pesadas y TODOS los bigbags, para que reabrir restaure el 100% de la hoja.
+    conciliaciones: todasConcil, totales: todosTot, pesadas: pesadasSnap, bigbags: bigbagsSnap,
     ingresos_resguardo: ingresos, ingreso_casiterita: ingresoCasiterita,
   };
   const { data, error } = await supabase.from(TABLE_CIERRES).insert({
@@ -1151,6 +1155,15 @@ async function contarFilas(tabla: string): Promise<number> {
   const { count, error } = await supabase.from(tabla).select('id', { count: 'exact', head: true });
   if (error) throw error;
   return count ?? 0;
+}
+
+/** Stock ACTUAL de un producto en un almacén (0 si no hay existencia). Se usa al reabrir
+ *  para saber si la casiterita ingresada por el cierre SIGUE en el almacén o ya salió
+ *  (p. ej. se trasladó al otro sistema). */
+async function stockActual(productoId: string, almacen: string): Promise<number> {
+  const { data } = await supabase.from('existencias').select('stock')
+    .eq('producto_id', productoId).eq('almacen', almacen).maybeSingle();
+  return Number((data as { stock?: number } | null)?.stock) || 0;
 }
 
 /**
@@ -1193,40 +1206,66 @@ export async function reabrirCierre(cierre: CierreRecepcion, input: { actor: str
     ingreso_casiterita?: { almacen: string; kg: number; tasa: number } | null;
   };
 
-  // ── 1) Revertir el inventario que ingresó este cierre (salidas por el mismo Kg) ──
+  // ── 1) Revertir el inventario que ingresó este cierre — SOLO lo que SIGUE en el almacén ──
+  // REGLA: si la casiterita ya salió (p. ej. se TRASLADÓ al otro sistema), no se revierte lo
+  // que ya no está, y esa casiterita NO se vuelve a ingresar al RE-CERRAR (las pesadas quedan
+  // consumidas / los resguardos siguen aplicados). Así, si hubo traslado, la recepción
+  // reabierta no re-ingresa casiterita fantasma al inventario.
   let cas: { id: string } | null = null;
+  let netoSecoSigueEnAlmacen = true;   // sin ingreso de neto seco → pesadas vuelven disponibles
   const ic = snap.ingreso_casiterita;
   if (ic && (Number(ic.kg) || 0) > 0 && (ic.almacen ?? '').trim()) {
     cas = await productoCasiterita();
     if (!cas) throw new Error('No se encontró el producto Casiterita para revertir el ingreso del neto seco.');
-    await registrarMovimiento({
-      producto_id: cas.id, tipo: 'salida', delta: -(Number(ic.kg) || 0), almacen: ic.almacen.trim(),
-      actor: input.actor, actor_name: input.actorName ?? null,
-      ref_tipo: 'recepcion_reabrir', ref_id: String(cierre.numero),
-      detalle: `Reversión por reapertura de la Recepción N° ${cierre.numero}`,
-    });
+    const kgIng = Number(ic.kg) || 0;
+    const disp = await stockActual(cas.id, ic.almacen.trim());
+    netoSecoSigueEnAlmacen = disp >= kgIng - 1e-6;   // ¿sigue TODO el ingreso en el almacén?
+    const revertir = Math.min(kgIng, disp);           // nunca saca más de lo que hay
+    if (revertir > 0) {
+      await registrarMovimiento({
+        producto_id: cas.id, tipo: 'salida', delta: -revertir, almacen: ic.almacen.trim(),
+        actor: input.actor, actor_name: input.actorName ?? null,
+        ref_tipo: 'recepcion_reabrir', ref_id: String(cierre.numero),
+        detalle: `Reversión por reapertura de la Recepción N° ${cierre.numero}`,
+      });
+    }
   }
+  // Resguardos: revertir solo lo que queda; los centros cuya casiterita ya salió se anotan
+  // para conservarlos «aplicados» al restaurar (no re-ingresan al re-cerrar).
+  const resguardoTrasladado = new Set<string>();
   for (const r of snap.ingresos_resguardo ?? []) {
     const kg = Number(r.kg) || 0;
     if (kg <= 0 || !(r.almacen ?? '').trim()) continue;
     if (!cas) cas = await productoCasiterita();
     if (!cas) throw new Error('No se encontró el producto Casiterita para revertir el ingreso por RESGUARDO.');
-    await registrarMovimiento({
-      producto_id: cas.id, tipo: 'salida', delta: -kg, almacen: r.almacen.trim(),
-      actor: input.actor, actor_name: input.actorName ?? null,
-      ref_tipo: 'recepcion_reabrir', ref_id: String(cierre.numero),
-      detalle: `Reversión RESGUARDO (${r.centro}) por reapertura de la Recepción N° ${cierre.numero}`,
-    });
+    const disp = await stockActual(cas.id, r.almacen.trim());
+    if (disp < kg - 1e-6) resguardoTrasladado.add(`${r.centro}|${r.almacen.trim()}`);
+    const revertir = Math.min(kg, disp);
+    if (revertir > 0) {
+      await registrarMovimiento({
+        producto_id: cas.id, tipo: 'salida', delta: -revertir, almacen: r.almacen.trim(),
+        actor: input.actor, actor_name: input.actorName ?? null,
+        ref_tipo: 'recepcion_reabrir', ref_id: String(cierre.numero),
+        detalle: `Reversión RESGUARDO (${r.centro}) por reapertura de la Recepción N° ${cierre.numero}`,
+      });
+    }
   }
 
   // ── 2) Restaurar la hoja de trabajo desde la foto (re-inserta las filas con su ID) ──
-  // Las conciliaciones vuelven con `inventario_aplicado=false` (ya se revirtió) para que
-  // al re-cerrar se vuelva a ingresar. Las pesadas vuelven como DISPONIBLES (consumida=false).
+  // Conciliaciones: vuelven con inventario_aplicado=false para re-ingresar al re-cerrar,
+  // SALVO los centros cuya casiterita ya se trasladó (se conservan aplicados → no re-ingresan).
+  // Pesadas: vuelven DISPONIBLES (consumida=false) solo si el neto seco SIGUE en el almacén;
+  // si ya se trasladó, quedan CONSUMIDAS → el re-cierre NO re-ingresa esa casiterita.
   const concilRestore = (snap.conciliaciones ?? []).map((c) => ({
     ...c,
-    centros: (Array.isArray(c.centros) ? c.centros : []).map((ce) => ({ ...ce, inventario_aplicado: false })),
+    centros: (Array.isArray(c.centros) ? c.centros : []).map((ce) => ({
+      ...ce,
+      inventario_aplicado: resguardoTrasladado.has(`${ce.nombre}|${(ce.almacen ?? '').trim()}`),
+    })),
   }));
-  const pesadasRestore = (snap.pesadas ?? []).map((p) => ({ ...p, consumida: false }));
+  const pesadasRestore = (snap.pesadas ?? []).map((p) => ({
+    ...p, consumida: netoSecoSigueEnAlmacen ? false : (p.consumida ?? false),
+  }));
 
   const inserts: Array<Promise<unknown>> = [];
   if (snap.recepciones?.length) inserts.push(reInsert(TABLE, snap.recepciones));
