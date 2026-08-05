@@ -9,7 +9,7 @@ import { notify } from '@/shared/lib/notify';
 import { dateTime, num, dosDecimales } from '@/shared/lib/format';
 import { descargarCompraDirectaPdf } from './compraDirectaPdf';
 import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
-import { getCategorias, getUnidades, listProductos, addCategoria, addUnidad } from '@/modules/inventario/inventario.repository';
+import { getCategorias, getUnidades, listProductos, addCategoria } from '@/modules/inventario/inventario.repository';
 import { getNombresAlmacenes, listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { RecibirCompraModal } from '@/modules/inventario/RecepcionesPendientes';
 import type { Almacen } from '@/shared/lib/types';
@@ -470,8 +470,9 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
   // Categorías y medidas editables: se pueden dar de alta nuevas en el momento (igual que en inventario).
   const [cats, setCats] = useState<string[]>(categorias);
   const [nuevaCat, setNuevaCat] = useState<Record<number, string>>({});
-  const [unis, setUnis] = useState<string[]>(unidades);
-  const [nuevaUni, setNuevaUni] = useState<Record<number, string>>({});
+  // Medidas: SOLO se eligen las existentes; el alta de una medida nueva vive únicamente
+  // en el gestor «📏 Medidas» del Inventario (no se crean desde una compra/alta de producto).
+  const [unis] = useState<string[]>(unidades);
   const nuevaLinea = (id: number): LineaUI => ({
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
     nombre: '', categoria: cats[0] ?? '', unidad: activos[0]?.unidad || unis[0] || 'und', cantidad: '1',
@@ -533,27 +534,6 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
       setNuevaCat((m) => ({ ...m, [lineId]: '' }));
       toast(`Categoría "${added}" añadida`, 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir la categoría', 'error'); }
-  }
-
-  // Alta de medida/unidad en línea (se guarda en el catálogo de inventario y queda seleccionada en el renglón).
-  async function handleAddUnidad(lineId: number) {
-    const clean = (nuevaUni[lineId] ?? '').trim();
-    if (!clean) { toast('Escribe una medida', 'error'); return; }
-    const existente = unis.find((u) => u.toLowerCase() === clean.toLowerCase());
-    if (existente) {
-      set(lineId, { unidad: existente });
-      setNuevaUni((m) => ({ ...m, [lineId]: '' }));
-      toast(`La medida "${existente}" ya existe — seleccionada`, 'info');
-      return;
-    }
-    try {
-      const added = await addUnidad(clean);
-      if (!added) return;
-      setUnis((prev) => (prev.some((u) => u.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
-      set(lineId, { unidad: added });
-      setNuevaUni((m) => ({ ...m, [lineId]: '' }));
-      toast(`Medida "${added}" añadida`, 'success');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo añadir la medida', 'error'); }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -730,13 +710,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
                 <div className="form-row">
                   <label>Unidad / medida</label>
                   <select className="select" value={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })} disabled={!l.productoId}>{unis.map((u) => <option key={u} value={u}>{u}</option>)}</select>
-                  <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-                    <input className="input" style={{ flex: 1 }} placeholder="Nueva medida…" value={nuevaUni[l.id] ?? ''}
-                      onChange={(e) => setNuevaUni((m) => ({ ...m, [l.id]: e.target.value.toUpperCase() }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddUnidad(l.id); } }} maxLength={20} disabled={!l.productoId} />
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => handleAddUnidad(l.id)} disabled={!l.productoId}>+ Añadir</button>
-                  </div>
-                  <small className="muted">Si cambia, se actualiza la medida del producto en inventario.</small>
+                  <small className="muted">Si cambia, se actualiza la medida del producto en inventario. Solo medidas existentes (nuevas: <strong>📏 Medidas</strong> en Inventario).</small>
                 </div>
                 <div className="form-row">
                   <label>Cantidad</label>
@@ -763,12 +737,7 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
                     </div></div>
                   <div className="form-row"><label>Unidad / medida</label>
                     <select className="select" value={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })}>{unis.map((u) => <option key={u} value={u}>{u}</option>)}</select>
-                    <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-                      <input className="input" style={{ flex: 1 }} placeholder="Nueva medida…" value={nuevaUni[l.id] ?? ''}
-                        onChange={(e) => setNuevaUni((m) => ({ ...m, [l.id]: e.target.value.toUpperCase() }))}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddUnidad(l.id); } }} maxLength={20} />
-                      <button type="button" className="btn btn-sm btn-ghost" onClick={() => handleAddUnidad(l.id)}>+ Añadir</button>
-                    </div></div>
+                    <small className="muted">Solo medidas existentes. Nuevas: <strong>📏 Medidas</strong> en Inventario.</small></div>
                   <div className="form-row"><label>Cantidad</label>
                     <input className="input mono" name={`linea-cant-nuevo-${l.id}`} type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
