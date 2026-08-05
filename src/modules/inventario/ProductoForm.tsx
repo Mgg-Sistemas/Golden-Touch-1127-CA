@@ -6,7 +6,6 @@ import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import {
   addCategoria,
-  addUnidad,
   getCategorias,
   getUnidades,
   siguienteSku,
@@ -105,11 +104,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   // así nada puede "cortar" el nombre aunque el estado quede atrás.
   const nombreRef = useRef<HTMLInputElement>(null);
   const [nuevaCat, setNuevaCat] = useState('');
-  const [nuevaUnid, setNuevaUnid] = useState('');
   const [nuevoAlmacen, setNuevoAlmacen] = useState('');
-  // Input de alta de medida NO controlado (ref): sobrevive a los refresh de realtime
-  // mientras se teclea (con `value` controlado, un re-render cortaba «par» → «p»).
-  const nuevaUnidRef = useRef<HTMLInputElement>(null);
   // Carga por CAJA/BULTO: si la unidad es caja o bulto, el stock inicial se ingresa
   // en cajas/bultos y se multiplica por las unidades por bulto → se guarda en UNIDADES.
   const [undPorBulto, setUndPorBulto] = useState('');
@@ -171,31 +166,6 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       toast(`Categoría "${added}" añadida`, 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo añadir la categoría', 'error');
-    }
-  }
-
-  async function handleAddUnidad() {
-    // Fuente de verdad: el DOM (input no controlado), no el estado React.
-    const clean = (nuevaUnidRef.current?.value ?? nuevaUnid).trim();
-    if (!clean) { toast('Escribe un nombre para la unidad', 'error'); return; }
-    const limpiarInput = () => { if (nuevaUnidRef.current) nuevaUnidRef.current.value = ''; setNuevaUnid(''); };
-    // Sin duplicados por mayúsculas/minúsculas (ej. «kg» vs «Kg»): si ya existe, la seleccionamos.
-    const existente = unidades.find((u) => u.toLowerCase() === clean.toLowerCase());
-    if (existente) {
-      setForm((prev) => ({ ...prev, unidad: existente }));
-      limpiarInput();
-      toast(`La medida "${existente}" ya existe — seleccionada`, 'info');
-      return;
-    }
-    try {
-      const added = await addUnidad(clean);
-      if (!added) return;
-      setUnidades((prev) => (prev.some((u) => u.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
-      setForm((prev) => ({ ...prev, unidad: added }));
-      limpiarInput();
-      toast(`Medida "${added}" añadida`, 'success');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo añadir la medida', 'error');
     }
   }
 
@@ -383,21 +353,9 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
                 <option key={u} value={u}>{u}</option>
               ))}
             </select>
-            <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-              <input
-                ref={nuevaUnidRef}
-                className="input"
-                style={{ flex: 1 }}
-                placeholder="Nueva unidad…"
-                defaultValue=""
-                onChange={(e) => setNuevaUnid(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddUnidad(); } }}
-                maxLength={20}
-              />
-              <button type="button" className="btn btn-sm btn-ghost" onClick={handleAddUnidad}>
-                + Añadir
-              </button>
-            </div>
+            {/* Las medidas NO se crean desde acá: solo se elige una existente. Para dar de
+                alta una medida nueva se usa el gestor «📏 Medidas» del Inventario. */}
+            <small className="muted">Solo medidas existentes. Para crear una nueva, usá <strong>📏 Medidas</strong> en Inventario.</small>
           </div>
         </div>
 
