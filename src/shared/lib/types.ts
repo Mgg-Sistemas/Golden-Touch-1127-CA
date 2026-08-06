@@ -849,6 +849,63 @@ export interface HojaExcel {
   updated_at?: string | null;
 }
 
+/* ───────────── Salidas Temporales (material a mantenimiento y retorno) ───────────── */
+
+/** pendiente → (aprobar) en_transito → (finalizar) finalizada. */
+export type EstadoSalidaTemporal = 'pendiente' | 'en_transito' | 'finalizada';
+
+/** Renglón de material de una salida temporal (del inventario o nuevo). */
+export interface ItemSalidaTemporal {
+  /** null cuando es un material nuevo aún no dado de alta (se crea al guardar). */
+  producto_id: string | null;
+  producto_nombre: string;
+  producto_sku?: string | null;
+  unidad?: string | null;
+  cantidad: number;
+  /** Almacén del que sale (existente) / al que retorna. */
+  almacen?: string | null;
+  /** true = material nuevo (no estaba en inventario): al finalizar entra al inventario. */
+  es_nuevo?: boolean;
+  observacion?: string | null;
+}
+
+export interface SalidaTemporal {
+  id: string;
+  codigo: string;                 // ST-001, ST-002…
+  correlativo?: number | null;
+  estado: EstadoSalidaTemporal;
+  items: ItemSalidaTemporal[];
+  solicitante: string;
+  unidad_solicitante?: string | null;
+  motivo?: string | null;
+  // responsable (catálogo de choferes) + vehículo + direcciones
+  chofer_id?: string | null;
+  chofer_nombre?: string | null;
+  chofer_cedula?: string | null;
+  vehiculo_id?: string | null;
+  vehiculo_descripcion?: string | null;
+  vehiculo_placa?: string | null;
+  direccion_despacho?: string | null;
+  direccion_destino?: string | null;
+  fecha?: string | null;
+  // aprobación (firma según quién aprueba: Leydis o Jesús Lozada)
+  aprobada_por?: string | null;
+  aprobada_por_nombre?: string | null;
+  aprobada_en?: string | null;
+  firma?: 'leydis' | 'gerente' | null;
+  // tránsito / mantenimiento
+  en_transito_en?: string | null;
+  finalizada_en?: string | null;
+  /** Minutos que estuvo en tránsito/mantenimiento (finalizada_en − en_transito_en). */
+  duracion_min?: number | null;
+  historial: EventoHistorial[];
+  actor?: string | null;
+  actor_name?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
 /* ───────────── Solicitudes de salida/traslado (con aprobación) ───────────── */
 
 export type EstadoSolicitudSalida = 'por_aprobar' | 'aprobada' | 'ejecutada' | 'cancelada';
