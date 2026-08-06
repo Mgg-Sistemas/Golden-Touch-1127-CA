@@ -643,6 +643,42 @@ create policy "sol_salida read auth"      on public.solicitudes_salida for selec
 create policy "sol_salida write operativo" on public.solicitudes_salida for all using (public.is_operativo()) with check (public.is_operativo());
 
 -- ─────────────────────────────────────────────────────────────
+-- 5.b Salidas Temporales (material a mantenimiento y retorno)
+-- Flujo: pendiente → (aprobar, firma Leydis/Jesús) en_transito → (finalizar) finalizada.
+-- Editable/eliminable solo en 'pendiente'. Al pasar a en_transito el material SALE del
+-- inventario (salida); al finalizar RETORNA (entrada). Correlativo global ST-NNN.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.salidas_temporales (
+  id                 uuid primary key default gen_random_uuid(),
+  codigo             text not null,                 -- ST-001, ST-002…
+  correlativo        int,
+  estado             text not null default 'pendiente'
+                       check (estado in ('pendiente','en_transito','finalizada')),
+  items              jsonb not null default '[]'::jsonb,   -- renglones de material (del inventario o nuevos)
+  solicitante        text not null,
+  unidad_solicitante text,
+  motivo             text,
+  chofer_id          uuid, chofer_nombre text, chofer_cedula text,   -- responsable (catálogo de choferes)
+  vehiculo_id        uuid, vehiculo_descripcion text, vehiculo_placa text,
+  direccion_despacho text, direccion_destino text,
+  fecha              date,
+  aprobada_por       text, aprobada_por_nombre text, aprobada_en timestamptz,
+  firma              text check (firma is null or firma in ('leydis','gerente')),
+  en_transito_en     timestamptz,
+  finalizada_en      timestamptz,
+  duracion_min       numeric,                        -- minutos en tránsito/mantenimiento
+  historial          jsonb not null default '[]'::jsonb,
+  actor              text, actor_name text, created_by text,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz
+);
+create index if not exists idx_saltemp_estado  on public.salidas_temporales(estado);
+create index if not exists idx_saltemp_created on public.salidas_temporales(created_at desc);
+alter table public.salidas_temporales enable row level security;
+create policy "saltemp read auth"      on public.salidas_temporales for select using (auth.role() = 'authenticated');
+create policy "saltemp write operativo" on public.salidas_temporales for all using (public.is_operativo()) with check (public.is_operativo());
+
+-- ─────────────────────────────────────────────────────────────
 -- 6. ordenes (de compra / pedido)
 -- ─────────────────────────────────────────────────────────────
 create table if not exists public.ordenes (

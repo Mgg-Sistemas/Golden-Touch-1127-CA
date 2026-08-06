@@ -24,6 +24,7 @@ import {
 import { descargarSalidaDineroPdf, descargarTrasladoDineroPdf, descargarOrdenSalidaPdf } from './salidaPdf';
 import { SalidaMaterialForm } from './SalidaMaterialForm';
 import { TrasladoMaterialForm } from './TrasladoMaterialForm';
+import { SalidasTemporalesView } from './SalidasTemporalesView';
 import { SalidaDineroForm } from './SalidaDineroForm';
 import { TrasladoDineroForm } from './TrasladoDineroForm';
 import { ConciliarMineralModal } from './ConciliarMineralModal';
@@ -36,7 +37,7 @@ import {
   type SalidaResumenRow, type GrupoUnidad, type GrupoProducto,
 } from './resumenUnidadSalidas';
 
-type Scope = 'salidas' | 'traslados';
+type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
 type Vista = 'kanban' | 'lista';
 type Modal =
@@ -181,6 +182,7 @@ export function SalidasPage() {
     else setModal({ kind: 'traslado-dinero' });
   }
   const btnLabel = esSalida ? '+ Nueva solicitud de salida' : '+ Nueva solicitud de traslado';
+  const esTemporales = scope === 'temporales';
 
   return (
     <div>
@@ -190,17 +192,35 @@ export function SalidasPage() {
           <p className="muted hint">Toda salida o traslado de <strong>material por almacén</strong> se crea como <strong>solicitud</strong>: se registra, un usuario con <strong>control full</strong> la <strong>aprueba</strong>, y quien tenga <strong>escritura</strong> la <strong>ejecuta</strong> (ahí se descuenta el stock).</p>
         </div>
         <div className="actions">
-          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen-unidad' })}>📊 Resumen de gasto (material)</button>
-          {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
+          {!esTemporales && (
+            <>
+              <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen-unidad' })}>📊 Resumen de gasto (material)</button>
+              {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Switch principal: Salidas / Traslados (solo material; el dinero va por Tesorería) */}
+      {/* Switch principal: Salidas / Traslados / Salidas Temporales (solo material; el dinero va por Tesorería) */}
       <div className="view-toggle" role="tablist" aria-label="Tipo de operación" style={{ marginBottom: '1rem' }}>
         <button className={scope === 'salidas' ? 'active' : ''} onClick={() => setScope('salidas')}>↘ Salidas</button>
         <button className={scope === 'traslados' ? 'active' : ''} onClick={() => setScope('traslados')}>↔ Traslados</button>
+        <button className={scope === 'temporales' ? 'active' : ''} onClick={() => setScope('temporales')}>🔧 Salidas Temporales</button>
       </div>
 
+      {esTemporales ? (
+        <SalidasTemporalesView
+          productos={productos}
+          existencias={existencias}
+          almacenesList={almacenesActivos}
+          actor={actor}
+          actorName={actorName}
+          canWrite={canWrite}
+          userEmail={actor}
+          userRole={role}
+        />
+      ) : (
+      <>
       {/* Vista: Kanban (trámite) / Lista (historial de movimientos ejecutados) */}
       <div className="view-toggle" role="tablist" aria-label="Kanban o lista" style={{ marginBottom: '1rem' }}>
         <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
@@ -241,6 +261,8 @@ export function SalidasPage() {
           onConciliar={(s) => setModal({ kind: 'conciliar', salida: s })}
           onVerMaterial={(mov, esTraslado) => setModal({ kind: 'detalle-material', mov, esTraslado })}
         />
+      )}
+      </>
       )}
 
       {modal.kind === 'detalle-solicitud' && (
