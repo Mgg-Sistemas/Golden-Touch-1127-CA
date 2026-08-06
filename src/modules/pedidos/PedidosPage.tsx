@@ -3138,9 +3138,13 @@ function CrearOrdenModal({
   // Ref al input de nombre: tras crear, lo limpiamos y re-enfocamos SIN cerrar el
   // formulario, para poder cargar varios productos nuevos seguidos.
   const nuevoNombreRef = useRef<HTMLInputElement>(null);
+  const nuevoCategoriaRef = useRef<HTMLInputElement>(null);
 
   async function crearProductoNuevo() {
-    const nombre = nuevoNombre.trim().toUpperCase();
+    // Fuente de verdad: el DOM (inputs NO controlados), no el estado React — así un
+    // re-render pesado del modal no pisa lo tecleado (antes el nombre salía "cortado
+    // a medias": se escribía el material y no aparecía hasta borrar una letra).
+    const nombre = (nuevoNombreRef.current?.value ?? nuevoNombre).trim().toUpperCase();
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
     setCreandoNuevo(true);
     try {
@@ -3149,7 +3153,7 @@ function CrearOrdenModal({
       // ni colisiona entre usuarios).
       // En MERCADO los productos nuevos entran SIEMPRE como VÍVERES (para que queden
       // disponibles en Cocina); fuera de MERCADO, la categoría elegida.
-      const categoria = mercado ? 'VÍVERES' : (nuevoCategoria.trim().toUpperCase() || 'GENERAL');
+      const categoria = mercado ? 'VÍVERES' : ((nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase() || 'GENERAL');
       const sku = await nextSku(categoria);
       const creado = await createProducto({
         sku,
@@ -3520,20 +3524,25 @@ function CrearOrdenModal({
               <div className="muted" style={{ fontSize: '.78rem' }}>
                 Datos mínimos. Se crea en inventario y lo completás luego (stock, precio…).
               </div>
+              {/* NO controlado (defaultValue + ref): el DOM conserva lo tecleado aunque el
+                  modal re-renderice; con `value` controlado un re-render pisaba el campo y
+                  cortaba el nombre a medias (aparecía al borrar una letra). */}
               <input
                 ref={nuevoNombreRef}
                 className="input"
                 name="op-nuevo-nombre"
+                autoComplete="off"
                 placeholder="Nombre del producto *"
-                value={nuevoNombre}
+                defaultValue={nuevoNombre}
                 onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
+                style={{ textTransform: 'uppercase' }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
               />
               <div className="form-grid">
                 {mercado ? (
                   <input className="input" value="VÍVERES" disabled title="En MERCADO los productos nuevos entran como VÍVERES y quedan disponibles en Cocina" />
                 ) : (
-                  <input className="input" name="op-nuevo-categoria" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                  <input ref={nuevoCategoriaRef} className="input" name="op-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
                 )}
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
@@ -3677,6 +3686,7 @@ function EditarOrdenModal({
   const [unidadesList, setUnidadesList] = useState<string[]>([]);
   const [almacenesList, setAlmacenesList] = useState<string[]>([]);
   const nuevoNombreRef = useRef<HTMLInputElement>(null);
+  const nuevoCategoriaRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((p) => (u.includes(p) ? p : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
     getNombresAlmacenes().then((a) => { setAlmacenesList(a); setNuevoAlmacen((p) => (a.includes(p) ? p : (a[0] ?? 'General'))); }).catch(() => setAlmacenesList(['General']));
@@ -3702,13 +3712,15 @@ function EditarOrdenModal({
   }
 
   async function crearProductoNuevo() {
-    const nombre = nuevoNombre.trim().toUpperCase();
+    // Fuente de verdad: el DOM (inputs NO controlados), no el estado React — así un
+    // re-render pesado del modal no pisa lo tecleado (el nombre "cortado a medias").
+    const nombre = (nuevoNombreRef.current?.value ?? nuevoNombre).trim().toUpperCase();
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
     setCreandoNuevo(true);
     try {
       // SKU correlativo por categoría (prefijo 3 letras + Nº incremental, p. ej. PRO-001),
       // con contador persistente en la base.
-      const categoria = nuevoCategoria.trim().toUpperCase() || 'GENERAL';
+      const categoria = (nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase() || 'GENERAL';
       const sku = await nextSku(categoria);
       const creado = await createProducto({
         sku, nombre,
@@ -3961,17 +3973,22 @@ function EditarOrdenModal({
               <div className="muted" style={{ fontSize: '.78rem' }}>
                 Datos mínimos. Se crea en inventario y lo completás luego (stock, precio…).
               </div>
+              {/* NO controlado (defaultValue + ref): el DOM conserva lo tecleado aunque el
+                  modal re-renderice; con `value` controlado un re-render pisaba el campo y
+                  cortaba el nombre a medias (aparecía al borrar una letra). */}
               <input
                 ref={nuevoNombreRef}
                 className="input"
                 name="op-edit-nuevo-nombre"
+                autoComplete="off"
                 placeholder="Nombre del producto *"
-                value={nuevoNombre}
+                defaultValue={nuevoNombre}
                 onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
+                style={{ textTransform: 'uppercase' }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
               />
               <div className="form-grid">
-                <input className="input" name="op-edit-nuevo-categoria" placeholder="Categoría" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+                <input ref={nuevoCategoriaRef} className="input" name="op-edit-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
                     placeholder="🔍 Unidad…" options={unidadesList.map((u) => ({ value: u, label: u }))} />
