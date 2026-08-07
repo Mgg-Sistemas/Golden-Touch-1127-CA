@@ -816,18 +816,18 @@ export function AgregarOfertaModal({
       <div className="form-row">
         <label>Ficha del producto ofertado <span className="muted">(opcional)</span></label>
         <div className="form-grid">
-          <input className="input" placeholder="Marca" value={ficha.marca ?? ''} onChange={(e) => setFichaField('marca', e.target.value)} />
-          <input className="input" placeholder="Modelo" value={ficha.modelo ?? ''} onChange={(e) => setFichaField('modelo', e.target.value)} />
+          <input className="input" placeholder="Marca" autoComplete="off" defaultValue={ficha.marca ?? ''} onChange={(e) => setFichaField('marca', e.target.value)} />
+          <input className="input" placeholder="Modelo" autoComplete="off" defaultValue={ficha.modelo ?? ''} onChange={(e) => setFichaField('modelo', e.target.value)} />
         </div>
         <div className="form-grid" style={{ marginTop: '.4rem' }}>
-          <input className="input" placeholder="Procedencia" value={ficha.procedencia ?? ''} onChange={(e) => setFichaField('procedencia', e.target.value)} />
-          <input className="input" placeholder="Nivel de calidad" value={ficha.nivel_calidad ?? ''} onChange={(e) => setFichaField('nivel_calidad', e.target.value)} />
+          <input className="input" placeholder="Procedencia" autoComplete="off" defaultValue={ficha.procedencia ?? ''} onChange={(e) => setFichaField('procedencia', e.target.value)} />
+          <input className="input" placeholder="Nivel de calidad" autoComplete="off" defaultValue={ficha.nivel_calidad ?? ''} onChange={(e) => setFichaField('nivel_calidad', e.target.value)} />
         </div>
         <div className="form-grid" style={{ marginTop: '.4rem' }}>
-          <input className="input" placeholder="Dimensiones" value={ficha.dimensiones ?? ''} onChange={(e) => setFichaField('dimensiones', e.target.value)} />
-          <input className="input" placeholder="Peso" value={ficha.peso ?? ''} onChange={(e) => setFichaField('peso', e.target.value)} />
+          <input className="input" placeholder="Dimensiones" autoComplete="off" defaultValue={ficha.dimensiones ?? ''} onChange={(e) => setFichaField('dimensiones', e.target.value)} />
+          <input className="input" placeholder="Peso" autoComplete="off" defaultValue={ficha.peso ?? ''} onChange={(e) => setFichaField('peso', e.target.value)} />
         </div>
-        <input className="input" placeholder="Materiales" value={ficha.materiales ?? ''} onChange={(e) => setFichaField('materiales', e.target.value)} style={{ marginTop: '.4rem' }} />
+        <input className="input" placeholder="Materiales" autoComplete="off" defaultValue={ficha.materiales ?? ''} onChange={(e) => setFichaField('materiales', e.target.value)} style={{ marginTop: '.4rem' }} />
       </div>
 
       <div className="form-row">
