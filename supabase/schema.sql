@@ -1585,7 +1585,7 @@ alter table public.produccion_materiales enable row level security;
 -- Helper: ¿el usuario actual es admin?
 create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid() and role = 'admin');
+  select exists (select 1 from public.usuarios where id = auth.uid() and role = 'admin' and estado = 'activo');
 $$;
 
 -- usuarios
@@ -1619,13 +1619,24 @@ end$$;
 -- cualquier usuario en `usuarios`. is_admin() sigue siendo estricto (solo admin).
 create or replace function public.is_staff()
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid());
+  select exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista') and estado = 'activo');
 $$;
 
+-- is_operativo(): gate de escritura general. Exige que el usuario EXISTA y esté
+-- ACTIVO. Al deshabilitar una cuenta (estado<>'activo') pierde toda escritura al
+-- instante, incluso con la sesión abierta (defensa en capas con el login del front).
 create or replace function public.is_operativo()
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.usuarios where id = auth.uid());
+  select exists (select 1 from public.usuarios where id = auth.uid() and estado = 'activo');
 $$;
+
+-- ¿La cuenta de ese correo está inhabilitada? Se consulta en el login (SECURITY
+-- DEFINER, patrón de auth_estado_bloqueo) para no crear siquiera la sesión.
+create or replace function public.auth_estado_inhabilitado(p_email text)
+returns boolean language sql security definer set search_path = public as $$
+  select coalesce(bool_or(estado <> 'activo'), false) from public.usuarios where lower(email) = lower(p_email);
+$$;
+grant execute on function public.auth_estado_inhabilitado(text) to anon, authenticated;
 
 -- ─────────────────────────────────────────────────────────────
 -- Supervisión de actividad: sesiones de usuario (conexión + tiempo).

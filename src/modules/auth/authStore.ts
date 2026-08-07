@@ -12,6 +12,7 @@ export interface AppUser {
   apellido?: string | null;
   role: Role;
   ci?: string | null;
+  estado?: string | null;
 }
 
 export function useSession() {
@@ -70,6 +71,15 @@ export async function estaBloqueado(email: string): Promise<boolean> {
   return Boolean(data);
 }
 
+/** ¿La cuenta de ese correo está inhabilitada (estado <> 'activo')? Se consulta ANTES del
+ *  login para no crear siquiera la sesión de un usuario deshabilitado. En el servidor,
+ *  `is_operativo()`/`is_admin()` ya bloquean toda escritura de una cuenta inactiva. */
+export async function estaInhabilitado(email: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('auth_estado_inhabilitado', { p_email: email });
+  if (error) throw error;
+  return Boolean(data);
+}
+
 export interface ResultadoFallo {
   bloqueado: boolean;
   intentos: number;
@@ -102,7 +112,7 @@ export async function signOutLocal() {
 export async function getAppUser(user: User): Promise<AppUser | null> {
   const { data, error } = await supabase
     .from('usuarios')
-    .select('id, email, nombre, apellido, role, ci')
+    .select('id, email, nombre, apellido, role, ci, estado')
     .eq('id', user.id)
     .single();
 

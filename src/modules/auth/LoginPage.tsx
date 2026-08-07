@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signIn, signOutLocal, estaBloqueado, registrarFalloLogin, resetIntentosLogin } from './authStore';
+import { signIn, signOutLocal, estaBloqueado, estaInhabilitado, registrarFalloLogin, resetIntentosLogin } from './authStore';
 import { isSupabaseConfigured } from '@/shared/lib/supabase';
 import { isWebAuthnSupported, huellaHint, loginConHuella } from './webauthn.repository';
 
@@ -26,6 +26,12 @@ export function LoginPage() {
       signOutLocal().catch(() => {});
     }
     if (hint) setEmail(hint);
+    // Si el admin deshabilitó la cuenta con la sesión abierta, PermissionsContext
+    // cerró la sesión y dejó esta marca: mostramos el motivo al caer aquí.
+    if (localStorage.getItem('cuenta_deshabilitada') === '1') {
+      localStorage.removeItem('cuenta_deshabilitada');
+      setError(INHABILITADO_MSG);
+    }
   }, [hint]);
 
   async function handleHuella() {
@@ -36,6 +42,7 @@ export function LoginPage() {
     try {
       try {
         if (await estaBloqueado(correo)) { setHuellaBusy(false); setError('Tu cuenta está bloqueada por 3 intentos fallidos. Pedile al administrador que la desbloquee.'); return; }
+        if (await estaInhabilitado(correo)) { setHuellaBusy(false); setError(INHABILITADO_MSG); return; }
       } catch { /* si el chequeo falla, se continúa */ }
       await loginConHuella(correo);
       try { await resetIntentosLogin(); } catch { /* best-effort */ }
@@ -48,6 +55,7 @@ export function LoginPage() {
   }
 
   const BLOQUEADO_MSG = 'Tu cuenta está bloqueada por 3 intentos fallidos. Pedile al administrador que la desbloquee.';
+  const INHABILITADO_MSG = 'Tu cuenta está deshabilitada. Contactá al administrador para que la reactive.';
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -58,9 +66,10 @@ export function LoginPage() {
     const correo = email.trim();
     setSubmitting(true);
     setError(null);
-    // 1) Si la cuenta ya está bloqueada, ni se intenta el login.
+    // 1) Si la cuenta ya está bloqueada o deshabilitada, ni se intenta el login.
     try {
       if (await estaBloqueado(correo)) { setSubmitting(false); setError(BLOQUEADO_MSG); return; }
+      if (await estaInhabilitado(correo)) { setSubmitting(false); setError(INHABILITADO_MSG); return; }
     } catch { /* si el chequeo falla (red), se continúa con el login normal */ }
     // 2) Intento de login.
     const { error: authError } = await signIn(correo, password);
