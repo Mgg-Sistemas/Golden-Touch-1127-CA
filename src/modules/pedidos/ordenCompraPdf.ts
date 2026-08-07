@@ -230,10 +230,12 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   y += 14;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
+  // Ancho de cada columna (emisor a la izquierda, proveedor a la derecha)
+  const COL_W = PAGE_W / 2 - MARGIN - 6;
   const emisorLines = [
     'GOLDEN TOUCH 1127 C.A.',
     'Sistema de Gestión de Inventarios',
-  ];
+  ].flatMap((t) => doc.splitTextToSize(t, COL_W) as string[]);
   const provLines = [
     proveedor?.razon_social ?? '—',
     proveedor?.rif ? `RIF: ${proveedor.rif}` : '',
@@ -241,7 +243,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     proveedor?.email ?? '',
     proveedor?.telefono ?? '',
     proveedor?.direccion ?? '',
-  ].filter(Boolean);
+  ].filter(Boolean).flatMap((t) => doc.splitTextToSize(t, COL_W) as string[]);
   emisorLines.forEach((t, i) => doc.text(t, MARGIN, y + i * 12));
   provLines.forEach((t, i) => doc.text(t, PAGE_W / 2, y + i * 12));
   y += Math.max(emisorLines.length, provLines.length) * 12 + 16;
