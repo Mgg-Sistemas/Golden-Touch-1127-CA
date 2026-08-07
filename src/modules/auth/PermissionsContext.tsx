@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
-import { getAppUser, useSession, type AppUser } from './authStore';
+import { getAppUser, signOut, useSession, type AppUser } from './authStore';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   loadRolePermisos,
@@ -43,6 +43,19 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     if (mostrarCargando) setLoading(true);
     const u = await getAppUser(user);
+    // Cuenta deshabilitada (el admin la desactivó, quizá con la sesión abierta):
+    // el servidor ya bloquea toda escritura vía is_operativo(); acá además la
+    // sacamos al login con un motivo claro. Cubre tanto el arranque como el
+    // refresco por realtime de `usuarios`.
+    if (u && u.estado && u.estado !== 'activo') {
+      try { localStorage.setItem('cuenta_deshabilitada', '1'); } catch { /* ignore */ }
+      await signOut();
+      setAppUser(null);
+      setRole(null);
+      setPermisos(null);
+      setLoading(false);
+      return;
+    }
     setAppUser(u);
     const r = u?.role ?? null;
     setRole(r);

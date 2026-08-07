@@ -399,6 +399,7 @@ const SECCIONES: Seccion[] = [
       'Roles y permisos: se define, por rol, a qué módulos puede entrar cada persona y si puede solo ver o también modificar.',
       'Cambio de clave de los usuarios: en el detalle, "Resetear clave" la deja en "123456" y obliga a cambiarla al ingresar.',
       'Desbloquear usuario (bloqueo por 3 intentos): cuando alguien falla la clave 3 veces, su cuenta queda bloqueada (etiqueta "Bloqueado" en la lista y el detalle). Solo el administrador la reactiva: al abrir el usuario aparece el botón "Desbloquear", que quita el bloqueo, reinicia el contador y resetea la clave a "123456"; el usuario entra con esa clave temporal y debe cambiarla obligatoriamente.',
+      'Habilitar / Deshabilitar (acceso al sistema): el administrador puede deshabilitar una cuenta desde el detalle del usuario (queda como "Deshabilitado"). Un usuario deshabilitado no puede iniciar sesion (ni con clave ni con huella, con aviso claro) y tampoco puede modificar nada: si estaba conectado, el sistema lo saca al login al instante y el servidor le rechaza cualquier cambio. Para devolverle el acceso, se lo habilita de nuevo. A diferencia del bloqueo por 3 intentos, deshabilitar es una decision manual del administrador.',
       'Resumen de Actividad (supervisión): muestra quién está conectado ahora y cuánto tiempo lleva en el sistema (en vivo), el tiempo por usuario y el detalle de sesiones por rango de fechas. Se descarga en PDF con vista previa.',
       'Esto garantiza que cada quien acceda solo a lo que le corresponde.',
     ],
