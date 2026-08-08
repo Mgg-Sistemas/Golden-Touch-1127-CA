@@ -195,7 +195,7 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
   const [dirigidoA, setDirigidoA] = useState('A quien pueda interesar:');
   const [lugar, setLugar] = useState('Puerto Ordaz, Estado Bolívar');
   const [incluirSalario, setIncluirSalario] = useState(Number(persona.sueldo_base) > 0);
-  const [firmante, setFirmante] = useState<FirmanteConstancia>('leydis');
+  const [firmante, setFirmante] = useState<FirmanteConstancia>('rrhh');
   const [generando, setGenerando] = useState(false);
 
   const faltan = [
@@ -251,6 +251,7 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
       <div className="form-row">
         <label>Firma al pie</label>
         <select className="select" value={firmante} onChange={(e) => setFirmante(e.target.value as FirmanteConstancia)}>
+          <option value="rrhh">Jefa de Recursos Humanos · firma y sello a mano</option>
           <option value="leydis">LEYDIS RENGEL · Jefa de Administración</option>
           <option value="gerente">JESÚS LOZADA · Gerente General</option>
           <option value="ninguna">Sin firma (línea para firmar a mano)</option>
