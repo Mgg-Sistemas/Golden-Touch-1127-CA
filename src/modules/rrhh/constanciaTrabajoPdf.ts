@@ -15,7 +15,7 @@ export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
 /** RIF fiscal de la empresa, para el membrete de documentos formales.
  *  Único lugar donde se define: si cambia, se edita acá. */
-export const EMPRESA_RIF = 'J-501299935';
+export const EMPRESA_RIF = 'J-50129993-5';
 
 export interface ConstanciaTrabajoInput {
   persona: Personal;
