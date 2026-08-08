@@ -11,7 +11,11 @@ import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/l
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 
-export type FirmanteConstancia = 'leydis' | 'gerente' | 'ninguna';
+export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
+
+/** RIF fiscal de la empresa, para el membrete de documentos formales.
+ *  Único lugar donde se define: si cambia, se edita acá. */
+export const EMPRESA_RIF = 'J-501299935';
 
 export interface ConstanciaTrabajoInput {
   persona: Personal;
@@ -25,7 +29,9 @@ export interface ConstanciaTrabajoInput {
   lugar?: string | null;
 }
 
-const FIRMANTES: Record<Exclude<FirmanteConstancia, 'ninguna'>, { nombre: string; cargo: string }> = {
+const FIRMANTES: Record<Exclude<FirmanteConstancia, 'ninguna'>, { nombre: string | null; cargo: string }> = {
+  // RRHH firma y sella a mano: no lleva firma digital, solo el cargo (rota la persona).
+  rrhh: { nombre: null, cargo: 'Jefa de Recursos Humanos' },
   leydis: { nombre: 'LEYDIS RENGEL', cargo: 'Jefa de Administración' },
   gerente: { nombre: 'JESÚS LOZADA', cargo: 'Gerente General' },
 };
@@ -63,9 +69,12 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
   doc.setTextColor(90, 90, 90);
   doc.text('Sistema de Gestión de Inventarios', tx, y + 36);
-  doc.text('mineralgroupguayanaca@gmail.com  ·  WhatsApp +58 424-9349731', tx, y + 50);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`RIF: ${EMPRESA_RIF}`, tx, y + 50);
+  doc.setFont('helvetica', 'normal');
+  doc.text('mineralgroupguayanaca@gmail.com  ·  WhatsApp +58 424-9349731', tx, y + 64);
   doc.setTextColor(20, 20, 20);
-  y += 74;
+  y += 88;
 
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
@@ -140,19 +149,39 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
 
   doc.setDrawColor(120); doc.setLineWidth(0.6);
   doc.line(centro - 110, firmaY, centro + 110, firmaY);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
   doc.setTextColor(20, 20, 20);
   if (firma) {
-    doc.text(firma.nombre, centro, firmaY + 16, { align: 'center' });
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    doc.setTextColor(90, 90, 90);
-    doc.text(firma.cargo, centro, firmaY + 30, { align: 'center' });
-    doc.text('GOLDEN TOUCH 1127 C.A.', centro, firmaY + 44, { align: 'center' });
+    let ly = firmaY + 16;
+    if (firma.nombre) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text(firma.nombre, centro, ly, { align: 'center' });
+      ly += 15;
+    }
+    doc.setFont('helvetica', firma.nombre ? 'normal' : 'bold'); doc.setFontSize(firma.nombre ? 10 : 11);
+    doc.setTextColor(firma.nombre ? 90 : 20, firma.nombre ? 90 : 20, firma.nombre ? 90 : 20);
+    doc.text(firma.cargo, centro, ly, { align: 'center' });
+    ly += 15;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
+    doc.text('GOLDEN TOUCH 1127 C.A.', centro, ly, { align: 'center' });
   } else {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
     doc.setTextColor(90, 90, 90);
     doc.text('Firma y sello autorizados', centro, firmaY + 16, { align: 'center' });
     doc.text('GOLDEN TOUCH 1127 C.A.', centro, firmaY + 30, { align: 'center' });
+  }
+
+  // Recuadro para el SELLO húmedo (a la izquierda de la firma) cuando la firma la
+  // estampa RRHH a mano o cuando no hay firma digital.
+  if (input.firmante === 'rrhh' || input.firmante === 'ninguna') {
+    const bw = 108, bh = 90;
+    const bx = MARGIN + 6;
+    const by = firmaY - 54;
+    doc.setDrawColor(185); doc.setLineWidth(0.8);
+    doc.setLineDashPattern([3, 3], 0);
+    doc.roundedRect(bx, by, bw, bh, 6, 6);
+    doc.setLineDashPattern([], 0);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150, 150, 150);
+    doc.text('Sello', bx + bw / 2, by + bh / 2 + 3, { align: 'center' });
   }
 
   // Pie.
