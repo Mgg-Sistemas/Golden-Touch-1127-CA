@@ -4,7 +4,7 @@ import { money, num } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
+import { ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -36,7 +36,6 @@ import { listComprasPendientesRecepcion, type CompraDirecta } from '@/modules/pe
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import {
   registrarMovimiento,
-  transferir,
   type MovimientoInput,
 } from './movimientos.repository';
 import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
@@ -44,7 +43,6 @@ import { ProductosTable } from './ProductosTable';
 import { ProductoForm } from './ProductoForm';
 import { ProductoDetail } from './ProductoDetail';
 import { MovimientoForm } from './MovimientoForm';
-import { registrarTrasladoCasiteritaExterno, DESTINO_EXTERNO_CASITERITA, ALMACEN_DESTINO_CASITERITA } from './casiteritaInter.repository';
 import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { ExportInventarioModal } from './ExportInventarioModal';
@@ -52,55 +50,26 @@ import { ImportarExcelModal } from './ImportarExcelModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
-import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
-import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
-import { AlmacenKanban } from './AlmacenKanban';
-import { descargarAlmacenExcel, descargarAlmacenPdf, descargarReporteAlmacenesPdf } from './almacenExport';
-import { AlmacenForm } from './AlmacenForm';
 import {
   listAlmacenes,
   listExistencias,
-  agruparValores,
-  movStatsDeAlmacen,
-  consumoDeAlmacen,
-  consumoPorProductoEnAlmacen,
-  crearAlmacen,
-  actualizarAlmacen,
-  renombrarAlmacen,
-  renombrarSede,
-  eliminarAlmacen,
-  nombreCortoAlmacen,
-  type AlmacenInput,
-  type AlmacenValor,
-  type ConsumoProducto,
 } from './almacenes.repository';
 
 interface UiState extends FilterValues {
-  view: 'productos' | 'recepciones' | 'almacenes';
-  almacenLayout: AlmacenLayout;
+  view: 'productos' | 'recepciones';
 }
 
 const INITIAL_UI: UiState = {
   view: 'productos',
-  almacenLayout: 'kanban',
   filterText: '',
   filterCat: '',
   filterClass: '',
   filterStock: '',
   filterEstado: 'activo',
   filterFundicion: '',
-  filterAlmacen: '',
 };
 
-/** ¿El usuario tiene algún filtro que ACOTA los resultados (búsqueda, categoría, clase,
- *  stock, fundición o un estado distinto de «Activos»)? Sirve para avisar «(filtrado)»
- *  cuando el conteo/valor mostrado no es el total del almacén. */
-function hayFiltrosActivos(ui: UiState): boolean {
-  return !!(ui.filterText.trim() || ui.filterCat || ui.filterClass || ui.filterStock
-    || ui.filterFundicion || (ui.filterEstado && ui.filterEstado !== 'activo'));
-}
-
-/** Predicado de filtros compartido por inventario general y el detalle de almacén. */
+/** Predicado de filtros del inventario general. */
 function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   const q = ui.filterText.trim().toLowerCase();
   if (ui.filterEstado && p.estado !== ui.filterEstado) return false;
@@ -138,11 +107,7 @@ type ModalState =
   | { kind: 'confirmToggle'; producto: Producto }
   | { kind: 'export' }
   | { kind: 'resumen' }
-  | { kind: 'import'; analisis: AnalisisImport }
-  | { kind: 'almacenCrear'; parentId?: string | null; sede?: string | null }
-  | { kind: 'almacenEditar'; almacen: Almacen }
-  | { kind: 'sedeEditar'; sede: string }
-  | { kind: 'almacenEliminar'; almacen: Almacen };
+  | { kind: 'import'; analisis: AnalisisImport };
 
 export function InventarioPage() {
   const { user } = useSession();
@@ -157,14 +122,6 @@ export function InventarioPage() {
   const [comprasRecep, setComprasRecep] = useState<CompraDirecta[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
-  const [almacenSel, setAlmacenSel] = useState<string | null>(null);
-  const [sedeSel, setSedeSel] = useState<string | null>(null);
-  // Almacén padre cuyo nivel de subalmacenes estamos viendo (drill-down dentro de la sede).
-  const [almacenNavId, setAlmacenNavId] = useState<string | null>(null);
-  const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
-  const [movStats, setMovStats] = useState<Map<string, { entradas: number; salidas: number }>>(new Map());
-  const [consumo, setConsumo] = useState<Map<string, ConsumoProducto>>(new Map());
-  const [detalleLayout, setDetalleLayout] = useState<'kanban' | 'lista'>('lista');
   const [enProduccion, setEnProduccion] = useState(0);
   // Casiterita que YA entró al inventario por contratos FINALIZADOS (cerrados) + su conteo.
   const [kgCasiterita, setKgCasiterita] = useState(0);
@@ -260,57 +217,10 @@ export function InventarioPage() {
     [productos],
   );
 
-  const filtered = useMemo<ProductoDecorado[]>(() => {
-    // Filtro por almacén: muestra solo los productos con existencia en ese almacén,
-    // con el stock y el costo (PMP) propios del almacén elegido. Si se elige un almacén
-    // BASE (sin subalmacén), incluye TODOS sus subalmacenes ("BASE / *"): cada producto
-    // sale UNA vez con el stock SUMADO y el costo (PMP) PONDERADO de esos subalmacenes.
-    if (ui.filterAlmacen) {
-      const prodMap = new Map(productos.map((p) => [p.id, p]));
-      const sel = ui.filterAlmacen;
-      const esBase = !sel.includes(' / ');
-      const pertenece = (alm: string) =>
-        esBase ? (alm === sel || alm.startsWith(`${sel} / `)) : alm === sel;
-      const acc = new Map<string, { stock: number; valor: number }>();
-      for (const e of existencias) {
-        if (!pertenece(e.almacen)) continue;
-        const st = Number(e.stock) || 0;
-        const cur = acc.get(e.producto_id) ?? { stock: 0, valor: 0 };
-        cur.stock += st;
-        cur.valor += st * (Number(e.costo_promedio) || 0);
-        acc.set(e.producto_id, cur);
-      }
-      const virtuales = [...acc.entries()]
-        .map(([pid, v]) => {
-          const p = prodMap.get(pid);
-          const costo = v.stock > 0 ? v.valor / v.stock : 0;
-          return p ? ({ ...p, stock: v.stock, precio: costo, almacen: sel } as Producto) : null;
-        })
-        .filter((p): p is Producto => p !== null);
-      return decorate(virtuales, DEFAULT_POLICY).filter((p) => coincideFiltros(p, ui));
-    }
-    return decorated.filter((p) => coincideFiltros(p, ui));
-  }, [decorated, ui, existencias, productos]);
-
-  // Nombres de almacenes (con existencias) para el filtro por almacén del inventario general.
-  // Se ofrece SIEMPRE el almacén BASE (sin subalmacén) además de cada subalmacén, para poder
-  // ver TODO el almacén de una: elegir "LOS PINOS" trae todos los productos de sus subalmacenes.
-  const almacenNombres = useMemo<string[]>(() => {
-    const set = new Set<string>();
-    const add = (nombre?: string | null) => {
-      const full = (nombre ?? '').trim();
-      if (!full) return;
-      set.add(full);
-      const base = full.split(' / ')[0].trim();
-      if (base) set.add(base);
-    };
-    existencias.forEach((e) => add(e.almacen));
-    almacenes.forEach((a) => add(a.nombre));
-    return [...set].sort((a, b) => a.localeCompare(b, 'es'));
-  }, [existencias, almacenes]);
-
-  // Valor por almacén (desde existencias: stock × costo propio del almacén).
-  const valoresAlm = useMemo<Record<string, AlmacenValor>>(() => agruparValores(existencias), [existencias]);
+  const filtered = useMemo<ProductoDecorado[]>(
+    () => decorated.filter((p) => coincideFiltros(p, ui)),
+    [decorated, ui],
+  );
 
   // Existencias agrupadas por producto (para pasarlas al formulario de movimiento).
   const existMap = useMemo(() => {
@@ -322,37 +232,6 @@ export function InventarioPage() {
     });
     return m;
   }, [existencias]);
-
-  // Detalle de almacén: "productos virtuales" = producto con el stock y costo
-  // (PMP) propios del almacén seleccionado, decorados y filtrados como inventario.
-  const almacenRows = useMemo<ProductoDecorado[]>(() => {
-    if (!almacenSel) return [];
-    const prodMap = new Map(productos.map((p) => [p.id, p]));
-    const virtuales = existencias
-      .filter((e) => e.almacen === almacenSel)
-      .map((e) => {
-        const p = prodMap.get(e.producto_id);
-        return p ? ({ ...p, stock: e.stock, precio: e.costo_promedio, almacen: almacenSel } as Producto) : null;
-      })
-      .filter((p): p is Producto => p !== null);
-    return decorate(virtuales, DEFAULT_POLICY).filter((p) => coincideFiltros(p, ui));
-  }, [almacenSel, existencias, productos, ui]);
-
-  // Al entrar al detalle de un almacén, cargamos entradas/salidas y consumo de ESE almacén.
-  useEffect(() => {
-    if (!almacenSel) { setMovStats(new Map()); setConsumo(new Map()); return; }
-    let cancelled = false;
-    // Ambas consultas son independientes: en paralelo para abrir el detalle más rápido.
-    Promise.all([
-      movStatsDeAlmacen(almacenSel).catch(() => new Map()),
-      consumoDeAlmacen(almacenSel).catch(() => new Map()),
-    ]).then(([m, c]) => {
-      if (cancelled) return;
-      setMovStats(m);
-      setConsumo(c);
-    });
-    return () => { cancelled = true; };
-  }, [almacenSel, existencias]);
 
   const [categorias, setCategorias] = useState<string[]>([]);
   useEffect(() => {
@@ -429,8 +308,8 @@ export function InventarioPage() {
           almacen: data.almacen,
           actor: productoActor,
           actor_name: actorName,
-          detalle: `Stock inicial al dar de alta el producto · almacén ${data.almacen}`,
-          // Costo inicial: fija la línea base del PMP del almacén y queda en la traza.
+          detalle: 'Stock inicial al dar de alta el producto · Inventario General',
+          // Costo inicial: fija la línea base del PMP del inventario y queda en la traza.
           precio_unitario: data.precio,
         });
       }
@@ -442,8 +321,7 @@ export function InventarioPage() {
       const previo = modal.producto;
       const dup = await findBySku(data.sku);
       if (dup && dup.id !== previo.id) throw new Error('Ya existe otro producto con ese SKU.');
-      // El stock es por almacén (existencias); no se edita desde aquí.
-      // Se ajusta vía "Movimiento" (entrada/salida/ajuste) en cada almacén.
+      // El stock se ajusta vía "Movimiento" (entrada/salida/ajuste); no se edita desde aquí.
       const rest: Partial<ProductoInput> = { ...data };
       delete (rest as Partial<ProductoInput>).stock;
       await updateProducto(previo.id, rest);
@@ -452,36 +330,9 @@ export function InventarioPage() {
     }
   }
 
-  async function handleRegistrarMovimiento(input: MovimientoInput, transfer?: { almacenDestino: string }) {
-    if (transfer && transfer.almacenDestino === DESTINO_EXTERNO_CASITERITA) {
-      // Traslado de CASITERITA al OTRO sistema (puente): sale del almacén local y se
-      // empuja al otro Supabase, que lo recibe automático en "LOS PINOS - CASITERITA".
-      const prod = productos.find((p) => p.id === input.producto_id);
-      if (!prod) throw new Error('No se encontró el producto de casiterita.');
-      await registrarTrasladoCasiteritaExterno({
-        producto: prod,
-        almacenOrigen: input.almacen || 'General',
-        kg: Math.abs(input.delta),
-        actor: input.actor,
-        actorName: input.actor_name,
-        detalle: input.detalle,
-      });
-      notify(`Casiterita enviada al otro sistema: ${Math.abs(input.delta)} Kg → ${ALMACEN_DESTINO_CASITERITA}`, 'success', { link: '#/app/inventario' });
-    } else if (transfer) {
-      await transferir({
-        producto_id: input.producto_id,
-        almacenOrigen: input.almacen || 'General',
-        almacenDestino: transfer.almacenDestino,
-        cantidad: Math.abs(input.delta),
-        actor: input.actor,
-        actor_name: input.actor_name,
-        detalle: input.detalle,
-      });
-      notify(`Transferencia: ${input.almacen} → ${transfer.almacenDestino}`, 'success', { link: '#/app/inventario' });
-    } else {
-      await registrarMovimiento(input);
-      notify(`Movimiento de inventario registrado (${input.tipo})`, 'success', { link: '#/app/inventario' });
-    }
+  async function handleRegistrarMovimiento(input: MovimientoInput) {
+    await registrarMovimiento(input);
+    notify(`Movimiento de inventario registrado (${input.tipo})`, 'success', { link: '#/app/inventario' });
     await reload();
   }
 
@@ -498,51 +349,8 @@ export function InventarioPage() {
     }
   }
 
-  // ─── almacenes ───
   function setFilter2(key: keyof FilterValues, value: string) {
     setUi((prev) => ({ ...prev, [key]: value }) as UiState);
-  }
-
-  async function handleCrearAlmacen(data: AlmacenInput) {
-    await crearAlmacen(data, productoActor);
-    notify(`Almacén creado: ${data.nombre}`, 'success', { link: '#/app/inventario' });
-    await reload();
-  }
-
-  async function handleEditarAlmacen(id: string, data: AlmacenInput) {
-    const actual = almacenes.find((a) => a.id === id) ?? null;
-    // Campos que no son el nombre se actualizan directo (no afectan al stock).
-    await actualizarAlmacen(id, { ubicacion: data.ubicacion, sede: data.sede, parent_id: data.parent_id });
-    // El nombre se cambia por la cascada (propaga a existencias/productos/etc.),
-    // así el stock del almacén no queda huérfano al renombrarlo. Se compara contra
-    // el nombre CORTO (lo que ve el usuario) para no renombrar de gusto.
-    if (actual && data.nombre.trim() && data.nombre.trim() !== nombreCortoAlmacen(actual, almacenes)) {
-      const nombreFinal = await renombrarAlmacen(actual, data.nombre.trim());
-      // Si el almacén renombrado estaba seleccionado, mover la selección al nuevo nombre.
-      if (almacenSel === actual.nombre) setAlmacenSel(nombreFinal);
-    }
-    notify(`Almacén actualizado: ${data.nombre}`, 'success', { link: '#/app/inventario' });
-    await reload();
-  }
-
-  async function handleRenombrarSede(sedeActual: string, nuevoNombre: string) {
-    const n = await renombrarSede(sedeActual, nuevoNombre);
-    if (sedeSel === sedeActual) setSedeSel(nuevoNombre.trim());
-    notify(`Sede renombrada: ${sedeActual} → ${nuevoNombre.trim()} (${n} almacén/es)`, 'success', { link: '#/app/inventario' });
-    await reload();
-  }
-
-  async function handleEliminarAlmacen(a: Almacen) {
-    try {
-      await eliminarAlmacen(a.id, a.nombre);
-      notify(`Almacén eliminado: ${a.nombre}`, 'success', { link: '#/app/inventario' });
-      if (almacenSel === a.nombre) setAlmacenSel(null);
-      await reload();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'No se pudo eliminar el almacén', 'error');
-    } finally {
-      setModal({ kind: 'none' });
-    }
   }
 
   // ─── render ───
@@ -552,7 +360,7 @@ export function InventarioPage() {
         <div>
           <h1>Inventario</h1>
           <p className="hint">
-            Catálogo de productos. <span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
+            Catálogo de productos del <strong>Inventario General</strong>. <span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
           </p>
         </div>
         <div className="actions">
@@ -561,12 +369,6 @@ export function InventarioPage() {
             onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}
           >
             Inventario general
-          </button>
-          <button
-            className={`btn ${ui.view === 'almacenes' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => { setAlmacenSel(null); setUi((prev) => ({ ...prev, view: 'almacenes' })); }}
-          >
-            ▣ Almacenes
           </button>
           <button
             className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
@@ -609,7 +411,7 @@ export function InventarioPage() {
               />
             </>
           )}
-          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen: valor por almacén, productos nuevos, entradas, salidas y traslados">
+          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen: valor del inventario, productos nuevos, entradas y salidas">
             📊 Resumen
           </button>
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
@@ -629,9 +431,6 @@ export function InventarioPage() {
         </div>
       )}
 
-      {/* KPIs y alertas: solo en inventario general / recepciones, no en almacenes */}
-      {ui.view !== 'almacenes' && (
-      <>
       <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
         <div className="kpi">
           <div className="icon">⬢</div>
@@ -671,8 +470,6 @@ export function InventarioPage() {
       </div>
 
       <AlertasStock productos={decorated} onVerProducto={openVer} />
-      </>
-      )}
 
       {ui.view === 'recepciones' ? (
         <RecepcionesPendientes
@@ -685,158 +482,9 @@ export function InventarioPage() {
           canWrite={canWrite}
           onRecibida={reload}
         />
-      ) : ui.view === 'almacenes' ? (
-        almacenSel ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '.75rem', flexWrap: 'wrap' }}>
-              <button className="btn btn-ghost" onClick={() => setAlmacenSel(null)}>← Volver a almacenes</button>
-              <h2 style={{ margin: 0 }}>▣ {almacenSel}</h2>
-              {/* Valor y conteo COINCIDEN con lo que se ve (respetan búsqueda/filtros): si el
-                  filtro deja 0 productos, el valor también es 0 (antes mostraba el total del
-                  almacén con 0 productos y confundía). */}
-              <span className="muted mono">{money(almacenRows.reduce((a, r) => a + (Number(r.stock) || 0) * (Number(r.precio) || 0), 0))} · {num(almacenRows.length)} producto(s){hayFiltrosActivos(ui) ? ' (filtrado)' : ''}</span>
-              <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
-                <button className="btn btn-primary btn-sm" onClick={() => setConsumoAlmacen(almacenSel)} title="Gráfica de consumo por producto de este almacén">📊 Consumo</button>
-                <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}
-                  onClick={() => descargarAlmacenExcel(almacenSel, almacenRows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>↓ Excel</button>
-                <button className="btn btn-ghost btn-sm" disabled={!almacenRows.length}
-                  onClick={() => descargarAlmacenPdf(almacenSel, almacenRows).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
-              </div>
-            </div>
-            <div className="view-toggle" role="tablist" aria-label="Vista del almacén" style={{ marginBottom: '.75rem', marginLeft: 0 }}>
-              <button className={detalleLayout === 'kanban' ? 'active' : ''} onClick={() => setDetalleLayout('kanban')}>▦ Kanban</button>
-              <button className={detalleLayout === 'lista' ? 'active' : ''} onClick={() => setDetalleLayout('lista')}>☰ Lista</button>
-            </div>
-            <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} />
-            {loading ? (
-              <EmptyState message="Cargando productos…" icon="◔" />
-            ) : detalleLayout === 'kanban' ? (
-              <AlmacenKanban rows={almacenRows} consumo={consumo} onView={openVer} />
-            ) : (
-              <ProductosTable
-                rows={almacenRows}
-                onView={openVer}
-                onEdit={openEditar}
-                onMovimiento={openMovimiento}
-                onToggleEstado={askToggleEstado}
-                canWrite={canWrite}
-                movStats={movStats}
-              />
-            )}
-          </>
-        ) : !sedeSel ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0 }}>📍 Sedes</h2>
-              <span className="muted" style={{ fontSize: '.85rem' }}>Elegí una sede para ver sus almacenes.</span>
-              <div style={{ display: 'flex', gap: '.5rem', marginLeft: 'auto', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  className="btn btn-ghost"
-                  title="Reporte PDF de todo el inventario por almacenes y subalmacenes"
-                  onClick={() => descargarReporteAlmacenesPdf().catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el reporte', 'error'))}
-                >
-                  ↓ Reporte PDF (almacenes y subalmacenes)
-                </button>
-                {canWrite && (
-                  <button className="btn btn-primary" style={{ padding: '.7rem 1.3rem', fontSize: '1.02rem', fontWeight: 700 }} onClick={() => setModal({ kind: 'almacenCrear' })}>
-                    + Agregar almacén
-                  </button>
-                )}
-              </div>
-            </div>
-            {loading ? (
-              <EmptyState message="Cargando almacenes…" icon="◔" />
-            ) : (
-              <SedesView almacenes={almacenes} valores={valoresAlm}
-                onSelectSede={(s) => { setSedeSel(s); setAlmacenNavId(null); }}
-                onEditarSede={(s) => setModal({ kind: 'sedeEditar', sede: s })} />
-            )}
-          </>
-        ) : (() => {
-          const sedeAlmacenes = almacenes.filter((a) => (a.sede?.trim() || 'Sin sede') === sedeSel);
-          // Si la sede tiene un único almacén padre (ej. "Los Pinos"), se salta ese
-          // nivel redundante y se muestran directo sus subalmacenes.
-          const roots = raices(sedeAlmacenes);
-          const autoPadre = !almacenNavId && roots.length === 1 && hijosDe(roots[0].id, sedeAlmacenes).length > 0 ? roots[0] : null;
-          const nivelParentId = almacenNavId ?? (autoPadre ? autoPadre.id : null);
-          const padre = almacenNavId ? almacenes.find((a) => a.id === almacenNavId) ?? null : null;
-          // Contenedor donde se agregaría: el padre que estamos viendo (manual o auto).
-          const contenedor = padre ?? autoPadre;
-          return (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
-              {padre ? (
-                <>
-                  <button className="btn btn-ghost" onClick={() => setAlmacenNavId(null)}>← Volver a {sedeSel}</button>
-                  <h2 style={{ margin: 0 }}>▣ {nombreCortoAlmacen(padre, almacenes)}</h2>
-                </>
-              ) : (
-                <>
-                  <button className="btn btn-ghost" onClick={() => setSedeSel(null)}>← Volver a sedes</button>
-                  <h2 style={{ margin: 0 }}>📍 {sedeSel}</h2>
-                </>
-              )}
-              <div className="view-toggle" role="tablist" aria-label="Vista de almacenes" style={{ marginLeft: '.5rem' }}>
-                <button
-                  className={ui.almacenLayout === 'kanban' ? 'active' : ''}
-                  onClick={() => setUi((prev) => ({ ...prev, almacenLayout: 'kanban' }))}
-                >
-                  ▦ Kanban
-                </button>
-                <button
-                  className={ui.almacenLayout === 'lista' ? 'active' : ''}
-                  onClick={() => setUi((prev) => ({ ...prev, almacenLayout: 'lista' }))}
-                >
-                  ☰ Lista
-                </button>
-              </div>
-              {canWrite && (
-                <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '.7rem 1.3rem', fontSize: '1.02rem', fontWeight: 700 }}
-                  onClick={() => setModal(contenedor ? { kind: 'almacenCrear', parentId: contenedor.id } : { kind: 'almacenCrear', sede: sedeSel })}>
-                  {contenedor ? '+ Agregar subalmacén' : '+ Agregar almacén'}
-                </button>
-              )}
-            </div>
-            {loading ? (
-              <EmptyState message="Cargando almacenes…" icon="◔" />
-            ) : (
-              <AlmacenesView
-                almacenes={sedeAlmacenes}
-                valores={valoresAlm}
-                layout={ui.almacenLayout}
-                canWrite={canWrite}
-                parentId={nivelParentId}
-                onSelect={setAlmacenSel}
-                onDrill={(a) => setAlmacenNavId(a.id)}
-                onConsumo={setConsumoAlmacen}
-                onEditar={(a) => setModal({ kind: 'almacenEditar', almacen: a })}
-                onEliminar={(a) => setModal({ kind: 'almacenEliminar', almacen: a })}
-                onAgregarSub={(a) => setModal({ kind: 'almacenCrear', parentId: a.id })}
-              />
-            )}
-            {consumoAlmacen && (
-              <ConsumoChartModal
-                title={`Consumo · ${consumoAlmacen}`}
-                subtitle="Consumo de productos de este almacén (salidas y consumo de producción). La gráfica muestra cada producto; el valor en $ usa el costo del movimiento."
-                cargar={async (desde, hasta) => {
-                  const items = await consumoPorProductoEnAlmacen(consumoAlmacen!, desde, hasta);
-                  return items.map((x) => ({ id: x.producto_id, label: x.nombre, sub: x.sku, unidad: x.unidad, cantidad: x.cantidad, valor: x.valor }));
-                }}
-                onClose={() => setConsumoAlmacen(null)}
-              />
-            )}
-          </>
-          );
-        })()
       ) : (
         <>
-          <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} almacenes={almacenNombres} />
-          {ui.filterAlmacen && (
-            <div className="muted" style={{ fontSize: '.82rem', margin: '-.35rem 0 .6rem' }}>
-              Mostrando stock y costo del almacén <strong style={{ color: 'var(--text)' }}>{ui.filterAlmacen}</strong>
-              {!ui.filterAlmacen.includes(' / ') && <> (incluye todos sus subalmacenes; el stock se suma por producto)</>}.
-            </div>
-          )}
+          <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} />
           {loading ? (
             <EmptyState message="Cargando productos…" icon="◔" />
           ) : (
@@ -879,8 +527,6 @@ export function InventarioPage() {
         <MovimientoForm
           producto={modal.producto}
           existencias={existMap.get(modal.producto.id) ?? []}
-          almacenesList={almacenes.map((a) => a.nombre)}
-          fixedAlmacen={ui.view === 'almacenes' ? almacenSel : null}
           actorEmail={productoActor}
           actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}
@@ -914,37 +560,6 @@ export function InventarioPage() {
           analisis={modal.analisis}
           onClose={() => setModal({ kind: 'none' })}
           onImportado={() => { void reload(); }}
-        />
-      )}
-      {modal.kind === 'almacenCrear' && (
-        <AlmacenForm
-          almacenes={almacenes}
-          parentPreset={modal.parentId ?? null}
-          sedePreset={modal.sede ?? null}
-          onClose={() => setModal({ kind: 'none' })}
-          onSubmit={handleCrearAlmacen}
-        />
-      )}
-      {modal.kind === 'almacenEditar' && (
-        <AlmacenForm
-          almacen={modal.almacen}
-          almacenes={almacenes}
-          onClose={() => setModal({ kind: 'none' })}
-          onSubmit={(data) => handleEditarAlmacen(modal.almacen.id, data)}
-        />
-      )}
-      {modal.kind === 'sedeEditar' && (
-        <RenombrarSedeModal
-          sede={modal.sede}
-          onClose={() => setModal({ kind: 'none' })}
-          onSubmit={async (nuevo) => { await handleRenombrarSede(modal.sede, nuevo); setModal({ kind: 'none' }); }}
-        />
-      )}
-      {modal.kind === 'almacenEliminar' && (
-        <EliminarAlmacenDialog
-          almacen={modal.almacen}
-          onCancel={() => setModal({ kind: 'none' })}
-          onConfirm={() => handleEliminarAlmacen(modal.almacen)}
         />
       )}
 
@@ -985,92 +600,5 @@ export function InventarioPage() {
         />
       )}
     </div>
-  );
-}
-
-/* ───────── Eliminar almacén: confirmación escribiendo el nombre ───────── */
-const DIACRITICOS = /[̀-ͯ]/g; // marcas diacríticas combinantes
-function normalizarTexto(s: string): string {
-  return (s || '').normalize('NFD').replace(DIACRITICOS, '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-/** Palabra a escribir para confirmar: el nombre sin el prefijo genérico
- *  (ej. "Almacén de Víveres" → "Víveres"; si no hay prefijo, el nombre completo). */
-function palabraClaveAlmacen(nombre: string): string {
-  const m = (nombre || '').trim().match(/^(?:almac[eé]n|dep[oó]sito|bodega)\s+(?:de\s+)?(.+)$/i);
-  return (m ? m[1] : nombre || '').trim();
-}
-
-function EliminarAlmacenDialog({ almacen, onCancel, onConfirm }: {
-  almacen: Almacen; onCancel: () => void; onConfirm: () => void;
-}) {
-  const clave = palabraClaveAlmacen(almacen.nombre);
-  const [texto, setTexto] = useState('');
-  const ok = texto.trim() !== '' && normalizarTexto(texto) === normalizarTexto(clave);
-  return (
-    <Modal title="Eliminar almacén" size="md" onClose={onCancel} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
-        <button className="btn btn-danger" disabled={!ok} onClick={() => { if (ok) onConfirm(); }}>
-          Eliminar definitivamente
-        </button>
-      </>
-    }>
-      <p style={{ marginTop: 0 }}>
-        ¿Seguro que deseas borrar el almacén <strong>«{almacen.nombre}»</strong>? Solo se puede si no tiene
-        productos asignados. <strong>Esta acción no se puede deshacer.</strong>
-      </p>
-      <div className="form-row">
-        <label>Para confirmar, escribí <strong>{clave}</strong></label>
-        <input
-          className="input"
-          autoFocus
-          value={texto}
-          placeholder={clave}
-          onChange={(e) => setTexto(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(); }}
-        />
-        {texto.trim() !== '' && !ok && (
-          <small className="muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
-        )}
-      </div>
-    </Modal>
-  );
-}
-
-/* ───────── Renombrar sede (agrupación de almacenes) ───────── */
-function RenombrarSedeModal({ sede, onClose, onSubmit }: {
-  sede: string; onClose: () => void; onSubmit: (nuevo: string) => Promise<void> | void;
-}) {
-  const [nombre, setNombre] = useState(sede);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const limpio = nombre.trim();
-  const ok = limpio !== '' && limpio !== sede;
-  async function guardar() {
-    if (!ok || saving) return;
-    setSaving(true); setError(null);
-    try { await onSubmit(limpio); }
-    catch (e) { setError(e instanceof Error ? e.message : 'No se pudo renombrar la sede.'); setSaving(false); }
-  }
-  return (
-    <Modal title="Renombrar sede" size="md" onClose={() => !saving && onClose()} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className="btn btn-primary" onClick={guardar} disabled={!ok || saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
-      </>
-    }>
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <p style={{ marginTop: 0 }}>
-        Cambiá el nombre de la sede <strong>«{sede}»</strong>. Se actualiza en <strong>todos sus almacenes y subalmacenes</strong>;
-        no afecta el stock (que se guarda por almacén).
-      </p>
-      <div className="form-row">
-        <label>Nombre de la sede</label>
-        <input className="input" autoFocus value={nombre}
-          onChange={(e) => setNombre(e.target.value.toUpperCase())}
-          onKeyDown={(e) => { if (e.key === 'Enter' && ok) guardar(); }}
-          placeholder="Ej: PERAMANAL" />
-      </div>
-    </Modal>
   );
 }

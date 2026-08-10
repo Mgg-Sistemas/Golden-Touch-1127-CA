@@ -4,6 +4,9 @@ import { listDirectorioUsuarios, type PersonaDirectorio } from './salidas.reposi
 
 type Modo = 'almacen' | 'persona';
 
+/** Inventario único: `'General'` se muestra como «Inventario General» (el valor no cambia). */
+const invLabel = (a: string): string => (a.trim().toLowerCase() === 'general' ? 'Inventario General' : a);
+
 /**
  * Selector de destino ("a quién va dirigido") con switch:
  *  - Almacén  → desplegable de almacenes registrados (+ Consumo Interno).
@@ -58,7 +61,7 @@ export function DestinoSelect({
       {modo === 'almacen' ? (
         <select className="select" value={opcionesAlmacen.includes(value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
           <option value="">— elegí el almacén —</option>
-          {opcionesAlmacen.map((a) => <option key={a} value={a}>{a}</option>)}
+          {opcionesAlmacen.map((a) => <option key={a} value={a}>{invLabel(a)}</option>)}
         </select>
       ) : (
         <SearchSelect value={value} onChange={onChange} disabled={cargando}

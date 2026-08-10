@@ -47,7 +47,6 @@ import {
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
 import { listProductos, createProducto, getUnidades, nextSku } from '@/modules/inventario/inventario.repository';
-import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
   listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro, crearOAcumularCuentaPorCobrar,
@@ -967,7 +966,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
                   <div><span className="muted">Código:</span> <strong className="mono">{compraDir.codigo ?? '—'}</strong></div>
                   <div><span className="muted">Proveedor:</span> <strong>{compraDir.proveedor_nombre || '—'}</strong></div>
-                  <div><span className="muted">Almacén destino:</span> <strong>{compraDir.almacen || '—'}</strong></div>
+                  <div><span className="muted">Destino:</span> <strong>{compraDir.almacen === 'General' ? 'Inventario General' : (compraDir.almacen || '—')}</strong></div>
                   <div><span className="muted">Solicitó:</span> <strong>{compraDir.actor_name || compraDir.actor || '—'}</strong></div>
                 </div>
                 {compraDir.nota?.trim() && (
@@ -4765,14 +4764,14 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
   cuenta: CuentaPorPagar; actor: string; actorName: string | null; onClose: () => void; onAbonado: () => void | Promise<void>;
 }) {
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
   const [noRegistrado, setNoRegistrado] = useState(false);
   const [productoId, setProductoId] = useState('');
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
-  const [almacen, setAlmacen] = useState('');
+  // Inventario único: el producto recibido siempre entra al Inventario General ('General' en BD).
+  const almacen = 'General';
   const [cantidad, setCantidad] = useState('');
   const [valorUsd, setValorUsd] = useState('');
   const [saving, setSaving] = useState(false);
@@ -4780,7 +4779,6 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
 
   useEffect(() => {
     listProductos().then(setProductos).catch(() => setProductos([]));
-    getNombresAlmacenes().then((a) => { setAlmacenes(a); setAlmacen((p) => p || a[0] || 'General'); }).catch(() => setAlmacenes(['General']));
     getUnidades().then((u) => { setUnidades(u); setNuevoUnidad((p) => (u.includes(p) ? p : (u[0] ?? 'und'))); }).catch(() => setUnidades(['und']));
   }, []);
 
@@ -4794,7 +4792,6 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
     const cant = Number(cantidad.replace(',', '.')) || 0;
     if (cant <= 0) { setError('Indicá la cantidad recibida.'); return; }
     if (valor <= 0) { setError('Indicá el valor del producto al cambio (USD).'); return; }
-    if (!almacen) { setError('Elegí el almacén destino.'); return; }
     if (!noRegistrado && !productoId) { setError('Elegí el producto recibido (o marcá «producto no registrado»).'); return; }
     if (noRegistrado && !nuevoNombre.trim()) { setError('Escribí el nombre del producto nuevo.'); return; }
     setSaving(true);
@@ -4866,8 +4863,8 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
 
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '1 1 220px' }}>
-          <label>Almacén destino</label>
-          <SearchSelect value={almacen} onChange={setAlmacen} options={almacenes.map((a) => ({ value: a, label: a }))} placeholder="🔍 Buscar almacén…" />
+          <label>Destino</label>
+          <input className="input" value="Inventario General" disabled readOnly />
         </div>
         <div className="form-row" style={{ width: 160 }}>
           <label>Cantidad recibida</label>

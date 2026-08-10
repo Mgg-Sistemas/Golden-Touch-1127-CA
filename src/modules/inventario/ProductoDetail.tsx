@@ -78,7 +78,7 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
           </div>
           <h3 style={{ margin: '.15rem 0 0' }}>{producto.nombre}</h3>
           <div className="muted mono" style={{ fontSize: '.78rem' }}>
-            {producto.sku} · {producto.categoria} · {producto.unidad} · almacén {producto.almacen}
+            {producto.sku} · {producto.categoria} · {producto.unidad} · Inventario General
           </div>
           <div style={{ marginTop: '.35rem', display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
             {producto.receta_fundicion && (
@@ -201,7 +201,7 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
                   })()}
                   <div className="tl-meta">
                     {dateTime(m.at)} · por {m.actor_name || m.actor || '—'}
-                    {m.almacen && <> · <span className="badge" style={{ fontSize: '.62rem' }}>▣ {m.almacen}</span></>} · saldo{' '}
+                    {m.almacen && <> · <span className="badge" style={{ fontSize: '.62rem' }}>▣ {m.almacen === 'General' ? 'Inventario General' : m.almacen}</span></>} · saldo{' '}
                     <span className="mono">{num(m.stock_despues)}</span>
                   </div>
                 </div>

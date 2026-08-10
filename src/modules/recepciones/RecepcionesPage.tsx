@@ -5,8 +5,6 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
-import { getNombresAlmacenes, crearAlmacen } from '@/modules/inventario/almacenes.repository';
 import { tasaActualAcopio } from '@/modules/acopio/caja.repository';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -1303,14 +1301,11 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRe
   const [guardando, setGuardando] = useState(false);
   const [aBorrar, setABorrar] = useState<Conciliacion | null>(null);
 
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
-
   const cargar = useCallback(async () => {
     try { setLista(await listConciliaciones()); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las conciliaciones', 'error'); }
   }, []);
   useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
-  useEffect(() => { getNombresAlmacenes().then(setAlmacenes).catch(() => setAlmacenes([])); }, []);
   useRealtime(['recepciones_conciliaciones'], () => { void cargar(); });
 
   const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
@@ -1340,15 +1335,6 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRe
   }
   function patchCentro(i: number, patch: Partial<ConciliacionCentro>) {
     setDraft((p) => p ? { ...p, centros: p.centros.map((x, j) => (j === i ? { ...x, ...patch } : x)) } : p);
-  }
-  /** Almacén del centro RESGUARDO: si es nuevo, lo crea en el inventario REAL. */
-  async function setAlmacenCentro(i: number, value: string) {
-    patchCentro(i, { almacen: value });
-    const v = value.trim();
-    if (v && !almacenes.some((a) => a.toLowerCase() === v.toLowerCase())) {
-      try { const a = await crearAlmacen({ nombre: v }, actor); setAlmacenes((prev) => prev.includes(a.nombre) ? prev : [...prev, a.nombre]); patchCentro(i, { almacen: a.nombre }); }
-      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el almacén', 'error'); }
-    }
   }
   function addCentro() { setDraft((p) => (p ? { ...p, centros: [...p.centros, { nombre: '', kg: null, categoria: null, entra_inventario: false, almacen: null }] } : p)); }
   function delCentro(i: number) { setDraft((p) => (p ? { ...p, centros: p.centros.filter((_, j) => j !== i) } : p)); }
@@ -1474,16 +1460,10 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRe
                               <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap', alignItems: 'center', padding: '.25rem 0' }}>
                                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.8rem' }}>
                                   <input type="checkbox" checked={!!ce.entra_inventario} disabled={!canWrite}
-                                    onChange={(e) => patchCentro(i, { entra_inventario: e.target.checked })} />
+                                    onChange={(e) => patchCentro(i, { entra_inventario: e.target.checked, almacen: e.target.checked ? 'General' : null })} />
                                   ¿Entran estos KG al inventario? <span className="muted">(sin tasa)</span>
                                 </label>
-                                {ce.entra_inventario && (
-                                  <div style={{ minWidth: 240, flex: '1 1 240px' }}>
-                                    <SearchCreateSelect options={almacenes} value={ce.almacen ?? ''} disabled={!canWrite}
-                                      onChange={(v) => void setAlmacenCentro(i, v.toUpperCase())}
-                                      placeholder="🔍 Almacén destino… (escribí para crear)" emptyText="Escribí para crear un almacén" />
-                                  </div>
-                                )}
+                                {ce.entra_inventario && <span className="muted" style={{ fontSize: '.78rem' }}>→ Inventario General</span>}
                                 {ce.inventario_aplicado && <span className="badge success" style={{ fontSize: '.7rem' }}>✓ Ingresado</span>}
                               </div>
                             </td>
@@ -1852,9 +1832,6 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
   const [mode, setMode] = useState<'list' | 'cerrar' | 'detalle'>('list');
   const [numero, setNumero] = useState(1);
   const [obs, setObs] = useState('');
-  const [almacen, setAlmacen] = useState('');
-  const [subalmacen, setSubalmacen] = useState('');
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [cerrando, setCerrando] = useState(false);
   const [ver, setVer] = useState<CierreRecepcion | null>(null);
   const [aBorrar, setABorrar] = useState<CierreRecepcion | null>(null);
@@ -1866,26 +1843,15 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los cierres', 'error'); }
   }, []);
   useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
-  useEffect(() => { getNombresAlmacenes().then(setAlmacenes).catch(() => setAlmacenes([])); }, []);
   useRealtime(['recepciones_cierres'], () => { void cargar(); });
-
-  /** Almacén destino: si es nuevo, lo crea en el inventario REAL. */
-  async function setAlmacenDestino(v: string) {
-    const value = v.toUpperCase(); setAlmacen(value);
-    const t = value.trim();
-    if (t && !almacenes.some((a) => a.toLowerCase() === t.toLowerCase())) {
-      try { const a = await crearAlmacen({ nombre: t }, actor); setAlmacenes((prev) => prev.includes(a.nombre) ? prev : [...prev, a.nombre]); setAlmacen(a.nombre); }
-      catch (e) { toast(e instanceof Error ? e.message : 'No se pudo crear el almacén', 'error'); }
-    }
-  }
 
   const fmtFecha = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }); };
 
-  function abrirCerrar() { setNumero(lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1); setObs(''); setAlmacen(''); setSubalmacen(''); setMode('cerrar'); }
+  function abrirCerrar() { setNumero(lista.reduce((m, c) => Math.max(m, c.numero), 0) + 1); setObs(''); setMode('cerrar'); }
   async function confirmarCierre() {
     setCerrando(true);
     try {
-      const c = await cerrarRecepcion({ numero, actor, actorName, observacion: obs, almacen: almacen.trim() || null, subalmacen: subalmacen.trim() || null });
+      const c = await cerrarRecepcion({ numero, actor, actorName, observacion: obs, almacen: 'General', subalmacen: null });
       await cargar(); setMode('list');
       // La foto quedó guardada en el histórico y los datos de trabajo se borraron:
       // refrescamos la hoja del padre para que quede EN BLANCO al instante.
@@ -1979,24 +1945,12 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
             <label>N° de recepción</label>
             <input className="input mono" type="number" min={1} value={numero} onChange={(e) => setNumero(Math.max(1, Math.round(Number(e.target.value) || 1)))} />
           </div>
-          <div className="form-grid" style={{ marginTop: '.75rem' }}>
-            <div className="form-row">
-              <label>Almacén destino <span className="muted">(neto seco)</span></label>
-              <SearchCreateSelect options={almacenes} value={almacen} disabled={!canWrite}
-                onChange={(v) => void setAlmacenDestino(v)}
-                placeholder="🔍 Almacén… (escribí para crear)" emptyText="Escribí para crear un almacén" />
-            </div>
-            <div className="form-row">
-              <label>Subalmacén <span className="muted">(opcional)</span></label>
-              <input className="input" value={subalmacen} onChange={(e) => setSubalmacen(e.target.value.toUpperCase())} placeholder="Sub-ubicación…" />
-            </div>
-          </div>
           <div className="form-row" style={{ marginTop: '.75rem' }}>
             <label>Nota <span className="muted">(opcional)</span></label>
             <textarea className="input" rows={2} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observaciones del cierre…" />
           </div>
           <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--warning)' }}>
-            <small>Al cerrar se guarda una <strong>foto de todos los datos</strong> (recepciones, análisis, humedad, conciliación N° {numero} y totales N° {numero}). El <strong>NETO SECO</strong> de las pesadas disponibles ingresa al inventario (producto <strong>Casiterita</strong>) al <strong>almacén/subalmacén</strong> indicado con la <strong>tasa final de Totales</strong>. Los centros <strong>RESGUARDO «entra al inventario»</strong> ingresan <strong>sin tasa</strong>.</small>
+            <small>Al cerrar se guarda una <strong>foto de todos los datos</strong> (recepciones, análisis, humedad, conciliación N° {numero} y totales N° {numero}). El <strong>NETO SECO</strong> de las pesadas disponibles ingresa al <strong>Inventario General</strong> (producto <strong>Casiterita</strong>) con la <strong>tasa final de Totales</strong>. Los centros <strong>RESGUARDO «entra al inventario»</strong> ingresan <strong>sin tasa</strong>.</small>
           </div>
         </div>
       )}
@@ -2109,7 +2063,7 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
             const ing = (snap as Record<string, unknown>).ingreso_casiterita as { almacen: string; kg: number; tasa: number } | null | undefined;
             return ing ? (
               <div className="detail-row"><div className="k">Neto seco → inventario</div>
-                <div className="v mono">{fmt(ing.kg)} kg · {ing.almacen} · tasa {fmt4(ing.tasa)}</div></div>
+                <div className="v mono">{fmt(ing.kg)} kg · {ing.almacen === 'General' ? 'Inventario General' : ing.almacen} · tasa {fmt4(ing.tasa)}</div></div>
             ) : null;
           })()}
 
@@ -2120,7 +2074,7 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
                 <thead><tr><th>Centro</th><th>Almacén</th><th className="num">KG</th></tr></thead>
                 <tbody>
                   {(arr('ingresos_resguardo') as Array<{ centro: string; almacen: string; kg: number }>).map((g, i) => (
-                    <tr key={i}><td>{g.centro || '—'}</td><td>{g.almacen}</td><td className="num mono">{fmt(g.kg)}</td></tr>
+                    <tr key={i}><td>{g.centro || '—'}</td><td>{g.almacen === 'General' ? 'Inventario General' : g.almacen}</td><td className="num mono">{fmt(g.kg)}</td></tr>
                   ))}
                 </tbody>
               </table></div>

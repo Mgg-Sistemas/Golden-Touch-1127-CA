@@ -13,7 +13,6 @@ import type { FilaMov } from './movimientosAcopioCalc';
 import { CategoriasModal } from './CategoriasModal';
 import { HistoricoCajasModal } from './HistoricoCajasModal';
 import { listProductos } from '@/modules/inventario/inventario.repository';
-import { getNombresAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { Producto, RecepcionAcopio } from '@/shared/lib/types';
 import {
   createRecepcion,
@@ -53,7 +52,6 @@ export function AcopioPage() {
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
   const [cajas, setCajas] = useState<CajaCierre[]>([]);
   const [entrantes, setEntrantes] = useState<TransferenciaInter[]>([]);
   const [gastosPorAceptar, setGastosPorAceptar] = useState<GastoPorAceptar[]>([]);
@@ -99,14 +97,13 @@ export function AcopioPage() {
   }, [resumen.tasa]);
 
   const reload = useCallback(async () => {
-    const [ps, alms, cjs, ent, cts, gpa] = await Promise.all([
-      listProductos(), getNombresAlmacenes(), listCajas(),
+    const [ps, cjs, ent, cts, gpa] = await Promise.all([
+      listProductos(), listCajas(),
       listEntrantesPorConfirmar('acopio').catch(() => []),
       listContratos().catch(() => [] as ContratoAcopio[]),
       listGastosPorAceptar().catch(() => [] as GastoPorAceptar[]),
     ]);
     setProductos(ps);
-    setAlmacenes(alms);
     setCajas(cjs);
     setEntrantes(ent);
     setContratosActivos(cts.filter((c) => c.estado === 'activo'));
@@ -276,7 +273,6 @@ export function AcopioPage() {
         <RecepcionModal
           recepcion={editar}
           productos={productos}
-          almacenes={almacenes}
           canWrite={canWrite}
           actor={actor}
           actorName={actorName}
@@ -615,10 +611,9 @@ const n = (v: string) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 /** Verf. = IF(precinto_inicio = precinto_final, "V", "F") del Excel. */
 const verf = (f: FilaLote) => f.precinto_inicio.trim() === f.precinto_final.trim();
 
-function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, actorName, onClose, onSaved }: {
+function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onClose, onSaved }: {
   recepcion: RecepcionAcopio | null;
   productos: Producto[];
-  almacenes: string[];
   canWrite: boolean;
   actor: string;
   actorName: string | null;
@@ -632,7 +627,8 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
   const [centro, setCentro] = useState(recepcion?.centro_acopio ?? 'Peramanal');
   const [aliado, setAliado] = useState(recepcion?.aliado ?? '');
   const [productoId, setProductoId] = useState(recepcion?.producto_id ?? '');
-  const [almacen, setAlmacen] = useState(recepcion?.almacen ?? almacenes[0] ?? '');
+  // Inventario único: el stock siempre entra al Inventario General (valor 'General' en BD).
+  const almacen = 'General';
   const [entNombre, setEntNombre] = useState(recepcion?.entregado_nombre ?? '');
   const [entCi, setEntCi] = useState(recepcion?.entregado_ci ?? '');
   const [recNombre, setRecNombre] = useState(recepcion?.recibido_nombre ?? '');
@@ -717,7 +713,6 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
   async function guardarYCerrar() {
     setError(null);
     if (!productoId) { setError('Elegí el producto (mineral) al que se suma el stock.'); return; }
-    if (!almacen.trim()) { setError('Elegí el almacén destino del stock.'); return; }
     if (cantidadStock <= 0) { setError('El peso recibido debe ser mayor que 0.'); return; }
     setSaving(true);
     try {
@@ -725,7 +720,7 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
       if (esNueva) { id = (await createRecepcion(buildInput(), actor, actorName)).id; }
       else { await updateRecepcion(recepcion!.id, buildInput()); }
       const cerrada = await cerrarRecepcion(id!, actor, actorName);
-      notify(`Recepción ${cerrada.numero} cerrada · +${num(cantidadStock)} ${unidad} a ${almacen}`, 'success', { link: '#/app/acopio' });
+      notify(`Recepción ${cerrada.numero} cerrada · +${num(cantidadStock)} ${unidad} al Inventario General`, 'success', { link: '#/app/acopio' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo cerrar.'); setSaving(false); }
   }
@@ -816,13 +811,7 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
             <label>📦 Producto (mineral) que suma stock al cerrar</label>
             <SearchSelect value={productoId} onChange={setProductoId} disabled={ro} placeholder="🔍 Buscar producto…"
               options={productos.map((p) => ({ value: p.id, label: `${p.nombre} ${p.sku ? `(${p.sku})` : ''}`.trim() }))} />
-          </div>
-          <div className="form-row">
-            <label>Almacén destino del stock</label>
-            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} disabled={ro}>
-              {!almacenes.length && <option value="">— sin almacenes —</option>}
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <small className="muted">El stock entra al <strong>Inventario General</strong>.</small>
           </div>
         </div>
 
@@ -911,12 +900,12 @@ function RecepcionModal({ recepcion, productos, almacenes, canWrite, actor, acto
 
       {estado === 'cerrada' && (
         <div className="card" style={{ borderColor: 'var(--primary)', marginTop: '.75rem', fontSize: '.85rem' }}>
-          ✔ Recepción cerrada · sumó <strong className="mono">{num(recepcion?.mov_cantidad ?? 0)}</strong> al inventario ({recepcion?.mov_almacen}).
+          ✔ Recepción cerrada · sumó <strong className="mono">{num(recepcion?.mov_cantidad ?? 0)}</strong> al inventario (Inventario General).
         </div>
       )}
       {editable && (
         <p className="muted" style={{ fontSize: '.8rem', marginTop: '.6rem' }}>
-          Al cerrar se sumarán <strong className="mono">{num(cantidadStock)} {unidad}</strong> al stock de <strong>{productoSel?.nombre ?? '(elegí producto)'}</strong> en <strong>{almacen || '(elegí almacén)'}</strong>
+          Al cerrar se sumarán <strong className="mono">{num(cantidadStock)} {unidad}</strong> al stock de <strong>{productoSel?.nombre ?? '(elegí producto)'}</strong> en el <strong>Inventario General</strong>
           {totales.recepcionado <= 0 && totales.neto > 0 && ' · se usa el peso neto porque no hay peso recepcionado.'}
         </p>
       )}

@@ -52,6 +52,13 @@ type Modal =
   | { kind: 'resumen-unidad' }
   | { kind: 'cajas' };
 
+/** Con un único inventario, el almacén guardado es siempre `'General'`; en la UI se
+ *  muestra como «Inventario General». No cambia el valor escrito a la BD. */
+function invLabel(a?: string | null): string {
+  if (!a) return '—';
+  return a.trim().toLowerCase() === 'general' ? 'Inventario General' : a;
+}
+
 const SOL_COLS: { key: EstadoSolicitudSalida; label: string }[] = [
   { key: 'por_aprobar', label: 'Por aprobar' },
   { key: 'aprobada', label: 'Aprobada' },
@@ -181,7 +188,7 @@ export function SalidasPage() {
     else if (esSalida && !esMaterial) setModal({ kind: 'salida-dinero' });
     else setModal({ kind: 'traslado-dinero' });
   }
-  const btnLabel = esSalida ? '+ Nueva solicitud de salida' : '+ Nueva solicitud de traslado';
+  const btnLabel = esSalida ? '+ Nueva solicitud de salida' : '🌉 Enviar casiterita al otro sistema';
   const esTemporales = scope === 'temporales';
 
   return (
@@ -204,7 +211,7 @@ export function SalidasPage() {
       {/* Switch principal: Salidas / Traslados / Salidas Temporales (solo material; el dinero va por Tesorería) */}
       <div className="view-toggle" role="tablist" aria-label="Tipo de operación" style={{ marginBottom: '1rem' }}>
         <button className={scope === 'salidas' ? 'active' : ''} onClick={() => setScope('salidas')}>↘ Salidas</button>
-        <button className={scope === 'traslados' ? 'active' : ''} onClick={() => setScope('traslados')}>↔ Traslados</button>
+        <button className={scope === 'traslados' ? 'active' : ''} onClick={() => setScope('traslados')}>🌉 Envío de casiterita</button>
         <button className={scope === 'temporales' ? 'active' : ''} onClick={() => setScope('temporales')}>🔧 Salidas Temporales</button>
       </div>
 
@@ -285,7 +292,7 @@ export function SalidasPage() {
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'traslado-material' && (
-        <TrasladoMaterialForm productos={productos} existencias={existencias} almacenesList={almacenesActivos}
+        <TrasladoMaterialForm productos={productos} existencias={existencias}
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'salida-dinero' && (
@@ -297,7 +304,7 @@ export function SalidasPage() {
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'conciliar' && (
-        <ConciliarMineralModal salida={modal.salida} productos={productos} almacenesList={almacenesActivos}
+        <ConciliarMineralModal salida={modal.salida} productos={productos}
           actor={actor} actorName={actorName} onClose={() => setModal({ kind: 'none' })} onSaved={reload} />
       )}
       {modal.kind === 'cajas' && (
@@ -511,7 +518,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
                       <td>{porUnidad ? f.producto : f.unidad}</td>
                       <td>{f.solicitante}</td>
                       <td title={f.autorizadoEn ? dateTime(f.autorizadoEn) : undefined}>{f.autorizo || '—'}</td>
-                      <td>{[f.origen, f.destinoTxt].filter(Boolean).join(' → ') || '—'}</td>
+                      <td>{[f.origen && invLabel(f.origen), f.destinoTxt].filter(Boolean).join(' → ') || '—'}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{num(f.cantidad)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{money(f.precioUnit)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{money(f.monto)}</td>
@@ -597,7 +604,7 @@ function Historial({
                 <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => onVerMaterial(m, esTraslado)} title="Ver detalle">
                   <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(m.at)}</td>
                   <td><strong>{m.producto?.nombre ?? '—'}</strong><div className="muted mono" style={{ fontSize: '.7rem' }}>{m.producto?.sku}</div></td>
-                  <td>{esTraslado ? <span className="mono">{m.almacen} → {m.destino}</span> : <span className="badge">{m.almacen}</span>}</td>
+                  <td>{esTraslado ? <span className="mono">{invLabel(m.almacen)} → {m.destino}</span> : <span className="badge">{invLabel(m.almacen)}</span>}</td>
                   <td>{m.solicitante || m.actor_name || m.actor || '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(cant)} {m.producto?.unidad ?? ''}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio) : '—'}</td>
@@ -669,9 +676,8 @@ function Historial({
 function resumenSolicitud(s: SolicitudSalida): string {
   if (s.tipo === 'material') {
     const cant = num(Number(s.cantidad) || 0);
-    if (s.scope === 'traslado') return `${cant} · ${s.almacen_origen ?? '—'} → ${s.almacen_destino ?? '—'}`;
-    // Salida: el origen puede ser de varios almacenes (cada material del suyo).
-    const origen = s.almacen_origen ?? 'varios almacenes';
+    if (s.scope === 'traslado') return `${cant} · ${invLabel(s.almacen_origen)} → ${s.almacen_destino ?? '—'}`;
+    const origen = s.almacen_origen ? invLabel(s.almacen_origen) : 'Inventario General';
     return s.destino ? `${cant} · ${origen} → ${s.destino}` : `${cant} · ${origen}`;
   }
   const monto = money(Number(s.monto) || 0);
@@ -941,7 +947,7 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
                       <input className="input" style={{ marginTop: '.25rem', fontSize: '.74rem' }} defaultValue={it.observacion}
                         onChange={(e) => setItem(it.key, { observacion: e.target.value })} placeholder="Observación (opcional)" />
                     </td>
-                    {!esTraslado && <td className="muted">{it.almacen ?? sol.almacen_origen ?? '—'}</td>}
+                    {!esTraslado && <td className="muted">{invLabel(it.almacen ?? sol.almacen_origen)}</td>}
                     <td className="num"><input className="input mono" type="number" min={0} step="any" style={{ width: 90, textAlign: 'right' }}
                       value={it.cantidad} onChange={(e) => setItem(it.key, { cantidad: e.target.value })} /></td>
                     <td className="num"><input className="input mono" type="number" min={0} step="any" style={{ width: 90, textAlign: 'right' }}
@@ -1171,8 +1177,8 @@ function SolicitudDetalleModal({
           {sol.unidad_solicitante && <tr><td className="muted">Unidad solicitante</td><td>{sol.unidad_solicitante}</td></tr>}
           {sol.tipo === 'material' ? (
             <>
-              <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Almacén origen'}</td>
-                <td>{sol.scope === 'traslado' ? `${sol.almacen_origen} → ${sol.almacen_destino}` : sol.almacen_origen}</td></tr>
+              <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Inventario'}</td>
+                <td>{sol.scope === 'traslado' ? `${invLabel(sol.almacen_origen)} → ${sol.almacen_destino}` : invLabel(sol.almacen_origen)}</td></tr>
               {sol.items && sol.items.length > 1 ? (
                 <tr>
                   <td className="muted">Materiales</td>
@@ -1184,7 +1190,7 @@ function SolicitudDetalleModal({
                           <tr key={i}>
                             <td>{it.producto_nombre}{it.producto_sku ? ` · ${it.producto_sku}` : ''}
                               {it.observacion && <div className="muted" style={{ fontSize: '.72rem' }}>📝 {it.observacion}</div>}</td>
-                            {sol.scope !== 'traslado' && <td>{it.almacen ?? sol.almacen_origen ?? '—'}</td>}
+                            {sol.scope !== 'traslado' && <td>{invLabel(it.almacen ?? sol.almacen_origen)}</td>}
                             <td className="num mono">{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
                             <td className="num mono">{money(Number(it.precio_unit) || 0)}</td>
                             <td className="num mono">{money((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0))}</td>

@@ -26,6 +26,9 @@ import { descargarSalidaTemporalPdf } from './salidaTemporalPdf';
 
 type Vista = 'kanban' | 'lista';
 
+/** Inventario único: el almacén guardado es `'General'`; se muestra «Inventario General». */
+const invLabel = (a?: string | null): string => (a && a.trim().toLowerCase() === 'general' ? 'Inventario General' : (a || '—'));
+
 const EST_COLS: { key: EstadoSalidaTemporal; label: string; badge: string }[] = [
   { key: 'pendiente', label: 'Pendiente', badge: 'warning' },
   { key: 'en_transito', label: 'En tránsito', badge: 'info' },
@@ -344,7 +347,7 @@ function TrazabilidadModal({ s, onClose }: { s: SalidaTemporal; onClose: () => v
             {(s.items ?? []).map((it, i) => (
               <tr key={i}>
                 <td>{it.producto_nombre}{it.es_nuevo ? <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.6rem' }}>NUEVO</span> : null}{it.producto_sku ? <div className="muted mono" style={{ fontSize: '.68rem' }}>{it.producto_sku}</div> : null}</td>
-                <td className="muted">{it.almacen ?? '—'}</td>
+                <td className="muted">{invLabel(it.almacen)}</td>
                 <td className="num mono">{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
               </tr>
             ))}
@@ -439,7 +442,7 @@ function SalidaTemporalForm({
     .filter((e) => (Number(e.stock) || 0) > 0 && activos.has(e.producto_id))
     .map((e) => {
       const p = activos.get(e.producto_id)!;
-      return { value: `${e.producto_id}|${e.almacen}`, label: `${p.nombre} · ${p.sku} — ${e.almacen} (${num(Number(e.stock) || 0)})`, nombre: p.nombre };
+      return { value: `${e.producto_id}|${e.almacen}`, label: `${p.nombre} · ${p.sku} (${num(Number(e.stock) || 0)})`, nombre: p.nombre };
     })
     .sort((a, b) => a.nombre.localeCompare(b.nombre)), [existencias, activos]);
 
@@ -626,7 +629,7 @@ function SalidaTemporalForm({
                     <SearchSelect value={r.productoKey} onChange={(v) => elegirExistente(r.key, v)}
                       placeholder={opcionesExistentes.length ? '🔍 Buscar material con stock…' : '— no hay materiales con stock —'}
                       options={opcionesExistentes.map((o) => ({ value: o.value, label: o.label }))} />
-                    {r.producto_id && <small className="muted">Disponible: <strong className="mono">{num(stock)} {r.unidad ?? ''}</strong> en {r.almacen}</small>}
+                    {r.producto_id && <small className="muted">Disponible: <strong className="mono">{num(stock)} {r.unidad ?? ''}</strong> en {invLabel(r.almacen)}</small>}
                   </div>
                   <div className="form-row" style={{ marginBottom: 0 }}>
                     <label>Cantidad{r.unidad ? ` (${r.unidad})` : ''}</label>
@@ -662,12 +665,9 @@ function SalidaTemporalForm({
                     </div>
                   </div>
                   <div className="form-row" style={{ marginTop: '.5rem', marginBottom: 0 }}>
-                    <label>Almacén de retorno</label>
-                    <select className="select" value={r.almacen ?? ''} onChange={(e) => setRenglon(r.key, { almacen: e.target.value })}>
-                      <option value="">— elegir —</option>
-                      {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                    <small className="muted">Almacén al que entra al finalizar (retorno).</small>
+                    <label>Inventario de retorno</label>
+                    <input className="input" value="Inventario General" readOnly tabIndex={-1} />
+                    <small className="muted">Al finalizar, el material entra al Inventario General.</small>
                   </div>
                 </>
               )}

@@ -13,7 +13,6 @@ import {
   nextSku,
   type ProductoInput,
 } from './inventario.repository';
-import { getNombresAlmacenes, crearAlmacen } from './almacenes.repository';
 
 interface ProductoFormProps {
   producto: Producto | null; // null => crear
@@ -79,20 +78,17 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   const isEdit = !!producto;
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
-  const [almacenesList, setAlmacenesList] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getCategorias(productos), getUnidades(productos), getNombresAlmacenes(productos)])
-      .then(([cats, unids, alms]) => {
+    Promise.all([getCategorias(productos), getUnidades(productos)])
+      .then(([cats, unids]) => {
         if (cancelled) return;
         setCategorias(cats);
         setUnidades(unids);
-        setAlmacenesList(alms);
-        // Defaults para producto nuevo: almacén y categoría al primero disponible.
+        // Default para producto nuevo: categoría al primero disponible.
         setForm((prev) => ({
           ...prev,
-          almacen: prev.almacen || (alms[0] ?? 'General'),
           categoria: prev.categoria || (cats[0] ?? ''),
         }));
       })
@@ -104,7 +100,6 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
   // así nada puede "cortar" el nombre aunque el estado quede atrás.
   const nombreRef = useRef<HTMLInputElement>(null);
   const [nuevaCat, setNuevaCat] = useState('');
-  const [nuevoAlmacen, setNuevoAlmacen] = useState('');
   // Carga por CAJA/BULTO: si la unidad es caja o bulto, el stock inicial se ingresa
   // en cajas/bultos y se multiplica por las unidades por bulto → se guarda en UNIDADES.
   const [undPorBulto, setUndPorBulto] = useState('');
@@ -166,20 +161,6 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       toast(`Categoría "${added}" añadida`, 'success');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo añadir la categoría', 'error');
-    }
-  }
-
-  async function handleAddAlmacen() {
-    const nombre = nuevoAlmacen.trim();
-    if (!nombre) { toast('Escribe un nombre para el almacén', 'error'); return; }
-    try {
-      const creado = await crearAlmacen({ nombre });
-      setAlmacenesList((prev) => (prev.includes(creado.nombre) ? prev : [...prev, creado.nombre].sort((a, b) => a.localeCompare(b, 'es'))));
-      setForm((prev) => ({ ...prev, almacen: creado.nombre }));
-      setNuevoAlmacen('');
-      toast(`Almacén "${creado.nombre}" añadido`, 'success');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo añadir el almacén', 'error');
     }
   }
 
@@ -417,39 +398,9 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
           )}
         </div>
 
-        <div className="form-row">
-          <label>Almacén</label>
-          <select
-            className="select"
-            value={form.almacen}
-            onChange={(e) => update('almacen', e.target.value)}
-          >
-            {!almacenesList.includes(form.almacen) && form.almacen && (
-              <option value={form.almacen}>{form.almacen}</option>
-            )}
-            {almacenesList.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
-          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
-            <input
-              className="input"
-              style={{ flex: 1 }}
-              placeholder="Nuevo almacén…"
-              value={nuevoAlmacen}
-              onChange={(e) => setNuevoAlmacen(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAlmacen(); } }}
-              maxLength={40}
-            />
-            <button type="button" className="btn btn-sm btn-ghost" onClick={handleAddAlmacen}>
-              + Añadir
-            </button>
-          </div>
-        </div>
-
         <div className="form-grid">
           <div className="form-row">
-            <label>{isEdit ? 'Stock total (todos los almacenes)' : (esBulto ? `Stock inicial (en ${form.unidad}s)` : 'Stock inicial')}</label>
+            <label>{isEdit ? 'Stock total' : (esBulto ? `Stock inicial (en ${form.unidad}s)` : 'Stock inicial')}</label>
             <input
               className="input mono"
               type="number"
@@ -462,10 +413,10 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
             />
             <small className="muted" style={{ fontSize: '.72rem' }}>
               {isEdit
-                ? 'El stock es por almacén. Ajustalo desde “Movimiento” (entrada/salida/ajuste) en cada almacén.'
+                ? 'Ajustá el stock desde “Movimiento” (entrada/salida/ajuste) en el Inventario General.'
                 : esBulto
                   ? `Cantidad de ${form.unidad}s. Se convierte a unidades con el campo de la derecha.`
-                  : 'Ingresa al almacén seleccionado arriba. Luego se ajusta por movimientos.'}
+                  : 'Ingresa al Inventario General. Luego se ajusta por movimientos.'}
             </small>
           </div>
           {!isEdit && esBulto && (

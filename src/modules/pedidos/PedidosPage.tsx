@@ -66,9 +66,7 @@ import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.reposi
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, updateProducto, getUnidades, nextSku } from '@/modules/inventario/inventario.repository';
-import { listAlmacenes, getNombresAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
-import type { Almacen } from '@/shared/lib/types';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { FacturasDirectas } from './FacturasDirectas';
@@ -1120,7 +1118,7 @@ function ConfirmarOcModal({
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Al confirmar, la OC pasa a <strong>"Confirmada (por pagar)"</strong> y queda disponible en Tesorería para el pago.
-        La mercancía entrará al <strong>almacén General</strong> al recibirla.
+        La mercancía entrará al <strong>Inventario General</strong> al recibirla.
       </p>
     </Modal>
   );
@@ -1751,18 +1749,6 @@ function MetodoPagoModal({
   );
 }
 
-/** Ordena los almacenes para un desplegable: cada almacén principal seguido de
- *  sus sub-almacenes, así el selector «une» principales y subalmacenes. */
-function almacenesOrdenados(almacenes: Almacen[]): Almacen[] {
-  const principales = almacenes.filter((a) => !a.parent_id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  const hijosDe = (id: string) => almacenes.filter((a) => a.parent_id === id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  const out: Almacen[] = [];
-  for (const p of principales) { out.push(p); out.push(...hijosDe(p.id)); }
-  // Subalmacenes huérfanos (padre no encontrado) al final, por si acaso.
-  out.push(...almacenes.filter((a) => a.parent_id && !almacenes.some((x) => x.id === a.parent_id)));
-  return out;
-}
-
 /* ─────────────────────────────────────────────
    Recepción parcial: confirma cuánto entró por ítem (≤ pedido) + nota
    ───────────────────────────────────────────── */
@@ -1781,19 +1767,10 @@ function RecepcionParcialModal({
     return m;
   });
   const [nota, setNota] = useState('');
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
-  const [almacen, setAlmacen] = useState<string>(orden.almacen_destino ?? '');
+  // Inventario único: la mercancía recibida entra siempre al Inventario General ('General' en BD).
+  const almacen = 'General';
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    listAlmacenes().then((as) => {
-      setAlmacenes(as);
-      // Si la OC ya traía un destino, se respeta; si no, se preselecciona el primero.
-      setAlmacen((prev) => prev || orden.almacen_destino || as[0]?.nombre || '');
-    }).catch(() => setAlmacenes([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function setRec(sku: string, cantPedida: number, v: string) {
     const n = Number(v);
@@ -1808,10 +1785,9 @@ function RecepcionParcialModal({
     setError(null);
     const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
-    if (!almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
     setSaving(true);
-    try { await onConfirm(recepciones, nota.trim() || null, almacen.trim()); }
+    try { await onConfirm(recepciones, nota.trim() || null, almacen); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo confirmar'); setSaving(false); }
   }
 
@@ -1869,20 +1845,9 @@ function RecepcionParcialModal({
       </div>
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
-        <label>Almacén / sub-almacén destino *</label>
-        <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
-          <option value="">— elegí el almacén —</option>
-          {almacenesOrdenados(almacenes).map((a) => {
-            const padre = a.parent_id ? almacenes.find((x) => x.id === a.parent_id) : null;
-            const corto = nombreCortoAlmacen(a, almacenes);
-            return (
-              <option key={a.id} value={a.nombre}>
-                {padre ? `   ↳ ${padre.nombre} › ${corto}` : a.nombre}
-              </option>
-            );
-          })}
-        </select>
-        <small className="muted">Incluye almacenes y sub-almacenes. La mercancía entra a este almacén y queda en la trazabilidad final.</small>
+        <label>Destino</label>
+        <input className="input" value="Inventario General" disabled readOnly />
+        <small className="muted">La mercancía entra al Inventario General y queda en la trazabilidad final.</small>
       </div>
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
@@ -2713,8 +2678,8 @@ function OrdenDetailModal({
       )}
       {o.almacen_destino && (
         <div className="detail-row">
-          <div className="k">Almacén destino</div>
-          <div className="v">📦 {o.almacen_destino}</div>
+          <div className="k">Destino</div>
+          <div className="v">📦 {o.almacen_destino === 'General' ? 'Inventario General' : o.almacen_destino}</div>
         </div>
       )}
       {o.nota_recepcion && (
@@ -3209,7 +3174,7 @@ function CrearOrdenModal({
         stock: 0,
         stock_min: 0,
         precio: 0,
-        almacen: nuevoAlmacen || 'General',
+        almacen: nuevoAlmacen,
         estado: 'activo',
       });
       setExtraProductos((prev) => [...prev, creado]);
@@ -3234,10 +3199,10 @@ function CrearOrdenModal({
   const [solicitanteNombre, setSolicitanteNombre] = useState(mercadoInicial ? 'COCINA' : (usuario?.nombre ?? authEmail).toUpperCase());
   const [unidadSolicitante, setUnidadSolicitante] = useState(mercadoInicial ? 'COCINA' : (usuario?.departamento ?? '').toUpperCase());
 
-  // Catálogos para el alta de producto nuevo (almacenes/subalmacenes + unidades del inventario).
-  const [almacenesList, setAlmacenesList] = useState<string[]>([]);
+  // Catálogos para el alta de producto nuevo (unidades del inventario).
+  // Inventario único: el producto nuevo entra siempre al Inventario General ('General' en BD).
+  const nuevoAlmacen = 'General';
   const [unidadesList, setUnidadesList] = useState<string[]>([]);
-  const [nuevoAlmacen, setNuevoAlmacen] = useState('General');
   // Catálogo gestionable de la OP: unidades solicitantes.
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   // Alta de unidad nueva desde el propio formulario (campo «¿No está?» + botón Añadir).
@@ -3256,9 +3221,6 @@ function CrearOrdenModal({
 
   useEffect(() => {
     nextCodigo().then(setCodigo).catch(() => setCodigo('SP-?'));
-    getNombresAlmacenes()
-      .then((a) => { setAlmacenesList(a); setNuevoAlmacen((prev) => (a.includes(prev) ? prev : (a[0] ?? 'General'))); })
-      .catch(() => setAlmacenesList(['General']));
     getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((prev) => (u.includes(prev) ? prev : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
     void cargarCatalogosOP();
   }, [cargarCatalogosOP]);
@@ -3597,10 +3559,8 @@ function CrearOrdenModal({
                 </div>
               </div>
               <div className="form-row" style={{ margin: 0 }}>
-                <label style={{ fontSize: '.74rem' }}>Almacén / sub-almacén destino</label>
-                <SearchSelect value={nuevoAlmacen} onChange={setNuevoAlmacen}
-                  placeholder="🔍 Buscar almacén…"
-                  options={almacenesList.map((a) => ({ value: a, label: a }))} />
+                <label style={{ fontSize: '.74rem' }}>Destino</label>
+                <input className="input" value="Inventario General" disabled readOnly />
               </div>
               <div>
                 <button type="button" className="btn btn-sm btn-primary" onClick={crearProductoNuevo} disabled={creandoNuevo}>
@@ -3727,15 +3687,14 @@ function EditarOrdenModal({
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
-  const [nuevoAlmacen, setNuevoAlmacen] = useState('General');
+  // Inventario único: el producto nuevo entra siempre al Inventario General ('General' en BD).
+  const nuevoAlmacen = 'General';
   const [creandoNuevo, setCreandoNuevo] = useState(false);
   const [unidadesList, setUnidadesList] = useState<string[]>([]);
-  const [almacenesList, setAlmacenesList] = useState<string[]>([]);
   const nuevoNombreRef = useRef<HTMLInputElement>(null);
   const nuevoCategoriaRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((p) => (u.includes(p) ? p : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
-    getNombresAlmacenes().then((a) => { setAlmacenesList(a); setNuevoAlmacen((p) => (a.includes(p) ? p : (a[0] ?? 'General'))); }).catch(() => setAlmacenesList(['General']));
   }, []);
   // Opciones del selector de producto: se arman SOLO cuando cambia la lista.
   const prodOptions = useMemo(
@@ -3773,7 +3732,7 @@ function EditarOrdenModal({
         categoria,
         unidad: nuevoUnidad.trim() || 'und',
         stock: 0, stock_min: 0, precio: 0,
-        almacen: nuevoAlmacen || 'General',
+        almacen: nuevoAlmacen,
         estado: 'activo',
       });
       setExtraProductos((prev) => [...prev, creado]);
@@ -4041,9 +4000,8 @@ function EditarOrdenModal({
                 </div>
               </div>
               <div className="form-row" style={{ margin: 0 }}>
-                <label style={{ fontSize: '.74rem' }}>Almacén / sub-almacén destino</label>
-                <SearchSelect value={nuevoAlmacen} onChange={setNuevoAlmacen}
-                  placeholder="🔍 Buscar almacén…" options={almacenesList.map((a) => ({ value: a, label: a }))} />
+                <label style={{ fontSize: '.74rem' }}>Destino</label>
+                <input className="input" value="Inventario General" disabled readOnly />
               </div>
               <div>
                 <button type="button" className="btn btn-sm btn-primary" onClick={() => void crearProductoNuevo()} disabled={creandoNuevo}>
