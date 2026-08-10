@@ -11,6 +11,7 @@ import type { ContratoAcopio, CajaMovimiento, CajaCierre, ClasificacionAcopio, C
 import { listContratos } from '@/modules/produccion/contratos.repository';
 import { listCajaMovimientos, listClasificaciones, listCostoClases } from './caja.repository';
 import { MovimientoCajaModal } from './MovimientoCajaModal';
+import { EntradaDineroAcopioModal } from './EntradaDineroAcopioModal';
 import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorreo } from './movimientosAcopioReportes';
 import { construirMovimientosAcopio, type FilaMov, type ResumenAcopio } from './movimientosAcopioCalc';
 
@@ -50,6 +51,7 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
   const [fHasta, setFHasta] = useState('');
   const [ordenDesc, setOrdenDesc] = useState(false); // false = más viejo→nuevo; true = más nuevo→viejo
   const [correoOpen, setCorreoOpen] = useState(false);
+  const [entradaOpen, setEntradaOpen] = useState(false);
 
   const recargar = useCallback(async () => {
     const [cs, cms, cls, ccs] = await Promise.all([listContratos(), listCajaMovimientos(), listClasificaciones(), listCostoClases()]);
@@ -141,6 +143,11 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
       </div>
 
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
+        {canWrite && !esHistorico && (
+          <button className="btn btn-primary btn-sm" onClick={() => setEntradaOpen(true)} title="Registrar una entrada de dinero al Centro de Acopio (suma en $Usd entregado)">
+            💵 Entrada de dinero
+          </button>
+        )}
         <button className="btn btn-ghost btn-sm" disabled={!mostradas.length} onClick={() => void descargarMovAcopioPdf(mostradas, { filtro: filtroTxt() }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>↓ PDF</button>
         <button className="btn btn-ghost btn-sm" disabled={!mostradas.length} onClick={() => void descargarMovAcopioExcel(mostradas).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'))}>📊 Excel</button>
         <button className="btn btn-ghost btn-sm" disabled={!mostradas.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
@@ -237,6 +244,16 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
             return destinatarios;
           }}
           onClose={() => setCorreoOpen(false)}
+        />
+      )}
+
+      {entradaOpen && (
+        <EntradaDineroAcopioModal
+          cajaId={caja?.id ?? null}
+          actor={user?.email ?? 'sistema'}
+          actorName={actorName}
+          onClose={() => setEntradaOpen(false)}
+          onSaved={async () => { setEntradaOpen(false); await recargar(); }}
         />
       )}
 
