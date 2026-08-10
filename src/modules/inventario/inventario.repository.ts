@@ -191,7 +191,17 @@ export async function getUnidades(fromProductos: Producto[] = []): Promise<strin
     const extras = await listTaxonomia('inventario.unidad');
     extras.forEach(agregar);
   } catch { /* falla silenciosa */ }
-  fromProductos.forEach((p) => agregar(p.unidad));
+  if (fromProductos.length > 0) {
+    fromProductos.forEach((p) => agregar(p.unidad));
+  } else {
+    // Sin lista de productos (p. ej. Solicitud de Pedido): traemos las unidades
+    // usadas en productos directo de la BD, para no perder medidas que existen en
+    // inventario pero todavía no están en el catálogo `taxonomias` (p. ej. «UND»).
+    try {
+      const { data } = await supabase.from('productos').select('unidad');
+      (data ?? []).forEach((r: { unidad?: string | null }) => agregar(r.unidad));
+    } catch { /* falla silenciosa */ }
+  }
   if (porClave.size === 0) UNIDADES_DEFAULT.forEach(agregar);
   return Array.from(porClave.values()).sort((a, b) => a.localeCompare(b, 'es'));
 }
