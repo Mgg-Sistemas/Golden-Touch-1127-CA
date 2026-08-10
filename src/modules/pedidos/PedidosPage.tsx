@@ -52,8 +52,12 @@ import {
   reabrirEleccionOferta,
   METODOS_PAGO,
   labelMetodoPago,
+  resumenPendientesPorPagar,
+  listOrdenesPorPagar,
+  listOrdenesEnCredito,
   type PrecioHistorico,
 } from './pedidos.repository';
+import { descargarOrdenesPorPagarPdf } from '@/modules/tesoreria/ordenesPorPagarPdf';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl } from './ofertas.repository';
 import { esRecargaAgua } from './servicios.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
@@ -239,6 +243,9 @@ export function PedidosPage() {
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
   // Alertas de Cocina: "hay que restablecer el mercado" (tarjeta para Compras).
   const [alertasMercado, setAlertasMercado] = useState<AlertaMercado[]>([]);
+  // Contador liviano de pendientes por pagar (para el badge del botón, en vivo).
+  const [pendPagar, setPendPagar] = useState<{ porPagar: number; credito: number }>({ porPagar: 0, credito: 0 });
+  const [generandoPP, setGenerandoPP] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -262,6 +269,25 @@ export function PedidosPage() {
 
   // Realtime multiusuario: las órdenes/compras se reflejan al instante entre usuarios.
   useRealtime(['ordenes', 'productos'], () => { void refresh(); });
+
+  // Badge "Pendientes por pagar": contador liviano que se actualiza en vivo cada vez
+  // que cambia una OC, compra/servicio directo o una cuenta por pagar (p. ej. al pagar).
+  const cargarPendPagar = useCallback(async () => {
+    try { setPendPagar(await resumenPendientesPorPagar()); } catch { /* best-effort */ }
+  }, []);
+  useEffect(() => { void cargarPendPagar(); }, [cargarPendPagar]);
+  useRealtime(['ordenes', 'compras_directas', 'servicios_directos', 'cuentas_por_pagar'], () => { void cargarPendPagar(); });
+
+  // Genera el PDF (vista previa) de todo lo pendiente por pagar, indicando el crédito.
+  const abrirPendientesPorPagar = useCallback(async () => {
+    setGenerandoPP(true);
+    try {
+      const [rows, creditos] = await Promise.all([listOrdenesPorPagar(), listOrdenesEnCredito()]);
+      await descargarOrdenesPorPagarPdf(rows, { creditos });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
+    } finally { setGenerandoPP(false); }
+  }, []);
 
   // No leídos del chat por orden (para el chip 💬). Se recalcula al cambiar las
   // órdenes y en vivo cuando entra/se lee un mensaje.
@@ -473,6 +499,26 @@ export function PedidosPage() {
           <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
             ⌕ Histórico
           </Link>
+          {canManageProcurement && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => void abrirPendientesPorPagar()}
+              disabled={generandoPP}
+              title="Relación de TODO lo pendiente por pagar (compras directas, OC, servicios), con las cuentas a crédito indicadas · vista previa PDF"
+            >
+              🧾 {generandoPP ? 'Generando…' : 'Pendientes por pagar'}
+              {pendPagar.porPagar > 0 && (
+                <span className="badge" style={{ marginLeft: '.4rem', background: 'var(--brand, #ff8a00)', color: '#111', fontWeight: 700 }}>
+                  {pendPagar.porPagar}
+                </span>
+              )}
+              {pendPagar.credito > 0 && (
+                <span className="badge" style={{ marginLeft: '.3rem' }} title={`${pendPagar.credito} cuenta(s) a crédito abierta(s)`}>
+                  💳 {pendPagar.credito}
+                </span>
+              )}
+            </button>
+          )}
           {canWrite && scope === 'pedidos' && (
             <button className="btn btn-ghost" onClick={() => setCategoriasOpen(true)} title="Gestionar clasificaciones y unidades solicitantes">
               🗂 Categorías
