@@ -45,7 +45,11 @@ function normMonto(gasto: number | null | undefined, moneda: string | null | und
   return { usd: g, bs: tasa > 0 ? Math.round(g * tasa * 100) / 100 : 0 };
 }
 
-export async function descargarOrdenesPorPagarPdf(rows: OrdenPorPagar[]): Promise<void> {
+export async function descargarOrdenesPorPagarPdf(
+  rows: OrdenPorPagar[],
+  opts?: { creditos?: OrdenPorPagar[] },
+): Promise<void> {
+  const creditos = opts?.creditos ?? [];
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, tasaHoy, comprasDir, serviciosDir] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -131,6 +135,22 @@ export async function descargarOrdenesPorPagarPdf(rows: OrdenPorPagar[]): Promis
   const totBs = segmentos.reduce((a, s) => a + s.subBs, 0);
   const totCant = segmentos.reduce((a, s) => a + s.filas.length, 0);
 
+  // Cuentas a CRÉDITO (cuenta abierta): NO entran al total "por pagar" (se saldan
+  // por abonos en Tesorería), pero se muestran como indicativo aparte.
+  const filaCredito = (r: OrdenPorPagar): FilaRep => {
+    const usd = Number(r.orden.total || 0);
+    return {
+      codigo: r.orden.oc_codigo ?? '—',
+      proveedor: r.proveedorNombre,
+      detalle: finalidadDe(r),
+      notas: (r.orden.notas?.trim() || '—') + ' · (se salda por abonos)',
+      estado: 'Crédito · cuenta abierta',
+      usd,
+      bs: tasa > 0 ? Math.round(usd * tasa * 100) / 100 : 0,
+    };
+  };
+  const segCredito = creditos.length ? mkSeg('CUENTAS A CRÉDITO (CUENTA ABIERTA)', creditos.map(filaCredito)) : null;
+
   // ── Documento ──
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
@@ -147,14 +167,23 @@ export async function descargarOrdenesPorPagarPdf(rows: OrdenPorPagar[]): Promis
   if (tasa > 0) {
     doc.text(`Tasa BCV: Bs ${bsNum(tasa)} / $${tasaHoy?.fecha ? ' · ' + fmt.date(tasaHoy.fecha) : ''}`, W / 2 + 28, y + 48, { align: 'center' });
   }
+  if (segCredito) {
+    doc.setTextColor(180, 90, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    doc.text(`⚠ Incluye ${segCredito.filas.length} cuenta(s) a crédito abierta(s) · ${fmt.money(segCredito.subUsd)} (se saldan por abonos)`, W / 2 + 28, y + (tasa > 0 ? 60 : 48), { align: 'center' });
+  }
   doc.setTextColor(0, 0, 0);
-  y += 66;
+  y += segCredito ? 78 : 66;
 
-  if (!segmentos.length) {
+  if (!segmentos.length && !segCredito) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(90, 90, 90);
     doc.text('No hay pendientes por pagar.', MARGIN, y + 10);
     previewPdf(doc, `pendientes-por-pagar-${new Date().toISOString().slice(0, 10)}.pdf`);
     return;
+  }
+  if (!segmentos.length) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(90, 90, 90);
+    doc.text('No hay pendientes por pagar inmediatos. Solo quedan cuentas a crédito abiertas (abajo).', MARGIN, y + 10);
+    y += 24;
   }
 
   const drawTable = (seg: Segmento) => {
@@ -195,27 +224,39 @@ export async function descargarOrdenesPorPagarPdf(rows: OrdenPorPagar[]): Promis
 
   for (const seg of segmentos) drawTable(seg);
 
-  // ── TOTAL GENERAL en grande ($ y su equivalente en Bs) ──
-  const boxH = tasa > 0 ? 76 : 48;
-  if (y > H - (boxH + MARGIN)) { doc.addPage(); y = MARGIN; }
-  const boxW = 340;
-  const boxX = W - MARGIN - boxW;
-  doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.4);
-  doc.setFillColor(255, 244, 232);
-  doc.roundedRect(boxX, y, boxW, boxH, 6, 6, 'FD');
+  // ── TOTAL GENERAL en grande ($ y su equivalente en Bs) ── (solo lo por pagar; el crédito va aparte)
+  if (segmentos.length) {
+    const boxH = tasa > 0 ? 76 : 48;
+    if (y > H - (boxH + MARGIN)) { doc.addPage(); y = MARGIN; }
+    const boxW = 340;
+    const boxX = W - MARGIN - boxW;
+    doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.4);
+    doc.setFillColor(255, 244, 232);
+    doc.roundedRect(boxX, y, boxW, boxH, 6, 6, 'FD');
 
-  doc.setTextColor(60, 60, 60); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text(`TOTAL GENERAL · ${totCant} ítem(s)`, boxX + 14, y + 22);
-  doc.setTextColor(20, 20, 20); doc.setFont('helvetica', 'bold'); doc.setFontSize(22);
-  doc.text(fmt.money(totUsd), boxX + boxW - 14, y + 26, { align: 'right' });
+    doc.setTextColor(60, 60, 60); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(`TOTAL GENERAL · ${totCant} ítem(s)`, boxX + 14, y + 22);
+    doc.setTextColor(20, 20, 20); doc.setFont('helvetica', 'bold'); doc.setFontSize(22);
+    doc.text(fmt.money(totUsd), boxX + boxW - 14, y + 26, { align: 'right' });
 
-  if (tasa > 0) {
-    doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(19);
-    doc.text(`Bs ${bsNum(totBs)}`, boxX + boxW - 14, y + 56, { align: 'right' });
-    doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-    doc.text(`Convertido a la tasa BCV del día: Bs ${bsNum(tasa)} / $`, boxX + 14, y + 56);
+    if (tasa > 0) {
+      doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(19);
+      doc.text(`Bs ${bsNum(totBs)}`, boxX + boxW - 14, y + 56, { align: 'right' });
+      doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text(`Convertido a la tasa BCV del día: Bs ${bsNum(tasa)} / $`, boxX + 14, y + 56);
+    }
+    doc.setTextColor(0, 0, 0);
+    y += boxH + 20;
   }
-  doc.setTextColor(0, 0, 0);
+
+  // ── Anexo: CUENTAS A CRÉDITO (no forman parte del total por pagar) ──
+  if (segCredito) {
+    if (y > H - 130) { doc.addPage(); y = MARGIN; }
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(120, 120, 120);
+    doc.text('Estas compras se hicieron a crédito (cuenta abierta): NO entran en el total de arriba; se saldan por abonos en Tesorería.', MARGIN, y);
+    y += 12;
+    drawTable(segCredito);
+  }
 
   previewPdf(doc, `pendientes-por-pagar-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
