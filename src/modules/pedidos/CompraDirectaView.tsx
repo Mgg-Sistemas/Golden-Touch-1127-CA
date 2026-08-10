@@ -10,7 +10,7 @@ import { dateTime, num, dosDecimales } from '@/shared/lib/format';
 import { descargarCompraDirectaPdf } from './compraDirectaPdf';
 import type { Caja, Producto, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
 import { getCategorias, getUnidades, listProductos, addCategoria } from '@/modules/inventario/inventario.repository';
-import { getNombresAlmacenes, listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { RecibirCompraModal } from '@/modules/inventario/RecepcionesPendientes';
 import type { Almacen } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
@@ -92,10 +92,16 @@ function montoCD(n: number | null | undefined, moneda: string | null | undefined
   return montoCaja(n, moneda === 'Bs' ? 'Bs' : 'USD');
 }
 
+/** Inventario único: el valor 'General' de la BD se muestra como «Inventario General». */
+function almacenVisible(a?: string | null): string {
+  return a && a !== 'General' ? a : 'Inventario General';
+}
+
 export function CompraDirectaView({ actor, actorName }: { actor: string; actorName?: string | null }) {
   const [compras, setCompras] = useState<CompraDirecta[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
+  // Inventario único: solo se conservan los almacenes «full» para el modal de recepción
+  // (vive en el módulo Inventario). La compra directa entra siempre al Inventario General.
   const [almacenesFull, setAlmacenesFull] = useState<Almacen[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
@@ -117,10 +123,10 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
     // lista sale IGUAL que en Inventario (catálogo `taxonomias` + categorías/medidas ya
     // presentes en productos), no solo el catálogo.
     const pds = await listProductos();
-    const [cs, alms, almsFull, cats, unis, cjs, provs] = await Promise.all([
-      listComprasDirectas(), getNombresAlmacenes(), listAlmacenes(), getCategorias(pds), getUnidades(pds), listCajasActivas(), listProveedores(),
+    const [cs, almsFull, cats, unis, cjs, provs] = await Promise.all([
+      listComprasDirectas(), listAlmacenes(), getCategorias(pds), getUnidades(pds), listCajasActivas(), listProveedores(),
     ]);
-    setCompras(cs); setProductos(pds); setAlmacenes(alms); setAlmacenesFull(almsFull); setCategorias(cats); setUnidades(unis); setCajas(cjs); setProveedores(provs);
+    setCompras(cs); setProductos(pds); setAlmacenesFull(almsFull); setCategorias(cats); setUnidades(unis); setCajas(cjs); setProveedores(provs);
   }, []);
 
   useEffect(() => {
@@ -209,14 +215,13 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       ) : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Código</th><th>Material(es)</th><th>Proveedor</th><th>Almacén</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
+            <thead><tr><th>Código</th><th>Material(es)</th><th>Proveedor</th><th>Cant.</th><th>Estado</th><th>Gasto</th><th>Generó</th><th>Creada</th><th>Comprada</th><th></th></tr></thead>
             <tbody>
               {compras.map((c) => (
                 <tr key={c.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setVer(c)} title="Ver detalle">
                   <td className="mono">{c.codigo ?? '—'}</td>
                   <td>{c.producto_nombre}{c.items.length > 1 ? <span className="muted"> · {c.items.length} ítems</span> : (c.producto_sku ? <span className="muted"> · {c.producto_sku}</span> : null)}</td>
                   <td>{c.proveedor_nombre || <span className="muted">—</span>}</td>
-                  <td>{c.almacen}</td>
                   <td className="mono">{num(c.cantidad)}</td>
                   <td>{esPorRecibir(c) ? '📦 Por recibir' : (ESTADO_LABEL[c.estado] ?? c.estado)}</td>
                   <td className="mono">{c.gasto != null ? montoCD(c.gasto, c.moneda) : '—'}</td>
@@ -239,7 +244,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       )}
 
       {(crear || editar) && (
-        <CrearCompraModal productos={productos} almacenes={almacenes} categorias={categorias} unidades={unidades} proveedores={proveedores}
+        <CrearCompraModal productos={productos} categorias={categorias} unidades={unidades} proveedores={proveedores}
           editCompra={editar} actor={actor} actorName={actorName}
           onClose={() => { setCrear(false); setEditar(null); }} onSaved={async () => { setCrear(false); setEditar(null); await reload(); }} />
       )}
@@ -302,7 +307,7 @@ function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer, onRecibir }: {
         <span className="badge">{num(compra.cantidad)}</span>
       </div>
       {compra.codigo && <div className="mono" style={{ fontSize: '.74rem', color: 'var(--brand, #ff8a00)', marginTop: '.15rem' }}>{compra.codigo}</div>}
-      <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>→ {compra.almacen}</div>
+      <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>→ {almacenVisible(compra.almacen)}</div>
       {compra.proveedor_nombre && <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem' }}>🏷 {compra.proveedor_nombre}</div>}
       {compra.items.length > 1 && (
         <ul className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0', paddingLeft: '1rem' }}>
@@ -388,11 +393,11 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
               : `${pago} · ${recep}`;
           })())}
       {fila('Proveedor', compra.proveedor_nombre || '—')}
-      {fila('Almacén destino', (compra.recepcion_almacen || compra.almacen) || '—')}
+      {fila('Destino', almacenVisible(compra.recepcion_almacen || compra.almacen))}
       {compra.estado !== 'en_proceso' && compra.afecta_inventario !== false && fila('Recepción',
         compra.recepcion_pendiente
           ? <span style={{ color: 'var(--warning)' }}>⏳ Pendiente · el almacenista le da entrada (Por recibir / Inventario → Recepciones){compra.estado === 'por_pagar' ? ' · puede recibirse antes de que Tesorería pague' : ''}</span>
-          : <span>📦 Recibida en {compra.recepcion_almacen || compra.almacen}{compra.recepcionada_por_name ? ` · ${compra.recepcionada_por_name}` : ''}{compra.recepcionada_at ? ` · ${dateTime(compra.recepcionada_at)}` : ''}</span>)}
+          : <span>📦 Recibida en {almacenVisible(compra.recepcion_almacen || compra.almacen)}{compra.recepcionada_por_name ? ` · ${compra.recepcionada_por_name}` : ''}{compra.recepcionada_at ? ` · ${dateTime(compra.recepcionada_at)}` : ''}</span>)}
       {fila('Generó (analista)', compra.actor_name || compra.actor || '—')}
       {fila('Creada', dateTime(compra.created_at))}
       {compra.estado === 'finalizada' && fila('Pagada', compra.pagada_at ? dateTime(compra.pagada_at) : (compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'))}
@@ -459,12 +464,11 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
 
 interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
 
-function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedores, editCompra, actor, actorName, onClose, onSaved }: {
-  productos: Producto[]; almacenes: string[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
+function CrearCompraModal({ productos, categorias, unidades, proveedores, editCompra, actor, actorName, onClose, onSaved }: {
+  productos: Producto[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
   editCompra?: CompraDirecta | null; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
   const esEdicion = !!editCompra;
-  const alms = almacenes.length ? almacenes : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
   const provActivos = useMemo(() => proveedores.filter((p) => p.estado === 'activo'), [proveedores]);
   // Categorías y medidas editables: se pueden dar de alta nuevas en el momento (igual que en inventario).
@@ -486,7 +490,8 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
     });
   };
   const [lineas, setLineas] = useState<LineaUI[]>(lineasIniciales);
-  const [almacen, setAlmacen] = useState(editCompra?.almacen || alms[0]);
+  // Inventario único: la compra directa entra siempre al Inventario General ('General' en BD).
+  const almacen = 'General';
   // Nota NO controlada (defaultValue + ref): un refresh de realtime no debe pisar
   // lo que se está tecleando (bug «borra palabras»). El valor se lee en el submit.
   const notaRef = useRef<HTMLTextAreaElement>(null);
@@ -621,13 +626,6 @@ function CrearCompraModal({ productos, almacenes, categorias, unidades, proveedo
     <Modal title={esEdicion ? `Editar compra directa ${editCompra?.codigo ?? ''}` : 'Nueva compra directa'} size="lg" onClose={onClose} footer={footer}>
       <form id="cd-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-
-        <div className="form-row">
-          <label>Almacén destino</label>
-          <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} style={{ maxWidth: 280 }}>
-            {alms.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
 
         {/* Proveedor (opcional): buscador del directorio + alta en línea. */}
         <div className="form-row">
@@ -1118,8 +1116,8 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
         </div>
         <div className="card" style={{ margin: '.5rem 0' }}>
           {esPago
-            ? <>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra a inventario en <strong>{compra.almacen}</strong></>
-            : <>Total a pagar: <strong className="mono">{montoCaja(total, monedaCompra)}</strong> · queda <strong>Por pagar</strong>; Tesorería lo abona y entra a inventario en <strong>{compra.almacen}</strong></>}
+            ? <>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra al <strong>{almacenVisible(compra.almacen)}</strong></>
+            : <>Total a pagar: <strong className="mono">{montoCaja(total, monedaCompra)}</strong> · queda <strong>Por pagar</strong>; Tesorería lo abona y entra al <strong>{almacenVisible(compra.almacen)}</strong></>}
         </div>
 
         {/* Conversión del total a Bs con la tasa BCV (editable) — para cualquier caja. */}

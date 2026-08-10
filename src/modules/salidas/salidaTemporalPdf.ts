@@ -10,6 +10,9 @@ import type { SalidaTemporal } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { formatDuracion } from './salidasTemporales.repository';
 
+/** Inventario único: el almacén guardado es `'General'`; se imprime «Inventario General». */
+const invLabel = (a?: string | null): string => (a && a.trim().toLowerCase() === 'general' ? 'Inventario General' : (a || '—'));
+
 export async function descargarSalidaTemporalPdf(
   s: SalidaTemporal,
   /** Resuelve email → "Nombre Apellido" (del directorio de usuarios). Sin resolver,
@@ -140,7 +143,7 @@ export async function descargarSalidaTemporalPdf(
     const row: string[] = [
       String(i + 1),
       `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`,
-      it.almacen ?? '—',
+      invLabel(it.almacen),
       `${fmt.num(Number(it.cantidad) || 0)} ${it.unidad ?? ''}`.trim(),
     ];
     if (conObs) row.push((it.observacion ?? '').trim() || '—');

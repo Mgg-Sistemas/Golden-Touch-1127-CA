@@ -18,7 +18,6 @@ interface RecetaBase {
 interface MaterialAProducirModalProps {
   productos: Producto[];
   existencias: Existencia[];
-  almacenesList: string[];
   /** Nombres de hornos ACTIVOS para el desplegable. */
   hornosList: string[];
   actor: string;
@@ -35,15 +34,17 @@ interface MaterialAProducirModalProps {
 
 interface MatRow { checked: boolean; cantidad: string; almacen: string }
 
+// Inventario único: consumo y producción caen siempre al Inventario General ('General' en BD).
+const ALMACEN_GENERAL = 'General';
+
 export function MaterialAProducirModal({
-  productos, existencias, almacenesList, hornosList, actor, actorName, initialProductoId, onClose, onCreated, onProductosChanged, onHornosChanged,
+  productos, existencias, hornosList, actor, actorName, initialProductoId, onClose, onCreated, onProductosChanged, onHornosChanged,
 }: MaterialAProducirModalProps) {
   const producibles = useMemo(() => productos.filter((p) => p.es_producible), [productos]);
   const materiales = useMemo(
     () => productos.filter((p) => p.es_receta && p.estado === 'activo'),
     [productos],
   );
-  const almacenes = almacenesList.length ? almacenesList : ['General'];
 
   // Existencia por (producto, almacén).
   const exMap = useMemo(() => {
@@ -62,7 +63,7 @@ export function MaterialAProducirModal({
   const [unidadNuevo, setUnidadNuevo] = useState('und');
 
   const [cantidad, setCantidad] = useState('1');
-  const [almacenDestino, setAlmacenDestino] = useState(almacenes[0]);
+  const almacenDestino = ALMACEN_GENERAL;
   // Horno a utilizar: selección desde el catálogo (+ alta inline de uno nuevo).
   const [horno, setHorno] = useState(hornosList[0] ?? '');
   const [hornoAddOpen, setHornoAddOpen] = useState(false);
@@ -74,10 +75,10 @@ export function MaterialAProducirModal({
 
   // Checklist de materiales
   const [rows, setRows] = useState<Record<string, MatRow>>(() =>
-    Object.fromEntries(materiales.map((m) => [m.id, { checked: false, cantidad: '1', almacen: m.almacen || almacenes[0] }])),
+    Object.fromEntries(materiales.map((m) => [m.id, { checked: false, cantidad: '1', almacen: ALMACEN_GENERAL }])),
   );
   const setRow = (id: string, patch: Partial<MatRow>) =>
-    setRows((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { checked: false, cantidad: '1', almacen: almacenes[0] }), ...patch } }));
+    setRows((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { checked: false, cantidad: '1', almacen: ALMACEN_GENERAL }), ...patch } }));
 
   // Receta del producto existente: insumos usados en su última producción.
   const [recetaBase, setRecetaBase] = useState<RecetaBase | null>(null);
@@ -88,7 +89,7 @@ export function MaterialAProducirModal({
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState<'buscar' | 'crear'>('buscar');
   const [busqueda, setBusqueda] = useState('');
-  const [nuevo, setNuevo] = useState({ nombre: '', unidad: 'und', almacen: almacenes[0], stock: '0', costo: '0' });
+  const [nuevo, setNuevo] = useState({ nombre: '', unidad: 'und', almacen: ALMACEN_GENERAL, stock: '0', costo: '0' });
   const [addSaving, setAddSaving] = useState(false);
 
   // Productos del inventario que aún NO son receta (candidatos a marcar como insumo).
@@ -162,7 +163,7 @@ export function MaterialAProducirModal({
         const factor = recetaBase.rendimiento > 0 ? cantidadNum / recetaBase.rendimiento : 1;
         for (const [pid, base] of Object.entries(recetaBase.items)) {
           const scaled = Math.round(base.cantidad * factor * 1000) / 1000;
-          next[pid] = { checked: true, cantidad: String(scaled), almacen: base.almacen };
+          next[pid] = { checked: true, cantidad: String(scaled), almacen: ALMACEN_GENERAL };
         }
       }
       return next;
@@ -217,7 +218,7 @@ export function MaterialAProducirModal({
         actor_name: actorName,
       });
       toast(`Insumo "${nuevo.nombre}" agregado al inventario (receta SÍ)`, 'success');
-      setNuevo({ nombre: '', unidad: 'und', almacen: almacenes[0], stock: '0', costo: '0' });
+      setNuevo({ nombre: '', unidad: 'und', almacen: ALMACEN_GENERAL, stock: '0', costo: '0' });
       setAddOpen(false);
       await onProductosChanged();
     } catch (e) {
@@ -232,7 +233,6 @@ export function MaterialAProducirModal({
     setError(null);
 
     if (cantidadNum <= 0) { setError('La cantidad a producir debe ser mayor que 0.'); return; }
-    if (!almacenDestino) { setError('Elegí el almacén destino.'); return; }
     if (modoOutput === 'existente' && !productoSelId) { setError('Elegí el producto a producir.'); return; }
     if (modoOutput === 'nuevo' && !nombreNuevo.trim()) { setError('Escribí el nombre del producto a producir.'); return; }
     if (!seleccion.length) { setError('Seleccioná al menos un material con cantidad.'); return; }
@@ -241,7 +241,7 @@ export function MaterialAProducirModal({
       const cant = Number(row.cantidad) || 0;
       const stock = exStock(m.id, row.almacen);
       if (cant > stock) {
-        setError(`"${m.nombre}" en ${row.almacen}: pedís ${num(cant)} pero hay ${num(stock)}.`);
+        setError(`"${m.nombre}": pedís ${num(cant)} pero hay ${num(stock)}.`);
         return;
       }
     }
@@ -362,10 +362,8 @@ export function MaterialAProducirModal({
             <input className="input mono" name="prod-cantidad" type="number" min={1} step="any" defaultValue={cantidad} onChange={(e) => setCantidad(e.target.value)} required />
           </div>
           <div className="form-row">
-            <label>Almacén destino</label>
-            <select className="select" value={almacenDestino} onChange={(e) => setAlmacenDestino(e.target.value)}>
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <label>Destino de la producción</label>
+            <input className="input" value="Inventario General" disabled readOnly />
           </div>
         </div>
 
@@ -460,9 +458,6 @@ export function MaterialAProducirModal({
                     <input className="input" name="insumo-unidad" placeholder="Unidad" defaultValue={nuevo.unidad} onChange={(e) => setNuevo((p) => ({ ...p, unidad: e.target.value }))} />
                   </div>
                   <div className="form-grid">
-                    <select className="select" value={nuevo.almacen} onChange={(e) => setNuevo((p) => ({ ...p, almacen: e.target.value }))}>
-                      {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-                    </select>
                     <input className="input mono" name="insumo-stock" type="number" min={0} placeholder="Stock inicial" defaultValue={nuevo.stock} onChange={(e) => setNuevo((p) => ({ ...p, stock: e.target.value }))} />
                     <input className="input mono" name="insumo-costo" type="number" min={0} step="0.01" placeholder="Costo unit." defaultValue={nuevo.costo} onChange={(e) => setNuevo((p) => ({ ...p, costo: e.target.value }))} />
                   </div>
@@ -487,7 +482,6 @@ export function MaterialAProducirModal({
                   <tr>
                     <th></th>
                     <th>Insumo</th>
-                    <th>Almacén</th>
                     <th style={{ textAlign: 'right' }}>Disp.</th>
                     <th style={{ textAlign: 'right' }}>Cantidad</th>
                     <th style={{ textAlign: 'right' }}>Costo</th>
@@ -495,7 +489,7 @@ export function MaterialAProducirModal({
                 </thead>
                 <tbody>
                   {materiales.map((m) => {
-                    const row = rows[m.id] ?? { checked: false, cantidad: '1', almacen: m.almacen || almacenes[0] };
+                    const row = rows[m.id] ?? { checked: false, cantidad: '1', almacen: ALMACEN_GENERAL };
                     const disp = exStock(m.id, row.almacen);
                     const cant = Number(row.cantidad) || 0;
                     const exceso = row.checked && cant > disp;
@@ -503,11 +497,6 @@ export function MaterialAProducirModal({
                       <tr key={m.id} style={exceso ? { background: 'rgba(239,79,94,0.08)' } : undefined}>
                         <td><input type="checkbox" checked={row.checked} onChange={(e) => setRow(m.id, { checked: e.target.checked })} /></td>
                         <td><strong>{m.nombre}</strong><div className="muted mono" style={{ fontSize: '.7rem' }}>{m.sku}</div></td>
-                        <td>
-                          <select className="select" style={{ minWidth: 110 }} value={row.almacen} onChange={(e) => setRow(m.id, { almacen: e.target.value })}>
-                            {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-                          </select>
-                        </td>
                         <td className="mono" style={{ textAlign: 'right', color: exceso ? 'var(--danger)' : undefined }}>{num(disp)}</td>
                         <td style={{ textAlign: 'right' }}>
                           <input className="input mono" type="number" min={0} step="any" style={{ width: 90, textAlign: 'right' }}

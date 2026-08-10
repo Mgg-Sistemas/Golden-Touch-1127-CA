@@ -293,7 +293,8 @@ export async function crearCompraDirecta(
   input: CrearCompraInput,
   productosExistentes: Producto[] = [],
 ): Promise<CompraDirecta> {
-  const almacen = input.almacen.trim() || 'General';
+  // Inventario único: la compra directa entra siempre al Inventario General ('General' en BD).
+  const almacen = 'General';
   const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0);
   if (!lineas.length) throw new Error('Agregá al menos un material con cantidad.');
 
@@ -681,7 +682,8 @@ export async function editarCompraDirectaEnProceso(
 ): Promise<CompraDirecta> {
   if (input.compra.estado !== 'en_proceso')
     throw new Error('Solo se puede editar una compra En proceso. Reabrí la compra primero.');
-  const almacen = input.almacen.trim() || 'General';
+  // Inventario único: la compra directa entra siempre al Inventario General ('General' en BD).
+  const almacen = 'General';
   const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0);
   if (!lineas.length) throw new Error('Agregá al menos un material con cantidad.');
 

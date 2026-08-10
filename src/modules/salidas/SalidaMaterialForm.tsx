@@ -15,6 +15,9 @@ import { TransporteFields, transporteVacio, type TransporteSeleccion } from './T
 // `precio` = costo unitario EDITABLE (si se deja vacío usa el PMP/costo del inventario).
 interface LineaUI { id: number; key: string; cantidad: string; precio?: string; }
 
+/** Inventario único: el almacén guardado es `'General'`; se muestra «Inventario General». */
+const invLabel = (a?: string | null): string => (a && a.trim().toLowerCase() === 'general' ? 'Inventario General' : (a || '—'));
+
 export function SalidaMaterialForm({
   productos, existencias, actor, actorName, onClose, onSaved,
 }: {
@@ -41,7 +44,7 @@ export function SalidaMaterialForm({
       .filter((e) => (Number(e.stock) || 0) > 0 && prodById.has(e.producto_id))
       .map((e) => {
         const p = prodById.get(e.producto_id)!;
-        return { value: `${e.producto_id}|${e.almacen}`, label: `${p.nombre} · ${p.sku} — ${e.almacen}`, nombre: p.nombre };
+        return { value: `${e.producto_id}|${e.almacen}`, label: `${p.nombre} · ${p.sku}`, nombre: p.nombre };
       })
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [existencias, activos]);
@@ -128,7 +131,7 @@ export function SalidaMaterialForm({
     for (const x of lineasCalc) {
       if (!x.l.key) { setError('Elegí el material en cada renglón.'); return; }
       if (x.cantNum <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
-      if (x.cantNum > x.stock) { setError(`No hay stock suficiente de ${x.producto?.nombre} en ${x.alm}. Disponible: ${num(x.stock)}.`); return; }
+      if (x.cantNum > x.stock) { setError(`No hay stock suficiente de ${x.producto?.nombre} en ${invLabel(x.alm)}. Disponible: ${num(x.stock)}.`); return; }
       items.push({
         producto_id: x.pid,
         producto_nombre: x.producto?.nombre ?? '',
@@ -197,7 +200,7 @@ export function SalidaMaterialForm({
           <select className="select" value="Peramanal" disabled>
             <option value="Peramanal">Peramanal</option>
           </select>
-          <small className="muted">Cada material se descuenta automáticamente del almacén donde está.</small>
+          <small className="muted">Todo sale del <strong>Inventario General</strong> (inventario único).</small>
         </div>
 
         <div className="form-row">
@@ -228,12 +231,12 @@ export function SalidaMaterialForm({
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Material #{idx + 1}</label>
                 <SearchSelect value={l.key} onChange={(v) => setLinea(l.id, { key: v, precio: undefined })} disabled={!opciones.length}
-                  placeholder={opciones.length ? '🔍 Buscar producto (todos los almacenes)…' : '— no hay materiales con stock —'}
+                  placeholder={opciones.length ? '🔍 Buscar producto…' : '— no hay materiales con stock —'}
                   options={opciones.map((o) => ({ value: o.value, label: o.label }))} />
                 <small className="muted">
                   {l.key
-                    ? <>Almacén: <strong>{alm}</strong> · Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precioDefault)}</strong></>
-                    : 'Elegí el producto; se descuenta del almacén donde está.'}
+                    ? <>{invLabel(alm)} · Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precioDefault)}</strong></>
+                    : 'Elegí el producto; se descuenta del Inventario General.'}
                 </small>
               </div>
               <div className="form-row" style={{ marginBottom: 0 }}>

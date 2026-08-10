@@ -7,6 +7,9 @@ import { ProductoDetail } from '@/modules/inventario/ProductoDetail';
 import { descargarSalidaMaterialPdf } from './salidaPdf';
 import { enviarSalidaAMultiples } from './enviarSalida';
 
+/** Inventario único: el almacén guardado es `'General'`; se muestra «Inventario General». */
+const invLabel = (a?: string | null): string => (a && a.trim().toLowerCase() === 'general' ? 'Inventario General' : (a || '—'));
+
 /** Detalle de una salida/traslado de material con opciones de PDF y trazabilidad. */
 export function SalidaMaterialDetalle({
   mov, producto, esTraslado, onClose,
@@ -47,7 +50,7 @@ export function SalidaMaterialDetalle({
 
   const filas: Array<[string, string]> = [
     ['Producto', mov.producto ? `${mov.producto.nombre} · ${mov.producto.sku}` : '—'],
-    ['Almacén origen', mov.almacen || '—'],
+    ['Almacén origen', invLabel(mov.almacen)],
     // La salida de material ya no se dirige a una persona; el traslado sí va a otro almacén.
     ...(esTraslado ? [['Almacén destino', mov.destino || '—'] as [string, string]] : []),
     ['Cantidad', `${num(cant)} ${mov.producto?.unidad ?? ''}`.trim()],

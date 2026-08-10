@@ -8,23 +8,23 @@ import { conciliarConMineral } from './cajas.repository';
 
 /** Registra la recepción del mineral que concilia una salida de dinero pendiente. */
 export function ConciliarMineralModal({
-  salida, productos, almacenesList, actor, actorName, onClose, onSaved,
+  salida, productos, actor, actorName, onClose, onSaved,
 }: {
   salida: MovimientoCaja;
   productos: Producto[];
-  almacenesList: string[];
   actor: string;
   actorName?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const almacenes = almacenesList.length ? almacenesList : ['General'];
   const activos = useMemo(() => productos.filter((p) => p.estado === 'activo'), [productos]);
 
   const [modo, setModo] = useState<'existente' | 'nuevo'>(activos.length ? 'existente' : 'nuevo');
   const [productoId, setProductoId] = useState(activos[0]?.id ?? '');
   const [nombreNuevo, setNombreNuevo] = useState('');
-  const [almacen, setAlmacen] = useState(almacenes[0]);
+  // Inventario único: el mineral recibido entra siempre al Inventario General
+  // (el valor guardado en la BD sigue siendo `'General'`).
+  const almacen = 'General';
   const [cantidad, setCantidad] = useState('1');
   const [unidad, setUnidad] = useState<'KG' | 'G'>('KG');
   const [costoUnit, setCostoUnit] = useState('0');
@@ -52,7 +52,7 @@ export function ConciliarMineralModal({
         almacen, cantidad: cantNum, unidad, costoUnit: costoNum,
         descripcion: descripcion.trim(), actor, actorName,
       });
-      notify(`Mineral recibido y conciliado · entró ${cantNum} ${unidad} a ${almacen}`, 'success', { link: '#/app/inventario' });
+      notify(`Mineral recibido y conciliado · entró ${cantNum} ${unidad} al Inventario General`, 'success', { link: '#/app/inventario' });
       onSaved();
       onClose();
     } catch (err) {
@@ -100,10 +100,8 @@ export function ConciliarMineralModal({
 
         <div className="form-grid">
           <div className="form-row">
-            <label>Almacén destino</label>
-            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-              {almacenes.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <label>Inventario destino</label>
+            <input className="input" value="Inventario General" readOnly tabIndex={-1} />
           </div>
           <div className="form-row">
             <label>Unidad</label>

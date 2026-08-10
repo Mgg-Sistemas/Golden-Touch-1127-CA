@@ -55,7 +55,7 @@ const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').t
  *  ni mayúsculas. */
 export const esCategoriaViveres = (categoria: string | null | undefined): boolean => {
   const c = norm(categoria ?? '');
-  return ['aliment', 'viver', 'carne', 'proteina', 'limpi', 'hortaliza', 'legumbre'].some((k) => c.includes(k));
+  return ['aliment', 'viver', 'carne', 'proteina', 'limpi', 'hortaliza', 'legumbre', 'verdura'].some((k) => c.includes(k));
 };
 
 /** TODOS los víveres del inventario GENERAL (activos), sin importar el almacén donde

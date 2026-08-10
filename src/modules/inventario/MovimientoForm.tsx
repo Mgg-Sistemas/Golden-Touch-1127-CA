@@ -3,63 +3,47 @@ import { Modal } from '@/shared/ui/Modal';
 import { money, num, dosDecimales } from '@/shared/lib/format';
 import type { Existencia, Producto, TipoMovimiento } from '@/shared/lib/types';
 import { calcularPMP, type MovimientoInput } from './movimientos.repository';
-import { esCasiterita, DESTINO_EXTERNO_CASITERITA, DESTINO_EXTERNO_CASITERITA_LABEL } from './casiteritaInter.repository';
 
 interface MovimientoFormProps {
   producto: Producto;
-  /** Existencias del producto por almacén (stock + costo propios). */
+  /** Existencias del producto (stock + costo del Inventario General). */
   existencias: Existencia[];
-  /** Nombres de almacén disponibles para los selectores. */
-  almacenesList: string[];
-  /** Si viene, el almacén queda fijo (ej. desde el detalle de un almacén). */
-  fixedAlmacen?: string | null;
   actorEmail: string;
   actorName?: string | null;
   onClose: () => void;
-  onSubmit: (data: MovimientoInput, transfer?: { almacenDestino: string }) => Promise<void>;
+  onSubmit: (data: MovimientoInput) => Promise<void>;
 }
 
-type TipoManual = 'entrada' | 'salida' | 'ajuste' | 'transferencia' | 'consumo' | 'fundicion' | 'fin_fundicion';
+type TipoManual = 'entrada' | 'salida' | 'ajuste' | 'consumo' | 'fundicion' | 'fin_fundicion';
 
 const OPCIONES: { value: TipoManual; label: string; sign: 'pos' | 'neg' | 'any' | 'zero' }[] = [
   { value: 'entrada',       label: 'Entrada (suma stock)',                sign: 'pos' },
   { value: 'salida',        label: 'Salida (resta stock)',                sign: 'neg' },
   { value: 'consumo',       label: 'Consumo en proceso',                  sign: 'neg' },
-  { value: 'transferencia', label: 'Transferencia a otro almacén',        sign: 'neg' },
   { value: 'fundicion',     label: '🔥 Iniciar producción (marca el producto)', sign: 'zero' },
   { value: 'fin_fundicion', label: '✓ Fin de producción (libera el producto)', sign: 'zero' },
   { value: 'ajuste',        label: 'Ajuste manual (cualquier signo)',     sign: 'any' },
 ];
 
-export function MovimientoForm({ producto, existencias, almacenesList, fixedAlmacen, actorEmail, actorName, onClose, onSubmit }: MovimientoFormProps) {
-  // Por defecto se abre en el almacén que TIENE stock (el de mayor existencia); así
-  // un ajuste no apunta a un almacén vacío mientras el stock está en otro (ej. el
-  // producto dice "LOS PINOS" pero el stock entró a "General" por la recepción).
+export function MovimientoForm({ producto, existencias, actorEmail, actorName, onClose, onSubmit }: MovimientoFormProps) {
+  // Inventario único: el stock se guarda bajo 'General' (etiqueta visible: "Inventario General").
   const almacenConStock = useMemo(() => {
     const conStock = existencias.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock));
     return conStock[0]?.almacen ?? null;
   }, [existencias]);
-  const almacenInicial = fixedAlmacen || almacenConStock || producto.almacen || almacenesList[0] || 'General';
-  const [almacen, setAlmacen] = useState(almacenInicial);
+  const almacen = almacenConStock || producto.almacen || 'General';
   const [tipo, setTipo] = useState<TipoManual>('entrada');
   const [cantidad, setCantidad] = useState('1');
   // Carga por CAJA/BULTO: la "cantidad" se ingresa en cajas/bultos y se multiplica
   // por las unidades por bulto → el stock se mueve en UNIDADES (ej. 2 × 20 = 40 und).
   const [porBulto, setPorBulto] = useState(false);
   const [undPorBulto, setUndPorBulto] = useState('');
-  const [almacenDestino, setAlmacenDestino] = useState('');
   const [signoAjuste, setSignoAjuste] = useState<'pos' | 'neg'>('pos');
   const [detalle, setDetalle] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Lista de almacenes para los selectores (incluye el del producto aunque sea legado).
-  const opcionesAlmacen = useMemo(() => {
-    const set = new Set<string>([almacenInicial, ...almacenesList]);
-    return Array.from(set).filter(Boolean);
-  }, [almacenInicial, almacenesList]);
-
-  // Existencia (stock + costo) del almacén seleccionado.
+  // Existencia (stock + costo) del inventario único.
   const exSel = existencias.find((e) => e.almacen === almacen);
   const stockAlmacen = Number(exSel?.stock) || 0;
   const costoAlmacen = Number(exSel?.costo_promedio) || 0;
@@ -85,22 +69,11 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
   const stockResultante = Math.max(0, stockAlmacen + delta);
   const isFundicion = tipo === 'fundicion' || tipo === 'fin_fundicion';
   const esEntradaConCosto = tipo === 'entrada';
-  const esTransferencia = tipo === 'transferencia';
-  // La casiterita se puede TRASLADAR al otro sistema (destino externo del puente).
-  const puedeExterno = esTransferencia && esCasiterita(producto);
-  const destinoEsExterno = esTransferencia && almacenDestino === DESTINO_EXTERNO_CASITERITA;
   const costoUnitNum = Number(costoUnit) || 0;
   const nuevoPMP =
     esEntradaConCosto && cantidadNum > 0
       ? calcularPMP(stockAlmacen, costoAlmacen, cantidadNum, costoUnitNum)
       : costoAlmacen;
-
-  function onChangeAlmacen(value: string) {
-    setAlmacen(value);
-    // Al cambiar de almacén, el costo por defecto de la entrada sigue el costo de ese almacén.
-    const ex = existencias.find((e) => e.almacen === value);
-    setCostoUnit(String(Number(ex?.costo_promedio) || producto.precio || 0));
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -114,16 +87,8 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
       setError('La cantidad debe ser mayor que 0.');
       return;
     }
-    if (esTransferencia && !almacenDestino) {
-      setError('Indica el almacén destino para la transferencia.');
-      return;
-    }
-    if (esTransferencia && almacenDestino === almacen) {
-      setError('El almacén destino debe ser distinto del de origen.');
-      return;
-    }
-    if ((tipo === 'salida' || tipo === 'consumo' || tipo === 'transferencia') && cantidadNum > stockAlmacen) {
-      setError(`No hay stock suficiente en ${almacen}. Disponible: ${num(stockAlmacen)} ${producto.unidad}.`);
+    if ((tipo === 'salida' || tipo === 'consumo') && cantidadNum > stockAlmacen) {
+      setError(`No hay stock suficiente en el Inventario General. Disponible: ${num(stockAlmacen)} ${producto.unidad}.`);
       return;
     }
     if (tipo === 'fundicion' && producto.en_fundicion) {
@@ -137,23 +102,6 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
 
     setSaving(true);
     try {
-      if (esTransferencia) {
-        // La transferencia la resuelve el padre (salida origen + entrada destino).
-        const payload: MovimientoInput = {
-          producto_id: producto.id,
-          tipo: 'transferencia',
-          delta,
-          almacen,
-          actor: actorEmail,
-          actor_name: actorName ?? null,
-          ref_tipo: 'manual',
-          detalle: detalle || null,
-        };
-        await onSubmit(payload, { almacenDestino });
-        onClose();
-        return;
-      }
-
       const tipoSchema: TipoMovimiento = tipo;
       const payload: MovimientoInput = {
         producto_id: producto.id,
@@ -181,7 +129,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
         Cancelar
       </button>
       <button type="submit" form="mov-form" className="btn btn-primary" disabled={saving}>
-        {saving ? 'Registrando…' : esTransferencia ? 'Transferir' : 'Registrar movimiento'}
+        {saving ? 'Registrando…' : 'Registrar movimiento'}
       </button>
     </>
   );
@@ -201,32 +149,17 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           </div>
           <div style={{ fontWeight: 600 }}>{producto.nombre}</div>
           <div className="muted mono" style={{ fontSize: '.78rem' }}>
-            Stock en <strong>{almacen}</strong>: <strong>{num(stockAlmacen)} {producto.unidad}</strong> · costo {money(costoAlmacen)}
+            Stock en <strong>Inventario General</strong>: <strong>{num(stockAlmacen)} {producto.unidad}</strong> · costo {money(costoAlmacen)}
           </div>
         </div>
 
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Almacén</label>
-            <select
-              className="select"
-              value={almacen}
-              onChange={(e) => onChangeAlmacen(e.target.value)}
-              disabled={!!fixedAlmacen}
-            >
-              {opcionesAlmacen.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-row">
-            <label>Tipo de movimiento</label>
-            <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoManual)}>
-              {OPCIONES.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+        <div className="form-row">
+          <label>Tipo de movimiento</label>
+          <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoManual)}>
+            {OPCIONES.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         </div>
 
         {!isFundicion && (
@@ -309,29 +242,6 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           )}
         </div>
 
-        {esTransferencia && (
-          <div className="form-row">
-            <label>Almacén destino</label>
-            <select
-              className="select"
-              value={almacenDestino}
-              onChange={(e) => setAlmacenDestino(e.target.value)}
-              required
-            >
-              <option value="">— elegí el destino —</option>
-              {opcionesAlmacen.filter((a) => a !== almacen).map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-              {puedeExterno && <option value={DESTINO_EXTERNO_CASITERITA}>🌉 {DESTINO_EXTERNO_CASITERITA_LABEL}</option>}
-            </select>
-            <small className="muted" style={{ fontSize: '.72rem' }}>
-              {destinoEsExterno
-                ? <>Sale de {almacen} de ESTE sistema y se <strong>envía al otro sistema</strong> (puente), que lo recibe automático en <strong>LOS PINOS - CASITERITA</strong>.</>
-                : <>Se descuenta de {almacen} y se suma al destino llevando su costo (PMP).</>}
-            </small>
-          </div>
-        )}
-
         <div className="form-row">
           <label>Detalle (opcional)</label>
           <input
@@ -352,7 +262,7 @@ export function MovimientoForm({ producto, existencias, almacenesList, fixedAlma
           }}
         >
           <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-            Vista previa {esTransferencia ? `· ${almacen} → ${destinoEsExterno ? DESTINO_EXTERNO_CASITERITA_LABEL : (almacenDestino || '—')}` : `· ${almacen}`}
+            Vista previa · Inventario General
           </div>
           <div className="mono" style={{ fontSize: '.9rem' }}>
             {num(stockAlmacen)} → <strong>{num(stockResultante)}</strong>{' '}

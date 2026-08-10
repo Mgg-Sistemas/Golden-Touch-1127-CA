@@ -6,6 +6,9 @@
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
+/** Inventario único: el almacén guardado es `'General'`; se imprime «Inventario General». */
+const invLabel = (a?: string | null): string => (a && a.trim().toLowerCase() === 'general' ? 'Inventario General' : (a || '—'));
+
 async function nuevoDoc(titulo: string) {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
@@ -35,7 +38,7 @@ export async function descargarSalidaMaterialPdf(mov: Movimiento, esTraslado: bo
   const precio = Number(mov.precio_unitario) || 0;
   const ficha: Array<[string, string]> = [
     ['Producto', prod ? `${prod.sku} — ${prod.nombre}` : '—'],
-    ['Almacén origen', mov.almacen || '—'],
+    ['Almacén origen', invLabel(mov.almacen)],
     [esTraslado ? 'Almacén destino' : 'Dirigido a', mov.destino || '—'],
     ['Cantidad', `${fmt.num(cant)} ${prod?.unidad ?? ''}`.trim()],
     ['Precio unitario', precio ? fmt.money(precio) : '—'],
@@ -67,7 +70,7 @@ export async function obtenerSalidaMaterialPdfBase64(
   const precio = Number(mov.precio_unitario) || 0;
   const ficha: Array<[string, string]> = [
     ['Producto', prod ? `${prod.sku} — ${prod.nombre}` : '—'],
-    ['Almacén origen', mov.almacen || '—'],
+    ['Almacén origen', invLabel(mov.almacen)],
     [esTraslado ? 'Almacén destino' : 'Dirigido a', mov.destino || '—'],
     ['Cantidad', `${fmt.num(cant)} ${prod?.unidad ?? ''}`.trim()],
     ['Precio unitario', precio ? fmt.money(precio) : '—'],
@@ -219,7 +222,7 @@ export async function descargarOrdenSalidaPdf(
     ['Sistema de Gestión de Inventarios', ''],
     ['Solicitado por', sol.solicitante || creo || '—'],
     ...(sol.unidad_solicitante ? [['Unidad solicitante', sol.unidad_solicitante] as [string, string]] : []),
-    [esTraslado ? 'Almacén origen' : 'Almacén de salida', sol.almacen_origen || '—'],
+    [esTraslado ? 'Almacén origen' : 'Almacén de salida', invLabel(sol.almacen_origen)],
     ...(esTraslado ? [['Almacén destino', sol.almacen_destino || '—'] as [string, string]] : []),
     ...(sol.consumo_interno ? [['Tipo', 'CONSUMO INTERNO'] as [string, string]] : []),
     ...(chofer ? [['Chofer / responsable', chofer] as [string, string]] : []),
@@ -265,7 +268,7 @@ export async function descargarOrdenSalidaPdf(
 
   const body = items.map((it, i) => {
     const row: string[] = [String(i + 1), `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`];
-    if (conAlmacen) row.push(it.almacen ?? sol.almacen_origen ?? '—');
+    if (conAlmacen) row.push(invLabel(it.almacen ?? sol.almacen_origen));
     if (conObs) row.push((it.observacion ?? '').trim() || '—');
     row.push(
       `${fmt.num(Number(it.cantidad) || 0)} ${it.unidad ?? ''}`.trim(),
