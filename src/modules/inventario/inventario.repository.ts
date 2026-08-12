@@ -263,7 +263,11 @@ export async function listProductos(): Promise<Producto[]> {
     .select('*')
     .order('nombre', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as Producto[];
+  // Orden alfabético A→Z real (español, sin distinguir mayúsculas/acentos):
+  // la colación de la BD puede intercalar mayúsculas/números/acentos distinto,
+  // así que se reordena en el cliente para que la lista quede siempre A-Z.
+  return ((data ?? []) as Producto[]).sort((a, b) =>
+    (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es', { sensitivity: 'base', numeric: true }));
 }
 
 export async function findProducto(id: string): Promise<Producto | null> {
