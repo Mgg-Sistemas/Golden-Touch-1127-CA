@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
@@ -48,10 +48,22 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   // Contrato minero: personas involucradas (nombre + cédula), editable.
   const [personas, setPersonas] = useState<PersonaContrato[]>(() =>
     Array.isArray(contrato?.personas) ? contrato!.personas!.map((p) => ({ nombre: p.nombre ?? '', cedula: p.cedula ?? '' })) : []);
-  const addPersona = () => setPersonas((ps) => [...ps, { nombre: '', cedula: '' }]);
+  // Key estable por fila: los inputs son NO-controlados (defaultValue) para que el
+  // refresh de realtime no corte lo que se está tecleando; con key por índice, al
+  // borrar una fila del medio el defaultValue mostraría el valor viejo, así que
+  // cada fila lleva su propio uid y React remonta solo la fila correcta.
+  const uidRef = useRef(0);
+  const [personaKeys, setPersonaKeys] = useState<number[]>(() => personas.map(() => uidRef.current++));
+  const addPersona = () => {
+    setPersonas((ps) => [...ps, { nombre: '', cedula: '' }]);
+    setPersonaKeys((ks) => [...ks, uidRef.current++]);
+  };
   const setPersona = (i: number, campo: keyof PersonaContrato, v: string) =>
     setPersonas((ps) => ps.map((p, j) => (j === i ? { ...p, [campo]: v } : p)));
-  const delPersona = (i: number) => setPersonas((ps) => ps.filter((_, j) => j !== i));
+  const delPersona = (i: number) => {
+    setPersonas((ps) => ps.filter((_, j) => j !== i));
+    setPersonaKeys((ks) => ks.filter((_, j) => j !== i));
+  };
   // N° de contrato editable la PRIMERA vez (luego se prellena incremental).
   const [numeroManual, setNumeroManual] = useState('');
   // En contratos nuevos la observación arranca con "Material de Mesa:" (como en el Excel).
@@ -204,10 +216,10 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
                 <tbody>
                   {!personas.length && <tr><td colSpan={ro ? 3 : 4} className="muted" style={{ textAlign: 'center' }}>Sin personas. Usá «＋ Añadir persona».</td></tr>}
                   {personas.map((p, i) => (
-                    <tr key={i}>
+                    <tr key={personaKeys[i] ?? i}>
                       <td className="mono muted">{i + 1}</td>
-                      <td><input className="input" value={p.nombre} disabled={ro} onChange={(e) => setPersona(i, 'nombre', e.target.value.toUpperCase())} placeholder="Nombre y apellido" /></td>
-                      <td><input className="input mono" value={p.cedula} disabled={ro} onChange={(e) => setPersona(i, 'cedula', e.target.value)} placeholder="V-00.000.000" /></td>
+                      <td><input className="input" style={{ textTransform: 'uppercase' }} defaultValue={p.nombre} autoComplete="off" disabled={ro} onChange={(e) => setPersona(i, 'nombre', e.target.value.toUpperCase())} placeholder="Nombre y apellido" /></td>
+                      <td><input className="input mono" defaultValue={p.cedula} autoComplete="off" disabled={ro} onChange={(e) => setPersona(i, 'cedula', e.target.value)} placeholder="V-00.000.000" /></td>
                       {!ro && <td style={{ textAlign: 'center' }}><button type="button" className="btn btn-sm btn-ghost" title="Quitar" onClick={() => delPersona(i)}>🗑</button></td>}
                     </tr>
                   ))}

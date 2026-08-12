@@ -286,6 +286,9 @@ export function AcopioPage() {
 
 /* ───────────── Agregar movimiento de caja (acopio) ───────────── */
 
+// Cajas de origen para una ENTRADA de dinero al centro (columna «$Usd entregado»).
+const CAJAS_ORIGEN_ENTRADA = ['CAJA MULTIMONEDAS MGG', 'CAJA GT PERAMANAL'] as const;
+
 function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved }: {
   cajaActual: CajaCierre | null;
   actor: string;
@@ -294,6 +297,9 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   onSaved: () => void;
 }) {
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [entrada, setEntrada] = useState('');
+  const [entradaCaja, setEntradaCaja] = useState<string>(CAJAS_ORIGEN_ENTRADA[0]);
+  const [descEntrada, setDescEntrada] = useState('');
   const [gastos, setGastos] = useState('');
   const [gastoCat, setGastoCat] = useState('');
   const [descGastos, setDescGastos] = useState('');
@@ -318,9 +324,9 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 
   async function guardar() {
     setError(null);
-    const gas = r2(gastos), tras = r2(traslado);
+    const gas = r2(gastos), tras = r2(traslado), ent = r2(entrada);
     const kg = Number(kgRecibidos) || 0;
-    if (gas <= 0 && tras <= 0 && kg <= 0) { setError('Ingresá al menos un monto.'); return; }
+    if (gas <= 0 && tras <= 0 && kg <= 0 && ent <= 0) { setError('Ingresá al menos un monto.'); return; }
     if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto.'); return; }
     setSaving(true);
     try {
@@ -328,6 +334,9 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       // Una fila por concepto. El gasto se registra en su campo según el grupo de
       // la categoría elegida (gastos_caja o nómina), pero en la UI es un solo campo.
       const filas: CajaMovimientoInput[] = [];
+      // Entrada de dinero → suma en «$Usd entregado». Descripción normalizada como
+      // «<CAJA ORIGEN> DESCRIPCIÓN: <detalle del usuario>».
+      if (ent > 0) filas.push({ fecha, usd_entregado: ent, descripcion: `${entradaCaja} DESCRIPCIÓN: ${descEntrada.trim()}`.trim(), caja_id: cajaId });
       if (gas > 0) {
         const cat = catsUnificadas.find((c) => c.valor === gastoCat);
         const esNomina = cat?.grupo === 'nomina';
@@ -374,6 +383,22 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       </p>
 
       <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+
+      {/* Entrada de dinero: monto + caja de origen + descripción → suma en «$Usd entregado» */}
+      <div className="form-grid">
+        {campoUsd('$ Entrada de dinero', entrada, setEntrada, 'mov-entrada')}
+        <div className="form-row">
+          <label>Caja de origen</label>
+          <select className="select" value={entradaCaja} onChange={(e) => setEntradaCaja(e.target.value)}>
+            {CAJAS_ORIGEN_ENTRADA.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="form-row">
+        <label>Descripción</label>
+        <input className="input" name="mov-desc-entrada" defaultValue={descEntrada} onChange={(e) => setDescEntrada(e.target.value)} placeholder="Detalle de la entrada de dinero…" />
+        {r2(entrada) > 0 && <small className="muted">Se guardará como: <strong>{entradaCaja} DESCRIPCIÓN: {descEntrada.trim() || '…'}</strong></small>}
+      </div>
 
       {/* Gastos (incluye nómina): monto + categoría buscable + descripción */}
       <div className="form-grid">

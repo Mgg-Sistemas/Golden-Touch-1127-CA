@@ -38,3 +38,6 @@ guia-caja-peramanal.html
 supabase/.temp/
 supabase/.branches/
 .playwright-mcp/
+
+# Reportes de inspeccion de usuarios (solo local, nunca a git)
+Inspeccion-Usuario-*.html
