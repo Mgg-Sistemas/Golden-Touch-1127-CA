@@ -92,7 +92,10 @@ export async function listProductosActivos(): Promise<Producto[]> {
     .eq('estado', 'activo')
     .order('nombre', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as Producto[];
+  // Orden alfabético A→Z real (español) en el cliente, igual que el inventario,
+  // para que el buscador de Solicitud de Pedido liste los productos de la A a la Z.
+  return ((data ?? []) as Producto[]).sort((a, b) =>
+    (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es', { sensitivity: 'base', numeric: true }));
 }
 
 /** Lee el rol del usuario actual desde la tabla `usuarios`. */
