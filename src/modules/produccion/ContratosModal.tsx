@@ -54,6 +54,20 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   // cada fila lleva su propio uid y React remonta solo la fila correcta.
   const uidRef = useRef(0);
   const [personaKeys, setPersonaKeys] = useState<number[]>(() => personas.map(() => uidRef.current++));
+  // Fuente de verdad al guardar: se leen los nombres/cédulas DIRECTO de los campos
+  // (inputs no-controlados), así lo tecleado nunca se pierde aunque un re-render de
+  // realtime desincronice el estado. Cae al estado sólo si el DOM no está disponible.
+  const personasBodyRef = useRef<HTMLTableSectionElement>(null);
+  const leerPersonas = (): PersonaContrato[] => {
+    const body = personasBodyRef.current;
+    if (!body) return personas.map((p) => ({ nombre: (p.nombre ?? '').trim(), cedula: (p.cedula ?? '').trim() })).filter((p) => p.nombre || p.cedula);
+    return Array.from(body.querySelectorAll('tr'))
+      .map((tr) => {
+        const inputs = tr.querySelectorAll('input');
+        return { nombre: (inputs[0]?.value ?? '').toUpperCase().trim(), cedula: (inputs[1]?.value ?? '').trim() };
+      })
+      .filter((p) => p.nombre || p.cedula);
+  };
   const addPersona = () => {
     setPersonas((ps) => [...ps, { nombre: '', cedula: '' }]);
     setPersonaKeys((ks) => [...ks, uidRef.current++]);
@@ -108,7 +122,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
         tonProcesadas: Number(ton) || 0, kgHumedo: Number(kgHum) || 0, kgSecos: Number(kgSec) || 0,
         kgSecoLimpio: Number(kgLim) || 0, observaciones: obs,
         cantidadSacos: Number(sacos) || 0, precioCasiterita: Number(precioCas) || 0, tasa: Number(tasa) || 0,
-        personas: esMinero ? personas : [],
+        personas: esMinero ? leerPersonas() : [],
       };
       if (editando) { await actualizarContrato(contrato!.id, input); toast('Contrato actualizado', 'success'); }
       else { const c = await crearContrato({ ...input, numeroManual, actor, actorName }); toast(`Contrato ${c.numero} creado`, 'success'); }
@@ -213,7 +227,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.84rem' }}>
                 <thead><tr><th style={{ width: 40 }}>#</th><th>Nombre y apellido</th><th style={{ width: 200 }}>Cédula</th>{!ro && <th style={{ width: 40 }}></th>}</tr></thead>
-                <tbody>
+                <tbody ref={personasBodyRef}>
                   {!personas.length && <tr><td colSpan={ro ? 3 : 4} className="muted" style={{ textAlign: 'center' }}>Sin personas. Usá «＋ Añadir persona».</td></tr>}
                   {personas.map((p, i) => (
                     <tr key={personaKeys[i] ?? i}>
