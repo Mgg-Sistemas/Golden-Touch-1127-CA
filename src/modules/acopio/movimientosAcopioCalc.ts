@@ -94,10 +94,19 @@ export function construirMovimientosAcopio(args: {
       // El rótulo en la caja distingue el TIPO de contrato: los mineros se guardan como
       // «CONTRATO MINERO GT»; los de molienda propia, «CONTRATO PRODUCCIÓN GT».
       const esMinero = (e.c.tipo ?? '') === 'minero';
+      // Contrato MINERO: la casiterita se compra al minero a la TASA ESTABLECIDA del
+      // contrato, así que ese peso limpio entra a la caja «facturado» = kg × tasa
+      // (idéntico a como se valúa en inventario). Ese facturado alimenta la tarjeta
+      // «Tasa del material», «Gastos GT» y mueve el saldo en $ (dinero gastado en
+      // material). La producción propia no factura (su tasa sale de los movimientos).
+      const tasaMinero = esMinero ? n(e.c.tasa) : 0;
+      const facturadoContrato = tasaMinero > 0 ? Math.round(kg * tasaMinero * 100) / 100 : 0;
+      saldoUsd = saldoUsd - facturadoContrato;
       return {
         id: `c-${e.c.id}`, contratoId: e.c.id, fecha: e.c.fecha,
         descripcion: `CONTRATO ${esMinero ? 'MINERO' : 'PRODUCCIÓN'} GT - #${e.c.seq}`,
-        usdEntregado: null, kgCerrados: kg, precioUsdKg: null, usdFacturados: 0,
+        usdEntregado: null, kgCerrados: kg,
+        precioUsdKg: tasaMinero > 0 ? tasaMinero : null, usdFacturados: facturadoContrato,
         gastosGt: null, nominasGt: null, trasladoCaja: null,
         saldoUsd, kgRecibidosMgg: null, saldoKgCasiterita: saldoKg,
       };
