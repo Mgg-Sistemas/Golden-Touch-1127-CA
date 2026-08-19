@@ -19,6 +19,14 @@ import { aprobarOrdenConOferta } from './pedidos.repository';
 import { RepartirProveedoresModal } from './RepartirProveedoresModal';
 import { agruparVariantes, hayVariantes, totalesRepresentativos } from './variantesOferta';
 
+/** Impuestos absolutos ($) de una oferta (IVA + IGTF) que se SUMAN al total al pasar
+ *  a la OC. Se muestran en la comparación para que el total refleje lo que se pagará. */
+function impuestosOferta(of: OfertaProveedor): number {
+  const iva = of.iva_aplicado ? Math.max(0, Number(of.iva_monto) || 0) : 0;
+  const igtf = of.igtf_aplicado ? Math.max(0, Number(of.igtf_monto) || 0) : 0;
+  return Math.round((iva + igtf) * 100) / 100;
+}
+
 /** Resumen compacto de la ficha del producto para mostrar en la comparativa. */
 function resumenFicha(ficha: OfertaProveedor['ficha']): string {
   if (!ficha) return '';
@@ -346,16 +354,22 @@ export function OfertasComparativa({
                         // Total representativo: si un producto tiene varias marcas (alternativas),
                         // NO se suman; se cuenta una por producto. La marca se elige al aceptar.
                         const rep = totalesRepresentativos(s.oferta.items ?? []);
-                        const bcv = rep.bcv > 0 ? rep.bcv : Number(s.oferta.precio_total) || 0;
+                        const baseBcv = rep.bcv > 0 ? rep.bcv : Number(s.oferta.precio_total) || 0;
                         const tieneAlt = hayVariantes(s.oferta.items ?? []);
-                        const div = s.oferta.precio_divisa != null
+                        const baseDiv = s.oferta.precio_divisa != null
                           ? (rep.usd > 0 ? rep.usd : Number(s.oferta.precio_divisa))
                           : (rep.usd > 0 ? rep.usd : null);
+                        // Los impuestos (IVA/IGTF) SE SUMAN al total (así queda en la OC),
+                        // por eso el número grande de la comparación ya los incluye.
+                        const imp = impuestosOferta(s.oferta);
+                        const bcv = Math.round((baseBcv + imp) * 100) / 100;
+                        const div = baseDiv != null ? Math.round((baseDiv + imp) * 100) / 100 : null;
                         const dif = div != null ? bcv - div : 0;
                         const pct = bcv > 0 && div != null ? (dif / bcv) * 100 : 0;
                         return (
                           <>
                             {money(bcv)}
+                            {imp > 0 && <div className="muted" style={{ fontSize: '.66rem', fontWeight: 600 }} title="Total con IVA/IGTF incluidos">base {money(baseBcv)} · imp. +{money(imp)}</div>}
                             {tieneAlt && <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600, color: 'var(--warning, #d97706)' }}>estimado · alternativas</div>}
                             {div != null && (
                               <div style={{ fontSize: '.72rem', fontWeight: 400, marginTop: '.2rem' }}>
@@ -417,6 +431,7 @@ export function OfertasComparativa({
                             const totalBcv = rep.bcv > 0 ? rep.bcv : Number(s.oferta.precio_total) || 0;
                             const totalUsd = rep.usd > 0 ? rep.usd
                               : (s.oferta.precio_divisa != null ? Number(s.oferta.precio_divisa) : 0);
+                            const impDet = impuestosOferta(s.oferta);   // IVA/IGTF que se suman al total
                             const hayUsd = s.oferta.items.some((it) => Number(it.precio_usd) > 0) || s.oferta.precio_divisa != null;
                             const difTotal = totalBcv - totalUsd;
                             const pctTotal = totalBcv > 0 ? (difTotal / totalBcv) * 100 : 0;
@@ -485,13 +500,31 @@ export function OfertasComparativa({
                                 </tr>
                               )}
                               <tr style={{ fontWeight: 700 }}>
-                                <td colSpan={3} style={{ textAlign: 'right' }}>TOTAL{skusAlt.size > 0 ? ' *' : ''}</td>
+                                <td colSpan={3} style={{ textAlign: 'right' }}>{impDet > 0 ? 'Subtotal' : 'TOTAL'}{skusAlt.size > 0 ? ' *' : ''}</td>
                                 <td className="num mono">{money(totalBcv)}</td>
                                 <td></td>
                                 <td className="num mono">{hayUsd ? money(totalUsd) : '—'}</td>
                                 <td className="num mono" style={{ color: difTotal >= 0 ? 'var(--success)' : 'var(--danger)' }}>{hayUsd ? money(difTotal) : '—'}</td>
                                 <td className="num mono">{hayUsd ? `${pctTotal.toFixed(2)}%` : '—'}</td>
                               </tr>
+                              {impDet > 0 && (
+                                <>
+                                  <tr>
+                                    <td colSpan={3} style={{ textAlign: 'right', color: 'var(--muted)' }}>Impuestos (IVA/IGTF)</td>
+                                    <td className="num mono" style={{ color: 'var(--muted)' }}>+{money(impDet)}</td>
+                                    <td></td>
+                                    <td className="num mono" style={{ color: 'var(--muted)' }}>{hayUsd ? `+${money(impDet)}` : '—'}</td>
+                                    <td></td><td></td>
+                                  </tr>
+                                  <tr style={{ fontWeight: 800 }}>
+                                    <td colSpan={3} style={{ textAlign: 'right' }}>TOTAL CON IMPUESTOS</td>
+                                    <td className="num mono">{money(totalBcv + impDet)}</td>
+                                    <td></td>
+                                    <td className="num mono">{hayUsd ? money(totalUsd + impDet) : '—'}</td>
+                                    <td></td><td></td>
+                                  </tr>
+                                </>
+                              )}
                             </tfoot>
                           </table>
                           </div>
@@ -550,7 +583,12 @@ export function OfertasComparativa({
               <div>
                 <div className="muted" style={{ fontSize: '.72rem' }}>💲 Mejor precio</div>
                 <div style={{ fontWeight: 700 }}>{nombre(mejorPrecioOf)}</div>
-                {mejorPrecioOf && <div className="mono" style={{ fontSize: '.8rem' }}>{money(mejorPrecioOf.oferta.precio_total)}{mejorPrecioOf.oferta.precio_divisa != null ? ` · divisa ${money(Number(mejorPrecioOf.oferta.precio_divisa))}` : ''}</div>}
+                {mejorPrecioOf && (() => {
+                  const imp = impuestosOferta(mejorPrecioOf.oferta);
+                  const base = Number(mejorPrecioOf.oferta.precio_total) || 0;
+                  const divisa = mejorPrecioOf.oferta.precio_divisa != null ? Number(mejorPrecioOf.oferta.precio_divisa) : null;
+                  return <div className="mono" style={{ fontSize: '.8rem' }}>{money(base + imp)}{divisa != null ? ` · divisa ${money(divisa + imp)}` : ''}{imp > 0 ? <span className="muted" style={{ fontSize: '.72rem' }}> (incl. imp.)</span> : ''}</div>;
+                })()}
               </div>
               <div>
                 <div className="muted" style={{ fontSize: '.72rem' }}>⭐ Mejor calidad</div>
