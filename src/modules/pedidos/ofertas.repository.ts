@@ -144,7 +144,51 @@ export async function actualizarOferta(
     .select('*')
     .single();
   if (error) throw error;
-  return data as OfertaProveedor;
+  const oferta = data as OfertaProveedor;
+  // Fuente única del impuesto: si la oferta ya está ACEPTADA y su OC todavía NO pasó por
+  // el método de pago (estado aprobada/oc_aprobada), re-sincronizamos IVA/IGTF a la orden
+  // para que el total a pagar refleje el impuesto aunque se edite DESPUÉS de aceptar.
+  // (Una vez con método de pago, el impuesto lo maneja Tesorería y no se pisa.)
+  if (oferta.estado === 'aceptada') {
+    await sincronizarImpuestosOrdenDesdeOferta(oferta).catch(() => { /* no bloquear la edición */ });
+  }
+  return oferta;
+}
+
+/** Re-sincroniza IVA/IGTF de la OC con los de su oferta aceptada (fuente única),
+ *  ajustando el total. Solo en estados PRE-pago; nunca pisa lo que fijó Tesorería. */
+async function sincronizarImpuestosOrdenDesdeOferta(oferta: OfertaProveedor): Promise<void> {
+  const { data } = await supabase
+    .from('ordenes')
+    .select('id, estado, total, total_divisa, iva_aplicado, iva_monto, igtf_aplicado, igtf_monto')
+    .eq('id', oferta.orden_id)
+    .maybeSingle();
+  if (!data) return;
+  const o = data as {
+    id: string; estado: string; total: number | null; total_divisa: number | null;
+    iva_aplicado: boolean | null; iva_monto: number | null; igtf_aplicado: boolean | null; igtf_monto: number | null;
+  };
+  // Nunca tocar una OC ya pagada/cerrada (el monto es histórico).
+  if (['pagada', 'recibida', 'finalizada'].includes(o.estado)) return;
+  const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const ivaAp = !!oferta.iva_aplicado, igtfAp = !!oferta.igtf_aplicado;
+  // Solo sincronizamos cuando la OFERTA trae impuestos (fuente única): así se agregan/
+  // ajustan a la OC. Si la oferta NO tiene impuestos, no tocamos la OC (respeta un IVA
+  // que Tesorería pudiera haber cargado en el método de pago).
+  if (!ivaAp && !igtfAp) return;
+  const ivaM = ivaAp ? Math.max(0, num(oferta.iva_monto)) : 0;
+  const igtfM = igtfAp ? Math.max(0, num(oferta.igtf_monto)) : 0;
+  const prevImp = (o.iva_aplicado ? num(o.iva_monto) : 0) + (o.igtf_aplicado ? num(o.igtf_monto) : 0);
+  const newImp = ivaM + igtfM;
+  if (r2(prevImp) === r2(newImp) && !!o.iva_aplicado === ivaAp && !!o.igtf_aplicado === igtfAp) return; // sin cambios
+  const patch: Record<string, unknown> = {
+    iva_aplicado: ivaAp, iva_pct: ivaAp ? num(oferta.iva_pct) : 0, iva_monto: ivaAp ? ivaM : null,
+    igtf_aplicado: igtfAp, igtf_pct: igtfAp ? num(oferta.igtf_pct) : 0, igtf_monto: igtfAp ? igtfM : null,
+    total: r2(num(o.total) - prevImp + newImp),
+  };
+  if (o.total_divisa != null) patch.total_divisa = r2(num(o.total_divisa) - prevImp + newImp);
+  await supabase.from('ordenes').update(patch).eq('id', o.id);
 }
 
 export async function eliminarOferta(id: string): Promise<void> {
