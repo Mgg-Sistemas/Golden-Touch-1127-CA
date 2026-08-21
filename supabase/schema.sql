@@ -2672,6 +2672,13 @@ alter table public.ordenes add column if not exists retencion_modo      text;
 alter table public.ordenes add column if not exists retencion_pagada    boolean not null default false;
 alter table public.ordenes add column if not exists retencion_pagada_en timestamptz;
 
+-- Comisión bancaria del pago de la OC (egreso EXTRA, no suma al total). El pago escribe
+-- estos campos SIEMPRE (0/null si no hay comisión); sin las columnas el patch de pago fallaba.
+alter table public.ordenes add column if not exists comision_monto      numeric default 0;
+alter table public.ordenes add column if not exists comision_moneda     text;
+alter table public.ordenes add column if not exists comision_usd        numeric default 0;
+alter table public.ordenes add column if not exists comision_caja_mov_id uuid;
+
 -- almacenes en políticas de escritura operativa
 do $$
 begin
