@@ -380,24 +380,26 @@ function ComboConAgregar({ label, valor, opciones, onChange, hint }: {
   label: string; valor: string; opciones: string[]; onChange: (v: string) => void; hint?: string;
 }) {
   const [agregando, setAgregando] = useState(false);
-  const [nuevo, setNuevo] = useState('');
+  // Input NO controlado: el valor se lee del DOM (ref) al confirmar, nunca del estado.
+  // Así un re-render del realtime no puede "cortar" lo que se está tecleando.
+  const nuevoRef = useRef<HTMLInputElement>(null);
   // Si el valor actual no está en el catálogo (p. ej. al editar), lo incluimos.
   const opts = valor && !opciones.includes(valor) ? [valor, ...opciones] : opciones;
   function confirmar() {
-    const v = nuevo.trim();
+    const v = (nuevoRef.current?.value ?? '').trim();
     if (v) onChange(v);
-    setNuevo(''); setAgregando(false);
+    setAgregando(false);
   }
   return (
     <div className="form-row">
       <label>{label}</label>
       {agregando ? (
         <div style={{ display: 'flex', gap: '.3rem' }}>
-          <input className="input" autoFocus name="combo-nuevo" defaultValue={nuevo} placeholder={`Nuevo ${label.toLowerCase()}…`}
-            onChange={(e) => setNuevo(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmar(); } if (e.key === 'Escape') { setAgregando(false); setNuevo(''); } }} />
+          <input className="input" autoFocus name="combo-nuevo" ref={nuevoRef} defaultValue="" autoComplete="off"
+            placeholder={`Nuevo ${label.toLowerCase()}…`}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmar(); } if (e.key === 'Escape') setAgregando(false); }} />
           <button type="button" className="btn btn-sm btn-primary" onClick={confirmar} title="Agregar">✓</button>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setAgregando(false); setNuevo(''); }} title="Cancelar">✕</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAgregando(false)} title="Cancelar">✕</button>
         </div>
       ) : (
         <select className="select" value={valor}
