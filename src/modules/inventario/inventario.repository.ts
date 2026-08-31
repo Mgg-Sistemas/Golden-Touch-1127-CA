@@ -297,7 +297,28 @@ export async function createProducto(input: ProductoInput): Promise<Producto> {
     .select('*')
     .single();
   if (error) throw error;
-  return data as Producto;
+  const prod = data as Producto;
+  // El producto nace TAMBIÉN con su fila en `existencias` (su almacén, con el stock/costo
+  // inicial), así aparece en las vistas por almacén sin esperar a su primer movimiento.
+  // Idempotente: si ya existiera la fila, no la pisa. (Antes quedaban productos "fantasma"
+  // sin existencia hasta recibir mercancía.)
+  const almacen = (input.almacen ?? '').trim();
+  if (almacen) {
+    const { error: exErr } = await supabase
+      .from('existencias')
+      .upsert(
+        {
+          producto_id: prod.id,
+          almacen,
+          stock: Math.max(0, Number(input.stock) || 0),
+          costo_promedio: Math.max(0, Number(input.precio) || 0),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'producto_id,almacen', ignoreDuplicates: true },
+      );
+    if (exErr) throw exErr;
+  }
+  return prod;
 }
 
 export async function updateProducto(
