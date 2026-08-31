@@ -818,3 +818,35 @@ tr.row-selectable:active { transform: scale(0.998); }
   box-shadow: var(--glow-primary);
 }
 .view-switch { display: flex; justify-content: center; }
+
+/* ============================================================
+   Responsive · Red de seguridad de CONTENIDO en teléfono (≤ 600px)
+   El andamiaje (drawer, tablas con scroll, KPIs, kanban) ya es responsive.
+   Esto ataca lo que rompe DENTRO de modales/cards/páginas: grids armados con
+   estilo inline (columnas fijas) que no colapsan, y elementos que no encogen
+   y empujan el contenido fuera de la pantalla. Se apunta a estilos inline con
+   selectores de atributo (los que la app usa por todos lados), sin tener que
+   editar cada componente.
+   ============================================================ */
+@media (max-width: 600px) {
+  /* Grids con columnas fijas por estilo inline → UNA sola columna (apila y se lee).
+     Los grids con clase propia (.form-grid, .kpi-grid, .kanban…) ya tienen su
+     responsive y no se ven afectados. */
+  .modal-body [style*="grid-template-columns"],
+  .card [style*="grid-template-columns"],
+  .main [style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Deja que los hijos de flex/grid ENCOJAN (el min-width:auto de flex es lo que
+     empuja una fila fuera de pantalla). Evita el scroll horizontal fantasma. */
+  .modal-body > *, .card > *,
+  .modal-body [style*="flex"] > *,
+  .card [style*="flex"] > * { min-width: 0; }
+
+  /* Filas de acciones/títulos inline: que ENVUELVAN en lugar de cortarse. */
+  .card-title, .modal-footer { flex-wrap: wrap; }
+
+  /* Texto/códigos monoespaciados largos: que quiebren en vez de estirar la caja. */
+  .modal-body, .card { overflow-wrap: anywhere; }
+}

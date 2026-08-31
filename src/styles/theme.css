@@ -164,6 +164,10 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
 
 .input, .select, .textarea {
   width: 100%;
+  /* max-width:100% + box-sizing: aunque un campo lleve un ancho fijo inline (p. ej.
+     style="width:150px"), nunca desborda su contenedor en pantallas chicas. */
+  max-width: 100%;
+  box-sizing: border-box;
   padding: .6rem .85rem;
   background: var(--bg-1);
   border: 1px solid var(--border);
