@@ -5,6 +5,7 @@
    por retrocompatibilidad con datos legados ('General', etc.).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 
 const TABLE = 'almacenes';
@@ -236,9 +237,12 @@ export async function valoresPorAlmacen(): Promise<Record<string, AlmacenValor>>
 /** Entradas/salidas por producto dentro de un almacén (desde movimientos de ese almacén). */
 export async function movStatsDeAlmacen(almacen: string): Promise<Map<string, { entradas: number; salidas: number }>> {
   const map = new Map<string, { entradas: number; salidas: number }>();
-  const { data, error } = await supabase.from('movimientos').select('producto_id, delta').eq('almacen', almacen);
-  if (error) throw error;
-  (data ?? []).forEach((row) => {
+  // Paginado: en un centro único casi todo cae en pocos almacenes ('General'), que puede
+  // superar 1.000 movimientos y quedar truncado sin aviso.
+  const data = await todasLasFilas<{ producto_id: string; delta: number | null }>((desde, hasta) =>
+    supabase.from('movimientos').select('producto_id, delta').eq('almacen', almacen)
+      .order('id', { ascending: true }).range(desde, hasta));
+  data.forEach((row) => {
     const r = row as { producto_id: string; delta: number | null };
     const d = Number(r.delta) || 0;
     const cur = map.get(r.producto_id) ?? { entradas: 0, salidas: 0 };

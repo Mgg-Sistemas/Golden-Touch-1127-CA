@@ -9,6 +9,7 @@
    El $ de cada movimiento = |delta| × costo_promedio del movimiento.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Almacen, Existencia, Movimiento, Producto } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
@@ -144,17 +145,17 @@ export async function cargarResumenInventario(desde: string | null, hasta: strin
     .map((r) => ({ ...r, valor: Math.round(r.valor * 100) / 100 }))
     .sort((a, b) => (a.sede.localeCompare(b.sede, 'es') || a.almacen.localeCompare(b.almacen, 'es')));
 
-  // 2) Movimientos del rango (con join al producto para sku/nombre).
-  let q = supabase
-    .from('movimientos')
-    .select('*, producto:productos(sku, nombre, unidad)')
-    .in('tipo', ['entrada', 'salida', 'transferencia'])
-    .order('at', { ascending: false });
-  if (gte) q = q.gte('at', gte);
-  if (lte) q = q.lte('at', lte);
-  const { data: movData, error: movErr } = await q;
-  if (movErr) throw movErr;
-  const movs = (movData ?? []) as Movimiento[];
+  // 2) Movimientos del rango (con join al producto para sku/nombre). Paginado: sin rango de
+  //    fechas la tabla `movimientos` puede pasar de 1.000 filas y PostgREST cortaría en silencio.
+  const movs = await todasLasFilas<Movimiento>((desde, hasta) => {
+    let q = supabase
+      .from('movimientos')
+      .select('*, producto:productos(sku, nombre, unidad)')
+      .in('tipo', ['entrada', 'salida', 'transferencia']);
+    if (gte) q = q.gte('at', gte);
+    if (lte) q = q.lte('at', lte);
+    return q.order('at', { ascending: false }).order('id', { ascending: false }).range(desde, hasta);
+  });
 
   const entradasFilas: MovResumenRow[] = [];
   const salidasFilas: MovResumenRow[] = [];

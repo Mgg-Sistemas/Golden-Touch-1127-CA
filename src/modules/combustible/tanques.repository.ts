@@ -273,6 +273,19 @@ export async function setEstadoTanque(id: string, estado: 'activo' | 'inactivo')
  */
 export async function eliminarTanque(id: string): Promise<void> {
   if (!id) throw new Error('Tanque no indicado.');
+  // 0. No se elimina un tanque CON litros: sus litros están contados en el combustible y el
+  //    inventario; borrarlo los dejaría sin cuadrar. Hay que vaciarlo (consumo/merma) primero.
+  const { data: tnk, error: e0 } = await supabase
+    .from('combustible_tanques')
+    .select('nombre, saldo_litros')
+    .eq('id', id)
+    .maybeSingle();
+  if (e0) throw e0;
+  const saldoTanque = Number((tnk as { saldo_litros?: number | null } | null)?.saldo_litros) || 0;
+  if (saldoTanque > 0.001) {
+    const nom = (tnk as { nombre?: string | null } | null)?.nombre ?? 'el tanque';
+    throw new Error(`No se puede eliminar «${nom}»: tiene ${Math.round(saldoTanque * 100) / 100} L cargados. Vacialo primero (registrá un consumo o una merma) y luego eliminá el tanque, para no dejar esos litros sin cuadrar.`);
+  }
   // 1. Movimientos de este tanque que tienen contraparte en otro tanque.
   const { data: propios, error: e1 } = await supabase
     .from('combustible_tanque_movimientos')
@@ -575,8 +588,9 @@ export async function registrarTraslado(input: {
       actor_name: input.actorName ?? null,
     });
     await aplicarSaldoTanque(input.tanqueDestinoId, saldoL, saldoU, tasaDest);
-    await supabase.from('combustible_tanque_movimientos')
+    const { error: vinErr } = await supabase.from('combustible_tanque_movimientos')
       .update({ mov_vinculado_id: movEntrada.id }).eq('id', movTraslado.id);
+    if (vinErr) throw vinErr;
   }
 }
 
@@ -711,8 +725,9 @@ export async function recomputarTanque(tanqueId: string): Promise<void> {
   // Re-valoriza en el libro los consumos/retornos cuya tasa cambió (el monto $ es columna
   // generada = litros × tasa), así el saldo corrido de la tabla coincide con el header.
   for (const r of reescribir) {
-    await supabase.from('combustible_tanque_movimientos')
+    const { error: reErr } = await supabase.from('combustible_tanque_movimientos')
       .update({ tasa_usd_litro: r.tasa, updated_at: new Date().toISOString() }).eq('id', r.id);
+    if (reErr) throw reErr;
   }
   // PMP final = valor / litros. Sin litros (tanque vacío) se conserva la última tasa.
   const tasa = saldoL > 0 ? saldoU / saldoL : num(t.tasa_usd_litro);
@@ -867,8 +882,9 @@ export async function actualizarMovimientoTanque(
     if (patch.litros != null) compartidos.litros = num(patch.litros);
     if (patch.tasaUsdLitro != null) compartidos.tasa_usd_litro = round(num(patch.tasaUsdLitro), 4);
 
-    const { data: cp } = await supabase.from('combustible_tanque_movimientos')
+    const { data: cp, error: cpErr } = await supabase.from('combustible_tanque_movimientos')
       .update(compartidos).eq('id', vinculadoId).select('tanque_id, equipo').single();
+    if (cpErr) throw cpErr;
     if (cp) {
       const cpTanque = (cp as { tanque_id: string }).tanque_id;
       const cpEquipo = (cp as { equipo: string | null }).equipo;
