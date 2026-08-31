@@ -784,6 +784,10 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const [comision, setComision] = useState('');
   // Moneda de la compra (Bs/$). El IVA suma al total en cualquiera de las dos.
   const [monedaCompra, setMonedaCompra] = useState<'USD' | 'Bs'>(compra.moneda === 'Bs' ? 'Bs' : 'USD');
+  // ¿El usuario ELIGIÓ explícitamente la moneda? En una compra nueva (sin moneda guardada)
+  // arranca en false y se OBLIGA a elegir antes de guardar/pagar, para no registrar montos en
+  // Bs como si fueran dólares (ni al revés) por dejar el selector en su valor por defecto.
+  const [monedaConfirmada, setMonedaConfirmada] = useState<boolean>(compra.moneda === 'USD' || compra.moneda === 'Bs');
   // Conversor: al convertir, se re-montan los inputs de gasto (no controlados) con `convKey`
   // y se recuerda la tasa usada (`tasaConversion`) para guardarla y mostrarla en Tesorería.
   const [convKey, setConvKey] = useState(0);
@@ -945,6 +949,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
+    if (!monedaConfirmada) { setError('Elegí la MONEDA de la compra (USD $ o Bs) antes de continuar. Es obligatorio para no registrar bolívares como dólares.'); return; }
     if (files.some((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'))) { setError('Los adjuntos deben ser PDF o imagen.'); return; }
 
     // MODO MONTAR (analista): carga factura + montos y deja "Por pagar" (no toca caja ni inventario).
@@ -1191,11 +1196,19 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
           <div className="form-row">
             <label>Moneda de la compra</label>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select className="select" style={{ maxWidth: 150 }} value={monedaCompra} onChange={(e) => { setMonedaCompra(e.target.value === 'Bs' ? 'Bs' : 'USD'); setTasaConversion(null); }}>
+              <select className="select" style={{ maxWidth: 170, ...(monedaConfirmada ? {} : { borderColor: 'var(--danger)' }) }}
+                value={monedaConfirmada ? monedaCompra : ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v !== 'Bs' && v !== 'USD') return;
+                  setMonedaCompra(v); setMonedaConfirmada(true); setTasaConversion(null);
+                }}>
+                {!monedaConfirmada && <option value="" disabled>— elegí la moneda —</option>}
                 <option value="USD">$ (USD)</option>
                 <option value="Bs">Bs</option>
               </select>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={convertirMoneda} disabled={!(Number(tasa) > 0)}
+              {!monedaConfirmada && <span style={{ color: 'var(--danger)', fontSize: '.72rem' }}>⚠ Obligatorio: ¿la compra es en $ o en Bs?</span>}
+              <button type="button" className="btn btn-sm btn-ghost" onClick={convertirMoneda} disabled={!monedaConfirmada || !(Number(tasa) > 0)}
                 title={Number(tasa) > 0 ? `Convierte todos los montos a la tasa ${num(tasa)}` : 'Cargá la tasa abajo para convertir'}>
                 ⇄ Convertir a {monedaCompra === 'USD' ? 'Bs' : '$'}
               </button>
