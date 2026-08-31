@@ -285,8 +285,14 @@ export async function actualizarOrdenEditable(
   // Si se editó el costo de los productos, recalculamos el total de la OC (y el
   // total en divisa cuando aplica) para que precio·cantidad cuadre en TODA la OC:
   // tarjeta, PDF, Tesorería y costo de inventario al recibir.
+  // OJO: `patch.total` llega como BASE − descuento (SIN impuestos). Re-sumamos el
+  // IVA/IGTF ya calculado en la orden para NO borrar los impuestos del total a pagar
+  // (fuente única = la oferta). Sin esto, al editar precios el total perdía el IVA/IGTF.
   if (patch.total !== undefined) {
-    const nuevoTotal = Math.round((Number(patch.total) || 0) * 100) / 100;
+    const baseNeta = Math.round((Number(patch.total) || 0) * 100) / 100;
+    const impuestos = (o.iva_aplicado ? Number(o.iva_monto) || 0 : 0)
+      + (o.igtf_aplicado ? Number(o.igtf_monto) || 0 : 0);
+    const nuevoTotal = Math.round((baseNeta + impuestos) * 100) / 100;
     upd.total = nuevoTotal;
     if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = nuevoTotal;
   }

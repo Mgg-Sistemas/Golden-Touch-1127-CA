@@ -3637,7 +3637,12 @@ function EditarOrdenModal({
   // Descuento obtenido (monto $) editable: se resta del total (sincroniza la factura).
   const [descuentoObt, setDescuentoObt] = useState(orden.descuento_obtenido != null && orden.descuento_obtenido > 0 ? String(orden.descuento_obtenido) : '');
   const descuentoObtNum = Math.max(0, Number(descuentoObt) || 0);
+  // `totalEditado` = base − descuento (SIN impuestos): esto es lo que se envía al backend,
+  // que re-suma el IVA/IGTF de la orden. Para MOSTRAR el total real sumamos los impuestos.
   const totalEditado = Math.max(0, Math.round((subtotalEditado - descuentoObtNum) * 100) / 100);
+  const impuestosOrden = Math.round(((orden.iva_aplicado ? Number(orden.iva_monto) || 0 : 0)
+    + (orden.igtf_aplicado ? Number(orden.igtf_monto) || 0 : 0)) * 100) / 100;
+  const totalConImpuestos = Math.round((totalEditado + impuestosOrden) * 100) / 100;
   // Datos de cabecera editables de la OP: solicitante, unidad, clasificación, urgencia y notas.
   const [solicitante, setSolicitante] = useState(orden.solicitante ?? '');
   const [ciSolicitante, setCiSolicitante] = useState(orden.ci_solicitante ?? '');
@@ -3948,15 +3953,17 @@ function EditarOrdenModal({
               <input className="input mono" type="number" min={0} step="any" style={{ width: 120, textAlign: 'right' }}
                 value={descuentoObt} onChange={(e) => setDescuentoObt(e.target.value)} placeholder="0,00" />
             </div>
-            {descuentoObtNum > 0 && (
+            {(descuentoObtNum > 0 || impuestosOrden > 0) && (
               <div className="muted mono" style={{ fontSize: '.78rem', textAlign: 'right', marginTop: '.2rem' }}>
-                Subtotal {money(subtotalEditado)} − descuento {money(descuentoObtNum)}
+                Subtotal {money(subtotalEditado)}
+                {descuentoObtNum > 0 && <> − descuento {money(descuentoObtNum)}</>}
+                {impuestosOrden > 0 && <> + impuestos (IVA/IGTF) {money(impuestosOrden)}</>}
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '.5rem', marginTop: '.25rem' }}>
               <span className="muted" style={{ fontSize: '.82rem' }}>Total de la OC</span>
-              <strong className="mono" style={{ fontSize: '1rem' }}>{money(totalEditado)}</strong>
-              {Math.abs(totalEditado - Number(orden.total)) > 0.01 && (
+              <strong className="mono" style={{ fontSize: '1rem' }}>{money(totalConImpuestos)}</strong>
+              {Math.abs(totalConImpuestos - Number(orden.total)) > 0.01 && (
                 <span className="muted mono" style={{ fontSize: '.76rem', textDecoration: 'line-through' }}>{money(Number(orden.total))}</span>
               )}
             </div>
