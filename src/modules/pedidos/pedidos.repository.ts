@@ -1747,6 +1747,7 @@ export async function recibirOrdenParcial(
       producto_id: it.productoId,
       tipo: 'entrada',
       delta: rec,
+      almacen: almacenProd,   // el kardex debe saber a QUÉ almacén entró (antes quedaba nulo)
       stock_antes: stockAntes,
       stock_despues: stockDespues,
       actor: actorEmail,
@@ -1765,12 +1766,13 @@ export async function recibirOrdenParcial(
       .eq('id', it.productoId);
     if (uErr) throw uErr;
 
-    const { data: exRow } = await supabase
+    const { data: exRow, error: exReadErr } = await supabase
       .from('existencias')
       .select('stock')
       .eq('producto_id', it.productoId)
       .eq('almacen', almacenProd)
       .maybeSingle();
+    if (exReadErr) throw exReadErr;
     const exStockNuevo = (Number(exRow?.stock) || 0) + rec;
     const { error: exErr } = await supabase
       .from('existencias')
