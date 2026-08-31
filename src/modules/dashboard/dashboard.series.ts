@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 
 export type BucketKind = 'day' | 'week' | 'month';
@@ -101,19 +102,23 @@ export function generarBuckets(rango: RangoFechas): SeriePoint[] {
  * retrocede en el tiempo aplicando los deltas de cada movimiento.
  */
 export async function getSerieValorInventario(rango: RangoFechas): Promise<SeriePoint[]> {
-  const [{ data: prods, error: pErr }, { data: movs, error: mErr }] = await Promise.all([
+  // `movimientos` se lee paginado: para rangos largos supera 1.000 filas y PostgREST
+  // cortaría en silencio, dando una curva de valor de inventario errónea.
+  const [{ data: prods, error: pErr }, movs] = await Promise.all([
     supabase.from('productos').select('id, stock, precio, precio_promedio'),
-    supabase
-      .from('movimientos')
-      .select('producto_id, delta, at')
-      .gte('at', rango.desde.toISOString())
-      .order('at', { ascending: true }),
+    todasLasFilas<Pick<Movimiento, 'producto_id' | 'delta' | 'at'>>((desde, hasta) =>
+      supabase
+        .from('movimientos')
+        .select('producto_id, delta, at')
+        .gte('at', rango.desde.toISOString())
+        .order('at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(desde, hasta)),
   ]);
   if (pErr) throw pErr;
-  if (mErr) throw mErr;
 
   const productos = (prods ?? []) as Pick<Producto, 'id' | 'stock' | 'precio' | 'precio_promedio'>[];
-  const movimientos = (movs ?? []) as Pick<Movimiento, 'producto_id' | 'delta' | 'at'>[];
+  const movimientos = movs;
 
   const precioPorProducto = new Map<string, number>();
   const stockPorProducto = new Map<string, number>();

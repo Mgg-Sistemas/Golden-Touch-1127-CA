@@ -54,18 +54,22 @@ async function ensureProductoCombustible(comb: Pick<Combustible, 'id' | 'nombre'
     almacen,
     estado: 'activo',
   });
-  await supabase.from('combustibles').update({ producto_id: prod.id }).eq('id', comb.id);
+  const { error: vErr } = await supabase.from('combustibles').update({ producto_id: prod.id }).eq('id', comb.id);
+  if (vErr) throw vErr;
   return prod.id;
 }
 
-/** Stock disponible de un producto en un almacén concreto (existencia). */
+/** Stock disponible de un producto en un almacén concreto (existencia).
+ *  Propaga el error: este valor gatea el descuento de una finalización, así que un fallo
+ *  de lectura NO puede confundirse con "stock 0" (bloquearía o dejaría pasar en falso). */
 async function stockEnAlmacen(productoId: string, almacen: string): Promise<number> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('existencias')
     .select('stock')
     .eq('producto_id', productoId)
     .eq('almacen', almacen)
     .maybeSingle();
+  if (error) throw error;
   return Number(data?.stock) || 0;
 }
 
@@ -338,7 +342,10 @@ export async function crearSolicitudCombustible(input: {
 
 export async function aprobarSolicitudCombustible(s: SolicitudCombustible, actor: string): Promise<void> {
   if (s.estado !== 'por_aprobar') throw new Error('Solo se aprueban solicitudes por aprobar.');
-  const { error } = await supabase
+  // Guard de servidor: la transición solo aplica si en la BASE la solicitud sigue
+  // «por_aprobar» (no basta el estado del navegador). Evita reactivar una solicitud
+  // que otro ya finalizó/canceló. Si no afectó filas, alguien más la cambió.
+  const { data, error } = await supabase
     .from('combustible_solicitudes')
     .update({
       estado: 'aprobada',
@@ -346,8 +353,11 @@ export async function aprobarSolicitudCombustible(s: SolicitudCombustible, actor
       aprobada_en: new Date().toISOString(),
       historial: appendHistorial(s, 'aprobada', actor),
     })
-    .eq('id', s.id);
+    .eq('id', s.id)
+    .eq('estado', 'por_aprobar')
+    .select('id');
   if (error) throw error;
+  if (!data || data.length === 0) throw new Error('La solicitud ya no está «por aprobar» (otra persona la actualizó). Refrescá la vista.');
 }
 
 /**
@@ -371,76 +381,110 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
   // Almacén de origen: el de la solicitud (o el del producto como respaldo para datos legados).
   const productoId = await ensureProductoCombustible(comb as Combustible, s.almacen?.trim() || 'General');
   const almacen = (s.almacen?.trim()) || (await (async () => {
-    const { data } = await supabase.from('productos').select('almacen').eq('id', productoId).maybeSingle();
+    const { data, error } = await supabase.from('productos').select('almacen').eq('id', productoId).maybeSingle();
+    if (error) throw error;
     return (data?.almacen as string) || 'General';
   })());
 
   // Validamos contra la existencia REAL de ese almacén (fuente de verdad del inventario).
   const stockAlmacen = await stockEnAlmacen(productoId, almacen);
   if (litros > stockAlmacen) throw new Error(`Stock insuficiente en ${almacen}. Disponible: ${stockAlmacen} L.`);
+  // La tarjeta (litrosAntes) puede diferir del inventario: si no alcanza, se anota el
+  // faltante en el kardex en vez de topar en 0 en silencio.
   const litrosDespues = Math.max(0, litrosAntes - litros);
+  const faltanteTarjeta = litros > litrosAntes ? Math.round((litros - litrosAntes) * 100) / 100 : 0;
+  const notaFaltante = faltanteTarjeta > 0 ? ` · ⚠ la tarjeta solo tenía ${litrosAntes} L (faltaban ${faltanteTarjeta})` : '';
 
-  // 1) Sale del INVENTARIO (salida en el almacén de origen).
-  await registrarMovimiento({
-    producto_id: productoId,
-    tipo: 'salida',
-    delta: -litros,
-    almacen,
-    destino: s.destino,
-    actor,
-    actor_name: actorName ?? null,
-    ref_tipo: 'combustible_salida',
-    ref_id: s.id,
-    ref_codigo: s.codigo,
-    detalle: `Salida ${s.codigo} → ${s.destino}`,
-  });
-
-  // 2) Tarjeta de combustible + kardex propio.
-  const { data: mov, error: mErr } = await supabase
-    .from('combustible_movimientos')
-    .insert({
-      combustible_id: s.combustible_id,
-      tipo: 'salida',
-      litros: -litros,
-      costo_litro: costo,
-      litros_antes: litrosAntes,
-      litros_despues: litrosDespues,
-      ref_solicitud_id: s.id,
-      detalle: `Salida ${s.codigo} → ${s.destino} · ${almacen}`,
-      actor,
-      actor_name: actorName ?? null,
-    })
-    .select('id')
-    .single();
-  if (mErr) throw mErr;
-
-  const { error: uErr } = await supabase
-    .from('combustibles')
-    .update({ litros: litrosDespues, updated_at: new Date().toISOString() })
-    .eq('id', s.combustible_id);
-  if (uErr) throw uErr;
-
-  const { error: sErr } = await supabase
+  // RESERVA ATÓMICA (anti doble-descuento): reclamamos la solicitud aprobada→finalizada
+  // con un update CONDICIONAL por estado. Si no afecta filas, otro proceso ya la tomó y
+  // abortamos SIN descontar. Todas las lecturas/validaciones ya se hicieron arriba.
+  const { data: reserva, error: rErr } = await supabase
     .from('combustible_solicitudes')
     .update({
       estado: 'finalizada',
       finalizada_por: actor,
       finalizada_en: new Date().toISOString(),
-      mov_id: (mov as { id: string }).id,
       historial: appendHistorial(s, 'finalizada', actor, { litros }),
     })
-    .eq('id', s.id);
-  if (sErr) throw sErr;
+    .eq('id', s.id)
+    .eq('estado', 'aprobada')
+    .select('id');
+  if (rErr) throw rErr;
+  if (!reserva || reserva.length === 0) {
+    throw new Error('Esta solicitud ya fue finalizada por otra persona (o cambió de estado). No se descontó nada de nuevo — refrescá la vista.');
+  }
+
+  // A partir de aquí la solicitud es NUESTRA y la reserva NO se libera, ni ante error:
+  // registrarMovimiento son escrituras no atómicas y no hay punto seguro para revertir.
+  // Preferimos una solicitud que hay que revisar a mano (y que lo dice) antes que un
+  // doble descuento silencioso.
+  try {
+    // 1) Sale del INVENTARIO (salida en el almacén de origen).
+    await registrarMovimiento({
+      producto_id: productoId,
+      tipo: 'salida',
+      delta: -litros,
+      almacen,
+      destino: s.destino,
+      actor,
+      actor_name: actorName ?? null,
+      ref_tipo: 'combustible_salida',
+      ref_id: s.id,
+      ref_codigo: s.codigo,
+      detalle: `Salida ${s.codigo} → ${s.destino}`,
+    });
+
+    // 2) Tarjeta de combustible + kardex propio.
+    const { data: mov, error: mErr } = await supabase
+      .from('combustible_movimientos')
+      .insert({
+        combustible_id: s.combustible_id,
+        tipo: 'salida',
+        litros: -litros,
+        costo_litro: costo,
+        litros_antes: litrosAntes,
+        litros_despues: litrosDespues,
+        ref_solicitud_id: s.id,
+        detalle: `Salida ${s.codigo} → ${s.destino} · ${almacen}${notaFaltante}`,
+        actor,
+        actor_name: actorName ?? null,
+      })
+      .select('id')
+      .single();
+    if (mErr) throw mErr;
+
+    const { error: uErr } = await supabase
+      .from('combustibles')
+      .update({ litros: litrosDespues, updated_at: new Date().toISOString() })
+      .eq('id', s.combustible_id);
+    if (uErr) throw uErr;
+
+    // Metadata: enlazamos el movimiento a la solicitud ya reservada.
+    const { error: sErr } = await supabase
+      .from('combustible_solicitudes')
+      .update({ mov_id: (mov as { id: string }).id })
+      .eq('id', s.id);
+    if (sErr) throw sErr;
+  } catch (e) {
+    throw new Error(
+      `La finalización de ${s.codigo} se interrumpió a mitad de proceso; es posible que los litros ya se hayan descontado del inventario o la tarjeta. Revisá el kardex del combustible ANTES de reintentar (la solicitud quedó marcada como finalizada). Detalle: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }
 
 export async function cancelarSolicitudCombustible(s: SolicitudCombustible, actor: string, motivo: string): Promise<void> {
   if (s.estado === 'finalizada') throw new Error('No se puede cancelar una solicitud finalizada.');
-  const { error } = await supabase
+  // Guard de servidor: solo cancela si en la BASE la solicitud AÚN no está finalizada.
+  // Evita dejarla «cancelada» con los litros ya descontados si otro la finalizó en paralelo.
+  const { data, error } = await supabase
     .from('combustible_solicitudes')
     .update({
       estado: 'cancelada',
       historial: appendHistorial(s, 'cancelada', actor, { motivo }),
     })
-    .eq('id', s.id);
+    .eq('id', s.id)
+    .neq('estado', 'finalizada')
+    .select('id');
   if (error) throw error;
+  if (!data || data.length === 0) throw new Error('No se pudo cancelar: la solicitud ya fue finalizada (o cambió de estado). Refrescá la vista.');
 }

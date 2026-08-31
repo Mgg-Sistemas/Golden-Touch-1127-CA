@@ -263,12 +263,21 @@ export async function actualizarOrdenEditable(
   if (patch.items && !patch.items.some((i) => i.comprar !== false)) {
     throw new Error('Marcá al menos un ítem a comprar.');
   }
-  // Si ya estaba FIRMADA por el GG (confirmada_metodo: pendiente por cargar el
-  // método de pago), cualquier modificación la DEVUELVE a aprobación del Gerente
-  // General: vuelve a `oc_creada` y se limpia la firma previa (oc_aprobada_por/en).
-  const vuelveAGerente = o.estado === 'confirmada_metodo';
   const descCambia = patch.descuento_obtenido !== undefined;
   const descNuevo = descCambia ? Math.max(0, Math.round((Number(patch.descuento_obtenido) || 0) * 100) / 100) : null;
+  // ¿Hubo un cambio MATERIAL (ítems/cantidad/precio/qué se compra, o el descuento)? Un
+  // cambio de solo texto (nota, motivo, finalidad, solicitante…) NO cuenta. Se compara por
+  // una firma canónica de los ítems para ignorar diferencias cosméticas (trim, orden de keys).
+  const sigItems = (arr?: ItemOrden[] | null) => JSON.stringify(
+    (arr ?? []).map((i) => [i.productoId ?? i.sku ?? i.nombre, Number(i.cantidad) || 0, Number(i.precio) || 0, i.comprar !== false]),
+  );
+  const itemsCambian = patch.items !== undefined && sigItems(patch.items) !== sigItems(o.items);
+  const descCambiaMaterial = descCambia && Math.round((descNuevo ?? 0) * 100) !== Math.round((Number(o.descuento_obtenido) || 0) * 100);
+  const cambioMaterial = itemsCambian || descCambiaMaterial;
+  // Solo un cambio MATERIAL sobre una OC ya FIRMADA (confirmada_metodo) la devuelve a
+  // aprobación del Gerente General (vuelve a `oc_creada`) y limpia la firma previa. Guardar
+  // solo texto o sin cambios NO reabre ni borra la firma (antes cualquier guardado la borraba).
+  const vuelveAGerente = o.estado === 'confirmada_metodo' && cambioMaterial;
   const upd: Record<string, unknown> = {
     historial: appendHistorial(o, 'orden_modificada', actorEmail, {
       ...(vuelveAGerente ? { nota: 'Modificada tras la firma · vuelve a aprobación del Gerente General' } : {}),
