@@ -71,12 +71,26 @@ export function RepartirProveedoresModal({
       const totalDivisa = divisaOferta != null && totalOferta > 0
         ? Math.round(divisaOferta * (total / totalOferta) * 100) / 100
         : null;
+      // Peso de estos ítems dentro de la oferta (para prorratear descuento e impuestos).
+      const peso = totalOferta > 0 ? total / totalOferta : 0;
       // Descuento obtenido prorrateado al peso de estos ítems dentro de la oferta.
       const descOferta = Number(of.descuento_obtenido) || 0;
-      const descuentoObtenido = descOferta > 0 && totalOferta > 0
-        ? Math.round(descOferta * (total / totalOferta) * 100) / 100
-        : 0;
-      return { proveedorId: of.proveedor_id, items, total, totalDivisa, condicionesPago: of.condiciones_pago ?? null, descuentoObtenido };
+      const descuentoObtenido = descOferta > 0 ? Math.round(descOferta * peso * 100) / 100 : 0;
+      // IVA/IGTF: se RECALCULAN sobre la base real de esta hija con el % de la oferta
+      // (fuente única = la oferta). Recalcular por % es más robusto que prorratear el monto,
+      // porque la oferta puede tener precio_total ≠ Σ ítems (evita inflar/subvaluar el IVA).
+      const baseNeta = Math.round((total - descuentoObtenido) * 100) / 100;
+      const ivaAplicado = !!of.iva_aplicado;
+      const ivaPct = ivaAplicado ? Number(of.iva_pct) || 0 : 0;
+      const ivaMonto = ivaAplicado ? Math.round(baseNeta * (ivaPct / 100) * 100) / 100 : 0;
+      const igtfAplicado = !!of.igtf_aplicado;
+      const igtfPct = igtfAplicado ? Number(of.igtf_pct) || 0 : 0;
+      const igtfMonto = igtfAplicado ? Math.round(baseNeta * (igtfPct / 100) * 100) / 100 : 0;
+      return {
+        proveedorId: of.proveedor_id, items, total, totalDivisa,
+        condicionesPago: of.condiciones_pago ?? null, descuentoObtenido,
+        ivaAplicado, ivaPct, ivaMonto, igtfAplicado, igtfPct, igtfMonto,
+      };
     });
   }, [asig, itemsCompra, ofertas]);
 
@@ -90,7 +104,12 @@ export function RepartirProveedoresModal({
   });
   const pendientes = [...sinAsignar, ...sinPrecio];
   const hayConPrecio = grupos.some((g) => g.items.some((i) => i.precio > 0));
-  const totalGeneral = grupos.reduce((a, g) => a + g.total, 0);
+  // Total real que pagará cada hija: base − descuento + IVA/IGTF (prorrateados).
+  const totalConImp = (g: GrupoReparto) => Math.round((
+    g.total - (Number(g.descuentoObtenido) || 0) + (Number(g.ivaMonto) || 0) + (Number(g.igtfMonto) || 0)
+  ) * 100) / 100;
+  const impDe = (g: GrupoReparto) => Math.round(((Number(g.ivaMonto) || 0) + (Number(g.igtfMonto) || 0)) * 100) / 100;
+  const totalGeneral = grupos.reduce((a, g) => a + totalConImp(g), 0);
 
   async function confirmar() {
     if (!hayConPrecio) { toast('Asigná al menos un ítem con precio a un proveedor.', 'error'); return; }
@@ -183,8 +202,15 @@ export function RepartirProveedoresModal({
                 <tr key={g.proveedorId}>
                   <td>{proveedorMap.get(g.proveedorId)?.razon_social ?? '—'}</td>
                   <td className="num mono">{g.items.length}</td>
-                  <td className="num mono">{money(g.total)}</td>
-                  <td className="num mono">{g.totalDivisa != null ? money(g.totalDivisa) : '—'}</td>
+                  <td className="num mono">
+                    {money(totalConImp(g))}
+                    {impDe(g) > 0 && (
+                      <div className="muted" style={{ fontSize: '.7rem' }}>
+                        base {money(g.total - (Number(g.descuentoObtenido) || 0))} · imp. +{money(impDe(g))}
+                      </div>
+                    )}
+                  </td>
+                  <td className="num mono">{g.totalDivisa != null ? money(Math.round((g.totalDivisa + impDe(g)) * 100) / 100) : '—'}</td>
                 </tr>
               ))}
             </tbody>
