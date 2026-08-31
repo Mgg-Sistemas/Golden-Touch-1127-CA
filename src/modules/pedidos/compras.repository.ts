@@ -494,7 +494,18 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
       .from('productos').select('id, no_inventariable').in('id', idsProd);
     for (const p of flags ?? []) if (p.no_inventariable) noInventariables.add(p.id);
   }
-  const tasaUsd = compra.moneda === 'Bs' ? await tasaUsdHoy() : 0;
+  // Tasa para valorizar el inventario de una compra en Bs: PRIMERO la tasa que el
+  // usuario fijó al convertir en el formulario (compra.tasa_conversion), y si no hay,
+  // la tasa BCV del día. Si NINGUNA es válida NO se registra: se bloquea con error para
+  // no meter, p. ej., 1200 Bs como $1200 (Bs tratado como USD por un fallback silencioso).
+  let tasaUsd = 0;
+  if (compra.moneda === 'Bs') {
+    const tasaGuardada = Number(compra.tasa_conversion) || 0;
+    tasaUsd = tasaGuardada > 0 ? tasaGuardada : await tasaUsdHoy();
+    if (!(tasaUsd > 0)) {
+      throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Cargá/actualizá la tasa BCV (Tesorería → Tasas) o usá el conversor "⇄ Convertir a $" de la compra, y volvé a completar. (Sin tasa, 1200 Bs se registraría como $1200 — se bloqueó a propósito.)');
+    }
+  }
   let primerMov: string | null = null;
   for (const it of items) {
     const cantidad = Number(it.cantidad) || 0;
@@ -975,8 +986,17 @@ export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): P
   const items = (compra.items ?? []).filter((it) => (Number(it.cantidad) || 0) > 0 && it.producto_id);
   if (!items.length) throw new Error('La compra no tiene materiales para recibir.');
 
-  // Compras en Bs: el costo de inventario se lleva a USD con la tasa del día (2 decimales).
-  const tasaUsd = compra.moneda === 'Bs' ? await tasaUsdHoy() : 0;
+  // Compras en Bs: el costo de inventario se lleva a USD con la tasa GUARDADA de la compra
+  // (la que usó el usuario al convertir) y, si no hay, la BCV del día. Sin tasa válida se
+  // bloquea (no se registra Bs como USD).
+  let tasaUsd = 0;
+  if (compra.moneda === 'Bs') {
+    const tasaGuardada = Number(compra.tasa_conversion) || 0;
+    tasaUsd = tasaGuardada > 0 ? tasaGuardada : await tasaUsdHoy();
+    if (!(tasaUsd > 0)) {
+      throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Cargá/actualizá la tasa BCV (Tesorería → Tasas) o usá el conversor de la compra, y volvé a guardar. (Sin tasa, el costo en Bs entraría como $ — se bloqueó a propósito.)');
+    }
+  }
 
   let primerMov: string | null = null;
   for (const it of items) {
