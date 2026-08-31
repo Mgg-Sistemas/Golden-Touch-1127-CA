@@ -569,6 +569,14 @@ export interface GrupoReparto {
   condicionesPago?: string | null;
   /** Descuento obtenido (monto $) de la oferta, prorrateado a la parte de esta hija. */
   descuentoObtenido?: number | null;
+  /** IVA/IGTF de la oferta, prorrateados a la parte de esta hija. Se SUMAN al total de la
+   *  OC hija y quedan guardados (igual que en la aceptación simple: fuente única = la oferta). */
+  ivaAplicado?: boolean;
+  ivaPct?: number | null;
+  ivaMonto?: number | null;
+  igtfAplicado?: boolean;
+  igtfPct?: number | null;
+  igtfMonto?: number | null;
 }
 
 /**
@@ -621,7 +629,16 @@ export async function repartirOpEntreProveedores(
     const gItems = gUsaDescuento ? escalarItemsADescuento(g.items, g.total, gDivisa) : g.items;
     // Descuento obtenido prorrateado a esta hija (se resta del total y queda en la trazabilidad).
     const gDescuento = Math.max(0, Number(g.descuentoObtenido) || 0);
-    const gTotal = Math.round(((gUsaDescuento ? gDivisa! : g.total) - gDescuento) * 100) / 100;
+    // IVA/IGTF de la oferta, prorrateados a esta hija: se SUMAN al total (fuente única = la
+    // oferta) y quedan guardados para que la tarjeta, el PDF y Tesorería reflejen el impuesto.
+    const gIvaAplicado = !!g.ivaAplicado;
+    const gIvaPct = gIvaAplicado ? Math.max(0, Math.min(100, Number(g.ivaPct) || 0)) : 0;
+    const gIvaMonto = gIvaAplicado ? Math.max(0, Math.round((Number(g.ivaMonto) || 0) * 100) / 100) : 0;
+    const gIgtfAplicado = !!g.igtfAplicado;
+    const gIgtfPct = gIgtfAplicado ? Math.max(0, Math.min(100, Number(g.igtfPct) || 0)) : 0;
+    const gIgtfMonto = gIgtfAplicado ? Math.max(0, Math.round((Number(g.igtfMonto) || 0) * 100) / 100) : 0;
+    const gImpuestos = gIvaMonto + gIgtfMonto;
+    const gTotal = Math.round(((gUsaDescuento ? gDivisa! : g.total) - gDescuento + gImpuestos) * 100) / 100;
     const row = {
       codigo: `${op.codigo}-${maxSuf + i + 1}`,
       proveedor_id: g.proveedorId,
@@ -631,9 +648,15 @@ export async function repartirOpEntreProveedores(
       ci_solicitante: op.ci_solicitante ?? null,
       items: gItems,
       total: gTotal,
-      total_divisa: gDivisa != null ? Math.round((gDivisa - gDescuento) * 100) / 100 : null,
+      total_divisa: gDivisa != null ? Math.round((gDivisa - gDescuento + gImpuestos) * 100) / 100 : null,
       pago_en_divisa: gUsaDescuento,
       descuento_obtenido: gDescuento,
+      iva_aplicado: gIvaAplicado,
+      iva_pct: gIvaPct,
+      iva_monto: gIvaAplicado ? gIvaMonto : null,
+      igtf_aplicado: gIgtfAplicado,
+      igtf_pct: gIgtfPct,
+      igtf_monto: gIgtfAplicado ? gIgtfMonto : null,
       estado: 'oc_creada' as EstadoOrden,
       notas: op.notas ?? null,
       motivo: op.motivo ?? null,
