@@ -149,7 +149,9 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
       {loading ? <EmptyState message="Cargando…" icon="◔" /> : !filas.length ? (
         <EmptyState message="Sin movimientos. Al cerrar un contrato de producción, se reflejará aquí." icon="📋" />
       ) : (
-        <div className="table-wrap">
+        <>
+        <div className="table-wrap acopio-mov-scroll" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          <style>{`.acopio-mov-scroll thead th{position:sticky;top:0;background:var(--surface-2,#141a24);z-index:2}.acopio-mov-scroll tfoot td{position:sticky;bottom:0;background:var(--surface-2,#141a24);z-index:2}`}</style>
           <table className="table" style={{ fontSize: '.8rem' }}>
             <thead>
               <tr>
@@ -221,10 +223,11 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
               </tr>
             </tfoot>
           </table>
+          </div>
           <p className="muted" style={{ fontSize: '.74rem', marginTop: '.5rem' }}>
             <strong>Saldo en Kg de casiterita</strong> = saldo anterior + Kg Cerrados − Kg Recibidos por MGG (acumulado corrido; admite negativo).
           </p>
-        </div>
+        </>
       )}
 
       {correoOpen && (
