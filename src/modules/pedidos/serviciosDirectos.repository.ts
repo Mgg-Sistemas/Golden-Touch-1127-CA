@@ -67,6 +67,10 @@ export interface ServicioDirecto {
   items: ServicioDirectoItem[];
   /** Detalle del servicio (piezas + descripción). Opcional. */
   detalle_servicio?: DetalleServicioItem[] | null;
+  /** Pago anticipado (adelanto de referencia, no toca caja): monto en su moneda. */
+  anticipo_monto?: number | null;
+  anticipo_moneda?: string | null;
+  anticipo_en?: string | null;
   proveedor_id: string | null;
   proveedor_nombre: string | null;
   equipo_id: string | null;
@@ -379,6 +383,10 @@ export interface EnviarServicioAPagarInput {
   tasaConversion?: number | null;
   /** Se pagará con ABONOS (cuotas). Lo marca el analista al montar. */
   conAbonos?: boolean | null;
+  /** PAGO ANTICIPADO (opcional): monto ya adelantado y su moneda ('USD'|'Bs'). Se RESTA del
+   *  total y deja el resto como crédito pendiente. NO toca caja (es un adelanto de referencia). */
+  anticipoMonto?: number | null;
+  anticipoMoneda?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -396,17 +404,69 @@ export async function enviarServicioAPagar(input: EnviarServicioAPagarInput): Pr
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
   if (total <= 0) throw new Error('Cargá los montos del servicio.');
 
+  // PAGO ANTICIPADO (EDITABLE mientras no esté pagado): se registra como adelanto (no toca
+  // caja), se convierte a la moneda del servicio y se resta del total; el resto queda como
+  // crédito pendiente (con_abonos + saldo). Se puede editar/reemplazar o quitar re-montando.
+  const monedaServ = (input.moneda ?? servicio.moneda) === 'Bs' ? 'Bs' : 'USD';
+  const gestionaAnticipo = input.anticipoMonto !== undefined; // el caller maneja el anticipo en este montaje
+  const antRaw = Math.round((Number(input.anticipoMonto) || 0) * 100) / 100;
+  let anticipoServ = 0;
+  if (gestionaAnticipo && antRaw > 0) {
+    const antMoneda = input.anticipoMoneda === 'Bs' ? 'Bs' : 'USD';
+    if (antMoneda === monedaServ) {
+      anticipoServ = antRaw;
+    } else {
+      const tasa = Number(input.tasaConversion) || 0;
+      if (!(tasa > 0)) throw new Error('Para un anticipo en otra moneda, indicá la tasa (Bs por $) con el conversor.');
+      anticipoServ = antMoneda === 'Bs' ? Math.round((antRaw / tasa) * 100) / 100 : Math.round((antRaw * tasa) * 100) / 100;
+    }
+    anticipoServ = Math.min(anticipoServ, total); // no se adelanta más que el total
+  }
+
+  // Abonos REALES ya registrados por Tesorería (con caja): se conservan al recalcular el saldo.
+  let cajaAbonos = 0;
+  if (gestionaAnticipo) {
+    const { data: prev } = await supabase.from('servicio_directo_abonos')
+      .select('monto').eq('servicio_id', servicio.id).not('caja_id', 'is', null);
+    cajaAbonos = Math.round((prev ?? []).reduce((a, r) => a + (Number((r as { monto: number }).monto) || 0), 0) * 100) / 100;
+  }
+  const nuevoAbonado = Math.round((cajaAbonos + anticipoServ) * 100) / 100;
+
   const { error } = await supabase
     .from('servicios_directos')
     .update({
       estado: 'por_pagar', gasto: total, items,
       ...(input.conAbonos !== undefined ? { con_abonos: !!input.conAbonos } : {}),
-      ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
+      ...(input.moneda !== undefined ? { moneda: monedaServ } : {}),
       ...(input.tasaConversion !== undefined ? { tasa_conversion: input.tasaConversion != null && input.tasaConversion > 0 ? Math.round(Number(input.tasaConversion) * 100) / 100 : null } : {}),
+      ...(gestionaAnticipo ? {
+        con_abonos: anticipoServ > 0 ? true : !!input.conAbonos,
+        abonado_total: nuevoAbonado,
+        anticipo_monto: anticipoServ > 0 ? antRaw : 0,
+        anticipo_moneda: anticipoServ > 0 ? (input.anticipoMoneda === 'Bs' ? 'Bs' : 'USD') : null,
+        anticipo_en: anticipoServ > 0 ? new Date().toISOString() : null,
+      } : {}),
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', servicio.id);
   if (error) throw error;
+
+  // Sincroniza la bitácora: quita el anticipo anterior (fila sin caja) y agrega el nuevo si aplica.
+  if (gestionaAnticipo) {
+    await supabase.from('servicio_directo_abonos').delete().eq('servicio_id', servicio.id).is('caja_id', null);
+    if (anticipoServ > 0) {
+      const antTxt = (input.anticipoMoneda === 'Bs' ? 'Bs' : 'USD') === monedaServ
+        ? ''
+        : ` (${antRaw} ${input.anticipoMoneda === 'Bs' ? 'Bs' : '$'})`;
+      const { error: abErr } = await supabase.from('servicio_directo_abonos').insert({
+        servicio_id: servicio.id, monto: anticipoServ, moneda: monedaServ, cuenta: null,
+        caja_id: null, caja_mov_id: null, saldo_restante: Math.round((total - nuevoAbonado) * 100) / 100,
+        actor: input.actor, actor_name: input.actorName ?? null,
+        nota: `Pago anticipado (no afecta caja)${antTxt}`,
+      });
+      if (abErr) throw abErr;
+    }
+  }
 }
 
 export interface PagarServicioInput {

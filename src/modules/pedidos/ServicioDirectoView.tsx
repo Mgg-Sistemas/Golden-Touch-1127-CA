@@ -242,7 +242,13 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
       {servicio.estado === 'por_pagar' && (
         <div style={{ marginTop: '.4rem' }} onClick={(e) => e.stopPropagation()}>
           <span className="badge" style={{ background: 'var(--brand, #ff8a00)', color: '#1a1a1a' }}>DIRECTO</span>
-          <span className="muted mono" style={{ marginLeft: '.4rem' }}>A pagar: {servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—'}</span>
+          {(Number(servicio.anticipo_monto) || 0) > 0 ? (
+            <span className="muted mono" style={{ marginLeft: '.4rem' }}>
+              Total {servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—'} · anticipo −{montoMoneda(Number(servicio.abonado_total) || 0, servicio.moneda ?? 'USD')} · <strong style={{ color: 'var(--brand, #ff8a00)' }}>pendiente {montoMoneda(Math.max(0, (Number(servicio.gasto) || 0) - (Number(servicio.abonado_total) || 0)), servicio.moneda ?? 'USD')}</strong>
+            </span>
+          ) : (
+            <span className="muted mono" style={{ marginLeft: '.4rem' }}>A pagar: {servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—'}</span>
+          )}
         </div>
       )}
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
@@ -296,6 +302,13 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {fila('Moneda', servicio.moneda === 'Bs' ? 'Bs' : '$ (USD)')}
       {(Number(servicio.tasa_conversion) || 0) > 0 && servicio.gasto != null && fila('Convertido a la tasa', <span>{num(servicio.tasa_conversion)} Bs/$ · equivale a <strong className="mono">{montoMoneda(servicio.moneda === 'Bs' ? Number(servicio.gasto) / Number(servicio.tasa_conversion) : Number(servicio.gasto) * Number(servicio.tasa_conversion), servicio.moneda === 'Bs' ? 'USD' : 'Bs')}</strong></span>)}
       {fila('Monto total', servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—')}
+      {(Number(servicio.anticipo_monto) || 0) > 0 && fila('Pago anticipado',
+        <span>💵 {montoMoneda(Number(servicio.anticipo_monto), servicio.anticipo_moneda === 'Bs' ? 'Bs' : 'USD')}
+          <span className="muted" style={{ fontSize: '.75rem' }}> · adelanto (no descontó caja) · se resta del total</span>
+          {servicio.gasto != null && (
+            <> · pendiente <strong className="mono">{montoMoneda(Math.max(0, (Number(servicio.gasto) || 0) - (Number(servicio.abonado_total) || 0)), servicio.moneda ?? 'USD')}</strong></>
+          )}
+        </span>)}
       {servicio.nota && fila('Nota / motivo', <span style={{ whiteSpace: 'pre-wrap' }}>{servicio.nota}</span>)}
       <DetalleServicioBloque
         detalleInicial={servicio.detalle_servicio}
@@ -763,6 +776,11 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   const [error, setError] = useState<string | null>(null);
   // ¿Se pagará con abonos (cuotas)? Lo marca el analista al montar; Tesorería lo respeta.
   const [conAbonos, setConAbonos] = useState<boolean>(!!servicio.con_abonos);
+  // Pago anticipado (adelanto de referencia, no toca caja). Si ya tiene uno, queda bloqueado.
+  const anticipoYaPuesto = (Number(servicio.anticipo_monto) || 0) > 0;
+  const [anticipoOn, setAnticipoOn] = useState<boolean>(anticipoYaPuesto);
+  const [anticipoMoneda, setAnticipoMoneda] = useState<'USD' | 'Bs'>(servicio.anticipo_moneda === 'Bs' ? 'Bs' : 'USD');
+  const [anticipoMonto, setAnticipoMonto] = useState<string>(servicio.anticipo_monto ? String(servicio.anticipo_monto) : '');
   const caja = cajas.find((c) => c.id === cajaId) ?? null;
   const moneda = caja?.moneda ?? 'USD';
 
@@ -846,7 +864,9 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
       setSaving(true);
       try {
         for (const f of files) await agregarAdjuntoDirecto('servicio', servicio.id, f, actor);
-        await enviarServicioAPagar({ servicio, items, moneda: monedaServicio, tasaConversion, conAbonos, actor, actorName });
+        await enviarServicioAPagar({ servicio, items, moneda: monedaServicio, tasaConversion, conAbonos,
+          anticipoMonto: anticipoOn ? (Number(anticipoMonto) || 0) : 0, anticipoMoneda: anticipoOn ? anticipoMoneda : null,
+          actor, actorName });
         notify(`Servicio ${servicio.codigo ?? ''} enviado a pagar · ${montoCaja(total, monedaServicio)} · Tesorería`, 'success', { link: '#/app/tesoreria' });
         onSaved();
       } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo enviar a pagar.'); setSaving(false); }
@@ -1018,6 +1038,26 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
               <span>Se pagará <strong>con abonos</strong> (cuotas)</span>
             </label>
             <small className="muted">Si lo marcás, Tesorería registra pagos parciales que se acumulan hasta saldar el servicio (en vez de un solo pago). Igual se puede pagar todo de una desde Tesorería.</small>
+          </div>
+        )}
+
+        {!esPago && (
+          <div className="form-row" style={{ margin: '.25rem 0 .5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={anticipoOn} onChange={(e) => setAnticipoOn(e.target.checked)} />
+              <span>Registrar <strong>pago anticipado</strong> (adelanto)</span>
+            </label>
+            {anticipoOn && (
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.4rem', flexWrap: 'wrap' }}>
+                <select className="select" style={{ maxWidth: 120 }} value={anticipoMoneda} onChange={(e) => setAnticipoMoneda(e.target.value === 'Bs' ? 'Bs' : 'USD')}>
+                  <option value="USD">$ (USD)</option>
+                  <option value="Bs">Bs</option>
+                </select>
+                <input className="input mono" type="number" min={0} step="any" placeholder="Monto del anticipo"
+                  style={{ maxWidth: 190, textAlign: 'right' }} value={anticipoMonto} onChange={(e) => setAnticipoMonto(e.target.value)} />
+              </div>
+            )}
+            <small className="muted">El anticipo NO descuenta caja: se resta del total y el resto queda como crédito pendiente (se ve en Tesorería y en el saldo). Editable mientras no esté pagado.</small>
           </div>
         )}
 
