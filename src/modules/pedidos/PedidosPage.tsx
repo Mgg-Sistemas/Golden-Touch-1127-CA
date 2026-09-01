@@ -70,6 +70,7 @@ import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { FacturasDirectas } from './FacturasDirectas';
+import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ChatOrden } from './ChatOrden';
 import { noLeidosPorOrden } from './ordenChat.repository';
@@ -3119,8 +3120,25 @@ function CrearOrdenModal({
   const [submitting, setSubmitting] = useState(false);
   // Prioridad: marca la OP como URGENTE. En MERCADO arranca marcada (editable).
   const [urgente, setUrgente] = useState(!!mercadoInicial);
-  // Imagen adjunta opcional (foto del repuesto/equipo solicitado).
-  const [imagenFile, setImagenFile] = useState<File | null>(null);
+  // Imágenes/PDF adjuntos opcionales (fotos del repuesto/equipo solicitado): hasta 4.
+  // La 1ª va como imagen principal (imagen_path); el resto a los adjuntos de la OP.
+  const MAX_IMG_SOLICITUD = 4;
+  const [imagenFiles, setImagenFiles] = useState<File[]>([]);
+  function agregarImagenesSolicitud(files: File[]) {
+    const validos = files.filter((f) => {
+      if (f.type !== 'application/pdf' && !f.type.startsWith('image/')) { toast(`"${f.name}": debe ser imagen o PDF`, 'error'); return false; }
+      if (f.size > 10 * 1024 * 1024) { toast(`"${f.name}": máximo 10 MB`, 'error'); return false; }
+      return true;
+    });
+    setImagenFiles((prev) => {
+      const clave = (f: File) => `${f.name}-${f.size}`;
+      const vistos = new Set(prev.map(clave));
+      const nuevos = validos.filter((f) => !vistos.has(clave(f)));
+      const cupo = Math.max(0, MAX_IMG_SOLICITUD - prev.length);
+      if (nuevos.length > cupo) toast(`Máximo ${MAX_IMG_SOLICITUD} imágenes por solicitud.`, 'error');
+      return [...prev, ...nuevos.slice(0, cupo)];
+    });
+  }
 
   // MERCADO: solicitud para restablecer el mercado de Cocina. Se activa SOLO desde el
   // botón «Solicitud de mercado» (mercadoInicial): trae TODOS los productos de categoría
@@ -3313,8 +3331,9 @@ function CrearOrdenModal({
       if (unidad && !unidadOpciones.some((u) => u.toLowerCase() === unidad.toLowerCase())) {
         await addCatalogoPedido('unidad_solicitante', unidad).catch(() => { /* ya existe / sin permiso */ });
       }
-      // Si se adjuntó una imagen, se sube primero y se guarda su path en la OP.
-      const imagenPath = imagenFile ? await subirImagenOrden(imagenFile) : null;
+      // La 1ª imagen va como imagen principal (imagen_path); las demás (hasta 4) se
+      // suben como adjuntos de la OP después de crearla.
+      const imagenPath = imagenFiles[0] ? await subirImagenOrden(imagenFiles[0]) : null;
       const saved = await crearOrden({
         // proveedor_id se asigna luego por el admin durante el flujo de sourcing.
         proveedor_id: null,
@@ -3332,6 +3351,10 @@ function CrearOrdenModal({
         unidad_solicitante: unidadSolicitante.trim() || null,
         ci_solicitante: null,
       });
+      // Imágenes extra (2ª a 4ª) → adjuntos de la OP (se ven en la vista de la solicitud).
+      for (const f of imagenFiles.slice(1)) {
+        await agregarAdjuntoDirecto('orden', saved.id, f, email ?? 'sistema').catch(() => { /* no bloquea la creación */ });
+      }
       notify(`Nueva solicitud de pedido ${saved.codigo} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       onCreated();
     } catch (e) {
@@ -3584,17 +3607,28 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row">
-        <label>Imagen / PDF <span className="muted">(opcional)</span></label>
+        <label>Imágenes / PDF <span className="muted">(opcional · hasta {MAX_IMG_SOLICITUD})</span></label>
         <input
           className="input"
           type="file"
           accept="image/*,application/pdf"
-          onChange={(e) => setImagenFile(e.target.files?.[0] ?? null)}
+          multiple
+          disabled={imagenFiles.length >= MAX_IMG_SOLICITUD}
+          onChange={(e) => { agregarImagenesSolicitud(Array.from(e.target.files ?? [])); e.target.value = ''; }}
         />
-        {imagenFile && (
-          <small className="muted">📎 {imagenFile.name} ({(imagenFile.size / 1024).toFixed(0)} KB)</small>
+        {imagenFiles.length > 0 && (
+          <div style={{ display: 'grid', gap: '.25rem', marginTop: '.4rem' }}>
+            {imagenFiles.map((f, i) => (
+              <div key={`${f.name}-${f.size}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.78rem' }}>
+                <span className="muted">{f.type.startsWith('image/') ? '🖼' : '📄'}</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <span className="muted mono">{(f.size / 1024).toFixed(0)} KB</span>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setImagenFiles((prev) => prev.filter((_, k) => k !== i))} title="Quitar">✕</button>
+              </div>
+            ))}
+          </div>
         )}
-        <small className="muted">Podés adjuntar una foto o un PDF del repuesto/equipo solicitado (máx. 10 MB).</small>
+        <small className="muted">Podés adjuntar hasta {MAX_IMG_SOLICITUD} fotos o PDF del repuesto/equipo solicitado (máx. 10 MB c/u).</small>
       </div>
 
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.75rem' }}>

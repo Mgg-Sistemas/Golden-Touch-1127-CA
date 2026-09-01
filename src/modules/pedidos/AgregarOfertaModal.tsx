@@ -14,6 +14,9 @@ import { esRecargaAgua } from './servicios.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
 
+/** Tope de imágenes/adjuntos por cotización (oferta de proveedor). */
+const MAX_ADJ_OFERTA = 4;
+
 /** Estrellas ★ según un promedio 1–5. */
 function estrellas(avg: number): string {
   const full = Math.round(avg);
@@ -190,11 +193,18 @@ export function AgregarOfertaModal({
       }
       validos.push(f);
     }
-    // Acumula con lo ya elegido, evitando duplicados por nombre+tamaño.
+    // Acumula con lo ya elegido, evitando duplicados por nombre+tamaño, con TOPE de 4
+    // adjuntos por cotización (imágenes ya existentes + nuevas).
     setPdfFiles((prev) => {
       const clave = (f: File) => `${f.name}-${f.size}`;
       const vistos = new Set(prev.map(clave));
-      return [...prev, ...validos.filter((f) => !vistos.has(clave(f)))];
+      const nuevos = validos.filter((f) => !vistos.has(clave(f)));
+      const yaHay = adjuntosExistentes.length + prev.length;
+      const cupo = Math.max(0, MAX_ADJ_OFERTA - yaHay);
+      if (nuevos.length > cupo) {
+        toast(`Máximo ${MAX_ADJ_OFERTA} imágenes por cotización.`, 'error');
+      }
+      return [...prev, ...nuevos.slice(0, cupo)];
     });
   }
   function quitarArchivo(idx: number) {
@@ -874,7 +884,8 @@ export function AgregarOfertaModal({
             )}
           </div>
         )}
-        <input type="file" className="input" accept="application/pdf,image/*" multiple onChange={handleFileChange} />
+        <input type="file" className="input" accept="application/pdf,image/*" multiple onChange={handleFileChange}
+          disabled={adjuntosExistentes.length + pdfFiles.length >= MAX_ADJ_OFERTA} />
         {pdfFiles.length > 0 && (
           <div style={{ display: 'grid', gap: '.25rem', marginTop: '.4rem' }}>
             {pdfFiles.map((f, i) => (
@@ -889,7 +900,7 @@ export function AgregarOfertaModal({
           </div>
         )}
         <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-          PDF o imágenes · máximo 10 MB c/u. Podés seleccionar varias fotos de la cotización; el jefe podrá verlas todas antes de aprobar.
+          PDF o imágenes · máximo 10 MB c/u · hasta {MAX_ADJ_OFERTA} por cotización. El jefe podrá verlas todas antes de aprobar.
         </div>
       </div>
     </Modal>
