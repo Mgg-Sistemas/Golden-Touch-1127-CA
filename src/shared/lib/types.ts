@@ -1149,6 +1149,9 @@ export interface EventoHistorial {
 export interface DetalleServicioItem {
   parte: string;
   descripcion: string;
+  /** Precio de ese renglón (opcional). Los precios de los renglones van sumando
+   *  el "Total del detalle", que se muestra en el formulario y en el PDF. */
+  precio?: number | null;
 }
 
 export interface Orden {

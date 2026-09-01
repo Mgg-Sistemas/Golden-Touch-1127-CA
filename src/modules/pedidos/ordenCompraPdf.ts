@@ -486,17 +486,27 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
-    // Detalle del servicio (piezas + descripción): solo en órdenes de servicio que lo tengan.
+    // Detalle del servicio (piezas + descripción + precio opcional): solo en órdenes de servicio que lo tengan.
     const detalleServ = esServicio ? (o.detalle_servicio ?? []) : [];
     if (detalleServ.length) {
+      const totalDetalle = Math.round(detalleServ.reduce((a, d) => a + (Number(d.precio) || 0), 0) * 100) / 100;
+      const hayPrecios = totalDetalle > 0;
       autoTable(doc, {
         startY: y,
-        head: [['Detalle del servicio · Pieza / parte', 'Qué se hará']],
-        body: detalleServ.map((d) => [pdfSafe(d.parte || '—'), pdfSafe(d.descripcion || '')]),
+        head: [hayPrecios
+          ? ['Detalle del servicio · Pieza / parte', 'Qué se hará', 'Precio']
+          : ['Detalle del servicio · Pieza / parte', 'Qué se hará']],
+        body: detalleServ.map((d) => hayPrecios
+          ? [pdfSafe(d.parte || '—'), pdfSafe(d.descripcion || ''), (Number(d.precio) || 0) > 0 ? montoMoneda(Number(d.precio), o.total_moneda) : '—']
+          : [pdfSafe(d.parte || '—'), pdfSafe(d.descripcion || '')]),
+        foot: hayPrecios ? [['', 'Total del detalle', montoMoneda(totalDetalle, o.total_moneda)]] : undefined,
         theme: 'grid',
         headStyles: { fillColor: [255, 138, 0], textColor: 255 },
+        footStyles: { fillColor: [245, 245, 245], textColor: 20, fontStyle: 'bold' },
         styles: { fontSize: 9, cellPadding: 4 },
-        columnStyles: { 0: { cellWidth: 150 } },
+        columnStyles: hayPrecios
+          ? { 0: { cellWidth: 150 }, 2: { halign: 'right', cellWidth: 80 } }
+          : { 0: { cellWidth: 150 } },
         margin: MARGIN,
       });
       y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;

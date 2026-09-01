@@ -13,10 +13,12 @@ export function DetalleServicioBloque({
   detalleInicial,
   onGuardar,
   onSaved,
+  simboloMoneda = '$',
 }: {
   detalleInicial: DetalleServicioItem[] | null | undefined;
   onGuardar: (detalle: DetalleServicioItem[]) => Promise<void>;
   onSaved?: () => void;
+  simboloMoneda?: string;
 }) {
   const [detalle, setDetalle] = useState<DetalleServicioItem[]>(detalleInicial ?? []);
   const [guardando, setGuardando] = useState(false);
@@ -45,6 +47,7 @@ export function DetalleServicioBloque({
         value={detalle}
         onChange={(v) => { setDetalle(v); setSucio(true); }}
         titulo=""
+        simboloMoneda={simboloMoneda}
       />
       {sucio && (
         <button className="btn btn-primary btn-sm" onClick={() => void guardar()} disabled={guardando} style={{ marginTop: '.4rem' }}>

@@ -313,6 +313,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       <DetalleServicioBloque
         detalleInicial={servicio.detalle_servicio}
         onGuardar={(d) => actualizarDetalleServicioDirecto(servicio.id, d)}
+        simboloMoneda={servicio.moneda === 'Bs' ? 'Bs ' : '$'}
       />
       {servicio.pago_externo && fila('Pago a externo',
         <span style={{ color: 'var(--warning)' }}>
@@ -731,7 +732,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         </div>
 
         <div style={{ marginTop: '.75rem' }}>
-          <DetalleServicioEditor value={detalleServicio} onChange={setDetalleServicio} />
+          <DetalleServicioEditor value={detalleServicio} onChange={setDetalleServicio} simboloMoneda={moneda === 'Bs' ? 'Bs ' : '$'} />
         </div>
 
         <div className="form-row" style={{ marginTop: '.75rem' }}>
