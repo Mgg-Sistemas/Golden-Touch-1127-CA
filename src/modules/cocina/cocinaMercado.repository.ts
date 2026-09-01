@@ -244,6 +244,60 @@ export async function listMercados(): Promise<Mercado[]> {
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
 }
 
+/** Solo los ciclos CERRADOS (histórico), más recientes primero. */
+export async function listMercadosCerrados(): Promise<Mercado[]> {
+  const { data, error } = await supabase.from(TABLE).select('*')
+    .eq('estado', 'cerrado').order('cierre_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
+}
+
+/** Recalcula los totales de un resumen editado (para el histórico). */
+export function totalesDesdeResumen(items: ResumenViver[]): TotalesMercado {
+  return {
+    viveres: items.length,
+    consumo_valor: 0,   // el valor $ del consumo no se recalcula al editar cantidades a mano
+    entradas_total: round2(items.reduce((a, i) => a + (Number(i.entradas) || 0), 0)),
+    queda_viveres: items.filter((i) => (Number(i.queda) || 0) > 0).length,
+  };
+}
+
+/**
+ * Edita un ciclo CERRADO del histórico: nota y/o el resumen por víver (cantidades). Al
+ * guardar el resumen, recalcula `disponible` (= saldo + entradas), los totales y la foto
+ * `saldo_final` (lo que queda). Corrige el reporte de ESE ciclo; no reescribe el ciclo
+ * siguiente (que ya arrancó con su propio saldo).
+ */
+export async function actualizarMercadoHistorico(
+  id: string, patch: { resumen?: ResumenViver[]; nota?: string | null },
+): Promise<Mercado> {
+  const upd: Record<string, unknown> = {};
+  if (patch.nota !== undefined) upd.nota = patch.nota?.trim() || null;
+  if (patch.resumen !== undefined) {
+    const items = patch.resumen.map((r) => {
+      const saldo = round2(Number(r.saldo_inicial) || 0);
+      const ent = round2(Number(r.entradas) || 0);
+      const cons = round2(Number(r.consumo) || 0);
+      const queda = round2(Number(r.queda) || 0);
+      return { ...r, saldo_inicial: saldo, entradas: ent, consumo: cons, queda, disponible: round2(saldo + ent) };
+    });
+    upd.resumen = items;
+    upd.totales = totalesDesdeResumen(items);
+    upd.saldo_final = items.filter((i) => i.queda > 0).map((i) => ({
+      producto_id: i.producto_id, sku: i.sku, nombre: i.nombre, unidad: i.unidad, cantidad: i.queda,
+    }));
+  }
+  const { data, error } = await supabase.from(TABLE).update(upd).eq('id', id).select('*').single();
+  if (error) throw error;
+  return normalizar(data as Record<string, unknown>);
+}
+
+/** Elimina un ciclo del histórico (no repone stock ni toca el ciclo abierto). */
+export async function eliminarMercado(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE).delete().eq('id', id);
+  if (error) throw error;
+}
+
 /** Detalle por víver de un ciclo: la nueva entrada (con fechas) y los consumos (con fechas). */
 export interface DetalleViverCiclo {
   entradas: { fecha: string; cantidad: number; ref?: string | null }[];

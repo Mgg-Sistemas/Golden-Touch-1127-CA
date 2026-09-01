@@ -22,6 +22,7 @@ import {
 } from './cocinaMercado.repository';
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
+import { MercadosHistoricoModal } from './MercadosHistoricoModal';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 function hoyISO(): string { return new Date().toISOString().slice(0, 10); }
@@ -41,7 +42,7 @@ export function CocinaPage() {
   const [movs, setMovs] = useState<CocinaMovimiento[]>([]);
   const [viveres, setViveres] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta'>('none');
+  const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta' | 'historico'>('none');
   const [editando, setEditando] = useState<CocinaMovimiento | null>(null);
   const [aEliminar, setAEliminar] = useState<CocinaMovimiento | null>(null);
   const [notaAlerta, setNotaAlerta] = useState('');
@@ -52,7 +53,6 @@ export function CocinaPage() {
   const [totMercado, setTotMercado] = useState<TotalesMercado | null>(null);
   const [detalleViver, setDetalleViver] = useState<{ item: ResumenViver; det: DetalleViverCiclo } | null>(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
-  const [qMercado, setQMercado] = useState('');   // buscador del panel «Disponible a consumir»
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [cerrando, setCerrando] = useState(false);
   const [emailCierre, setEmailCierre] = useState('');
@@ -127,11 +127,6 @@ export function CocinaPage() {
     : fDesde ? `desde ${dmy(fDesde)}` : fHasta ? `hasta ${dmy(fHasta)}` : 'todo el registro';
   // Víveres al 20% o menos de su mínimo (se avisa a Compras y se muestra acá).
   const bajos = useMemo(() => viveresBajos(viveres), [viveres]);
-  // Panel «Disponible a consumir»: filtro por buscador (nombre/SKU).
-  const mercadoFiltrado = useMemo(() => {
-    const q = norm(qMercado.trim());
-    return q ? resMercado.filter((r) => norm(r.nombre).includes(q) || norm(r.sku).includes(q)) : resMercado;
-  }, [resMercado, qMercado]);
 
   async function confirmarEliminar(m: CocinaMovimiento) {
     try {
@@ -159,19 +154,20 @@ export function CocinaPage() {
     } finally { setCargandoDetalle(false); }
   }
 
-  // Cierre del mercado: cierra el ciclo, genera el PDF y abre el siguiente con el saldo.
-  async function ejecutarCierre(enviarCorreo: boolean) {
+  // Cierre del mercado: cierra el ciclo, genera el PDF (siempre) y abre el siguiente con el
+  // saldo. El correo es OPCIONAL: solo se envía si se cargó al menos un destinatario.
+  async function ejecutarCierre() {
     if (!mercado) return;
     setCerrando(true);
     try {
       const cerrado = await cerrarMercado(mercado, viveres, actor);
       await descargarCocinaCierrePdf(cerrado);
-      if (enviarCorreo) {
-        const destinos = emailCierre.trim() ? emailCierre.split(/[;,]/).map((s) => s.trim()).filter(Boolean) : undefined;
+      const destinos = emailCierre.split(/[;,]/).map((s) => s.trim()).filter(Boolean);
+      if (destinos.length) {
         const { destinatarios } = await enviarCierreCocinaPorCorreo(cerrado, destinos);
-        toast(`Mercado ${cerrado.numero ?? ''} cerrado · reporte enviado a ${destinatarios.join(', ') || 'los destinatarios'}`, 'success');
+        toast(`Mercado ${cerrado.numero ?? ''} cerrado · PDF generado y enviado a ${destinatarios.join(', ') || 'los destinatarios'}`, 'success');
       } else {
-        toast(`Mercado ${cerrado.numero ?? ''} cerrado · reporte generado`, 'success');
+        toast(`Mercado ${cerrado.numero ?? ''} cerrado · reporte PDF generado`, 'success');
       }
       notify(`Cierre de mercado ${cerrado.numero ?? ''} · el nuevo ciclo arranca con lo que quedó`, 'success', { link: '#/app/cocina' });
       setConfirmarCierre(false); setEmailCierre('');
@@ -201,6 +197,7 @@ export function CocinaPage() {
             </span>
           )}
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
+          <button className="btn btn-ghost" onClick={() => setModal('historico')} title="Ver los mercados ya cerrados: visualizar, editar y sacar reportes">🗂 Mercados cerrados</button>
           {canWrite && mercado && (
             <button className={`btn ${ciclo?.vencido ? 'btn-danger' : 'btn-ghost'}`} onClick={() => setConfirmarCierre(true)}
               title="Cerrar el ciclo de mercado: genera el reporte (PDF/correo) y arranca el siguiente con lo que quedó">
@@ -220,61 +217,46 @@ export function CocinaPage() {
         <KpiCard titulo="Víveres en catálogo" valor={num(viveres.length)} nota="productos disponibles" />
       </div>
 
-      {/* Disponible a consumir: tarjetas con barra de progreso (lo que queda del disponible). */}
+      {/* Disponible a consumir en el mercado actual: saldo (lo que quedó) + entrada nuevo = total. */}
       {mercado && resMercado.length > 0 && (
         <div className="card" style={{ marginBottom: '1rem' }}>
           <div className="card-title">
             <span>🛒 Disponible a consumir <span className="muted" style={{ fontWeight: 400 }}>· Mercado {mercado.numero ?? ''} (ciclo desde {dmy(mercado.inicio_at.slice(0, 10))})</span></span>
-            <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>Tocá una tarjeta para ver lo que quedó, la nueva entrada y los consumos</span>
+            <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>Tocá un víver para ver lo que quedó, la nueva entrada y los consumos</span>
           </div>
-          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.7rem' }}>
-            <input className="input" style={{ maxWidth: 280 }} value={qMercado} onChange={(e) => setQMercado(e.target.value)}
-              placeholder="🔍 Buscar víver…" />
-            {totMercado && (
-              <span className="muted" style={{ fontSize: '.8rem' }}>
-                {mercadoFiltrado.length} de {totMercado.viveres} víveres · consumo del ciclo <strong className="mono">{money(totMercado.consumo_valor)}</strong>
-              </span>
-            )}
-            <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '.7rem', fontSize: '.72rem' }} className="muted">
-              <span>🟢 abundante</span><span>🟡 medio</span><span>🔴 poco</span>
-            </span>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead><tr>
+                <th>Víver</th>
+                <th style={{ textAlign: 'right' }}>Saldo <span className="muted" style={{ fontWeight: 400 }}>(hasta {dmy(mercado.inicio_at.slice(0, 10))})</span></th>
+                <th style={{ textAlign: 'right' }}>＋ Entrada <span className="muted" style={{ fontWeight: 400 }}>(nuevo)</span></th>
+                <th style={{ textAlign: 'right' }}>＝ Disponible</th>
+                <th style={{ textAlign: 'right' }}>Consumo</th>
+                <th style={{ textAlign: 'right' }}>Queda</th>
+              </tr></thead>
+              <tbody>
+                {resMercado.map((r) => (
+                  <tr key={r.producto_id} style={{ cursor: 'pointer' }} onClick={() => void abrirDetalleViver(r)}
+                    title="Ver lo que quedó + la nueva entrada + los consumos">
+                    <td>{r.nombre} {r.unidad && <span className="muted">· {r.unidad}</span>}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(r.saldo_inicial)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: r.entradas > 0 ? 'var(--brand, #ff8a00)' : undefined }}>{r.entradas > 0 ? `+${num(r.entradas)}` : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(r.disponible)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: r.consumo > 0 ? 'var(--danger)' : undefined }}>{r.consumo > 0 ? `−${num(r.consumo)}` : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: r.queda > 0 ? 'var(--success, #16a34a)' : 'var(--muted)' }}>{num(r.queda)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {totMercado && (
+                <tfoot><tr>
+                  <td style={{ fontWeight: 700 }}>Total ({totMercado.viveres} víveres)</td>
+                  <td colSpan={3}></td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(totMercado.consumo_valor)}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totMercado.queda_viveres)} c/saldo</td>
+                </tr></tfoot>
+              )}
+            </table>
           </div>
-          {mercadoFiltrado.length === 0 ? (
-            <p className="muted" style={{ margin: 0 }}>Ningún víver coincide con «{qMercado}».</p>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))', gap: '.6rem' }}>
-              {mercadoFiltrado.map((r) => {
-                const pct = r.disponible > 0 ? Math.max(0, Math.min(1, r.queda / r.disponible)) : (r.queda > 0 ? 1 : 0);
-                const color = pct >= 0.5 ? 'var(--success, #16a34a)' : pct >= 0.2 ? 'var(--warning, #d97706)' : 'var(--danger, #dc2626)';
-                return (
-                  <button key={r.producto_id} type="button" onClick={() => void abrirDetalleViver(r)}
-                    title="Ver lo que quedó + la nueva entrada + los consumos"
-                    style={{
-                      textAlign: 'left', cursor: 'pointer', padding: '.6rem .7rem', borderRadius: 10,
-                      border: '1px solid var(--border, #334)', borderLeft: `4px solid ${color}`,
-                      background: 'var(--card-bg, transparent)', color: 'inherit', display: 'grid', gap: '.35rem',
-                    }}>
-                    <div style={{ fontSize: '.8rem', fontWeight: 600, lineHeight: 1.15, minHeight: '2.1em' }}>
-                      {r.nombre} {r.unidad && <span className="muted" style={{ fontWeight: 400 }}>· {r.unidad}</span>}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '.35rem' }}>
-                      <span className="muted" style={{ fontSize: '.7rem' }}>Quedan</span>
-                      <span className="mono" style={{ fontSize: '1.35rem', fontWeight: 800, color, lineHeight: 1 }}>{num(r.queda)}</span>
-                    </div>
-                    <div style={{ height: 8, borderRadius: 6, background: 'color-mix(in srgb, var(--border, #334) 60%, transparent)', overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.round(pct * 100)}%`, height: '100%', background: color, borderRadius: 6, transition: 'width .3s' }} />
-                    </div>
-                    <div className="muted mono" style={{ fontSize: '.68rem', display: 'flex', justifyContent: 'space-between', gap: '.3rem' }}>
-                      <span>disp {num(r.disponible)}</span>
-                      {r.entradas > 0 && <span style={{ color: 'var(--brand, #ff8a00)' }}>+{num(r.entradas)}</span>}
-                      {r.consumo > 0 && <span style={{ color: 'var(--danger)' }}>−{num(r.consumo)}</span>}
-                      <span>{Math.round(pct * 100)}%</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
 
@@ -396,6 +378,9 @@ export function CocinaPage() {
       {modal === 'resumen' && (
         <ResumenModal viveres={viveres} onClose={() => setModal('none')} />
       )}
+      {modal === 'historico' && (
+        <MercadosHistoricoModal canWrite={canWrite} onClose={() => setModal('none')} />
+      )}
       {modal === 'alerta' && (
         <Modal title="🔔 Alerta a Restablecer el mercado" size="md" onClose={() => !enviandoAlerta && setModal('none')} footer={
           <>
@@ -479,12 +464,11 @@ export function CocinaPage() {
         <Modal title="🧾 Cerrar mercado" size="md" onClose={() => !cerrando && setConfirmarCierre(false)} footer={
           <>
             <button className="btn btn-ghost" onClick={() => setConfirmarCierre(false)} disabled={cerrando}>Cancelar</button>
-            <button className="btn btn-ghost" onClick={() => void ejecutarCierre(false)} disabled={cerrando}>{cerrando ? 'Cerrando…' : '↓ Cerrar y descargar PDF'}</button>
-            <button className="btn btn-primary" onClick={() => void ejecutarCierre(true)} disabled={cerrando}>{cerrando ? 'Cerrando…' : '✉ Cerrar y enviar por correo'}</button>
+            <button className="btn btn-primary" onClick={() => void ejecutarCierre()} disabled={cerrando}>{cerrando ? 'Cerrando…' : '🧾 Cerrar mercado'}</button>
           </>
         }>
           <p style={{ marginTop: 0 }}>
-            Se cierra el mercado <strong>{mercado.numero ?? ''}</strong> ({ciclo ? `día ${ciclo.dia} de ${CICLO_DIAS}` : ''}). Se genera el <strong>reporte del ciclo</strong> (consumo por víver y lo que queda) y el <strong>siguiente mercado arranca con el saldo</strong> de lo que quedó.
+            Se cierra el mercado <strong>{mercado.numero ?? ''}</strong> ({ciclo ? `día ${ciclo.dia} de ${CICLO_DIAS}` : ''}) y se genera el <strong>reporte del ciclo en PDF</strong> (consumo por víver y lo que queda). El <strong>siguiente mercado arranca con el saldo</strong> de lo que quedó. Queda en el <strong>histórico</strong> de mercados cerrados.
           </p>
           <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
             <div><div className="muted" style={{ fontSize: '.72rem' }}>Víveres</div><div className="mono" style={{ fontWeight: 700 }}>{num(totMercado?.viveres ?? resMercado.length)}</div></div>
@@ -494,7 +478,7 @@ export function CocinaPage() {
           <div className="form-row">
             <label>Correo(s) para el reporte <span className="muted">(opcional · separá con coma)</span></label>
             <input className="input" value={emailCierre} onChange={(e) => setEmailCierre(e.target.value)} placeholder="correo@empresa.com, otro@empresa.com" />
-            <small className="muted">Si lo dejás vacío y enviás por correo, va al destinatario por defecto (admin/jefe).</small>
+            <small className="muted">Opcional: si cargás uno o más correos, además de descargar el PDF <strong>se envía por correo</strong>. Si lo dejás vacío, solo se genera el PDF.</small>
           </div>
         </Modal>
       )}
