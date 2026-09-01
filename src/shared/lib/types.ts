@@ -1158,6 +1158,10 @@ export interface Orden {
   tipo?: 'producto' | 'servicio' | null;
   /** Detalle del servicio (piezas a reparar + descripción). Solo aplica a tipo='servicio'. */
   detalle_servicio?: DetalleServicioItem[] | null;
+  /** Pago anticipado (adelanto de referencia, no toca caja): monto en su moneda. Solo servicios. */
+  anticipo_monto?: number | null;
+  anticipo_moneda?: string | null;
+  anticipo_en?: string | null;
   oc_codigo?: string | null;
   proveedor_id: string | null;
   solicitante_email: string;

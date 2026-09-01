@@ -73,6 +73,7 @@ import { OfertasComparativa } from './OfertasComparativa';
 import { FacturasDirectas } from './FacturasDirectas';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { DetalleServicioBloque } from './DetalleServicioBloque';
+import { AnticipoServicioBloque } from './AnticipoServicioBloque';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ChatOrden } from './ChatOrden';
 import { noLeidosPorOrden } from './ordenChat.repository';
@@ -165,6 +166,8 @@ function eventLabel(ev: string): string {
       orden_modificada: 'Orden modificada',
       eleccion_reabierta: 'Elección de oferta reabierta (reelegir)',
       abono: 'Abono registrado (crédito)',
+      anticipo: 'Pago anticipado registrado (adelanto)',
+      anticipo_quitado: 'Pago anticipado quitado',
       credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
       recibida: 'Recepción confirmada',
@@ -190,6 +193,8 @@ function eventClass(ev: string): string {
       orden_modificada: 'info',
       eleccion_reabierta: 'warning',
       abono: 'info',
+      anticipo: 'info',
+      anticipo_quitado: 'warn',
       credito_saldado: 'ok',
       pagada: 'ok',
       recibida: 'ok',
@@ -2165,6 +2170,11 @@ const KanbanCard = memo(function KanbanCard({
         <span className="total">{montoMoneda(orden.total, orden.total_moneda)}</span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
       </div>
+      {orden.tipo === 'servicio' && (Number(orden.anticipo_monto) || 0) > 0 && orden.estado !== 'finalizada' && (
+        <div className="muted mono" style={{ fontSize: '.7rem', marginTop: '.2rem', textAlign: 'right' }}>
+          💵 anticipo −{montoMoneda(Number(orden.abonado_total) || 0, orden.total_moneda)} · <strong style={{ color: 'var(--brand, #ff8a00)' }}>pendiente {montoMoneda(Math.max(0, (Number(orden.total) || 0) - (Number(orden.abonado_total) || 0)), orden.total_moneda)}</strong>
+        </div>
+      )}
     </div>
   );
 });
@@ -2723,6 +2733,9 @@ function OrdenDetailModal({
       )}
       {o.tipo === 'servicio' && (
         <DetalleServicioBloque detalleInicial={o.detalle_servicio} onGuardar={(d) => actualizarDetalleServicio(o.id, d)} onSaved={onAcceptedOffer} />
+      )}
+      {o.tipo === 'servicio' && (
+        <AnticipoServicioBloque orden={o} actorEmail={actorEmail || 'sistema'} onSaved={onAcceptedOffer} />
       )}
       <FacturasDirectas modulo="orden" refId={o.id} actor={actorEmail || 'sistema'} titulo="📎 Adjuntos (imágenes / PDF)" textoBoton="＋ Agregar adjunto (PDF/imagen)" />
 

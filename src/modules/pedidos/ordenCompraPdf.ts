@@ -501,6 +501,24 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       });
       y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
     }
+
+    // Pago anticipado + saldo pendiente (órdenes de servicio con anticipo).
+    if (esServicio && (Number(o.anticipo_monto) || 0) > 0) {
+      const abon = Math.round((Number(o.abonado_total) || 0) * 100) / 100;
+      const pend = Math.max(0, Math.round(((Number(o.total) || 0) - abon) * 100) / 100);
+      autoTable(doc, {
+        startY: y,
+        body: [
+          ['Pago anticipado (adelanto · no descontó caja)', montoMoneda(Number(o.anticipo_monto), o.anticipo_moneda === 'Bs' ? 'Bs' : 'USD')],
+          ['Saldo pendiente (crédito)', montoMoneda(pend, o.total_moneda)],
+        ],
+        theme: 'plain',
+        styles: { fontSize: 9.5, cellPadding: 3 },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 260 }, 1: { halign: 'right' } },
+        margin: MARGIN,
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
   });
 
   if (esConsolidada) {
