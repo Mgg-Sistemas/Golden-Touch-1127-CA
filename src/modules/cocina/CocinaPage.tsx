@@ -16,9 +16,17 @@ import {
 } from './cocina.repository';
 import { descargarCocinaPdf } from './cocinaPdf';
 import { crearAlertaMercado } from './alertasMercado.repository';
+import {
+  asegurarMercadoActivo, getMercadoActivo, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
+  CICLO_DIAS, type Mercado, type ResumenViver, type TotalesMercado, type DetalleViverCiclo,
+} from './cocinaMercado.repository';
+import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
+import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 function hoyISO(): string { return new Date().toISOString().slice(0, 10); }
+/** YYYY-MM-DD → DD/MM/YYYY (para etiquetas legibles). */
+function dmy(iso: string): string { const p = iso.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; }
 function inicioSemana(iso: string): string {
   const d = new Date(`${iso}T00:00:00`); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); return d.toISOString().slice(0, 10);
 }
@@ -38,6 +46,15 @@ export function CocinaPage() {
   const [aEliminar, setAEliminar] = useState<CocinaMovimiento | null>(null);
   const [notaAlerta, setNotaAlerta] = useState('');
   const [enviandoAlerta, setEnviandoAlerta] = useState(false);
+  // Ciclo de mercado (21 días): mercado abierto + su resumen (disponible/consumo/queda).
+  const [mercado, setMercado] = useState<Mercado | null>(null);
+  const [resMercado, setResMercado] = useState<ResumenViver[]>([]);
+  const [totMercado, setTotMercado] = useState<TotalesMercado | null>(null);
+  const [detalleViver, setDetalleViver] = useState<{ item: ResumenViver; det: DetalleViverCiclo } | null>(null);
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
+  const [emailCierre, setEmailCierre] = useState('');
 
   async function enviarAlertaMercado() {
     setEnviandoAlerta(true);
@@ -67,6 +84,16 @@ export function CocinaPage() {
         listViveres().catch(() => [] as Producto[]),
       ]);
       setMovs(m); setViveres(v);
+      // Ciclo de mercado: garantiza un mercado abierto (solo con permiso de escritura) y
+      // calcula su resumen (saldo inicial + entradas = disponible; consumo; lo que queda).
+      try {
+        const mk = canWrite ? await asegurarMercadoActivo(v) : await getMercadoActivo();
+        setMercado(mk);
+        if (mk) {
+          const { items, totales } = await computeResumen(mk, v);
+          setResMercado(items); setTotMercado(totales);
+        } else { setResMercado([]); setTotMercado(null); }
+      } catch { /* si el ciclo falla, no bloquea la vista de cocina */ }
       // Aviso automático a los Analistas de Compras si hay víveres al 20% o menos de su
       // mínimo (best-effort, con dedup para no repetir). Se evalúa en cada carga/refresh,
       // incluido después de registrar una comida (que baja el stock).
@@ -74,10 +101,10 @@ export function CocinaPage() {
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo cargar Cocina', 'error');
     } finally { setLoading(false); }
-  }, [fDesde, fHasta, fTipo]);
+  }, [fDesde, fHasta, fTipo, canWrite]);
 
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['cocina_movimientos', 'movimientos', 'existencias'], () => { void cargar(); });
+  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'cocina_mercados'], () => { void cargar(); });
 
   // Búsqueda general (cliente): código, tipo, nota, fecha/hora, productos.
   const movsFiltrados = useMemo(() => {
@@ -90,12 +117,13 @@ export function CocinaPage() {
     });
   }, [movs, fBuscar]);
 
-  // KPIs de HOY (independiente de los filtros de la tabla).
-  const [movsHoy, setMovsHoy] = useState<CocinaMovimiento[]>([]);
-  useEffect(() => {
-    listMovimientosCocina({ desde: hoyISO(), hasta: hoyISO() }).then(setMovsHoy).catch(() => setMovsHoy([]));
-  }, [movs]);
-  const resHoy = useMemo(() => resumirCocina(movsHoy), [movsHoy]);
+  // KPIs sincronizados con lo que muestra la tabla (mismos filtros: fecha, tipo y búsqueda).
+  // Antes eran «de hoy» y no reflejaban un movimiento cargado con fecha de servicio desfasada.
+  const resFiltrado = useMemo(() => resumirCocina(movsFiltrados), [movsFiltrados]);
+  // Etiqueta del período que resumen las tarjetas (según los filtros de fecha).
+  const notaPeriodo = fDesde && fHasta
+    ? (fDesde === fHasta ? (fDesde === hoyISO() ? 'hoy' : dmy(fDesde)) : `${dmy(fDesde)} – ${dmy(fHasta)}`)
+    : fDesde ? `desde ${dmy(fDesde)}` : fHasta ? `hasta ${dmy(fHasta)}` : 'todo el registro';
   // Víveres al 20% o menos de su mínimo (se avisa a Compras y se muestra acá).
   const bajos = useMemo(() => viveresBajos(viveres), [viveres]);
 
@@ -108,6 +136,44 @@ export function CocinaPage() {
     finally { setAEliminar(null); }
   }
 
+  // Contador del ciclo (día X de 21, cuántos faltan, si ya venció).
+  const ciclo = useMemo(() => (mercado ? diasDelCiclo(mercado) : null), [mercado]);
+
+  // Detalle de un víver del ciclo (lo que quedó + la nueva entrada + los consumos).
+  async function abrirDetalleViver(item: ResumenViver) {
+    if (!mercado) return;
+    setCargandoDetalle(true);
+    setDetalleViver({ item, det: { entradas: [], consumos: [] } });
+    try {
+      const det = await detalleViverCiclo(mercado, item.producto_id);
+      setDetalleViver({ item, det });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo cargar el detalle', 'error');
+      setDetalleViver(null);
+    } finally { setCargandoDetalle(false); }
+  }
+
+  // Cierre del mercado: cierra el ciclo, genera el PDF y abre el siguiente con el saldo.
+  async function ejecutarCierre(enviarCorreo: boolean) {
+    if (!mercado) return;
+    setCerrando(true);
+    try {
+      const cerrado = await cerrarMercado(mercado, viveres, actor);
+      await descargarCocinaCierrePdf(cerrado);
+      if (enviarCorreo) {
+        const destinos = emailCierre.trim() ? emailCierre.split(/[;,]/).map((s) => s.trim()).filter(Boolean) : undefined;
+        const { destinatarios } = await enviarCierreCocinaPorCorreo(cerrado, destinos);
+        toast(`Mercado ${cerrado.numero ?? ''} cerrado · reporte enviado a ${destinatarios.join(', ') || 'los destinatarios'}`, 'success');
+      } else {
+        toast(`Mercado ${cerrado.numero ?? ''} cerrado · reporte generado`, 'success');
+      }
+      notify(`Cierre de mercado ${cerrado.numero ?? ''} · el nuevo ciclo arranca con lo que quedó`, 'success', { link: '#/app/cocina' });
+      setConfirmarCierre(false); setEmailCierre('');
+      await cargar();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar el mercado', 'error'); }
+    finally { setCerrando(false); }
+  }
+
   return (
     <div className="page">
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
@@ -115,20 +181,81 @@ export function CocinaPage() {
           <h1 style={{ margin: 0 }}>🍽 Control de Alimentación (Cocina)</h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Consumo de víveres por comida (desayuno, almuerzo, cena), con platos y costo del inventario.</p>
         </div>
-        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {ciclo && mercado && (
+            <span className="mono" title={`Mercado ${mercado.numero ?? ''} · inició ${dateTime(mercado.inicio_at)}`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '.4rem', padding: '.3rem .6rem', borderRadius: 8,
+                fontSize: '.8rem', fontWeight: 700,
+                border: `1px solid ${ciclo.vencido ? 'var(--danger)' : 'var(--border, #334)'}`,
+                color: ciclo.vencido ? 'var(--danger)' : 'inherit',
+                background: ciclo.vencido ? 'color-mix(in srgb, var(--danger) 12%, transparent)' : 'transparent',
+              }}>
+              🛒 Día {ciclo.dia} de {CICLO_DIAS} · {ciclo.vencido ? '¡toca cerrar!' : `faltan ${ciclo.faltan}`}
+            </span>
+          )}
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
+          {canWrite && mercado && (
+            <button className={`btn ${ciclo?.vencido ? 'btn-danger' : 'btn-ghost'}`} onClick={() => setConfirmarCierre(true)}
+              title="Cerrar el ciclo de mercado: genera el reporte (PDF/correo) y arranca el siguiente con lo que quedó">
+              🧾 Cerrar mercado
+            </button>
+          )}
           {canWrite && <button className="btn btn-warning" onClick={() => setModal('alerta')} title="Avisar a Compras que hay que montar el mercado">🔔 Alerta a Restablecer</button>}
           {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>➕ Añadir Movimiento</button>}
         </div>
       </div>
 
-      {/* KPIs de hoy */}
+      {/* KPIs sincronizados con la tabla (según los filtros de fecha/tipo/búsqueda). */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', margin: '1rem 0' }}>
-        <KpiCard titulo="Platos hoy" valor={num(resHoy.platos)} nota={`${resHoy.movimientos} movimiento(s)`} />
-        <KpiCard titulo="Consumo hoy" valor={money(resHoy.valorTotal)} nota="costo de víveres" destacado />
-        <KpiCard titulo="Promedio por plato" valor={money(resHoy.promedioPorPlato)} nota="hoy" />
+        <KpiCard titulo="Platos" valor={num(resFiltrado.platos)} nota={`${resFiltrado.movimientos} movimiento(s) · ${notaPeriodo}`} />
+        <KpiCard titulo="Consumo" valor={money(resFiltrado.valorTotal)} nota={`costo de víveres · ${notaPeriodo}`} destacado />
+        <KpiCard titulo="Promedio por plato" valor={money(resFiltrado.promedioPorPlato)} nota={notaPeriodo} />
         <KpiCard titulo="Víveres en catálogo" valor={num(viveres.length)} nota="productos disponibles" />
       </div>
+
+      {/* Disponible a consumir en el mercado actual: saldo (lo que quedó) + entrada nuevo = total. */}
+      {mercado && resMercado.length > 0 && (
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <div className="card-title">
+            <span>🛒 Disponible a consumir <span className="muted" style={{ fontWeight: 400 }}>· Mercado {mercado.numero ?? ''} (ciclo desde {dmy(mercado.inicio_at.slice(0, 10))})</span></span>
+            <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>Tocá un víver para ver lo que quedó, la nueva entrada y los consumos</span>
+          </div>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead><tr>
+                <th>Víver</th>
+                <th style={{ textAlign: 'right' }}>Saldo <span className="muted" style={{ fontWeight: 400 }}>(hasta {dmy(mercado.inicio_at.slice(0, 10))})</span></th>
+                <th style={{ textAlign: 'right' }}>＋ Entrada <span className="muted" style={{ fontWeight: 400 }}>(nuevo)</span></th>
+                <th style={{ textAlign: 'right' }}>＝ Disponible</th>
+                <th style={{ textAlign: 'right' }}>Consumo</th>
+                <th style={{ textAlign: 'right' }}>Queda</th>
+              </tr></thead>
+              <tbody>
+                {resMercado.map((r) => (
+                  <tr key={r.producto_id} style={{ cursor: 'pointer' }} onClick={() => void abrirDetalleViver(r)}
+                    title="Ver lo que quedó + la nueva entrada + los consumos">
+                    <td>{r.nombre} {r.unidad && <span className="muted">· {r.unidad}</span>}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(r.saldo_inicial)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: r.entradas > 0 ? 'var(--brand, #ff8a00)' : undefined }}>{r.entradas > 0 ? `+${num(r.entradas)}` : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(r.disponible)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: r.consumo > 0 ? 'var(--danger)' : undefined }}>{r.consumo > 0 ? `−${num(r.consumo)}` : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: r.queda > 0 ? 'var(--success, #16a34a)' : 'var(--muted)' }}>{num(r.queda)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {totMercado && (
+                <tfoot><tr>
+                  <td style={{ fontWeight: 700 }}>Total ({totMercado.viveres} víveres)</td>
+                  <td colSpan={3}></td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(totMercado.consumo_valor)}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totMercado.queda_viveres)} c/saldo</td>
+                </tr></tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Aviso de víveres bajos (20% o menos del mínimo): también se notifica a Compras */}
       {bajos.length > 0 && (
@@ -268,6 +395,87 @@ export function CocinaPage() {
         <ConfirmDialog title="Eliminar movimiento de cocina"
           message={`¿Eliminar ${aEliminar.codigo ?? 'el movimiento'} (${labelTipoComida(aEliminar.tipo_comida)})? El stock ya descontado NO se repone automáticamente.`}
           confirmText="Eliminar" onCancel={() => setAEliminar(null)} onConfirm={() => confirmarEliminar(aEliminar)} />
+      )}
+
+      {/* Detalle de un víver del ciclo: lo que quedó + la nueva entrada + los consumos. */}
+      {detalleViver && (
+        <Modal title={`🛒 ${detalleViver.item.nombre}`} size="md" onClose={() => setDetalleViver(null)}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '.5rem', marginBottom: '.8rem' }}>
+            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Saldo (lo que quedó)</div>
+              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem' }}>{num(detalleViver.item.saldo_inicial)}</div>
+            </div>
+            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
+              <div className="muted" style={{ fontSize: '.72rem' }}>＋ Entrada (nuevo)</div>
+              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--brand, #ff8a00)' }}>{num(detalleViver.item.entradas)}</div>
+            </div>
+            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
+              <div className="muted" style={{ fontSize: '.72rem' }}>＝ Disponible</div>
+              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem' }}>{num(detalleViver.item.disponible)}</div>
+            </div>
+            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Consumo</div>
+              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--danger)' }}>{num(detalleViver.item.consumo)}</div>
+            </div>
+            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Queda</div>
+              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--success, #16a34a)' }}>{num(detalleViver.item.queda)}</div>
+            </div>
+          </div>
+          {cargandoDetalle ? (
+            <p className="muted">Cargando detalle…</p>
+          ) : (
+            <>
+              <div style={{ fontWeight: 700, fontSize: '.85rem', margin: '.3rem 0' }}>Entradas del nuevo mercado</div>
+              {detalleViver.det.entradas.length === 0 ? (
+                <p className="muted" style={{ margin: 0 }}>Sin entradas en este ciclo.</p>
+              ) : (
+                <div className="table-wrap"><table className="table" style={{ fontSize: '.82rem' }}>
+                  <thead><tr><th>Fecha</th><th>Ref.</th><th style={{ textAlign: 'right' }}>Cantidad</th></tr></thead>
+                  <tbody>{detalleViver.det.entradas.map((e, i) => (
+                    <tr key={i}><td>{dateTime(e.fecha)}</td><td className="mono">{e.ref ?? '—'}</td><td className="mono" style={{ textAlign: 'right' }}>+{num(e.cantidad)}</td></tr>
+                  ))}</tbody>
+                </table></div>
+              )}
+              <div style={{ fontWeight: 700, fontSize: '.85rem', margin: '.7rem 0 .3rem' }}>Consumos</div>
+              {detalleViver.det.consumos.length === 0 ? (
+                <p className="muted" style={{ margin: 0 }}>Sin consumos en este ciclo.</p>
+              ) : (
+                <div className="table-wrap"><table className="table" style={{ fontSize: '.82rem' }}>
+                  <thead><tr><th>Fecha</th><th>Código</th><th>Comida</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
+                  <tbody>{detalleViver.det.consumos.map((c, i) => (
+                    <tr key={i}><td>{dateTime(c.fecha)}</td><td className="mono">{c.codigo ?? '—'}</td><td>{labelTipoComida(c.tipo_comida ?? '')}</td><td className="mono" style={{ textAlign: 'right' }}>−{num(c.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(c.valor)}</td></tr>
+                  ))}</tbody>
+                </table></div>
+              )}
+            </>
+          )}
+        </Modal>
+      )}
+
+      {/* Cierre del mercado: reporte PDF (descargable / por correo) + arranca el próximo ciclo. */}
+      {confirmarCierre && mercado && (
+        <Modal title="🧾 Cerrar mercado" size="md" onClose={() => !cerrando && setConfirmarCierre(false)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setConfirmarCierre(false)} disabled={cerrando}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => void ejecutarCierre(false)} disabled={cerrando}>{cerrando ? 'Cerrando…' : '↓ Cerrar y descargar PDF'}</button>
+            <button className="btn btn-primary" onClick={() => void ejecutarCierre(true)} disabled={cerrando}>{cerrando ? 'Cerrando…' : '✉ Cerrar y enviar por correo'}</button>
+          </>
+        }>
+          <p style={{ marginTop: 0 }}>
+            Se cierra el mercado <strong>{mercado.numero ?? ''}</strong> ({ciclo ? `día ${ciclo.dia} de ${CICLO_DIAS}` : ''}). Se genera el <strong>reporte del ciclo</strong> (consumo por víver y lo que queda) y el <strong>siguiente mercado arranca con el saldo</strong> de lo que quedó.
+          </p>
+          <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Víveres</div><div className="mono" style={{ fontWeight: 700 }}>{num(totMercado?.viveres ?? resMercado.length)}</div></div>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Consumo total</div><div className="mono" style={{ fontWeight: 700 }}>{money(totMercado?.consumo_valor ?? 0)}</div></div>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Pasan al próximo</div><div className="mono" style={{ fontWeight: 700 }}>{num(totMercado?.queda_viveres ?? 0)} víveres</div></div>
+          </div>
+          <div className="form-row">
+            <label>Correo(s) para el reporte <span className="muted">(opcional · separá con coma)</span></label>
+            <input className="input" value={emailCierre} onChange={(e) => setEmailCierre(e.target.value)} placeholder="correo@empresa.com, otro@empresa.com" />
+            <small className="muted">Si lo dejás vacío y enviás por correo, va al destinatario por defecto (admin/jefe).</small>
+          </div>
+        </Modal>
       )}
     </div>
   );
