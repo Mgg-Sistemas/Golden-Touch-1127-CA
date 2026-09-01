@@ -29,6 +29,10 @@ export interface CrearOfertaInput {
   igtf_aplicado?: boolean | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
+  /** Anticipo (adelanto parcial) cuando condiciones_pago='anticipado' en órdenes de servicio.
+   *  Al aceptar la oferta se aplica: no toca caja, se resta del total y el resto queda a crédito. */
+  anticipo_monto?: number | null;
+  anticipo_moneda?: string | null;
   notas?: string | null;
   registrada_por_email: string;
   pdf_path?: string | null;
@@ -116,6 +120,8 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       igtf_aplicado: !!input.igtf_aplicado,
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
+      anticipo_monto: input.condiciones_pago === 'anticipado' && Number(input.anticipo_monto) > 0 ? Math.round(Number(input.anticipo_monto) * 100) / 100 : null,
+      anticipo_moneda: input.condiciones_pago === 'anticipado' && Number(input.anticipo_monto) > 0 ? (input.anticipo_moneda === 'Bs' ? 'Bs' : 'USD') : null,
       notas: input.notas ?? null,
       registrada_por_email: input.registrada_por_email,
       pdf_path: input.pdf_path ?? null,
@@ -134,8 +140,8 @@ export async function actualizarOferta(
   patch: Partial<Pick<CrearOfertaInput,
     'proveedor_id' | 'items' | 'precio_total' | 'precio_divisa' | 'descuento_obtenido' |
     'iva_pct' | 'iva_monto' | 'iva_aplicado' | 'igtf_pct' | 'igtf_monto' | 'igtf_aplicado' |
-    'fecha_entrega_prometida' | 'condiciones_pago' | 'notas' | 'ficha' | 'adjuntos' |
-    'pdf_path' | 'pdf_filename'>>
+    'fecha_entrega_prometida' | 'condiciones_pago' | 'anticipo_monto' | 'anticipo_moneda' |
+    'notas' | 'ficha' | 'adjuntos' | 'pdf_path' | 'pdf_filename'>>
 ): Promise<OfertaProveedor> {
   const { data, error } = await supabase
     .from(TABLE)

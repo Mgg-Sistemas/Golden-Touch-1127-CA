@@ -1504,6 +1504,11 @@ export interface OfertaProveedor {
   /** Descuento obtenido (monto $) que el proveedor concede; se resta del total de la
    *  factura/OC. Opcional. */
   descuento_obtenido?: number | null;
+  /** Pago anticipado (adelanto parcial) cuando la condición es 'anticipado' y la orden es
+   *  de servicio: monto + moneda del adelanto dado. Al aceptar la oferta se aplica como
+   *  anticipo (no toca caja, se resta del total, el resto queda a crédito). Opcional. */
+  anticipo_monto?: number | null;
+  anticipo_moneda?: string | null;
   /** IVA de la factura del proveedor: por % o monto manual. Se SUMA al total de la OC y
    *  se arrastra a Tesorería (precargado al indicar el método de pago). */
   iva_pct?: number | null;

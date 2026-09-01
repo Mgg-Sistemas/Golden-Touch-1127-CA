@@ -1337,6 +1337,10 @@ alter table public.ordenes add column if not exists metodo_pago     jsonb;   -- 
 alter table public.ordenes add column if not exists metodo_pago_por text;
 alter table public.ordenes add column if not exists metodo_pago_en  timestamptz;
 alter table public.ofertas_proveedor add column if not exists condiciones_pago text; -- contra_entrega|anticipado|credito
+-- Anticipo parcial (adelanto) cuando condiciones_pago='anticipado' en órdenes de servicio: al
+-- aceptar la oferta se aplica como anticipo (no toca caja, se resta del total, el resto a crédito).
+alter table public.ofertas_proveedor add column if not exists anticipo_monto  numeric;
+alter table public.ofertas_proveedor add column if not exists anticipo_moneda text;
 -- Monedas dinámicas (registro tipo taxonomía, scope 'tesoreria.moneda'):
 -- se liberan los CHECK de moneda para admitir cualquier código registrado.
 alter table public.caja_saldos drop constraint if exists caja_saldos_moneda_check;

@@ -547,7 +547,7 @@ export async function aprobarOrdenConOferta(
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
     .from('ofertas_proveedor')
-    .select('condiciones_pago, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, igtf_pct, igtf_monto, igtf_aplicado')
+    .select('condiciones_pago, anticipo_monto, anticipo_moneda, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, igtf_pct, igtf_monto, igtf_aplicado')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -575,6 +575,13 @@ export async function aprobarOrdenConOferta(
   const impuestos = ivaMonto + igtfMonto;
   const totalBruto = override ? override.precioTotal : (usaDescuento ? precioDivisa! : ofertaPrecioTotal);
   const totalFinal = Math.round((totalBruto - descuentoObtenido + impuestos) * 100) / 100;
+  // Anticipo parcial (adelanto): solo en órdenes de SERVICIO con condición 'anticipado' y monto > 0.
+  // Se aplica DESPUÉS de crear la OC (cuando ya tiene total). Enruta a crédito para que el saldo
+  // restante quede como «cuenta abierta» en Tesorería (prepago total, sin monto, sigue como hoy).
+  const condOferta = (ofRow?.condiciones_pago as string | null) ?? null;
+  const anticipoMontoOf = Math.max(0, Number((ofRow?.anticipo_monto as number | null) ?? 0) || 0);
+  const anticipoMonedaOf: 'USD' | 'Bs' = (ofRow?.anticipo_moneda as string | null) === 'Bs' ? 'Bs' : 'USD';
+  const aplicaAnticipoParcial = o.tipo === 'servicio' && condOferta === 'anticipado' && anticipoMontoOf > 0;
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
@@ -590,7 +597,8 @@ export async function aprobarOrdenConOferta(
     igtf_pct: igtfPct,
     igtf_monto: igtfAplicado ? igtfMonto : null,
     oc_codigo: ocCodigo,
-    condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
+    // Con anticipo parcial, la orden va a crédito (el resto queda como saldo pendiente).
+    condiciones_pago: aplicaAnticipoParcial ? 'credito' : condOferta,
     oc_creada_por: actorEmail,
     oc_creada_en: nowIso,
     oc_seleccion_observacion: seleccion?.observacion?.trim() || null,
@@ -612,6 +620,11 @@ export async function aprobarOrdenConOferta(
     .select('*')
     .single();
   if (error) throw error;
+  // Aplica el anticipo parcial sobre la OC ya creada (con total): siembra abonado_total,
+  // deja el saldo a crédito y registra la trazabilidad (no toca caja). Reutiliza la lógica única.
+  if (aplicaAnticipoParcial) {
+    return await registrarAnticipoServicio(data as Orden, { monto: anticipoMontoOf, moneda: anticipoMonedaOf }, actorEmail);
+  }
   return data as Orden;
 }
 
