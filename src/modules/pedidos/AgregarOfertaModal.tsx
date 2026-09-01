@@ -114,6 +114,12 @@ export function AgregarOfertaModal({
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEditar?.fecha_entrega_prometida ?? '');
   const [condiciones, setCondiciones] = useState(ofertaEditar?.condiciones_pago ?? '');
+  // Pago anticipado (adelanto parcial): solo en órdenes de SERVICIO cuando la condición es
+  // 'anticipado'. Al aceptar la oferta, el monto se aplica como anticipo (no toca caja, se
+  // resta del total y el resto queda a crédito). Si se deja en blanco, es prepago total (como hoy).
+  const esServicioOrden = orden.tipo === 'servicio';
+  const [anticipoMoneda, setAnticipoMoneda] = useState<'USD' | 'Bs'>(ofertaEditar?.anticipo_moneda === 'Bs' ? 'Bs' : 'USD');
+  const [anticipoMonto, setAnticipoMonto] = useState<string>(Number(ofertaEditar?.anticipo_monto) > 0 ? String(ofertaEditar!.anticipo_monto) : '');
   const [notas, setNotas] = useState(ofertaEditar?.notas ?? '');
   // Descuento obtenido (monto $): se resta del total de la factura. Opcional.
   const [descuento, setDescuento] = useState(ofertaEditar?.descuento_obtenido != null && ofertaEditar.descuento_obtenido > 0 ? String(ofertaEditar.descuento_obtenido) : '');
@@ -303,6 +309,8 @@ export function AgregarOfertaModal({
       toast('Elegí la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
+    // Anticipo parcial: solo en servicio + condición 'anticipado' + monto > 0.
+    const usaAnticipo = esServicioOrden && condiciones.trim() === 'anticipado' && Number(anticipoMonto) > 0;
     setSubmitting(true);
     try {
       // 1) Resolver proveedor (existente o crear uno nuevo)
@@ -392,6 +400,8 @@ export function AgregarOfertaModal({
           igtf_aplicado: conIgtf && igtfMonto > 0,
           fecha_entrega_prometida: fechaEntrega || null,
           condiciones_pago: condiciones.trim() || null,
+          anticipo_monto: usaAnticipo ? Math.round(Number(anticipoMonto) * 100) / 100 : null,
+          anticipo_moneda: usaAnticipo ? anticipoMoneda : null,
           notas: notas.trim() || null,
           ficha: fichaLimpia(),
           adjuntos: adjuntosFinal,
@@ -409,6 +419,8 @@ export function AgregarOfertaModal({
         precio_total: precioTotalGuardar,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
+        anticipo_monto: usaAnticipo ? Math.round(Number(anticipoMonto) * 100) / 100 : null,
+        anticipo_moneda: usaAnticipo ? anticipoMoneda : null,
         notas: notas.trim() || null,
         registrada_por_email: registradoPorEmail,
         pdf_path,
@@ -761,6 +773,28 @@ export function AgregarOfertaModal({
           </select>
         </div>
       </div>
+
+      {/* Pago anticipado (adelanto parcial): solo en órdenes de SERVICIO cuando la condición
+          es 'anticipado'. El monto se aplica al aceptar la oferta (no toca caja, se resta del
+          total y el resto queda a crédito). En blanco = prepago total. */}
+      {esServicioOrden && condiciones.trim() === 'anticipado' && (
+        <div className="form-row">
+          <label>Monto del anticipo dado <span className="muted">(opcional)</span></label>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select className="select" style={{ maxWidth: 120 }} value={anticipoMoneda}
+              onChange={(e) => setAnticipoMoneda(e.target.value === 'Bs' ? 'Bs' : 'USD')}>
+              <option value="USD">$ (USD)</option>
+              <option value="Bs">Bs</option>
+            </select>
+            <input className="input mono" type="number" min={0} step="any" placeholder="Monto del anticipo"
+              style={{ maxWidth: 200, textAlign: 'right' }} value={anticipoMonto}
+              onChange={(e) => setAnticipoMonto(e.target.value)} />
+          </div>
+          <small className="muted">
+            Se aplica al <strong>aceptar la oferta</strong>: el anticipo <strong>no descuenta caja</strong>, se resta del total y el <strong>resto queda a crédito</strong> (aparece en Tesorería y en el saldo pendiente). Si lo dejás en blanco, es <strong>prepago total</strong>.
+          </small>
+        </div>
+      )}
 
       {/* Descuento obtenido: se resta del total de la factura (sincroniza el monto). */}
       <div className="form-row">
