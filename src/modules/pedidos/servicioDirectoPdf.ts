@@ -89,17 +89,27 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     margin: MARGIN,
   });
 
-  // Detalle del servicio (piezas + descripción), si lo tiene.
+  // Detalle del servicio (piezas + descripción + precio opcional), si lo tiene.
   const detalle = servicio.detalle_servicio ?? [];
   if (detalle.length) {
     const dY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? startY;
+    const totalDetalle = Math.round(detalle.reduce((a, d) => a + (Number(d.precio) || 0), 0) * 100) / 100;
+    const hayPrecios = totalDetalle > 0;
     autoTable(doc, {
       startY: dY + 12,
-      head: [['Detalle del servicio · Pieza / parte', 'Qué se hará']],
-      body: detalle.map((d) => [pdfSafe(d.parte) || '—', pdfSafe(d.descripcion) || '']),
+      head: [hayPrecios
+        ? ['Detalle del servicio · Pieza / parte', 'Qué se hará', 'Precio']
+        : ['Detalle del servicio · Pieza / parte', 'Qué se hará']],
+      body: detalle.map((d) => hayPrecios
+        ? [pdfSafe(d.parte) || '—', pdfSafe(d.descripcion) || '', (Number(d.precio) || 0) > 0 ? fmt.montoMoneda(Number(d.precio), servicio.moneda) : '—']
+        : [pdfSafe(d.parte) || '—', pdfSafe(d.descripcion) || '']),
+      foot: hayPrecios ? [['', 'Total del detalle', fmt.montoMoneda(totalDetalle, servicio.moneda)]] : undefined,
       styles: { fontSize: 8.5, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
       headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 150 } },
+      footStyles: { fillColor: [245, 245, 245], textColor: [20, 20, 20], fontStyle: 'bold' },
+      columnStyles: hayPrecios
+        ? { 0: { cellWidth: 150 }, 2: { halign: 'right', cellWidth: 80 } }
+        : { 0: { cellWidth: 150 } },
       margin: MARGIN,
     });
   }
