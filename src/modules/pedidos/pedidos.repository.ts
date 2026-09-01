@@ -4,6 +4,7 @@ import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSal
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import type {
   AbonoCredito,
   AdjuntoOferta,
@@ -150,6 +151,72 @@ export interface CrearOrdenInput {
 export async function actualizarDetalleServicio(ordenId: string, detalle: DetalleServicioItem[]): Promise<void> {
   const { error } = await supabase.from(TABLE).update({ detalle_servicio: detalle ?? [] }).eq('id', ordenId);
   if (error) throw error;
+}
+
+/**
+ * Registra / EDITA / QUITA el PAGO ANTICIPADO de una orden de SERVICIO. El anticipo es un
+ * adelanto de referencia: NO toca caja. Se resta del total (siembra `abonado_total`) y deja el
+ * resto como crédito pendiente; marca la orden como crédito (`condiciones_pago='credito'`) para
+ * que, al confirmarse, entre a «cuenta abierta» y aparezca en Tesorería. Editable mientras la
+ * orden no esté pagada/recibida/finalizada. `monto<=0` quita el anticipo. Conserva abonos reales.
+ */
+export async function registrarAnticipoServicio(
+  orden: Orden,
+  input: { monto: number; moneda: 'USD' | 'Bs' },
+  actorEmail: string,
+): Promise<Orden> {
+  if (orden.tipo !== 'servicio') throw new Error('El anticipo solo aplica a órdenes de servicio.');
+  if (['pagada', 'recibida', 'finalizada'].includes(orden.estado)) throw new Error('La orden ya está pagada/cerrada: no se puede cambiar el anticipo.');
+  const total = Math.round((Number(orden.total) || 0) * 100) / 100;
+  if (total <= 0) throw new Error('La orden aún no tiene monto total (aceptá una oferta primero).');
+  const monedaOrden: 'USD' | 'Bs' = orden.total_moneda === 'Bs' ? 'Bs' : 'USD';
+  const raw = Math.round((Number(input.monto) || 0) * 100) / 100;
+
+  // Convierte el anticipo a la moneda del total de la orden.
+  let anticipoOrden = 0;
+  if (raw > 0) {
+    if (input.moneda === monedaOrden) anticipoOrden = raw;
+    else {
+      const t = await getTasaHoy();
+      const tasa = Number(t.usd) || 0;
+      if (!(tasa > 0)) throw new Error('No hay tasa BCV para convertir el anticipo. Cargala en Tesorería → Tasas.');
+      anticipoOrden = input.moneda === 'Bs' ? Math.round((raw / tasa) * 100) / 100 : Math.round((raw * tasa) * 100) / 100;
+    }
+    anticipoOrden = Math.min(anticipoOrden, total);
+  }
+
+  // Conserva abonos REALES (con caja) ya registrados; el anticipo es la fila sin caja.
+  const { data: prevAb } = await supabase.from('abonos_credito').select('monto').eq('orden_id', orden.id).not('caja_id', 'is', null);
+  const abonosReales = Math.round((prevAb ?? []).reduce((a, r) => a + (Number((r as { monto: number }).monto) || 0), 0) * 100) / 100;
+  const nuevoAbonado = Math.round((abonosReales + anticipoOrden) * 100) / 100;
+
+  const patch: Record<string, unknown> = {
+    abonado_total: nuevoAbonado,
+    anticipo_monto: anticipoOrden > 0 ? raw : 0,
+    anticipo_moneda: anticipoOrden > 0 ? input.moneda : null,
+    anticipo_en: anticipoOrden > 0 ? new Date().toISOString() : null,
+    historial: appendHistorial(orden, anticipoOrden > 0 ? 'anticipo' : 'anticipo_quitado', actorEmail, {
+      monto: raw, moneda: input.moneda, aplicado: anticipoOrden, saldo_restante: Math.round((total - nuevoAbonado) * 100) / 100,
+    }),
+  };
+  // Marca crédito para que al confirmarse vaya a «cuenta abierta» (si aún no se fijaron condiciones).
+  if (anticipoOrden > 0 && !orden.condiciones_pago) patch.condiciones_pago = 'credito';
+
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', orden.id).select('*').single();
+  if (error) throw error;
+
+  // Sincroniza la bitácora de abonos: quita el anticipo anterior (fila sin caja) y agrega el nuevo.
+  await supabase.from('abonos_credito').delete().eq('orden_id', orden.id).is('caja_id', null);
+  if (anticipoOrden > 0) {
+    const antTxt = input.moneda === monedaOrden ? '' : ` (${raw} ${input.moneda === 'Bs' ? 'Bs' : '$'})`;
+    const { error: abErr } = await supabase.from('abonos_credito').insert({
+      orden_id: orden.id, monto: anticipoOrden, moneda: monedaOrden, caja_id: null, caja_mov_id: null,
+      saldo_restante: Math.round((total - nuevoAbonado) * 100) / 100,
+      actor: actorEmail, nota: `Pago anticipado (no afecta caja)${antTxt}`,
+    });
+    if (abErr) throw abErr;
+  }
+  return data as Orden;
 }
 
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
