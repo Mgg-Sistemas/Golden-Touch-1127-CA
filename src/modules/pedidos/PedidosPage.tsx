@@ -28,6 +28,7 @@ import {
   actualizarComprarItems,
   actualizarOrdenEditable,
   actualizarDetalleServicio,
+  registrarAnticipoServicio,
   cancelarOrden,
   crearOrden,
   FINALIDAD_MERCADO,
@@ -3702,6 +3703,15 @@ function EditarOrdenModal({
   const [clasifSel, setClasifSel] = useState<string[]>(orden.clasificacion ?? []);
   const [urgente, setUrgente] = useState(!!orden.urgente);
   const [notas, setNotas] = useState(orden.notas ?? '');
+  // Pago anticipado (adelanto parcial) de la OC de servicio: editable acá mientras la orden
+  // tenga total y no esté pagada/cerrada. No toca caja; se resta del total y el resto queda a
+  // crédito (misma lógica que el bloque «Pago anticipado» del detalle). En blanco/0 lo quita.
+  const anticipoAplicable = orden.tipo === 'servicio' && Number(orden.total) > 0
+    && !['pagada', 'recibida', 'finalizada'].includes(orden.estado);
+  const anticipoYaPuesto = (Number(orden.anticipo_monto) || 0) > 0;
+  const [anticipoOn, setAnticipoOn] = useState<boolean>(anticipoYaPuesto);
+  const [anticipoMoneda, setAnticipoMoneda] = useState<'USD' | 'Bs'>(orden.anticipo_moneda === 'Bs' ? 'Bs' : 'USD');
+  const [anticipoMonto, setAnticipoMonto] = useState<string>(orden.anticipo_monto ? String(orden.anticipo_monto) : '');
   // Adjunto (imagen o PDF) de la OP: el actual + uno nuevo para reemplazar + quitar.
   const imagenPathActual = orden.imagen_path ?? null;
   const [imagenFile, setImagenFile] = useState<File | null>(null);
@@ -3821,7 +3831,7 @@ function EditarOrdenModal({
       if (imagenFile) imagenPatch = await subirImagenOrden(imagenFile);
       else if (quitarImagen && imagenPathActual) imagenPatch = null;
 
-      await actualizarOrdenEditable(orden, {
+      const savedOrden = await actualizarOrdenEditable(orden, {
         items: itemsFinal,
         total: editarPrecios ? Math.round(totalEditado * 100) / 100 : undefined,
         descuento_obtenido: editarPrecios ? descuentoObtNum : undefined,
@@ -3835,6 +3845,14 @@ function EditarOrdenModal({
         notas: notas.trim() || null,
         imagen_path: imagenPatch,
       }, actorEmail || 'sistema');
+
+      // Pago anticipado (adelanto parcial): se aplica sobre la orden YA actualizada (con el
+      // total nuevo). Registrar/editar cuando está activo; con 0 (o desmarcado) lo quita.
+      // Misma lógica que el bloque «Pago anticipado» del detalle (no toca caja, resto a crédito).
+      if (anticipoAplicable && (anticipoOn || anticipoYaPuesto) && Number(savedOrden.total) > 0) {
+        const montoAnt = anticipoOn ? (Number(anticipoMonto) || 0) : 0;
+        await registrarAnticipoServicio(savedOrden, { monto: montoAnt, moneda: anticipoMoneda }, actorEmail || 'sistema');
+      }
 
       // Si reemplazamos o quitamos, borramos el archivo anterior del bucket (best-effort).
       if (imagenPatch !== undefined && imagenPathActual && imagenPathActual !== imagenPatch) {
@@ -4019,6 +4037,32 @@ function EditarOrdenModal({
                 <span className="muted mono" style={{ fontSize: '.76rem', textDecoration: 'line-through' }}>{money(Number(orden.total))}</span>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Pago anticipado (adelanto parcial) de la OC de servicio: editable acá. No toca caja;
+            se resta del total y el resto queda a crédito. En blanco/0 lo quita al guardar. */}
+        {anticipoAplicable && (
+          <div className="card" style={{ padding: '.65rem', marginTop: '.5rem', display: 'grid', gap: '.4rem' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}>
+              <input type="checkbox" checked={anticipoOn} onChange={(e) => setAnticipoOn(e.target.checked)} />
+              <span>💵 Registrar <strong>pago anticipado</strong> (adelanto)</span>
+            </label>
+            {anticipoOn && (
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <select className="select" style={{ maxWidth: 120 }} value={anticipoMoneda}
+                  onChange={(e) => setAnticipoMoneda(e.target.value === 'Bs' ? 'Bs' : 'USD')}>
+                  <option value="USD">$ (USD)</option>
+                  <option value="Bs">Bs</option>
+                </select>
+                <input className="input mono" type="number" min={0} step="any" placeholder="Monto del anticipo"
+                  style={{ maxWidth: 190, textAlign: 'right' }} value={anticipoMonto}
+                  onChange={(e) => setAnticipoMonto(e.target.value)} />
+              </div>
+            )}
+            <small className="muted">
+              El anticipo <strong>NO descuenta caja</strong>: se resta del total y el resto queda como <strong>crédito pendiente</strong> (se ve en Tesorería y en el saldo). {anticipoYaPuesto && !anticipoOn && <>Al guardar desmarcado, <strong>se quita</strong> el anticipo.</>}
+            </small>
           </div>
         )}
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginTop: '.5rem' }}>
