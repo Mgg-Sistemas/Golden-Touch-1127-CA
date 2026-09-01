@@ -485,6 +485,22 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       margin: MARGIN,
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+
+    // Detalle del servicio (piezas + descripción): solo en órdenes de servicio que lo tengan.
+    const detalleServ = esServicio ? (o.detalle_servicio ?? []) : [];
+    if (detalleServ.length) {
+      autoTable(doc, {
+        startY: y,
+        head: [['Detalle del servicio · Pieza / parte', 'Qué se hará']],
+        body: detalleServ.map((d) => [pdfSafe(d.parte || '—'), pdfSafe(d.descripcion || '')]),
+        theme: 'grid',
+        headStyles: { fillColor: [255, 138, 0], textColor: 255 },
+        styles: { fontSize: 9, cellPadding: 4 },
+        columnStyles: { 0: { cellWidth: 150 } },
+        margin: MARGIN,
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
   });
 
   if (esConsolidada) {

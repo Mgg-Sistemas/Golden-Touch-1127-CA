@@ -8,6 +8,7 @@ import type {
   AbonoCredito,
   AdjuntoOferta,
   CuentaCaja,
+  DetalleServicioItem,
   EstadoOrden,
   EventoHistorial,
   ItemOrden,
@@ -140,6 +141,15 @@ export interface CrearOrdenInput {
   imagen_path?: string | null;
   /** Tipo de orden: 'producto' (default) o 'servicio' (Solicitud de Servicio). */
   tipo?: 'producto' | 'servicio';
+  /** Detalle del servicio (piezas + descripción). Solo para tipo='servicio'. */
+  detalle_servicio?: DetalleServicioItem[] | null;
+}
+
+/** Actualiza SOLO el detalle del servicio (piezas + descripción) de una orden de servicio.
+ *  Disponible en cualquier estado (es puramente descriptivo, no toca montos ni flujo). */
+export async function actualizarDetalleServicio(ordenId: string, detalle: DetalleServicioItem[]): Promise<void> {
+  const { error } = await supabase.from(TABLE).update({ detalle_servicio: detalle ?? [] }).eq('id', ordenId);
+  if (error) throw error;
 }
 
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
@@ -170,6 +180,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     clasificacion: input.clasificacion?.length ? input.clasificacion : null,
     urgente: input.urgente ?? false,
     imagen_path: input.imagen_path ?? null,
+    detalle_servicio: esServicio ? (input.detalle_servicio ?? []) : null,
     historial,
   };
   const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
@@ -253,6 +264,8 @@ export async function actualizarOrdenEditable(
     imagen_path?: string | null; total?: number;
     /** Descuento obtenido (monto, $) que se resta del total de la OC. Opcional. */
     descuento_obtenido?: number;
+    /** Detalle del servicio (piezas + descripción). Solo aplica a órdenes de servicio. */
+    detalle_servicio?: DetalleServicioItem[];
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -314,6 +327,7 @@ export async function actualizarOrdenEditable(
   if (patch.ci_solicitante !== undefined) upd.ci_solicitante = patch.ci_solicitante?.trim() || null;
   if (patch.notas !== undefined) upd.notas = patch.notas?.trim() || null;
   if (patch.imagen_path !== undefined) upd.imagen_path = patch.imagen_path;
+  if (patch.detalle_servicio !== undefined) upd.detalle_servicio = patch.detalle_servicio;
   const { data, error } = await supabase
     .from(TABLE)
     .update(upd)

@@ -3,9 +3,10 @@ import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import type { ItemOrden, Usuario } from '@/shared/lib/types';
+import type { DetalleServicioItem, ItemOrden, Usuario } from '@/shared/lib/types';
 import { crearOrden, subirImagenOrden } from './pedidos.repository';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
+import { DetalleServicioEditor, limpiarDetalleServicio } from './DetalleServicioEditor';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import {
   CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, esRecargaGas, etiquetasRecarga, TIPOS_RECARGA,
@@ -33,6 +34,7 @@ export function CrearServicioModal({
   onCreated: () => void;
 }) {
   const [items, setItems] = useState<ItemOrden[]>([]);
+  const [detalleServicio, setDetalleServicio] = useState<DetalleServicioItem[]>([]);
   const [notas, setNotas] = useState('');
   const [urgente, setUrgente] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
@@ -209,6 +211,7 @@ export function CrearServicioModal({
         clasificacion: ['Servicios'],
         urgente,
         imagen_path: imagenPath,
+        detalle_servicio: limpiarDetalleServicio(detalleServicio),
         solicitante_email: email,
         solicitante: solicitanteFinal || null,
         unidad_solicitante: unidad || null,
@@ -390,6 +393,8 @@ export function CrearServicioModal({
             </table>
           </div>
         )}
+
+        <DetalleServicioEditor value={detalleServicio} onChange={setDetalleServicio} />
 
         <div>
           <label className="label">Nota / observación (opcional)</label>

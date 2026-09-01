@@ -1144,11 +1144,20 @@ export interface EventoHistorial {
   documentos?: string[];
 }
 
+/** Un renglón del "detalle del servicio": qué pieza/parte y qué se le hará.
+ *  Opcional; sirve p. ej. para detallar una reparación (piezas + descripción). */
+export interface DetalleServicioItem {
+  parte: string;
+  descripcion: string;
+}
+
 export interface Orden {
   id: string;
   codigo: string;
   /** Tipo de orden: 'producto' (compra normal, SP→OC) | 'servicio' (Solicitud→Control de Servicio, SS→CS). */
   tipo?: 'producto' | 'servicio' | null;
+  /** Detalle del servicio (piezas a reparar + descripción). Solo aplica a tipo='servicio'. */
+  detalle_servicio?: DetalleServicioItem[] | null;
   oc_codigo?: string | null;
   proveedor_id: string | null;
   solicitante_email: string;
