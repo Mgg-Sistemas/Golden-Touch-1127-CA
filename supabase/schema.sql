@@ -2679,6 +2679,16 @@ alter table public.ordenes add column if not exists comision_moneda     text;
 alter table public.ordenes add column if not exists comision_usd        numeric default 0;
 alter table public.ordenes add column if not exists comision_caja_mov_id uuid;
 
+-- Detalle del servicio (piezas + descripción) y pago anticipado (adelanto sin caja) — servicios.
+alter table public.servicios_directos add column if not exists detalle_servicio jsonb default '[]'::jsonb;
+alter table public.servicios_directos add column if not exists anticipo_monto  numeric default 0;
+alter table public.servicios_directos add column if not exists anticipo_moneda text;
+alter table public.servicios_directos add column if not exists anticipo_en     timestamptz;
+alter table public.ordenes add column if not exists detalle_servicio jsonb default '[]'::jsonb;
+alter table public.ordenes add column if not exists anticipo_monto  numeric default 0;
+alter table public.ordenes add column if not exists anticipo_moneda text;
+alter table public.ordenes add column if not exists anticipo_en     timestamptz;
+
 -- almacenes en políticas de escritura operativa
 do $$
 begin
