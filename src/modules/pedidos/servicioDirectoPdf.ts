@@ -85,5 +85,20 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
     margin: MARGIN,
   });
 
+  // Detalle del servicio (piezas + descripción), si lo tiene.
+  const detalle = servicio.detalle_servicio ?? [];
+  if (detalle.length) {
+    const dY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? startY;
+    autoTable(doc, {
+      startY: dY + 12,
+      head: [['Detalle del servicio · Pieza / parte', 'Qué se hará']],
+      body: detalle.map((d) => [pdfSafe(d.parte) || '—', pdfSafe(d.descripcion) || '']),
+      styles: { fontSize: 8.5, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 150 } },
+      margin: MARGIN,
+    });
+  }
+
   previewPdf(doc, `servicio-directo-${(servicio.codigo ?? 'sd')}-${servicio.id.slice(0, 8)}.pdf`);
 }

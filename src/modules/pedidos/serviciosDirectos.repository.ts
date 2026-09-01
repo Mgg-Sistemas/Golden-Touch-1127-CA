@@ -12,7 +12,7 @@ import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.re
 import { egresarDivisa, revertirEgresoDivisa, saldosDeCaja } from '@/modules/tesoreria/cajaSaldos.repository';
 import { columnasPagoExterno, type PagoExternoInput } from '@/modules/pedidos/compras.repository';
 import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
-import type { CuentaCaja } from '@/shared/lib/types';
+import type { CuentaCaja, DetalleServicioItem } from '@/shared/lib/types';
 
 export type { PagoExternoInput };
 
@@ -65,6 +65,8 @@ export interface ServicioDirecto {
   codigo: string | null;
   descripcion: string;
   items: ServicioDirectoItem[];
+  /** Detalle del servicio (piezas + descripción). Opcional. */
+  detalle_servicio?: DetalleServicioItem[] | null;
   proveedor_id: string | null;
   proveedor_nombre: string | null;
   equipo_id: string | null;
@@ -114,8 +116,17 @@ function normalizar(row: Record<string, unknown>): ServicioDirecto {
   const items = Array.isArray(r.items) ? r.items : [];
   return {
     ...r, items, nota: r.nota ?? null, moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
+    detalle_servicio: Array.isArray(r.detalle_servicio) ? r.detalle_servicio : [],
     con_abonos: !!r.con_abonos, abonado_total: Number(r.abonado_total) || 0,
   };
+}
+
+/** Actualiza SOLO el detalle del servicio (piezas + descripción) de un servicio directo,
+ *  en cualquier estado (descriptivo, no toca montos ni caja). */
+export async function actualizarDetalleServicioDirecto(id: string, detalle: DetalleServicioItem[]): Promise<void> {
+  const { error } = await supabase.from('servicios_directos')
+    .update({ detalle_servicio: detalle ?? [], updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
 }
 
 /** Próximo correlativo SD-AAAA-#### (Servicio Directo), atómico en la base. */
@@ -189,6 +200,8 @@ export interface CrearServicioDirectoInput {
   moneda?: string | null;
   /** Pago a externo (opcional): datos de la persona externa que pagó. */
   pagoExterno?: PagoExternoInput | null;
+  /** Detalle del servicio (piezas + descripción). Opcional. */
+  detalleServicio?: DetalleServicioItem[] | null;
   actor: string;
   actorName?: string | null;
 }
@@ -235,6 +248,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
       nota: input.nota?.trim() || null,
       moneda: input.moneda === 'Bs' ? 'Bs' : 'USD',
+      detalle_servicio: input.detalleServicio ?? [],
       ...columnasPagoExterno(input.pagoExterno),
       estado: 'en_proceso',
       actor: input.actor,
@@ -667,6 +681,8 @@ export interface EditarServicioDirectoInput {
   moneda?: string | null;
   /** Pago a externo (opcional): datos de la persona externa que pagó. */
   pagoExterno?: PagoExternoInput | null;
+  /** Detalle del servicio (piezas + descripción). Opcional. */
+  detalleServicio?: DetalleServicioItem[] | null;
   actor: string;
   actorName?: string | null;
 }
@@ -712,6 +728,7 @@ export async function editarServicioDirectoEnProceso(input: EditarServicioDirect
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
       ...(input.nota !== undefined ? { nota: input.nota?.trim() || null } : {}),
       ...(input.moneda !== undefined ? { moneda: input.moneda === 'Bs' ? 'Bs' : 'USD' } : {}),
+      ...(input.detalleServicio !== undefined ? { detalle_servicio: input.detalleServicio ?? [] } : {}),
       ...(input.pagoExterno !== undefined ? columnasPagoExterno(input.pagoExterno) : {}),
       updated_at: new Date().toISOString(),
     })

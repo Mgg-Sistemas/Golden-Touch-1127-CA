@@ -7,7 +7,9 @@ import { previewArchivo } from '@/shared/lib/reportePreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
 import { dateTime, money, num, dosDecimales, montoMoneda } from '@/shared/lib/format';
-import type { Caja, CajaSaldo, CuentaCaja, Proveedor, OrigenProveedor } from '@/shared/lib/types';
+import type { Caja, CajaSaldo, CuentaCaja, DetalleServicioItem, Proveedor, OrigenProveedor } from '@/shared/lib/types';
+import { DetalleServicioEditor, limpiarDetalleServicio } from './DetalleServicioEditor';
+import { DetalleServicioBloque } from './DetalleServicioBloque';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
@@ -21,7 +23,7 @@ import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesore
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import {
   crearServicioDirecto, enviarServicioAPagar, pagarServicioDirecto, eliminarServicioDirecto, listServiciosDirectos,
-  reabrirServicioDirecto, editarServicioDirectoEnProceso,
+  reabrirServicioDirecto, editarServicioDirectoEnProceso, actualizarDetalleServicioDirecto,
   urlAdjuntoServicio, type ServicioDirecto, type ServicioDirectoItem, type LineaServicio, type PagoLeg,
 } from './serviciosDirectos.repository';
 import { descargarServicioDirectoPdf } from './servicioDirectoPdf';
@@ -295,6 +297,10 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {(Number(servicio.tasa_conversion) || 0) > 0 && servicio.gasto != null && fila('Convertido a la tasa', <span>{num(servicio.tasa_conversion)} Bs/$ · equivale a <strong className="mono">{montoMoneda(servicio.moneda === 'Bs' ? Number(servicio.gasto) / Number(servicio.tasa_conversion) : Number(servicio.gasto) * Number(servicio.tasa_conversion), servicio.moneda === 'Bs' ? 'USD' : 'Bs')}</strong></span>)}
       {fila('Monto total', servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—')}
       {servicio.nota && fila('Nota / motivo', <span style={{ whiteSpace: 'pre-wrap' }}>{servicio.nota}</span>)}
+      <DetalleServicioBloque
+        detalleInicial={servicio.detalle_servicio}
+        onGuardar={(d) => actualizarDetalleServicioDirecto(servicio.id, d)}
+      />
       {servicio.pago_externo && fila('Pago a externo',
         <span style={{ color: 'var(--warning)' }}>
           💵 Pagó: <strong>{servicio.pago_externo_nombre || '—'}</strong>
@@ -407,6 +413,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
   const [unidadSolicitante, setUnidadSolicitante] = useState(editServicio?.unidad_solicitante ?? '');
   // Nota / motivo libre (se muestra en el detalle y en el PDF).
   const [nota, setNota] = useState(editServicio?.nota ?? '');
+  // Detalle del servicio (piezas + descripción). Opcional.
+  const [detalleServicio, setDetalleServicio] = useState<DetalleServicioItem[]>(editServicio?.detalle_servicio ?? []);
   // Moneda del servicio (Bs o $). Editable; se puede cambiar al editar.
   const [moneda, setMoneda] = useState<'USD' | 'Bs'>(editServicio?.moneda === 'Bs' ? 'Bs' : 'USD');
   // Pago a externo: una persona externa pagó de su bolsillo y debe reintegrársele.
@@ -497,12 +505,12 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       }
       const pe = pagoExternoAInput(pagoExterno);
       if (esEdicion && editServicio) {
-        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, moneda, pagoExterno: pe, actor, actorName });
+        const edit = await editarServicioDirectoEnProceso({ servicio: editServicio, lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, moneda, detalleServicio: limpiarDetalleServicio(detalleServicio), pagoExterno: pe, actor, actorName });
         for (const f of files) await agregarAdjuntoDirecto('servicio', edit.id, f, actor);
         notify(`Servicio directo ${edit.codigo ?? ''} actualizado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
       } else {
         const creado = await crearServicioDirecto({
-          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, moneda, pagoExterno: pe, actor, actorName,
+          lineas: payload, proveedorId: proveedorIdFinal, proveedorNombre: proveedorNombreFinal, solicitante, unidadSolicitante, nota, moneda, detalleServicio: limpiarDetalleServicio(detalleServicio), pagoExterno: pe, actor, actorName,
         });
         for (const f of files) await agregarAdjuntoDirecto('servicio', creado.id, f, actor);
         notify(`Servicio directo ${creado.codigo ?? ''} creado · ${payload.length} servicio(s)`, 'success', { link: '#/app/pedidos' });
@@ -707,6 +715,10 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
           <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
           {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
           {esEdicion && editServicio && <small className="muted" style={{ display: 'block' }}>Los adjuntos se agregan a la lista del servicio (podés verlos/borrarlos en el detalle).</small>}
+        </div>
+
+        <div style={{ marginTop: '.75rem' }}>
+          <DetalleServicioEditor value={detalleServicio} onChange={setDetalleServicio} />
         </div>
 
         <div className="form-row" style={{ marginTop: '.75rem' }}>

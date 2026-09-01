@@ -27,6 +27,7 @@ import {
   aprobarOcsEnLote,
   actualizarComprarItems,
   actualizarOrdenEditable,
+  actualizarDetalleServicio,
   cancelarOrden,
   crearOrden,
   FINALIDAD_MERCADO,
@@ -71,6 +72,7 @@ import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
 import { FacturasDirectas } from './FacturasDirectas';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
+import { DetalleServicioBloque } from './DetalleServicioBloque';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ChatOrden } from './ChatOrden';
 import { noLeidosPorOrden } from './ordenChat.repository';
@@ -2718,6 +2720,9 @@ function OrdenDetailModal({
           <div className="k">Imagen</div>
           <div className="v"><OpImagenAdjunta path={o.imagen_path} /></div>
         </div>
+      )}
+      {o.tipo === 'servicio' && (
+        <DetalleServicioBloque detalleInicial={o.detalle_servicio} onGuardar={(d) => actualizarDetalleServicio(o.id, d)} onSaved={onAcceptedOffer} />
       )}
       <FacturasDirectas modulo="orden" refId={o.id} actor={actorEmail || 'sistema'} titulo="📎 Adjuntos (imágenes / PDF)" textoBoton="＋ Agregar adjunto (PDF/imagen)" />
 
