@@ -1872,6 +1872,33 @@ do $$ begin
   begin alter publication supabase_realtime add table public.cocina_movimientos; exception when duplicate_object then null; end;
 end $$;
 
+-- Ciclo de mercado (21 días). Al cerrar (día 22) se congela el resumen y la foto de lo que
+-- queda (saldo_final); el siguiente ciclo arranca con ese saldo (saldo_inicial). El contador
+-- y el cierre son manuales desde Cocina.
+create table if not exists public.cocina_mercados (
+  id            uuid primary key default gen_random_uuid(),
+  numero        text unique,
+  inicio_at     timestamptz not null default now(),
+  cierre_at     timestamptz,
+  estado        text not null default 'abierto' check (estado in ('abierto','cerrado')),
+  saldo_inicial jsonb not null default '[]'::jsonb,  -- foto por víver al iniciar (sobrante del anterior)
+  saldo_final   jsonb,                                -- foto por víver al cerrar (lo que queda)
+  resumen       jsonb,                                -- por víver: saldo_inicial, entradas, disponible, consumo, queda
+  totales       jsonb,                                -- {viveres, consumo_valor, entradas_total, queda_viveres}
+  cerrado_por   text,
+  nota          text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists cocina_mercados_estado_idx on public.cocina_mercados (estado, inicio_at desc);
+alter table public.cocina_mercados enable row level security;
+drop policy if exists "cocina_mercados read auth"  on public.cocina_mercados;
+drop policy if exists "cocina_mercados write staff" on public.cocina_mercados;
+create policy "cocina_mercados read auth"  on public.cocina_mercados for select using (auth.role() = 'authenticated');
+create policy "cocina_mercados write staff" on public.cocina_mercados for all using (public.is_staff()) with check (public.is_staff());
+do $$ begin
+  begin alter publication supabase_realtime add table public.cocina_mercados; exception when duplicate_object then null; end;
+end $$;
+
 -- Tablas exclusivas del ciclo de compras: escritura para STAFF (admin o analista).
 do $$
 declare t text;
