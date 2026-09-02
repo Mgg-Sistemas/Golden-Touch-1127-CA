@@ -830,6 +830,12 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
   if (error) throw error;
 }
 
+/** Resultado del pago. El pago en sí o sale bien o lanza; esto lleva lo que quedó a medias
+ *  y hay que avisarle a la persona (hoy: la retención fiscal que no se pudo registrar). */
+export interface PagoCompraResultado {
+  retencionPendiente?: string;
+}
+
 export interface PagarCompraInput {
   compra: CompraDirecta;
   /** Caja de Tesorería de la que sale el dinero. */
@@ -851,7 +857,7 @@ export interface PagarCompraInput {
  * inventario de cada material (costo = monto ÷ cantidad → PMP) y la marca FINALIZADA,
  * dejando el comprobante de pago (quién pagó, cuándo, de qué caja) para que lo vea el analista.
  */
-export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void> {
+export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoCompraResultado> {
   const { compra } = input;
   if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
   if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
@@ -964,17 +970,37 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   }
 
   // Retención → módulo Retenciones: se crea el registro vinculado a la compra directa.
+  //
+  // GT-INT-09 · Antes, si esto fallaba, el error se iba a `console.error` y nadie se
+  // enteraba. Es un registro FISCAL: al proveedor ya se le retuvo el monto —salió menos
+  // plata de la caja— así que la empresa se queda con un dinero que después tiene que
+  // declarar, y sin la retención no queda rastro de eso en ningún lado.
+  //
+  // No se lanza el error porque el pago YA está hecho y revertirlo sería peor. Se
+  // devuelve el aviso para que la pantalla lo muestre y quede claro qué hay que cargar
+  // a mano en el módulo de Retenciones.
   const retPct = Number(compra.retencion_pct) || 0;
   const retBase = (Number(compra.retencion_base) || 0) || subtotal;
   if (retPct > 0 && retBase > 0) {
-    await crearRetencion({
-      tipo: (compra.retencion_tipo || 'IVA') as TipoRetencion,
-      base: retBase, porcentaje: retPct, moneda: compra.moneda === 'Bs' ? 'Bs' : 'USD',
-      proveedorId: compra.proveedor_id ?? null, compraDirectaId: compra.id,
-      descripcion: `Compra directa ${compra.codigo ?? ''}`.trim(),
-      actor: input.actor, actorName: input.actorName ?? null,
-    }).catch((e) => { console.error('[compra-directa] no se pudo crear la retención:', e); });
+    try {
+      await crearRetencion({
+        tipo: (compra.retencion_tipo || 'IVA') as TipoRetencion,
+        base: retBase, porcentaje: retPct, moneda: compra.moneda === 'Bs' ? 'Bs' : 'USD',
+        proveedorId: compra.proveedor_id ?? null, compraDirectaId: compra.id,
+        descripcion: `Compra directa ${compra.codigo ?? ''}`.trim(),
+        actor: input.actor, actorName: input.actorName ?? null,
+      });
+    } catch (e) {
+      const detalle = e instanceof Error ? e.message : 'error desconocido';
+      console.error('[compra-directa] no se pudo crear la retención:', e);
+      return {
+        retencionPendiente:
+          `La compra se pagó, pero NO se registró la retención de ${compra.retencion_tipo || 'IVA'} `
+          + `(${retPct}% sobre ${retBase}). Cargala a mano en Retenciones. Motivo: ${detalle}`,
+      };
+    }
   }
+  return {};
 }
 
 /* ───────── Recepción en inventario (la da el ALMACENISTA tras el pago) ───────── */

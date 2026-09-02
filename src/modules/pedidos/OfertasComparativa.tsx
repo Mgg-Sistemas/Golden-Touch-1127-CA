@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -98,9 +98,21 @@ export function OfertasComparativa({
   const esHija = !!orden.op_padre_id;
   const ofertasOrdenId = orden.op_padre_id ?? orden.id;
 
+  // «Cargando…» SOLO en la primera carga. En las recargas posteriores la vista se queda
+  // como está y los datos se cambian abajo.
+  //
+  // Antes cada recarga ponía loading=true, y como más abajo hay un `if (loading) return
+  // <Cargando…>`, eso DESMONTABA todo lo de adentro — incluido el modal donde el analista
+  // escribe la observación de la elección. Al volver, el campo perdía el foco y lo que se
+  // seguía tecleando se iba al vacío: el texto quedaba cortado a la mitad. Justo en ese
+  // campo y no en la Nota de la solicitud, porque la Nota es un textarea no controlado
+  // (`defaultValue`) y ni un re-render la toca, mientras que la observación es controlada
+  // (`value={obs}`) y depende de que el componente siga vivo.
+  const yaCargoAlgunaVez = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (!yaCargoAlgunaVez.current) setLoading(true);
     listOfertasByOrden(ofertasOrdenId)
       .then(async (rows) => {
         if (cancelled) return;
@@ -112,7 +124,7 @@ export function OfertasComparativa({
       .catch((e: unknown) => {
         if (!cancelled) toast(e instanceof Error ? e.message : 'Error al cargar ofertas', 'error');
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { yaCargoAlgunaVez.current = true; setLoading(false); } });
     return () => { cancelled = true; };
   }, [ofertasOrdenId, reloadKey]);
 

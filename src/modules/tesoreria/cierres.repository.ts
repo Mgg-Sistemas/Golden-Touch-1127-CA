@@ -78,15 +78,18 @@ function sumarPorMoneda(acc: Record<string, number>, moneda: string, valor: numb
  * (mueven dinero entre cajas propias, netean a cero). CxC/CxP = saldos abiertos actuales.
  * Saldos = caja_saldos de cajas propias (no externas).
  */
-export async function computeReporteCierre(periodo: string): Promise<ReporteCierre> {
+export async function computeReporteCierre(periodo: string, cierreId?: string): Promise<ReporteCierre> {
   const { desde, hasta } = rangoMes(periodo);
 
-  // Movimientos del período, sin archivar.
-  const { data: movs, error } = await supabase.from(LIBRO)
+  // Movimientos del período. Sin `cierreId` son los que siguen abiertos (vista previa);
+  // con `cierreId`, los que quedaron archivados en ese cierre — que es lo que se usa para
+  // guardar la foto definitiva, para que el reporte diga exactamente lo que se archivó.
+  let q = supabase.from(LIBRO)
     .select('tipo, monto, moneda')
-    .is('cierre_id', null)
     .gte('at', `${desde}T00:00:00`)
     .lte('at', `${hasta}T23:59:59`);
+  q = cierreId ? q.eq('cierre_id', cierreId) : q.is('cierre_id', null);
+  const { data: movs, error } = await q;
   if (error) throw error;
 
   const ingresos: Record<string, number> = {};
@@ -149,23 +152,50 @@ export async function crearCierre(input: {
   if (ya) throw new Error(`El mes ${input.periodo} ya está cerrado. Reabrilo si necesitás modificarlo.`);
   const { desde, hasta } = rangoMes(input.periodo);
 
+  // El insert es la RESERVA: el índice único (un solo cierre 'cerrado' por período) decide
+  // quién gana. El chequeo de arriba da un mensaje lindo, pero preguntar y después escribir
+  // deja una ventana: dos personas cerrando el mismo mes recibían las dos un "todavía no".
   const { data, error } = await supabase.from(TABLE).insert({
     periodo: input.periodo, desde, hasta, snapshot: input.snapshot,
     estado: 'cerrado', movimientos: input.snapshot.movimientos,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
-  if (error) throw error;
+  if (error) {
+    if ((error as { code?: string }).code === '23505') {
+      throw new Error(`El mes ${input.periodo} lo acaba de cerrar otra persona. Actualizá la pantalla.`);
+    }
+    throw error;
+  }
   const cierre = data as Cierre;
 
-  // Archiva los movimientos del período (los que aún no estén archivados).
-  const { error: upErr } = await supabase.from(LIBRO)
-    .update({ cierre_id: cierre.id })
-    .is('cierre_id', null)
-    .gte('at', `${desde}T00:00:00`)
-    .lte('at', `${hasta}T23:59:59`);
-  if (upErr) throw upErr;
+  try {
+    // Archiva los movimientos del período (los que aún no estén archivados).
+    const { error: upErr } = await supabase.from(LIBRO)
+      .update({ cierre_id: cierre.id })
+      .is('cierre_id', null)
+      .gte('at', `${desde}T00:00:00`)
+      .lte('at', `${hasta}T23:59:59`);
+    if (upErr) throw upErr;
 
-  return cierre;
+    // RECALCULAR la foto sobre lo que quedó archivado, no sobre lo que la pantalla había
+    // calculado. Entre que se arma la vista previa y se archiva pasa tiempo, y un pago que
+    // entre en esa ventana se archivaba igual —desaparecía de Tesorería— pero no figuraba
+    // en el reporte del mes. Plata cerrada fuera de su propio cierre.
+    const real = await computeReporteCierre(input.periodo, cierre.id);
+    const { data: fin, error: sErr } = await supabase.from(TABLE)
+      .update({ snapshot: real, movimientos: real.movimientos })
+      .eq('id', cierre.id)
+      .select('*')
+      .single();
+    if (sErr) throw sErr;
+    return fin as Cierre;
+  } catch (e) {
+    // No se completó: se sueltan los movimientos y se borra el cierre, así el mes queda
+    // como estaba y se puede reintentar.
+    try { await supabase.from(LIBRO).update({ cierre_id: null }).eq('cierre_id', cierre.id); } catch { /* best-effort */ }
+    try { await supabase.from(TABLE).delete().eq('id', cierre.id); } catch { /* best-effort */ }
+    throw e;
+  }
 }
 
 /** Reabre un cierre: quita la marca de los movimientos y lo deja como 'reabierto'. */
