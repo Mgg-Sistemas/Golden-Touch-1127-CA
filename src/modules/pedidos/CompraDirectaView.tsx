@@ -988,9 +988,12 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     }
     setSaving(true);
     try {
-      await pagarCompraDirecta({ compra, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision: Number(comision) || 0 });
+      const res = await pagarCompraDirecta({ compra, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision: Number(comision) || 0 });
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, monedaCompra);
       notify(`Compra pagada y finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
+      // La retención es un registro fiscal: si no se pudo crear, hay que verlo. El pago
+      // está hecho igual, así que se avisa en vez de hacer fallar la operación entera.
+      if (res.retencionPendiente) notify(res.retencionPendiente, 'warning', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar la compra.'); setSaving(false); }
   }

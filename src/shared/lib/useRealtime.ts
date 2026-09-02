@@ -24,8 +24,12 @@ function escribiendoAhora(): boolean {
   const el = document.activeElement as HTMLElement | null;
   if (!el) return false;
   const editable = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
-  // Editando un campo Y con tecleo reciente (< 1.2 s): posponer el refresh.
-  return editable && Date.now() - ultimaEscrituraAt < 1200;
+  // Editando un campo Y con tecleo reciente: posponer el refresh.
+  //
+  // Eran 1,2 s y quedaba corto: quien redacta una nota o una justificación se para a
+  // pensar más que eso a mitad de la frase, y justo ahí entraba el refresh. 4 s cubre
+  // esas pausas y no se nota, porque el refresh igual sale apenas se suelta el campo.
+  return editable && Date.now() - ultimaEscrituraAt < 4000;
 }
 
 /**
