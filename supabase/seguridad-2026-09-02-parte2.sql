@@ -107,7 +107,16 @@ select clave, valor from public.correlativos where clave like 'sp-%';
 -- ═══════════════════════════════════════════════════════════════════
 -- PASO 5 · GT-AUT-02 · Escritura de inventario y órdenes por rol
 --
---   REVISAR ANTES DE APLICAR. Es el único bloque con riesgo de romper flujos.
+--   APLICADO el 02/09/2026. Antes de aplicarlo se cruzaron los 16 usuarios
+--   activos contra quién escribió realmente en cada tabla: los 16 pasan el
+--   filtro de inventario, las solicitudes de salida las carga un almacenista
+--   (conserva permiso), las órdenes las cargan analistas de compras (conservan)
+--   y los equipos de maquinaria, Mariana y admin (conservan). El único «no
+--   pasa» era `import-excel`, que no es una persona sino la etiqueta de la
+--   importación masiva: esa corre con la sesión de quien la ejecuta.
+--
+--   Para revertir: volver a crear las políticas viejas con `is_operativo()`
+--   sobre esas nueve tablas.
 --
 -- `movimientos`, `existencias` y `productos` los escribe media aplicación:
 -- inventario, salidas, producción, acopio, recepciones, cocina y pedidos, todos
