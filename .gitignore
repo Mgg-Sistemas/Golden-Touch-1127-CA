@@ -41,3 +41,4 @@ supabase/.branches/
 
 # Reportes de inspeccion de usuarios (solo local, nunca a git)
 Inspeccion-Usuario-*.html
+q2.sql
