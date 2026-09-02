@@ -486,13 +486,12 @@ export async function listBigbags(
 
 export async function crearBigbag(input: { actor: string; actorName?: string | null; pesadaId?: string | null; tipo?: TipoPesaje }): Promise<BigbagRow> {
   const pesadaId = input.pesadaId ?? null;
-  let q = supabase.from(TABLE_BB).select('numero');
-  q = pesadaId == null ? q.is('pesada_id', null) : q.eq('pesada_id', pesadaId);
-  const { data: rows } = await q;
-  let max = 0;
-  for (const r of (rows ?? []) as Array<{ numero: number | null }>) max = Math.max(max, num(r.numero));
+  // GT-INT-10 · El número lo pone la base. Acá se manda 0 y el trigger
+  // `asignar_numero_bigbag` asigna el siguiente bajo un lock del conjunto. Antes se
+  // leía el máximo y se le sumaba uno desde el navegador: dos personas pesando a la vez
+  // leían el mismo máximo y los dos bultos salían con el MISMO número.
   const { data, error } = await supabase.from(TABLE_BB).insert({
-    numero: max + 1, procedencia: null, peso_humedo: null, peso_seco: null, pesada_id: pesadaId,
+    numero: 0, procedencia: null, peso_humedo: null, peso_seco: null, pesada_id: pesadaId,
     tipo: input.tipo ?? 'bigbag',
     created_by: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
@@ -517,7 +516,13 @@ export async function actualizarBigbag(id: string, patch: { numero?: number; pro
   if (patch.peso_humedo !== undefined) upd.peso_humedo = patch.peso_humedo == null ? null : num(patch.peso_humedo);
   if (patch.peso_seco !== undefined) upd.peso_seco = patch.peso_seco == null ? null : num(patch.peso_seco);
   const { error } = await supabase.from(TABLE_BB).update(upd).eq('id', id);
-  if (error) throw error;
+  if (error) {
+    // GT-INT-10 · El índice único no deja repetir el número dentro del mismo conjunto.
+    if ((error as { code?: string }).code === '23505') {
+      throw new Error(`Ya hay otro bulto con el número ${upd.numero}. Poné uno distinto.`);
+    }
+    throw error;
+  }
 }
 
 export async function eliminarBigbag(id: string): Promise<void> {

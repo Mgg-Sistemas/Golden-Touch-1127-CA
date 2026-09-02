@@ -6,6 +6,9 @@ import { aplicarImportacion, type AnalisisImport, type FilaAnalizada } from './i
 
 interface Props {
   analisis: AnalisisImport;
+  /** Queda como autor de los movimientos de ajuste que genera la importación. */
+  actor: string;
+  actorName?: string | null;
   onClose: () => void;
   onImportado: () => void;
 }
@@ -29,7 +32,7 @@ const FILTROS: Array<{ key: 'todos' | 'error' | 'duplicado' | 'valido'; label: s
   { key: 'valido', label: 'Válidas' },
 ];
 
-export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
+export function ImportarExcelModal({ analisis, actor, actorName, onClose, onImportado }: Props) {
   const [confirmando, setConfirmando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [filtro, setFiltro] = useState<'todos' | 'error' | 'duplicado' | 'valido'>(
@@ -50,7 +53,7 @@ export function ImportarExcelModal({ analisis, onClose, onImportado }: Props) {
     }
     setAplicando(true);
     try {
-      const res = await aplicarImportacion(analisis);
+      const res = await aplicarImportacion(analisis, actor, actorName ?? null);
       const partes: string[] = [];
       if (res.insertados) partes.push(`${res.insertados} nuevos`);
       if (res.actualizados) partes.push(`${res.actualizados} actualizados`);

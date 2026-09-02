@@ -292,7 +292,7 @@ export interface ImportResult {
  * solo upsert de existencias), en vez de 3 consultas por fila. Salta filas con
  * error de datos. Esto evita que la importación se "cuelgue" con archivos grandes.
  */
-export async function aplicarImportacion(analisis: AnalisisImport): Promise<ImportResult> {
+export async function aplicarImportacion(analisis: AnalisisImport, actor = 'importacion', actorName: string | null = null): Promise<ImportResult> {
   const result: ImportResult = { insertados: 0, actualizados: 0, errores: [] };
 
   // Canonicalización de categoría/medida contra el catálogo existente: evita crear
@@ -414,16 +414,36 @@ export async function aplicarImportacion(analisis: AnalisisImport): Promise<Impo
     if (yaExisten.has(p.sku)) result.actualizados++; else result.insertados++;
   }
 
-  // 4) Sincronizar existencias por almacén en un solo upsert (modelo multi-almacén).
-  const nowIso = new Date().toISOString();
-  const exRows = preparadas
-    .map((p) => ({ producto_id: idBySku.get(p.sku), almacen: p.almacen, stock: p.stock, costo_promedio: p.precio, updated_at: nowIso }))
-    .filter((r): r is { producto_id: string; almacen: string; stock: number; costo_promedio: number; updated_at: string } => !!r.producto_id);
-  if (exRows.length) {
-    const { error: exErr } = await supabase.from('existencias').upsert(exRows, { onConflict: 'producto_id,almacen' });
+  // 4) Ajustar las existencias DEJANDO RASTRO EN EL KARDEX.
+  //
+  // GT-INT-12 · Antes esto era un upsert directo sobre `existencias`. El stock cambiaba
+  // sin ningún movimiento que lo explicara: un producto pasaba de 60 a 500 y el kardex
+  // no decía nada, así que cualquier reporte armado sumando movimientos dejaba de cuadrar
+  // con la existencia real. Encima el upsert pisaba `costo_promedio` con el precio de la
+  // planilla y borraba el promedio ponderado que venía de las compras.
+  //
+  // Ahora la base calcula la diferencia contra lo que hay y la registra como un
+  // movimiento de «ajuste» (ref_tipo 'importacion'), por el mismo camino que todo el
+  // resto del sistema. Los productos cuyo stock no cambia no generan movimiento, así
+  // que una importación que solo corrige nombres no ensucia el kardex.
+  const items = preparadas
+    .map((p) => ({ producto_id: idBySku.get(p.sku), stock: p.stock, precio: p.precio, sku: p.sku }))
+    .filter((r): r is { producto_id: string; stock: number; precio: number; sku: string } => !!r.producto_id);
+  if (items.length) {
+    const { data: res, error: exErr } = await supabase.rpc('importar_ajuste_stock', {
+      p_items: items.map(({ producto_id, stock, precio }) => ({ producto_id, stock, precio })),
+      p_actor: actor,
+      p_actor_name: actorName,
+    });
     if (exErr) {
       // No invalida la importación de productos; solo se avisa.
-      result.errores.push({ fila: 0, sku: '(existencias)', motivo: `Productos importados pero no se pudo sincronizar almacén: ${exErr.message}` });
+      result.errores.push({ fila: 0, sku: '(existencias)', motivo: `Productos importados pero no se pudo ajustar el stock: ${exErr.message}` });
+    } else {
+      const r = res as { movimientos?: number; errores?: Array<{ producto_id: string; nombre: string; motivo: string }> } | null;
+      const skuDe = new Map(items.map((i) => [i.producto_id, i.sku]));
+      for (const e of r?.errores ?? []) {
+        result.errores.push({ fila: 0, sku: skuDe.get(e.producto_id) ?? e.nombre, motivo: `Producto importado, pero el stock no se ajustó: ${e.motivo}` });
+      }
     }
   }
 
