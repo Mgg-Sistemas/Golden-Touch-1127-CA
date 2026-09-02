@@ -57,31 +57,24 @@ export async function ingresarDivisa(input: IngresarDivisaInput): Promise<CajaSa
   const tasaBs = esBs ? 1 : round4(Number(input.tasaBs) || 0);
   if (!esBs && tasaBs <= 0) throw new Error('Indicá la tasa de compra (Bs por unidad).');
 
-  // Saldo actual de (caja, cuenta, moneda).
-  const { data: actual } = await supabase
-    .from(SALDOS)
-    .select('id, saldo, tasa_prom')
-    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda)
-    .maybeSingle();
+  // ── Ingreso ATÓMICO (GT-SIN-03) ────────────────────────────────────────────
+  // Antes esto leía el saldo y la tasa, promediaba en JavaScript y escribía el
+  // resultado. Dos ingresos simultáneos a la misma billetera perdían uno — y
+  // peor: la tasa promedio quedaba calculada sobre un saldo base equivocado,
+  // contaminando el costo en Bs de TODO el saldo restante y la disponibilidad
+  // financiera del panel. Ahora suma y re-promedia la base, bajo lock de la fila.
+  const { data: r, error: eSaldo } = await supabase.rpc('aplicar_ingreso_divisa', {
+    p_caja_id: input.cajaId, p_cuenta: input.cuenta, p_moneda: input.moneda,
+    p_monto: monto, p_tasa_bs: esBs ? 1 : tasaBs,
+  });
+  if (eSaldo) throw new Error(eSaldo.message || 'No se pudo ingresar la divisa a la caja.');
+  const res = r as { saldo_antes: number; saldo_despues: number; tasa_prom: number | null };
+  const saldoAntes = Number(res.saldo_antes) || 0;
+  const saldoDespues = Number(res.saldo_despues) || 0;
 
-  const saldoAntes = Number(actual?.saldo) || 0;
-  const tasaAntes = Number(actual?.tasa_prom) || 0;
-  const saldoDespues = round2(saldoAntes + monto);
-  // Promedio ponderado (Bs por unidad). Bs siempre 1.
-  const tasaProm = esBs
-    ? 1
-    : (saldoAntes > 0 && tasaAntes > 0
-        ? round4((saldoAntes * tasaAntes + monto * tasaBs) / saldoDespues)
-        : tasaBs);
-
-  // Upsert del saldo.
   const { data: up, error: upErr } = await supabase
-    .from(SALDOS)
-    .upsert(
-      { caja_id: input.cajaId, cuenta: input.cuenta, moneda: input.moneda, saldo: saldoDespues, tasa_prom: tasaProm, updated_at: new Date().toISOString() },
-      { onConflict: 'caja_id,cuenta,moneda' },
-    )
-    .select('*')
+    .from(SALDOS).select('*')
+    .eq('caja_id', input.cajaId).eq('cuenta', input.cuenta).eq('moneda', input.moneda)
     .single();
   if (upErr) throw upErr;
 
@@ -212,19 +205,30 @@ export async function trasladoEntreCajasMulti(input: {
   const legs = (input.legs ?? []).map((l) => ({ ...l, monto: round2(l.monto) })).filter((l) => l.monto > 0);
   if (!legs.length) throw new Error('Indicá al menos un monto a trasladar.');
   const motivo = input.motivo.trim();
-  const now = new Date().toISOString();
 
   for (const leg of legs) {
-    // ── Origen: validar fondos y descontar ──
-    const { data: orig } = await supabase.from(SALDOS).select('id, saldo, tasa_prom')
-      .eq('caja_id', input.origenId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
-    const saldoAntesO = Number(orig?.saldo) || 0;
-    if (leg.monto > saldoAntesO)
-      throw new Error(`Saldo insuficiente en ${leg.moneda}${leg.cuenta !== 'general' ? ` (${leg.cuenta})` : ''}. Disponible: ${saldoAntesO}.`);
-    const tasaOrigen = leg.moneda === 'Bs' ? 1 : (Number(orig?.tasa_prom) || 0);
-    const saldoDespuesO = round2(saldoAntesO - leg.monto);
-    await supabase.from(SALDOS).update({ saldo: saldoDespuesO, updated_at: now })
-      .eq('caja_id', input.origenId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda);
+    // ── Traslado ATÓMICO (GT-SIN-03) ─────────────────────────────────────────
+    // Antes el origen se descontaba en una llamada y el destino se sumaba en
+    // otra, SIN transacción: si la segunda fallaba —red, permiso, pestaña
+    // cerrada— el dinero desaparecía. Ahora los dos lados ocurren juntos, con
+    // lock de ambas filas y en orden estable para no trabarse con el traslado
+    // inverso. La validación de fondos también pasó al servidor.
+    const { data: rt, error: eTras } = await supabase.rpc('trasladar_divisa', {
+      p_origen: input.origenId, p_destino: input.destinoId,
+      p_cuenta: leg.cuenta, p_moneda: leg.moneda, p_monto: leg.monto,
+    });
+    if (eTras) throw new Error(eTras.message || 'No se pudo trasladar el dinero.');
+    const t = rt as {
+      origen_antes: number; origen_despues: number; origen_tasa: number | null;
+      destino_antes: number; destino_despues: number; destino_tasa: number | null;
+    };
+    const saldoAntesO = Number(t.origen_antes) || 0;
+    const saldoDespuesO = Number(t.origen_despues) || 0;
+    const tasaOrigen = leg.moneda === 'Bs' ? 1 : (Number(t.origen_tasa) || 0);
+    const saldoAntesD = Number(t.destino_antes) || 0;
+    const saldoDespuesD = Number(t.destino_despues) || 0;
+    const nuevaTasa = leg.moneda === 'Bs' ? 1 : (Number(t.destino_tasa) || 0);
+
     await supabase.from('movimientos_caja').insert({
       caja_id: input.origenId, tipo: 'traslado_salida', monto: leg.monto, moneda: leg.moneda, cuenta: leg.cuenta,
       tasa_bs: leg.moneda === 'Bs' ? null : (tasaOrigen || null), saldo_antes: saldoAntesO, saldo_despues: saldoDespuesO,
@@ -232,18 +236,8 @@ export async function trasladoEntreCajasMulti(input: {
       actor: input.actor, actor_name: input.actorName ?? null,
     });
 
-    // ── Destino: sumar y recalcular promedio ponderado ──
-    const { data: dest } = await supabase.from(SALDOS).select('id, saldo, tasa_prom')
-      .eq('caja_id', input.destinoId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
-    const saldoAntesD = Number(dest?.saldo) || 0;
-    const tasaDest = Number(dest?.tasa_prom) || 0;
-    const saldoDespuesD = round2(saldoAntesD + leg.monto);
-    const nuevaTasa = leg.moneda === 'Bs' ? 1
-      : (saldoDespuesD > 0 ? round4((saldoAntesD * tasaDest + leg.monto * tasaOrigen) / saldoDespuesD) : tasaOrigen);
-    await supabase.from(SALDOS).upsert(
-      { caja_id: input.destinoId, cuenta: leg.cuenta, moneda: leg.moneda, saldo: saldoDespuesD, tasa_prom: nuevaTasa, updated_at: now },
-      { onConflict: 'caja_id,cuenta,moneda' },
-    );
+    // El destino ya quedó acreditado por la misma función, con su promedio
+    // ponderado recalculado sobre el saldo real. Acá solo se anota en el libro.
     await supabase.from('movimientos_caja').insert({
       caja_id: input.destinoId, tipo: 'traslado_entrada', monto: leg.monto, moneda: leg.moneda, cuenta: leg.cuenta,
       tasa_bs: leg.moneda === 'Bs' ? null : (nuevaTasa || null), saldo_antes: saldoAntesD, saldo_despues: saldoDespuesD,
@@ -272,38 +266,37 @@ export async function convertirDivisaEnCaja(input: {
   if (dMonto <= 0 || hMonto <= 0) throw new Error('Indicá montos válidos para convertir.');
   if (input.desde.moneda === input.hacia.moneda && input.desde.cuenta === input.hacia.cuenta)
     throw new Error('Elegí monedas (o cuentas) distintas para convertir.');
-  const now = new Date().toISOString();
 
-  // 1) Descontar del saldo ORIGEN (valida fondos).
-  const { data: orig } = await supabase.from(SALDOS).select('id, saldo, tasa_prom')
-    .eq('caja_id', input.cajaId).eq('cuenta', input.desde.cuenta).eq('moneda', input.desde.moneda).maybeSingle();
-  const saldoAntesO = Number(orig?.saldo) || 0;
-  if (dMonto > saldoAntesO)
-    throw new Error(`Saldo insuficiente en ${input.desde.moneda}${input.desde.cuenta !== 'general' ? ` (${input.desde.cuenta})` : ''}. Disponible: ${saldoAntesO}.`);
-  const saldoDespuesO = round2(saldoAntesO - dMonto);
-  await supabase.from(SALDOS).update({ saldo: saldoDespuesO, updated_at: now })
-    .eq('caja_id', input.cajaId).eq('cuenta', input.desde.cuenta).eq('moneda', input.desde.moneda);
+  // ── Conversión ATÓMICA (GT-SIN-03) ─────────────────────────────────────────
+  // Antes descontaba una moneda en una llamada y acreditaba la otra en otra,
+  // sin transacción: si la segunda fallaba, el dinero salía de una billetera y
+  // no entraba en ninguna. Ahora los dos lados van juntos, con lock de ambas
+  // filas y el promedio ponderado calculado sobre el saldo real.
+  const esBsH = input.hacia.moneda === 'Bs';
+  const tasaH = esBsH ? 1 : round4(Number(input.tasaBsHacia) || 0);
+  const { data: rc, error: eConv } = await supabase.rpc('convertir_divisa_caja', {
+    p_caja_id: input.cajaId,
+    p_cuenta_desde: input.desde.cuenta, p_moneda_desde: input.desde.moneda, p_monto_desde: dMonto,
+    p_cuenta_hacia: input.hacia.cuenta, p_moneda_hacia: input.hacia.moneda, p_monto_hacia: hMonto,
+    p_tasa_bs_hacia: tasaH,
+  });
+  if (eConv) throw new Error(eConv.message || 'No se pudo convertir el dinero.');
+  const c = rc as {
+    origen_antes: number; origen_despues: number; origen_tasa: number | null;
+    destino_antes: number; destino_despues: number; destino_tasa: number | null;
+  };
+  const saldoAntesO = Number(c.origen_antes) || 0;
+  const saldoDespuesO = Number(c.origen_despues) || 0;
+  const saldoAntesD = Number(c.destino_antes) || 0;
+  const saldoDespuesD = Number(c.destino_despues) || 0;
+
   await supabase.from('movimientos_caja').insert({
     caja_id: input.cajaId, tipo: 'salida', monto: dMonto, moneda: input.desde.moneda, cuenta: input.desde.cuenta,
-    tasa_bs: input.desde.moneda === 'Bs' ? null : (Number(orig?.tasa_prom) || null),
+    tasa_bs: input.desde.moneda === 'Bs' ? null : (Number(c.origen_tasa) || null),
     saldo_antes: saldoAntesO, saldo_despues: saldoDespuesO,
     motivo: `Conversión ${input.desde.moneda} → ${input.hacia.moneda}`, categoria: 'conversion',
     actor: input.actor, actor_name: input.actorName ?? null,
   });
-
-  // 2) Sumar al saldo DESTINO (recalcula promedio ponderado).
-  const esBsH = input.hacia.moneda === 'Bs';
-  const tasaH = esBsH ? 1 : round4(Number(input.tasaBsHacia) || 0);
-  const { data: dest } = await supabase.from(SALDOS).select('id, saldo, tasa_prom')
-    .eq('caja_id', input.cajaId).eq('cuenta', input.hacia.cuenta).eq('moneda', input.hacia.moneda).maybeSingle();
-  const saldoAntesD = Number(dest?.saldo) || 0;
-  const tasaDest = Number(dest?.tasa_prom) || 0;
-  const saldoDespuesD = round2(saldoAntesD + hMonto);
-  const nuevaTasa = esBsH ? 1
-    : (saldoAntesD > 0 && tasaDest > 0 ? round4((saldoAntesD * tasaDest + hMonto * tasaH) / saldoDespuesD) : (tasaH || tasaDest || 0));
-  await supabase.from(SALDOS).upsert(
-    { caja_id: input.cajaId, cuenta: input.hacia.cuenta, moneda: input.hacia.moneda, saldo: saldoDespuesD, tasa_prom: nuevaTasa, updated_at: now },
-    { onConflict: 'caja_id,cuenta,moneda' });
   await supabase.from(LOTES).insert({
     caja_id: input.cajaId, cuenta: input.hacia.cuenta, moneda: input.hacia.moneda,
     monto: hMonto, tasa_bs: esBsH ? null : tasaH,

@@ -1985,19 +1985,37 @@ export async function registrarAbono(
     .single();
   if (abErr) throw abErr;
 
-  const saldado = acumulado >= Number(o.total) - 0.01;
+  // ── GT-SIN-05 ──────────────────────────────────────────────────────────────
+  // `acumulado` se calculó ANTES de insertar este abono. Dos tesoreros abonando
+  // a la vez sacaban los DOS egresos de caja pero ambos escribían el mismo
+  // total: la orden quedaba con saldo pendiente de algo ya pagado, y la
+  // transición automática de estado se decidía con ese número mal (se trababa
+  // en cuenta abierta). Se recalcula sumando la tabla de abonos —que ya incluye
+  // el recién insertado— con guarda `lte` para no retroceder.
+  const { data: filasAb } = await supabase.from('abonos_credito').select('monto').eq('orden_id', o.id);
+  const acumuladoReal = Math.round((filasAb ?? []).reduce((a, r) => a + (Number((r as { monto: number }).monto) || 0), 0) * 100) / 100;
+  const restanteReal = Math.round((Number(o.total) - acumuladoReal) * 100) / 100;
+  const saldado = acumuladoReal >= Number(o.total) - 0.01;
   // Al SALDAR el crédito, la orden sale de "cuenta abierta" (pendiente) y avanza
   // sola: si la mercancía ya llegó → 'recibida' (lista para finalizar); si no →
   // 'por_recibir' (Pendiente por recepción). Así se sincroniza sin paso manual.
   const nuevoEstado: EstadoOrden | null = saldado ? (o.recibida_en ? 'recibida' : 'por_recibir') : null;
   const patch: Record<string, unknown> = {
-    abonado_total: acumulado,
-    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', actorEmail, { monto: m, saldo_restante: saldoRestante, ...(nuevoEstado ? { enviada_a: nuevoEstado } : {}) }),
+    abonado_total: acumuladoReal,
+    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', actorEmail, { monto: m, saldo_restante: restanteReal, ...(nuevoEstado ? { enviada_a: nuevoEstado } : {}) }),
   };
   if (nuevoEstado) patch.estado = nuevoEstado;
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  const { data, error } = await supabase.from(TABLE)
+    .update(patch).eq('id', o.id).lte('abonado_total', acumuladoReal).select('*').maybeSingle();
   if (error) throw error;
-  return { orden: data as Orden, abono: ab as AbonoCredito };
+  // Si `lte` descartó la escritura, otro usuario dejó un total mayor y más
+  // fresco: se devuelve ese en vez de pisarlo.
+  let orden = data as Orden | null;
+  if (!orden) {
+    const { data: actual } = await supabase.from(TABLE).select('*').eq('id', o.id).single();
+    orden = actual as Orden;
+  }
+  return { orden, abono: ab as AbonoCredito };
 }
 
 export interface AbonoLeg {
@@ -2088,19 +2106,30 @@ export async function registrarAbonoMulti(input: RegistrarAbonoMultiInput): Prom
     .single();
   if (abErr) throw abErr;
 
-  const saldado = acumulado >= Number(o.total) - 0.01;
+  // GT-SIN-05 · Mismo criterio que en `registrarAbono`: el total se recalcula
+  // desde la tabla de abonos DESPUÉS de insertar, con guarda para no retroceder.
+  const { data: filasAb } = await supabase.from('abonos_credito').select('monto').eq('orden_id', o.id);
+  const acumuladoReal = Math.round((filasAb ?? []).reduce((a, r) => a + (Number((r as { monto: number }).monto) || 0), 0) * 100) / 100;
+  const restanteReal = Math.round((Number(o.total) - acumuladoReal) * 100) / 100;
+  const saldado = acumuladoReal >= Number(o.total) - 0.01;
   // Al SALDAR el crédito, la orden sale de "cuenta abierta" (pendiente) y avanza
   // sola: si la mercancía ya llegó → 'recibida' (lista para finalizar); si no →
   // 'por_recibir' (Pendiente por recepción). Así se sincroniza sin paso manual.
   const nuevoEstado: EstadoOrden | null = saldado ? (o.recibida_en ? 'recibida' : 'por_recibir') : null;
   const patch: Record<string, unknown> = {
-    abonado_total: acumulado,
-    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', input.actorEmail, { monto: abonoUsd, saldo_restante: saldoRestante, multipago: legs.map((l) => ({ moneda: l.moneda, monto: l.monto })), ...(nuevoEstado ? { enviada_a: nuevoEstado } : {}) }),
+    abonado_total: acumuladoReal,
+    historial: appendHistorial(o, saldado ? 'credito_saldado' : 'abono', input.actorEmail, { monto: abonoUsd, saldo_restante: restanteReal, multipago: legs.map((l) => ({ moneda: l.moneda, monto: l.monto })), ...(nuevoEstado ? { enviada_a: nuevoEstado } : {}) }),
   };
   if (nuevoEstado) patch.estado = nuevoEstado;
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  const { data, error } = await supabase.from(TABLE)
+    .update(patch).eq('id', o.id).lte('abonado_total', acumuladoReal).select('*').maybeSingle();
   if (error) throw error;
-  return { orden: data as Orden, abono: ab as AbonoCredito };
+  let orden = data as Orden | null;
+  if (!orden) {
+    const { data: actual } = await supabase.from(TABLE).select('*').eq('id', o.id).single();
+    orden = actual as Orden;
+  }
+  return { orden, abono: ab as AbonoCredito };
 }
 
 /** Traza de abonos de una orden a crédito (orden cronológico). */
