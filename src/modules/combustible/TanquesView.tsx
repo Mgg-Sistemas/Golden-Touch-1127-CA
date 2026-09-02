@@ -284,7 +284,9 @@ export function TanquesView() {
 
   useEffect(() => { void reloadMovs(selId); }, [selId, reloadMovs]);
 
-  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_conciliaciones'], () => {
+  // GT-INT-16 · Faltaban `combustible_cubicaciones` (el modal de cubicación cargaba
+  // el historial solo al montarse) y las transferencias con MGG.
+  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_conciliaciones', 'combustible_cubicaciones', 'transferencias_combustible_inter'], () => {
     void reloadTanques();
     void reloadMovs(selId);
     setReloadKey((k) => k + 1);

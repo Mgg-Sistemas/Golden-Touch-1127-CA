@@ -114,15 +114,25 @@ export async function getCurrentUsuario(): Promise<Usuario | null> {
   return (data ?? null) as Usuario | null;
 }
 
-/** Genera el siguiente código SP-YYYY-#### (Solicitud de Pedido) contando órdenes existentes. */
+/**
+ * Genera el siguiente código SP-YYYY-#### (Solicitud de Pedido) con el correlativo
+ * ATÓMICO de la base, igual que OC/SS/CS.
+ *
+ * GT-INT-03 · Antes se calculaba `count(*) + 1` sobre TODAS las órdenes. Dos
+ * problemas: dos personas creando a la vez pedían el mismo número (y una recibía
+ * un error de clave duplicada sin explicación, perdiendo el formulario), y —peor—
+ * al borrar cualquier orden el conteo retrocedía y el siguiente número YA EXISTÍA,
+ * dejando el módulo sin poder crear solicitudes hasta que alguien lo diagnosticara.
+ *
+ * OJO AL DESPLEGAR: el contador `sp-<año>` debe sembrarse con el máximo actual
+ * (ver supabase/seguridad-2026-09-02.sql) ANTES de publicar este cambio.
+ */
 export async function nextCodigo(): Promise<string> {
   const year = new Date().getFullYear();
-  const { count, error } = await supabase
-    .from(TABLE)
-    .select('id', { count: 'exact', head: true });
+  const { data, error } = await supabase.rpc('next_correlativo', { p_clave: `sp-${year}` });
   if (error) throw error;
-  const n = (count ?? 0) + 1;
-  return `SP-${year}-${String(n).padStart(4, '0')}`;
+  const seq = String(Number(data) || 1).padStart(4, '0');
+  return `SP-${year}-${seq}`;
 }
 
 export interface CrearOrdenInput {
@@ -430,16 +440,44 @@ export async function editarPreciosOrdenPorPagar(
   const deltaBs = r2(baseBs(comprados(items)) - baseBs(comprados(o.items ?? [])));
   const deltaUsd = r2(baseUsd(comprados(items)) - baseUsd(comprados(o.items ?? [])));
   const enDivisa = !!o.pago_en_divisa;
+
+  // ── GT-INT-01 · IVA/IGTF se RECALCULAN sobre la base nueva ─────────────────
+  // Antes el delta se sumaba al total dejando `iva_monto`/`igtf_monto` intactos.
+  // Con base 1.000 e IVA 16% (=160, total 1.160), corregir la base a 1.200 daba
+  // total 1.360 con el IVA todavía en 160 cuando debía ser 192: el PDF de la OC
+  // y Retenciones mostraban una base y un IVA que NO cuadraban con lo que
+  // Tesorería pagaba, y la retención salía calculada sobre la base vieja.
+  // Se compone desde cero, igual que hace `indicarMetodoPago`:
+  //     total = base (ya con descuento) + IVA + IGTF
+  const ivaPrev = o.iva_aplicado ? Math.max(0, Number(o.iva_monto) || 0) : 0;
+  const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
+  const basePrev = Math.max(0, r2((Number(o.total) || 0) - ivaPrev - igtfPrev));
+  const baseNueva = Math.max(0, r2(basePrev + (enDivisa ? deltaUsd : deltaBs)));
+  // Si hay porcentaje, manda el porcentaje. Si el monto se había puesto a mano
+  // (sin %), se escala en la misma proporción que la base, que es lo más fiel.
+  const escala = basePrev > 0 ? baseNueva / basePrev : 0;
+  const ivaPct = Math.max(0, Number(o.iva_pct) || 0);
+  const igtfPct = Math.max(0, Number(o.igtf_pct) || 0);
+  const ivaNuevo = o.iva_aplicado
+    ? (ivaPct > 0 ? r2((baseNueva * ivaPct) / 100) : r2(ivaPrev * escala))
+    : 0;
+  const igtfNuevo = o.igtf_aplicado
+    ? (igtfPct > 0 ? r2((baseNueva * igtfPct) / 100) : r2(igtfPrev * escala))
+    : 0;
   // El `total` que paga Tesorería está en divisa cuando el pago es en divisa; si no, en Bs.
-  const totalNuevo = Math.max(0, r2((Number(o.total) || 0) + (enDivisa ? deltaUsd : deltaBs)));
+  const totalNuevo = Math.max(0, r2(baseNueva + ivaNuevo + igtfNuevo));
   const upd: Record<string, unknown> = {
     items,
     total: totalNuevo,
     historial: appendHistorial(o, 'precios_editados', actorEmail, {
       total_anterior: r2(Number(o.total) || 0), total_nuevo: totalNuevo, delta: enDivisa ? deltaUsd : deltaBs,
+      iva_anterior: ivaPrev, iva_nuevo: ivaNuevo, igtf_anterior: igtfPrev, igtf_nuevo: igtfNuevo,
     }),
   };
-  if (enDivisa || o.total_divisa != null) upd.total_divisa = Math.max(0, r2((Number(o.total_divisa) || 0) + deltaUsd));
+  if (o.iva_aplicado) upd.iva_monto = ivaNuevo;
+  if (o.igtf_aplicado) upd.igtf_monto = igtfNuevo;
+  if (enDivisa) upd.total_divisa = totalNuevo;
+  else if (o.total_divisa != null) upd.total_divisa = Math.max(0, r2((Number(o.total_divisa) || 0) + deltaUsd));
   const { data, error } = await supabase.from(TABLE).update(upd).eq('id', o.id).select('*').single();
   if (error) throw error;
   return data as Orden;

@@ -185,12 +185,26 @@ export async function registrarCobro(input: {
   if (abErr) throw abErr;
 
   // 3) Actualiza la cuenta (cobrado + estado).
-  const nuevoCobrado = round2((Number(c.cobrado) || 0) + monto);
+  // GT-SIN-02 · Mismo criterio que en cuentas por pagar: el cobrado se recalcula
+  // sumando la tabla de cobros (fuente de verdad, ya con la fila recién
+  // insertada) y se escribe con `lte` para que una lectura vieja no lo haga
+  // retroceder pisando el cobro de otro usuario.
+  const { data: filasCobros, error: sumErr } = await supabase
+    .from(CXC_ABONOS).select('monto').eq('cuenta_id', c.id);
+  if (sumErr) throw sumErr;
+  const nuevoCobrado = round2((filasCobros ?? []).reduce((a, r) => a + (Number(r.monto) || 0), 0));
   const estado: EstadoCxC = nuevoCobrado >= c.monto - 0.01 ? 'saldada' : 'abierta';
-  const { data: cu, error: cuErr } = await supabase.from(CXC)
+  const { data: cuOk, error: cuErr } = await supabase.from(CXC)
     .update({ cobrado: nuevoCobrado, estado, updated_at: new Date().toISOString() })
-    .eq('id', c.id).select('*').single();
+    .eq('id', c.id)
+    .lte('cobrado', nuevoCobrado)
+    .select('*').maybeSingle();
   if (cuErr) throw cuErr;
+  let cu = cuOk;
+  if (!cu) {
+    const { data: actual } = await supabase.from(CXC).select('*').eq('id', c.id).single();
+    cu = actual;
+  }
 
   return { cuenta: cu as CuentaPorCobrar, cobro: ab as CobroCxC };
 }

@@ -245,28 +245,13 @@ export async function aprobarSalidaTemporal(
       throw new Error(`Stock insuficiente de ${it.producto_nombre || 'un material'} en ${it.almacen}. Disponible: ${stock}.`);
     }
   }
-  // Salida del inventario (material a mantenimiento).
-  const destino = s.direccion_destino?.trim() || 'MANTENIMIENTO';
-  for (const it of existentes) {
-    await registrarMovimiento({
-      producto_id: it.producto_id!,
-      tipo: 'salida',
-      delta: -(Number(it.cantidad) || 0),
-      almacen: it.almacen!,
-      actor: input.actor,
-      actor_name: input.actorName ?? null,
-      ref_tipo: 'salida_temporal',
-      ref_id: s.id,
-      ref_codigo: s.codigo,
-      destino,
-      solicitante: s.solicitante,
-      detalle: `Salida temporal a mantenimiento${s.motivo ? ` · ${s.motivo}` : ''}`,
-    });
-  }
-
+  // ── Reserva atómica (GT-SIN-18) ────────────────────────────────────────────
+  // Se marca ANTES de mover inventario y condicionado al estado real: si dos
+  // personas aprueban la misma salida a la vez, solo una gana y el material
+  // sale una sola vez. Si el movimiento falla, se devuelve a 'pendiente'.
   const firma = firmaDeAprobador(input.aprobadorEmail);
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const { data: reserva, error: errReserva } = await supabase
     .from(TABLE)
     .update({
       estado: 'en_transito',
@@ -278,8 +263,39 @@ export async function aprobarSalidaTemporal(
       updated_at: now,
       historial: appendHistorial(s, 'aprobada', input.actor, { firma }),
     })
-    .eq('id', s.id);
-  if (error) throw error;
+    .eq('id', s.id)
+    .eq('estado', 'pendiente')
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) throw new Error('La salida temporal ya fue aprobada por otro usuario.');
+
+  // Salida del inventario (material a mantenimiento).
+  const destino = s.direccion_destino?.trim() || 'MANTENIMIENTO';
+  try {
+    for (const it of existentes) {
+      await registrarMovimiento({
+        producto_id: it.producto_id!,
+        tipo: 'salida',
+        delta: -(Number(it.cantidad) || 0),
+        almacen: it.almacen!,
+        actor: input.actor,
+        actor_name: input.actorName ?? null,
+        ref_tipo: 'salida_temporal',
+        ref_id: s.id,
+        ref_codigo: s.codigo,
+        destino,
+        solicitante: s.solicitante,
+        detalle: `Salida temporal a mantenimiento${s.motivo ? ` · ${s.motivo}` : ''}`,
+      });
+    }
+  } catch (e) {
+    await supabase
+      .from(TABLE)
+      .update({ estado: 'pendiente', aprobada_por: null, aprobada_en: null, en_transito_en: null })
+      .eq('id', s.id)
+      .eq('estado', 'en_transito');
+    throw e;
+  }
 }
 
 /**
@@ -293,28 +309,15 @@ export async function finalizarSalidaTemporal(
 ): Promise<void> {
   if (s.estado !== 'en_transito') throw new Error('Solo se finalizan salidas temporales en tránsito.');
   const items = s.items ?? [];
-  // Retorno al inventario: entrada por cada renglón a su almacén.
-  for (const it of items) {
-    if (!it.producto_id) continue;
-    const almacen = it.almacen || 'General';
-    await registrarMovimiento({
-      producto_id: it.producto_id,
-      tipo: 'entrada',
-      delta: Number(it.cantidad) || 0,
-      almacen,
-      actor: input.actor,
-      actor_name: input.actorName ?? null,
-      ref_tipo: 'salida_temporal_retorno',
-      ref_id: s.id,
-      ref_codigo: s.codigo,
-      solicitante: s.solicitante,
-      detalle: `Retorno de mantenimiento (salida temporal ${s.codigo})`,
-    });
-  }
+
+  // ── Reserva atómica (GT-SIN-18) ────────────────────────────────────────────
+  // Acá el duplicado es peor que en la salida: dos finalizaciones a la vez
+  // hacen ENTRAR el material dos veces e inflan el stock con unidades que no
+  // existen. Se marca primero, condicionado al estado real en la base.
   const now = new Date();
   const desde = s.en_transito_en ? new Date(s.en_transito_en).getTime() : now.getTime();
   const duracionMin = Math.max(0, Math.round((now.getTime() - desde) / 60000));
-  const { error } = await supabase
+  const { data: reserva, error: errReserva } = await supabase
     .from(TABLE)
     .update({
       estado: 'finalizada',
@@ -323,6 +326,37 @@ export async function finalizarSalidaTemporal(
       updated_at: now.toISOString(),
       historial: appendHistorial(s, 'finalizada', input.actor, { duracion_min: duracionMin }),
     })
-    .eq('id', s.id);
-  if (error) throw error;
+    .eq('id', s.id)
+    .eq('estado', 'en_transito')
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) throw new Error('La salida temporal ya fue finalizada por otro usuario.');
+
+  // Retorno al inventario: entrada por cada renglón a su almacén.
+  try {
+    for (const it of items) {
+      if (!it.producto_id) continue;
+      const almacen = it.almacen || 'General';
+      await registrarMovimiento({
+        producto_id: it.producto_id,
+        tipo: 'entrada',
+        delta: Number(it.cantidad) || 0,
+        almacen,
+        actor: input.actor,
+        actor_name: input.actorName ?? null,
+        ref_tipo: 'salida_temporal_retorno',
+        ref_id: s.id,
+        ref_codigo: s.codigo,
+        solicitante: s.solicitante,
+        detalle: `Retorno de mantenimiento (salida temporal ${s.codigo})`,
+      });
+    }
+  } catch (e) {
+    await supabase
+      .from(TABLE)
+      .update({ estado: 'en_transito', finalizada_en: null, duracion_min: null })
+      .eq('id', s.id)
+      .eq('estado', 'finalizada');
+    throw e;
+  }
 }

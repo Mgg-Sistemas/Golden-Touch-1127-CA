@@ -464,26 +464,46 @@ export async function aceptarEntradaEnCajaAcopio(input: {
   if (!legs.length) throw new Error('La transferencia no tiene montos.');
   const montoUsd = legs.reduce((a, l) => a + num(l.monto), 0);
 
-  // 1) Entra a los movimientos (sube el saldo USD), grupo Movimientos de Caja,
-  //    con la descripción fija de entrada externa.
-  await crearMovimientoCaja({
-    fecha: new Date().toISOString().slice(0, 10),
-    descripcion: DESC_ENTRADA_EXTERNA,
-    usd_entregado: montoUsd,
-    clasif_grupo: 'movimientos_caja',
-    caja_id: cajaId,
-  }, input.actor, input.actorName ?? null);
-  // La deuda a MGG por este USD entregado la registra crearMovimientoCaja (arriba),
-  // que acumula la cuenta por pagar a MGG de forma incremental.
+  // ── Reserva atómica (GT-SIN-06) ────────────────────────────────────────────
+  // Los dos `if` de arriba miran el objeto que ESTE navegador tiene en la
+  // tarjeta «Dinero por entrar». Si dos personas pulsan ACEPTAR sobre la misma
+  // transferencia, las dos los pasan y el dinero se acredita DOS VECES —y el
+  // trigger sync_deuda_mgg_acopio infla la deuda con MGG igual. El comentario
+  // de esta función decía que el id global evitaba la doble acreditación, pero
+  // en este camino esa idempotencia no existía. Se marca primero, condicionado
+  // al estado real en la base, y solo el que gana acredita.
+  const { data: reserva, error: errReserva } = await supabase
+    .from('transferencias_inter')
+    .update({
+      aceptado_acopio: true,
+      destino_caja_id: cajaId,
+      destino_caja_nombre: input.cajaNombre ?? null,
+    })
+    .eq('id', row.id)
+    .eq('estado', 'por_confirmar')
+    .not('aceptado_acopio', 'is', true)
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) throw new Error('Esta transferencia ya fue aceptada por otro usuario.');
 
-  // 2) Marca SOLO la parte de Acopio (el mismo dinero entra por separado en Tesorería).
-  //    Recién cuando AMBOS módulos aceptaron pasa a 'recibida' + ACK.
-  const { error } = await supabase.from('transferencias_inter').update({
-    aceptado_acopio: true,
-    destino_caja_id: cajaId,
-    destino_caja_nombre: input.cajaNombre ?? null,
-  }).eq('id', row.id);
-  if (error) throw error;
+  // Entra a los movimientos (sube el saldo USD), grupo Movimientos de Caja,
+  // con la descripción fija de entrada externa. La deuda a MGG por este USD la
+  // registra crearMovimientoCaja, que acumula la cuenta por pagar incrementalmente.
+  try {
+    await crearMovimientoCaja({
+      fecha: new Date().toISOString().slice(0, 10),
+      descripcion: DESC_ENTRADA_EXTERNA,
+      usd_entregado: montoUsd,
+      clasif_grupo: 'movimientos_caja',
+      caja_id: cajaId,
+    }, input.actor, input.actorName ?? null);
+  } catch (e) {
+    // No se acreditó: se libera la marca para poder reintentar.
+    await supabase.from('transferencias_inter')
+      .update({ aceptado_acopio: false, destino_caja_id: null, destino_caja_nombre: null })
+      .eq('id', row.id).eq('aceptado_acopio', true);
+    throw e;
+  }
 
   // 3) ¿Ambos módulos ya aceptaron? (re-lee banderas frescas para evitar carreras)
   const { data: fresh } = await supabase.from('transferencias_inter')

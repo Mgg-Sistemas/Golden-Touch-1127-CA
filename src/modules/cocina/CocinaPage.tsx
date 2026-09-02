@@ -25,7 +25,21 @@ import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 import { MercadosHistoricoModal } from './MercadosHistoricoModal';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-function hoyISO(): string { return new Date().toISOString().slice(0, 10); }
+/**
+ * «Hoy» en la zona de la empresa (America/Caracas, UTC−4).
+ *
+ * GT-INT-07 · Antes era `toISOString()`, que da el día en UTC, mientras el
+ * formulario etiquetaba con la fecha local. Resultado: toda comida servida
+ * después de las 20:00 se corría un día. La cena del 2 a las 21:00 se guardaba
+ * como día 2 (bien) pero el botón «Hoy» del resumen ya pedía el 3, así que no
+ * aparecía en el total de su propio día. Mismo criterio que `hoyVE()` en
+ * acopio/caja.repository.ts.
+ */
+function hoyISO(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
 /** YYYY-MM-DD → DD/MM/YYYY (para etiquetas legibles). */
 function dmy(iso: string): string { const p = iso.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; }
 function inicioSemana(iso: string): string {
@@ -130,8 +144,8 @@ export function CocinaPage() {
 
   async function confirmarEliminar(m: CocinaMovimiento) {
     try {
-      await eliminarMovimientoCocina(m.id);
-      toast('Movimiento eliminado (el stock descontado no se repone automáticamente)', 'success');
+      await eliminarMovimientoCocina(m.id, actor, null);
+      toast('Movimiento eliminado · los víveres se devolvieron al inventario', 'success');
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
     finally { setAEliminar(null); }
@@ -160,7 +174,7 @@ export function CocinaPage() {
     if (!mercado) return;
     setCerrando(true);
     try {
-      const cerrado = await cerrarMercado(mercado, viveres, actor);
+      const cerrado = await cerrarMercado(mercado, actor);
       await descargarCocinaCierrePdf(cerrado);
       const destinos = emailCierre.split(/[;,]/).map((s) => s.trim()).filter(Boolean);
       if (destinos.length) {

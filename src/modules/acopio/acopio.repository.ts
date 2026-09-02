@@ -231,31 +231,57 @@ export async function cerrarRecepcion(id: string, actor: string, actorName?: str
   const cantidad = cantidadAStock(rec.lotes ?? []);
   if (cantidad <= 0) throw new Error('El peso recibido debe ser mayor que 0 para sumar stock.');
 
-  // 1) Entra al INVENTARIO (un solo movimiento por el total recibido).
-  const mov = await registrarMovimiento({
-    producto_id: rec.producto_id,
-    tipo: 'entrada',
-    delta: cantidad,
-    almacen: rec.almacen.trim(),
-    actor,
-    actor_name: actorName ?? null,
-    ref_tipo: 'acopio_recepcion',
-    ref_id: rec.id,
-    ref_codigo: rec.numero,
-    detalle: `Recepción ${rec.numero}${rec.aliado ? ` · Aliado ${rec.aliado}` : ''}${rec.centro_acopio ? ` · ${rec.centro_acopio}` : ''}`,
-  });
-
-  // 2) Marca la recepción como cerrada y guarda la traza del movimiento.
-  const { error } = await supabase
+  // ── Reserva atómica (GT-SIN-08) ────────────────────────────────────────────
+  // El `if (rec.estado !== 'abierta')` compara contra una lectura que ya puede
+  // estar vieja. Dos personas cerrando la misma recepción —o una sola que
+  // reintenta tras un corte de red— metían el mineral DOS VECES al inventario,
+  // y al anular se revertía una sola: quedaban kilos fantasma. Se cierra
+  // primero, condicionado al estado real, y solo el ganador toca el stock.
+  const { data: reserva, error: errReserva } = await supabase
     .from('acopio_recepciones')
     .update({
       estado: 'cerrada',
+      cerrada_por: actor,
+      cerrada_en: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .eq('estado', 'abierta')
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) throw new Error('La recepción ya fue cerrada o anulada por otro usuario.');
+
+  // Entra al INVENTARIO (un solo movimiento por el total recibido).
+  let mov: { id: string };
+  try {
+    mov = await registrarMovimiento({
+      producto_id: rec.producto_id,
+      tipo: 'entrada',
+      delta: cantidad,
+      almacen: rec.almacen.trim(),
+      actor,
+      actor_name: actorName ?? null,
+      ref_tipo: 'acopio_recepcion',
+      ref_id: rec.id,
+      ref_codigo: rec.numero,
+      detalle: `Recepción ${rec.numero}${rec.aliado ? ` · Aliado ${rec.aliado}` : ''}${rec.centro_acopio ? ` · ${rec.centro_acopio}` : ''}`,
+    });
+  } catch (e) {
+    // El mineral no entró: se reabre para poder reintentar.
+    await supabase.from('acopio_recepciones')
+      .update({ estado: 'abierta', cerrada_por: null, cerrada_en: null })
+      .eq('id', id).eq('estado', 'cerrada');
+    throw e;
+  }
+
+  // Guarda la traza del movimiento (el estado ya quedó fijado en la reserva).
+  const { error } = await supabase
+    .from('acopio_recepciones')
+    .update({
       mov_id: mov.id,
       mov_producto_id: rec.producto_id,
       mov_almacen: rec.almacen.trim(),
       mov_cantidad: cantidad,
-      cerrada_por: actor,
-      cerrada_en: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id);
@@ -272,22 +298,11 @@ export async function anularRecepcion(id: string, actor: string, actorName?: str
   if (!rec) throw new Error('Recepción no encontrada.');
   if (rec.estado === 'anulada') throw new Error('La recepción ya está anulada.');
 
-  if (rec.estado === 'cerrada' && rec.mov_producto_id && rec.mov_almacen && num(rec.mov_cantidad) > 0) {
-    await registrarMovimiento({
-      producto_id: rec.mov_producto_id,
-      tipo: 'salida',
-      delta: -num(rec.mov_cantidad),
-      almacen: rec.mov_almacen,
-      actor,
-      actor_name: actorName ?? null,
-      ref_tipo: 'acopio_recepcion_anulacion',
-      ref_id: rec.id,
-      ref_codigo: rec.numero,
-      detalle: `Anulación recepción ${rec.numero}`,
-    });
-  }
-
-  const { error } = await supabase
+  // ── Reserva atómica (GT-SIN-08) ────────────────────────────────────────────
+  // Simétrico al cierre: dos anulaciones concurrentes sacaban el mineral dos
+  // veces. Se anula primero de forma condicionada; solo el ganador revierte.
+  const estadoPrevio = rec.estado;
+  const { data: reserva, error: errReserva } = await supabase
     .from('acopio_recepciones')
     .update({
       estado: 'anulada',
@@ -295,8 +310,34 @@ export async function anularRecepcion(id: string, actor: string, actorName?: str
       anulada_en: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', id);
-  if (error) throw error;
+    .eq('id', id)
+    .neq('estado', 'anulada')
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) throw new Error('La recepción ya fue anulada por otro usuario.');
+
+  if (estadoPrevio === 'cerrada' && rec.mov_producto_id && rec.mov_almacen && num(rec.mov_cantidad) > 0) {
+    try {
+      await registrarMovimiento({
+        producto_id: rec.mov_producto_id,
+        tipo: 'salida',
+        delta: -num(rec.mov_cantidad),
+        almacen: rec.mov_almacen,
+        actor,
+        actor_name: actorName ?? null,
+        ref_tipo: 'acopio_recepcion_anulacion',
+        ref_id: rec.id,
+        ref_codigo: rec.numero,
+        detalle: `Anulación recepción ${rec.numero}`,
+      });
+    } catch (e) {
+      // No se pudo sacar el mineral: se restaura el estado anterior.
+      await supabase.from('acopio_recepciones')
+        .update({ estado: estadoPrevio, anulada_por: null, anulada_en: null })
+        .eq('id', id).eq('estado', 'anulada');
+      throw e;
+    }
+  }
   return (await getRecepcion(id))!;
 }
 

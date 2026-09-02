@@ -617,7 +617,9 @@ export async function editarNotasSolicitudFinalizada(
 /** Aprueba la solicitud (por_aprobar → aprobada). NO ejecuta el movimiento. */
 export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string): Promise<void> {
   if (s.estado !== 'por_aprobar') throw new Error('Solo se aprueban solicitudes por aprobar.');
-  const { error } = await supabase
+  // El `if` de arriba mira el objeto que este navegador tiene en pantalla, que
+  // puede estar viejo. La condición que vale es la del UPDATE.
+  const { data, error } = await supabase
     .from(SOL)
     .update({
       estado: 'aprobada',
@@ -625,8 +627,11 @@ export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string):
       aprobada_en: new Date().toISOString(),
       historial: appendHistorial(s, 'aprobada', actor),
     })
-    .eq('id', s.id);
+    .eq('id', s.id)
+    .eq('estado', 'por_aprobar')
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('La solicitud ya fue atendida por otro usuario. Actualizá la lista.');
 }
 
 /**
@@ -635,6 +640,33 @@ export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string):
  */
 export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string, actorName?: string | null): Promise<void> {
   if (s.estado !== 'aprobada') throw new Error('Solo se ejecutan solicitudes aprobadas.');
+
+  // ── Reserva atómica (GT-SIN-17) ────────────────────────────────────────────
+  // El `if` de arriba mira la copia que tiene ESTE navegador. Si dos personas
+  // pulsan «Ejecutar» a la vez, las dos lo pasan y el material sale dos veces.
+  // Por eso marcamos primero, condicionado al estado real en la base: gana una
+  // sola, y solo la ganadora mueve stock. Si el movimiento falla, se libera.
+  const { data: reserva, error: errReserva } = await supabase
+    .from(SOL)
+    .update({
+      estado: 'ejecutada',
+      ejecutada_por: actor,
+      ejecutada_en: new Date().toISOString(),
+      historial: appendHistorial(s, 'ejecutada', actor),
+    })
+    .eq('id', s.id)
+    .eq('estado', 'aprobada')
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) throw new Error('La solicitud ya fue ejecutada o cancelada por otro usuario.');
+
+  const liberarReserva = async () => {
+    await supabase
+      .from(SOL)
+      .update({ estado: 'aprobada', ejecutada_por: null, ejecutada_en: null })
+      .eq('id', s.id)
+      .eq('estado', 'ejecutada');
+  };
 
   // Renglones de material: la solicitud puede tener varios (items) o uno solo
   // (campos sueltos). Unificamos en una lista para ejecutar todos.
@@ -646,6 +678,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
 
   let movId: string | null = null;
   let movRef = '';
+  try {
   if (s.scope === 'salida' && s.tipo === 'material') {
     if (!itemsMat.length) throw new Error('La solicitud no tiene materiales.');
     // Cada renglón sale de SU almacén (o del de cabecera, para solicitudes viejas).
@@ -702,29 +735,36 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
   } else {
     throw new Error('Combinación de solicitud no soportada.');
   }
+  } catch (e) {
+    // El movimiento no se pudo completar: devolvemos la solicitud a 'aprobada'
+    // para que se pueda reintentar, en vez de dejarla marcada como ejecutada
+    // sin que el material haya salido.
+    await liberarReserva();
+    throw e;
+  }
 
+  // El estado ya quedó fijado en la reserva; acá solo se anota el movimiento.
   const { error } = await supabase
     .from(SOL)
-    .update({
-      estado: 'ejecutada',
-      ejecutada_por: actor,
-      ejecutada_en: new Date().toISOString(),
-      mov_id: movId,
-      mov_ref: movRef,
-      historial: appendHistorial(s, 'ejecutada', actor),
-    })
+    .update({ mov_id: movId, mov_ref: movRef })
     .eq('id', s.id);
   if (error) throw error;
 }
 
 export async function cancelarSolicitudSalida(s: SolicitudSalida, actor: string, motivo: string): Promise<void> {
   if (s.estado === 'ejecutada') throw new Error('No se puede cancelar una solicitud ya ejecutada.');
-  const { error } = await supabase
+  // `neq` en el propio UPDATE: si otro usuario la ejecutó entre que se pintó la
+  // pantalla y este clic, la cancelación no toca nada y avisamos, en vez de
+  // dejar la solicitud cancelada con el stock ya descontado.
+  const { data, error } = await supabase
     .from(SOL)
     .update({
       estado: 'cancelada',
       historial: appendHistorial(s, 'cancelada', actor, { motivo }),
     })
-    .eq('id', s.id);
+    .eq('id', s.id)
+    .neq('estado', 'ejecutada')
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('La solicitud ya fue ejecutada por otro usuario; no se puede cancelar.');
 }

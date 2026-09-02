@@ -865,6 +865,24 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
   const total = Math.round((subtotal - descuento + ivaCompra) * 100) / 100;
   if (total <= 0) throw new Error('La compra no tiene montos cargados.');
 
+  // ── Reserva atómica (GT-SIN-04) ────────────────────────────────────────────
+  // El `if (compra.estado === 'finalizada')` de arriba mira el objeto que este
+  // navegador tiene en pantalla. Si dos tesoreros pulsan «Pagar» sobre la misma
+  // compra, los dos lo pasan y los dos egresos DESCUENTAN LA CAJA: la factura se
+  // paga dos veces y el segundo egreso queda sin contrapartida. Se marca primero,
+  // condicionado al estado real; solo el que gana mueve plata. Mismo patrón que
+  // `reservarCierrePagoOrden` en pedidos.repository.ts.
+  const estadoPrevio = compra.estado;
+  const { data: reserva, error: errReserva } = await supabase
+    .from('compras_directas')
+    .update({ estado: 'finalizada' })
+    .eq('id', compra.id)
+    .neq('estado', 'finalizada')
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) throw new Error('Esta compra ya fue pagada por otro usuario.');
+
+  try {
   // 1) Egreso de la caja (valida saldo) → Tesorería / Libro Mayor.
   const concepto = `Compra directa · ${compra.codigo ?? compra.producto_nombre}`;
   const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
@@ -933,6 +951,17 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<void>
     })
     .eq('id', compra.id);
   if (error) throw error;
+  } catch (e) {
+    // No se pudo completar el pago: se libera la reserva para poder reintentar.
+    // (Si el egreso ya había salido, el error de Tesorería lo indica y queda su
+    //  movimiento en el libro; la compra vuelve a «Por pagar» para revisarla.)
+    await supabase
+      .from('compras_directas')
+      .update({ estado: estadoPrevio })
+      .eq('id', compra.id)
+      .eq('estado', 'finalizada');
+    throw e;
+  }
 
   // Retención → módulo Retenciones: se crea el registro vinculado a la compra directa.
   const retPct = Number(compra.retencion_pct) || 0;

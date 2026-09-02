@@ -29,7 +29,11 @@ function resolverRp(req: Request): { origin: string; rpID: string } | null {
   const origin = req.headers.get('Origin') ?? '';
   if (!origin) return null;
   const permitidos = (Deno.env.get('WEBAUTHN_ORIGINS') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (permitidos.length && !permitidos.includes(origin)) return null;
+  // GT-AUT-04 · Antes, con la variable sin definir la lista quedaba vacía y la
+  // condición no se evaluaba nunca: se aceptaba CUALQUIER origen. Ahora la falta
+  // de configuración rechaza, que es el lado seguro del error.
+  if (!permitidos.length) return null;
+  if (!permitidos.includes(origin)) return null;
   try { return { origin, rpID: new URL(origin).hostname }; } catch { return null; }
 }
 

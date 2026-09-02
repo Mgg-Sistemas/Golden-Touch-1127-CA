@@ -201,12 +201,32 @@ export async function registrarAbonoCuenta(input: {
   if (abErr) throw abErr;
 
   // 3) Actualiza la cuenta por pagar (abonado + estado).
-  const nuevoAbonado = round2((Number(c.abonado) || 0) + aplicado);
+  // ── GT-SIN-02 ──────────────────────────────────────────────────────────────
+  // Antes era `abonado = c.abonado + aplicado`, con `c` traído de la pantalla.
+  // Dos tesoreros abonando a la vez sacaban los DOS egresos de caja pero ambos
+  // escribían el mismo total: salían 2.000 y la deuda bajaba 1.000, y el
+  // proveedor quedaba como acreedor de plata ya cobrada.
+  // Ahora se recalcula sumando la tabla de abonos —que es la fuente de verdad y
+  // ya tiene la fila recién insertada— y se escribe con `lte` para que una
+  // lectura vieja nunca pueda hacer RETROCEDER el abonado.
+  const { data: filasAbonos, error: sumErr } = await supabase
+    .from(CXP_ABONOS).select('monto').eq('cuenta_id', c.id);
+  if (sumErr) throw sumErr;
+  const nuevoAbonado = round2((filasAbonos ?? []).reduce((a, r) => a + (Number(r.monto) || 0), 0));
   const estado: EstadoCxP = nuevoAbonado >= c.monto - 0.01 ? 'saldada' : 'abierta';
-  const { data: cu, error: cuErr } = await supabase.from(CXP)
+  const { data: cuOk, error: cuErr } = await supabase.from(CXP)
     .update({ abonado: nuevoAbonado, estado, updated_at: new Date().toISOString() })
-    .eq('id', c.id).select('*').single();
+    .eq('id', c.id)
+    .lte('abonado', nuevoAbonado)
+    .select('*').maybeSingle();
   if (cuErr) throw cuErr;
+  // Si `lte` descartó la escritura, otro usuario ya dejó un total mayor (más
+  // fresco): se relee y se devuelve ese, en vez de pisarlo con el nuestro.
+  let cu = cuOk;
+  if (!cu) {
+    const { data: actual } = await supabase.from(CXP).select('*').eq('id', c.id).single();
+    cu = actual;
+  }
 
   // 4) Si se pagó de más, el excedente queda como cuenta por COBRAR (incremental).
   if (exceso > 0.01) {

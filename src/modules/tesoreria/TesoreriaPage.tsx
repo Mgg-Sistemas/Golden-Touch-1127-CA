@@ -3867,7 +3867,10 @@ function NuevaCuentaForm({ btnLabel, onCrear }: {
   const reloadCp = useCallback(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
   useEffect(() => { reloadCp(); }, [reloadCp]);
   useEffect(() => { listMonedas().then((m) => setMonedas(m.length ? m : [...MONEDAS_CAJA])).catch(() => setMonedas([...MONEDAS_CAJA])); }, []);
-  useRealtime(['contrapartes'], () => { reloadCp(); });
+  // GT-INT-08 · La tabla se llama `tesoreria_contrapartes`. Con el nombre viejo el
+  // canal no existía y nunca disparaba: quien tenía el selector abierto no veía las
+  // contrapartes que otro daba de alta y terminaba creando el duplicado.
+  useRealtime(['tesoreria_contrapartes'], () => { reloadCp(); });
   const opts = useMemo(() => contrapartes.filter((c) => c.tipo === tipo).map((c) => c.nombre), [contrapartes, tipo]);
 
   async function crear() {

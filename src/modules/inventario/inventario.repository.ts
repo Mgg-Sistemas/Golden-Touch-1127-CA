@@ -345,10 +345,16 @@ export async function updateProducto(
   // inicial. Solo se dispara cuando el precio realmente cambió.
   if (patch.precio !== undefined && Number.isFinite(Number(patch.precio)) && Number(patch.precio) !== precioAnterior) {
     const nuevoCosto = Math.round((Number(patch.precio) || 0) * 10000) / 10000;
+    // GT-INT-13 · Acotado al almacén del producto. Sin el filtro, corregir el
+    // «Precio UND» de la ficha aplastaba el costo promedio REAL de todos los
+    // almacenes a la vez —promedios construidos con varias compras— y ese costo
+    // histórico no se puede reconstruir salvo recorriendo el kardex a mano.
+    const almacenProd = (data as { almacen?: string | null }).almacen ?? 'General';
     const { error: eEx } = await supabase
       .from('existencias')
       .update({ costo_promedio: nuevoCosto, updated_at: new Date().toISOString() })
-      .eq('producto_id', id);
+      .eq('producto_id', id)
+      .eq('almacen', almacenProd);
     if (eEx) throw eEx;
   }
   return data as Producto;
