@@ -470,10 +470,15 @@ export interface BigbagRow {
 }
 
 /** Bigbags de una pesada. `pesadaId = null` (por defecto) = set de trabajo sin guardar. */
-export async function listBigbags(pesadaId: string | null = null): Promise<BigbagRow[]> {
+export async function listBigbags(
+  pesadaId: string | null = null,
+  creadoPor?: string | null,
+): Promise<BigbagRow[]> {
   let q = supabase.from(TABLE_BB).select('*')
     .order('numero', { ascending: true }).order('created_at', { ascending: true });
   q = pesadaId == null ? q.is('pesada_id', null) : q.eq('pesada_id', pesadaId);
+  // GT-SIN-11 · Acota el set de trabajo a quien lo cargó (lo usa guardarPesada).
+  if (creadoPor) q = q.eq('created_by', creadoPor);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as BigbagRow[];
@@ -645,11 +650,26 @@ export async function sincronizarHumedadFinalPorProcedencia(input: { actor: stri
     arr.push(b);
     grupos.set(key, arr);
   }
-  const { data: exist } = await supabase.from(TABLE_HFIN).select('id, procedencia').eq('auto', true);
+  // ── GT-SIN-10 · De-duplicación defensiva ───────────────────────────────────
+  // Esta función se dispara desde el realtime de bigbags/pesadas, o sea EN TODAS
+  // las pantallas abiertas a la vez. Las tres leían que no existía la fila de una
+  // procedencia y las tres insertaban: quedaban 3 filas AUTO de la misma
+  // procedencia. La merma final se triplicaba y arrastraba la humedad adicional,
+  // el SnO₂ final y la tasa final — que es el precio unitario con el que la
+  // casiterita entra al inventario.
+  // Acá se conserva la más vieja de cada procedencia y se borran las repetidas,
+  // así el arreglo además repara los duplicados que ya estén en la base.
+  const { data: exist } = await supabase
+    .from(TABLE_HFIN).select('id, procedencia').eq('auto', true)
+    .order('created_at', { ascending: true });
   const byProc = new Map<string, string>();
+  const sobrantes: string[] = [];
   for (const r of (exist ?? []) as Array<{ id: string; procedencia: string | null }>) {
-    byProc.set((r.procedencia ?? '').toUpperCase(), r.id);
+    const key = (r.procedencia ?? '').toUpperCase();
+    if (byProc.has(key)) sobrantes.push(r.id);   // repetida: se descarta
+    else byProc.set(key, r.id);
   }
+  if (sobrantes.length) await supabase.from(TABLE_HFIN).delete().in('id', sobrantes);
   const vistos = new Set<string>();
   for (const [proc, rows] of grupos) {
     vistos.add(proc);
@@ -701,8 +721,20 @@ export async function listPesadas(): Promise<PesadaRow[]> {
 
 /** Guarda el set de trabajo (bigbags sin pesada) como una pesada del histórico. */
 export async function guardarPesada(input: { actor: string; actorName?: string | null; observacion?: string | null }): Promise<PesadaRow> {
-  const trabajo = await listBigbags(null);
-  if (!trabajo.length) throw new Error('No hay bigbags para guardar.');
+  // ── GT-SIN-11 ──────────────────────────────────────────────────────────────
+  // Antes tomaba TODOS los big bags sin pesada, de cualquier usuario: si dos
+  // personas cargaban en paralelo (12 de una procedencia y 8 de otra), el
+  // primero que guardaba se llevaba los 20 en UNA sola pesada —sumando netos de
+  // ambas procedencias— y le vaciaba la pantalla al otro. Y ese neto seco
+  // inflado es el que entra al inventario como casiterita al cerrar.
+  // Ahora cada quien guarda los suyos.
+  const trabajo = await listBigbags(null, input.actor);
+  if (!trabajo.length) {
+    const ajenos = await listBigbags(null);
+    throw new Error(ajenos.length
+      ? 'No cargaste ningún big bag. Los que hay en pantalla los está cargando otro usuario y los guarda él.'
+      : 'No hay bigbags para guardar.');
+  }
   const tipo = tipoValido(trabajo[0]?.tipo);
   const t = totalesBigbags(trabajo);
   const { data, error } = await supabase.from(TABLE_PESADAS).insert({
