@@ -558,6 +558,8 @@ export function InventarioPage() {
       {modal.kind === 'import' && (
         <ImportarExcelModal
           analisis={modal.analisis}
+          actor={productoActor}
+          actorName={actorName}
           onClose={() => setModal({ kind: 'none' })}
           onImportado={() => { void reload(); }}
         />
