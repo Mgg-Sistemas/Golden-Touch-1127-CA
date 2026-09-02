@@ -4,6 +4,8 @@
 //
 // Secrets (compartidos): BREVO_API_KEY · BREVO_FROM_EMAIL · BREVO_FROM_NAME
 
+import { exigirSesion } from '../_shared/auth.ts';
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -21,6 +23,12 @@ function escapeHtml(s: string): string {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  // GT-EXT-03 · Sesión obligatoria. Sin esto la función es un relay de correo
+  // abierto: manda cualquier PDF a cualquier destinatario desde el dominio
+  // verificado de la empresa, con SPF y DKIM válidos.
+  const sesion = await exigirSesion(req);
+  if (sesion instanceof Response) return sesion;
 
   let payload: { pdf_base64?: string; to_email?: string; codigo?: string; items?: number; total?: number };
   try { payload = await req.json(); } catch { return json({ error: 'Body JSON inválido' }, 400); }

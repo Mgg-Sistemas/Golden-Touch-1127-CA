@@ -216,10 +216,18 @@ export async function computeResumen(
  * el mercado cerrado (con resumen/totales) para el reporte.
  */
 export async function cerrarMercado(
-  m: Mercado, viveres: Producto[], actorEmail: string, nota?: string | null,
+  m: Mercado, actorEmail: string, nota?: string | null,
 ): Promise<Mercado> {
   if (m.estado !== 'abierto') throw new Error('El mercado ya está cerrado.');
   const cierre = new Date().toISOString();
+
+  // GT-SIN-12 · Los víveres se releen de la BASE, no se reciben del componente.
+  // Antes el `queda` y el saldo final salían del array que la pantalla tenía en
+  // memoria, mientras el consumo sí se leía fresco: el mismo cálculo mezclaba
+  // dos instantes. Si alguien registraba el almuerzo con el diálogo de cierre
+  // abierto (y la pestaña en segundo plano no refresca), el ciclo siguiente
+  // arrancaba con kilos que ya no existían y el informe no cerraba su cuenta.
+  const viveres = await listViveres();
   const { items, totales } = await computeResumen(m, viveres, cierre);
   const saldoFinal = snapshotViveres(viveres).filter((s) => s.cantidad > 0);
 
@@ -230,10 +238,20 @@ export async function cerrarMercado(
   if (error) throw error;
 
   // Abre el siguiente ciclo arrancando con lo que quedó (saldo inicial = saldo final).
-  const numero = await nextNumeroMercado();
-  await supabase.from(TABLE).insert({
-    numero, estado: 'abierto', inicio_at: cierre, saldo_inicial: saldoFinal,
-  });
+  // Si esto falla, se reabre el ciclo anterior: quedarse sin NINGÚN mercado
+  // abierto deja la pantalla de Cocina sin ciclo y sin forma de registrar.
+  try {
+    const numero = await nextNumeroMercado();
+    const { error: eIns } = await supabase.from(TABLE).insert({
+      numero, estado: 'abierto', inicio_at: cierre, saldo_inicial: saldoFinal,
+    });
+    if (eIns) throw eIns;
+  } catch (e) {
+    await supabase.from(TABLE)
+      .update({ estado: 'abierto', cierre_at: null, cerrado_por: null })
+      .eq('id', m.id).eq('estado', 'cerrado');
+    throw e;
+  }
   return normalizar(data as Record<string, unknown>);
 }
 

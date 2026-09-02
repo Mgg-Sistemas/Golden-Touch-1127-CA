@@ -115,8 +115,12 @@ export interface CocinaFiltros {
 export async function listMovimientosCocina(filtros: CocinaFiltros = {}): Promise<CocinaMovimiento[]> {
   let q = supabase.from(TABLE).select('*').order('at', { ascending: false });
   if (filtros.tipo) q = q.eq('tipo_comida', filtros.tipo);
-  if (filtros.desde) q = q.gte('at', `${filtros.desde}T00:00:00`);
-  if (filtros.hasta) q = q.lte('at', `${filtros.hasta}T23:59:59`);
+  // GT-INT-07 · Los límites llevan el offset de Caracas (−04:00) explícito. Sin
+  // él, `at` es timestamptz y Postgres interpretaba los literales como UTC: los
+  // cortes caían a medianoche UTC (8 PM de Caracas) y la cena de la noche se
+  // contaba en el día siguiente.
+  if (filtros.desde) q = q.gte('at', `${filtros.desde}T00:00:00-04:00`);
+  if (filtros.hasta) q = q.lte('at', `${filtros.hasta}T23:59:59.999-04:00`);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as CocinaMovimiento[];
@@ -210,20 +214,13 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
   if (!items.length) throw new Error('Agregá al menos un víver con cantidad.');
   if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indicá cuántos platos se realizaron (mayor que 0).');
 
-  // 1) Descontar cada víver del inventario (consumo) desde el/los almacén(es) que
-  //    tengan stock (no del «almacén por defecto» del producto, que puede estar vacío).
-  for (const it of items) {
-    await consumirDeInventario({
-      productoId: it.producto_id,
-      cantidad: Math.abs(Number(it.cantidad)),
-      almacenPreferido: it.almacen ?? null,
-      actor: input.actor,
-      actorName: input.actorName ?? null,
-      detalle: `Consumo cocina · ${labelTipoComida(input.tipoComida)} · ${it.sku} ${it.nombre}`,
-    });
-  }
-
-  // 2) Guardar el registro de cocina.
+  // ── GT-SIN-13 · El REGISTRO va primero, el descuento después ────────────────
+  // Antes se descontaban los N víveres y recién al final se insertaba el
+  // registro. Si se cortaba la conexión a mitad (o fallaba el insert), quedaban
+  // víveres consumidos y NINGÚN movimiento de cocina que lo explicara —y encima
+  // los descuentos salían sin referencia, así que no había forma de revertirlos.
+  // Ahora el registro existe antes de tocar el inventario y cada descuento lleva
+  // su `refId`/`refCodigo`, igual que ya hacía la edición.
   const valorTotal = round2(items.reduce((a, i) => a + Number(i.cantidad) * Number(i.precio), 0));
   const codigo = await nextCodigoCocina();
   const { data, error } = await supabase.from(TABLE).insert({
@@ -239,7 +236,58 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
     actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) throw error;
-  return data as CocinaMovimiento;
+  const mov = data as CocinaMovimiento;
+
+  // Descontar cada víver del inventario (consumo) desde el/los almacén(es) que
+  // tengan stock (no del «almacén por defecto» del producto, que puede estar vacío).
+  const aplicados: CocinaItem[] = [];
+  try {
+    for (const it of items) {
+      await consumirDeInventario({
+        productoId: it.producto_id,
+        cantidad: Math.abs(Number(it.cantidad)),
+        almacenPreferido: it.almacen ?? null,
+        actor: input.actor,
+        actorName: input.actorName ?? null,
+        detalle: `Consumo cocina · ${labelTipoComida(input.tipoComida)} · ${it.sku} ${it.nombre}`,
+        refId: mov.id,
+        refCodigo: codigo,
+      });
+      aplicados.push(it);
+    }
+  } catch (e) {
+    // Se cortó a mitad: se reintegra lo ya descontado y se borra el registro,
+    // para que el ciclo de mercado no quede con un consumo a medias.
+    for (const it of aplicados) {
+      await reintegrarAlInventario({
+        productoId: it.producto_id, cantidad: Math.abs(Number(it.cantidad)),
+        almacenPreferido: it.almacen ?? null, actor: input.actor, actorName: input.actorName ?? null,
+        detalle: `Reverso consumo cocina ${codigo} · ${it.sku} ${it.nombre}`,
+        refId: mov.id, refCodigo: codigo,
+      }).catch(() => { /* mejor esfuerzo: el registro se borra igual */ });
+    }
+    await supabase.from(TABLE).delete().eq('id', mov.id);
+    throw e;
+  }
+  return mov;
+}
+
+/** Devuelve `cantidad` de un víver al inventario (ajuste +), al almacén con más stock. */
+async function reintegrarAlInventario(o: {
+  productoId: string; cantidad: number; almacenPreferido?: string | null;
+  actor: string; actorName?: string | null; detalle: string;
+  refId?: string | null; refCodigo?: string | null;
+}): Promise<void> {
+  const cant = round2(Math.abs(o.cantidad));
+  if (cant <= 0) return;
+  const fuentes = await almacenesConStock(o.productoId, o.almacenPreferido ?? null);
+  await registrarMovimiento({
+    producto_id: o.productoId, tipo: 'ajuste', delta: cant,
+    almacen: fuentes[0]?.almacen ?? o.almacenPreferido ?? null,
+    actor: o.actor, actor_name: o.actorName ?? null,
+    ref_tipo: 'cocina', ref_id: o.refId ?? null, ref_codigo: o.refCodigo ?? null,
+    detalle: o.detalle,
+  });
 }
 
 export interface ActualizarMovimientoCocinaInput {
@@ -324,9 +372,38 @@ export async function actualizarMovimientoCocina(id: string, input: ActualizarMo
   return data as CocinaMovimiento;
 }
 
-export async function eliminarMovimientoCocina(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
+/**
+ * Elimina un movimiento de cocina y DEVUELVE los víveres al inventario.
+ *
+ * GT-SIN-14 · Antes solo borraba la fila: el consumo quedaba aplicado para
+ * siempre. Era asimétrico —editar sí reconcilia por diferencia y reintegra— y
+ * además rompía la cuenta del ciclo de mercado, porque el consumo se calcula
+ * sobre los registros vivos: al borrar salía del informe pero el stock no
+ * volvía, y ese descuadre quedaba congelado en el resumen del ciclo.
+ *
+ * El borrado va primero y hace de reserva: `delete … returning` entrega la fila
+ * una sola vez, así que dos personas borrando a la vez no reintegran el doble.
+ */
+export async function eliminarMovimientoCocina(
+  id: string, actor = 'sistema', actorName: string | null = null,
+): Promise<void> {
+  const { data, error } = await supabase.from(TABLE).delete().eq('id', id).select('*');
   if (error) throw error;
+  const mov = (data ?? [])[0] as CocinaMovimiento | undefined;
+  if (!mov) return; // ya lo había borrado otro usuario
+
+  const items = Array.isArray(mov.items) ? (mov.items as CocinaItem[]) : [];
+  for (const it of items) {
+    if (!it.producto_id || !(Number(it.cantidad) > 0)) continue;
+    await reintegrarAlInventario({
+      productoId: it.producto_id,
+      cantidad: Math.abs(Number(it.cantidad)),
+      almacenPreferido: it.almacen ?? null,
+      actor, actorName,
+      detalle: `Reverso por eliminación · cocina ${mov.codigo ?? ''} · ${it.sku} ${it.nombre}`.trim(),
+      refId: mov.id, refCodigo: mov.codigo ?? null,
+    });
+  }
 }
 
 /* ───────────── Resumen / consumo ───────────── */

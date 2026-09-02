@@ -282,7 +282,26 @@ export async function cerrarContrato(id: string, actor: string, actorName?: stri
   const obsConMesa = aplicarMaterialDeMesa(c.observaciones, c.mesa_peso_mojado ?? null);
 
   const cantidad = Number(c.kg_seco_limpio) || 0;
+
+  // ── Reserva atómica (GT-SIN-20) ────────────────────────────────────────────
+  // El `if (c.estado === 'cerrado') return` de arriba mira una lectura que ya
+  // puede estar vieja. Si dos personas cierran el mismo contrato a la vez, la
+  // casiterita entra dos veces — y como `mov_id` guarda solo el ÚLTIMO
+  // movimiento, al reabrir se revierte una sola: quedan kg fantasma para
+  // siempre, que después viajan a MGG por el puente. Por eso el cambio de
+  // estado ES la reserva: gana uno solo, y solo ese toca el inventario.
+  const cerradoAt = new Date().toISOString();
+  const { data: reserva, error: errReserva } = await supabase
+    .from('acopio_contratos')
+    .update({ estado: 'cerrado', cerrado_at: cerradoAt, cerrado_por: actor, observaciones: obsConMesa })
+    .eq('id', id)
+    .eq('estado', 'activo')
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) return; // otro usuario lo cerró primero: idempotente
+
   let movId: string | null = null, movProductoId: string | null = null, movAlmacen: string | null = null;
+  try {
   if (cantidad > 0) {
     movProductoId = await casiteritaProductoId();
     movAlmacen = CASITERITA_ALMACEN;
@@ -302,10 +321,17 @@ export async function cerrarContrato(id: string, actor: string, actorName?: stri
     });
     movId = mov.id;
   }
+  } catch (e) {
+    // No entró la casiterita: se devuelve el contrato a 'activo' para reintentar.
+    await supabase.from('acopio_contratos')
+      .update({ estado: 'activo', cerrado_at: null, cerrado_por: null })
+      .eq('id', id).eq('estado', 'cerrado');
+    throw e;
+  }
+
+  // El estado ya quedó fijado en la reserva; acá solo se anota la traza del movimiento.
   const { error: uErr } = await supabase.from('acopio_contratos').update({
-    estado: 'cerrado', cerrado_at: new Date().toISOString(), cerrado_por: actor,
     mov_id: movId, mov_producto_id: movProductoId, mov_almacen: movAlmacen, mov_cantidad: cantidad,
-    observaciones: obsConMesa,
   }).eq('id', id);
   if (uErr) throw uErr;
 }
@@ -314,17 +340,38 @@ export async function cerrarContrato(id: string, actor: string, actorName?: stri
 export async function reabrirContrato(id: string, actor: string, actorName?: string | null): Promise<void> {
   const { data, error } = await supabase
     .from('acopio_contratos')
-    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad')
+    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad, cerrado_at, cerrado_por')
     .eq('id', id).single();
   if (error) throw error;
-  const c = data as ContratoMov;
+  const c = data as ContratoMov & { cerrado_at: string | null; cerrado_por: string | null };
   if (c.estado === 'activo') return;
-  await revertirEntradaCasiterita(c, actor, actorName ?? null, 'contrato_produccion_reapertura');
-  const { error: uErr } = await supabase.from('acopio_contratos').update({
-    estado: 'activo', cerrado_at: null, cerrado_por: null,
-    mov_id: null, mov_producto_id: null, mov_almacen: null, mov_cantidad: null,
-  }).eq('id', id);
-  if (uErr) throw uErr;
+
+  // ── Reserva atómica (GT-SIN-20) ────────────────────────────────────────────
+  // Simétrico al cierre: dos reaperturas concurrentes descontarían el doble.
+  // Se abre primero de forma condicionada; solo el que gana revierte el stock.
+  const { data: reserva, error: errReserva } = await supabase
+    .from('acopio_contratos')
+    .update({
+      estado: 'activo', cerrado_at: null, cerrado_por: null,
+      mov_id: null, mov_producto_id: null, mov_almacen: null, mov_cantidad: null,
+    })
+    .eq('id', id)
+    .eq('estado', 'cerrado')
+    .select('id');
+  if (errReserva) throw errReserva;
+  if (!reserva?.length) return; // otro usuario ya lo reabrió
+
+  try {
+    await revertirEntradaCasiterita(c, actor, actorName ?? null, 'contrato_produccion_reapertura');
+  } catch (e) {
+    // No se pudo sacar la casiterita: se restaura el cierre tal como estaba.
+    await supabase.from('acopio_contratos').update({
+      estado: 'cerrado', cerrado_at: c.cerrado_at, cerrado_por: c.cerrado_por,
+      mov_id: c.mov_id, mov_producto_id: c.mov_producto_id,
+      mov_almacen: c.mov_almacen, mov_cantidad: c.mov_cantidad,
+    }).eq('id', id).eq('estado', 'activo');
+    throw e;
+  }
 }
 
 /** Archiva / desarchiva un contrato en Históricos (no toca inventario ni estado). */
@@ -334,14 +381,19 @@ export async function setContratoHistorico(id: string, historico: boolean): Prom
 }
 
 export async function eliminarContrato(id: string, actor = 'sistema', actorName: string | null = null): Promise<void> {
-  // Si estaba cerrado, revertimos primero la casiterita que había sumado al inventario.
-  const { data } = await supabase
+  // GT-SIN-20 · El borrado ES la reserva: `delete … returning` devuelve la fila
+  // una sola vez, así que dos borrados concurrentes no pueden revertir el doble.
+  // Antes se revertía primero y se borraba después, que es el orden inseguro.
+  const { data, error } = await supabase
     .from('acopio_contratos')
-    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad')
-    .eq('id', id).maybeSingle();
-  if (data) await revertirEntradaCasiterita(data as ContratoMov, actor, actorName, 'contrato_produccion_eliminacion').catch(() => {});
-  const { error } = await supabase.from('acopio_contratos').delete().eq('id', id);
+    .delete()
+    .eq('id', id)
+    .select('numero, estado, kg_seco_limpio, mov_id, mov_producto_id, mov_almacen, mov_cantidad');
   if (error) throw error;
+  const fila = data?.[0];
+  if (!fila) return; // ya lo había borrado otro usuario
+  // Si estaba cerrado, sacamos del inventario la casiterita que había sumado.
+  await revertirEntradaCasiterita(fila as ContratoMov, actor, actorName, 'contrato_produccion_eliminacion').catch(() => {});
 }
 
 /** Resumen para las tarjetas de Producción: contratos activos + KG de Casiterita. */

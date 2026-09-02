@@ -83,12 +83,49 @@ export async function registrarGasto(input: {
   const monedaPago = (input.moneda ?? caja.moneda) as string;
   const cuentaSel: CuentaCaja = (input.cuenta ?? 'general') as CuentaCaja;
   const { data: saldoRow } = await supabase.from(SALDOS)
-    .select('id, saldo').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
+    .select('id').eq('caja_id', input.cajaId).eq('cuenta', cuentaSel).eq('moneda', monedaPago).maybeSingle();
   const usaSaldos = !!saldoRow;
-  const saldoAntes = usaSaldos ? (Number(saldoRow!.saldo) || 0) : (Number(caja.saldo) || 0);
-  if (monto > saldoAntes)
-    throw new Error(`Saldo insuficiente en ${caja.nombre}${cuentaSel !== 'general' ? ` (${cuentaSel})` : ''}. Disponible: ${saldoAntes} ${monedaPago}.`);
-  const saldoDespues = round2(saldoAntes - monto);
+
+  // ── Descuento ATÓMICO (GT-SIN-01) ──────────────────────────────────────────
+  // Antes esto leía el saldo, restaba en JavaScript y escribía el resultado.
+  // Dos tesoreras registrando un gasto con segundos de diferencia leían el mismo
+  // saldo y la segunda PISABA a la primera: quedaban dos salidas en el libro y
+  // un saldo que solo descontaba una. Ahora el descuento lo hace la base con
+  // lock de la fila, y valida fondos del lado del servidor (no del navegador).
+  let saldoAntes: number;
+  let saldoDespues: number;
+  if (usaSaldos) {
+    const { data: r, error: eSaldo } = await supabase.rpc('aplicar_saldo_divisa', {
+      p_caja_id: input.cajaId, p_cuenta: cuentaSel, p_moneda: monedaPago,
+      p_delta: -monto, p_permitir_negativo: false,
+    });
+    if (eSaldo) throw new Error(eSaldo.message || `Saldo insuficiente en ${caja.nombre}${cuentaSel !== 'general' ? ` (${cuentaSel})` : ''}.`);
+    const res = r as { saldo_antes: number; saldo_despues: number };
+    saldoAntes = Number(res.saldo_antes) || 0;
+    saldoDespues = Number(res.saldo_despues) || 0;
+  } else {
+    const { data: r, error: eSaldo } = await supabase.rpc('aplicar_saldo_caja', {
+      p_caja_id: input.cajaId, p_delta: -monto, p_permitir_negativo: false,
+    });
+    if (eSaldo) throw new Error(eSaldo.message || `Saldo insuficiente en ${caja.nombre}.`);
+    const res = r as { saldo_antes: number; saldo_despues: number };
+    saldoAntes = Number(res.saldo_antes) || 0;
+    saldoDespues = Number(res.saldo_despues) || 0;
+  }
+
+  /** Devuelve la plata a la caja si el asiento en el libro no se puede escribir. */
+  const revertirSaldo = async () => {
+    if (usaSaldos) {
+      await supabase.rpc('aplicar_saldo_divisa', {
+        p_caja_id: input.cajaId, p_cuenta: cuentaSel, p_moneda: monedaPago,
+        p_delta: monto, p_permitir_negativo: true,
+      });
+    } else {
+      await supabase.rpc('aplicar_saldo_caja', {
+        p_caja_id: input.cajaId, p_delta: monto, p_permitir_negativo: true,
+      });
+    }
+  };
 
   const { data, error } = await supabase.from(LIBRO).insert({
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: monedaPago,
@@ -103,14 +140,11 @@ export async function registrarGasto(input: {
     cuenta: usaSaldos ? cuentaSel : null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
-  if (error) throw error;
-
-  if (usaSaldos) {
-    const { error: uErr } = await supabase.from(SALDOS).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', saldoRow!.id);
-    if (uErr) throw uErr;
-  } else {
-    const { error: uErr } = await supabase.from(TABLE).update({ saldo: saldoDespues, updated_at: new Date().toISOString() }).eq('id', input.cajaId);
-    if (uErr) throw uErr;
+  if (error) {
+    // La plata ya salió de la caja pero el asiento no se pudo escribir: se
+    // devuelve, para no dejar un descuento sin movimiento que lo explique.
+    await revertirSaldo();
+    throw error;
   }
   return data as MovimientoCaja;
 }

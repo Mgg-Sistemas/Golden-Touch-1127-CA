@@ -443,13 +443,6 @@ export async function registrarEntrada(input: {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const costo = Math.max(0, num(input.costoLitro));
-  const t = await getTanque(input.tanqueId);
-
-  // PMP: la entrada se valoriza a SU costo de compra (no a la tasa vieja). El nuevo valor
-  // y litros del tanque dan la tasa promedio ponderada: tasa = (valor + litros×costo) / (litros).
-  const saldoL = num(t.saldo_litros) + litros;
-  const saldoU = num(t.saldo_usd) + litros * costo;
-  const tasa = saldoL > 0 ? saldoU / saldoL : costo;
 
   await insertarMovimiento({
     ...campos(input.campos ?? {}),
@@ -460,7 +453,14 @@ export async function registrarEntrada(input: {
     created_by: input.actor,
     actor_name: input.actorName ?? null,
   });
-  await aplicarSaldoTanque(input.tanqueId, saldoL, saldoU, tasa);
+  // GT-SIN-19 · El saldo se RECALCULA desde el libro, no se escribe un absoluto
+  // calculado en el navegador. Antes, dos despachadores cargando en el mismo
+  // minuto leían los mismos litros y el segundo pisaba al primero: quedaban los
+  // dos movimientos en el libro y un encabezado que solo descontaba uno —el
+  // descuadre que la conciliación semanal debería detectar, generado solo.
+  // El recálculo recorre todos los movimientos y rearma el PMP, así que
+  // converge aunque dos personas registren a la vez.
+  await recomputarTanque(input.tanqueId);
 }
 
 /** USO: el equipo consume combustible del tanque (al costo promedio actual). */
@@ -485,7 +485,7 @@ export async function registrarUso(input: {
     created_by: input.actor,
     actor_name: input.actorName ?? null,
   });
-  await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
+  await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
 }
 
 /** MERMA: pérdida del tanque (evaporación, fuga, descuadre). Descuenta litros
@@ -511,7 +511,7 @@ export async function registrarMerma(input: {
     created_by: input.actor,
     actor_name: input.actorName ?? null,
   });
-  await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
+  await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
 }
 
 /** RETORNO: combustible que VUELVE al tanque (entra al saldo a la tasa vigente,
@@ -537,7 +537,7 @@ export async function registrarRetorno(input: {
     created_by: input.actor,
     actor_name: input.actorName ?? null,
   });
-  await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) + litros, num(t.saldo_usd) + litros * tasa, tasa);
+  await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
 }
 
 /**
@@ -568,15 +568,11 @@ export async function registrarTraslado(input: {
     created_by: input.actor,
     actor_name: input.actorName ?? null,
   });
-  await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
+  await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
 
   // Si el traslado va a otro tanque, lo acreditamos como ENTRADA en el destino y
   // vinculamos ambas filas (mov_vinculado_id) para que el borrado revierta los dos tanques.
   if (input.tanqueDestinoId) {
-    const d = await getTanque(input.tanqueDestinoId);
-    const saldoL = num(d.saldo_litros) + litros;
-    const saldoU = num(d.saldo_usd) + litros * tasa;
-    const tasaDest = saldoL > 0 ? saldoU / saldoL : tasa;
     const movEntrada = await insertarMovimiento({
       ...campos({ ...input.campos, observacion: `Traslado desde ${t.nombre}${input.campos?.observacion ? ' · ' + input.campos.observacion : ''}` }),
       tanque_id: input.tanqueDestinoId,
@@ -587,7 +583,7 @@ export async function registrarTraslado(input: {
       created_by: input.actor,
       actor_name: input.actorName ?? null,
     });
-    await aplicarSaldoTanque(input.tanqueDestinoId, saldoL, saldoU, tasaDest);
+    await recomputarTanque(input.tanqueDestinoId); // GT-SIN-19 · saldo recalculado desde el libro
     const { error: vinErr } = await supabase.from('combustible_tanque_movimientos')
       .update({ mov_vinculado_id: movEntrada.id }).eq('id', movTraslado.id);
     if (vinErr) throw vinErr;
@@ -629,7 +625,7 @@ export async function registrarTrasladoMGG(input: {
     created_by: input.actor,
     actor_name: input.actorName ?? null,
   });
-  await aplicarSaldoTanque(input.tanqueId, num(t.saldo_litros) - litros, num(t.saldo_usd) - litros * tasa, tasa);
+  await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
 
   // 2. Registra la transferencia saliente (contrato compartido con MGG).
   const { data: row, error: insErr } = await supabase.from('transferencias_combustible_inter').insert({
@@ -674,19 +670,11 @@ export async function listTransferenciasCombustible(): Promise<TransferenciaComb
   return (data ?? []) as TransferenciaCombustibleInter[];
 }
 
-/** Revierte el efecto de UNA fila en el saldo de su tanque (sin borrarla). */
-async function revertirSaldoMovimiento(mov: { tanque_id: string; tipo: string; litros: number | null; monto_usd?: number | null }): Promise<void> {
-  const t = await getTanque(mov.tanque_id);
-  const litros = num(mov.litros);
-  const monto = num(mov.monto_usd);
-  let saldoL = num(t.saldo_litros);
-  let saldoU = num(t.saldo_usd);
-  // entrada/retorno SUMARON al tanque → para revertir se restan; el resto (uso/traslado/merma) restaron → se suman.
-  if (mov.tipo === 'entrada' || mov.tipo === 'retorno') { saldoL -= litros; saldoU -= monto; }
-  else { saldoL += litros; saldoU += monto; }
-  const tasa = saldoL > 0 ? saldoU / saldoL : num(t.tasa_usd_litro);
-  await aplicarSaldoTanque(mov.tanque_id, saldoL, saldoU, tasa);
-}
+// GT-SIN-21 · Se eliminó `revertirSaldoMovimiento`: sumaba o restaba sobre un
+// saldo LEÍDO antes, que es justamente el patrón que duplicaba litros cuando dos
+// personas borraban el mismo movimiento. Su único llamador (eliminarMovimientoTanque)
+// ahora borra primero y recalcula el tanque con `recomputarTanque`, que reconstruye
+// el saldo desde el libro y no depende de ninguna lectura previa.
 
 /** Recalcula y aplica el saldo (litros, USD, tasa) de un tanque a partir de TODOS sus
  *  movimientos en orden cronológico (fecha + hora). El saldo del último movimiento es
@@ -905,12 +893,22 @@ export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<v
     par = (data as MovimientoTanque | null) ?? null;
   }
 
-  await revertirSaldoMovimiento(mov);
-  if (par) await revertirSaldoMovimiento(par);
-
+  // ── GT-SIN-21 ──────────────────────────────────────────────────────────────
+  // El borrado va PRIMERO y es la reserva: `delete … returning` devuelve las
+  // filas una sola vez. Antes se revertía el saldo y se borraba después sin
+  // mirar cuántas filas se habían borrado: dos personas eliminando el mismo
+  // movimiento de 400 L reponían 800 L fantasma, porque el segundo delete no
+  // afectaba nada pero su reversión sí se había aplicado.
+  // Y en vez de sumar/restar el saldo se RECALCULA cada tanque desde su libro,
+  // que es convergente y no depende de un valor leído antes.
   const ids = par ? [mov.id, par.id] : [mov.id];
-  const { error } = await supabase.from('combustible_tanque_movimientos').delete().in('id', ids);
+  const { data: borrados, error } = await supabase
+    .from('combustible_tanque_movimientos').delete().in('id', ids).select('id');
   if (error) throw error;
+  if (!borrados?.length) return; // otro usuario ya lo había borrado
+
+  await recomputarTanque(mov.tanque_id);
+  if (par && par.tanque_id !== mov.tanque_id) await recomputarTanque(par.tanque_id);
 
   // Tras la baja, RE-ENCADENAR los medidores: el horómetro (por equipo) y el contador del
   // surtidor (por tanque) deben recolgar del anterior, igual que en la edición. Antes esto

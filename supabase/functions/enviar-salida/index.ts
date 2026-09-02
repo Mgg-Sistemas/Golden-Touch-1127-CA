@@ -8,6 +8,8 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
+import { exigirSesion } from '../_shared/auth.ts';
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -33,6 +35,12 @@ function fechaCorta(d: unknown): string {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  // GT-EXT-03 · Sesión obligatoria. Sin esto la función es un relay de correo
+  // abierto: manda cualquier PDF a cualquier destinatario desde el dominio
+  // verificado de la empresa, con SPF y DKIM válidos.
+  const sesion = await exigirSesion(req);
+  if (sesion instanceof Response) return sesion;
 
   let payload: { movimiento_id?: string; es_traslado?: boolean; pdf_base64?: string; to_email?: string };
   try { payload = await req.json(); } catch { return json({ error: 'Body JSON inválido' }, 400); }
