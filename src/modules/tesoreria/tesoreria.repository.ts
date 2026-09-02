@@ -29,11 +29,23 @@ async function getCaja(id: string): Promise<Caja> {
 
 /* ───────────── Gasto (egreso simple, etiquetado por moneda) ───────────── */
 
+/** Clave del contador de numeración fiscal de una categoría de gasto. */
+const claveCorrelativo = (categoria: string) => `gasto-${categoria.trim().toLowerCase()}`;
+
 /**
  * Último correlativo usado para una categoría (RECEPCIÓN/EXPORTACIÓN).
  * Devuelve el número más alto registrado, o null si todavía no hay ninguno.
+ *
+ * Manda el CONTADOR (`correlativos`), que es de donde sale el número real al guardar
+ * (ver `registrarGasto`). Si un gasto se borró, el máximo de la tabla baja pero el
+ * contador no: mostrar el máximo haría prometer un número que después no toca.
+ * El máximo de la tabla queda como respaldo para categorías anteriores al contador.
  */
 export async function ultimoCorrelativo(categoria: string): Promise<number | null> {
+  const { data: cnt } = await supabase.rpc('correlativo_actual', { p_clave: claveCorrelativo(categoria) });
+  const vc = Number(cnt);
+  if (Number.isFinite(vc) && vc > 0) return vc;
+
   const { data, error } = await supabase.from(LIBRO)
     .select('gasto_correlativo')
     .eq('gasto_categoria', categoria)
@@ -65,17 +77,30 @@ export async function registrarGasto(input: {
   const caja = await getCaja(input.cajaId);
 
   // Correlativo autoincremental para RECEPCIÓN/EXPORTACIÓN: el primero lo ingresa
-  // el usuario; a partir de ahí la secuencia sigue sola (último + 1) por categoría.
-  // Se recalcula acá, lo más cerca posible del insert, para reducir choques entre usuarios.
+  // el usuario; a partir de ahí la secuencia sigue sola por categoría.
+  //
+  // GT-INT-04 · Antes esto era «leer el máximo y sumarle 1», así que dos gastos de la
+  // misma categoría al mismo tiempo se llevaban el MISMO número — y es el correlativo
+  // del documento fiscal, no un id interno. Ahora el número lo da `next_correlativo`,
+  // que incrementa en una sola sentencia en la base: dos llamadas simultáneas nunca
+  // reciben lo mismo. El contador viene sembrado con el máximo ya registrado
+  // (supabase/seguridad-2026-09-02-parte9.sql), así que la numeración sigue donde estaba.
   let correlativo = input.gastoCorrelativo ?? null;
   if (input.gastoCategoria && categoriaLlevaCorrelativo(input.gastoCategoria)) {
-    const ultimo = await ultimoCorrelativo(input.gastoCategoria);
-    if (ultimo == null) {
-      // Aún no hay ninguno: usamos el que ingresó el usuario (o 1 por defecto).
-      correlativo = input.gastoCorrelativo != null ? Math.trunc(input.gastoCorrelativo) : 1;
-    } else {
-      correlativo = ultimo + 1; // ya hay secuencia: se ignora lo tecleado y sigue sola.
+    const clave = claveCorrelativo(input.gastoCategoria);
+    // Primer gasto de la categoría: la persona indica desde dónde arranca la numeración
+    // (viene de un talonario ya empezado). Se siembra ANTES de pedir el número, y solo
+    // hacia arriba, para que sembrar no pueda repetir uno ya emitido.
+    const arranque = input.gastoCorrelativo != null ? Math.trunc(input.gastoCorrelativo) : null;
+    if (arranque != null && arranque > 1) {
+      const { data: actual } = await supabase.rpc('correlativo_actual', { p_clave: clave });
+      if (actual == null) {
+        await supabase.rpc('correlativo_sembrar', { p_clave: clave, p_valor: arranque - 1 });
+      }
     }
+    const { data: n, error: cErr } = await supabase.rpc('next_correlativo', { p_clave: clave });
+    if (cErr) throw cErr;
+    correlativo = Math.trunc(Number(n));
   }
 
   // Si la caja maneja saldos multimoneda (caja_saldos), se descuenta del saldo

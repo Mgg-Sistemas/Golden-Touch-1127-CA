@@ -2369,10 +2369,46 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
  * No hay transacción única (igual que reabrir compras): el orden elegido —primero
  * revertir plata y stock, y recién al final borrar la orden— deja la base consistente
  * aunque algo se corte antes del último paso.
+ *
+ * Ese orden, sin embargo, permitía correr TODO dos veces (doble clic, o dos personas
+ * sobre la misma lista): la reversión de plata deja un ingreso de auditoría pero no
+ * marca el egreso original, así que la segunda pasada volvía a encontrarlo y devolvía
+ * el monto OTRA VEZ — plata inventada en la caja. Por eso ahora se reserva con
+ * `eliminando_at` antes de tocar nada (GT-INT-02).
  */
 export async function eliminarOrdenCompra(o: Orden, actorEmail: string, actorName?: string | null): Promise<void> {
   const etiqueta = o.oc_codigo ?? o.codigo ?? 'la orden';
 
+  // 0) RESERVA. Toma la orden quien logre marcarla; el resto se detiene ANTES de mover
+  //    plata o stock. Se reserva con una marca y no borrando la fila porque el borrado
+  //    arrastra en cascada ofertas, abonos y chat: si después fallara la reversión, eso
+  //    no vuelve. Con la marca, un fallo se limpia y la orden queda intacta.
+  //
+  //    La marca CADUCA a los 5 minutos: si el navegador se cierra a mitad del borrado,
+  //    la orden no queda trabada para siempre. Ningún borrado real tarda tanto.
+  const vencida = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const { data: reserva, error: rErr } = await supabase
+    .from(TABLE)
+    .update({ eliminando_at: new Date().toISOString() })
+    .eq('id', o.id)
+    .or(`eliminando_at.is.null,eliminando_at.lt.${vencida}`)
+    .select('id');
+  if (rErr) throw rErr;
+  if (!reserva?.length) {
+    throw new Error(`${etiqueta} ya se está eliminando (o alguien la eliminó). Actualizá la pantalla.`);
+  }
+
+  try {
+    await eliminarOrdenCompraInterno(o, etiqueta, actorEmail, actorName ?? null);
+  } catch (e) {
+    // Se suelta la reserva: la orden sigue existiendo y se puede reintentar.
+    try { await supabase.from(TABLE).update({ eliminando_at: null }).eq('id', o.id); } catch { /* best-effort */ }
+    throw e;
+  }
+}
+
+/** Cuerpo del borrado, con la orden ya reservada (ver `eliminarOrdenCompra`). */
+async function eliminarOrdenCompraInterno(o: Orden, etiqueta: string, actorEmail: string, actorName: string | null): Promise<void> {
   // 1) PLATA — revertir todos los egresos de Tesorería casados a la orden.
   const { data: egresos, error: eErr } = await supabase
     .from('movimientos_caja')
