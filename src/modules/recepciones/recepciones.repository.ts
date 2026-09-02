@@ -1072,6 +1072,41 @@ async function productoCasiterita(): Promise<{ id: string } | null> {
  */
 export async function cerrarRecepcion(input: { numero: number; actor: string; actorName?: string | null; observacion?: string | null; almacen?: string | null; subalmacen?: string | null }): Promise<CierreRecepcion> {
   const numero = Math.max(1, Math.round(num(input.numero)));
+
+  // ── RESERVA del cierre ──────────────────────────────────────────────────
+  // La fila del cierre se inserta ANTES de tocar el inventario, apoyada en el índice
+  // único de `numero`. Si dos personas cierran la misma recepción a la vez, la segunda
+  // choca acá y se detiene sin haber ingresado nada. Antes las dos llegaban a
+  // `registrarMovimiento` con las mismas pesadas disponibles y el mineral entraba dos
+  // veces al inventario. La foto se escribe al final (paso «actualizar la reserva»).
+  const { data: reserva, error: eRes } = await supabase.from(TABLE_CIERRES).insert({
+    numero, snapshot: { en_proceso: true, iniciado_at: new Date().toISOString() },
+    observacion: input.observacion?.trim() || null,
+    created_by: input.actor, actor_name: input.actorName ?? null,
+  }).select('*').single();
+  if (eRes) {
+    if ((eRes as { code?: string }).code === '23505') {
+      throw new Error(`La Recepción N° ${numero} ya fue cerrada por otra persona. Actualizá la pantalla antes de volver a intentar.`);
+    }
+    throw eRes;
+  }
+  const cierreId = (reserva as CierreRecepcion).id;
+
+  try {
+    return await cerrarRecepcionInterno({ ...input, numero, cierreId });
+  } catch (e) {
+    // El cierre no llegó a completarse: se suelta la reserva para que se pueda reintentar.
+    try { await supabase.from(TABLE_CIERRES).delete().eq('id', cierreId); } catch { /* best-effort */ }
+    throw e;
+  }
+}
+
+/** Cuerpo del cierre, ya con la reserva tomada (ver `cerrarRecepcion`). */
+async function cerrarRecepcionInterno(input: {
+  numero: number; cierreId: string; actor: string; actorName?: string | null;
+  observacion?: string | null; almacen?: string | null; subalmacen?: string | null;
+}): Promise<CierreRecepcion> {
+  const { numero, cierreId } = input;
   const [recs, anas, hp, hf, mins, todasConcil, todosTot, pesadas] = await Promise.all([
     listRecepciones(), listAnalisis(), listHumedadProv(), listHumedadFinal(), listMinerales(false), listConciliaciones(), listTotales(), listPesadas(),
   ]);
@@ -1150,31 +1185,47 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
     conciliaciones: todasConcil, totales: todosTot, pesadas: pesadasSnap, bigbags: bigbagsSnap,
     ingresos_resguardo: ingresos, ingreso_casiterita: ingresoCasiterita,
   };
-  const { data, error } = await supabase.from(TABLE_CIERRES).insert({
-    numero, snapshot, observacion: input.observacion?.trim() || null,
-    created_by: input.actor, actor_name: input.actorName ?? null,
-  }).select('*').single();
+  // Se completa la reserva tomada al entrar: ahora sí lleva la foto.
+  const { data, error } = await supabase.from(TABLE_CIERRES)
+    .update({ snapshot, observacion: input.observacion?.trim() || null })
+    .eq('id', cierreId)
+    .select('*')
+    .single();
   if (error) throw error;
 
-  // Con la foto ya guardada en el histórico, se BORRAN TODOS los datos de trabajo de la
-  // recepción para que la próxima arranque en blanco: recepciones (ítem/peso/procedencia),
-  // pesos (bigbags/pesadas), conciliaciones, totales, análisis químico y humedades.
-  // NO se tocan los minerales (catálogo/config) ni los cierres (histórico). La info queda
-  // íntegra en el snapshot. Best-effort: el cierre ya está guardado y no se revierte.
+  // Con la foto ya guardada en el histórico, se borran los datos de trabajo para que la
+  // próxima recepción arranque en blanco: recepciones (ítem/peso/procedencia), pesos
+  // (bigbags/pesadas), conciliaciones, totales, análisis químico y humedades. NO se tocan
+  // los minerales (catálogo/config) ni los cierres (histórico).
+  //
+  // Se borra SOLO lo que quedó dentro de la foto. Antes se vaciaban las tablas enteras
+  // (`delete().not('id','is',null)`), y todo lo que alguien cargara mientras corría el
+  // cierre —que tarda: lee ocho tablas, mueve inventario y vuelve a leer— se perdía sin
+  // quedar en ningún snapshot. Ahora esas filas sobreviven y aparecen en la hoja nueva.
   // OJO con el orden por FK: recepciones_bigbags.pesada_id → recepciones_pesadas, así que
   // los bigbags se borran ANTES que las pesadas (encadenado); el resto va en paralelo.
+  const ids = (filas: readonly { id: string }[]) => filas.map((f) => f.id).filter(Boolean);
   await Promise.allSettled([
-    supabase.from(TABLE).delete().not('id', 'is', null),
-    supabase.from(TABLE_ANA).delete().not('id', 'is', null),
-    supabase.from(TABLE_HPROV).delete().not('id', 'is', null),
-    supabase.from(TABLE_HFIN).delete().not('id', 'is', null),
-    supabase.from(TABLE_CONCIL).delete().not('id', 'is', null),
-    supabase.from(TABLE_TOT).delete().not('id', 'is', null),
-    supabase.from(TABLE_BB).delete().not('id', 'is', null)
-      .then(() => supabase.from(TABLE_PESADAS).delete().not('id', 'is', null)),
+    borrarPorId(TABLE, ids(recs)),
+    borrarPorId(TABLE_ANA, ids(anas)),
+    borrarPorId(TABLE_HPROV, ids(hp)),
+    borrarPorId(TABLE_HFIN, ids(hf)),
+    borrarPorId(TABLE_CONCIL, ids(todasConcil)),
+    borrarPorId(TABLE_TOT, ids(todosTot)),
+    borrarPorId(TABLE_BB, ids(bigbagsSnap))
+      .then(() => borrarPorId(TABLE_PESADAS, ids(pesadasSnap))),
   ]);
 
   return data as CierreRecepcion;
+}
+
+/** Borra por lista de IDs, en tandas (una URL con miles de ids no entra en el request). */
+async function borrarPorId(tabla: string, listaIds: readonly string[]): Promise<void> {
+  const TANDA = 200;
+  for (let i = 0; i < listaIds.length; i += TANDA) {
+    const { error } = await supabase.from(tabla).delete().in('id', listaIds.slice(i, i + TANDA));
+    if (error) throw error;
+  }
 }
 
 export async function eliminarCierre(id: string): Promise<void> {
@@ -1230,6 +1281,54 @@ export async function reabrirCierre(cierre: CierreRecepcion, input: { actor: str
     throw new Error('Hay una recepción en curso con datos cargados. Cerrala o vaciala antes de reabrir un histórico.');
   }
 
+  // ── RESERVA: el borrado del cierre es lo PRIMERO ────────────────────────
+  // Borrar la fila es lo que reserva la reapertura: solo una persona se lleva la
+  // fila, las demás ven 0 filas y se detienen. Antes el borrado iba al final y dos
+  // reaperturas simultáneas revertían el inventario DOS VECES —sacando casiterita
+  // que nunca entró— antes de chocar al restaurar. Si algo falla después, la fila
+  // se vuelve a insertar tal cual estaba (ver `restaurarCierre`).
+  const { data: tomado, error: eTom } = await supabase
+    .from(TABLE_CIERRES).delete().eq('id', cierre.id).select('*');
+  if (eTom) throw eTom;
+  if (!tomado?.length) {
+    throw new Error(`La Recepción N° ${cierre.numero} ya fue reabierta por otra persona. Actualizá la pantalla.`);
+  }
+  const filaCierre = tomado[0];
+
+  try {
+    return await reabrirCierreInterno(cierre, input);
+  } catch (e) {
+    // Deshacer: se sacan las filas que alcanzaron a volver a la hoja de trabajo y se
+    // repone el cierre. Sin esto, un fallo a mitad de la restauración dejaría la hoja
+    // a medio llenar y el guard de arriba impediría reintentar.
+    try { await limpiarHojaDeTrabajo(cierre.snapshot); } catch { /* best-effort */ }
+    try { await supabase.from(TABLE_CIERRES).insert(filaCierre as never); } catch { /* best-effort */ }
+    throw e;
+  }
+}
+
+/** Saca de la hoja de trabajo las filas que vinieron de una foto (para deshacer una
+ *  reapertura fallida). Orden por FK: bigbags antes que pesadas. */
+async function limpiarHojaDeTrabajo(snapshot: unknown): Promise<void> {
+  const s = (snapshot ?? {}) as Record<string, { id?: string }[] | undefined>;
+  const ids = (k: string) => (s[k] ?? []).map((f) => f?.id).filter((x): x is string => !!x);
+  await borrarPorId(TABLE_BB, ids('bigbags'));
+  await borrarPorId(TABLE_PESADAS, ids('pesadas'));
+  await Promise.allSettled([
+    borrarPorId(TABLE, ids('recepciones')),
+    borrarPorId(TABLE_ANA, ids('analisis')),
+    borrarPorId(TABLE_HPROV, ids('humedad_prov')),
+    borrarPorId(TABLE_HFIN, ids('humedad_final')),
+    borrarPorId(TABLE_CONCIL, ids('conciliaciones')),
+    borrarPorId(TABLE_TOT, ids('totales')),
+  ]);
+}
+
+/** Cuerpo de la reapertura, con el cierre ya reservado (ver `reabrirCierre`). */
+async function reabrirCierreInterno(
+  cierre: CierreRecepcion,
+  input: { actor: string; actorName?: string | null },
+): Promise<{ pesosRestaurados: boolean }> {
   const snap = cierre.snapshot as {
     recepciones?: RecepcionLab[]; analisis?: AnalisisRow[]; humedad_prov?: HumedadProvRow[];
     humedad_final?: HumedadFinalRow[]; conciliaciones?: Conciliacion[]; totales?: TotalesDoc[];
@@ -1311,8 +1410,8 @@ export async function reabrirCierre(cierre: CierreRecepcion, input: { actor: str
   if (pesadasRestore.length) await reInsert(TABLE_PESADAS, pesadasRestore);
   if (snap.bigbags?.length) await reInsert(TABLE_BB, snap.bigbags);
 
-  // ── 3) Borrar el cierre: ya vive de nuevo en la hoja de trabajo ──
-  await eliminarCierre(cierre.id);
+  // El cierre ya se borró al entrar (fue la reserva): ahora vive de nuevo en la hoja
+  // de trabajo, así que a partir de acá no hay nada que revertir.
 
   // Aviso para la UI: si la foto es vieja (sin la clave de pesos), los bigbags NO volvieron.
   return { pesosRestaurados: cierreTienePesosEnFoto(cierre) };

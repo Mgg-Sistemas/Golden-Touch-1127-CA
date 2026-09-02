@@ -8,7 +8,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { crearRecepcionDesdeCierre } from '@/modules/recepciones/recepciones.repository';
-import type { CajaCierre, CajaMovimiento, CajaResumen, ClasificacionAcopio, CostoClase, GrupoClasificacion, TransferenciaInter } from '@/shared/lib/types';
+import { construirMovimientosAcopio } from './movimientosAcopioCalc';
+import type { CajaCierre, CajaMovimiento, CajaResumen, ClasificacionAcopio, ContratoAcopio, CostoClase, GrupoClasificacion, TransferenciaInter } from '@/shared/lib/types';
 
 export const GRUPOS: { key: GrupoClasificacion; label: string; color: string }[] = [
   { key: 'movimientos_caja', label: 'Movimientos de Caja', color: '#3b82f6' },
@@ -262,6 +263,21 @@ export function resumirCaja(movs: CajaMovimiento[]): CajaResumen {
 
 export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: string, actorName?: string | null, opts?: { skipDeudaMgg?: boolean }): Promise<CajaMovimiento> {
   if (!input.fecha) throw new Error('Indicá la fecha del movimiento.');
+
+  // El formulario manda el `caja_id` que la pantalla tenía cargado. Si mientras tanto
+  // otra persona cerró esa caja, el movimiento corresponde a la caja NUEVA: se reapunta
+  // solo, en vez de perder lo que la persona acaba de escribir. La base igual lo bloquea
+  // (trigger `trg_movimiento_en_caja_cerrada`), esto es para que no llegue a ese error.
+  let cajaId = input.caja_id ?? null;
+  if (cajaId) {
+    const { data: c } = await supabase.from('acopio_cajas').select('estado').eq('id', cajaId).maybeSingle();
+    if ((c as { estado?: string } | null)?.estado === 'cerrada') {
+      const { data: abierta } = await supabase.from('acopio_cajas')
+        .select('id').eq('estado', 'abierta').order('created_at', { ascending: false }).limit(1).maybeSingle();
+      cajaId = (abierta as { id?: string } | null)?.id ?? null;
+    }
+  }
+
   const payload = {
     fecha: input.fecha,
     descripcion: input.descripcion?.trim() || null,
@@ -277,7 +293,7 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
     costo_clasificacion: input.costo_clasificacion?.trim() || null,
     costo_subclasificacion: input.costo_subclasificacion?.trim() || null,
     equipo: input.equipo?.trim() || null,
-    caja_id: input.caja_id ?? null,
+    caja_id: cajaId,
     created_by: actor,
     actor_name: actorName ?? null,
   };
@@ -596,6 +612,18 @@ export async function proximoNumeroCaja(): Promise<string> {
   return siguienteNumeroCaja(await listCajas());
 }
 
+/** Contratos frescos para recalcular el cierre. Se lee la tabla directo, y no con
+ *  `listContratos` de Producción, para no cerrar un ciclo de imports: ese módulo ya
+ *  importa `tasaActualAcopio` de acá. */
+async function listContratosParaCierre(): Promise<ContratoAcopio[]> {
+  const { data, error } = await supabase
+    .from('acopio_contratos')
+    .select('*')
+    .order('seq', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ContratoAcopio[];
+}
+
 /**
  * CIERRE de caja del Centro de Acopio. Congela la caja abierta (sus movimientos y
  * los saldos de las tarjetas quedan en histórico, `resumen_json`) y abre una caja
@@ -619,68 +647,154 @@ export async function cerrarYAbrirCaja(input: {
   const hoy = hoyVE();
   const cajas = await listCajas();
 
-  // 1) Determinar la caja a cerrar. Si no hay abierta, se crea una para cerrarla
-  //    (así los movimientos previos quedan correctamente archivados en ella).
-  let cerrando = input.cajaActual ?? cajas.find((c) => c.estado === 'abierta') ?? null;
+  // 1) Determinar la caja a cerrar. Solo se cierra una caja ABIERTA: si la pantalla
+  //    venía apuntando a una ya cerrada (le pasó por encima el cierre de otro usuario),
+  //    se ignora y se toma la abierta de verdad. Si no hay ninguna, se crea una para
+  //    cerrarla (así los movimientos previos quedan correctamente archivados en ella).
+  const abiertaReal = cajas.find((c) => c.estado === 'abierta') ?? null;
+  let cerrando =
+    (input.cajaActual ? cajas.find((c) => c.id === input.cajaActual!.id && c.estado === 'abierta') : null)
+    ?? abiertaReal;
   if (!cerrando) {
     cerrando = await crearCaja({ numero: siguienteNumeroCaja(cajas), fecha_inicio: snapshot.fechaInicio ?? hoy }, actor);
   }
+  const laCaja = cerrando;
 
-  // 2) Congelar: los movimientos sin asignar pasan a pertenecer a la caja que se cierra.
-  await supabase.from('acopio_caja_movimientos').update({ caja_id: cerrando.id }).is('caja_id', null);
-
-  // 3) Cerrar la caja con la foto del cierre (saldos de las tarjetas + filas).
-  const { error: e1 } = await supabase.from('acopio_cajas').update({
-    estado: 'cerrada',
-    fecha_fin: hoy,
-    saldo_final: snapshot.resumen.saldoUsd,
-    resumen_json: snapshot,
-    cerrada_por: actor,
-    cerrada_en: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }).eq('id', cerrando.id);
-  if (e1) throw e1;
-
-  // 4) Abrir la caja nueva. El saldo USD se arrastra (entra como «USD entregados»);
-  //    el saldo de KG de casiterita NO se arrastra: se REINICIA en 0 porque todo el
-  //    acumulado se despacha a Recepción (paso 6). La caja nueva arranca su Kg desde 0.
-  const cajasTrasCerrar = [...cajas.filter((c) => c.id !== cerrando!.id), { ...cerrando }];
-  const numeroNueva = input.numeroNueva?.trim() || siguienteNumeroCaja(cajasTrasCerrar);
-  const nueva = await crearCaja({ numero: numeroNueva, fecha_inicio: hoy }, actor);
-  const { error: e2 } = await supabase.from('acopio_cajas').update({
-    saldo_inicial_usd: snapshot.resumen.saldoUsd,
-    saldo_inicial_kg: 0,
-  }).eq('id', nueva.id);
-  if (e2) throw e2;
-
-  // 5) El saldo USD entra a la caja nueva como movimiento de «USD entregados»
-  //    (fila «Saldo anterior»), sin deuda a MGG. El saldo Kg ya viaja en saldo_inicial_kg.
-  if (snapshot.resumen.saldoUsd !== 0) {
-    await crearMovimientoCaja({
-      fecha: hoy,
-      descripcion: `Saldo anterior · ${cerrando.numero} (cierre ${hoy})`,
-      usd_entregado: snapshot.resumen.saldoUsd,
-      clasif_grupo: 'movimientos_caja',
-      caja_id: nueva.id,
-    }, actor, actorName ?? null, { skipDeudaMgg: true });
+  // 2) RESERVA. Marcar la caja como cerrada es lo PRIMERO que se hace, y solo prospera
+  //    si seguía abierta. Así, si dos personas cierran a la vez, una gana y la otra se
+  //    entera; antes las dos seguían de largo y quedaban dos cajas nuevas arrastrando
+  //    cada una el mismo saldo. El saldo y la foto se escriben después, ya recalculados.
+  const cerradaEn = new Date().toISOString();
+  const { data: reserva, error: eRes } = await supabase
+    .from('acopio_cajas')
+    .update({ estado: 'cerrada', fecha_fin: hoy, cerrada_por: actor, cerrada_en: cerradaEn, updated_at: cerradaEn })
+    .eq('id', laCaja.id)
+    .eq('estado', 'abierta')
+    .select('id');
+  if (eRes) throw eRes;
+  if (!reserva?.length) {
+    throw new Error('La caja ' + laCaja.numero + ' ya fue cerrada por otra persona. Actualizá la pantalla antes de volver a intentar.');
   }
 
-  // 6) RECEPCIÓN: el saldo de KG de casiterita acumulado genera una RECEPCIÓN para el
-  //    laboratorio (módulo Recepciones). OJO: NO entra al inventario al cerrar la caja
-  //    (el ingreso a inventario es un paso posterior, aún por definir). Best-effort:
-  //    si falla, el cierre no se bloquea (la recepción se puede crear a mano).
-  try {
-    await crearRecepcionDesdeCierre({
-      cajaId: cerrando.id,
-      cajaNumero: cerrando.numero,
-      pesoKg: snapshot.resumen.saldoKg,
-      tasa: snapshot.resumen.tasa,
-      actor,
-      actorName: actorName ?? null,
-    });
-  } catch { /* no bloquea el cierre */ }
+  // A partir de acá la caja YA está cerrada. Si algo falla hay que devolverla a abierta
+  // y soltar los movimientos capturados, o el centro de acopio queda sin caja donde
+  // registrar.
+  let capturados: string[] = [];
+  const revertir = async () => {
+    try {
+      if (capturados.length) {
+        await supabase.from('acopio_caja_movimientos').update({ caja_id: null }).in('id', capturados);
+      }
+      await supabase.from('acopio_cajas')
+        .update({ estado: 'abierta', fecha_fin: null, cerrada_por: null, cerrada_en: null, updated_at: new Date().toISOString() })
+        .eq('id', laCaja.id);
+    } catch { /* el revert es best-effort: el error que importa es el de abajo */ }
+  };
 
-  return { ...nueva, saldo_inicial_usd: snapshot.resumen.saldoUsd, saldo_inicial_kg: 0 };
+  try {
+    // 3) Congelar: los movimientos sin asignar pasan a pertenecer a la caja que se cierra,
+    //    CON CORTE en `cerradaEn`. Lo que alguien registre mientras corre el cierre queda
+    //    sin asignar y cae en la caja nueva. Antes se barría la tabla entera sin corte y
+    //    esos movimientos entraban a una caja ya cerrada: plata archivada fuera del
+    //    reporte, sin aparecer en ningún lado.
+    const { data: barridos, error: eBar } = await supabase
+      .from('acopio_caja_movimientos')
+      .update({ caja_id: laCaja.id })
+      .is('caja_id', null)
+      .lte('created_at', cerradaEn)
+      .select('id');
+    if (eBar) throw eBar;
+    capturados = (barridos ?? []).map((r) => (r as { id: string }).id);
+
+    // 4) RECALCULAR la foto desde la base, no desde la pantalla. `snapshot` lo armó el
+    //    navegador con lo que tenía cargado; si entró un movimiento después (otro usuario,
+    //    o el barrido del paso 3), ese saldo quedó viejo. Y el saldo es justamente lo que
+    //    se arrastra a la caja nueva: creerle a una lectura vieja inventa o borra dinero.
+    //    Se usa la MISMA función que alimenta la tabla, así el histórico coincide con lo
+    //    que la gente venía viendo en pantalla.
+    const [contratosFrescos, movsFrescos] = await Promise.all([listContratosParaCierre(), listCajaMovimientos()]);
+    const recalc = construirMovimientosAcopio({
+      contratos: contratosFrescos,
+      cajaMovs: movsFrescos,
+      caja: { ...laCaja, estado: 'cerrada', fecha_fin: hoy },
+      esHistorico: true,
+    });
+    const saldoUsd = Math.round(recalc.resumen.saldoUsd * 100) / 100;
+    const saldoKg = recalc.resumen.saldoKg;
+
+    const fotoReal: import('@/shared/lib/types').CierreSnapshot = {
+      ...snapshot,
+      numero: laCaja.numero,
+      nombre: laCaja.nombre ?? snapshot.nombre ?? null,
+      fechaInicio: laCaja.fecha_inicio ?? snapshot.fechaInicio ?? null,
+      fechaCierre: hoy,
+      resumen: {
+        saldoUsd,
+        saldoKg,
+        tasa: recalc.resumen.tasa,
+        usdEntregado: recalc.resumen.usdEntregado,
+        gastos: recalc.resumen.gastos,
+        nominas: recalc.resumen.nominas,
+        facturado: recalc.resumen.facturado,
+        totalKg: recalc.filas.reduce((a, f) => a + f.kgCerrados, 0),
+      },
+      filas: recalc.filas.map((f) => ({
+        fecha: f.fecha, descripcion: f.descripcion, usdEntregado: f.usdEntregado,
+        kgCerrados: f.kgCerrados, usdFacturados: f.usdFacturados, gastosGt: f.gastosGt,
+        nominasGt: f.nominasGt, saldoUsd: f.saldoUsd, saldoKgCasiterita: f.saldoKgCasiterita,
+      })),
+    };
+
+    // 5) Guardar la foto y el saldo final ya recalculados en la caja cerrada.
+    const { error: e1 } = await supabase.from('acopio_cajas')
+      .update({ saldo_final: saldoUsd, resumen_json: fotoReal, updated_at: new Date().toISOString() })
+      .eq('id', laCaja.id);
+    if (e1) throw e1;
+
+    // 6) Abrir la caja nueva. El saldo USD se arrastra (entra como «USD entregados»);
+    //    el saldo de KG de casiterita NO se arrastra: se REINICIA en 0 porque todo el
+    //    acumulado se despacha a Recepción (paso 8). La caja nueva arranca su Kg desde 0.
+    const cajasTrasCerrar = [...cajas.filter((c) => c.id !== laCaja.id), { ...laCaja }];
+    const numeroNueva = input.numeroNueva?.trim() || siguienteNumeroCaja(cajasTrasCerrar);
+    const nueva = await crearCaja({ numero: numeroNueva, fecha_inicio: hoy }, actor);
+    const { error: e2 } = await supabase.from('acopio_cajas').update({
+      saldo_inicial_usd: saldoUsd,
+      saldo_inicial_kg: 0,
+    }).eq('id', nueva.id);
+    if (e2) throw e2;
+
+    // 7) El saldo USD entra a la caja nueva como movimiento de «USD entregados»
+    //    (fila «Saldo anterior»), sin deuda a MGG. El saldo Kg ya viaja en saldo_inicial_kg.
+    if (saldoUsd !== 0) {
+      await crearMovimientoCaja({
+        fecha: hoy,
+        descripcion: 'Saldo anterior · ' + laCaja.numero + ' (cierre ' + hoy + ')',
+        usd_entregado: saldoUsd,
+        clasif_grupo: 'movimientos_caja',
+        caja_id: nueva.id,
+      }, actor, actorName ?? null, { skipDeudaMgg: true });
+    }
+
+    // 8) RECEPCIÓN: el saldo de KG de casiterita acumulado genera una RECEPCIÓN para el
+    //    laboratorio (módulo Recepciones). OJO: NO entra al inventario al cerrar la caja
+    //    (el ingreso a inventario es un paso posterior, aún por definir). Best-effort:
+    //    si falla, el cierre no se bloquea (la recepción se puede crear a mano).
+    try {
+      await crearRecepcionDesdeCierre({
+        cajaId: laCaja.id,
+        cajaNumero: laCaja.numero,
+        pesoKg: saldoKg,
+        tasa: recalc.resumen.tasa,
+        actor,
+        actorName: actorName ?? null,
+      });
+    } catch { /* no bloquea el cierre */ }
+
+    return { ...nueva, saldo_inicial_usd: saldoUsd, saldo_inicial_kg: 0 };
+  } catch (e) {
+    await revertir();
+    throw e;
+  }
 }
 
 export async function reabrirCaja(id: string): Promise<void> {
