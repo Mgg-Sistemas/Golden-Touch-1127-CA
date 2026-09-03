@@ -346,11 +346,18 @@ export type TipoMovTanque = 'entrada' | 'uso' | 'traslado' | 'retorno' | 'merma'
 
 /** Transferencia de combustible entre sistemas (puente inter-sistema · litros).
  *  Mismo contrato que MGG (tabla transferencias_combustible_inter). */
+/** Estados de una transferencia entre sistemas.
+ *  `rechazada` es «el otro sistema no la quiso»; `revertida` es «la trajimos de vuelta
+ *  nosotros porque nunca llegó». Son dos hechos distintos y los dos hacen falta para
+ *  cuadrar el material entre las dos empresas. */
+export type EstadoTransferenciaInter =
+  'enviada' | 'por_confirmar' | 'recibida' | 'rechazada' | 'error' | 'revertida';
+
 export interface TransferenciaCombustibleInter {
   id: string;
   transf_id: string;
   direccion: 'saliente' | 'entrante';
-  estado: 'enviada' | 'por_confirmar' | 'recibida' | 'rechazada' | 'error';
+  estado: EstadoTransferenciaInter;
   empresa_origen: string;
   empresa_destino: string;
   combustible_nombre: string;
@@ -367,6 +374,9 @@ export interface TransferenciaCombustibleInter {
   actor_name?: string | null;
   created_at: string;
   confirmada_at?: string | null;
+  /** Cuándo y quién devolvió el combustible al tanque tras una entrega fallida. */
+  revertida_at?: string | null;
+  revertida_por?: string | null;
 }
 
 /** Puente inter-sistema de CASITERITA (mineral): este sistema envía Kg al otro,
@@ -375,7 +385,7 @@ export interface TransferenciaCasiteritaInter {
   id: string;
   transf_id: string;
   direccion: 'saliente' | 'entrante';
-  estado: 'enviada' | 'por_confirmar' | 'recibida' | 'rechazada' | 'error';
+  estado: EstadoTransferenciaInter;
   empresa_origen: string;
   empresa_destino: string;
   producto_id?: string | null;
@@ -393,6 +403,9 @@ export interface TransferenciaCasiteritaInter {
   actor_name?: string | null;
   created_at: string;
   confirmada_at?: string | null;
+  /** Cuándo y quién devolvió la casiterita al almacén tras una entrega fallida. */
+  revertida_at?: string | null;
+  revertida_por?: string | null;
 }
 
 export interface MovimientoTanque {

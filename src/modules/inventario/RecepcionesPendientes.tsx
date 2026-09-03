@@ -62,6 +62,9 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
     return m;
   });
   const [nota, setNota] = useState('');
+  // Un servicio se presta: no llega mercadería, no hay almacén destino y no toca stock.
+  // Su rastro va al historial del equipo asociado (ver `ordenAfectaInventario`).
+  const esServicio = orden.tipo === 'servicio';
   const [almacen, setAlmacen] = useState<string>(orden.almacen_destino ?? almacenesOrdenados(almacenes)[0]?.nombre ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,16 +82,19 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
     setError(null);
     const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
-    if (!almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
+    // Un servicio no entra a ningún almacén: no se le pide destino.
+    if (!esServicio && !almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
     setSaving(true);
     try {
-      await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName, almacen.trim());
+      await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName, esServicio ? null : almacen.trim());
       const esContra = orden.condiciones_pago === 'contra_entrega';
       toast(
-        esContra
-          ? `Recepción confirmada · ${orden.codigo} · indicá el método para pagar lo recibido en Tesorería`
-          : `Mercancía recibida · ${orden.codigo} · stock actualizado en ${almacen.trim()}`,
+        esServicio
+          ? `Servicio confirmado · ${orden.codigo} · queda en el historial del equipo, sin tocar el inventario`
+          : esContra
+            ? `Recepción confirmada · ${orden.codigo} · indicá el método para pagar lo recibido en Tesorería`
+            : `Mercancía recibida · ${orden.codigo} · stock actualizado en ${almacen.trim()}`,
         'success',
       );
       await onSaved();
@@ -113,20 +119,37 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
         </>
       }
     >
-      <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
-        Confirmá cuánto entró realmente por ítem y elegí el <strong>almacén destino</strong>. Solo lo recibido se suma al inventario.
-        Si llegó menos de lo pedido, dejá una <strong>nota</strong>; la orden cierra sin saldo pendiente.
-      </p>
-      {orden.afecta_inventario === false && (
+      {orden.tipo === 'servicio' ? (
+        <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+          Confirmá que el <strong>servicio se prestó</strong>. Con esto la orden queda lista para
+          finalizarse y para reiniciar el contador de mantenimiento del equipo.
+        </p>
+      ) : (
+        <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+          Confirmá cuánto entró realmente por ítem y elegí el <strong>almacén destino</strong>. Solo lo recibido se suma al inventario.
+          Si llegó menos de lo pedido, dejá una <strong>nota</strong>; la orden cierra sin saldo pendiente.
+        </p>
+      )}
+      {orden.tipo === 'servicio' && (
+        <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.75rem' }}>
+          <small>
+            🔧 Esta es una <strong>orden de servicio</strong>, no una compra de mercadería.
+            Al confirmar <strong>no se suma nada al inventario</strong>: el servicio queda en el
+            historial del <strong>equipo asociado</strong>. Los repuestos de un mantenimiento se
+            montan en el equipo, no se guardan en el almacén.
+          </small>
+        </div>
+      )}
+      {orden.tipo !== 'servicio' && orden.afecta_inventario === false && (
         <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.75rem' }}>
           <small>⚠ Esta orden está marcada <strong>«no ingresa al inventario»</strong> (la mercancía ya se cargó a mano). Al confirmar, la recepción <strong>se registra pero NO aumenta el stock</strong>.</small>
         </div>
       )}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-      <div className="form-row" style={{ marginBottom: '.6rem' }}>
+      <div className="form-row" style={{ marginBottom: '.6rem', display: esServicio ? 'none' : undefined }}>
         <label>Almacén / sub-almacén destino *</label>
-        <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
+        <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required={!esServicio}>
           <option value="">— elegí el almacén —</option>
           {almacenesOrdenados(almacenes).map((a) => {
             const padre = a.parent_id ? almacenes.find((x) => x.id === a.parent_id) : null;
