@@ -663,6 +663,123 @@ export async function registrarTrasladoMGG(input: {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   GT-INT-11 · Rescate de una entrega fallida
+   El combustible sale del tanque ANTES de que MGG lo acepte. Si el puente
+   falla, esos litros quedan en el limbo: ya no están acá y nunca llegaron
+   allá. Estas dos funciones son la salida de ese limbo.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Reintenta entregar a MGG una transferencia que quedó en `error`.
+ *
+ * SEGURO DE REPETIR: viaja el MISMO `transf_id`, y MGG deduplica por él. Si allá ya
+ * había entrado, contesta que ya la tenía y no acredita dos veces.
+ *
+ * La fila se reserva antes de tocar el puente (`.eq('estado','error')`): si otra persona
+ * la está reintentando en este mismo momento, esta llamada se corta acá.
+ */
+export async function reintentarTrasladoMGG(input: {
+  id: string;
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const { data: reservadas, error: resErr } = await supabase
+    .from('transferencias_combustible_inter')
+    .update({ estado: 'enviada', mensaje_error: null })
+    .eq('id', input.id)
+    .eq('estado', 'error')
+    .select('*');
+  if (resErr) throw resErr;
+  const t = (reservadas ?? [])[0] as TransferenciaCombustibleInter | undefined;
+  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que vos.');
+
+  try {
+    const { data: res, error } = await supabase.functions.invoke('transfer-enviar', {
+      body: {
+        tipo: 'transferencia', recurso: 'combustible', transf_id: t.transf_id,
+        empresa_origen: t.empresa_origen, empresa_destino: t.empresa_destino,
+        combustible_nombre: t.combustible_nombre,
+        litros: num(t.litros), costo_litro: num(t.costo_litro),
+        resumen: t.resumen, motivo: t.motivo,
+        actor: input.actor, actor_name: input.actorName ?? null,
+      },
+    });
+    if (error) throw error;
+    if (res && (res as { entregada?: boolean }).entregada === false) {
+      throw new Error((res as { error?: string }).error || 'El otro sistema no aceptó la transferencia.');
+    }
+  } catch (e) {
+    // Vuelve a `error` para que se pueda reintentar de nuevo o revertir.
+    await supabase.from('transferencias_combustible_inter')
+      .update({ estado: 'error', mensaje_error: e instanceof Error ? e.message : 'No se pudo entregar' })
+      .eq('id', input.id);
+    throw new Error(`Sigue sin poder entregarse a MGG: ${e instanceof Error ? e.message : ''}`);
+  }
+}
+
+/**
+ * Devuelve al tanque el combustible de una entrega que falló, y marca la transferencia
+ * como `revertida`.
+ *
+ * ⚠ NO ES SEGURO DE REPETIR NI DE USAR A CIEGAS. Que el puente haya fallado no prueba
+ * que MGG no lo haya recibido: pudo haber entrado allá y haberse perdido solo el acuse.
+ * En ese caso devolver los litros los DUPLICA entre las dos empresas.
+ *
+ * Por eso el orden correcto es: primero REINTENTAR (que es idempotente y dice la verdad
+ * — si MGG ya lo tenía, la transferencia se resuelve sola), y recién revertir cuando se
+ * confirmó con MGG que nunca llegó. La pantalla lo advierte antes de dejar apretar.
+ *
+ * La fila se reserva primero: sin eso, dos personas apretando a la vez devolverían los
+ * litros dos veces.
+ */
+export async function revertirTrasladoMGG(input: {
+  id: string;
+  actor: string;
+  actorName?: string | null;
+}): Promise<void> {
+  const { data: reservadas, error: resErr } = await supabase
+    .from('transferencias_combustible_inter')
+    .update({
+      estado: 'revertida',
+      revertida_at: new Date().toISOString(),
+      revertida_por: input.actorName || input.actor,
+    })
+    .eq('id', input.id)
+    .eq('estado', 'error')
+    .select('*');
+  if (resErr) throw resErr;
+  const t = (reservadas ?? [])[0] as TransferenciaCombustibleInter | undefined;
+  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que vos.');
+
+  const liberar = async (motivo: string) => {
+    await supabase.from('transferencias_combustible_inter')
+      .update({ estado: 'error', revertida_at: null, revertida_por: null, mensaje_error: motivo })
+      .eq('id', input.id);
+  };
+
+  if (!t.tanque_id) {
+    await liberar('No se pudo devolver: la transferencia no guarda de qué tanque salió.');
+    throw new Error('Esta transferencia no guarda de qué tanque salió, así que no se puede devolver sola. Cargá el retorno a mano en el tanque.');
+  }
+
+  try {
+    await insertarMovimiento({
+      ...campos({ observacion: `Devolución de MGG (entrega fallida) · ${t.resumen ?? ''}`.trim() }),
+      tanque_id: t.tanque_id,
+      tipo: 'retorno',
+      litros: num(t.litros),
+      tasa_usd_litro: round(num(t.costo_litro), 4),
+      created_by: input.actor,
+      actor_name: input.actorName ?? null,
+    });
+    await recomputarTanque(t.tanque_id);
+  } catch (e) {
+    await liberar(e instanceof Error ? e.message : 'No se pudo devolver al tanque');
+    throw new Error(`No se pudo devolver el combustible al tanque: ${e instanceof Error ? e.message : ''}`);
+  }
+}
+
 /** Lista las transferencias de combustible inter-sistema (este sistema). */
 export async function listTransferenciasCombustible(): Promise<TransferenciaCombustibleInter[]> {
   const { data, error } = await supabase.from('transferencias_combustible_inter').select('*').order('created_at', { ascending: false });

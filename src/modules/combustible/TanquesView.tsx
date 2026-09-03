@@ -17,11 +17,14 @@ import type {
   TipoCatalogoCombustible,
   TipoMovTanque,
   TipoTanque,
+  TransferenciaCombustibleInter,
 } from '@/shared/lib/types';
+import { TransferenciasInterModal } from '@/shared/ui/TransferenciasInterModal';
 import {
   listTanques, listCatalogos, listMovimientosTanque, reporteGlobal, listConciliaciones,
   registrarEntrada, registrarUso, registrarTraslado, registrarRetorno, registrarMerma, eliminarMovimientoTanque,
-  registrarTrasladoMGG, DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoKilometrajeEquipo, ultimoContadorTanque,
+  registrarTrasladoMGG, reintentarTrasladoMGG, revertirTrasladoMGG, listTransferenciasCombustible,
+  DESTINO_MGG, DESTINO_MGG_LABEL, ultimoHorometroEquipo, ultimoKilometrajeEquipo, ultimoContadorTanque,
   actualizarMovimientoTanque,
   crearTanque, actualizarTanque, eliminarTanque, addCatalogo, setCatalogoActivo, updateCatalogo, eliminarCatalogo, crearConciliacion,
   listCubicaciones, crearCubicacion, eliminarCubicacion, cubicarLitros, capacidadCalculada,
@@ -248,7 +251,11 @@ export function TanquesView() {
   const [selId, setSelId] = useState<string>('');
   const [movs, setMovs] = useState<MovimientoTanque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'consumoSemanal' | 'reporte'>('none');
+  const [modal, setModal] = useState<'none' | 'mov' | 'tanque' | 'catalogos' | 'conciliacion' | 'consumo' | 'cubicacion' | 'consumoSemanal' | 'reporte' | 'transferencias'>('none');
+  // GT-INT-11 · Envíos a MGG. Se cargan siempre (no solo al abrir el modal) para poder
+  // avisar en la barra cuando alguno quedó sin llegar: el combustible ya salió del
+  // tanque, así que enterarse tarde es justamente el problema.
+  const [transferencias, setTransferencias] = useState<TransferenciaCombustibleInter[]>([]);
   const [detalle, setDetalle] = useState<MovimientoTanque | null>(null);
   const [aBorrar, setABorrar] = useState<MovimientoTanque | null>(null);
   const [editTanque, setEditTanque] = useState<TanqueCombustible | null>(null);
@@ -262,10 +269,15 @@ export function TanquesView() {
   const mesActual = useMemo(() => mesActualVE(), []);
 
   const reloadTanques = useCallback(async () => {
-    const [ts, rep, cat] = await Promise.all([listTanques(), reporteGlobal(), listCatalogos()]);
+    const [ts, rep, cat, transf] = await Promise.all([
+      listTanques(), reporteGlobal(), listCatalogos(),
+      // Que el puente esté caído no debe dejar la pantalla de tanques en blanco.
+      listTransferenciasCombustible().catch(() => [] as TransferenciaCombustibleInter[]),
+    ]);
     setTanques(ts);
     setReporte(rep);
     setCatalogos(cat);
+    setTransferencias(transf);
     setSelId((prev) => prev || ts[0]?.id || '');
   }, []);
 
@@ -296,6 +308,7 @@ export function TanquesView() {
   // El total de combustible se divide en DOS grupos: «Los Brasileros» (Tanque #2
   // Brasileros + Registro Brasileros - GT, identificados por su nombre) y el resto.
   // Esos tanques se descuentan del total general y SOLO suman en la tarjeta Brasileros.
+  const transferenciasEnError = useMemo(() => transferencias.filter((t) => t.estado === 'error').length, [transferencias]);
   const grupoBrasileros = useMemo(() => reporte.filter((r) => esBrasileros(r.tanque.nombre)), [reporte]);
   const grupoGeneral = useMemo(() => reporte.filter((r) => !esBrasileros(r.tanque.nombre)), [reporte]);
   const totalGeneral = useMemo(() => totalesGrupo(grupoGeneral), [grupoGeneral]);
@@ -322,6 +335,15 @@ export function TanquesView() {
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumoSemanal')} title="Cargar en la caja de Peramanal el consumo de GT de una semana (gasto + entrada de multimoneda por la misma cantidad). Respaldo del automático dominical, por si no se actualizó el fin de semana.">💰 CAJA</button>}
+          <button
+            className={`btn btn-sm ${transferenciasEnError ? 'btn-danger' : 'btn-ghost'}`}
+            onClick={() => setModal('transferencias')}
+            title={transferenciasEnError
+              ? `${transferenciasEnError} envío(s) a MGG no llegaron: el combustible ya salió del tanque`
+              : 'Combustible enviado a MGG y su estado'}
+          >
+            🌐 Envíos a MGG{transferenciasEnError ? ` · ${transferenciasEnError}` : ''}
+          </button>
           {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => { setEditTanque(null); setModal('tanque'); }}>+ Tanque</button>}
           {canWrite && <button className="btn btn-primary btn-sm" onClick={() => setModal('mov')} disabled={!tanques.length}>+ Nuevo movimiento</button>}
         </div>
@@ -391,6 +413,23 @@ export function TanquesView() {
       )}
       {modal === 'consumoSemanal' && (
         <ConsumoSemanalModal onClose={() => setModal('none')} onPosted={recargarTodo} />
+      )}
+      {modal === 'transferencias' && (
+        <TransferenciasInterModal
+          recurso="Combustible"
+          unidad="litros"
+          filas={transferencias.map((t) => ({
+            id: t.id, estado: t.estado, resumen: t.resumen, motivo: t.motivo,
+            mensaje_error: t.mensaje_error, created_at: t.created_at,
+            actor: t.actor, actor_name: t.actor_name,
+            revertida_at: t.revertida_at, revertida_por: t.revertida_por,
+            origen: t.tanque_nombre,
+          }))}
+          puedeOperar={canWrite}
+          onReintentar={async (id) => { await reintentarTrasladoMGG({ id, actor, actorName }); await recargarTodo(); }}
+          onRevertir={async (id) => { await revertirTrasladoMGG({ id, actor, actorName }); await recargarTodo(); }}
+          onClose={() => setModal('none')}
+        />
       )}
       {modal === 'reporte' && (
         <ReporteExistenciasModal

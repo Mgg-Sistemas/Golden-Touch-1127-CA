@@ -1822,6 +1822,27 @@ export async function finalizarPedido(o: Orden, actorEmail: string): Promise<Ord
 }
 
 /**
+ * ¿Esta orden mueve stock al recibirse?
+ *
+ * Dos motivos para que NO, y los dos tienen que valer igual al RECIBIR y al REVERTIR —
+ * si se separan, borrar una orden descuenta stock que nunca entró:
+ *
+ *  1. Es una orden de SERVICIO. Un servicio se presta; no llega mercadería que guardar.
+ *     Su rastro queda en el historial del equipo asociado y en el reinicio del contador
+ *     de mantenimiento, no en el kardex. Vale aunque la orden traiga renglones con
+ *     producto (los repuestos de un mantenimiento se compran y se montan en el equipo,
+ *     no se almacenan) y aunque `afecta_inventario` haya quedado en true: hasta hoy
+ *     nadie lo ponía en false para servicios, así que el tipo es lo que manda.
+ *
+ *  2. Está marcada «no afecta inventario»: la mercadería ya se cargó a mano y sumarla
+ *     otra vez la duplicaría.
+ */
+export function ordenAfectaInventario(o: Pick<Orden, 'tipo' | 'afecta_inventario'>): boolean {
+  if (o.tipo === 'servicio') return false;
+  return o.afecta_inventario !== false;
+}
+
+/**
  * Recepción PARCIAL: confirma cuánto entró realmente por ítem (≤ lo pedido).
  * Solo lo recibido entra al inventario (entrada con delta = cantidad_recibida y
  * recálculo de PMP). Si hay diferencia se documenta en `nota_recepcion` y la
@@ -1851,9 +1872,9 @@ export async function recibirOrdenParcial(
     throw new Error('Indicá al menos una cantidad recibida.');
 
   // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
-  // Se OMITE cuando la orden está marcada "no afecta inventario" (la mercancía ya se
-  // cargó a mano): la recepción se registra pero NO aumenta el stock (evita duplicar).
-  const afectaInventario = o.afecta_inventario !== false;
+  // Se OMITE en los dos casos que NO deben tocar stock (ver `ordenAfectaInventario`):
+  // las órdenes de SERVICIO y las marcadas «no afecta inventario».
+  const afectaInventario = ordenAfectaInventario(o);
   if (afectaInventario) await Promise.all(o.items.map(async (it) => {
     const rec = recMap.get(it.sku) ?? 0;
     if (!it.productoId || rec <= 0) return;
@@ -2426,7 +2447,8 @@ async function eliminarOrdenCompraInterno(o: Orden, etiqueta: string, actorEmail
   }
 
   // 2) INVENTARIO — revertir las entradas de la recepción (si la orden afectó stock).
-  if (o.afecta_inventario !== false) {
+  //    MISMO criterio que al recibir: si no entró, no hay nada que sacar.
+  if (ordenAfectaInventario(o)) {
     const { data: entradas } = await supabase
       .from('movimientos')
       .select('producto_id, delta')

@@ -8,7 +8,13 @@ import { ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import type { Almacen, Existencia, Orden, Producto } from '@/shared/lib/types';
+import type { Almacen, Existencia, Orden, Producto, TransferenciaCasiteritaInter } from '@/shared/lib/types';
+import { TransferenciasInterModal } from '@/shared/ui/TransferenciasInterModal';
+import {
+  listTransferenciasCasiterita,
+  reintentarTrasladoCasiterita,
+  revertirTrasladoCasiterita,
+} from './casiteritaInter.repository';
 import {
   addCategoria,
   contarProductosPorCategoria,
@@ -107,6 +113,7 @@ type ModalState =
   | { kind: 'confirmToggle'; producto: Producto }
   | { kind: 'export' }
   | { kind: 'resumen' }
+  | { kind: 'transferencias' }
   | { kind: 'import'; analisis: AnalisisImport };
 
 export function InventarioPage() {
@@ -130,6 +137,10 @@ export function InventarioPage() {
   const [error, setError] = useState<string | null>(null);
   const [ui, setUi] = useState<UiState>(INITIAL_UI);
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
+  // GT-INT-11 · Casiterita enviada a MGG. Se carga siempre (no solo al abrir el modal)
+  // para poder avisar en la barra cuando alguna quedó sin llegar: el material ya salió
+  // del inventario, así que enterarse tarde es justamente el problema.
+  const [transfCasiterita, setTransfCasiterita] = useState<TransferenciaCasiteritaInter[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
@@ -145,7 +156,9 @@ export function InventarioPage() {
   }, [gestionCatsOpen, productos]);
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
-  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes', 'compras_directas'], () => { void reload(); });
+  // GT-INT-11 · `transferencias_casiterita_inter` entra a la suscripción: si a otro
+  // usuario le falla un envío a MGG, el aviso aparece acá sin recargar la página.
+  useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes', 'compras_directas', 'transferencias_casiterita_inter'], () => { void reload(); });
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -166,7 +179,7 @@ export function InventarioPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prods, ords, pendientes, porMarcar, alms, exs, nEnProduccion, cRecep, resContratos] = await Promise.all([
+      const [prods, ords, pendientes, porMarcar, alms, exs, nEnProduccion, cRecep, resContratos, transfCas] = await Promise.all([
         listProductos(),
         listRecepcionesFinalizadas().catch(() => [] as Orden[]),
         listRecepcionesPorMarcar().catch(() => [] as Orden[]),
@@ -176,6 +189,8 @@ export function InventarioPage() {
         contarProduccionEnProceso().catch(() => 0),
         listComprasPendientesRecepcion().catch(() => [] as CompraDirecta[]),
         resumenContratos().catch(() => null),
+        // Que el puente esté caído no debe dejar el inventario en blanco.
+        listTransferenciasCasiterita().catch(() => [] as TransferenciaCasiteritaInter[]),
       ]);
       setProductos(prods);
       setRecepciones(ords);
@@ -187,6 +202,7 @@ export function InventarioPage() {
       setEnProduccion(nEnProduccion);
       setKgCasiterita(resContratos?.kgCasiteritaCerrados ?? 0);
       setContratosCerrados(resContratos?.cerrados ?? 0);
+      setTransfCasiterita(transfCas);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo cargar el inventario.');
     } finally {
@@ -260,6 +276,10 @@ export function InventarioPage() {
 
   const productoActor = appUser?.email ?? user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
+  const casiteritaEnError = useMemo(
+    () => transfCasiterita.filter((t) => t.estado === 'error').length,
+    [transfCasiterita],
+  );
 
   // ─── handlers ───
   const openVer = useCallback((id: string) => {
@@ -417,6 +437,15 @@ export function InventarioPage() {
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
             ↓ Exportar
           </button>
+          <button
+            className={`btn ${casiteritaEnError ? 'btn-danger' : 'btn-ghost'}`}
+            onClick={() => setModal({ kind: 'transferencias' })}
+            title={casiteritaEnError
+              ? `${casiteritaEnError} envío(s) de casiterita a MGG no llegaron: el material ya salió del inventario`
+              : 'Casiterita enviada a MGG y su estado'}
+          >
+            🌐 Casiterita a MGG{casiteritaEnError ? ` · ${casiteritaEnError}` : ''}
+          </button>
           {canWrite && (
             <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ kind: 'crear' })}>
               + Nuevo producto
@@ -552,6 +581,29 @@ export function InventarioPage() {
       {modal.kind === 'resumen' && (
         <ResumenInventarioModal
           defaultEmail={appUser?.email ?? user?.email ?? ''}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+      {modal.kind === 'transferencias' && (
+        <TransferenciasInterModal
+          recurso="Casiterita"
+          unidad="kilos"
+          filas={transfCasiterita.map((t) => ({
+            id: t.id, estado: t.estado, resumen: t.resumen, motivo: t.motivo,
+            mensaje_error: t.mensaje_error, created_at: t.created_at,
+            actor: t.actor, actor_name: t.actor_name,
+            revertida_at: t.revertida_at, revertida_por: t.revertida_por,
+            origen: t.almacen_origen,
+          }))}
+          puedeOperar={canWrite}
+          onReintentar={async (id) => {
+            await reintentarTrasladoCasiterita({ id, actor: productoActor, actorName });
+            await reload();
+          }}
+          onRevertir={async (id) => {
+            await revertirTrasladoCasiterita({ id, actor: productoActor, actorName });
+            await reload();
+          }}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
