@@ -993,7 +993,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       notify(`Compra pagada y finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
       // La retención es un registro fiscal: si no se pudo crear, hay que verlo. El pago
       // está hecho igual, así que se avisa en vez de hacer fallar la operación entera.
-      if (res.retencionPendiente) notify(res.retencionPendiente, 'warning', { link: '#/app/tesoreria' });
+      if (res.retencionPendiente) notify(res.retencionPendiente, 'warning', { link: '#/app/retenciones' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar la compra.'); setSaving(false); }
   }

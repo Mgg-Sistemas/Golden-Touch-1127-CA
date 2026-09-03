@@ -14,13 +14,17 @@ import {
   urlRetencion, comprobantesDeOrden, labelRetencionModo,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
+import { RetencionesDirectasPanel } from './RetencionesDirectasPanel';
 
-type Vista = 'pendientes' | 'hechas';
+type Vista = 'pendientes' | 'hechas' | 'directas';
 
 export function RetencionesPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
+  // La tabla `retenciones` (compras directas) tiene su propia RLS:
+  // is_admin() or puede('tesoreria'). Escribir en Retenciones no alcanza.
+  const puedeCargarDirectas = can('tesoreria', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
@@ -84,9 +88,17 @@ export function RetencionesPage() {
         <div className="view-toggle" role="tablist" aria-label="Vista de retenciones">
           <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}</button>
           <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
+          <button className={vista === 'directas' ? 'active' : ''} onClick={() => setVista('directas')} title="Retenciones registradas al pagar compras directas">Compras directas</button>
         </div>
       </div>
 
+      {/* GT-INT-09 · Las retenciones de COMPRAS DIRECTAS viven en la tabla `retenciones`
+          y hasta ahora no se mostraban en ninguna pantalla. Son otro origen de dato, no
+          otro filtro del mismo, así que la pestaña trae su propio panel completo. */}
+      {vista === 'directas' ? (
+        <RetencionesDirectasPanel puedeCargar={puedeCargarDirectas} actor={actor} actorName={actorName} />
+      ) : (
+      <>
       {/* Tarjeta total pendientes (solo en la vista Por realizar) */}
       {vista === 'pendientes' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
@@ -161,6 +173,8 @@ export function RetencionesPage() {
           </table>
         </div>
       </div>
+      </>
+      )}
 
       {sel && (
         <RetencionModal
