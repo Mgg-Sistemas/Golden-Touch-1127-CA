@@ -3295,6 +3295,12 @@ function CrearOrdenModal({
     if (!p) return;
     // El número manda tras (re)agregar: olvidamos el texto crudo de esa cantidad.
     setCantEdit((m) => { const n = { ...m }; delete n[p.id]; return n; });
+    // Confirmación en pantalla: antes el producto entraba a la lista en silencio y,
+    // si la tabla quedaba fuera de la vista, no se sabía si «Añadir» había hecho algo.
+    // Se avisa ANTES del setItems (y no dentro) para no duplicar el mensaje.
+    const yaEnLista = items.find((i) => i.productoId === p.id);
+    if (yaEnLista) toast(`«${p.nombre}» ya estaba en la solicitud · cantidad: ${yaEnLista.cantidad + 1}`, 'info');
+    else toast(`«${p.nombre}» agregado a la solicitud`, 'success');
     setItems((prev) => {
       const ex = prev.find((i) => i.productoId === p.id);
       if (ex) {
@@ -3778,6 +3784,10 @@ function EditarOrdenModal({
   function addItem() {
     const p = allProductos.find((x) => x.id === prodSelectId);
     if (!p) return;
+    // Mismo aviso que al crear la solicitud: el usuario tiene que ver que se agregó.
+    const yaEnLista = items.find((i) => i.productoId === p.id);
+    if (yaEnLista) toast(`«${p.nombre}» ya estaba en la solicitud · cantidad: ${yaEnLista.cantidad + 1}`, 'info');
+    else toast(`«${p.nombre}» agregado a la solicitud`, 'success');
     setItems((prev) => prev.some((i) => i.productoId === p.id)
       ? prev.map((i) => (i.productoId === p.id ? { ...i, cantidad: i.cantidad + 1 } : i))
       : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
