@@ -132,9 +132,79 @@ export async function updateCatalogo(id: string, valor: string): Promise<void> {
     const { error: e2 } = await supabase.from('combustible_tanque_movimientos').update({ [col]: v }).eq(col, p.valor);
     if (e2) throw e2;
   }
+
+  // GT-INT-15 · La ficha del equipo en Maquinaria TAMBIÉN guarda este texto, en
+  // `combustible_equipo`. Si no se renombra acá, el equipo queda apuntando a un valor que
+  // ya no existe y pierde en silencio su horómetro y su consumo de gasoil — con lo cual la
+  // alerta de mantenimiento preventivo por horas deja de dispararse y nadie se entera.
+  // Pasó de verdad: cinco generadores quedaron colgados de nombres viejos con prefijo «GT».
+  if (p?.tipo === 'equipo' && p?.valor && p.valor !== v) {
+    const { error: e3 } = await supabase
+      .from('maquinaria_equipos')
+      .update({ combustible_equipo: v })
+      .eq('combustible_equipo', p.valor);
+    // No es best-effort: si esto falla, el vínculo queda roto sin que nadie lo note, que es
+    // justamente el problema. Se avisa, aunque el renombrado del catálogo ya haya quedado.
+    if (e3) {
+      throw new Error(
+        `El catálogo se renombró a «${v}», pero NO se pudo actualizar la ficha de los equipos ` +
+        `que lo usaban: ${e3.message}. Revisá en Maquinaria que el equipo siga vinculado, ` +
+        `o su alerta de mantenimiento dejará de sonar.`,
+      );
+    }
+  }
 }
 
+/** Dónde se está usando un valor del catálogo. Se consulta antes de borrarlo: el vínculo
+ *  es por texto, así que borrar deja huérfanos que nadie ve. */
+export async function usosDeCatalogo(id: string): Promise<{ valor: string; movimientos: number; equipos: number }> {
+  const { data: prev } = await supabase.from('combustible_catalogos').select('tipo, valor').eq('id', id).maybeSingle();
+  const p = prev as { tipo?: string; valor?: string } | null;
+  const valor = p?.valor ?? '';
+  if (!valor) return { valor, movimientos: 0, equipos: 0 };
+
+  const col = p?.tipo ? COL_MOV_POR_TIPO[p.tipo] : undefined;
+  let movimientos = 0;
+  if (col) {
+    const { count } = await supabase
+      .from('combustible_tanque_movimientos')
+      .select('id', { count: 'exact', head: true })
+      .eq(col, valor);
+    movimientos = count ?? 0;
+  }
+
+  let equipos = 0;
+  if (p?.tipo === 'equipo') {
+    const { count } = await supabase
+      .from('maquinaria_equipos')
+      .select('id', { count: 'exact', head: true })
+      .eq('combustible_equipo', valor);
+    equipos = count ?? 0;
+  }
+  return { valor, movimientos, equipos };
+}
+
+/**
+ * Borra un valor del catálogo, pero NO si algo lo está usando.
+ *
+ * GT-INT-15 · El vínculo es por texto, no por identificador: borrar el valor no rompe
+ * ninguna llave, simplemente deja movimientos y fichas de equipo apuntando a un nombre
+ * que ya no existe. El equipo pierde su horómetro y su consumo, y su alerta de
+ * mantenimiento se apaga sin un solo mensaje de error.
+ */
 export async function eliminarCatalogo(id: string): Promise<void> {
+  const { valor, movimientos, equipos } = await usosDeCatalogo(id);
+  if (movimientos > 0 || equipos > 0) {
+    const partes: string[] = [];
+    if (movimientos > 0) partes.push(`${movimientos} movimiento(s) de combustible`);
+    if (equipos > 0) partes.push(`${equipos} equipo(s) de Maquinaria`);
+    throw new Error(
+      `No se puede borrar «${valor}»: lo usan ${partes.join(' y ')}. ` +
+      `Si lo borrás, esos registros quedan colgados de un nombre que ya no existe y la ` +
+      `alerta de mantenimiento del equipo deja de sonar. Renombralo en vez de borrarlo, ` +
+      `o desvinculá primero el equipo desde Maquinaria.`,
+    );
+  }
   const { error } = await supabase.from('combustible_catalogos').delete().eq('id', id);
   if (error) throw error;
 }

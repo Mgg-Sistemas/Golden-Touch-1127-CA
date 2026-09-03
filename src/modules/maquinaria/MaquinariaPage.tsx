@@ -14,7 +14,7 @@ import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, reiniciarMantenimientoDeEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
-import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo } from '@/modules/combustible/tanques.repository';
+import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo, listCatalogos } from '@/modules/combustible/tanques.repository';
 import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -80,22 +80,27 @@ export function MaquinariaPage() {
   const [correoOpen, setCorreoOpen] = useState(false);
   const [form, setForm] = useState<{ open: boolean; equipo: MaquinariaEquipo | null }>({ open: false, equipo: null });
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
+  // GT-INT-15 · Valores vigentes del catalogo de Combustible, para detectar fichas que
+  // quedaron apuntando a un nombre renombrado (vinculo roto = alerta apagada en silencio).
+  const [combEquipos, setCombEquipos] = useState<string[]>([]);
   const [borrar, setBorrar] = useState<MaquinariaEquipo | null>(null);
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, kms, bit, sol] = await Promise.all([
+      const [eqs, horos, kms, bit, sol, cats] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
         kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
+        listCatalogos().catch(() => []),
       ]);
       setEquipos(eqs);
       setHorometros(horos);
       setKilometrajes(kms);
       setBitMap(bit);
       setSolMap(sol);
+      setCombEquipos(cats.filter((c) => c.tipo === 'equipo').map((c) => c.valor));
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -133,6 +138,20 @@ export function MaquinariaPage() {
     () => equipos.filter((e) => e.activo && infoEquipo.get(e.id)?.alerta),
     [equipos, infoEquipo],
   );
+
+  // GT-INT-15 · Fichas que apuntan a un valor que ya no está en el catálogo de
+  // Combustible. Ese equipo no ve su horómetro ni su gasoil, y su alerta de mantenimiento
+  // preventivo NO suena — sin ningún error, que es lo peligroso. Se listan acá arriba para
+  // que se vea sin tener que abrir equipo por equipo.
+  const vinculosRotos = useMemo(() => {
+    if (!combEquipos.length) return [];
+    const vigentes = new Set(combEquipos.map((v) => v.trim()));
+    return equipos.filter((e) => {
+      if (!e.activo) return false;
+      const v = (e.combustible_equipo ?? '').trim();
+      return !!v && !vigentes.has(v);
+    });
+  }, [equipos, combEquipos]);
 
   // ── Tarjetas de estado (Control de Maquinaria) ──
   // ACTIVA: equipos operativos. MANTENIMIENTO: equipos con al menos una solicitud de
@@ -229,6 +248,23 @@ export function MaquinariaPage() {
       {enAlerta.length > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
           ⚠️ <strong>{enAlerta.length} equipo(s)</strong> con mantenimiento próximo (cerca de cumplir sus horas u horas/km de servicio, según el horómetro y el kilometraje de Combustible): {enAlerta.slice(0, 6).map((e) => e.equipo).join(', ')}{enAlerta.length > 6 ? '…' : ''}
+        </div>
+      )}
+
+      {vinculosRotos.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--danger)', background: 'var(--bg-1)', marginBottom: '.6rem', padding: '.55rem .85rem' }}>
+          🔗 <strong>{vinculosRotos.length} equipo(s) desvinculados de Combustible.</strong>{' '}
+          Su ficha apunta a un nombre que ya no está en el catálogo — casi siempre porque lo
+          renombraron. Mientras siga así, <strong>no ven su horómetro ni su gasoil y su alerta de
+          mantenimiento no suena</strong>. Abrí cada equipo y elegí de nuevo el equipo de
+          Combustible:
+          <ul style={{ margin: '.4rem 0 0', paddingLeft: '1.1rem' }}>
+            {vinculosRotos.map((e) => (
+              <li key={e.id}>
+                <strong>{e.equipo}</strong> → apunta a «{e.combustible_equipo}»
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

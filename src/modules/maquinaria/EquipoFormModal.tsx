@@ -70,6 +70,16 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
 
   const combOpts = useMemo(() => combEquipos.map((e) => ({ value: e, label: e })), [combEquipos]);
 
+  // GT-INT-15 · El vínculo con Combustible es por TEXTO. Si renombraron el valor en el
+  // catálogo, la ficha queda apuntando a un nombre que ya no existe y el equipo pierde su
+  // horómetro y su gasoil — con lo cual la alerta de mantenimiento se apaga sin avisar.
+  // Acá se avisa. (La lista vacía todavía no cargó: no se acusa un vínculo roto de más.)
+  const vinculoRoto = useMemo(() => {
+    const v = (f.combustible_equipo ?? '').trim();
+    if (!v || !combEquipos.length) return false;
+    return !combEquipos.some((e) => e.trim() === v);
+  }, [f.combustible_equipo, combEquipos]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -192,7 +202,16 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           <div className="form-row" style={{ margin: 0 }}>
             <label>⛽ Equipo de Combustible vinculado</label>
             <SearchSelect value={f.combustible_equipo ?? ''} onChange={(v) => set('combustible_equipo', v || null)} options={combOpts} placeholder="— sin vincular —" />
-            <small className="muted">Al vincularlo, el <strong>horómetro</strong> y el <strong>gasoil consumido</strong> se traen del módulo de Combustible.</small>
+            {vinculoRoto ? (
+              <small style={{ color: 'var(--danger)' }}>
+                ⚠ <strong>Vínculo roto.</strong> Este equipo apunta a «{f.combustible_equipo}», que ya no
+                existe en el catálogo de Combustible — seguramente lo renombraron. Mientras siga así,
+                el equipo <strong>no ve su horómetro ni su gasoil</strong> y su{' '}
+                <strong>alerta de mantenimiento no suena</strong>. Elegí arriba el nombre correcto.
+              </small>
+            ) : (
+              <small className="muted">Al vincularlo, el <strong>horómetro</strong> y el <strong>gasoil consumido</strong> se traen del módulo de Combustible.</small>
+            )}
           </div>
         </div>
 
