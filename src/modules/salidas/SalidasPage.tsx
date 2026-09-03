@@ -1174,6 +1174,7 @@ function SolicitudDetalleModal({
           <tr><td className="muted">Tipo</td><td>{sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de {sol.tipo === 'dinero' ? 'dinero' : 'material'}</td></tr>
           <tr><td className="muted">Estado</td><td><span className={`badge ${SOL_ESTADO_CLASS[sol.estado]}`}>{SOL_COLS.find((c) => c.key === sol.estado)?.label}</span></td></tr>
           <tr><td className="muted">Solicitante</td><td>{(() => { const s = (sol.solicitante ?? '').trim(); if (s) return s; const n = nombreDe(sol.actor); return n && n !== sol.actor ? n : (sol.actor ?? '—'); })()}</td></tr>
+          {sol.sede_origen && <tr><td className="muted">Sede origen</td><td>{sol.sede_origen}</td></tr>}
           {sol.unidad_solicitante && <tr><td className="muted">Unidad solicitante</td><td>{sol.unidad_solicitante}</td></tr>}
           {sol.tipo === 'material' ? (
             <>

@@ -5,7 +5,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 
-export type TipoCatalogoPedido = 'clasificacion' | 'unidad_solicitante';
+export type TipoCatalogoPedido = 'clasificacion' | 'unidad_solicitante' | 'sede_origen';
 
 export interface CatalogoPedido {
   id: string;

@@ -216,6 +216,8 @@ export interface CrearSolicitudSalidaInput {
   tipo: TipoSalida;
   solicitante: string;
   unidadSolicitante?: string | null;
+  /** Sede de la que sale el material (catálogo `sede_origen`). */
+  sedeOrigen?: string | null;
   destino?: string | null;
   motivo?: string | null;
   // transporte / formato salida en tránsito
@@ -351,6 +353,7 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       cuenta: input.cuenta ?? null,
       solicitante: input.solicitante.trim(),
       unidad_solicitante: input.unidadSolicitante?.trim() || null,
+      sede_origen: input.sedeOrigen?.trim() || null,
       destino: input.destino?.trim() || null,
       motivo: input.motivo?.trim() || null,
       chofer_id: input.choferId ?? null,
@@ -499,6 +502,8 @@ export interface EditarSolicitudSalidaInput {
   almacenDestino?: string | null;
   solicitante?: string;
   unidadSolicitante?: string | null;
+  /** Sede de la que sale el material (catalogo `sede_origen`). */
+  sedeOrigen?: string | null;
   destino?: string | null;
   motivo?: string | null;
   fechaEntrega?: string | null;
@@ -532,6 +537,7 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
     patch.solicitante = input.solicitante.trim();
   }
   if (input.unidadSolicitante !== undefined) patch.unidad_solicitante = input.unidadSolicitante?.trim() || null;
+  if (input.sedeOrigen !== undefined) patch.sede_origen = input.sedeOrigen?.trim() || null;
   if (input.motivo !== undefined) patch.motivo = input.motivo?.trim() || null;
   if (input.fechaEntrega !== undefined) patch.fecha_entrega = input.fechaEntrega || null;
   if (input.notaEntrega !== undefined) patch.nota_entrega = input.notaEntrega?.trim() || null;

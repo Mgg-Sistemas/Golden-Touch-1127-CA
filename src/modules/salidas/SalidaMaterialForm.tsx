@@ -73,12 +73,54 @@ export function SalidaMaterialForm({
   const [nuevaUnidad, setNuevaUnidad] = useState('');
   const nuevaUnidadRef = useRef<HTMLInputElement>(null);
   const [addingUnidad, setAddingUnidad] = useState(false);
+  // Sede origen: antes era un desplegable fijo en «Peramanal» y encima deshabilitado,
+  // escrito a mano en el JSX y sin guardarse en ningún lado. Ahora sale del mismo
+  // catálogo compartido (`pedido_catalogos`, tipo `sede_origen`) y se persiste en la
+  // solicitud, así agregar una sede nueva no necesita tocar código.
+  const [sedeOrigen, setSedeOrigen] = useState('');
+  const [sedeOpciones, setSedeOpciones] = useState<string[]>([]);
+  const [nuevaSede, setNuevaSede] = useState('');
+  const nuevaSedeRef = useRef<HTMLInputElement>(null);
+  const [addingSede, setAddingSede] = useState(false);
+
   const cargarUnidades = useCallback(async () => {
-    const uns = await listActivosPedido('unidad_solicitante').catch(() => [] as string[]);
+    const [uns, sedes] = await Promise.all([
+      listActivosPedido('unidad_solicitante').catch(() => [] as string[]),
+      listActivosPedido('sede_origen').catch(() => [] as string[]),
+    ]);
     setUnidadOpciones(uns);
+    setSedeOpciones(sedes);
+    // Con una sola sede cargada no tiene sentido obligar a elegirla: se preselecciona.
+    setSedeOrigen((prev) => prev || (sedes.length === 1 ? sedes[0] : ''));
   }, []);
   useEffect(() => { void cargarUnidades(); }, [cargarUnidades]);
   useRealtime(['pedido_catalogos'], () => { void cargarUnidades(); });
+
+  async function agregarSedeNueva() {
+    // Igual que con la unidad: se lee el valor REAL del DOM y no el estado, porque el
+    // input es no-controlado y tecleando rápido el estado queda atrás.
+    const v = (nuevaSedeRef.current?.value ?? nuevaSede).trim();
+    if (!v) { toast('Escribí la sede nueva', 'error'); return; }
+    const yaEsta = sedeOpciones.find((s) => s.toLowerCase() === v.toLowerCase());
+    if (yaEsta) {
+      setSedeOrigen(yaEsta);
+      setNuevaSede('');
+      if (nuevaSedeRef.current) nuevaSedeRef.current.value = '';
+      return;
+    }
+    try {
+      setAddingSede(true);
+      await addCatalogoPedido('sede_origen', v);
+      await cargarUnidades();
+      setSedeOrigen(v);
+      setNuevaSede('');
+      if (nuevaSedeRef.current) nuevaSedeRef.current.value = '';
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo agregar la sede', 'error');
+    } finally {
+      setAddingSede(false);
+    }
+  }
 
   async function agregarUnidadNueva() {
     // Leemos el valor REAL del DOM (ref), no el estado: el input es no-controlado y el
@@ -153,6 +195,7 @@ export function SalidaMaterialForm({
         items, destino: consumoInterno ? 'CONSUMO INTERNO' : (transporte.direccionDestino.trim() || null),
         motivo: motivo.trim() || null,
         unidadSolicitante: unidadSolicitante.trim() || null,
+        sedeOrigen: sedeOrigen.trim() || null,
         fechaEntrega: fechaEntrega || null,
         choferId: transporte.choferId, choferNombre: transporte.choferNombre, choferCedula: transporte.choferCedula,
         vehiculoId: transporte.vehiculoId, vehiculoDescripcion: transporte.vehiculoDescripcion, vehiculoPlaca: transporte.vehiculoPlaca,
@@ -197,10 +240,23 @@ export function SalidaMaterialForm({
 
         <div className="form-row">
           <label>Sede origen</label>
-          <select className="select" value="Peramanal" disabled>
-            <option value="Peramanal">Peramanal</option>
-          </select>
-          <small className="muted">Todo sale del <strong>Inventario General</strong> (inventario único).</small>
+          <SearchSelect value={sedeOrigen} onChange={setSedeOrigen}
+            options={sedeOpciones.map((s) => ({ value: s, label: s }))}
+            placeholder="Sede de la que sale el material" />
+          <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
+            <input className="input" name="f-nueva-sede" ref={nuevaSedeRef} defaultValue={nuevaSede}
+              onChange={(e) => setNuevaSede(e.target.value)}
+              placeholder="¿No está? Escribí la sede nueva…"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarSedeNueva(); } }} />
+            <button type="button" className="btn btn-ghost" onClick={() => void agregarSedeNueva()} disabled={addingSede}>
+              {addingSede ? '…' : '+ Añadir'}
+            </button>
+          </div>
+          <small className="muted">
+            La sede nueva queda guardada en el catálogo y aparece la próxima vez. El material
+            sale igual del <strong>Inventario General</strong>: la sede dice <em>de dónde</em>, no
+            de qué almacén.
+          </small>
         </div>
 
         <div className="form-row">

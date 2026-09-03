@@ -977,6 +977,8 @@ export interface SolicitudSalida {
   // comunes
   solicitante: string;
   unidad_solicitante?: string | null;
+  /** Sede de la que sale el material. Se elige del catálogo `sede_origen`. */
+  sede_origen?: string | null;
   destino?: string | null;
   motivo?: string | null;
   // transporte / formato salida en tránsito
