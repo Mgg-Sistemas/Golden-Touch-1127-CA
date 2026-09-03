@@ -996,7 +996,8 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
       return {
         retencionPendiente:
           `La compra se pagó, pero NO se registró la retención de ${compra.retencion_tipo || 'IVA'} `
-          + `(${retPct}% sobre ${retBase}). Cargala a mano en Retenciones. Motivo: ${detalle}`,
+          + `(${retPct}% sobre ${retBase}). Cargala a mano en Retenciones → pestaña «Compras directas» `
+          + `→ botón «Cargar retención». Motivo: ${detalle}`,
       };
     }
   }
