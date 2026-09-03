@@ -48,7 +48,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   const [tipos, setTipos] = useState<string[]>([]);
   const [props, setProps] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
-  const [combEquipos, setCombEquipos] = useState<string[]>([]);
+  const [combEquipos, setCombEquipos] = useState<string[]>([]);        // solo activos: lo que ofrece el selector
+  const [combEquiposTodos, setCombEquiposTodos] = useState<string[]>([]); // todos: para saber si el vinculo existe
   const [ubicaciones, setUbicaciones] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +59,15 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     listActivosMaquinaria('propietario').then(setProps).catch(() => {});
     listActivosMaquinaria('status').then((s) => setStatuses(s.length ? s : ['ACTIVO'])).catch(() => setStatuses(['ACTIVO']));
     // Equipos y UBICACIONES se traen del catálogo de Combustible (fuente única).
+    // Se guardan DOS listas de equipos a propósito: el desplegable solo ofrece los
+    // ACTIVOS (no tiene sentido elegir uno dado de baja), pero para decidir si el
+    // vínculo está roto valen TODOS — apuntar a un valor inactivo no es un vínculo
+    // roto, el equipo sigue viendo su horómetro y su gasoil. Con una sola lista, un
+    // vínculo sano a un valor inactivo se marcaba en rojo sin motivo.
     listCatalogos().then((c) => {
-      setCombEquipos(c.filter((x) => x.tipo === 'equipo' && x.activo).map((x) => x.valor));
+      const equipos = c.filter((x) => x.tipo === 'equipo');
+      setCombEquipos(equipos.filter((x) => x.activo).map((x) => x.valor));
+      setCombEquiposTodos(equipos.map((x) => x.valor));
       setUbicaciones(c.filter((x) => x.tipo === 'ubicacion' && x.activo).map((x) => x.valor));
     }).catch(() => {});
   }, []);
@@ -73,12 +81,15 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   // GT-INT-15 · El vínculo con Combustible es por TEXTO. Si renombraron el valor en el
   // catálogo, la ficha queda apuntando a un nombre que ya no existe y el equipo pierde su
   // horómetro y su gasoil — con lo cual la alerta de mantenimiento se apaga sin avisar.
-  // Acá se avisa. (La lista vacía todavía no cargó: no se acusa un vínculo roto de más.)
+  // Acá se avisa. Se mira contra TODOS los valores, no solo los activos: apuntar a uno
+  // dado de baja no rompe nada (el vínculo es por texto y los movimientos se siguen
+  // viendo), así que marcarlo en rojo sería una falsa alarma.
+  // (La lista vacía todavía no cargó: no se acusa un vínculo roto de más.)
   const vinculoRoto = useMemo(() => {
     const v = (f.combustible_equipo ?? '').trim();
-    if (!v || !combEquipos.length) return false;
-    return !combEquipos.some((e) => e.trim() === v);
-  }, [f.combustible_equipo, combEquipos]);
+    if (!v || !combEquiposTodos.length) return false;
+    return !combEquiposTodos.some((e) => e.trim() === v);
+  }, [f.combustible_equipo, combEquiposTodos]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
