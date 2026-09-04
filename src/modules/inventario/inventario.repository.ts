@@ -97,10 +97,27 @@ export function siguienteSku(categoria: string, productos: Producto[] = []): str
 
 const fmtSku = (prefijo: string, n: number) => `${prefijo}-${String(n).padStart(3, '0')}`;
 
+/** Prefijo REAL de una categoría, según la base.
+ *
+ *  Antes esto se adivinaba en el navegador con las 3 primeras letras del
+ *  nombre, sin memoria: dos categorías distintas caían en el mismo prefijo
+ *  (PROTEINA y PRODUCCION son las dos «PRO») y terminaban compartiendo el
+ *  contador, con lo que el SKU dejaba de decir a qué familia pertenece el
+ *  producto. Ahora `sku_prefijos` recuerda la asignación: cada categoría
+ *  estrena su propio prefijo y lo conserva para siempre.
+ *
+ *  Si la consulta falla se cae al cálculo local de siempre — un problema de
+ *  red no puede dejar a nadie sin poder crear un producto. */
+async function prefijoDeCategoria(categoria: string, productos: Producto[] = []): Promise<string> {
+  const { data, error } = await supabase.rpc('prefijo_categoria', { p_categoria: categoria });
+  if (error || !data) return prefijoCategoria(categoria, productos);
+  return String(data);
+}
+
 /** Previsualiza el próximo SKU SIN reservarlo (para mostrarlo en el formulario).
  *  Refleja el contador persistente: no reutiliza números aunque se borre el más alto. */
 export async function peekSku(categoria: string, productos: Producto[] = []): Promise<string> {
-  const prefijo = prefijoCategoria(categoria, productos);
+  const prefijo = await prefijoDeCategoria(categoria, productos);
   const { data, error } = await supabase.rpc('peek_sku', { p_prefijo: prefijo });
   if (error) throw error;
   return fmtSku(prefijo, Number(data) || 1);
@@ -108,7 +125,7 @@ export async function peekSku(categoria: string, productos: Producto[] = []): Pr
 
 /** Reserva (atómico) y devuelve el próximo SKU correlativo. Úsese al CREAR. */
 export async function nextSku(categoria: string, productos: Producto[] = []): Promise<string> {
-  const prefijo = prefijoCategoria(categoria, productos);
+  const prefijo = await prefijoDeCategoria(categoria, productos);
   const { data, error } = await supabase.rpc('next_sku', { p_prefijo: prefijo, p_n: 1 });
   if (error) throw error;
   return fmtSku(prefijo, Number(data) || 1);
@@ -117,7 +134,7 @@ export async function nextSku(categoria: string, productos: Producto[] = []): Pr
 /** Reserva N SKUs correlativos de una categoría (un solo viaje) y los devuelve. */
 export async function reservarSkus(categoria: string, n: number, productos: Producto[] = []): Promise<string[]> {
   if (n <= 0) return [];
-  const prefijo = prefijoCategoria(categoria, productos);
+  const prefijo = await prefijoDeCategoria(categoria, productos);
   const { data, error } = await supabase.rpc('next_sku', { p_prefijo: prefijo, p_n: n });
   if (error) throw error;
   const start = Number(data) || 1;
@@ -438,4 +455,55 @@ export async function contarRecepcionesPorMarcar(): Promise<number> {
     .in('estado', ['por_recibir', 'pagada']);
   if (error) throw error;
   return count ?? 0;
+}
+
+/* ============================================================
+   Productos parecidos — aviso antes de crear un duplicado
+
+   La unicidad por nombre (índice `productos_nombre_sin_acentos_activos`) solo
+   frena el nombre IDÉNTICO. Pero los duplicados reales nacen de otra forma:
+   alguien escribe «FILTRO HIDRAULICO RETORNO» sin saber que ya existe
+   «FILTRO HIDRÁULICO DE RETORNO 14509379». Esta consulta trae los candidatos
+   para preguntarle antes de crear.
+
+   El parecido lo calcula la base con trigramas sobre nombre + marca + modelo +
+   código + SKU (ver supabase/2026-09-04-productos-parecidos.sql). Se hace allá
+   y no acá para no traerse los 469 productos al navegador en cada tecla.
+   ============================================================ */
+export interface ProductoParecido {
+  id: string;
+  sku: string;
+  nombre: string;
+  categoria: string;
+  unidad: string;
+  marca: string | null;
+  modelo: string | null;
+  almacen: string | null;
+  stock: number;
+  /** 0 a 1. 1 = idéntico. */
+  parecido: number;
+  misma_categoria: boolean;
+}
+
+export async function buscarProductosParecidos(
+  nombre: string,
+  categoria?: string | null,
+): Promise<ProductoParecido[]> {
+  const n = (nombre ?? '').trim();
+  // Con menos de 3 letras cualquier cosa se parece a todo: no vale la pena
+  // molestar al usuario con una lista de ruido.
+  if (n.length < 3) return [];
+  const { data, error } = await supabase.rpc('productos_parecidos', {
+    p_nombre: n,
+    p_categoria: categoria ?? null,
+    p_limite: 6,
+  });
+  // Si la consulta falla NO se bloquea la creación: esto es una ayuda, no un
+  // control. Un aviso que no se pudo calcular no puede impedir trabajar.
+  if (error) return [];
+  return ((data ?? []) as ProductoParecido[]).map((r) => ({
+    ...r,
+    stock: Number(r.stock) || 0,
+    parecido: Number(r.parecido) || 0,
+  }));
 }

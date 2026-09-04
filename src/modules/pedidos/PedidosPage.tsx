@@ -67,7 +67,8 @@ import type { AbonoCredito, Caja } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
-import { createProducto, updateProducto, getUnidades, nextSku } from '@/modules/inventario/inventario.repository';
+import { createProducto, updateProducto, getUnidades, nextSku, buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
+import { ProductoParecidoModal } from '@/modules/inventario/ProductoParecidoModal';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
@@ -3189,20 +3190,59 @@ function CrearOrdenModal({
   const nuevoNombreRef = useRef<HTMLInputElement>(null);
   const nuevoCategoriaRef = useRef<HTMLInputElement>(null);
 
+  // ── Aviso de producto parecido ────────────────────────────────────
+  // El índice único solo frena el nombre IDÉNTICO, y los duplicados reales
+  // nunca lo son: «FILTRO HIDRAULICO RETORNO» contra «FILTRO HIDRÁULICO DE
+  // RETORNO 14509379» es el mismo repuesto escrito por dos personas. Antes de
+  // crear se consulta el inventario y, si hay algo parecido, se pregunta.
+  const [parecidos, setParecidos] = useState<ProductoParecido[]>([]);
+  const [altaPendiente, setAltaPendiente] = useState<{ nombre: string; categoria: string } | null>(null);
+
+  /** Agrega a la solicitud un producto que YA existe (sale del aviso de parecidos). */
+  function usarProductoExistente(p: ProductoParecido) {
+    setProdSelectId(p.id);
+    setItems((prev) => prev.some((i) => i.productoId === p.id)
+      ? prev
+      : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
+    setParecidos([]); setAltaPendiente(null);
+    toast(`Se agregó «${p.nombre}» (${p.sku}), que ya estaba en el inventario`, 'success');
+    setNuevoNombre('');
+    if (nuevoNombreRef.current) { nuevoNombreRef.current.value = ''; nuevoNombreRef.current.focus(); }
+  }
+
+  /** Puerta: mira si ya hay algo parecido antes de dar de alta. */
   async function crearProductoNuevo() {
     // Fuente de verdad: el DOM (inputs NO controlados), no el estado React — así un
     // re-render pesado del modal no pisa lo tecleado (antes el nombre salía "cortado
     // a medias": se escribía el material y no aparecía hasta borrar una letra).
     const nombre = (nuevoNombreRef.current?.value ?? nuevoNombre).trim().toUpperCase();
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
+    // En MERCADO los productos nuevos entran SIEMPRE como VÍVERES (para que queden
+    // disponibles en Cocina); fuera de MERCADO, la categoría elegida.
+    const categoria = mercado ? 'VÍVERES' : ((nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase() || 'GENERAL');
+    setCreandoNuevo(true);
+    try {
+      const similares = await buscarProductosParecidos(nombre, categoria);
+      if (similares.length) {
+        // Hay candidatos: se pregunta en vez de crear. La creación sigue en
+        // `crearProductoAhora`, que es lo que dispara «crear igual».
+        setParecidos(similares);
+        setAltaPendiente({ nombre, categoria });
+        return;
+      }
+    } finally {
+      setCreandoNuevo(false);
+    }
+    await crearProductoAhora(nombre, categoria);
+  }
+
+  /** El alta de verdad. Se llama sin parecidos, o tras confirmarlos. */
+  async function crearProductoAhora(nombre: string, categoria: string) {
     setCreandoNuevo(true);
     try {
       // SKU correlativo por categoría: prefijo de 3 letras + Nº incremental (p. ej.
       // PROTEINA → PRO-001), con contador PERSISTENTE en la base (no reutiliza números
       // ni colisiona entre usuarios).
-      // En MERCADO los productos nuevos entran SIEMPRE como VÍVERES (para que queden
-      // disponibles en Cocina); fuera de MERCADO, la categoría elegida.
-      const categoria = mercado ? 'VÍVERES' : ((nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase() || 'GENERAL');
       const sku = await nextSku(categoria);
       const creado = await createProducto({
         sku,
@@ -3222,7 +3262,9 @@ function CrearOrdenModal({
         ? prev
         : [...prev, { productoId: creado.id, sku: creado.sku, nombre: creado.nombre, cantidad: 1, precio: 0, unidad: creado.unidad, comprar: true }]);
       toast(`Producto "${creado.nombre}" creado y añadido · cargá otro o cerrá`, 'success');
-      // Limpiamos el campo y mantenemos el formulario abierto para añadir más.
+      // Se cierra el aviso de parecidos (si el alta venía de ahí) y se deja el
+      // formulario abierto para cargar otro.
+      setParecidos([]); setAltaPendiente(null);
       setNuevoNombre('');
       if (nuevoNombreRef.current) { nuevoNombreRef.current.value = ''; nuevoNombreRef.current.focus(); }
     } catch (e) {
@@ -3661,6 +3703,20 @@ function CrearOrdenModal({
         El precio lo fijará el proveedor al cargar su oferta. La solicitud queda sin monto hasta entonces.
       </p>
       </div>
+
+      {/* Aviso: lo que se va a crear ya podría existir con otro nombre. */}
+      {altaPendiente && parecidos.length > 0 && (
+        <ProductoParecidoModal
+          nombreNuevo={altaPendiente.nombre}
+          categoriaNueva={altaPendiente.categoria}
+          unidadNueva={nuevoUnidad.trim() || 'und'}
+          parecidos={parecidos}
+          creando={creandoNuevo}
+          onUsarExistente={usarProductoExistente}
+          onCrearIgual={() => { void crearProductoAhora(altaPendiente.nombre, altaPendiente.categoria); }}
+          onClose={() => { setParecidos([]); setAltaPendiente(null); }}
+        />
+      )}
     </Modal>
   );
 }
@@ -3794,16 +3850,46 @@ function EditarOrdenModal({
       : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
   }
 
+  // Mismo aviso de producto parecido que en la creación de la solicitud: el
+  // índice único solo frena el nombre idéntico, y los duplicados nunca lo son.
+  const [parecidos, setParecidos] = useState<ProductoParecido[]>([]);
+  const [altaPendiente, setAltaPendiente] = useState<{ nombre: string; categoria: string } | null>(null);
+
+  /** Agrega a la orden un producto que YA existe (sale del aviso de parecidos). */
+  function usarProductoExistente(p: ProductoParecido) {
+    setProdSelectId(p.id);
+    setItems((prev) => prev.some((i) => i.productoId === p.id)
+      ? prev
+      : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
+    setParecidos([]); setAltaPendiente(null);
+    toast(`Se agregó «${p.nombre}» (${p.sku}), que ya estaba en el inventario`, 'success');
+    setNuevoNombre('');
+    if (nuevoNombreRef.current) { nuevoNombreRef.current.value = ''; nuevoNombreRef.current.focus(); }
+  }
+
+  /** Puerta: mira si ya hay algo parecido antes de dar de alta. */
   async function crearProductoNuevo() {
     // Fuente de verdad: el DOM (inputs NO controlados), no el estado React — así un
     // re-render pesado del modal no pisa lo tecleado (el nombre "cortado a medias").
     const nombre = (nuevoNombreRef.current?.value ?? nuevoNombre).trim().toUpperCase();
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
+    const categoria = (nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase() || 'GENERAL';
     setCreandoNuevo(true);
     try {
-      // SKU correlativo por categoría (prefijo 3 letras + Nº incremental, p. ej. PRO-001),
-      // con contador persistente en la base.
-      const categoria = (nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase() || 'GENERAL';
+      const similares = await buscarProductosParecidos(nombre, categoria);
+      if (similares.length) { setParecidos(similares); setAltaPendiente({ nombre, categoria }); return; }
+    } finally {
+      setCreandoNuevo(false);
+    }
+    await crearProductoAhora(nombre, categoria);
+  }
+
+  /** El alta de verdad. Se llama sin parecidos, o tras confirmarlos. */
+  async function crearProductoAhora(nombre: string, categoria: string) {
+    setCreandoNuevo(true);
+    try {
+      // SKU correlativo por categoría (prefijo propio de cada categoría + Nº
+      // incremental, p. ej. PRO-001), con contador persistente en la base.
       const sku = await nextSku(categoria);
       const creado = await createProducto({
         sku, nombre,
@@ -4196,6 +4282,20 @@ function EditarOrdenModal({
           Imagen o PDF · máximo 10 MB. {imagenPathActual ? 'Subir uno nuevo reemplaza el actual.' : 'Sin adjunto por ahora.'}
         </small>
       </div>
+
+      {/* Aviso: lo que se va a crear ya podría existir con otro nombre. */}
+      {altaPendiente && parecidos.length > 0 && (
+        <ProductoParecidoModal
+          nombreNuevo={altaPendiente.nombre}
+          categoriaNueva={altaPendiente.categoria}
+          unidadNueva={nuevoUnidad.trim() || 'und'}
+          parecidos={parecidos}
+          creando={creandoNuevo}
+          onUsarExistente={usarProductoExistente}
+          onCrearIgual={() => { void crearProductoAhora(altaPendiente.nombre, altaPendiente.categoria); }}
+          onClose={() => { setParecidos([]); setAltaPendiente(null); }}
+        />
+      )}
     </Modal>
   );
 }
