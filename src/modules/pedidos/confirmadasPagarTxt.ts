@@ -8,9 +8,9 @@
    POR QUÉ TXT Y NO PDF: el PDF es para imprimir y archivar; esto es para
    MANDAR la instrucción de pago. Un texto se copia, se corrige y se reenvía.
 
-   QUÉ LLEVA: quién la pide, de qué unidad, qué pidió, a qué proveedor, y con
-   qué método se paga —con los datos del proveedor y el monto de cada pata
-   cuando el pago va partido—.
+   QUÉ LLEVA: quién la pide, de qué unidad, para qué la pide y con qué nota,
+   qué pidió, a qué proveedor, y con qué método se paga —con los datos del
+   proveedor y el monto de cada pata cuando el pago va partido—.
 
    EL FORMATO SE CUIDA: se lee en monoespaciado (Bloc de notas, WhatsApp Web,
    correo), así que las etiquetas van alineadas a un ancho fijo y las líneas de
@@ -51,6 +51,41 @@ function montoPata(m: PagoMetodo): string {
 /** `  ETIQUETA            : valor` */
 function campo(etiqueta: string, valor: string, ancho = ETIQUETA, sangria = '  '): string {
   return `${sangria}${etiqueta.padEnd(ancho, ' ')}: ${valor}`;
+}
+
+/**
+ * Campo cuyo valor puede ser un párrafo (la descripción, la nota).
+ * Se corta por palabras al ancho de la regla y las líneas siguientes quedan
+ * sangradas debajo del valor, no del margen: así se ve dónde termina un campo
+ * y empieza el otro sin tener que releer.
+ */
+function campoLargo(etiqueta: string, valor: string): string[] {
+  const sangria = ' '.repeat(2 + ETIQUETA + 2);
+  const util = Math.max(24, ANCHO - sangria.length);
+  const lineas: string[] = [];
+  let actual = '';
+  for (const palabra of valor.split(/\s+/).filter(Boolean)) {
+    // Una palabra sola más larga que el ancho (un enlace, un serial) se deja
+    // entera: partirla la vuelve inservible para copiar.
+    if (actual && (actual + ' ' + palabra).length > util) { lineas.push(actual); actual = palabra; }
+    else actual = actual ? actual + ' ' + palabra : palabra;
+  }
+  if (actual) lineas.push(actual);
+  if (!lineas.length) return [];
+  return [campo(etiqueta, lineas[0]), ...lineas.slice(1).map((l) => sangria + l)];
+}
+
+/**
+ * El «para qué» de la solicitud. Se resuelve igual que en el PDF de la orden
+ * —primero la finalidad de la orden, si no las de sus renglones, si no el
+ * motivo— para que los dos documentos digan lo mismo.
+ */
+function descripcionDe(o: Orden): string {
+  const propia = o.finalidad?.trim();
+  if (propia) return propia;
+  const deItems = Array.from(new Set((o.items ?? []).map((it) => (it.finalidad ?? '').trim()).filter(Boolean)));
+  if (deItems.length) return deItems.join(' · ');
+  return o.motivo?.trim() || '';
 }
 
 /** Título de sección entre reglas. */
@@ -114,6 +149,12 @@ function bloqueOrden(o: Orden, proveedor: Proveedor | null): string {
   L.push(campo('SOLICITA', o.solicitante?.trim() || o.solicitante_email || '—'));
   L.push(campo('UNIDAD SOLICITANTE', o.unidad_solicitante?.trim() || '—'));
   L.push(campo('PROVEEDOR', proveedor?.razon_social?.trim() || '—'));
+  // Descripción y nota solo si existen: un renglón «NOTA : —» no informa nada
+  // y aleja el método de pago, que es lo que se busca en este papel.
+  const descripcion = descripcionDe(o);
+  if (descripcion) L.push(...campoLargo('DESCRIPCIÓN', descripcion));
+  const nota = o.notas?.trim();
+  if (nota) L.push(...campoLargo('NOTA', nota));
   L.push('');
 
   // ── Qué se solicitó ──
