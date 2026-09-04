@@ -229,6 +229,9 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                   )}
                 </div>
 
+                {/* Contenedor: en escritorio permite deslizar si la matriz no entra;
+                    en teléfono cada rol se lee como ficha (ver tablasResponsive.ts). */}
+                <div className="table-wrap">
                 <table className="table" style={{ fontSize: '.82rem' }}>
                   <thead>
                     <tr>
@@ -258,6 +261,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
             );
           })}
