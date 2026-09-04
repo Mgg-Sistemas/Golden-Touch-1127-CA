@@ -1,16 +1,16 @@
 /* ============================================================
    Golden Touch · Pedidos · Exportar «Confirmada pagar» a TXT
 
-   Las órdenes que ya tienen el método de pago indicado y esperan a Tesorería,
-   en texto plano: se abre en cualquier lado, se pega en un chat o en un correo
-   y se lee sin depender del sistema.
+   Una orden ya confirmada para pagar, en texto plano: se abre en cualquier
+   lado, se pega en un chat o en un correo y se lee sin depender del sistema.
+   El botón vive en el pie del detalle de la OC, al lado de «OC PDF».
 
    POR QUÉ TXT Y NO PDF: el PDF es para imprimir y archivar; esto es para
    MANDAR la instrucción de pago. Un texto se copia, se corrige y se reenvía.
 
-   QUÉ LLEVA CADA ORDEN: quién la pide, de qué unidad, qué pidió, a qué
-   proveedor, y con qué método se paga —con los datos del proveedor y el monto
-   de cada pata cuando el pago va partido—.
+   QUÉ LLEVA: quién la pide, de qué unidad, qué pidió, a qué proveedor, y con
+   qué método se paga —con los datos del proveedor y el monto de cada pata
+   cuando el pago va partido—.
    ============================================================ */
 import type { Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
@@ -89,34 +89,37 @@ function bloqueOrden(o: Orden, proveedor: Proveedor | null): string {
   return L.join('\n');
 }
 
-/**
- * Arma el TXT de todas las órdenes recibidas y dispara la descarga.
- * `ordenes` ya viene filtrada por quien llama (la columna «Confirmada pagar»).
- */
-export function descargarConfirmadasPagarTxt(ordenes: Orden[], proveedorMap: Map<string, Proveedor>): void {
-  const hoy = new Date();
-  const cab = [
-    'GOLDEN TOUCH 1127 C.A.',
-    'ÓRDENES CONFIRMADAS PARA PAGAR',
-    `Generado: ${hoy.toLocaleString('es-VE', { dateStyle: 'long', timeStyle: 'short' })}`,
-    `Órdenes: ${ordenes.length}`,
-    '',
-  ].join('\n');
-
-  const cuerpo = ordenes
-    .map((o) => bloqueOrden(o, o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null))
-    .join('\n');
-
-  // Bloc de notas de Windows corta las líneas en \n solo: se escribe con \r\n
-  // para que el archivo se lea bien también ahí.
-  const texto = (cab + cuerpo).split('\n').join('\r\n');
-  const blob = new Blob([texto], { type: 'text/plain;charset=utf-8' });
+/** Dispara la descarga de un texto como archivo .txt. */
+function descargar(texto: string, nombre: string): void {
+  // El Bloc de notas de Windows solo corta en \r\n: sin eso el archivo se ve
+  // como un único renglón enorme.
+  const blob = new Blob([texto.split('\n').join('\r\n')], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `confirmadas-pagar-${hoy.toISOString().slice(0, 10)}.txt`;
+  a.download = nombre;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/** Encabezado del archivo. */
+function encabezado(titulo: string, extra?: string): string {
+  return [
+    'GOLDEN TOUCH 1127 C.A.',
+    titulo,
+    `Generado: ${new Date().toLocaleString('es-VE', { dateStyle: 'long', timeStyle: 'short' })}`,
+    ...(extra ? [extra] : []),
+    '',
+  ].join('\n');
+}
+
+/** Una sola orden: la instrucción de pago para mandarla por chat o correo. */
+export function descargarOrdenPagarTxt(orden: Orden, proveedor: Proveedor | null): void {
+  const texto = encabezado('ORDEN CONFIRMADA PARA PAGAR') + bloqueOrden(orden, proveedor);
+  // El nombre del archivo lleva el código: llegan varios por chat y hay que
+  // distinguirlos sin abrirlos.
+  const codigo = (orden.oc_codigo || orden.codigo || 'orden').replace(/[^A-Za-z0-9_-]+/g, '-');
+  descargar(texto, `pagar-${codigo}.txt`);
 }
