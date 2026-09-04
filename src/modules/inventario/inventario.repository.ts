@@ -296,7 +296,20 @@ export async function createProducto(input: ProductoInput): Promise<Producto> {
     .insert(input)
     .select('*')
     .single();
-  if (error) throw error;
+  if (error) {
+    // La base no admite dos productos ACTIVOS con el mismo nombre ignorando
+    // tildes y mayúsculas (índice `productos_nombre_sin_acentos_activos`).
+    // Sin este mensaje el usuario solo vería el error crudo de Postgres y no
+    // entendería por qué le rechaza un nombre que en pantalla "no existe":
+    // el que ya está cargado puede tener otra tilde u otras mayúsculas.
+    if ((error as { code?: string }).code === '23505' && /nombre_sin_acentos/.test(error.message ?? '')) {
+      throw new Error(
+        `Ya existe un producto llamado «${input.nombre}» (los acentos y las mayúsculas no cuentan: ` +
+        'si está cargado como «PLÁTANO», no se puede crear «PLATANO»). Buscalo en el inventario y usá ese.',
+      );
+    }
+    throw error;
+  }
   const prod = data as Producto;
   // El producto nace TAMBIÉN con su fila en `existencias` (su almacén, con el stock/costo
   // inicial), así aparece en las vistas por almacén sin esperar a su primer movimiento.
