@@ -24,10 +24,19 @@
    tablas que existan en ese instante. El observer mantiene las etiquetas al día
    y está acotado a `<table>` para que no cueste nada.
 
+   TABLAS SIN ENCABEZADO
+   Algunas tablas no son una grilla de datos sino una lista «valor · concepto»
+   —el resumen de conciliación en Recepciones, por ejemplo— y no tienen `<thead>`.
+   No hay etiqueta de columna que poner, pero apilarlas igual es lo correcto: si
+   se dejan como tabla dentro de una tarjeta con `overflow:hidden` quedan
+   RECORTADAS y sin forma de deslizarlas. Se marcan con `data-ficha-libre`, que
+   el CSS apila sin etiquetas.
+
    OPT-OUT
-   Una tabla marcada con `data-sin-ficha` se deja como está (sigue con scroll
-   horizontal). Útil donde apilar sería peor que deslizar — por ejemplo una
-   matriz de comparación donde lo que importa es ver las columnas enfrentadas.
+   Una tabla marcada A MANO con `data-sin-ficha` se deja como está (sigue con
+   scroll horizontal). Útil donde apilar sería peor que deslizar — por ejemplo
+   una matriz de comparación donde importa ver las columnas enfrentadas. Este
+   instalador nunca la pone: es una decisión de quien escribe la pantalla.
    ============================================================ */
 
 /** Ancho a partir del cual dejamos de convertir en fichas (coincide con el CSS). */
@@ -38,13 +47,28 @@ const ANCHO_TELEFONO = 600;
  * Es idempotente: si la etiqueta ya es la correcta no toca el DOM (así no se
  * dispara el propio observer en bucle).
  */
+/**
+ * Tabla que se apila sin rótulos (no tiene encabezados de los que sacarlos).
+ * Se limpian los `data-col` por si la tabla tuvo encabezados antes y los perdió.
+ */
+function marcarLibre(tabla: HTMLTableElement): void {
+  if (!tabla.hasAttribute('data-ficha-libre')) tabla.setAttribute('data-ficha-libre', '');
+  for (const celda of Array.from(tabla.querySelectorAll<HTMLTableCellElement>('td[data-col]'))) {
+    celda.removeAttribute('data-col');
+  }
+}
+
 function etiquetarTabla(tabla: HTMLTableElement): void {
+  // `data-sin-ficha` la pone la pantalla a mano: es un opt-out, no se toca.
   if (tabla.hasAttribute('data-sin-ficha')) return;
+  // Si antes no tenía encabezados y ahora sí, deja de ser «libre».
+  if (tabla.tHead?.rows[0] && tabla.hasAttribute('data-ficha-libre')) tabla.removeAttribute('data-ficha-libre');
 
   // Encabezados: la primera fila de <thead>. Sin encabezados no hay etiquetas
-  // que poner, y apilar sin nombre de columna sería ilegible → se deja deslizable.
+  // que poner, pero la ficha se arma igual: apilada y sin rótulos es legible, y
+  // dejarla como tabla la deja recortada dentro de una tarjeta.
   const filaHead = tabla.tHead?.rows[0];
-  if (!filaHead) { tabla.setAttribute('data-sin-ficha', ''); return; }
+  if (!filaHead) { marcarLibre(tabla); return; }
 
   const titulos: string[] = [];
   for (const th of Array.from(filaHead.cells)) {
@@ -53,7 +77,7 @@ function etiquetarTabla(tabla: HTMLTableElement): void {
     const texto = (th.textContent ?? '').trim();
     for (let i = 0; i < (th.colSpan || 1); i++) titulos.push(texto);
   }
-  if (!titulos.some(Boolean)) { tabla.setAttribute('data-sin-ficha', ''); return; }
+  if (!titulos.some(Boolean)) { marcarLibre(tabla); return; }
 
   for (const cuerpo of Array.from(tabla.tBodies)) {
     for (const fila of Array.from(cuerpo.rows)) {

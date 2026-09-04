@@ -898,19 +898,30 @@ tr.row-selectable:active { transform: scale(0.998); }
   table.table:not([data-sin-ficha]) > tbody > tr:last-child,
   table.items-table:not([data-sin-ficha]) > tbody > tr:last-child { margin-bottom: 0; }
 
-  /* Cada celda = una línea «Etiqueta …… valor». */
+  /* Cada celda = una línea «Etiqueta …… valor».
+
+     La celda es un BLOQUE y la etiqueta va flotada, no un contenedor flex.
+     Con flex, cada hijo del `<td>` se vuelve un ítem que compite por el ancho:
+     una celda con texto + aclaración + botón —como el resumen de conciliación
+     en Recepciones— repartía el ancho entre los tres y cada uno quedaba de una
+     letra, con el texto cayendo en vertical. Flotando la etiqueta, el contenido
+     de la celda fluye como texto normal, sin importar cuántos elementos tenga. */
   table.table:not([data-sin-ficha]) > tbody > tr > td,
   table.items-table:not([data-sin-ficha]) > tbody > tr > td {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .75rem;
+    display: block;
     width: auto !important;
     padding: .4rem 0 !important;
     border: none;
     border-bottom: 1px solid var(--border);
     text-align: right;
-    overflow-wrap: anywhere;
+    /* `break-word` y no `anywhere`: `anywhere` deja que el ancho mínimo de la
+       celda sea UNA letra, que es justo lo que permitía el desarme vertical. */
+    overflow-wrap: break-word;
+  }
+  /* Cierra el flotado para que la etiqueta no se derrame a la celda siguiente. */
+  table.table:not([data-sin-ficha]) > tbody > tr > td::after,
+  table.items-table:not([data-sin-ficha]) > tbody > tr > td::after {
+    content: ""; display: block; clear: both;
   }
   table.table:not([data-sin-ficha]) > tbody > tr > td:last-child,
   table.items-table:not([data-sin-ficha]) > tbody > tr > td:last-child { border-bottom: none; }
@@ -918,36 +929,39 @@ tr.row-selectable:active { transform: scale(0.998); }
   table.table:not([data-sin-ficha]) > tbody > tr > td[data-col]::before,
   table.items-table:not([data-sin-ficha]) > tbody > tr > td[data-col]::before {
     content: attr(data-col);
-    flex: 0 0 auto;
+    float: left;
     max-width: 45%;
+    margin-right: .75rem;
     text-align: left;
     font-size: .68rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .04em;
     color: var(--text-muted);
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
-  /* Celda cuya columna no tiene título: ocupa la línea entera. */
-  table.table:not([data-sin-ficha]) > tbody > tr > td[data-col=""],
-  table.items-table:not([data-sin-ficha]) > tbody > tr > td[data-col=""] {
-    justify-content: flex-end;
+  /* Celda cuya columna no tiene título: ocupa la línea entera, sin etiqueta
+     vacía que deje un hueco al margen izquierdo. */
+  table.table:not([data-sin-ficha]) > tbody > tr > td[data-col=""]::before,
+  table.items-table:not([data-sin-ficha]) > tbody > tr > td[data-col=""]::before {
+    content: none;
   }
 
   /* Fila de «no hay datos» o subtotal (una celda que abarca todo): sin etiqueta
      y centrada, para que no parezca una ficha vacía. */
   table.table:not([data-sin-ficha]) > tbody > tr[data-fila-ancha] > td,
   table.items-table:not([data-sin-ficha]) > tbody > tr[data-fila-ancha] > td {
-    justify-content: center;
     text-align: center;
   }
 
-  /* Los controles dentro de una celda (botones, inputs, selects de cada renglón)
-     necesitan espacio real: en la ficha se estiran en vez de encogerse a nada. */
+  /* Los controles dentro de una celda (inputs, selects de cada renglón) toman el
+     ancho disponible: en el teléfono un campo de 160 px pegado al borde derecho
+     es más difícil de tocar que uno que ocupa la línea. `max-width` gana al
+     `width` en línea de la pantalla sin necesidad de `!important`. */
   table.table:not([data-sin-ficha]) > tbody > tr > td > .input,
   table.table:not([data-sin-ficha]) > tbody > tr > td > .select,
   table.items-table:not([data-sin-ficha]) > tbody > tr > td > .input,
-  table.items-table:not([data-sin-ficha]) > tbody > tr > td > .select { flex: 1 1 auto; min-width: 0; }
+  table.items-table:not([data-sin-ficha]) > tbody > tr > td > .select { max-width: 100%; min-width: 0; }
 
   /* Pie de tabla (totales): también apilado y destacado. */
   table.table:not([data-sin-ficha]) > tfoot,
