@@ -54,6 +54,7 @@ import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ImportarExcelModal } from './ImportarExcelModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
+import { CostosYMedidasModal, contarSinCosto } from './CostosYMedidasModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { norm } from '@/shared/lib/texto';
@@ -114,6 +115,7 @@ type ModalState =
   | { kind: 'confirmToggle'; producto: Producto }
   | { kind: 'export' }
   | { kind: 'resumen' }
+  | { kind: 'costos' }
   | { kind: 'transferencias' }
   | { kind: 'import'; analisis: AnalisisImport };
 
@@ -275,6 +277,9 @@ export function InventarioPage() {
     };
   }, [decorated]);
 
+  // Productos activos que valen $0: existen y se mueven, pero no tienen costo.
+  const sinCosto = useMemo(() => contarSinCosto(productos), [productos]);
+
   const productoActor = appUser?.email ?? user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
   const casiteritaEnError = useMemo(
@@ -406,6 +411,14 @@ export function InventarioPage() {
               ⚙ Categorías
             </button>
           )}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setModal({ kind: 'costos' })}
+            title="Cargar el costo unitario y corregir la medida de los productos que valen $0"
+          >
+            ⚠ Costos y medidas
+            {sinCosto > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{sinCosto}</span>}
+          </button>
           <button
             className="btn btn-ghost"
             onClick={() => { void descargarPlantillaExcel(); }}
@@ -571,6 +584,16 @@ export function InventarioPage() {
           danger={modal.producto.estado === 'activo'}
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={() => handleToggleEstado(modal.producto)}
+        />
+      )}
+      {modal.kind === 'costos' && (
+        <CostosYMedidasModal
+          productos={productos}
+          actor={productoActor}
+          actorName={actorName}
+          canWrite={canWrite}
+          onClose={() => setModal({ kind: 'none' })}
+          onGuardado={() => { void reload(); }}
         />
       )}
       {modal.kind === 'export' && (
