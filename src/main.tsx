@@ -4,6 +4,7 @@ import { HashRouter } from 'react-router-dom';
 import { App } from './App';
 import { instalarSelectOnFocusMonto } from './shared/lib/selectOnFocus';
 import { instalarMayusculaAutomatica } from './shared/lib/mayusculaInputs';
+import { instalarTablasResponsive } from './shared/lib/tablasResponsive';
 import { initHints } from './shared/ui/HintsToggle';
 import './styles/index.css';
 
@@ -15,6 +16,9 @@ instalarSelectOnFocusMonto();
 // Mayúscula automática global en los campos de texto (con exclusiones: correo,
 // contraseña, números y buscadores).
 instalarMayusculaAutomatica();
+// Tablas legibles en teléfono: cada fila pasa a ser una ficha «etiqueta: valor».
+// En pantallas grandes no toca nada (ni siquiera agenda el observer).
+instalarTablasResponsive();
 
 // Recuperación tras un despliegue: si la app tenía el index.html viejo en caché y
 // un chunk con hash ya no existe (404), el lazy-import falla y la pantalla queda en
