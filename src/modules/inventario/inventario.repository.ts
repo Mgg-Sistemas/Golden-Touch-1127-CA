@@ -390,6 +390,45 @@ export async function updateProducto(
   return data as Producto;
 }
 
+/**
+ * Carga el COSTO UNITARIO de un producto en un solo paso atómico: deja
+ * `productos.precio` y `existencias.costo_promedio` en el mismo número y anota
+ * el ajuste en el kardex (quién lo valoró y cuándo). No mueve stock.
+ *
+ * Es distinto de `updateProducto({ precio })`: aquel propaga el precio SOLO a una
+ * existencia que ya exista, y los productos que nunca tuvieron costo tampoco
+ * tienen fila de existencia, así que el costo se perdía. Esta RPC la crea.
+ */
+export async function fijarCostoProducto(
+  id: string,
+  precio: number,
+  actor?: string | null,
+  actorName?: string | null,
+): Promise<Producto> {
+  const { data, error } = await supabase.rpc('fijar_costo_producto', {
+    p_producto_id: id,
+    p_precio: Math.round((Number(precio) || 0) * 100) / 100,
+    p_actor: actor ?? null,
+    p_actor_name: actorName ?? null,
+  });
+  if (error) throw error;
+  return data as Producto;
+}
+
+/** Cambia la MEDIDA (unidad) de un producto. No toca precio ni stock. */
+export async function cambiarMedidaProducto(id: string, unidad: string): Promise<Producto> {
+  const u = unidad.trim();
+  if (!u) throw new Error('La medida no puede estar vacía');
+  const { data, error } = await supabase
+    .from('productos')
+    .update({ unidad: u, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as Producto;
+}
+
 export async function setEstadoProducto(
   id: string,
   estado: EstadoGenerico,
