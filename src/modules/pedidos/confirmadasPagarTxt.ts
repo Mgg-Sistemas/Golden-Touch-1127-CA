@@ -11,80 +11,145 @@
    QUÉ LLEVA: quién la pide, de qué unidad, qué pidió, a qué proveedor, y con
    qué método se paga —con los datos del proveedor y el monto de cada pata
    cuando el pago va partido—.
+
+   EL FORMATO SE CUIDA: se lee en monoespaciado (Bloc de notas, WhatsApp Web,
+   correo), así que las etiquetas van alineadas a un ancho fijo y las líneas de
+   separación miden lo mismo. Si se cambia un ancho hay que cambiarlo en la
+   constante, no a ojo en cada línea.
    ============================================================ */
-import type { Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
+import type { ItemOrden, Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
-import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
+import { labelBanco } from '@/shared/lib/bancos';
 
-/** Monto con su moneda, sin depender del formateador de la app (esto es texto plano). */
+/** Ancho de las líneas de separación. */
+const ANCHO = 62;
+/** Ancho de la etiqueta en el bloque de datos de la orden («UNIDAD SOLICITANTE»). */
+const ETIQUETA = 20;
+/** Ancho de la etiqueta dentro de un método de pago («CI / RIF»). */
+const ETIQUETA_PAGO = 10;
+
+const REGLA_DOBLE = '='.repeat(ANCHO);
+const REGLA = '-'.repeat(ANCHO);
+
+/** Número con separador de miles VE y dos decimales, sin símbolo. */
+function num(n: number | null | undefined): string {
+  return (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Monto de la orden y de sus renglones: el dólar va con símbolo. */
 function monto(n: number | null | undefined, moneda?: string | null): string {
-  const v = Number(n) || 0;
-  const num = v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (moneda === 'Bs') return `Bs ${num}`;
-  if (!moneda || moneda === 'USD') return `$ ${num}`;
-  return `${moneda} ${num}`;
+  if (moneda === 'Bs') return `Bs ${num(n)}`;
+  if (!moneda || moneda === 'USD') return `$ ${num(n)}`;
+  return `${moneda} ${num(n)}`;
 }
 
-function fecha(iso?: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' });
+/** Monto de una pata del pago: acá la moneda se nombra (USD, Bs, USDT). */
+function montoPata(m: PagoMetodo): string {
+  return `${m.moneda || 'USD'} ${num(m.monto)}`;
 }
 
-/** Etiqueta alineada, para que los dos puntos queden en columna y se lea de un vistazo. */
-function campo(etiqueta: string, valor: string): string {
-  return `${etiqueta.padEnd(20, ' ')}: ${valor}`;
+/** `  ETIQUETA            : valor` */
+function campo(etiqueta: string, valor: string, ancho = ETIQUETA, sangria = '  '): string {
+  return `${sangria}${etiqueta.padEnd(ancho, ' ')}: ${valor}`;
 }
 
-/** Bloque de una orden. */
+/** Título de sección entre reglas. */
+function seccion(titulo: string): string[] {
+  return [REGLA, `  ${titulo}`, REGLA];
+}
+
+/**
+ * Datos del proveedor para pagarle, uno por línea y con su nombre propio.
+ * En pantalla estos datos se muestran en una sola línea separados por «·»;
+ * acá van desplegados porque el que paga los copia de a uno (el número de
+ * cuenta, el teléfono) y buscarlos dentro de un renglón largo es pedir error.
+ */
+function lineasDatosPago(metodo: string, d: Record<string, string> | undefined): string[] {
+  const dd = d ?? {};
+  const par = (etiqueta: string, valor?: string | null): string[] =>
+    valor?.trim() ? [campo(etiqueta, valor.trim(), ETIQUETA_PAGO, '     ')] : [];
+
+  if (metodo === 'pago_movil') {
+    return [
+      ...par('CI / RIF', dd.ci_rif),
+      ...par('Banco', dd.banco ? labelBanco(dd.banco) : ''),
+      ...par('Teléfono', dd.telefono),
+    ];
+  }
+  if (metodo === 'transferencia') {
+    return [
+      ...par('Titular', dd.nombre),
+      ...par('CI / RIF', dd.ci),
+      ...par('Banco', dd.banco ? labelBanco(dd.banco) : ''),
+      ...par('Cuenta', dd.cuenta),
+    ];
+  }
+  if (metodo === 'zelle') {
+    return [...par('Titular', dd.nombre), ...par('Correo', dd.email)];
+  }
+  if (metodo === 'binance_usdt') {
+    return [...par('Correo / ID', dd.email_o_id)];
+  }
+  // Efectivo y «otro» no llevan datos: no hay a dónde transferir.
+  return [];
+}
+
+/** Precio unitario del renglón, en la moneda en la que se va a pagar la orden. */
+function precioItem(o: Orden, it: ItemOrden): number {
+  if (o.pago_en_divisa && it.precio_usd != null) return Number(it.precio_usd) || 0;
+  return Number(it.precio) || 0;
+}
+
+/** El cuerpo de una orden. */
 function bloqueOrden(o: Orden, proveedor: Proveedor | null): string {
   const L: string[] = [];
-  const codigo = [o.codigo, o.oc_codigo].filter(Boolean).join('  ·  ') || o.id;
+  const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
 
-  L.push('─'.repeat(64));
-  L.push(codigo);
-  L.push('─'.repeat(64));
-  L.push(campo('Solicita', o.solicitante?.trim() || o.solicitante_email || '—'));
-  L.push(campo('Unidad solicitante', o.unidad_solicitante?.trim() || '—'));
-  L.push(campo('Proveedor', proveedor?.razon_social?.trim() || '—'));
-  if (proveedor?.rif) L.push(campo('RIF del proveedor', proveedor.rif));
-  L.push(campo('Fecha de la orden', fecha(o.created_at)));
+  // ── Identificación ──
+  // Dos vacíos: uno cierra el encabezado del archivo y el otro deja el renglón
+  // en blanco que lo separa de los datos.
+  L.push('', '');
+  if (o.oc_codigo) L.push(campo('ORDEN', o.oc_codigo));
+  L.push(campo('SOLICITUD', o.codigo || '—'));
+  L.push(campo('SOLICITA', o.solicitante?.trim() || o.solicitante_email || '—'));
+  L.push(campo('UNIDAD SOLICITANTE', o.unidad_solicitante?.trim() || '—'));
+  L.push(campo('PROVEEDOR', proveedor?.razon_social?.trim() || '—'));
+  L.push('');
 
-  // ── Qué solicitó ──
-  // Solo los ítems marcados para comprar: los demás quedaron fuera de la OC y
-  // ponerlos acá haría pagar por lo que no se compró.
+  // ── Qué se solicitó ──
+  // Solo los ítems marcados para comprar: los otros quedaron fuera de la OC y
+  // ponerlos acá sería cobrar por lo que no se compró.
   const items = (o.items ?? []).filter((it) => it.comprar !== false);
-  L.push('');
-  L.push('Qué solicitó:');
+  L.push(...seccion('QUÉ SE SOLICITÓ'));
   if (!items.length) {
-    L.push('  (sin ítems)');
+    L.push('   (sin ítems)');
   } else {
-    for (const it of items) {
+    items.forEach((it, i) => {
       const cant = Number(it.cantidad) || 0;
-      const unidad = it.unidad ? ` ${it.unidad}` : '';
-      const marca = [it.marca, it.modelo].filter(Boolean).join(' ');
-      const detalle = [it.sku, marca || null].filter(Boolean).join(' · ');
-      L.push(`  · ${cant}${unidad} — ${it.nombre}${detalle ? `  (${detalle})` : ''}`);
-      if (it.finalidad?.trim()) L.push(`      para: ${it.finalidad.trim()}`);
-    }
+      const unidad = (it.unidad || 'UND').toUpperCase();
+      const precio = precioItem(o, it);
+      L.push(`  ${String(i + 1).padStart(2, ' ')}. ${it.nombre}`);
+      L.push(`      ${num(cant).replace(/,00$/, '')} ${unidad} x ${monto(precio, moneda)}  =  ${monto(cant * precio, moneda)}`);
+    });
   }
-
-  // ── Cómo se paga ──
-  const metodos = (o.metodo_pago ?? []) as PagoMetodo[];
   L.push('');
-  L.push('Método de pago:');
+  // El total es el de la orden, no la suma de los renglones: puede llevar IVA,
+  // IGTF o un descuento por encima de las líneas.
+  L.push(campo('TOTAL', monto(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total, moneda)));
+  L.push('');
+
+  // ── Método de pago ──
+  L.push(...seccion('MÉTODO DE PAGO'));
+  const metodos = (o.metodo_pago ?? []) as PagoMetodo[];
   if (!metodos.length) {
     L.push('  (sin método indicado)');
   } else {
-    for (const m of metodos) {
-      L.push(`  · ${labelMetodoPago(m.metodo)} — ${monto(m.monto, m.moneda)}`);
-      const datos = resumenDatosPago(m.metodo, m.datos ?? {}).trim();
-      if (datos) L.push(`      ${datos}`);
-    }
+    metodos.forEach((m, i) => {
+      if (i > 0) L.push('');
+      L.push(`  [${i + 1}/${metodos.length}] ${labelMetodoPago(m.metodo)}   ${montoPata(m)}`);
+      L.push(...lineasDatosPago(m.metodo, m.datos));
+    });
   }
-
-  L.push('');
-  L.push(campo('TOTAL', monto(o.total, o.total_moneda)));
   L.push('');
   return L.join('\n');
 }
@@ -104,20 +169,14 @@ function descargar(texto: string, nombre: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Encabezado del archivo. */
-function encabezado(titulo: string, extra?: string): string {
-  return [
-    'GOLDEN TOUCH 1127 C.A.',
-    titulo,
-    `Generado: ${new Date().toLocaleString('es-VE', { dateStyle: 'long', timeStyle: 'short' })}`,
-    ...(extra ? [extra] : []),
-    '',
-  ].join('\n');
-}
-
 /** Una sola orden: la instrucción de pago para mandarla por chat o correo. */
 export function descargarOrdenPagarTxt(orden: Orden, proveedor: Proveedor | null): void {
-  const texto = encabezado('ORDEN CONFIRMADA PARA PAGAR') + bloqueOrden(orden, proveedor);
+  const texto = [
+    REGLA_DOBLE,
+    '  GOLDEN TOUCH 1127',
+    '  ORDEN CONFIRMADA PARA PAGAR',
+    REGLA_DOBLE,
+  ].join('\n') + bloqueOrden(orden, proveedor);
   // El nombre del archivo lleva el código: llegan varios por chat y hay que
   // distinguirlos sin abrirlos.
   const codigo = (orden.oc_codigo || orden.codigo || 'orden').replace(/[^A-Za-z0-9_-]+/g, '-');
