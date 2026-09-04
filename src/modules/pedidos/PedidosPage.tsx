@@ -89,6 +89,7 @@ import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
+import { norm } from '@/shared/lib/texto';
 
 /* ============================================================
    Golden Touch · Pedidos / Órdenes · Página principal
@@ -420,7 +421,7 @@ export function PedidosPage() {
   }, [searchParams, setSearchParams]);
 
   const filteredOrdenes = useMemo(() => {
-    const q = filterText.trim().toLowerCase();
+    const q = norm(filterText);
     return ordenes.filter((o) => {
       // Los servicios viven en su propia pestaña: se muestran SOLO en "Servicios"
       // y se excluyen del resto (Solicitud de Pedido / Órdenes de Compra). Para
@@ -439,7 +440,7 @@ export function PedidosPage() {
           o.solicitante_email,
           o.notas,
         ]
-          .map((v) => (v ?? '').toString().toLowerCase())
+          .map((v) => norm(String(v ?? '')))
           .join(' | ');
         if (!haystack.includes(q)) return false;
       }

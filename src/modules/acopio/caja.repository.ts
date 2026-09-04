@@ -45,7 +45,7 @@ export async function addClasificacion(grupo: GrupoClasificacion, valor: string)
     .select('*')
     .single();
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Esa clasificación ya existe en el grupo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Esa clasificación ya existe en el grupo (los acentos no cuentan).');
     throw error;
   }
   return data as ClasificacionAcopio;
@@ -67,7 +67,7 @@ export async function updateClasificacion(id: string, valor: string): Promise<vo
   if (!v) throw new Error('Indicá el valor de la categoría.');
   const { error } = await supabase.from('acopio_clasificaciones').update({ valor: v }).eq('id', id);
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Esa categoría ya existe en el grupo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Esa categoría ya existe en el grupo (los acentos no cuentan).');
     throw error;
   }
 }
@@ -825,7 +825,7 @@ export async function addCostoClase(clasificacion: string, subclasificacion: str
     .select('*')
     .single();
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Esa sub-clasificación ya existe.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Esa sub-clasificación ya existe (los acentos no cuentan).');
     throw error;
   }
   return data as CostoClase;

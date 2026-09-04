@@ -97,7 +97,7 @@ export async function addCatalogo(tipo: TipoCatalogoCombustible, valor: string):
     .select('*')
     .single();
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
   return data as CatalogoCombustible;
@@ -122,7 +122,7 @@ export async function updateCatalogo(id: string, valor: string): Promise<void> {
   const { data: prev } = await supabase.from('combustible_catalogos').select('tipo, valor').eq('id', id).maybeSingle();
   const { error } = await supabase.from('combustible_catalogos').update({ valor: v }).eq('id', id);
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
   // Cascada: los movimientos guardan el texto (no un FK), así que renombramos también ahí.

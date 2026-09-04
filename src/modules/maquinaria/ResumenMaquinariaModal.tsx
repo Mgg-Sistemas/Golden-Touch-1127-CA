@@ -6,6 +6,7 @@ import { num as fmtNum } from '@/shared/lib/format';
 import { consumoPorEquipo } from '@/modules/combustible/tanques.repository';
 import { horasUltimoPorEquipo } from './maquinariaMant.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { norm } from '@/shared/lib/texto';
 
 export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: MaquinariaEquipo[]; onClose: () => void }) {
   const [desde, setDesde] = useState('');
@@ -60,7 +61,7 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
   // Detalle del equipo seleccionado (al hacer click en su barra de gasoil).
   const detalleData = useMemo(() => {
     if (!detalle) return null;
-    const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
+    // Comparación tolerante a acentos: «GENERACIÓN» y «GENERACION» son el mismo equipo.
     const g = gasoil.find((x) => norm(x.nombre) === norm(detalle));
     const eq = equipos.find((e) => norm(e.combustible_equipo) === norm(detalle));
     const hm = eq ? horasMap.get(eq.id) : null;

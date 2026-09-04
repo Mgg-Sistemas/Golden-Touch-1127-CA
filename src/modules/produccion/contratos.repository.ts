@@ -448,7 +448,7 @@ export async function addCatalogoAcopio(tipo: TipoCatalogoAcopio, valor: string)
     .select('*')
     .single();
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
   return data as CatalogoAcopio;
@@ -459,7 +459,7 @@ export async function updateCatalogoAcopio(id: string, valor: string): Promise<v
   if (!v) throw new Error('Indicá el valor.');
   const { error } = await supabase.from('acopio_catalogos').update({ valor: v }).eq('id', id);
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
 }

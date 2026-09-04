@@ -56,6 +56,7 @@ import { ImportarExcelModal } from './ImportarExcelModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
+import { norm } from '@/shared/lib/texto';
 import {
   listAlmacenes,
   listExistencias,
@@ -77,7 +78,7 @@ const INITIAL_UI: UiState = {
 
 /** Predicado de filtros del inventario general. */
 function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
-  const q = ui.filterText.trim().toLowerCase();
+  const q = norm(ui.filterText);
   if (ui.filterEstado && p.estado !== ui.filterEstado) return false;
   if (ui.filterCat && p.categoria !== ui.filterCat) return false;
   if (ui.filterClass && p._klass !== ui.filterClass) return false;
@@ -95,7 +96,7 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
     const haystack = [
       p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.serial, p.codigo, p.numero,
       p.unidad, p.categoria, p.descripcion, p.ubicacion,
-    ].map((c) => (c ?? '').toString().toLowerCase()).join(' ');
+    ].map((c) => norm(String(c ?? ''))).join(' ');
     // Cada palabra del término debe aparecer en algún dato: "clavo media pulgada"
     // encuentra el clavo cuya medida/detalle es "media pulgada" (aunque el nombre sea solo "CLAVO").
     const tokens = q.split(/\s+/).filter(Boolean);

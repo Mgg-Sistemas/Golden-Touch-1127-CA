@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { toast } from '@/shared/ui/Toast';
+import { norm } from '@/shared/lib/texto';
 
 interface Props {
   /** Todas las opciones disponibles del catálogo. */
@@ -31,17 +32,17 @@ export function SearchMultiSelect({ options, selected, onChange, onCreate, place
 
   // Opciones que coinciden con la búsqueda y aún no están seleccionadas.
   const sugeridas = useMemo(() => {
-    const t = q.trim().toLowerCase();
+    const t = norm(q);
     return options
       .filter((o) => !yaSeleccion.has(o.toLowerCase()))
-      .filter((o) => !t || o.toLowerCase().includes(t))
+      .filter((o) => !t || norm(o).includes(t))
       .sort((a, b) => a.localeCompare(b, 'es'));
   }, [options, q, yaSeleccion]);
 
   // ¿El texto tipeado coincide EXACTO (case-insensitive) con alguna opción existente?
   const coincideExacta = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    return !!t && options.some((o) => o.toLowerCase() === t);
+    const t = norm(q);
+    return !!t && options.some((o) => norm(o) === t);
   }, [options, q]);
 
   const puedeCrear = !!onCreate && !!q.trim() && !coincideExacta;

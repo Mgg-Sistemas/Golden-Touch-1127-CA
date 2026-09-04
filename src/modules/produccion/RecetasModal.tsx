@@ -4,6 +4,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, num, dateTime } from '@/shared/lib/format';
 import { listRecetas, type RecetaResumen } from './produccion.repository';
+import { norm } from '@/shared/lib/texto';
 
 /**
  * Lista de recetas (una por producto producible, según su producción más
@@ -30,7 +31,7 @@ export function RecetasModal({
   }, []);
 
   const filtradas = recetas.filter((r) =>
-    !q.trim() || r.producto_nombre.toLowerCase().includes(q.trim().toLowerCase()));
+    !q.trim() || norm(r.producto_nombre).includes(norm(q)));
 
   return (
     <Modal title="Recetas de producción" size="lg" onClose={onClose}

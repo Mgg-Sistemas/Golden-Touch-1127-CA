@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { norm } from '@/shared/lib/texto';
 import {
   listCatalogosPedido, addCatalogoPedido, updateCatalogoPedido,
   setCatalogoPedidoActivo, eliminarCatalogoPedido,
@@ -52,12 +53,12 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
 
   const lista = useMemo(() => {
     const q = filtro.trim().toLowerCase();
-    return items.filter((i) => i.tipo === tab && (!q || i.valor.toLowerCase().includes(q) || (i.categoria ?? '').toLowerCase().includes(q)));
+    return items.filter((i) => i.tipo === tab && (!q || norm(i.valor).includes(q) || norm(i.categoria).includes(q)));
   }, [items, tab, filtro]);
 
   const listaServicios = useMemo(() => {
     const q = filtro.trim().toLowerCase();
-    return servicios.filter((s) => !q || s.nombre.toLowerCase().includes(q) || s.categoria.toLowerCase().includes(q));
+    return servicios.filter((s) => !q || norm(s.nombre).includes(q) || norm(s.categoria).includes(q));
   }, [servicios, filtro]);
 
   // Clasificaciones ACTIVAS → opciones de categoría para las unidades solicitantes.

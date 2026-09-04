@@ -48,7 +48,7 @@ export async function addCatalogoMaquinaria(tipo: TipoCatalogoMaquinaria, valor:
     .select('*')
     .single();
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
   return data as CatalogoMaquinaria;
@@ -59,7 +59,7 @@ export async function updateCatalogoMaquinaria(id: string, valor: string): Promi
   if (!v) throw new Error('Indicá el valor.');
   const { error } = await supabase.from(TABLE).update({ valor: v }).eq('id', id);
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
 }

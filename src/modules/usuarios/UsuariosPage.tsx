@@ -31,6 +31,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { ResumenActividadModal } from './ResumenActividadModal';
+import { norm } from '@/shared/lib/texto';
 
 type View = 'creacion' | 'roles';
 
@@ -109,7 +110,7 @@ export function UsuariosPage() {
   const inactivos = useMemo(() => usuarios.filter((u) => u.estado === 'inactivo').length, [usuarios]);
 
   const filtered = useMemo(() => {
-    const q = filterText.trim().toLowerCase();
+    const q = norm(filterText);
     const nombreCompleto = (u: Usuario) => `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email || '';
     return usuarios
       .filter((u) => {
@@ -117,7 +118,7 @@ export function UsuariosPage() {
         if (filterEstado && u.estado !== filterEstado) return false;
         if (q) {
           const hay = [u.nombre, u.apellido, u.email, u.ci, u.role]
-            .map((v) => (v ?? '').toString().toLowerCase())
+            .map((v) => norm(String(v ?? '')))
             .join(' | ');
           if (!hay.includes(q)) return false;
         }

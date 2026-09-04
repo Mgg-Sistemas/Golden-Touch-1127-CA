@@ -3,6 +3,7 @@ import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import { getCategorias, getUnidades, nextSku } from './inventario.repository';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
+import { norm } from '@/shared/lib/texto';
 
 /* ──────────── Estilos compartidos para los Excel ──────────── */
 const HEADER_STYLE = {
@@ -561,7 +562,7 @@ export interface ExportFiltros {
 }
 
 export function filtrarParaExport(productos: Producto[], f: ExportFiltros): Producto[] {
-  const q = f.texto?.trim().toLowerCase() ?? '';
+  const q = norm(f.texto);
   return productos.filter((p) => {
     if (f.categorias && f.categorias.length) { if (!f.categorias.includes(p.categoria)) return false; }
     else if (f.categoria && p.categoria !== f.categoria) return false;
@@ -573,7 +574,7 @@ export function filtrarParaExport(productos: Producto[], f: ExportFiltros): Prod
     if (f.receta === 'sin_receta' && p.receta_fundicion) return false;
     if (f.receta === 'en_proceso' && !p.en_fundicion) return false;
     if ((['RECETA 1', 'RECETA 2', 'RECETA 3'] as string[]).includes(f.receta ?? '') && p.receta_fundicion !== f.receta) return false;
-    if (q && !(p.sku.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q))) return false;
+    if (q && !(norm(p.sku).includes(q) || norm(p.nombre).includes(q))) return false;
     return true;
   });
 }

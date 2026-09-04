@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
+import { norm } from '@/shared/lib/texto';
 import {
   actualizarRol,
   crearRol,
@@ -163,9 +164,9 @@ export function GestionarRolesModal({
   const [filtro, setFiltro] = useState('');
 
   const ordenados = useMemo(() => {
-    const q = filtro.trim().toLowerCase();
+    const q = norm(filtro);
     return roles
-      .filter((r) => !q || r.label.toLowerCase().includes(q) || r.key.toLowerCase().includes(q))
+      .filter((r) => !q || norm(r.label).includes(q) || norm(r.key).includes(q))
       .slice()
       .sort((a, b) => {
         if (a.sistema !== b.sistema) return a.sistema ? -1 : 1;

@@ -38,6 +38,7 @@ import { descargarConciliacionesPdf, type ConciliacionRow } from './conciliacion
 import { descargarConciliacionesExcel } from './conciliacionExcel';
 import { enviarConciliacionesPorCorreo } from './enviarConciliacion';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
+import { norm } from '@/shared/lib/texto';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -593,7 +594,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
   }, [movs]);
 
   const movsFiltrados = useMemo(() => {
-    const q = fTexto.trim().toLowerCase();
+    const q = norm(fTexto);
     const arr = movs.filter((m) => {
       if (fTipo !== 'todos' && m.tipo !== fTipo) return false;
       if (fEquipo && (m.equipo ?? '') !== fEquipo) return false;
@@ -603,7 +604,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
       if (fHasta && (m.fecha ?? '') > fHasta) return false;
       if (q) {
         const hay = [m.fecha, m.hora, m.equipo, m.autorizado_por, m.ubicacion, m.observacion, m.tipo]
-          .map((x) => (x ?? '').toString().toLowerCase()).join(' ');
+          .map((x) => norm(String(x ?? ''))).join(' ');
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -1497,7 +1498,7 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
 
   // Historial enriquecido con el nombre del tanque + aplicando filtros.
   const historialFiltrado = useMemo<ConciliacionRow[]>(() => {
-    const q = hTexto.trim().toLowerCase();
+    const q = norm(hTexto);
     return historial
       .map((c) => ({ ...c, tanqueNombre: nombreTanque(c.tanque_id) }))
       .filter((c) => {
@@ -1506,7 +1507,7 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
         if (hHasta && (c.fecha ?? '') > hHasta) return false;
         if (q) {
           const hay = [c.periodo, c.tanqueNombre, c.fecha, c.notas, num(c.saldo_libros), num(c.saldo_reportado_mina), num(c.diferencia)]
-            .map((x) => (x ?? '').toString().toLowerCase()).join(' ');
+            .map((x) => norm(String(x ?? ''))).join(' ');
           if (!hay.includes(q)) return false;
         }
         return true;

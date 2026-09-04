@@ -7,6 +7,7 @@ import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listContratos } from './contratos.repository';
 import { pct } from './ContratosModal';
 import { descargarTenorPdf, descargarTenorExcel, enviarTenorPorCorreo, type TenorRow } from './tenorReportes';
+import { norm } from '@/shared/lib/texto';
 
 /**
  * Tenor Promedio Diarios: historial por contrato.
@@ -40,11 +41,11 @@ export function TenorModal({ defaultEmail, onClose }: { defaultEmail: string; on
   useRealtime(['acopio_contratos'], () => { void recargar(); });
 
   const filtrados = useMemo(() => {
-    const q = fTexto.trim().toLowerCase();
+    const q = norm(fTexto);
     return rows.filter((r) => {
       if (fDesde && r.fecha < fDesde) return false;
       if (fHasta && r.fecha > fHasta) return false;
-      if (q && !`${r.numero} ${r.fecha}`.toLowerCase().includes(q)) return false;
+      if (q && !norm(`${r.numero} ${r.fecha}`).includes(q)) return false;
       return true;
     });
   }, [rows, fTexto, fDesde, fHasta]);

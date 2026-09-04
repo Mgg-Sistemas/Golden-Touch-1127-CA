@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { ClasificacionAcopio, GrupoClasificacion } from '@/shared/lib/types';
 import { GRUPOS, listClasificacionesAll, addClasificacion, updateClasificacion, setClasificacionActivo } from './caja.repository';
+import { norm } from '@/shared/lib/texto';
 
 /**
  * Categorías del Centro de Acopio por GRUPO de clasificación (Gastos, Contratos,
@@ -40,8 +41,8 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
   useRealtime(['acopio_clasificaciones'], () => { void recargar(); });
 
   const lista = useMemo(() => {
-    const q = filtro.trim().toLowerCase();
-    return items.filter((i) => i.grupo === tab && (!q || i.valor.toLowerCase().includes(q)));
+    const q = norm(filtro);
+    return items.filter((i) => i.grupo === tab && (!q || norm(i.valor).includes(q)));
   }, [items, tab, filtro]);
 
   async function agregar() {

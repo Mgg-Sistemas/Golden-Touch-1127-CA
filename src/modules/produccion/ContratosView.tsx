@@ -13,6 +13,7 @@ import { descargarContratosPdf } from './contratoPdf';
 import { descargarContratoDetallePdf } from './contratoDetallePdf';
 import { descargarContratosExcel } from './contratoExcel';
 import { enviarContratosPorCorreo } from './enviarContrato';
+import { norm } from '@/shared/lib/texto';
 
 export interface ContratosViewHandle { openCreate: () => void }
 
@@ -71,7 +72,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
   }, [vigentes]);
 
   const filtrados = useMemo(() => {
-    const q = fTexto.trim().toLowerCase();
+    const q = norm(fTexto);
     return vigentes.filter((c) => {
       if (fEstado !== 'todos' && c.estado !== fEstado) return false;
       if (fSupervisor && (c.supervisor ?? '') !== fSupervisor) return false;
@@ -80,7 +81,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
       if (fHasta && (c.fecha ?? '') > fHasta) return false;
       if (q) {
         const hay = [c.numero, c.supervisor, c.lugar_extraccion, c.molino, c.observaciones, c.fecha]
-          .map((x) => (x ?? '').toString().toLowerCase()).join(' ');
+          .map((x) => norm(String(x ?? ''))).join(' ');
         if (!hay.includes(q)) return false;
       }
       return true;

@@ -79,6 +79,7 @@ import type { AbonoCredito } from '@/shared/lib/types';
 import { descargarOrdenCompraPdf } from '@/modules/pedidos/ordenCompraPdf';
 import { listOfertasByOrden, getPdfOfertaSignedUrl } from '@/modules/pedidos/ofertas.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
+import { norm } from '@/shared/lib/texto';
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   ingreso: '⬇ Ingreso', salida: '⬆ Egreso', traslado_salida: '↔ Traslado (sale)',
@@ -1714,7 +1715,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
   useEffect(() => { cargarCats(); }, [cargarCats]);
   useRealtime(['categorias_gasto'], () => { cargarCats(); });
   const catOpts = useMemo(() => soloCategorias(catRows).map((c) => c.nombre), [catRows]);
-  const catSel = useMemo(() => soloCategorias(catRows).find((c) => c.nombre.toLowerCase() === catNombre.trim().toLowerCase()) ?? null, [catRows, catNombre]);
+  const catSel = useMemo(() => soloCategorias(catRows).find((c) => norm(c.nombre) === norm(catNombre)) ?? null, [catRows, catNombre]);
   const subOpts = useMemo(() => (catSel ? subcategoriasDe(catRows, catSel.id).map((s) => s.nombre) : []), [catRows, catSel]);
 
   // Correlativo autoincremental para RECEPCIÓN/EXPORTACIÓN: el primero lo ingresa
@@ -5171,7 +5172,7 @@ function AnclarGastoFields({ categoria, subcategoria, onChange }: {
   const [rows, setRows] = useState<CategoriaGasto[]>([]);
   useEffect(() => { listCategoriasGasto(true).then(setRows).catch(() => setRows([])); }, []);
   const catOpts = useMemo(() => soloCategorias(rows).map((c) => c.nombre), [rows]);
-  const catSel = useMemo(() => soloCategorias(rows).find((c) => c.nombre.toLowerCase() === categoria.trim().toLowerCase()) ?? null, [rows, categoria]);
+  const catSel = useMemo(() => soloCategorias(rows).find((c) => norm(c.nombre) === norm(categoria)) ?? null, [rows, categoria]);
   const subOpts = useMemo(() => (catSel ? subcategoriasDe(rows, catSel.id).map((s) => s.nombre) : []), [rows, catSel]);
   return (
     <div className="card" style={{ marginBottom: '.75rem' }}>

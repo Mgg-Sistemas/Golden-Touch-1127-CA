@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
+import { norm } from '@/shared/lib/texto';
 
 /** Un catálogo gestionable (una pestaña). */
 export interface CatalogoTab {
@@ -84,9 +85,9 @@ export function GestionarCategoriasModal({
   }, [tabIdx]);
 
   const ordenadas = useMemo(() => {
-    const q = filtro.trim().toLowerCase();
+    const q = norm(filtro);
     return activa.categorias
-      .filter((c) => !q || c.toLowerCase().includes(q))
+      .filter((c) => !q || norm(c).includes(q))
       .slice()
       .sort((a, b) => a.localeCompare(b, 'es'));
   }, [activa.categorias, filtro, versionLocal]);

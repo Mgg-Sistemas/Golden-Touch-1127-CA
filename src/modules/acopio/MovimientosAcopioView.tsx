@@ -13,6 +13,7 @@ import { listCajaMovimientos, listClasificaciones, listCostoClases } from './caj
 import { MovimientoCajaModal } from './MovimientoCajaModal';
 import { descargarMovAcopioPdf, descargarMovAcopioExcel, enviarMovAcopioPorCorreo } from './movimientosAcopioReportes';
 import { construirMovimientosAcopio, type FilaMov, type ResumenAcopio } from './movimientosAcopioCalc';
+import { norm } from '@/shared/lib/texto';
 
 export type { ResumenAcopio } from './movimientosAcopioCalc';
 
@@ -77,11 +78,11 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
 
   // Vista filtrada + ordenada por fecha (mantiene el saldo corrido calculado sobre TODOS los movimientos).
   const mostradas = useMemo(() => {
-    const q = fTexto.trim().toLowerCase();
+    const q = norm(fTexto);
     const arr = filas.filter((f) => {
       if (fDesde && (f.fecha ?? '') < fDesde) return false;
       if (fHasta && (f.fecha ?? '') > fHasta) return false;
-      if (q && !`${f.fecha} ${f.descripcion}`.toLowerCase().includes(q)) return false;
+      if (q && !norm(`${f.fecha} ${f.descripcion}`).includes(q)) return false;
       return true;
     });
     // `filas` ya viene en orden ascendente por fecha; si se pide descendente, se invierte.

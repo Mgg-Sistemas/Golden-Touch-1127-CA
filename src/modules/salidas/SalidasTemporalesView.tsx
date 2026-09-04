@@ -23,6 +23,7 @@ import {
   type ItemSalidaTemporalInput,
 } from './salidasTemporales.repository';
 import { descargarSalidaTemporalPdf } from './salidaTemporalPdf';
+import { norm } from '@/shared/lib/texto';
 
 type Vista = 'kanban' | 'lista';
 
@@ -80,12 +81,13 @@ export function SalidasTemporalesView({
 
   // Histórico buscable por código, solicitante, responsable, material, motivo.
   const filtradas = useMemo(() => {
-    const t = q.trim().toLowerCase();
+    const t = norm(q);
     if (!t) return items;
-    const norm = (v: unknown) => (v ?? '').toString().toLowerCase();
+    // Envoltura para campos de cualquier tipo (números, fechas): normaliza igual.
+    const txt = (v: unknown) => norm(String(v ?? ''));
     return items.filter((s) =>
-      [s.codigo, s.solicitante, s.chofer_nombre, s.motivo, s.unidad_solicitante, EST_LABEL[s.estado]].some((v) => norm(v).includes(t)) ||
-      (s.items ?? []).some((it) => norm(it.producto_nombre).includes(t) || norm(it.producto_sku).includes(t)),
+      [s.codigo, s.solicitante, s.chofer_nombre, s.motivo, s.unidad_solicitante, EST_LABEL[s.estado]].some((v) => txt(v).includes(t)) ||
+      (s.items ?? []).some((it) => txt(it.producto_nombre).includes(t) || txt(it.producto_sku).includes(t)),
     );
   }, [items, q]);
 

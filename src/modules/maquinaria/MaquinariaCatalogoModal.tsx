@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { norm } from '@/shared/lib/texto';
 import {
   listCatalogosMaquinaria, addCatalogoMaquinaria, updateCatalogoMaquinaria,
   setCatalogoMaquinariaActivo, eliminarCatalogoMaquinaria,
@@ -36,8 +37,8 @@ export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boole
   useRealtime(['maquinaria_catalogos'], () => { void recargar(); });
 
   const lista = useMemo(() => {
-    const q = filtro.trim().toLowerCase();
-    return items.filter((i) => i.tipo === tab && (!q || i.valor.toLowerCase().includes(q)));
+    const q = norm(filtro);
+    return items.filter((i) => i.tipo === tab && (!q || norm(i.valor).includes(q)));
   }, [items, tab, filtro]);
 
   async function agregar() {

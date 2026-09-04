@@ -26,6 +26,7 @@ import {
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { SearchMultiSelect } from '@/shared/ui/SearchMultiSelect';
 import { useSession } from '@/modules/auth/authStore';
+import { norm } from '@/shared/lib/texto';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
@@ -111,13 +112,13 @@ export function ProveedoresPage() {
   }, [proveedores, searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
-    const q = filterText.trim().toLowerCase();
+    const q = norm(filterText);
     return proveedores.filter((p) => {
       if (filterEstado && p.estado !== filterEstado) return false;
       if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
       if (q) {
         const hay = [p.razon_social, p.rif, p.contacto, p.email]
-          .map((v) => (v ?? '').toLowerCase())
+          .map((v) => norm(v))
           .some((v) => v.includes(q));
         if (!hay) return false;
       }

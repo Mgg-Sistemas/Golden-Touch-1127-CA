@@ -32,6 +32,7 @@ import { GestionarCajasModal } from './GestionarCajasModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { norm } from '@/shared/lib/texto';
 import {
   descargarResumenUnidadPdf, descargarResumenUnidadExcel, enviarResumenUnidadCorreo,
   type SalidaResumenRow, type GrupoUnidad, type GrupoProducto,
@@ -175,10 +176,10 @@ export function SalidasPage() {
   }, [solsVista, nombreDe]);
   // Aplica los filtros por usuario (actor) y por solicitante (texto).
   const solsFiltradas = useMemo(() => {
-    const q = fSolic.trim().toLowerCase();
+    const q = norm(fSolic);
     return solsVista.filter((s) =>
       (!fUsuario || s.actor === fUsuario) &&
-      (!q || (s.solicitante ?? '').toLowerCase().includes(q) || (s.actor_name ?? '').toLowerCase().includes(q)),
+      (!q || norm(s.solicitante).includes(q) || norm(s.actor_name).includes(q)),
     );
   }, [solsVista, fUsuario, fSolic]);
 
@@ -548,8 +549,7 @@ function Historial({
   const [q, setQ] = useState('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
-  const ql = q.trim().toLowerCase();
-  const norm = (v: unknown) => (v ?? '').toString().toLowerCase();
+  const ql = norm(q);
   const enRango = (at: string | null | undefined) => {
     const dia = (at ?? '').slice(0, 10);
     if (desde && dia < desde) return false;
