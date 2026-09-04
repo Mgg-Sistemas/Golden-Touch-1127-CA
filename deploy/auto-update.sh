@@ -4,11 +4,16 @@
 #  Corre por cron cada <=3 min. Solo reconstruye si main avanzó.
 #  Instalación: ver deploy/README-deploy.md
 #
-#  AVISO DE MANTENIMIENTO: SOLO cuando hay un commit nuevo (un despliegue
-#  real) enciende el banner de la app antes de construir y lo apaga al
-#  terminar (incluso si algo falla, vía trap). En los ticks del cron sin
-#  cambios NO se muestra nada. Requiere SUPABASE_SERVICE_ROLE_KEY en el
-#  .env.local (bypassa RLS; es server-side, nunca va al bundle del cliente).
+#  MARCA DE DESPLIEGUE: al terminar un despliegue real deja anotado en la base
+#  QUÉ commit quedó publicado y CUÁNDO. Es el único registro para saber si el
+#  Droplet está al día. Requiere SUPABASE_SERVICE_ROLE_KEY en el .env.local
+#  (bypassa RLS; es server-side, nunca va al bundle del cliente).
+#
+#  NO enciende ningún cartel. Al usuario le sale un solo aviso —«el sistema se
+#  actualizó»— y sale cuando la versión nueva YA está publicada, que es cuando
+#  recargar sirve de algo. El viejo banner «Mantenimiento del sistema» avisaba
+#  de algo que todavía no había pasado y aparecía pegado al otro: se retiró el
+#  04/09/2026.
 # ============================================================
 set -euo pipefail
 
@@ -19,8 +24,6 @@ export HOME="${HOME:-/root}"
 REPO="/var/www/Golden-Touch-1127-CA"
 BRANCH="main"
 LOG="/var/log/golden-touch-deploy.log"
-AVISO_MINUTOS=2
-AVISO_MENSAJE="Se está aplicando una actualización del sistema. Por favor, guardá tu progreso y recargá la página en un momento."
 
 cd "$REPO"
 
@@ -34,23 +37,22 @@ LOCAL="$(git rev-parse HEAD)"
 REMOTE="$(git rev-parse "origin/$BRANCH")"
 
 if [ "$LOCAL" = "$REMOTE" ]; then
-  exit 0   # sin cambios → no hacemos nada (ni avisamos)
+  exit 0   # sin cambios → no hacemos nada (ni marcamos)
 fi
 
-# Credenciales para el aviso (de .env.local / .env, gitignored).
+# Credenciales para la marca de despliegue (de .env.local / .env, gitignored).
 if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 SUPABASE_URL="${SUPABASE_URL:-${VITE_SUPABASE_URL:-}}"
 
-# Enciende (true) / apaga (false) el banner de mantenimiento vía PostgREST, y de
-# paso deja registrado en la fila QUÉ commit quedó publicado y CUÁNDO.
+# Anota en la base QUÉ commit quedó publicado y CUÁNDO, vía PostgREST.
 # Nunca aborta el despliegue: si algo falla, lo escribe en el log y sigue.
-aviso() {
+marcar_despliegue() {
   # Si faltan credenciales lo DECIMOS en el log. Antes se salía en silencio: el
-  # despliegue seguía igual, pero nadie podía notar que el banner no se estaba
-  # encendiendo. Un fallo mudo en la única señal de despliegue no sirve.
+  # despliegue seguía igual, pero nadie podía notar que la marca no se estaba
+  # escribiendo. Un fallo mudo en la única señal de despliegue no sirve.
   if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
-    echo "$(date '+%F %T') · AVISO OMITIDO: falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en .env.local" >> "$LOG"
+    echo "$(date '+%F %T') · MARCA OMITIDA: falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en .env.local" >> "$LOG"
     return 0
   fi
   # `updated_at` se escribe A MANO: la tabla no tiene trigger que lo mueva, así
@@ -59,17 +61,14 @@ aviso() {
   # (fue exactamente lo que despistó el diagnóstico del cron roto).
   # `updated_by` deja el commit desplegado: la fila pasa a ser el registro de
   # «qué versión está publicada y desde cuándo».
+  # `activo` va SIEMPRE en false: la columna quedó sin uso al retirar el banner,
+  # y así, si alguna vez alguien la encendió a mano, el despliegue la apaga.
   local body ahora quien
   ahora="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   quien="deploy:${REMOTE:0:7}"
-  if [ "$1" = "true" ]; then
-    body=$(printf '{"activo":true,"mensaje":"%s","minutos":%s,"updated_at":"%s","updated_by":"%s"}' \
-      "$AVISO_MENSAJE" "$AVISO_MINUTOS" "$ahora" "$quien")
-  else
-    body=$(printf '{"activo":false,"updated_at":"%s","updated_by":"%s"}' "$ahora" "$quien")
-  fi
+  body=$(printf '{"activo":false,"updated_at":"%s","updated_by":"%s"}' "$ahora" "$quien")
   # Se guarda el código HTTP y se registra si NO es 2xx. El despliegue continúa
-  # igual (el banner es accesorio), pero el fallo queda escrito en vez de
+  # igual (la marca es accesoria), pero el fallo queda escrito en vez de
   # perderse: antes iba todo a /dev/null con `|| true` y un 401 por clave
   # vencida se veía idéntico a un éxito.
   local codigo
@@ -82,13 +81,9 @@ aviso() {
     -d "$body" || echo 000)"
   case "$codigo" in
     2*) ;;
-    *) echo "$(date '+%F %T') · AVISO FALLÓ (HTTP $codigo) al poner activo=$1" >> "$LOG" ;;
+    *) echo "$(date '+%F %T') · MARCA FALLÓ (HTTP $codigo)" >> "$LOG" ;;
   esac
 }
-
-# Despliegue real: enciende el aviso y garantiza apagarlo pase lo que pase.
-aviso true
-trap 'aviso false' EXIT
 
 {
   echo "----------------------------------------"
@@ -104,4 +99,6 @@ trap 'aviso false' EXIT
   echo "$(date '+%F %T') · deploy OK en ${REMOTE:0:7}"
 } >> "$LOG" 2>&1
 
-# El trap EXIT apaga el aviso aquí.
+# Con `set -e`, si el build falla el script corta antes de llegar acá: la marca
+# se escribe solo cuando la versión nueva quedó realmente publicada.
+marcar_despliegue

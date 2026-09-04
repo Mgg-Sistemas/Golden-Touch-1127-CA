@@ -57,3 +57,26 @@ export async function guardarDatosPago(
   );
   if (error) throw error;
 }
+
+/**
+ * Datos de pago de VARIOS proveedores en una sola consulta.
+ * Se usa en reportes que listan documentos de muchos proveedores (p. ej. el PDF
+ * de pendientes por pagar): pedir uno por uno sería una consulta por renglón.
+ * Devuelve { proveedor_id: { metodo: datos } }.
+ */
+export async function listDatosPagoDeProveedores(
+  proveedorIds: Array<string | null | undefined>,
+): Promise<Record<string, Record<string, DatosPago>>> {
+  const ids = Array.from(new Set(proveedorIds.filter(Boolean) as string[]));
+  if (!ids.length) return {};
+  const { data, error } = await supabase
+    .from('proveedor_datos_pago')
+    .select('proveedor_id, metodo, datos')
+    .in('proveedor_id', ids);
+  if (error) throw error;
+  const out: Record<string, Record<string, DatosPago>> = {};
+  for (const r of (data ?? []) as Array<{ proveedor_id: string; metodo: string; datos: DatosPago }>) {
+    (out[r.proveedor_id] ??= {})[r.metodo] = r.datos ?? {};
+  }
+  return out;
+}
