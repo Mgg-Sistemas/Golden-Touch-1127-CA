@@ -6,7 +6,6 @@ import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
-import { AvisoMantenimientoBanner } from '@/shared/ui/AvisoMantenimientoBanner';
 import { AvisoCombustibleBajo } from '@/shared/ui/AvisoCombustibleBajo';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { HintsToggle } from '@/shared/ui/HintsToggle';
@@ -436,7 +435,6 @@ export function AppShell() {
 
       <main className="main">
         <AvisoActualizacion />
-        <AvisoMantenimientoBanner />
         <AvisoCombustibleBajo />
         <Outlet />
       </main>
