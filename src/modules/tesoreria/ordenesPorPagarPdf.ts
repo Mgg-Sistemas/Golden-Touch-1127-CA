@@ -11,13 +11,29 @@
 
    MÉTODO Y DATOS DE PAGO: cada renglón dice CÓMO se le paga y A DÓNDE, para
    poder pagar con el papel en la mano sin volver a la pantalla a buscar el
-   teléfono del pago móvil o el número de cuenta.
+   teléfono del pago móvil o el número de cuenta. Es la columna ancha y la de
+   letra más grande: es el dato con el que se actúa.
+
+   NO HAY COLUMNA DE NOTAS NI DE FINALIDAD/DETALLE. Las dos contaban QUÉ se
+   compró y POR QUÉ, y se comían el ancho de la tabla. Con este papel no se
+   decide qué comprar —eso ya se decidió— sino que se PAGA, y para pagar hacen
+   falta cuatro cosas: a quién, cuánto, por cuál método y a qué cuenta. Lo
+   demás está en la orden, a un clic en el sistema.
+   Lo único de esas columnas que cambiaba el pago —un servicio que se salda
+   por abonos— se dice ahora en «Estado».
      · Si Compras ya indicó el método, se muestra ese, con sus datos y
        —cuando el pago va partido en varias patas— el monto de cada una.
      · Si el documento todavía no tiene método (las compras y los servicios
        directos lo eligen recién al pagarlos), se muestran los datos que el
        proveedor tiene guardados, marcados «(registrado)». Son una referencia,
        no una instrucción: el método se decide al pagar.
+
+   TEXTO SEGURO PARA jsPDF: todo lo que escribió una persona (proveedor,
+   detalle, notas, datos de pago) pasa por `pdfSafe`. Las fuentes base de
+   jsPDF dibujan Windows-1252: si UNA sola letra queda fuera —un emoji del
+   catálogo de servicios, un ⚠ del propio reporte— jsPDF cambia de codificación
+   y sale TODA la línea con las letras separadas una a una. Pasó con el aviso
+   de cuentas a crédito.
    ============================================================ */
 import { labelMetodoPago, type OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
 import { listComprasDirectas, type CompraDirecta } from '@/modules/pedidos/compras.repository';
@@ -26,6 +42,7 @@ import { listDatosPagoDeProveedores, type DatosPago } from '@/modules/pedidos/da
 import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
 import type { PagoMetodo } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { getTasaHoy } from './tasas.repository';
 
 /** Bs con separador de miles VE y 2 decimales (sin prefijo). */
@@ -37,8 +54,6 @@ function bsNum(n: number): string {
 interface FilaRep {
   codigo: string;
   proveedor: string;
-  detalle: string;
-  notas: string;
   estado: string;
   /** Cómo pagarle: método(s) y los datos del proveedor. */
   pago: string;
@@ -86,15 +101,6 @@ export async function descargarOrdenesPorPagarPdf(
     ...serviciosDir.map((sv) => sv.proveedor_id),
   ]).catch(() => ({} as Record<string, Record<string, DatosPago>>));
 
-  // La finalidad de una OC puede estar a nivel orden o cargada POR ÍTEM.
-  const finalidadDe = (r: OrdenPorPagar): string => {
-    const oc = r.orden.finalidad?.trim();
-    if (oc) return oc;
-    const items = Array.isArray(r.orden.items) ? r.orden.items : [];
-    const fs = Array.from(new Set(items.map((it) => (it.finalidad ?? '').trim()).filter(Boolean)));
-    if (fs.length) return fs.join(' · ');
-    return r.orden.motivo?.trim() || '—';
-  };
 
   /** Monto de una pata del pago, en su propia moneda. */
   const montoPata = (m: PagoMetodo): string => {
@@ -131,6 +137,14 @@ export async function descargarOrdenesPorPagarPdf(
     return lineas.length ? lineas.join('\n') : '—';
   };
 
+  /**
+   * `textoPago` saneado. Se sanea línea por línea: `pdfSafe` recorta espacios
+   * al principio y al final, y aplicado al bloque entero se comería los saltos
+   * que separan un método del otro.
+   */
+  const textoPagoSeguro = (metodos: PagoMetodo[] | null | undefined, proveedorId: string | null | undefined): string =>
+    textoPago(metodos, proveedorId).split('\n').map((l) => pdfSafe(l)).filter(Boolean).join('\n') || '—';
+
   // ── Armado de segmentos ──
   const ocRows = rows.filter((r) => r.orden.tipo !== 'servicio');
   const csRows = rows.filter((r) => r.orden.tipo === 'servicio');
@@ -140,12 +154,10 @@ export async function descargarOrdenesPorPagarPdf(
   const filaOc = (r: OrdenPorPagar): FilaRep => {
     const usd = Number(r.montoAPagar || 0);
     return {
-      codigo: r.orden.oc_codigo ?? '—',
-      proveedor: r.proveedorNombre,
-      detalle: finalidadDe(r),
-      notas: r.orden.notas?.trim() || '—',
+      codigo: pdfSafe(r.orden.oc_codigo) || '—',
+      proveedor: pdfSafe(r.proveedorNombre),
       estado: r.esperandoMetodo ? 'Esperando método' : 'Lista para pagar',
-      pago: textoPago(r.orden.metodo_pago, r.orden.proveedor_id),
+      pago: textoPagoSeguro(r.orden.metodo_pago, r.orden.proveedor_id),
       usd,
       bs: tasa > 0 ? Math.round(usd * tasa * 100) / 100 : 0,
     };
@@ -153,14 +165,12 @@ export async function descargarOrdenesPorPagarPdf(
   const filaCompra = (c: CompraDirecta): FilaRep => {
     const { usd, bs } = normMonto(c.gasto, c.moneda, tasa);
     return {
-      codigo: c.codigo ?? '—',
-      proveedor: c.proveedor_nombre || '—',
-      detalle: c.producto_nombre + (c.items.length > 1 ? ` · ${c.items.length} ítems` : ''),
-      notas: c.nota?.trim() || '—',
+      codigo: pdfSafe(c.codigo) || '—',
+      proveedor: pdfSafe(c.proveedor_nombre) || '—',
       estado: 'Por pagar',
       // Una compra directa elige el método recién al pagarla: acá van los
       // datos guardados del proveedor, como referencia.
-      pago: textoPago(null, c.proveedor_id),
+      pago: textoPagoSeguro(null, c.proveedor_id),
       usd,
       bs,
     };
@@ -171,12 +181,12 @@ export async function descargarOrdenesPorPagarPdf(
     const pend = s.con_abonos ? Math.max(0, total - (Number(s.abonado_total) || 0)) : total;
     const { usd, bs } = normMonto(pend, s.moneda, tasa);
     return {
-      codigo: s.codigo ?? '—',
-      proveedor: s.proveedor_nombre || '—',
-      detalle: s.descripcion + (s.items.length > 1 ? ` · ${s.items.length} ítems` : ''),
-      notas: (s.nota?.trim() || '—') + (s.con_abonos ? ' · (saldo con abonos)' : ''),
-      estado: 'Por pagar',
-      pago: textoPago(null, s.proveedor_id),
+      codigo: pdfSafe(s.codigo) || '—',
+      proveedor: pdfSafe(s.proveedor_nombre) || '—',
+      // «Se salda por abonos» vivía en la nota: sin esa columna pasa al estado,
+      // porque cambia cuánto se paga hoy.
+      estado: s.con_abonos ? 'Por pagar · saldo con abonos' : 'Por pagar',
+      pago: textoPagoSeguro(null, s.proveedor_id),
       usd,
       bs,
     };
@@ -205,12 +215,10 @@ export async function descargarOrdenesPorPagarPdf(
   const filaCredito = (r: OrdenPorPagar): FilaRep => {
     const usd = Number(r.orden.total || 0);
     return {
-      codigo: r.orden.oc_codigo ?? '—',
-      proveedor: r.proveedorNombre,
-      detalle: finalidadDe(r),
-      notas: (r.orden.notas?.trim() || '—') + ' · (se salda por abonos)',
-      estado: 'Crédito · cuenta abierta',
-      pago: textoPago(r.orden.metodo_pago, r.orden.proveedor_id),
+      codigo: pdfSafe(r.orden.oc_codigo) || '—',
+      proveedor: pdfSafe(r.proveedorNombre),
+      estado: 'Crédito · se salda por abonos',
+      pago: textoPagoSeguro(r.orden.metodo_pago, r.orden.proveedor_id),
       usd,
       bs: tasa > 0 ? Math.round(usd * tasa * 100) / 100 : 0,
     };
@@ -235,7 +243,9 @@ export async function descargarOrdenesPorPagarPdf(
   }
   if (segCredito) {
     doc.setTextColor(180, 90, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
-    doc.text(`⚠ Incluye ${segCredito.filas.length} cuenta(s) a crédito abierta(s) · ${fmt.money(segCredito.subUsd)} (se saldan por abonos)`, W / 2 + 28, y + (tasa > 0 ? 60 : 48), { align: 'center' });
+    // Sin el ⚠ de antes: no existe en la fuente y arrastraba toda la línea a
+    // la codificación equivocada. El aviso ya resalta por color y negrita.
+    doc.text(`Incluye ${segCredito.filas.length} cuenta(s) a crédito abierta(s) · ${fmt.money(segCredito.subUsd)} (se saldan por abonos)`, W / 2 + 28, y + (tasa > 0 ? 60 : 48), { align: 'center' });
   }
   doc.setTextColor(0, 0, 0);
   y += segCredito ? 78 : 66;
@@ -263,29 +273,29 @@ export async function descargarOrdenesPorPagarPdf(
     y += 6;
 
     const body = seg.filas.map((f, i) => [
-      String(i + 1), f.codigo, f.proveedor, f.detalle, f.notas, f.estado, f.pago,
+      String(i + 1), f.codigo, f.proveedor, f.estado, f.pago,
       fmt.money(f.usd), tasa > 0 ? bsNum(f.bs) : '—',
     ]);
     autoTable(doc, {
       startY: y,
-      head: [['ITEM', 'CÓDIGO', 'PROVEEDOR', 'FINALIDAD / DETALLE', 'NOTAS', 'ESTADO', 'MÉTODO Y DATOS DE PAGO', 'MONTO $', 'MONTO Bs']],
+      head: [['ITEM', 'CÓDIGO', 'PROVEEDOR', 'ESTADO', 'MÉTODO Y DATOS DE PAGO', 'MONTO $', 'MONTO Bs']],
       body,
-      foot: [['', '', '', '', '', '', 'SUBTOTAL', fmt.money(seg.subUsd), tasa > 0 ? bsNum(seg.subBs) : '—']],
-      styles: { fontSize: 8, cellPadding: 3, valign: 'middle', overflow: 'linebreak' },
+      foot: [['', '', '', '', 'SUBTOTAL', fmt.money(seg.subUsd), tasa > 0 ? bsNum(seg.subBs) : '—']],
+      styles: { fontSize: 9, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
       headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: [255, 244, 232], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'right', fontSize: 9 },
       tableWidth: 'auto',
       columnStyles: {
-        0: { halign: 'center', cellWidth: 22 },
-        1: { halign: 'center', cellWidth: 54 },
-        2: { cellWidth: 74 },
-        5: { halign: 'center', cellWidth: 56 },
-        // El método y sus datos van con ancho fijo: son la razón de llevarse el
-        // reporte impreso. Cuerpo más chico para que un número de cuenta de 20
-        // dígitos entre en una sola línea.
-        6: { cellWidth: 150, fontSize: 7.2 },
-        7: { halign: 'right', cellWidth: 50 },
-        8: { halign: 'right', cellWidth: 58 },
+        0: { halign: 'center', cellWidth: 24 },
+        1: { halign: 'center', cellWidth: 66 },
+        2: { cellWidth: 140 },
+        3: { halign: 'center', cellWidth: 72 },
+        // Sin NOTAS ni FINALIDAD, todo el ancho sobrante queda para el método y
+        // sus datos: es lo que se lee para pagar. Sin ancho fijo (se lleva el
+        // resto de la tabla) y con el cuerpo más grande y en negrita.
+        4: { fontSize: 10, fontStyle: 'bold', textColor: [20, 20, 20] },
+        5: { halign: 'right', cellWidth: 58 },
+        6: { halign: 'right', cellWidth: 68 },
       },
       margin: MARGIN,
     });
