@@ -42,24 +42,48 @@ if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 SUPABASE_URL="${SUPABASE_URL:-${VITE_SUPABASE_URL:-}}"
 
-# Enciende (true) / apaga (false) el banner de mantenimiento vía PostgREST.
-# Si faltan credenciales, no hace nada y el deploy continúa igual.
+# Enciende (true) / apaga (false) el banner de mantenimiento vía PostgREST, y de
+# paso deja registrado en la fila QUÉ commit quedó publicado y CUÁNDO.
+# Nunca aborta el despliegue: si algo falla, lo escribe en el log y sigue.
 aviso() {
-  [ -z "${SUPABASE_URL:-}" ] && return 0
-  [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ] && return 0
-  local body
-  if [ "$1" = "true" ]; then
-    body=$(printf '{"activo":true,"mensaje":"%s","minutos":%s}' "$AVISO_MENSAJE" "$AVISO_MINUTOS")
-  else
-    body='{"activo":false}'
+  # Si faltan credenciales lo DECIMOS en el log. Antes se salía en silencio: el
+  # despliegue seguía igual, pero nadie podía notar que el banner no se estaba
+  # encendiendo. Un fallo mudo en la única señal de despliegue no sirve.
+  if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+    echo "$(date '+%F %T') · AVISO OMITIDO: falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en .env.local" >> "$LOG"
+    return 0
   fi
-  curl -s -o /dev/null -X PATCH \
+  # `updated_at` se escribe A MANO: la tabla no tiene trigger que lo mueva, así
+  # que si no lo mandamos acá la fila queda congelada en la fecha de la última
+  # edición manual y NO sirve para saber cuándo publicó el sitio por última vez
+  # (fue exactamente lo que despistó el diagnóstico del cron roto).
+  # `updated_by` deja el commit desplegado: la fila pasa a ser el registro de
+  # «qué versión está publicada y desde cuándo».
+  local body ahora quien
+  ahora="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  quien="deploy:${REMOTE:0:7}"
+  if [ "$1" = "true" ]; then
+    body=$(printf '{"activo":true,"mensaje":"%s","minutos":%s,"updated_at":"%s","updated_by":"%s"}' \
+      "$AVISO_MENSAJE" "$AVISO_MINUTOS" "$ahora" "$quien")
+  else
+    body=$(printf '{"activo":false,"updated_at":"%s","updated_by":"%s"}' "$ahora" "$quien")
+  fi
+  # Se guarda el código HTTP y se registra si NO es 2xx. El despliegue continúa
+  # igual (el banner es accesorio), pero el fallo queda escrito en vez de
+  # perderse: antes iba todo a /dev/null con `|| true` y un 401 por clave
+  # vencida se veía idéntico a un éxito.
+  local codigo
+  codigo="$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
     "$SUPABASE_URL/rest/v1/aviso_mantenimiento?id=eq.1" \
     -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
     -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
     -H "Content-Type: application/json" \
     -H "Prefer: return=minimal" \
-    -d "$body" || true
+    -d "$body" || echo 000)"
+  case "$codigo" in
+    2*) ;;
+    *) echo "$(date '+%F %T') · AVISO FALLÓ (HTTP $codigo) al poner activo=$1" >> "$LOG" ;;
+  esac
 }
 
 # Despliegue real: enciende el aviso y garantiza apagarlo pase lo que pase.
