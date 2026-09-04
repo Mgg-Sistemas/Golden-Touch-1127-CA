@@ -7,6 +7,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { previewArchivo } from '@/shared/lib/reportePreview';
+import { descargarConfirmadasPagarTxt } from './confirmadasPagarTxt';
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listAlertasMercadoPendientes, marcarAlertaAtendida, type AlertaMercado } from '@/modules/cocina/alertasMercado.repository';
@@ -2074,7 +2075,23 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos }: KanbanBo
           <div className="kanban-col" data-state={col.key} key={col.key}>
             <div className="kanban-col-head">
               <span className="title">{col.label}</span>
-              <span className="count">{items.length}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
+                {/* Las órdenes ya confirmadas para pagar se pueden mandar como texto:
+                    se pega en un chat o un correo sin depender del sistema. En las
+                    demás columnas no tiene sentido (todavía no hay a quién pagarle). */}
+                {col.key === 'oc_aprobada' && items.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ padding: '.1rem .45rem', fontSize: '.7rem' }}
+                    title={`Exportar las ${items.length} órdenes de esta columna a un archivo de texto (solicitante, unidad, qué pidió, proveedor, método y datos de pago con monto)`}
+                    onClick={() => descargarConfirmadasPagarTxt(items, proveedorMap)}
+                  >
+                    TXT
+                  </button>
+                )}
+                <span className="count">{items.length}</span>
+              </span>
             </div>
             <div className="kanban-col-body">
               {items.length === 0 ? (
