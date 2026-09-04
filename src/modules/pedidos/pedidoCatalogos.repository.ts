@@ -46,7 +46,7 @@ export async function addCatalogoPedido(tipo: TipoCatalogoPedido, valor: string,
     .select('*')
     .single();
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
   return data as CatalogoPedido;
@@ -60,7 +60,7 @@ export async function updateCatalogoPedido(id: string, valor: string, categoria?
   if (categoria !== undefined) patch.categoria = categoria?.trim() || null;
   const { error } = await supabase.from(TABLE).update(patch).eq('id', id);
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
 }

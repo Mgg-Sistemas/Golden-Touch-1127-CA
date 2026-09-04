@@ -3,6 +3,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { HBarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { norm } from '@/shared/lib/texto';
 
 /** Una fila de consumo: un producto/combustible consumido en el período. */
 export interface ConsumoRow {
@@ -92,9 +93,9 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
 
   // Buscador: filtra las filas por nombre (label) o sub-etiqueta.
   const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
+    const s = norm(q);
     if (!s) return rows;
-    return rows.filter((r) => r.label.toLowerCase().includes(s) || (r.sub ?? '').toLowerCase().includes(s));
+    return rows.filter((r) => norm(r.label).includes(s) || norm(r.sub).includes(s));
   }, [rows, q]);
 
   const totalCantidad = filtered.reduce((a, r) => a + r.cantidad, 0);

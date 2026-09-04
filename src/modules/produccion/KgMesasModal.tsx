@@ -7,6 +7,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { ContratoAcopio } from '@/shared/lib/types';
 import { listContratos, setMesaContrato } from './contratos.repository';
+import { norm } from '@/shared/lib/texto';
 
 /**
  * KG MESAS · merma por humedad por contrato (réplica de la hoja de mesas).
@@ -74,11 +75,11 @@ export function KgMesasModal({ onClose }: { onClose: () => void }) {
 
   // Orden cronológico (más viejo → nuevo) y filtro por número/fecha.
   const filas = useMemo(() => {
-    const q = fTexto.trim().toLowerCase();
+    const q = norm(fTexto);
     return contratos
       .slice()
       .sort((a, b) => a.seq - b.seq)
-      .filter((c) => !q || `${c.numero} ${c.fecha} ${date(c.created_at)}`.toLowerCase().includes(q))
+      .filter((c) => !q || norm(`${c.numero} ${c.fecha} ${date(c.created_at)}`).includes(q))
       .map((c) => {
         const mojado = parse(valorMojado(c));
         const seco = parse(valorSeco(c));

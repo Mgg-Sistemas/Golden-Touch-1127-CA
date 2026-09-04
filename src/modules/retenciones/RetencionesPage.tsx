@@ -15,6 +15,7 @@ import {
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
 import { RetencionesDirectasPanel } from './RetencionesDirectasPanel';
+import { norm } from '@/shared/lib/texto';
 
 type Vista = 'pendientes' | 'hechas' | 'directas';
 
@@ -61,7 +62,7 @@ export function RetencionesPage() {
 
   // Historial filtrado (solo aplica a la vista Realizadas).
   const hechasFiltradas = useMemo(() => {
-    const txt = fTexto.trim().toLowerCase();
+    const txt = norm(fTexto);
     return hechas.filter(({ orden: o, proveedorNombre }) => {
       const fin = (o.retencion_finalizada_en ?? '').slice(0, 10);
       if (fDesde && fin && fin < fDesde) return false;
@@ -69,7 +70,7 @@ export function RetencionesPage() {
       if (fDesde && !fin) return false;
       if (fTipo && !comprobantesDeOrden(o).some((c) => c.tipo === fTipo)) return false;
       if (txt) {
-        const hay = `${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre}`.toLowerCase();
+        const hay = norm(`${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre}`);
         if (!hay.includes(txt)) return false;
       }
       return true;

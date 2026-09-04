@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import { BANCOS_VE, labelBanco } from '@/shared/lib/bancos';
 import type { DatosPago } from '@/modules/pedidos/datosPago.repository';
+import { norm } from '@/shared/lib/texto';
 
 /** Selector de banco buscable (guarda el código SUDEBAN). */
 function BancoSelect({ value, onChange }: { value: string; onChange: (codigo: string) => void }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const filtrados = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    return t ? BANCOS_VE.filter((b) => `${b.codigo} ${b.nombre}`.toLowerCase().includes(t)) : BANCOS_VE;
+    const t = norm(q);
+    return t ? BANCOS_VE.filter((b) => norm(`${b.codigo} ${b.nombre}`).includes(t)) : BANCOS_VE;
   }, [q]);
   return (
     <div style={{ position: 'relative' }}>

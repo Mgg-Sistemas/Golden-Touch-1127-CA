@@ -7,6 +7,7 @@ import type { Existencia, Producto } from '@/shared/lib/types';
 import { updateProducto } from '@/modules/inventario/inventario.repository';
 import { crearProduccion, crearProductoProducible, crearInsumoReceta, getUltimaReceta, type MaterialInput } from './produccion.repository';
 import { crearHorno } from './hornos.repository';
+import { norm } from '@/shared/lib/texto';
 
 interface RecetaBase {
   rendimiento: number;
@@ -94,10 +95,10 @@ export function MaterialAProducirModal({
 
   // Productos del inventario que aún NO son receta (candidatos a marcar como insumo).
   const candidatos = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
+    const q = norm(busqueda);
     return productos
       .filter((p) => p.estado === 'activo' && !p.es_receta && !p.es_producible)
-      .filter((p) => !q || p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+      .filter((p) => !q || norm(p.nombre).includes(q) || norm(p.sku).includes(q))
       .slice(0, 30);
   }, [productos, busqueda]);
 

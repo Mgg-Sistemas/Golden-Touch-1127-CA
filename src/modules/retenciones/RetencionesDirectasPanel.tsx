@@ -30,6 +30,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { supabase } from '@/shared/lib/supabase';
 import { listRetenciones, crearRetencion } from '@/modules/tesoreria/tesoreria.repository';
 import type { Retencion, TipoRetencion } from '@/shared/lib/types';
+import { norm } from '@/shared/lib/texto';
 
 /** Los tres tipos que admite la tabla (el CHECK de la base los exige en mayúscula). */
 const TIPOS: { key: TipoRetencion; label: string }[] = [
@@ -84,7 +85,7 @@ export function RetencionesDirectasPanel({ puedeCargar, actor, actorName }: {
   useRealtime(['retenciones'], () => { void cargar(); });
 
   const filtradas = useMemo(() => {
-    const txt = fTexto.trim().toLowerCase();
+    const txt = norm(fTexto);
     return filas.filter((r) => {
       const f = (r.fecha ?? '').slice(0, 10);
       if (fDesde && f < fDesde) return false;
@@ -92,7 +93,7 @@ export function RetencionesDirectasPanel({ puedeCargar, actor, actorName }: {
       if (fTipo && r.tipo !== fTipo) return false;
       if (txt) {
         const prov = r.proveedor_id ? (proveedores.get(r.proveedor_id) ?? '') : '';
-        const hay = `${r.descripcion ?? ''} ${r.comprobante_nro ?? ''} ${prov}`.toLowerCase();
+        const hay = norm(`${r.descripcion ?? ''} ${r.comprobante_nro ?? ''} ${prov}`);
         if (!hay.includes(txt)) return false;
       }
       return true;

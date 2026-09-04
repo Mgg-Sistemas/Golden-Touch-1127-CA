@@ -14,6 +14,7 @@ import { descargarTrazabilidadPdf } from './trazabilidadPdf';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { descargarComprobantePagoPdf } from './comprobantePagoPdf';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
+import { norm } from '@/shared/lib/texto';
 
 type FechaCampo = 'created_at' | 'aprobada_en' | 'oc_emitida_en' | 'finalizada_en';
 
@@ -109,7 +110,7 @@ export function HistoricoPage() {
   );
 
   const filtered = useMemo(() => {
-    const free = qFree.trim().toLowerCase();
+    const free = norm(qFree);
     const desdeMs = desde ? new Date(desde + 'T00:00:00').getTime() : null;
     const hastaMs = hasta ? new Date(hasta + 'T23:59:59.999').getTime() : null;
 
@@ -133,7 +134,7 @@ export function HistoricoPage() {
           o.estado,
           o.total != null ? String(o.total) : null,
           ...o.items.map((it) => `${it.sku} ${it.nombre}`),
-        ].map((v) => (v ?? '').toString().toLowerCase()).join(' | ');
+        ].map((v) => norm(String(v ?? ''))).join(' | ');
         if (!hay.includes(free)) return false;
       }
       return true;

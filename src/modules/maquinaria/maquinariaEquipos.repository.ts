@@ -7,6 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { ultimoHorometroEquipo, kilometrajesVigentesPorEquipo, consumoPorEquipo } from '@/modules/combustible/tanques.repository';
+import { norm } from '@/shared/lib/texto';
 
 export interface MaquinariaEquipo {
   id: string;
@@ -194,6 +195,6 @@ export async function datosCombustibleDeEquipo(
     ultimoHorometroEquipo(nombre).catch(() => null),
     consumoPorEquipo(d, h).catch(() => [] as { nombre: string; cantidad: number; valor: number }[]),
   ]);
-  const fila = consumo.find((c) => c.nombre.trim().toLowerCase() === nombre.toLowerCase());
+  const fila = consumo.find((c) => norm(c.nombre) === norm(nombre));
   return { horometro, gasoilLts: fila?.cantidad ?? 0, gasoilUsd: fila?.valor ?? 0 };
 }
