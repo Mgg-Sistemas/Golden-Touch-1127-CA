@@ -17,7 +17,7 @@
    separación miden lo mismo. Si se cambia un ancho hay que cambiarlo en la
    constante, no a ojo en cada línea.
    ============================================================ */
-import type { ItemOrden, Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
+import type { Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { labelBanco } from '@/shared/lib/bancos';
 
@@ -129,12 +129,6 @@ function lineasDatosPago(metodo: string, d: Record<string, string> | undefined):
   return [];
 }
 
-/** Precio unitario del renglón, en la moneda en la que se va a pagar la orden. */
-function precioItem(o: Orden, it: ItemOrden): number {
-  if (o.pago_en_divisa && it.precio_usd != null) return Number(it.precio_usd) || 0;
-  return Number(it.precio) || 0;
-}
-
 /** El cuerpo de una orden. */
 function bloqueOrden(o: Orden, proveedor: Proveedor | null): string {
   const L: string[] = [];
@@ -157,25 +151,13 @@ function bloqueOrden(o: Orden, proveedor: Proveedor | null): string {
   if (nota) L.push(...campoLargo('NOTA', nota));
   L.push('');
 
-  // ── Qué se solicitó ──
-  // Solo los ítems marcados para comprar: los otros quedaron fuera de la OC y
-  // ponerlos acá sería cobrar por lo que no se compró.
-  const items = (o.items ?? []).filter((it) => it.comprar !== false);
-  // Sin título: la lista se lee sola y el documento es para PAGAR, no para
-  // revisar qué se pidió. Queda la regla como separador del bloque de arriba.
+  // ── El monto ──
+  // Sin la lista de productos, a propósito: esto es una INSTRUCCIÓN DE PAGO.
+  // Quien paga necesita a quién, cuánto y por dónde; el detalle de qué se
+  // compró vive en la OC y en su PDF, que es donde se revisa. Repetirlo acá
+  // alargaba el mensaje y hacía que el dato que importa —el monto— quedara
+  // enterrado entre veintidós renglones.
   L.push(REGLA);
-  if (!items.length) {
-    L.push('   (sin ítems)');
-  } else {
-    items.forEach((it, i) => {
-      const cant = Number(it.cantidad) || 0;
-      const unidad = (it.unidad || 'UND').toUpperCase();
-      const precio = precioItem(o, it);
-      L.push(`  ${String(i + 1).padStart(2, ' ')}. ${it.nombre}`);
-      L.push(`      ${num(cant).replace(/,00$/, '')} ${unidad} x ${monto(precio, moneda)}  =  ${monto(cant * precio, moneda)}`);
-    });
-  }
-  L.push('');
   // El total es el de la orden, no la suma de los renglones: puede llevar IVA,
   // IGTF o un descuento por encima de las líneas.
   L.push(campo('TOTAL', monto(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total, moneda)));
