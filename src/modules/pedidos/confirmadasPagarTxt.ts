@@ -161,7 +161,9 @@ function bloqueOrden(o: Orden, proveedor: Proveedor | null): string {
   // Solo los ítems marcados para comprar: los otros quedaron fuera de la OC y
   // ponerlos acá sería cobrar por lo que no se compró.
   const items = (o.items ?? []).filter((it) => it.comprar !== false);
-  L.push(...seccion('QUÉ SE SOLICITÓ'));
+  // Sin título: la lista se lee sola y el documento es para PAGAR, no para
+  // revisar qué se pidió. Queda la regla como separador del bloque de arriba.
+  L.push(REGLA);
   if (!items.length) {
     L.push('   (sin ítems)');
   } else {
