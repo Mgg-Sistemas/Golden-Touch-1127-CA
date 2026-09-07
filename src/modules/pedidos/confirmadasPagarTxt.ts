@@ -1,45 +1,38 @@
 /* ============================================================
    Golden Touch · Pedidos · Exportar «Confirmada pagar» a TXT
 
-   Una orden ya confirmada para pagar, en texto plano: se abre en cualquier
-   lado, se pega en un chat o en un correo y se lee sin depender del sistema.
-   El botón vive en el pie del detalle de la OC, al lado de «OC PDF».
+   Una orden ya confirmada para pagar, en texto plano: se copia y se pega en
+   un chat. El botón vive en el pie del detalle de la OC, al lado de «OC PDF».
 
    POR QUÉ TXT Y NO PDF: el PDF es para imprimir y archivar; esto es para
    MANDAR la instrucción de pago. Un texto se copia, se corrige y se reenvía.
 
-   QUÉ LLEVA: quién la pide, de qué unidad, para qué la pide y con qué nota,
-   qué pidió, a qué proveedor, y con qué método se paga —con los datos del
-   proveedor y el monto de cada pata cuando el pago va partido—.
+   EL FORMATO ES PARA WHATSAPP, NO PARA EL BLOC DE NOTAS.
+   Antes esto se escribía en monoespaciado, con etiquetas alineadas a un ancho
+   fijo y líneas de guiones para separar. Se veía bien en el Bloc de notas y
+   mal donde de verdad se usa: WhatsApp usa tipografía proporcional, así que
+   la alineación por espacios se desarma, y en un teléfono cada línea larga se
+   parte sola. Ahora se escribe con el marcado de WhatsApp —`*negrita*`— y un
+   emoji por campo, que es lo que hace que se lea de un vistazo en el chat.
 
-   EL FORMATO SE CUIDA: se lee en monoespaciado (Bloc de notas, WhatsApp Web,
-   correo), así que las etiquetas van alineadas a un ancho fijo y las líneas de
-   separación miden lo mismo. Si se cambia un ancho hay que cambiarlo en la
-   constante, no a ojo en cada línea.
+   QUÉ LLEVA: la orden, el proveedor, para qué se pide, cuánto, y por dónde se
+   paga. Nada más. No lleva la lista de productos a propósito: quien paga
+   necesita a quién, cuánto y por dónde; el detalle de qué se compró vive en la
+   OC y en su PDF, que es donde se revisa.
    ============================================================ */
 import type { Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
-import { labelBanco } from '@/shared/lib/bancos';
-
-/** Ancho de las líneas de separación. */
-const ANCHO = 62;
-/** Ancho de la etiqueta en el bloque de datos de la orden («UNIDAD SOLICITANTE»). */
-const ETIQUETA = 20;
-/** Ancho de la etiqueta dentro de un método de pago («CI / RIF»). */
-const ETIQUETA_PAGO = 10;
-
-const REGLA_DOBLE = '='.repeat(ANCHO);
-const REGLA = '-'.repeat(ANCHO);
+import { BANCOS_VE } from '@/shared/lib/bancos';
 
 /** Número con separador de miles VE y dos decimales, sin símbolo. */
 function num(n: number | null | undefined): string {
   return (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Monto de la orden y de sus renglones: el dólar va con símbolo. */
+/** Monto de la orden: el dólar va con símbolo pegado, como se escribe en el chat. */
 function monto(n: number | null | undefined, moneda?: string | null): string {
   if (moneda === 'Bs') return `Bs ${num(n)}`;
-  if (!moneda || moneda === 'USD') return `$ ${num(n)}`;
+  if (!moneda || moneda === 'USD') return `$${num(n)}`;
   return `${moneda} ${num(n)}`;
 }
 
@@ -48,31 +41,16 @@ function montoPata(m: PagoMetodo): string {
   return `${m.moneda || 'USD'} ${num(m.monto)}`;
 }
 
-/** `  ETIQUETA            : valor` */
-function campo(etiqueta: string, valor: string, ancho = ETIQUETA, sangria = '  '): string {
-  return `${sangria}${etiqueta.padEnd(ancho, ' ')}: ${valor}`;
-}
-
 /**
- * Campo cuyo valor puede ser un párrafo (la descripción, la nota).
- * Se corta por palabras al ancho de la regla y las líneas siguientes quedan
- * sangradas debajo del valor, no del margen: así se ve dónde termina un campo
- * y empieza el otro sin tener que releer.
+ * Banco como lo pide quien paga: el nombre primero y el código entre
+ * paréntesis. En la app se muestra al revés («0102 · Banco de Venezuela»)
+ * porque ahí se elige de una lista ordenada por código; acá se lee, no se
+ * busca, y el nombre es lo que se reconoce.
  */
-function campoLargo(etiqueta: string, valor: string): string[] {
-  const sangria = ' '.repeat(2 + ETIQUETA + 2);
-  const util = Math.max(24, ANCHO - sangria.length);
-  const lineas: string[] = [];
-  let actual = '';
-  for (const palabra of valor.split(/\s+/).filter(Boolean)) {
-    // Una palabra sola más larga que el ancho (un enlace, un serial) se deja
-    // entera: partirla la vuelve inservible para copiar.
-    if (actual && (actual + ' ' + palabra).length > util) { lineas.push(actual); actual = palabra; }
-    else actual = actual ? actual + ' ' + palabra : palabra;
-  }
-  if (actual) lineas.push(actual);
-  if (!lineas.length) return [];
-  return [campo(etiqueta, lineas[0]), ...lineas.slice(1).map((l) => sangria + l)];
+function banco(codigo: string | null | undefined): string {
+  if (!codigo) return '—';
+  const b = BANCOS_VE.find((x) => x.codigo === codigo);
+  return b ? `${b.nombre} (${b.codigo})` : codigo;
 }
 
 /**
@@ -88,34 +66,28 @@ function descripcionDe(o: Orden): string {
   return o.motivo?.trim() || '';
 }
 
-/** Título de sección entre reglas. */
-function seccion(titulo: string): string[] {
-  return [REGLA, `  ${titulo}`, REGLA];
-}
-
 /**
- * Datos del proveedor para pagarle, uno por línea y con su nombre propio.
- * En pantalla estos datos se muestran en una sola línea separados por «·»;
- * acá van desplegados porque el que paga los copia de a uno (el número de
- * cuenta, el teléfono) y buscarlos dentro de un renglón largo es pedir error.
+ * Los datos para pagarle, uno por viñeta. Van desplegados y no en una línea
+ * separada por «·» porque el que paga los copia de a uno —el número de
+ * cuenta, el teléfono— y buscarlos dentro de un renglón largo es pedir error.
  */
 function lineasDatosPago(metodo: string, d: Record<string, string> | undefined): string[] {
   const dd = d ?? {};
   const par = (etiqueta: string, valor?: string | null): string[] =>
-    valor?.trim() ? [campo(etiqueta, valor.trim(), ETIQUETA_PAGO, '     ')] : [];
+    valor?.trim() ? [`* ${etiqueta}: ${valor.trim()}`] : [];
 
   if (metodo === 'pago_movil') {
     return [
-      ...par('CI / RIF', dd.ci_rif),
-      ...par('Banco', dd.banco ? labelBanco(dd.banco) : ''),
-      ...par('Teléfono', dd.telefono),
+      ...par('Banco', dd.banco ? banco(dd.banco) : ''),
+      ...par('CI/RIF', dd.ci_rif),
+      ...par('Tlf', dd.telefono),
     ];
   }
   if (metodo === 'transferencia') {
     return [
       ...par('Titular', dd.nombre),
-      ...par('CI / RIF', dd.ci),
-      ...par('Banco', dd.banco ? labelBanco(dd.banco) : ''),
+      ...par('CI/RIF', dd.ci),
+      ...par('Banco', dd.banco ? banco(dd.banco) : ''),
       ...par('Cuenta', dd.cuenta),
     ];
   }
@@ -123,66 +95,51 @@ function lineasDatosPago(metodo: string, d: Record<string, string> | undefined):
     return [...par('Titular', dd.nombre), ...par('Correo', dd.email)];
   }
   if (metodo === 'binance_usdt') {
-    return [...par('Correo / ID', dd.email_o_id)];
+    return [...par('Correo/ID', dd.email_o_id)];
   }
   // Efectivo y «otro» no llevan datos: no hay a dónde transferir.
   return [];
 }
 
-/** El cuerpo de una orden. */
-function bloqueOrden(o: Orden, proveedor: Proveedor | null): string {
+/**
+ * El cuerpo de una orden, en el marcado de WhatsApp.
+ * Se exporta para poder fijarlo con tests: el formato es un acuerdo con quien
+ * lo lee del otro lado del chat, así que un cambio accidental se tiene que
+ * notar acá y no en el teléfono de alguien.
+ */
+export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
   const L: string[] = [];
   const moneda = o.pago_en_divisa ? 'USD' : (o.total_moneda || 'USD');
 
-  // ── Identificación ──
-  // Dos vacíos: uno cierra el encabezado del archivo y el otro deja el renglón
-  // en blanco que lo separa de los datos.
-  L.push('', '');
-  if (o.oc_codigo) L.push(campo('ORDEN', o.oc_codigo));
-  L.push(campo('SOLICITUD', o.codigo || '—'));
-  L.push(campo('SOLICITA', o.solicitante?.trim() || o.solicitante_email || '—'));
-  L.push(campo('UNIDAD SOLICITANTE', o.unidad_solicitante?.trim() || '—'));
-  L.push(campo('PROVEEDOR', proveedor?.razon_social?.trim() || '—'));
-  // Descripción y nota solo si existen: un renglón «NOTA : —» no informa nada
-  // y aleja el método de pago, que es lo que se busca en este papel.
+  L.push(`🔹 *ORDEN:* ${o.oc_codigo || o.codigo || '—'}`);
+  L.push(`🏭 *Proveedor:* ${proveedor?.razon_social?.trim() || '—'}`);
+  // El detalle solo si existe: un «Detalle: —» no informa nada y aleja el
+  // método de pago, que es lo que se busca en este papel.
   const descripcion = descripcionDe(o);
-  if (descripcion) L.push(...campoLargo('DESCRIPCIÓN', descripcion));
-  const nota = o.notas?.trim();
-  if (nota) L.push(...campoLargo('NOTA', nota));
-  L.push('');
-
-  // ── El monto ──
-  // Sin la lista de productos, a propósito: esto es una INSTRUCCIÓN DE PAGO.
-  // Quien paga necesita a quién, cuánto y por dónde; el detalle de qué se
-  // compró vive en la OC y en su PDF, que es donde se revisa. Repetirlo acá
-  // alargaba el mensaje y hacía que el dato que importa —el monto— quedara
-  // enterrado entre veintidós renglones.
-  L.push(REGLA);
+  if (descripcion) L.push(`📝 *Detalle:* ${descripcion}`);
   // El total es el de la orden, no la suma de los renglones: puede llevar IVA,
   // IGTF o un descuento por encima de las líneas.
-  L.push(campo('TOTAL', monto(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total, moneda)));
-  L.push('');
+  L.push(`💵 *Total:* ${monto(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total, moneda)}`);
 
-  // ── Método de pago ──
-  L.push(...seccion('MÉTODO DE PAGO'));
   const metodos = (o.metodo_pago ?? []) as PagoMetodo[];
   if (!metodos.length) {
-    L.push('  (sin método indicado)');
+    L.push('💳 *Método de pago:* (sin indicar)');
   } else {
-    metodos.forEach((m, i) => {
-      if (i > 0) L.push('');
-      L.push(`  [${i + 1}/${metodos.length}] ${labelMetodoPago(m.metodo)}   ${montoPata(m)}`);
+    // Con una sola pata el monto ya está en el total y repetirlo estorba. Con
+    // varias hace falta: es lo que dice cuánto va por cada lado.
+    const partido = metodos.length > 1;
+    for (const m of metodos) {
+      L.push(`💳 *${labelMetodoPago(m.metodo)}:*${partido ? ` ${montoPata(m)}` : ''}`);
       L.push(...lineasDatosPago(m.metodo, m.datos));
-    });
+    }
   }
-  L.push('');
   return L.join('\n');
 }
 
 /** Dispara la descarga de un texto como archivo .txt. */
 function descargar(texto: string, nombre: string): void {
   // El Bloc de notas de Windows solo corta en \r\n: sin eso el archivo se ve
-  // como un único renglón enorme.
+  // como un único renglón enorme. Al pegar en WhatsApp da igual.
   const blob = new Blob([texto.split('\n').join('\r\n')], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -194,14 +151,9 @@ function descargar(texto: string, nombre: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Una sola orden: la instrucción de pago para mandarla por chat o correo. */
+/** Una sola orden: la instrucción de pago para mandarla por chat. */
 export function descargarOrdenPagarTxt(orden: Orden, proveedor: Proveedor | null): void {
-  const texto = [
-    REGLA_DOBLE,
-    '  GOLDEN TOUCH 1127',
-    '  ORDEN CONFIRMADA PARA PAGAR',
-    REGLA_DOBLE,
-  ].join('\n') + bloqueOrden(orden, proveedor);
+  const texto = textoOrdenPagar(orden, proveedor);
   // El nombre del archivo lleva el código: llegan varios por chat y hay que
   // distinguirlos sin abrirlos.
   const codigo = (orden.oc_codigo || orden.codigo || 'orden').replace(/[^A-Za-z0-9_-]+/g, '-');
