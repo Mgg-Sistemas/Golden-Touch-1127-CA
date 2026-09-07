@@ -15,10 +15,10 @@
    parte sola. Ahora se escribe con el marcado de WhatsApp —`*negrita*`— y un
    emoji por campo, que es lo que hace que se lea de un vistazo en el chat.
 
-   QUÉ LLEVA: la orden, el proveedor, para qué se pide, cuánto, y por dónde se
-   paga. Nada más. No lleva la lista de productos a propósito: quien paga
-   necesita a quién, cuánto y por dónde; el detalle de qué se compró vive en la
-   OC y en su PDF, que es donde se revisa.
+   QUÉ LLEVA: la orden, el proveedor, para qué se pide, la nota, cuánto, y por
+   dónde se paga. Nada más. No lleva la lista de productos a propósito: quien
+   paga necesita a quién, cuánto y por dónde; el detalle de qué se compró vive
+   en la OC y en su PDF, que es donde se revisa.
    ============================================================ */
 import type { Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
@@ -117,6 +117,11 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
   // método de pago, que es lo que se busca en este papel.
   const descripcion = descripcionDe(o);
   if (descripcion) L.push(`📝 *Detalle:* ${descripcion}`);
+  // La nota es, en los hechos, el campo que la gente llena: la tienen 64 de
+  // las 70 ordenes con metodo de pago cargado, contra 2 que tienen finalidad o
+  // motivo. Va entera y sin cortar: el chat la envuelve solo.
+  const nota = o.notas?.trim();
+  if (nota) L.push(`🗒 *Nota:* ${nota}`);
   // El total es el de la orden, no la suma de los renglones: puede llevar IVA,
   // IGTF o un descuento por encima de las líneas.
   L.push(`💵 *Total:* ${monto(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total, moneda)}`);
