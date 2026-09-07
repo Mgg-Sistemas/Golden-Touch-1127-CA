@@ -228,6 +228,9 @@ export interface MovimientoCaja {
   beneficiario?: string | null;
   beneficiario_id?: string | null;
   ref_orden_id?: string | null;
+  /** Enlace a la venta que generó el movimiento: el cobro (categoría
+   *  'cobro_venta') o su reversa al anular ('reverso_venta'). */
+  ref_venta_id?: string | null;
   /** Enlace al renglón de nómina pagado (categoría 'pago_nomina'). */
   ref_nomina_renglon_id?: string | null;
   /** Multimoneda: cuenta (Bs jurídica/personal) y tasa aplicada (Bs por unidad). */

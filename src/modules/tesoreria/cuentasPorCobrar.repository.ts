@@ -23,6 +23,8 @@ export interface CuentaPorCobrar {
   caja_id?: string | null;
   caja_mov_id?: string | null;
   estado: EstadoCxC;
+  /** La venta que ABRIÓ la cuenta (no todas: la cuenta es corriente y acumula). */
+  ref_venta_id?: string | null;
   nota?: string | null;
   actor?: string | null;
   actor_name?: string | null;
@@ -40,6 +42,9 @@ export interface CargoCxC {
   cuenta?: string | null;
   caja_mov_id?: string | null;
   total_adeudado?: number | null;
+  /** La venta a crédito que generó ESTE cargo. Acá se ve venta por venta: la
+   *  cuenta acumula varias ventas del mismo cliente, el cargo no. */
+  ref_venta_id?: string | null;
   nota?: string | null;
   actor?: string | null;
   actor_name?: string | null;
@@ -71,6 +76,13 @@ const CXC_ABONOS = 'cuentas_por_cobrar_abonos';
  * Crea/ACUMULA una cuenta por cobrar (incremental). Si ya existe una cuenta ABIERTA
  * del mismo cliente/proveedor en la misma moneda, suma el cargo a esa cuenta y deja
  * una fila de cargo con su fecha; si no, crea la cuenta y su primer cargo.
+ *
+ * La cuenta y su cargo son DOS escrituras que valen las dos o ninguna: si la
+ * segunda falla, queda una deuda cargada sin el renglón que dice de dónde salió.
+ * Por eso la regla vive en la base (`crear_o_acumular_cxc`) y acá solo se la
+ * llama. Además así una venta a crédito puede confirmarse y cargarle la deuda al
+ * cliente en la MISMA transacción: un corte de red en el medio ya no puede dejar
+ * una venta a crédito sin deuda registrada.
  */
 export async function crearOAcumularCuentaPorCobrar(input: {
   tipo: TipoCxC;
@@ -84,45 +96,45 @@ export async function crearOAcumularCuentaPorCobrar(input: {
   actor?: string | null;
   actorName?: string | null;
 }): Promise<CuentaPorCobrar> {
-  const monto = round2(input.monto);
-  if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
-  const contraparte = input.contraparte.trim();
-  if (!contraparte) throw new Error('Indicá el cliente o proveedor.');
-
-  const { data: existentes } = await supabase.from(CXC).select('*')
-    .eq('tipo', input.tipo).eq('moneda', input.moneda).eq('estado', 'abierta')
-    .ilike('contraparte', contraparte)
-    .order('created_at', { ascending: false }).limit(1);
-  const existente = (existentes?.[0] ?? null) as CuentaPorCobrar | null;
-
-  let cuentaRow: CuentaPorCobrar;
-  if (existente) {
-    const nuevoMonto = round2(Number(existente.monto) + monto);
-    const { data: cu, error } = await supabase.from(CXC)
-      .update({ monto: nuevoMonto, estado: 'abierta', updated_at: new Date().toISOString() })
-      .eq('id', existente.id).select('*').single();
-    if (error) throw error;
-    cuentaRow = cu as CuentaPorCobrar;
-  } else {
-    const { data, error } = await supabase.from(CXC).insert({
-      tipo: input.tipo, contraparte, monto, cobrado: 0, moneda: input.moneda,
-      cuenta: input.cuenta ?? null, caja_id: input.cajaId ?? null, caja_mov_id: input.cajaMovId ?? null,
-      estado: 'abierta', nota: input.nota?.trim() || null, actor: input.actor ?? null, actor_name: input.actorName ?? null,
-    }).select('*').single();
-    if (error) throw error;
-    cuentaRow = data as CuentaPorCobrar;
-  }
-
-  const totalAdeudado = round2(Number(cuentaRow.monto) - (Number(cuentaRow.cobrado) || 0));
-  const { error: cgErr } = await supabase.from(CXC_CARGOS).insert({
-    cuenta_id: cuentaRow.id, monto, moneda: input.moneda,
-    caja_id: input.cajaId ?? null, cuenta: input.cuenta ?? null, caja_mov_id: input.cajaMovId ?? null,
-    total_adeudado: totalAdeudado, nota: input.nota?.trim() || null,
-    actor: input.actor ?? null, actor_name: input.actorName ?? null,
+  const { data, error } = await supabase.rpc('crear_o_acumular_cxc', {
+    p_tipo: input.tipo,
+    p_contraparte: input.contraparte.trim(),
+    p_monto: round2(input.monto),
+    p_moneda: input.moneda,
+    p_cuenta: input.cuenta ?? null,
+    p_caja_id: input.cajaId ?? null,
+    p_caja_mov_id: input.cajaMovId ?? null,
+    p_nota: input.nota?.trim() || null,
+    p_actor: input.actor ?? null,
+    p_actor_name: input.actorName ?? null,
   });
-  if (cgErr) throw cgErr;
+  if (error) throw error;
+  return data as CuentaPorCobrar;
+}
 
-  return cuentaRow;
+/**
+ * RESTA un cargo de una cuenta por cobrar y deja un cargo negativo como rastro.
+ * La usa la anulación de una venta a crédito: la cuenta del cliente es CORRIENTE
+ * y la comparten otras ventas, así que anular una NO cierra la cuenta — le resta
+ * lo de esa venta y nada más. Se niega si dejara la cuenta con más cobrado que
+ * debido: esa plata hay que devolverla primero.
+ */
+export async function revertirCargoCuentaPorCobrar(input: {
+  cuentaId: string;
+  monto: number;
+  nota?: string | null;
+  actor?: string | null;
+  actorName?: string | null;
+}): Promise<CuentaPorCobrar> {
+  const { data, error } = await supabase.rpc('revertir_cargo_cxc', {
+    p_cuenta_id: input.cuentaId,
+    p_monto: round2(input.monto),
+    p_nota: input.nota?.trim() || null,
+    p_actor: input.actor ?? null,
+    p_actor_name: input.actorName ?? null,
+  });
+  if (error) throw error;
+  return data as CuentaPorCobrar;
 }
 
 export async function listCuentasPorCobrar(soloAbiertas = true): Promise<CuentaPorCobrar[]> {
