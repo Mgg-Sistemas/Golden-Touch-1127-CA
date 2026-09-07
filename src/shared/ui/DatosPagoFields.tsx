@@ -71,7 +71,9 @@ export function DatosPagoFields({ metodo, value, onChange }: {
           <input className="input" name="dp-pm-ci-rif" defaultValue={value.ci_rif ?? ''} onChange={(e) => set('ci_rif', e.target.value)} placeholder="V-12345678 / J-..." />
         </Campo>
         <Campo label="Banco *"><BancoSelect value={value.banco ?? ''} onChange={(c) => set('banco', c)} /></Campo>
-        <Campo label="Teléfono *" hint="Solo números">
+        {/* El contador se muestra igual que en el número de cuenta: sin él, uno
+            se entera de que el número está corto recién al guardar. */}
+        <Campo label="Teléfono *" hint={`Solo números · ${(value.telefono ?? '').length}/11 dígitos`}>
           <input className="input mono" name="dp-pm-telefono" inputMode="numeric" defaultValue={value.telefono ?? ''} onChange={(e) => { const v = soloNumeros(e.target.value, 11); e.target.value = v; set('telefono', v); }} placeholder="04141234567" />
         </Campo>
       </div>
@@ -122,12 +124,26 @@ export function DatosPagoFields({ metodo, value, onChange }: {
   return null;
 }
 
+/**
+ * Un teléfono de pago móvil venezolano: 11 dígitos que empiezan con 04.
+ *
+ * POR QUÉ SE VALIDA EL LARGO Y NO SOLO QUE ESTÉ LLENO: el campo pedía nada más
+ * que no estuviera vacío, y así entró «11513895» —8 dígitos, una cédula pegada
+ * en el casillero equivocado— en los datos de un proveedor. A ese no se le
+ * puede pagar: el pago móvil se manda al número, y ese número no existe.
+ * De los 23 teléfonos cargados, 22 tienen esta forma; el que no, es el error.
+ */
+const TELEFONO_VE = /^04\d{9}$/;
+
 /** Valida que los datos mínimos del método estén completos. Devuelve error o null. */
 export function validarDatosPago(metodo: string, d: DatosPago): string | null {
   if (metodo === 'pago_movil') {
     if (!d.ci_rif?.trim()) return 'Indicá el CI o RIF';
     if (!d.banco?.trim()) return 'Elegí el banco';
     if (!d.telefono?.trim()) return 'Indicá el teléfono';
+    if (!TELEFONO_VE.test(d.telefono.trim())) {
+      return 'El teléfono debe tener 11 dígitos y empezar con 04 (ej. 04141234567)';
+    }
   } else if (metodo === 'transferencia') {
     if (!d.nombre?.trim()) return 'Indicá el nombre';
     if (!d.ci?.trim()) return 'Indicá el CI / RIF';
