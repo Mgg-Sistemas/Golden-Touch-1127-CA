@@ -672,13 +672,18 @@ export async function aprobarOrdenConOferta(
  * aceptada y las descartadas vuelven a `pendiente`), para volver a mostrarlas TODAS y
  * re-elegir, editar precios o cargarle IVA/IGTF/descuento a la oferta antes de aprobar.
  * Al re-elegir, esos valores se arrastran de nuevo a la OC (y a Tesorería). No toca caja
- * ni inventario (aún no se pagó). No aplica a OCs hijas de un reparto entre proveedores.
+ * ni inventario (aún no se pagó).
+ *
+ * REPARTO MULTIPROVEEDOR: si la OC es HIJA de un reparto, reelegir la devuelve a la
+ * ORDEN PADRE con todas sus ofertas (ver `devolverHijaAPadre`) y lo que se obtiene de
+ * vuelta es la madre, no la hija.
  */
 export async function reabrirEleccionOferta(o: Orden, actorEmail: string): Promise<Orden> {
   if (o.estado !== 'oc_creada')
     throw new Error('Solo se puede reelegir la oferta mientras la OC está «Pendiente por aprobación del Gerente General».');
-  if (o.op_padre_id)
-    throw new Error('Esta OC proviene de un reparto entre proveedores; reelegí desde la orden padre.');
+  // OC hija de un reparto: los ítems vuelven a la madre y se re-elige desde ahí, con
+  // todas las ofertas de nuevo a la vista.
+  if (o.op_padre_id) return devolverHijaAPadre(o, actorEmail, 'eleccion_reabierta');
   // 1) Reactivar TODAS las ofertas de la orden (aceptada + descartadas → pendiente).
   const { error: ofErr } = await supabase
     .from('ofertas_proveedor')
@@ -2224,7 +2229,7 @@ export async function desistirProveedor(
   // suelta, sus ítems VUELVEN A LA OP MADRE (con todos sus proveedores/ofertas) y la
   // madre se reabre en "aprobada" (cargar ofertas) para re-cotizar. La hija se marca
   // como reasignada (vuelve a la madre) y deja de aparecer en el tablero.
-  if (o.op_padre_id) return desistirHijaVolverAPadre(o, actorEmail, motivo);
+  if (o.op_padre_id) return devolverHijaAPadre(o, actorEmail, 'desistida_proveedor', motivo);
 
   // 1) Reabrir las ofertas previamente descartadas para que el jefe pueda re-elegir.
   const { error: reopenErr } = await supabase
@@ -2265,53 +2270,33 @@ export async function desistirProveedor(
 }
 
 /**
- * Desistimiento de una OC HIJA (reparto multiproveedor): devuelve sus ítems a la OP
- * MADRE, reabre TODAS las ofertas de la madre (todos los proveedores vuelven a estar
- * disponibles) y deja la madre en `aprobada` (cargar ofertas) para re-cotizar todos
- * los productos. La hija se marca `reasignada` (volvió a la madre) y sale del tablero.
- * Devuelve la OP MADRE ya actualizada.
+ * Devuelve una OC HIJA de un reparto multiproveedor a su ORDEN PADRE. Es el camino de
+ * vuelta de los dos motivos por los que una hija se cae:
+ *   · `eleccion_reabierta`   → se quiere reelegir proveedor (sin culpa de nadie)
+ *   · `desistida_proveedor`  → el proveedor no cumplió (lleva motivo)
+ *
+ * Los ítems vuelven a la madre, la madre queda en `aprobada` con TODAS sus ofertas de
+ * nuevo en `pendiente` (las aceptadas y las descartadas) para volver a elegir entre
+ * todas, y la hija queda `reasignada` — sale del tablero. Devuelve la MADRE.
+ *
+ * Va por RPC y no por cuatro updates desde acá a propósito: son escrituras sobre la
+ * madre, la hija y sus ofertas que tienen que valer todas o ninguna. Una caída de red
+ * en el medio dejaría la hija cerrada y sus ítems en ningún lado. La función de la base
+ * además NO devuelve a la madre los ítems que otra hija VIVA ya está comprando, cosa
+ * que el camino viejo sí hacía cuando el reparto había sido total.
  */
-async function desistirHijaVolverAPadre(hija: Orden, actorEmail: string, motivo: string): Promise<Orden> {
-  const nowIso = new Date().toISOString();
-  // 1) Traer la OP madre.
-  const { data: padreRow, error: padreErr } = await supabase.from(TABLE).select('*').eq('id', hija.op_padre_id!).single();
-  if (padreErr) throw padreErr;
-  const padre = padreRow as Orden;
-
-  // 2) Fusionar los ítems de la hija de vuelta en la madre (sin duplicar por clave).
-  const keyOf = (it: ItemOrden) => it.productoId ?? it.sku ?? it.nombre;
-  const itemsPadre = Array.isArray(padre.items) ? [...padre.items] : [];
-  const vistos = new Set(itemsPadre.map(keyOf));
-  for (const it of (Array.isArray(hija.items) ? hija.items : [])) {
-    if (!vistos.has(keyOf(it))) { itemsPadre.push(it); vistos.add(keyOf(it)); }
-  }
-
-  // 3) Marcar la hija como reasignada (volvió a la madre) — sale del tablero.
-  const { error: hijaErr } = await supabase.from(TABLE).update({
-    estado: 'reasignada' as EstadoOrden,
-    historial: appendHistorial(hija, 'desistida_proveedor', actorEmail, { motivo, proveedorAnteriorId: hija.proveedor_id, volvio_a_padre: padre.codigo }),
-    updated_at: nowIso,
-  }).eq('id', hija.id);
-  if (hijaErr) throw hijaErr;
-
-  // 4) Reabrir TODAS las ofertas de la madre (aceptadas/descartadas → pendiente) para
-  //    re-elegir proveedor de todos los productos.
-  const { error: reopenErr } = await supabase.from('ofertas_proveedor')
-    .update({ estado: 'pendiente', motivo_descarte: null, decidida_por_email: null, decidida_en: null })
-    .eq('orden_id', padre.id).in('estado', ['aceptada', 'descartada']);
-  if (reopenErr) throw reopenErr;
-
-  // 5) Dejar la madre en "aprobada" (cargar ofertas) con todos los ítems de vuelta.
-  const patch = {
-    estado: 'aprobada' as EstadoOrden,
-    items: itemsPadre,
-    total: 0,
-    total_divisa: null,
-    pago_en_divisa: false,
-    historial: appendHistorial(padre, 'desistida_proveedor', actorEmail, { motivo, hija_revertida: hija.oc_codigo ?? hija.codigo, items_devueltos: (hija.items ?? []).length }),
-    updated_at: nowIso,
-  };
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', padre.id).select('*').single();
+async function devolverHijaAPadre(
+  hija: Orden,
+  actorEmail: string,
+  evento: 'eleccion_reabierta' | 'desistida_proveedor',
+  motivo?: string
+): Promise<Orden> {
+  const { data, error } = await supabase.rpc('devolver_hija_a_padre', {
+    p_hija_id: hija.id,
+    p_actor: actorEmail,
+    p_evento: evento,
+    p_motivo: motivo ?? null,
+  });
   if (error) throw error;
   return data as Orden;
 }
