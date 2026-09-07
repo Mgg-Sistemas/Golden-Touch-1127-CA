@@ -302,6 +302,18 @@ const SECCIONES: Seccion[] = [
     ],
   },
   {
+    icono: '🧮',
+    titulo: 'Tesorería · tasas y calculadora',
+    intro:
+      'Este apartado cubre solo las herramientas de cálculo y las tasas de Tesorería; el resto del módulo (cajas, pagos, cuentas por cobrar y por pagar, conversiones) se explica en el manual completo del sistema.',
+    puntos: [
+      'La tasa de Binance se actualiza sola TRES VECES AL DIA: 8:00, 12:00 y 17:00, hora de Venezuela, aunque no haya nadie conectado. Antes solo se refrescaba cuando alguien abria el sistema y ya habian pasado 11 horas desde la ultima vez, asi que un lunes temprano se podia estar cotizando con el numero del viernes. El boton "Actualizar ahora" del modal de Tasas sigue estando para traer la del momento.',
+      'Calculadora multimoneda: entiende monedas dentro de la misma cuenta. Se puede escribir 100$ + 50000Bs + 20USDT y resolverlo de una vez, sin convertir a mano. Reconoce Bs, $, EUR, USDT y COP con sus distintas formas de escribirlas (dolares, euros, pesos). El selector "ver en" muestra el resultado en la moneda que se elija o en automatico.',
+      'La calculadora usa las tasas del dia. Si falta alguna, lo avisa y esa moneda queda fuera del calculo en vez de resolverlo con un numero inventado.',
+      'Conversor USD a Bs: muestra el monto a BCV y a Binance con el margen de ahorro de pagar a BCV. Cada cuenta hecha queda en la lista de Operaciones, se puede tocar una para reutilizar su resultado, y todas se pueden exportar a PDF.',
+    ],
+  },
+  {
     icono: '⛽',
     titulo: 'Combustible',
     captura: 'combustible',

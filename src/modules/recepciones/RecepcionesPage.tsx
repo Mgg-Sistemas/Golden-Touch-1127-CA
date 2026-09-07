@@ -517,7 +517,11 @@ export function RecepcionesPage() {
 
           {/* ───────── Tabla 2: RECEPCIÓN GLOBAL LABORATORIO (análisis químicos, independientes) ───────── */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
+            {/* `card-title` no pinta nada: es la clase que en teléfono le da
+                `flex-wrap: wrap` a la fila. Sin eso, los dos botones laterales
+                se quedan con todo el ancho y el título del medio queda
+                exprimido contra el borde. */}
+            <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', padding: '.55rem .85rem', borderBottom: '1px solid var(--border, #2a2f3a)' }}>
               <div style={{ minWidth: 150 }}>
                 {canWrite && (
                   <button className="btn btn-sm btn-ghost" onClick={() => setConfig(true)} title="Agregar, editar u ocultar los minerales (columnas) del análisis">

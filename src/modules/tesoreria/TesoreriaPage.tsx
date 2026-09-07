@@ -13,7 +13,7 @@ import { GestionarCajasModal } from '@/modules/salidas/GestionarCajasModal';
 import {
   listRenglonesPorPagar, countRenglonesPorPagar, pagarRenglon, getRenglonById, urlComprobanteNomina, labelMotivoNomina,
 } from '@/modules/rrhh/nomina.repository';
-import { previewPdf, previewArchivo } from '@/shared/lib/reportePreview';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import type { NominaRenglon } from '@/shared/lib/types';
 import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
@@ -22,6 +22,7 @@ import { DirectosPorPagarPanel } from './DirectosPorPagarPanel';
 import { listComprasDirectas, getCompraDirectaByCajaMovId, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { listServiciosDirectos, getServicioDirectoByCajaMovId, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
+import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa } from './cajaSaldos.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
@@ -585,7 +586,7 @@ export function TesoreriaPage() {
       {modal === 'cierre' && <CierreMesModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setModal('none')} />}
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
       {modal === 'conversor' && <ConversorModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onConverted={reload} />}
-      {modal === 'calculadora' && <CalculadoraModal onClose={() => setModal('none')} />}
+      {modal === 'calculadora' && <CalculadoraModal actor={actor} onClose={() => setModal('none')} />}
       {modal === 'grafico' && <GraficoTasasModal onClose={() => setModal('none')} />}
       {modal === 'porpagar' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'creditos' && <CuentasCreditoModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onChanged={reload} />}
@@ -3339,177 +3340,6 @@ function RedondearNetoModal({ moneda, bruto, sugerido, onAceptar, onClose }: {
         </small>
         {excede && <small className="muted" style={{ color: 'var(--danger)' }}>No puede superar el convertido ({monto(bruto, moneda)}).</small>}
       </div>
-    </Modal>
-  );
-}
-
-/* ───────────── Calculadora (con historial + export PDF) ───────────── */
-
-/** Evalúa una expresión aritmética simple (+ − × ÷, paréntesis, decimales) sin eval. */
-function evalExpr(expr: string): number {
-  const s = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '.').replace(/\s+/g, '');
-  if (!/^[0-9.+\-*/()]+$/.test(s)) throw new Error('Expresión inválida');
-  const out: number[] = []; const ops: string[] = [];
-  const prec: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2 };
-  const apply = () => {
-    const op = ops.pop()!; const b = out.pop()!; const a = out.pop()!;
-    out.push(op === '+' ? a + b : op === '-' ? a - b : op === '*' ? a * b : a / b);
-  };
-  const toks = s.match(/(\d+\.?\d*|\.\d+|[+\-*/()])/g) ?? [];
-  let prev: string | null = null;
-  for (const t of toks) {
-    if (/^[\d.]/.test(t)) { out.push(parseFloat(t)); }
-    else if (t === '(') { ops.push(t); }
-    else if (t === ')') { while (ops.length && ops[ops.length - 1] !== '(') apply(); ops.pop(); }
-    else {
-      // Signo unario (ej. "-5" o "(-3)").
-      if ((t === '-' || t === '+') && (prev === null || prev === '(' || prev in prec)) { out.push(0); }
-      while (ops.length && ops[ops.length - 1] !== '(' && prec[ops[ops.length - 1]] >= prec[t]) apply();
-      ops.push(t);
-    }
-    prev = t;
-  }
-  while (ops.length) apply();
-  const r = out.pop();
-  if (r == null || !Number.isFinite(r)) throw new Error('Resultado inválido');
-  return Math.round(r * 1e6) / 1e6;
-}
-
-function CalculadoraModal({ onClose }: { onClose: () => void }) {
-  const [expr, setExpr] = useState('');
-  const [resultado, setResultado] = useState<string>('');
-  const [historial, setHistorial] = useState<{ expr: string; res: string }[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  // Conversor $ → Bs: compara BCV vs Binance y muestra el margen de ahorro.
-  const [mercadoCalc, setMercadoCalc] = useState<TasasMercado | null>(null);
-  const [montoUsd, setMontoUsd] = useState('');
-  useEffect(() => { getTasasMercado().then(setMercadoCalc).catch(() => setMercadoCalc(null)); }, []);
-  const bcvCalc = mercadoCalc?.bcvUsd ?? null;
-  const binCalc = mercadoCalc?.usdtVes ?? null;
-  const montoUsdNum = Number(montoUsd.replace(',', '.')) || 0;
-  const aBcv = bcvCalc != null ? montoUsdNum * bcvCalc : null;
-  const aBin = binCalc != null ? montoUsdNum * binCalc : null;
-  const difBs = aBcv != null && aBin != null ? aBin - aBcv : null;       // Bs de más a Binance
-  const margenPct = bcvCalc != null && binCalc != null && binCalc > 0 ? ((binCalc - bcvCalc) / binCalc) * 100 : null;
-
-  const fmt = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 6 });
-  const fmtBs = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  function push(s: string) { setError(null); setExpr((e) => e + s); }
-  function limpiar() { setExpr(''); setResultado(''); setError(null); }
-  function borrar() { setExpr((e) => e.slice(0, -1)); }
-  function calcular() {
-    if (!expr.trim()) return;
-    try {
-      const r = evalExpr(expr);
-      const res = fmt(r);
-      setResultado(res);
-      setHistorial((h) => [{ expr, res }, ...h].slice(0, 50));
-      setExpr(res.replace(/\./g, '').replace(/,/g, '.'));
-      setError(null);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
-  }
-
-  async function exportarPdf() {
-    if (!historial.length) { toast('No hay operaciones para exportar', 'error'); return; }
-    try {
-      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-      const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-      const MARGIN = 42.52; // 1.5 cm
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-      doc.text('CALCULADORA · OPERACIONES', MARGIN, MARGIN + 8);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-      doc.text(`Generado: ${dateTime(new Date().toISOString())}`, MARGIN, MARGIN + 24);
-      autoTable(doc, {
-        startY: MARGIN + 40,
-        head: [['#', 'Operación', 'Resultado']],
-        body: historial.map((h, i) => [String(historial.length - i), h.expr, h.res]),
-        margin: MARGIN,
-        styles: { fontSize: 9, cellPadding: 5 },
-        headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
-        columnStyles: { 0: { cellWidth: 40 }, 2: { halign: 'right' } },
-      });
-      previewPdf(doc, 'calculadora-operaciones.pdf');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-  }
-
-  const teclas = ['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '0', '.', '(', ')'];
-
-  return (
-    <Modal title="🧮 Calculadora" size="md" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={exportarPdf} disabled={!historial.length}>↓ PDF</button>
-        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
-      </>
-    }>
-      <div className="card" style={{ padding: '.6rem .8rem', marginBottom: '.6rem' }}>
-        <input className="input mono" value={expr} onChange={(e) => { setError(null); setExpr(e.target.value); }}
-          onKeyDown={(e) => { if (e.key === 'Enter') calcular(); }} placeholder="0" style={{ textAlign: 'right', fontSize: '1.1rem' }} autoFocus />
-        <div className="mono" style={{ textAlign: 'right', fontSize: '1.7rem', fontWeight: 800, marginTop: '.3rem', minHeight: '2rem' }}>
-          {error ? <span style={{ color: 'var(--danger)', fontSize: '1rem' }}>{error}</span> : (resultado || '0')}
-        </div>
-      </div>
-
-      {/* Conversor $ → Bs: BCV vs Binance + margen de ahorro */}
-      <div className="card" style={{ padding: '.7rem .8rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)' }}>
-        <div className="card-title" style={{ marginBottom: '.4rem' }}><span>💵 Convertir $ a Bs (BCV vs Binance)</span></div>
-        <div className="form-row" style={{ margin: 0 }}>
-          <label style={{ fontSize: '.74rem' }}>Monto en USD</label>
-          <input className="input mono" inputMode="decimal" value={montoUsd} onChange={(e) => setMontoUsd(e.target.value)} placeholder="ej. 9,5" />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem', marginTop: '.5rem' }}>
-          <div className="card" style={{ padding: '.5rem .6rem', textAlign: 'center' }}>
-            <div style={{ color: 'var(--brand, #ff8a00)', fontWeight: 800, fontSize: '.78rem' }}>BCV</div>
-            <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800 }}>{aBcv != null ? `Bs ${fmtBs(aBcv)}` : '—'}</div>
-            <div className="muted" style={{ fontSize: '.68rem' }}>tasa {bcvCalc != null ? fmtBs(bcvCalc) : '—'}</div>
-          </div>
-          <div className="card" style={{ padding: '.5rem .6rem', textAlign: 'center' }}>
-            <div style={{ color: '#f3ba2f', fontWeight: 800, fontSize: '.78rem' }}>BINANCE</div>
-            <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 800 }}>{aBin != null ? `Bs ${fmtBs(aBin)}` : '—'}</div>
-            <div className="muted" style={{ fontSize: '.68rem' }}>tasa {binCalc != null ? fmtBs(binCalc) : '—'}</div>
-          </div>
-        </div>
-        {difBs != null && margenPct != null && montoUsdNum > 0 && (
-          <div style={{ marginTop: '.5rem', textAlign: 'center', fontSize: '.85rem' }}>
-            <span className="muted">Margen de ahorro pagando a BCV: </span>
-            <strong className="mono" style={{ color: '#16c784' }}>Bs {fmtBs(Math.abs(difBs))} · {Math.abs(margenPct).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</strong>
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.4rem' }}>
-        <button className="btn btn-ghost" onClick={limpiar}>C</button>
-        <button className="btn btn-ghost" onClick={borrar}>⌫</button>
-        <button className="btn btn-ghost" onClick={() => push('+')}>+</button>
-        <button className="btn btn-ghost" onClick={() => push('/')}>÷</button>
-        {teclas.map((t) => (
-          <button key={t} className="btn btn-ghost" onClick={() => push(t === '÷' ? '/' : t === '×' ? '*' : t)}>{t}</button>
-        ))}
-        <button className="btn btn-primary" style={{ gridColumn: 'span 4' }} onClick={calcular}>=</button>
-      </div>
-
-      {historial.length > 0 && (
-        <div style={{ marginTop: '.8rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong style={{ fontSize: '.84rem' }}>Historial de operaciones</strong>
-            <button className="btn btn-sm btn-ghost" onClick={() => setHistorial([])}>Limpiar</button>
-          </div>
-          <div className="table-wrap" style={{ maxHeight: 180, overflow: 'auto', marginTop: '.3rem' }}>
-            <table className="table" style={{ fontSize: '.82rem' }}>
-              <thead><tr><th>Operación</th><th style={{ textAlign: 'right' }}>Resultado</th></tr></thead>
-              <tbody>
-                {historial.map((h, i) => (
-                  <tr key={i} style={{ cursor: 'pointer' }} onClick={() => setExpr(h.res.replace(/\./g, '').replace(/,/g, '.'))} title="Usar este resultado">
-                    <td className="mono">{h.expr}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{h.res}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </Modal>
   );
 }

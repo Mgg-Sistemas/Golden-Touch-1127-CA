@@ -847,8 +847,20 @@ tr.row-selectable:active { transform: scale(0.998); }
   /* Filas de acciones/títulos inline: que ENVUELVAN en lugar de cortarse. */
   .card-title, .modal-footer { flex-wrap: wrap; }
 
-  /* Texto/códigos monoespaciados largos: que quiebren en vez de estirar la caja. */
-  .modal-body, .card { overflow-wrap: anywhere; }
+  /* Texto/códigos monoespaciados largos: que quiebren en vez de estirar la caja.
+
+     `break-word` para el texto común y `anywhere` SOLO para lo monoespaciado.
+     La diferencia no es cosmética: `anywhere` deja que el ancho MÍNIMO de la
+     caja sea una letra, así que un título dentro de una fila flex apretada se
+     desarma en vertical, una letra por renglón. Es el mismo desarme que ya se
+     había corregido en las celdas de tabla más abajo; acá seguía vivo porque
+     la regla estaba puesta sobre `.card` entera.
+     Los códigos largos sin espacios (seriales, referencias) sí necesitan
+     `anywhere` —si no, estiran la tarjeta y reaparece el scroll horizontal—,
+     y esos viven en `.mono`. */
+  .modal-body, .card { overflow-wrap: break-word; }
+  .modal-body .mono, .card .mono,
+  .modal-body .detail-row .v, .card .detail-row .v { overflow-wrap: anywhere; }
 }
 
 /* ============================================================
