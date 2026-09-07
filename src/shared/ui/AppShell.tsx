@@ -40,7 +40,7 @@ export function AppShell() {
   const { can, role, appUser, isAdmin } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('maquinaria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('maquinaria');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -145,6 +145,7 @@ export function AppShell() {
     const rutas = ([
       ['dashboard', '/app/dashboard'], ['pedidos', '/app/pedidos'], ['inventario', '/app/inventario'],
       ['salidas', '/app/salidas'], ['produccion', '/app/produccion'], ['tesoreria', '/app/tesoreria'],
+      ['ventas', '/app/ventas'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
       ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
       ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['retenciones', '/app/retenciones'],
@@ -289,6 +290,7 @@ export function AppShell() {
           {can('recepciones') && <NavItem to="/app/recepciones" icon="📋" label="Recepciones" />}
           {can('cocina') && <NavItem to="/app/cocina" icon="🍽" label="Control de Alimentación (Cocina)" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
+          {can('ventas') && <NavItem to="/app/ventas" icon="↗" label="Ventas" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
@@ -340,11 +342,6 @@ export function AppShell() {
               <span>{descargandoManual ? 'Generando…' : 'Manual de Sistema'}</span>
             </a>
           )}
-        </nav>
-
-        <div className="sidebar-section">Próximamente</div>
-        <nav className="nav">
-          <NavItem to="#" icon="↗" label="Ventas" disabled />
         </nav>
 
         <div className="sidebar-footer">

@@ -12,6 +12,7 @@ export type ModuleKey =
   | 'acopio'
   | 'cocina'
   | 'tesoreria'
+  | 'ventas'
   | 'retenciones'
   | 'recepciones'
   | 'rrhh'
@@ -40,6 +41,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'acopio',      label: 'Centro de Costo PERAMANAL' },
   { key: 'cocina',      label: 'Control de Alimentación (Cocina)' },
   { key: 'tesoreria',   label: 'Tesorería' },
+  { key: 'ventas',      label: 'Ventas' },
   { key: 'retenciones', label: 'Retenciones' },
   { key: 'recepciones', label: 'Recepciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
@@ -65,6 +67,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     });
     all.usuarios = { lectura: true, escritura: false, full: false };
     all.tesoreria = { lectura: true, escritura: false, full: false };
+    all.ventas = { lectura: true, escritura: false, full: false };
     all.retenciones = { lectura: true, escritura: true, full: false };
     all.recepciones = { lectura: true, escritura: true, full: false };
     all.rrhh = { lectura: true, escritura: true, full: false };

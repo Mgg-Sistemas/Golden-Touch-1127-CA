@@ -25,6 +25,7 @@ const LOADERS: Record<string, Loader> = {
   '/app/acopio': () => import('@/modules/acopio/AcopioPage'),
   '/app/cocina': () => import('@/modules/cocina/CocinaPage'),
   '/app/tesoreria': () => import('@/modules/tesoreria/TesoreriaPage'),
+  '/app/ventas': () => import('@/modules/ventas/VentasPage'),
   '/app/retenciones': () => import('@/modules/retenciones/RetencionesPage'),
   '/app/recepciones': () => import('@/modules/recepciones/RecepcionesPage'),
   '/app/rrhh': () => import('@/modules/rrhh/RrhhPage'),

@@ -52,6 +52,7 @@ import {
   listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro, crearOAcumularCuentaPorCobrar,
   type CuentaPorCobrar, type CargoCxC, type CobroCxC,
 } from './cuentasPorCobrar.repository';
+import { getVentaCabecera, type Venta } from '@/modules/ventas/ventas.repository';
 import { descargarCuentaPorCobrarPdf } from './cuentaPorCobrarPdf';
 import { descargarOrdenesPorPagarPdf } from './ordenesPorPagarPdf';
 import { descargarLibroMayorPdf } from './libroMayorPdf';
@@ -87,7 +88,25 @@ const TIPO_MOV_LABEL: Record<string, string> = {
 };
 const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', pago_nomina: 'Pago de nómina',
+  // Ventas: el cobro de una venta es el PRIMER ingreso clasificado del sistema
+  // (hasta hoy todas las entradas de dinero venían sin categoría). Que se lea.
+  cobro_venta: 'Cobro de venta', reverso_venta: 'Reverso de venta',
 };
+
+/** Estado de la venta con el color que le corresponde en el badge. */
+const VENTA_ESTADO_BADGE: Record<string, { label: string; clase: string }> = {
+  borrador: { label: 'Borrador', clase: 'badge' },
+  confirmada: { label: 'Confirmada', clase: 'badge info' },
+  entregada: { label: 'Entregada', clase: 'badge success' },
+  anulada: { label: 'Anulada', clase: 'badge danger' },
+};
+
+/** `ref_venta_id` existe en `movimientos_caja` (la trae el `select('*')`), pero el
+ *  tipo compartido `MovimientoCaja` todavía no la declara. Se lee acá, en un solo
+ *  lugar, en vez de esparcir casts por el archivo. */
+function refVentaIdDe(m: MovimientoCaja): string | null {
+  return (m as { ref_venta_id?: string | null }).ref_venta_id ?? null;
+}
 
 /** ¿El movimiento resta del saldo (egreso)? Mismo criterio que usa el render. */
 function esEgresoMov(m: MovimientoCaja): boolean {
@@ -591,6 +610,10 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
   const [compraDir, setCompraDir] = useState<CompraDirecta | null>(null);
   const [servicioDir, setServicioDir] = useState<ServicioDirecto | null>(null);
   const [cargandoDir, setCargandoDir] = useState(false);
+  // Venta que originó este movimiento (cobro de venta o su reverso al anular).
+  const [venta, setVenta] = useState<Venta | null>(null);
+  const [cargandoVenta, setCargandoVenta] = useState(false);
+  const refVentaId = refVentaIdDe(mov);
   const [abriendo, setAbriendo] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
@@ -677,6 +700,18 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
       .catch(() => setRenglon(null))
       .finally(() => setCargandoReng(false));
   }, [mov.ref_nomina_renglon_id]);
+
+  // Si el movimiento vino de una venta (cobro o reverso), traemos su cabecera:
+  // desde Tesorería se tiene que poder ver QUÉ venta hizo entrar esa plata.
+  // Mismo patrón que `ref_orden_id` acá arriba.
+  useEffect(() => {
+    if (!refVentaId) { setVenta(null); return; }
+    setCargandoVenta(true);
+    getVentaCabecera(refVentaId)
+      .then((v) => setVenta(v))
+      .catch(() => setVenta(null))
+      .finally(() => setCargandoVenta(false));
+  }, [refVentaId]);
 
   // Si el movimiento es el pago de una compra/servicio directo, traemos la orden
   // por su movimiento de caja para mostrar qué se compró/contrató y el requerimiento.
@@ -856,6 +891,42 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
           </div>
         )}
       </div>
+
+      {/* Venta que generó el movimiento (cobro de venta / reverso de anulación) */}
+      {refVentaId && (
+        <div className="card" style={{ marginBottom: '.75rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>
+            🧾 {mov.categoria === 'reverso_venta' ? 'Venta anulada (reverso)' : 'Venta cobrada'}
+          </div>
+          {cargandoVenta && <div className="muted" style={{ fontSize: '.84rem' }}>Cargando la venta…</div>}
+          {!cargandoVenta && !venta && <div className="muted" style={{ fontSize: '.84rem' }}>No se pudo cargar la venta vinculada.</div>}
+          {!cargandoVenta && venta && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.35rem .9rem', fontSize: '.84rem' }}>
+                <div><span className="muted">{venta.tipo === 'permuta' ? 'Permuta:' : 'Venta:'}</span> <strong className="mono">{venta.codigo}</strong></div>
+                <div><span className="muted">Cliente:</span> <strong>{venta.cliente_nombre || '—'}</strong>{venta.cliente_rif ? <span className="muted mono"> · {venta.cliente_rif}</span> : null}</div>
+                <div><span className="muted">Total:</span> <strong className="mono">{monto(venta.total, venta.moneda)}</strong></div>
+                {venta.tipo === 'permuta' && (
+                  <div><span className="muted">Diferencia a cobrar:</span> <strong className="mono">{monto(venta.diferencia, venta.moneda)}</strong> <span className="muted">(el total no es lo que se cobra en una permuta)</span></div>
+                )}
+                <div><span className="muted">Condición:</span> <strong>{venta.condicion === 'credito' ? 'Crédito' : 'Contado'}</strong></div>
+                <div>
+                  <span className="muted">Estado:</span>{' '}
+                  <span className={VENTA_ESTADO_BADGE[venta.estado]?.clase ?? 'badge'}>{VENTA_ESTADO_BADGE[venta.estado]?.label ?? venta.estado}</span>
+                </div>
+              </div>
+              {venta.motivo_anulacion && (
+                <div style={{ marginTop: '.45rem', fontSize: '.84rem' }}>
+                  <span className="muted">Motivo de la anulación:</span> {venta.motivo_anulacion}
+                </div>
+              )}
+              <div style={{ marginTop: '.55rem' }}>
+                <a className="btn btn-sm btn-ghost" href="#/app/ventas" style={{ textDecoration: 'none' }} title={`Abrir el módulo de Ventas para ver ${venta.codigo} completa`}>↗ Abrir Ventas</a>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Orden pagada (si el movimiento es un pago de compra) */}
       {mov.ref_orden_id && (
@@ -4900,6 +4971,9 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   const [selId, setSelId] = useState<string>('');
   const [cargos, setCargos] = useState<CargoCxC[]>([]);
   const [cobros, setCobros] = useState<CobroCxC[]>([]);
+  // Venta de cada cargo (id → cabecera). La cuenta es CORRIENTE y acumula varias
+  // ventas del mismo cliente: el cargo es el único lugar donde se ve cuál es cuál.
+  const [ventasDeCargos, setVentasDeCargos] = useState<Record<string, Venta>>({});
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
   const [cuentaCaja, setCuentaCaja] = useState<CuentaCaja>('general');
   const [montoStr, setMontoStr] = useState('');
@@ -4927,6 +5001,21 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
     listCargosCobrar(selId).then(setCargos).catch(() => setCargos([]));
     listCobrosCuenta(selId).then(setCobros).catch(() => setCobros([]));
   }, [selId]);
+
+  // Cabeceras de las ventas que originaron los cargos (una sola vez por venta).
+  useEffect(() => {
+    const ids = [...new Set(cargos.map((c) => c.ref_venta_id).filter((v): v is string => !!v))];
+    if (!ids.length) { setVentasDeCargos({}); return; }
+    let vivo = true;
+    Promise.all(ids.map((id) => getVentaCabecera(id).catch(() => null)))
+      .then((vs) => {
+        if (!vivo) return;
+        const map: Record<string, Venta> = {};
+        for (const v of vs) if (v) map[v.id] = v;
+        setVentasDeCargos(map);
+      });
+    return () => { vivo = false; };
+  }, [cargos]);
 
   const sel = lista.find((c) => c.id === selId) ?? null;
   // Cuenta destino del cobro: Bs → jurídica/personal; otras monedas → general.
@@ -4964,7 +5053,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
     <Modal title="💰 Cuentas por cobrar" size="xl" onClose={() => !saving && onClose()}
       footer={<button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Lo que un cliente/proveedor le debe a la empresa. Nace al <strong>pagar de más</strong> una cuenta por pagar (el excedente queda a favor) y se cobra con <strong>abonos</strong> (entradas de dinero a la caja). Acumula los cargos del mismo cliente. También podés <strong>agregar una cuenta por cobrar manual</strong> acá abajo.
+        Lo que un cliente/proveedor le debe a la empresa. Nace al <strong>pagar de más</strong> una cuenta por pagar (el excedente queda a favor), al confirmar una <strong>venta a crédito</strong>, y se cobra con <strong>abonos</strong> (entradas de dinero a la caja). La cuenta es <strong>corriente por cliente</strong>: acumula varias ventas, y en el historial de cargos se ve <strong>de qué venta viene cada una</strong>. También podés <strong>agregar una cuenta por cobrar manual</strong> acá abajo.
       </p>
       <NuevaCuentaForm btnLabel="Nueva cuenta por cobrar (cliente / proveedor)"
         onCrear={async (inp) => { await crearOAcumularCuentaPorCobrar({ ...inp, actor, actorName }); await cargar(); await onChanged(); }} />
@@ -5060,14 +5149,23 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
               <strong style={{ fontSize: '.84rem' }}>Historial de cargos (lo que se le debe)</strong>
               <div className="table-wrap" style={{ marginBottom: '.7rem', marginTop: '.3rem' }}>
                 <table className="table" style={{ fontSize: '.82rem' }}>
-                  <thead><tr><th>Fecha</th><th style={{ textAlign: 'right' }}>Monto cargado</th><th style={{ textAlign: 'right' }}>Total adeudado (acum.)</th><th>Nota</th></tr></thead>
+                  <thead><tr><th>Fecha</th><th>Venta</th><th style={{ textAlign: 'right' }}>Monto cargado</th><th style={{ textAlign: 'right' }}>Total adeudado (acum.)</th><th>Nota</th></tr></thead>
                   <tbody>
-                    {!cargos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin cargos.</td></tr>}
+                    {!cargos.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin cargos.</td></tr>}
                     {(() => { let acc = 0; return cargos.map((cg) => {
                       acc = round2(acc + Number(cg.monto || 0));
+                      const v = cg.ref_venta_id ? ventasDeCargos[cg.ref_venta_id] : null;
                       return (
                         <tr key={cg.id}>
                           <td>{dateTime(cg.at)}</td>
+                          <td>
+                            {cg.ref_venta_id ? (
+                              <a href="#/app/ventas" title={v ? `${v.tipo === 'permuta' ? 'Permuta' : 'Venta'} a ${v.cliente_nombre || 'cliente'} · total ${monto(v.total, v.moneda)}` : 'Abrir Ventas'}>
+                                <span className="mono">{v?.codigo ?? 'venta'}</span>
+                              </a>
+                            ) : <span className="muted">—</span>}
+                            {v && <span className={`${VENTA_ESTADO_BADGE[v.estado]?.clase ?? 'badge'}`} style={{ marginLeft: '.35rem' }}>{VENTA_ESTADO_BADGE[v.estado]?.label ?? v.estado}</span>}
+                          </td>
                           <td className="mono" style={{ textAlign: 'right' }}>{monto(Number(cg.monto), cg.moneda)}</td>
                           <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(acc, cg.moneda)}</td>
                           <td className="muted">{cg.nota || '—'}</td>
