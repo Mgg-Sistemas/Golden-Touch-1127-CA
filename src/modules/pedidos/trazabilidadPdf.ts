@@ -156,12 +156,14 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   y += 6;
   autoTable(doc, {
     startY: y,
-    head: [['SKU', 'Producto', 'Finalidad', 'Cantidad', 'Precio unit.', 'Subtotal']],
+    head: [['SKU', 'Producto', 'Finalidad', 'Cantidad', 'Medida', 'Precio unit.', 'Subtotal']],
     body: orden.items.map((it) => [
       it.sku,
       pdfSafe(it.nombre),
       pdfSafe(it.finalidad?.trim()) || '—',
       num(it.cantidad),
+      // Sin la medida, «40» no dice si son litros o tambores.
+      pdfSafe(it.unidad?.trim() ?? '') || 'UND',
       montoMoneda(it.precio, orden.total_moneda),
       montoMoneda(it.cantidad * it.precio, orden.total_moneda),
     ]),
@@ -169,18 +171,19 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
       const desc = Math.max(0, Number(orden.descuento_obtenido) || 0);
       if (desc > 0) {
         const sub = Math.round((Number(orden.total) + desc) * 100) / 100;
+        // Una celda vacía más que antes: la columna «Medida» corrió los totales.
         return [
-          ['', '', '', '', 'Subtotal', montoMoneda(sub, orden.total_moneda)],
-          ['', '', '', '', 'Descuento obtenido', `− ${montoMoneda(desc, orden.total_moneda)}`],
-          ['', '', '', '', 'TOTAL', montoMoneda(orden.total, orden.total_moneda)],
+          ['', '', '', '', '', 'Subtotal', montoMoneda(sub, orden.total_moneda)],
+          ['', '', '', '', '', 'Descuento obtenido', `− ${montoMoneda(desc, orden.total_moneda)}`],
+          ['', '', '', '', '', 'TOTAL', montoMoneda(orden.total, orden.total_moneda)],
         ];
       }
-      return [['', '', '', '', 'TOTAL', montoMoneda(orden.total, orden.total_moneda)]];
+      return [['', '', '', '', '', 'TOTAL', montoMoneda(orden.total, orden.total_moneda)]];
     })(),
     theme: 'grid',
     headStyles: { fillColor: [230, 230, 230], textColor: 20 },
     styles: { fontSize: 9, cellPadding: 4 },
-    columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    columnStyles: { 3: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
     margin: MARGIN,
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
