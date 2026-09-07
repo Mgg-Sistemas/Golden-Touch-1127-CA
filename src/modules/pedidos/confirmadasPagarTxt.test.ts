@@ -58,6 +58,20 @@ describe('textoOrdenPagar', () => {
     expect(txt).toContain('* Banco: Banesco (0134)');
   });
 
+  it('lleva la nota cuando la orden la tiene, debajo del detalle', () => {
+    const conNota = { ...ordenBase, notas: 'Retirar en tienda, preguntar por Luis.' } as unknown as Orden;
+    const txt = textoOrdenPagar(conNota, proveedor);
+    expect(txt).toContain('🗒 *Nota:* Retirar en tienda, preguntar por Luis.');
+    // El orden importa: primero para qué se pide, después la aclaración, y
+    // recién al final la plata y por dónde se paga.
+    expect(txt.indexOf('📝')).toBeLessThan(txt.indexOf('🗒'));
+    expect(txt.indexOf('🗒')).toBeLessThan(txt.indexOf('💵'));
+  });
+
+  it('omite la nota cuando la orden no tiene ninguna', () => {
+    expect(textoOrdenPagar(ordenBase, proveedor)).not.toContain('🗒');
+  });
+
   it('omite el detalle cuando la orden no tiene ninguno', () => {
     const sinDetalle = { ...ordenBase, finalidad: null, motivo: null, items: [] } as unknown as Orden;
     expect(textoOrdenPagar(sinDetalle, proveedor)).not.toContain('📝');
