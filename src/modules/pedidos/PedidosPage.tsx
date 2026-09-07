@@ -2305,8 +2305,14 @@ function OrdenDetailModal({
   async function reelegirOferta() {
     setReelegiendo(true);
     try {
-      await reabrirEleccionOferta(o, actorEmail || 'sistema');
-      notify(`OC ${o.oc_codigo ?? o.codigo} · elección reabierta — elegí de nuevo entre todas las ofertas`, 'success', { link: '#/app/pedidos' });
+      // En una OC hija de un reparto, lo que vuelve es la ORDEN PADRE: ahí es donde
+      // hay que seguir eligiendo, así que el aviso nombra a la madre y no a la hija.
+      const destino = await reabrirEleccionOferta(o, actorEmail || 'sistema');
+      notify(
+        o.op_padre_id
+          ? `OC ${o.oc_codigo ?? o.codigo} volvió a la orden ${destino.codigo} · elegí de nuevo entre todas las ofertas`
+          : `OC ${o.oc_codigo ?? o.codigo} · elección reabierta — elegí de nuevo entre todas las ofertas`,
+        'success', { link: '#/app/pedidos' });
       setReelegirOpen(false);
       await onAcceptedOffer();
     } catch (e) {
@@ -2411,13 +2417,13 @@ function OrdenDetailModal({
         <>
           <button className="btn btn-ghost" onClick={onDesistir} title="Proveedor no cumplió">⚠ Proveedor desistió</button>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
-          {!o.op_padre_id && (
-            <button className="btn" style={{ background: 'var(--warning)', color: '#111', border: 'none' }}
-              onClick={() => setReelegirOpen(true)}
-              title="Volver a mostrar TODAS las ofertas para re-elegir, editar precios o cargarle IVA/IGTF/descuento antes de aprobar. La OC vuelve a la etapa de elección.">
-              🔄 Reelegir oferta
-            </button>
-          )}
+          <button className="btn" style={{ background: 'var(--warning)', color: '#111', border: 'none' }}
+            onClick={() => setReelegirOpen(true)}
+            title={o.op_padre_id
+              ? 'Esta OC viene de un reparto entre proveedores: sus ítems vuelven a la orden padre con TODAS las ofertas de nuevo, para volver a elegir desde ahí.'
+              : 'Volver a mostrar TODAS las ofertas para re-elegir, editar precios o cargarle IVA/IGTF/descuento antes de aprobar. La OC vuelve a la etapa de elección.'}>
+            🔄 Reelegir oferta
+          </button>
         </>
       )}
       {isOcCreada && isAdmin && (
@@ -2898,7 +2904,9 @@ function OrdenDetailModal({
     {reelegirOpen && (
       <ConfirmDialog
         title={`Reelegir oferta · ${o.oc_codigo ?? o.codigo}`}
-        message={`La OC volverá a la etapa de elección y se mostrarán TODAS las ofertas de nuevo para que puedas re-elegir el proveedor, editar los precios o cargarle IVA/IGTF/descuento a la oferta. Al elegir otra vez, esos valores se sincronizan a la OC y a Tesorería. No mueve caja ni inventario. ¿Reabrir la elección de ${o.oc_codigo ?? o.codigo}?`}
+        message={o.op_padre_id
+          ? `Esta OC salió de un reparto entre proveedores. Sus productos VUELVEN A LA ORDEN PADRE y ahí se muestran TODAS las ofertas de nuevo (las elegidas y las descartadas) para volver a elegir proveedor. Esta OC queda cerrada como reasignada y sale del tablero; lo que estén comprando las otras OC del mismo reparto no se toca. No mueve caja ni inventario. ¿Devolver ${o.oc_codigo ?? o.codigo} a la orden padre?`
+          : `La OC volverá a la etapa de elección y se mostrarán TODAS las ofertas de nuevo para que puedas re-elegir el proveedor, editar los precios o cargarle IVA/IGTF/descuento a la oferta. Al elegir otra vez, esos valores se sincronizan a la OC y a Tesorería. No mueve caja ni inventario. ¿Reabrir la elección de ${o.oc_codigo ?? o.codigo}?`}
         confirmText={reelegiendo ? 'Reabriendo…' : 'Reelegir oferta'}
         requireText="REELEGIR"
         requireLabel="Escribí REELEGIR para confirmar"
