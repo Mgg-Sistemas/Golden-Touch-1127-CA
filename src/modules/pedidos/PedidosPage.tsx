@@ -81,6 +81,7 @@ import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ChatOrden } from './ChatOrden';
 import { noLeidosPorOrden } from './ordenChat.repository';
 import { descargarTrazabilidadPdf } from './trazabilidadPdf';
+import { descargarListaMaterialesPdf } from './listaMaterialesPdf';
 import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { CompraDirectaView } from './CompraDirectaView';
@@ -2342,6 +2343,15 @@ function OrdenDetailModal({
       toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
     }
   }
+  // Lista de materiales: lo que se necesita, con cantidades y MEDIDAS, para mandar a
+  // cotizar. Se genera desde la orden que ya tenemos en pantalla, sin ir a la base.
+  async function handleListaMateriales() {
+    try {
+      await descargarListaMaterialesPdf(o);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar la lista', 'error');
+    }
+  }
   function handleOcPdf() {
     descargarOrdenCompraPdf(o.id).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar', 'error'));
   }
@@ -2377,6 +2387,14 @@ function OrdenDetailModal({
       {isPendiente && (
         <button className="btn btn-ghost" onClick={handleDownloadPdf} title={`Descargar la ${solicitudLbl} en PDF`}>
           ↓ PDF de la {spLbl}
+        </button>
+      )}
+      {/* Lista para cotizar: disponible en cualquier etapa mientras haya renglones.
+          Es el documento util cuando todavia no hay ofertas ni OC. */}
+      {(o.items?.length ?? 0) > 0 && (
+        <button className="btn btn-ghost" onClick={handleListaMateriales}
+          title="Descargar la lista de lo solicitado con cantidades y medidas, con una columna en blanco para que el proveedor cotice">
+          ↓ Lista {esServicioOrd ? 'de servicios' : 'de materiales'}
         </button>
       )}
       {puedeTrazabilidad && (
