@@ -46,7 +46,13 @@ export async function buscarGlobal(qRaw: string): Promise<ResultadoBusqueda[]> {
   const likeSinAcentos = `%${norm(q)}%`;
 
   const [prods, provs, ords, usrs] = await Promise.all([
+    // SOLO PRODUCTOS ACTIVOS. Un producto inactivo salió del inventario y de los
+    // almacenes a propósito: se dio de baja o se unificó en otro (p. ej. GEN-071
+    // «VINAGRE (unificado en GEN-183)»). Ofrecerlo en el buscador manda a una
+    // ficha que ya no se ve en ninguna pantalla, y hace parecer que hay dos
+    // productos donde queda uno solo.
     supabase.from('productos').select('id, sku, nombre, categoria')
+      .eq('estado', 'activo')
       .or(`nombre_busq.ilike.${likeSinAcentos},sku.ilike.${like}`).limit(6),
     supabase.from('proveedores').select('id, razon_social, rif')
       .or(`razon_social_busq.ilike.${likeSinAcentos},rif.ilike.${like}`).limit(6),
