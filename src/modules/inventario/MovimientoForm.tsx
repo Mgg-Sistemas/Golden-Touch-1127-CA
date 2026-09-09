@@ -69,6 +69,13 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
   const stockResultante = Math.max(0, stockAlmacen + delta);
   const isFundicion = tipo === 'fundicion' || tipo === 'fin_fundicion';
   const esEntradaConCosto = tipo === 'entrada';
+  // Mover stock a mano exige decir POR QUÉ. Los movimientos que genera el
+  // sistema ya dicen de dónde vienen (la orden, la recepción, la cocina); estos
+  // tres los carga una persona y son los que después nadie sabe explicar.
+  // La regla vive en la base (`movimiento_manual_lleva_motivo`); acá se valida
+  // para avisar antes y con un texto entendible, no para proteger.
+  const exigeMotivo = tipo === 'entrada' || tipo === 'salida' || tipo === 'ajuste';
+  const MOTIVO_MINIMO = 3;
   const costoUnitNum = Number(costoUnit) || 0;
   const nuevoPMP =
     esEntradaConCosto && cantidadNum > 0
@@ -97,6 +104,10 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
     }
     if (tipo === 'fin_fundicion' && !producto.en_fundicion) {
       setError('El producto no está marcado como en proceso de producción.');
+      return;
+    }
+    if (exigeMotivo && detalle.trim().length < MOTIVO_MINIMO) {
+      setError('Escribí el motivo del movimiento. Queda en el historial del producto y es lo que permite explicarlo después.');
       return;
     }
 
@@ -243,13 +254,22 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
         </div>
 
         <div className="form-row">
-          <label>Detalle (opcional)</label>
+          <label>{exigeMotivo ? 'Motivo del movimiento' : 'Detalle (opcional)'}</label>
           <input
             className="input"
             value={detalle}
             onChange={(e) => setDetalle(e.target.value)}
-            placeholder="Motivo, referencia, observación…"
+            required={exigeMotivo}
+            minLength={exigeMotivo ? MOTIVO_MINIMO : undefined}
+            placeholder={exigeMotivo
+              ? 'Por qué se mueve el stock (ej. Sobrante de obra, Devolución del taller)'
+              : 'Motivo, referencia, observación…'}
           />
+          {exigeMotivo && (
+            <span className="muted" style={{ fontSize: '.74rem' }}>
+              Obligatorio en entrada, salida y ajuste. Queda en el historial del producto.
+            </span>
+          )}
         </div>
 
         <div
