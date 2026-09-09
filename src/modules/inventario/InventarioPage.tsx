@@ -73,14 +73,16 @@ const INITIAL_UI: UiState = {
   filterCat: '',
   filterClass: '',
   filterStock: '',
-  filterEstado: 'activo',
   filterFundicion: '',
 };
 
 /** Predicado de filtros del inventario general. */
 function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   const q = norm(ui.filterText);
-  if (ui.filterEstado && p.estado !== ui.filterEstado) return false;
+  // SOLO ACTIVOS, sin opción de ver los otros. Un producto inactivo se dio de
+  // baja o se unificó en otro: mostrarlo hacía parecer que había dos productos
+  // donde queda uno. Los dados de baja se consultan desde Exportar.
+  if (p.estado !== 'activo') return false;
   if (ui.filterCat && p.categoria !== ui.filterCat) return false;
   if (ui.filterClass && p._klass !== ui.filterClass) return false;
   if (ui.filterFundicion === 'si' && !p.receta_fundicion) return false;
@@ -579,7 +581,11 @@ export function InventarioPage() {
       {modal.kind === 'confirmToggle' && (
         <ConfirmDialog
           title={modal.producto.estado === 'activo' ? 'Desactivar producto' : 'Activar producto'}
-          message={`¿Confirmas ${modal.producto.estado === 'activo' ? 'desactivar' : 'activar'} "${modal.producto.nombre}" (${modal.producto.sku})?`}
+          // Desactivar saca al producto de la lista y ya no hay filtro para
+          // volver a verlo, así que el aviso lo dice antes, no después.
+          message={modal.producto.estado === 'activo'
+            ? `¿Confirmas desactivar "${modal.producto.nombre}" (${modal.producto.sku})? Sale del inventario, de los almacenes y del buscador. Para volver a verlo hay que pedirlo desde Exportar, con el filtro en «Inactivos».`
+            : `¿Confirmas activar "${modal.producto.nombre}" (${modal.producto.sku})?`}
           confirmText={modal.producto.estado === 'activo' ? 'Desactivar' : 'Activar'}
           danger={modal.producto.estado === 'activo'}
           onCancel={() => setModal({ kind: 'none' })}
