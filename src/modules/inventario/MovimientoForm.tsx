@@ -71,10 +71,12 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
   const esEntradaConCosto = tipo === 'entrada';
   // Mover stock a mano exige decir POR QUÉ. Los movimientos que genera el
   // sistema ya dicen de dónde vienen (la orden, la recepción, la cocina); estos
-  // tres los carga una persona y son los que después nadie sabe explicar.
+  // los carga una persona y son los que después nadie sabe explicar.
+  // `consumo` entra aunque no sea una «salida»: resta stock igual, y dejarlo
+  // afuera convertía al desplegable en la puerta para esquivar el motivo.
   // La regla vive en la base (`movimiento_manual_lleva_motivo`); acá se valida
   // para avisar antes y con un texto entendible, no para proteger.
-  const exigeMotivo = tipo === 'entrada' || tipo === 'salida' || tipo === 'ajuste';
+  const exigeMotivo = tipo === 'entrada' || tipo === 'salida' || tipo === 'ajuste' || tipo === 'consumo';
   const MOTIVO_MINIMO = 3;
   const costoUnitNum = Number(costoUnit) || 0;
   const nuevoPMP =
@@ -267,7 +269,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
           />
           {exigeMotivo && (
             <span className="muted" style={{ fontSize: '.74rem' }}>
-              Obligatorio en entrada, salida y ajuste. Queda en el historial del producto.
+              Obligatorio en entrada, salida, ajuste y consumo. Queda en el historial del producto.
             </span>
           )}
         </div>
