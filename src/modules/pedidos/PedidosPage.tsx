@@ -3139,10 +3139,18 @@ function OpImagenAdjunta({ path }: { path: string }) {
  *  o una proteína, pero al restablecer el mercado esos productos no aparecían
  *  para pedirlos. Se gastaban y no se reponían. */
 function esViveresOLimpieza(cat?: string | null): boolean {
-  let c = (cat ?? '').toLowerCase();
-  try { c = c.normalize('NFD').replace(/\p{Diacritic}/gu, ''); } catch { /* fallback sin normalizar */ }
+  const c = normalizarBusqueda(cat);
   return ['aliment', 'viver', 'carne', 'proteina', 'limpi', 'higiene',
           'hortaliza', 'legumbre', 'verdura'].some((k) => c.includes(k));
+}
+
+/** Texto listo para comparar: sin mayúsculas, sin acentos y sin espacios de sobra.
+ *  Sin quitar los acentos, buscar "viveres" no encuentra "VÍVERES" ni "aji" el
+ *  "AJÍ DULCE": el usuario escribe sin tildes y la lista se ve vacía. */
+function normalizarBusqueda(s?: string | null): string {
+  let t = (s ?? '').toLowerCase().trim();
+  try { t = t.normalize('NFD').replace(/\p{Diacritic}/gu, ''); } catch { /* se compara sin normalizar */ }
+  return t;
 }
 
 interface CrearOrdenModalProps {
@@ -3166,6 +3174,11 @@ function CrearOrdenModal({
   const [items, setItems] = useState<ItemOrden[]>([]);
   // Texto crudo de cada cantidad (permite escribir decimales como 0,5 sin perder el punto).
   const [cantEdit, setCantEdit] = useState<Record<string, string>>({});
+  // Buscador DENTRO de la lista ya cargada. La Solicitud de mercado pasa de 60
+  // renglones: sin filtro, marcar un producto o corregirle la cantidad obliga a
+  // recorrer todo el scroll a ojo. Filtrar solo esconde: nada sale de la
+  // solicitud, y lo escondido se guarda igual con lo que se le haya puesto.
+  const [filtroItems, setFiltroItems] = useState('');
   const [notas, setNotas] = useState('');
   // Lectura del DOM al guardar: el guardado toma SIEMPRE lo que está escrito en
   // pantalla (solicitante, finalidad y nota), aunque algún re-render del modal no
@@ -3451,6 +3464,16 @@ function CrearOrdenModal({
     setItems((prev) => prev.filter((_, k) => k !== idx));
   }
 
+  // Renglones que se ven, cada uno con su posición REAL en `items`. `updateItem` y
+  // `removeItem` trabajan sobre esa posición: si se mapeara el índice de la lista
+  // ya filtrada, escribir con el buscador puesto editaría o borraría otro renglón.
+  const itemsVisibles = useMemo(() => {
+    const todos = items.map((it, idx) => ({ it, idx }));
+    const q = normalizarBusqueda(filtroItems);
+    if (!q) return todos;
+    return todos.filter(({ it }) => normalizarBusqueda(`${it.nombre ?? ''} ${it.sku ?? ''}`).includes(q));
+  }, [items, filtroItems]);
+
   async function handleSubmit() {
     if (!items.length) {
       toast('Añade al menos un producto', 'error');
@@ -3629,6 +3652,30 @@ function CrearOrdenModal({
         <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.3rem' }}>
           Marcá los artículos a comprar e indicá la finalidad de cada uno. Los desmarcados quedan en la solicitud pero no se cotizan.
         </div>
+        {/* Buscador dentro de la lista ya cargada. Solo esconde renglones: lo que
+            no se ve sigue en la solicitud y se guarda igual. */}
+        {items.length > 5 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.4rem', flexWrap: 'wrap' }}>
+            <input
+              className="input"
+              style={{ flex: 1, minWidth: 200 }}
+              placeholder="🔎 Buscar en la lista por nombre o código…"
+              value={filtroItems}
+              onChange={(e) => setFiltroItems(e.target.value)}
+              title="Filtra lo que se muestra. No quita nada de la solicitud."
+            />
+            {filtroItems.trim() && (
+              <>
+                <span className="muted" style={{ fontSize: '.76rem', whiteSpace: 'nowrap' }}>
+                  {itemsVisibles.length} de {items.length}. El resto sigue en la solicitud.
+                </span>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFiltroItems('')}>
+                  ✕ Limpiar
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <div className="line-picker head" style={{ gridTemplateColumns: '34px 2fr 130px 40px' }}>
           <div title="Comprar">✓</div>
           <div>Producto</div>
@@ -3638,7 +3685,12 @@ function CrearOrdenModal({
         {/* Scroll propio: la lista puede tener muchos productos (sin tope) sin
             empujar el buscador «+ Añadir» fuera de la vista. */}
         <div style={{ maxHeight: 'min(42vh, 360px)', overflowY: 'auto', paddingRight: '.2rem' }}>
-          {items.map((it, idx) => {
+          {!!items.length && !itemsVisibles.length && (
+            <div className="muted" style={{ fontSize: '.84rem', padding: '.5rem 0' }}>
+              Ningún producto de la lista coincide con «{filtroItems.trim()}».
+            </div>
+          )}
+          {itemsVisibles.map(({ it, idx }) => {
             const comprar = it.comprar !== false;
             return (
             <div key={`${it.sku}-${idx}`} style={{ opacity: comprar ? 1 : 0.5, marginBottom: '.4rem' }}>
