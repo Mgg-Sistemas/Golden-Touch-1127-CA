@@ -1076,6 +1076,12 @@ export interface Producto {
   ubicacion?: string | null;
   created_at: string;
   updated_at?: string | null;
+  /** Cuándo pasó a inactivo. Lo sella un trigger de la base, no la pantalla.
+   *  En las bajas anteriores al 09/09/2026 es una aproximación (`updated_at`). */
+  desactivado_at?: string | null;
+  /** Quién lo dio de baja (correo, tomado del token de la sesión).
+   *  NULL en las bajas anteriores al 09/09/2026: entonces no se registraba. */
+  desactivado_por?: string | null;
 }
 
 export interface Movimiento {
