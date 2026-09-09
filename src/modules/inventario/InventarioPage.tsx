@@ -54,6 +54,7 @@ import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ImportarExcelModal } from './ImportarExcelModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
+import { ProductosInactivosModal } from './ProductosInactivosModal';
 import { CostosYMedidasModal, contarSinCosto } from './CostosYMedidasModal';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
@@ -81,7 +82,7 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   const q = norm(ui.filterText);
   // SOLO ACTIVOS, sin opción de ver los otros. Un producto inactivo se dio de
   // baja o se unificó en otro: mostrarlo hacía parecer que había dos productos
-  // donde queda uno. Los dados de baja se consultan desde Exportar.
+  // donde queda uno. Los dados de baja viven en «Productos inactivos».
   if (p.estado !== 'activo') return false;
   if (ui.filterCat && p.categoria !== ui.filterCat) return false;
   if (ui.filterClass && p._klass !== ui.filterClass) return false;
@@ -116,6 +117,7 @@ type ModalState =
   | { kind: 'movimiento'; producto: Producto }
   | { kind: 'confirmToggle'; producto: Producto }
   | { kind: 'export' }
+  | { kind: 'inactivos' }
   | { kind: 'resumen' }
   | { kind: 'costos' }
   | { kind: 'transferencias' }
@@ -377,6 +379,21 @@ export function InventarioPage() {
     }
   }
 
+  // Activar desde la pantalla de «Productos inactivos». A diferencia del toggle
+  // del inventario, esta NO cierra la ventana: se suelen reactivar varios de una
+  // sentada y cerrar después de cada uno obligaría a rehacer los filtros.
+  async function handleActivarDesdeBaja(p: Producto) {
+    try {
+      await setEstadoProducto(p.id, 'activo');
+      notify(`Producto activado: ${p.sku} · ${p.nombre}`, 'success', { link: '#/app/inventario' });
+      await reload();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo activar el producto', 'error');
+    }
+  }
+
+  const inactivosCount = useMemo(() => productos.filter((p) => p.estado === 'inactivo').length, [productos]);
+
   function setFilter2(key: keyof FilterValues, value: string) {
     setUi((prev) => ({ ...prev, [key]: value }) as UiState);
   }
@@ -452,6 +469,15 @@ export function InventarioPage() {
           </button>
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
             ↓ Exportar
+          </button>
+          {/* Única puerta a los productos dados de baja: el inventario ya no los
+              muestra. Desde ahí se consultan, se filtran y se pueden reactivar. */}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setModal({ kind: 'inactivos' })}
+            title="Productos dados de baja: para el sistema no existen mientras sigan inactivos. Acá se consultan y se pueden activar."
+          >
+            🗄 Productos inactivos{inactivosCount ? ` · ${inactivosCount}` : ''}
           </button>
           <button
             className={`btn ${casiteritaEnError ? 'btn-danger' : 'btn-ghost'}`}
@@ -584,12 +610,20 @@ export function InventarioPage() {
           // Desactivar saca al producto de la lista y ya no hay filtro para
           // volver a verlo, así que el aviso lo dice antes, no después.
           message={modal.producto.estado === 'activo'
-            ? `¿Confirmas desactivar "${modal.producto.nombre}" (${modal.producto.sku})? Sale del inventario, de los almacenes y del buscador. Para volver a verlo hay que pedirlo desde Exportar, con el filtro en «Inactivos».`
+            ? `¿Confirmas desactivar "${modal.producto.nombre}" (${modal.producto.sku})? Sale del inventario, de los almacenes y del buscador. Para volver a verlo o reactivarlo está el botón «Productos inactivos».`
             : `¿Confirmas activar "${modal.producto.nombre}" (${modal.producto.sku})?`}
           confirmText={modal.producto.estado === 'activo' ? 'Desactivar' : 'Activar'}
           danger={modal.producto.estado === 'activo'}
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={() => handleToggleEstado(modal.producto)}
+        />
+      )}
+      {modal.kind === 'inactivos' && (
+        <ProductosInactivosModal
+          productos={productos}
+          canWrite={canWrite}
+          onActivar={handleActivarDesdeBaja}
+          onClose={() => setModal({ kind: 'none' })}
         />
       )}
       {modal.kind === 'costos' && (
