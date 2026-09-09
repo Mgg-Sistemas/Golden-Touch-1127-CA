@@ -33,6 +33,7 @@ import {
   cancelarOrden,
   crearOrden,
   FINALIDAD_MERCADO,
+  getUltimaCompraMercado,
   subirImagenOrden,
   getImagenOrdenSignedUrl,
   eliminarImagenOrden,
@@ -3130,10 +3131,18 @@ function OpImagenAdjunta({ path }: { path: string }) {
    Modal: Crear orden
    ───────────────────────────────────────────── */
 /** ¿La categoría es de Cocina? Víveres o Artículos de Limpieza / Higiene (sin acentos). */
+/** Categorías que entran a la Solicitud de mercado.
+ *
+ *  Es la MISMA definición que usa la Distribución de comidas para saber qué es
+ *  comida (`esCategoriaViveres`), más higiene. Antes acá solo entraban víveres y
+ *  limpieza, y eso dejaba un hueco raro: la cocina podía CONSUMIR una hortaliza
+ *  o una proteína, pero al restablecer el mercado esos productos no aparecían
+ *  para pedirlos. Se gastaban y no se reponían. */
 function esViveresOLimpieza(cat?: string | null): boolean {
   let c = (cat ?? '').toLowerCase();
   try { c = c.normalize('NFD').replace(/\p{Diacritic}/gu, ''); } catch { /* fallback sin normalizar */ }
-  return c.includes('viver') || c.includes('limpieza') || c.includes('higiene');
+  return ['aliment', 'viver', 'carne', 'proteina', 'limpi', 'higiene',
+          'hortaliza', 'legumbre', 'verdura'].some((k) => c.includes(k));
 }
 
 interface CrearOrdenModalProps {
@@ -3203,16 +3212,55 @@ function CrearOrdenModal({
   // unidad y el solicitante quedan en COCINA (editables) y la orden se marca URGENTE.
   const [mercado] = useState(!!mercadoInicial);
   const mercadoCargado = useRef(false);
+  // De qué solicitud salieron las cantidades sugeridas (para decirlo en pantalla).
+  const [mercadoPrevio, setMercadoPrevio] = useState<{ codigo: string; fecha: string } | null>(null);
   useEffect(() => {
     if (!mercadoInicial || mercadoCargado.current) return;
+    // Los productos llegan por una consulta ASINCRÓNICA de la página. Antes este
+    // efecto corría una sola vez al montar y se marcaba como hecho pase lo que
+    // pase: si en ese instante la lista todavía estaba vacía, el mercado quedaba
+    // VACÍO PARA SIEMPRE, aunque el aviso dijera que se habían traído todos los
+    // víveres. Ahora no se da por cargado hasta que hay algo que cargar.
+    if (!productos.length) return;
     mercadoCargado.current = true;
-    const base = productos.filter((p) => p.estado === 'activo' && esViveresOLimpieza(p.categoria));
-    setItems(base.map((p) => ({
-      productoId: p.id, sku: p.sku, nombre: p.nombre,
-      cantidad: 1, precio: 0, unidad: p.unidad, comprar: true, finalidad: FINALIDAD_MERCADO,
-    })));
-    /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, []);
+
+    let vivo = true;
+    void (async () => {
+      // La solicitud de mercado anterior: sus cantidades son la mejor sugerencia
+      // que hay, porque son las que de verdad se compraron la vez pasada.
+      // `getUltimaCompraMercado` existía en el repositorio desde hace tiempo y
+      // nadie la llamaba; esta pantalla es su consumidor natural.
+      let previo: Orden | null = null;
+      try { previo = await getUltimaCompraMercado(); } catch { /* sin sugerencias, no es grave */ }
+      if (!vivo) return;
+
+      const cantPrevia = new Map<string, number>();
+      for (const it of (previo?.items ?? [])) {
+        const cant = Number(it.cantidad) || 0;
+        if (cant <= 0) continue;
+        if (it.productoId) cantPrevia.set(it.productoId, cant);
+        if (it.sku) cantPrevia.set(it.sku, cant);
+      }
+
+      const base = productos.filter((p) => p.estado === 'activo' && esViveresOLimpieza(p.categoria));
+      const yaEsta = new Set(base.map((p) => p.id));
+      // Lo que se compró la vez pasada y hoy NO entra por categoría igual se trae:
+      // si hizo falta el mes pasado, hace falta ahora. Sin esto, un producto que
+      // cambió de categoría desaparece del mercado sin que nadie lo note.
+      const rezagados = previo
+        ? productos.filter((p) => p.estado === 'activo' && !yaEsta.has(p.id)
+            && (cantPrevia.has(p.id) || cantPrevia.has(p.sku)))
+        : [];
+
+      setItems([...base, ...rezagados].map((p) => ({
+        productoId: p.id, sku: p.sku, nombre: p.nombre,
+        cantidad: cantPrevia.get(p.id) ?? cantPrevia.get(p.sku) ?? 1,
+        precio: 0, unidad: p.unidad, comprar: true, finalidad: FINALIDAD_MERCADO,
+      })));
+      if (previo?.codigo) setMercadoPrevio({ codigo: previo.codigo, fecha: previo.created_at });
+    })();
+    return () => { vivo = false; };
+  }, [mercadoInicial, productos]);
 
   // Alta rápida de un producto que aún no existe en inventario (datos mínimos;
   // el resto se completa luego desde el módulo de inventario).
@@ -3555,6 +3603,24 @@ function CrearOrdenModal({
           <span className="badge" style={{ background: 'var(--brand,#ff8a00)', color: '#111', fontSize: '.66rem', fontWeight: 700 }}>
             Finalidad: {FINALIDAD_MERCADO}
           </span>
+          {/* De dónde salen las cantidades. Decirlo importa: si no, parecen
+              inventadas y nadie sabe si conviene ajustarlas. */}
+          {mercadoPrevio && (
+            <div style={{ flexBasis: '100%', display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+              <span className="muted" style={{ fontSize: '.76rem' }}>
+                Cantidades traídas del mercado anterior <strong className="mono">{mercadoPrevio.codigo}</strong>
+                {' · '}{dateTime(mercadoPrevio.fecha)}. Son editables.
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setItems((prev) => prev.map((it) => ({ ...it, cantidad: 1 })))}
+                title="Descartar las cantidades del mercado anterior y dejar todo en 1"
+              >
+                ↺ Poner todo en 1
+              </button>
+            </div>
+          )}
         </div>
       )}
 
