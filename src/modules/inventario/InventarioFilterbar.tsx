@@ -1,16 +1,20 @@
 import type { AbcClass } from './restock';
 
 export type StockFilter = '' | 'critico' | 'restock' | 'ok' | 'sin_mov';
-export type EstadoFilter = '' | 'activo' | 'inactivo';
 export type FundicionFilter = '' | 'si' | 'no' | 'en_proceso';
 
-/** Campos de filtrado del inventario general (único). */
+/** Campos de filtrado del inventario general (único).
+ *
+ *  NO hay filtro de estado: el inventario muestra SOLO productos activos.
+ *  Un producto inactivo se dio de baja o se unificó en otro, y verlo en la
+ *  lista hacía parecer que había dos productos donde queda uno (el caso de
+ *  «VINAGRE (unificado en GEN-183)», 09/09/2026). Para consultar los dados de
+ *  baja está el filtro de estado del modal de Exportar. */
 export interface FilterValues {
   filterText: string;
   filterCat: string;
   filterClass: '' | AbcClass;
   filterStock: StockFilter;
-  filterEstado: EstadoFilter;
   filterFundicion: FundicionFilter;
 }
 
@@ -74,16 +78,6 @@ export function InventarioFilterbar({ values, categorias, onChange }: Inventario
         <option value="restock">Reabastecer (no crítico)</option>
         <option value="ok">Stock óptimo</option>
         <option value="sin_mov">Sin existencias</option>
-      </select>
-      <select
-        className="select"
-        style={{ maxWidth: 140 }}
-        value={values.filterEstado}
-        onChange={(e) => onChange('filterEstado', e.target.value)}
-      >
-        <option value="">Todos</option>
-        <option value="activo">Activos</option>
-        <option value="inactivo">Inactivos</option>
       </select>
     </div>
   );
