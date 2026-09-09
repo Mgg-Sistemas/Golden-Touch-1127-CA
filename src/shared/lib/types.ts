@@ -1151,6 +1151,11 @@ export interface ItemOrden {
    *  se cambia), elegido de un buscador. Es opcional. */
   insumo_producto_id?: string | null;
   insumo_nombre?: string | null;
+  /** MANTENIMIENTO: se declaró que el servicio NO lleva repuesto del inventario
+   *  (mano de obra, diagnóstico, reparación sin pieza). Es la otra mitad de la
+   *  decisión: o va `insumo_producto_id`, o va esto. Dejarlo en blanco no se
+   *  puede — lo impide `mantenimiento_declara_insumo` en la base. */
+  sin_insumo?: boolean | null;
 }
 
 export interface EventoHistorial {

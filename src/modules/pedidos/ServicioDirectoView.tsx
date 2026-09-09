@@ -15,7 +15,7 @@ import { list as listProveedores, insert as crearProveedor } from '@/modules/pro
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import type { Producto } from '@/shared/lib/types';
-import { CATEGORIAS_SERVICIO, listServiciosActivos, addServicioCatalogo, esRecargaGas, etiquetasRecarga, TIPOS_RECARGA, CATEGORIA_ELECTRODOMESTICOS, ELECTRODOMESTICOS, esElectrodomestico, type ServicioCatalogo } from './servicios.repository';
+import { CATEGORIAS_SERVICIO, CATEGORIA_MANTENIMIENTO, listServiciosActivos, addServicioCatalogo, esRecargaGas, etiquetasRecarga, TIPOS_RECARGA, CATEGORIA_ELECTRODOMESTICOS, ELECTRODOMESTICOS, esElectrodomestico, type ServicioCatalogo } from './servicios.repository';
 import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
@@ -366,7 +366,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
 
 /* ───────── Modal: nuevo servicio (categoría + tipo + equipo por renglón) ───────── */
 
-interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; tipoEquipo: string; electro: string; cantidad: string; bombonas: string; kg: string; insumoId: string; insumoNombre: string }
+interface LineaUI { id: number; categoria: string; tipo: string; equipoId: string; tipoEquipo: string; electro: string; cantidad: string; bombonas: string; kg: string; insumoId: string; insumoNombre: string; sinInsumo: boolean }
 
 function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorName, onClose, onSaved }: {
   proveedores: Proveedor[]; equipos: MaquinariaEquipo[]; editServicio?: ServicioDirecto | null;
@@ -403,7 +403,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
     return [...base, ...delCatalogo.filter((s) => !vistos.has(s.toLowerCase()))];
   };
 
-  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', tipoEquipo: '', electro: '', cantidad: '1', bombonas: '', kg: '', insumoId: '', insumoNombre: '' });
+  const nuevaLinea = (id: number): LineaUI => ({ id, categoria: '', tipo: '', equipoId: '', tipoEquipo: '', electro: '', cantidad: '1', bombonas: '', kg: '', insumoId: '', insumoNombre: '', sinInsumo: false });
   // Al editar: precarga los renglones existentes del servicio.
   const lineasIniciales = (): LineaUI[] => {
     if (!editServicio || !editServicio.items.length) return [nuevaLinea(1)];
@@ -411,7 +411,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       id: i + 1, categoria: it.categoria ?? '', tipo: it.descripcion ?? '', equipoId: it.equipo_id ?? '', tipoEquipo: '',
       electro: esElectrodomestico(it.categoria) ? (it.equipo_nombre ?? '') : '',
       cantidad: String(it.cantidad ?? 1), bombonas: it.bombonas != null ? String(it.bombonas) : '', kg: it.kg_recarga != null ? String(it.kg_recarga) : '',
-      insumoId: it.insumo_producto_id ?? '', insumoNombre: it.insumo_nombre ?? '',
+      insumoId: it.insumo_producto_id ?? '', insumoNombre: it.insumo_nombre ?? '', sinInsumo: it.sin_insumo === true,
     }));
   };
   // Productos del inventario para el buscador de insumo del mantenimiento.
@@ -466,6 +466,12 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       if (!cat) { setError('Indicá la categoría de cada servicio.'); return; }
       if (!tipo) { setError('Indicá el tipo de servicio en cada renglón.'); return; }
       if (cant <= 0) { setError(gas ? `Indicá la ${etiquetasRecarga(cat, tipo).cantidad.toLowerCase()}.` : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
+      // Mantenimiento: hay que DECIDIR si lleva repuesto del inventario o no.
+      // Dejarlo en blanco no se puede; la base tampoco lo acepta.
+      if (cat === CATEGORIA_MANTENIMIENTO && !l.insumoId && !l.sinInsumo) {
+        setError('En los renglones de mantenimiento, elegí el repuesto del inventario o marcá que ese servicio no lleva ninguno.');
+        return;
+      }
       const esElectro = esElectrodomestico(cat);
       const eq = equiposActivos.find((x) => x.id === l.equipoId) ?? null;
       // Electrodomésticos: el "equipo" es el artículo elegido (sin id de maquinaria).
@@ -477,6 +483,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         kg_recarga: gas && l.kg ? Number(l.kg) : null,
         insumoProductoId: !gas && l.insumoId ? l.insumoId : null,
         insumoNombre: !gas && l.insumoId ? l.insumoNombre : null,
+        sinInsumo: cat === CATEGORIA_MANTENIMIENTO && !l.insumoId ? true : null,
       });
     }
     if (nuevoProveedor) {
@@ -686,15 +693,23 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                         )}
                       </div>
                       <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-                        <label>Insumo del inventario <span className="muted">(si el material está en stock, p. ej. el caucho)</span></label>
+                        <label>Repuesto del inventario <span className="muted">(la pieza que se le pone al equipo, p. ej. el caucho)</span></label>
                         <SearchSelect value={l.insumoId}
-                          onChange={(v) => set(l.id, { insumoId: v, insumoNombre: productos.find((p) => p.id === v)?.nombre ?? '' })}
+                          onChange={(v) => set(l.id, { insumoId: v, insumoNombre: productos.find((p) => p.id === v)?.nombre ?? '', sinInsumo: v ? false : l.sinInsumo })}
                           options={productoOptions} placeholder={productoOptions.length ? '🔍 Buscar en inventario…' : '— sin productos —'} emptyText="Sin coincidencias" />
                         {insProd && (
                           <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
                             📦 En stock: <strong className="mono">{num(stock ?? 0)} {insProd.unidad ?? ''}</strong>
-                            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => set(l.id, { insumoId: '', insumoNombre: '' })}>✕ Quitar insumo</button>
+                            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => set(l.id, { insumoId: '', insumoNombre: '' })}>✕ Quitar repuesto</button>
                           </small>
+                        )}
+                        {/* En mantenimiento la ausencia de repuesto es una respuesta, no un
+                            olvido: es lo que permite saber qué servicios consumen inventario. */}
+                        {l.categoria === CATEGORIA_MANTENIMIENTO && !l.insumoId && (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={l.sinInsumo} onChange={(e) => set(l.id, { sinInsumo: e.target.checked })} />
+                            <span>No lleva repuesto del inventario <span className="muted">(mano de obra, diagnóstico, reparación sin pieza)</span></span>
+                          </label>
                         )}
                       </div>
                     </>

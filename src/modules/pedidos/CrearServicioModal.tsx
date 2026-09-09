@@ -65,7 +65,10 @@ export function CrearServicioModal({
   const [equipoId, setEquipoId] = useState('');
   const [tipoFiltro, setTipoFiltro] = useState('');   // filtro del selector de equipo por tipo (VEHÍCULO, MOTO…)
   const [electro, setElectro] = useState('');   // electrodoméstico (mantenimiento de electrodomésticos)
-  const [insumoId, setInsumoId] = useState('');   // insumo del inventario (mantenimiento, opcional)
+  const [insumoId, setInsumoId] = useState('');   // insumo del inventario (mantenimiento)
+  // La otra mitad de la decisión: el servicio es mano de obra y no lleva pieza.
+  // En mantenimiento hay que elegir una de las dos; en blanco no se guarda.
+  const [sinInsumo, setSinInsumo] = useState(false);
   const [cantidad, setCantidad] = useState('1');
   const [medida, setMedida] = useState('');
   // Recarga de gas / oxígeno / extintores: cantidad de bombonas + KG a recargar.
@@ -134,6 +137,10 @@ export function CrearServicioModal({
     let equipoNombre: string | null = null;
     if (esMantenimiento) {
       if (!equipoId) { toast('Seleccioná la máquina/vehículo del mantenimiento', 'error'); return null; }
+      if (!insumoId && !sinInsumo) {
+        toast('Elegí el repuesto del inventario, o marcá que este servicio no lleva ninguno', 'error');
+        return null;
+      }
       equipoNombre = equipos.find((e) => e.id === equipoId)?.equipo ?? null;
     } else if (esElectro) {
       if (!electro.trim()) { toast('Elegí el electrodoméstico', 'error'); return null; }
@@ -158,6 +165,7 @@ export function CrearServicioModal({
       kg_recarga: gas && kg ? Number(kg) : null,
       insumo_producto_id: esMantenimiento && insumoId ? insumoId : null,
       insumo_nombre: esMantenimiento && insumoId ? (productos.find((p) => p.id === insumoId)?.nombre ?? null) : null,
+      sin_insumo: esMantenimiento && !insumoId ? true : null,
     };
   }
 
@@ -166,7 +174,7 @@ export function CrearServicioModal({
     if (!it) return false;
     setItems((prev) => [...prev, it]);
     // Reset del builder (conserva la categoría para cargar varios del mismo tipo).
-    setServicio(''); setEquipoId(''); setElectro(''); setInsumoId(''); setCantidad('1'); setMedida(''); setBombonas(''); setKg('');
+    setServicio(''); setEquipoId(''); setElectro(''); setInsumoId(''); setSinInsumo(false); setCantidad('1'); setMedida(''); setBombonas(''); setKg('');
     return true;
   }
 
@@ -305,14 +313,22 @@ export function CrearServicioModal({
           )}
           {esMantenimiento && (
             <div>
-              <label className="label">Insumo del inventario <span className="muted">(si el material está en stock, p. ej. el caucho)</span></label>
-              <SearchSelect value={insumoId} onChange={setInsumoId} options={productoOptions}
+              <label className="label">Repuesto del inventario <span className="muted">(la pieza que se le pone al equipo, p. ej. el caucho)</span></label>
+              <SearchSelect value={insumoId} onChange={(v) => { setInsumoId(v); if (v) setSinInsumo(false); }} options={productoOptions}
                 placeholder={productoOptions.length ? '🔍 Buscar en inventario…' : '— sin productos —'} emptyText="Sin coincidencias" />
               {insumoId && (
                 <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
                   📦 En stock: <strong className="mono">{Number(productos.find((p) => p.id === insumoId)?.stock) || 0} {productos.find((p) => p.id === insumoId)?.unidad ?? ''}</strong>
-                  <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setInsumoId('')}>✕ Quitar insumo</button>
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setInsumoId('')}>✕ Quitar repuesto</button>
                 </small>
+              )}
+              {/* La ausencia de repuesto pasa a ser una respuesta, no un olvido: es lo
+                  que después permite saber qué mantenimientos consumen inventario. */}
+              {!insumoId && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.4rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={sinInsumo} onChange={(e) => setSinInsumo(e.target.checked)} />
+                  <span>No lleva repuesto del inventario <span className="muted">(mano de obra, diagnóstico, reparación sin pieza)</span></span>
+                </label>
               )}
             </div>
           )}
