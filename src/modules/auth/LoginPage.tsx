@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { signIn, signOutLocal, estaBloqueado, estaInhabilitado, registrarFalloLogin, resetIntentosLogin } from './authStore';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { signIn, useSession, estaBloqueado, estaInhabilitado, registrarFalloLogin, resetIntentosLogin } from './authStore';
 import { isSupabaseConfigured } from '@/shared/lib/supabase';
 import { isWebAuthnSupported, huellaHint, loginConHuella } from './webauthn.repository';
 
@@ -17,14 +17,25 @@ export function LoginPage() {
   const soportaHuella = isWebAuthnSupported();
   const hint = huellaHint();
 
-  // Forzar logout al abrir el login: el usuario debe autenticarse siempre.
+  // Si ya hay sesión abierta, esta pantalla NO la cierra: manda al sistema.
+  //
+  // Hasta el 09/09/2026 acá se hacía un `signOutLocal()` incondicional al montar,
+  // con la idea de que «el usuario debe autenticarse siempre». Cerraba sesiones
+  // vivas: bastaba recargar estando en el login, o tocar «Ingresar» en la portada
+  // teniendo la sesión abierta, para tener que escribir la clave de nuevo.
+  //
+  // Y no protegía nada. Los tres caminos que traen a alguien al login —el botón
+  // de cerrar sesión, el cambio de clave y la cuenta deshabilitada— ya llaman a
+  // `signOut()` ANTES de navegar, así que la sesión está cerrada cuando esta
+  // pantalla aparece. Entrar con otra cuenta tampoco lo necesita: al iniciar
+  // sesión, la nueva reemplaza a la anterior. Y quien tiene sesión viva y abre
+  // una ruta del sistema entra directo, sin pasar por acá, así que la regla que
+  // el comentario decía aplicar no se aplicaba igual.
+  const { session, loading: cargandoSesion } = useSession();
   const didCleanRef = useRef(false);
   useEffect(() => {
     if (didCleanRef.current) return;
     didCleanRef.current = true;
-    if (isSupabaseConfigured) {
-      signOutLocal().catch(() => {});
-    }
     if (hint) setEmail(hint);
     // Si el admin deshabilitó la cuenta con la sesión abierta, PermissionsContext
     // cerró la sesión y dejó esta marca: mostramos el motivo al caer aquí.
@@ -91,6 +102,15 @@ export function LoginPage() {
     setSubmitting(false);
     navigate('/app');
   }
+
+  // Con sesión viva no se muestra el formulario: se entra. La sesión se comparte
+  // entre pestañas, así que ver el login en una pestaña mientras se trabaja en
+  // otra es siempre un accidente, no una intención. Para cambiar de cuenta está
+  // «Cerrar sesión» adentro del sistema.
+  // Mientras se lee la sesión guardada no se decide nada: mostrar el formulario
+  // en ese instante haría parpadear el login a quien ya está adentro.
+  if (isSupabaseConfigured && cargandoSesion) return <div className="p-8">Cargando…</div>;
+  if (session) return <Navigate to="/app" replace />;
 
   return (
     <div className="login-page">

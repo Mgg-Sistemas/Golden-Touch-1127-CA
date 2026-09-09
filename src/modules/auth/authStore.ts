@@ -103,12 +103,6 @@ export async function signOut() {
   return supabase.auth.signOut();
 }
 
-/** Cierra sesión solo del lado del cliente (limpia storage). Sin round-trip al servidor:
- *  ~5–10× más rápido que `signOut()`, usado al entrar al login para "siempre logearse". */
-export async function signOutLocal() {
-  return supabase.auth.signOut({ scope: 'local' });
-}
-
 export async function getAppUser(user: User): Promise<AppUser | null> {
   const { data, error } = await supabase
     .from('usuarios')
