@@ -27,6 +27,7 @@ import {
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { FacturasDirectas } from './FacturasDirectas';
 import { PagoExternoFields, PAGO_EXTERNO_VACIO, pagoExternoDesdeRow, pagoExternoAInput, type PagoExternoState } from './PagoExternoFields';
+import { mensajeError } from '@/shared/lib/errores';
 
 type Vista = 'kanban' | 'lista';
 
@@ -995,7 +996,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       // está hecho igual, así que se avisa en vez de hacer fallar la operación entera.
       if (res.retencionPendiente) notify(res.retencionPendiente, 'warning', { link: '#/app/retenciones' });
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar la compra.'); setSaving(false); }
+    } catch (err) { setError(mensajeError(err, 'No se pudo pagar la compra.')); setSaving(false); }
   }
 
   const footer = (

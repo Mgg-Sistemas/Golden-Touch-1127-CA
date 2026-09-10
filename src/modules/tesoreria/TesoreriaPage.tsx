@@ -58,7 +58,7 @@ import { descargarCuentaPorCobrarPdf } from './cuentaPorCobrarPdf';
 import { descargarOrdenesPorPagarPdf } from './ordenesPorPagarPdf';
 import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
-  listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
+  listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, MAX_COMPROBANTES_PAGO, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg, type AbonoComision,
   getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl,
 } from '@/modules/pedidos/pedidos.repository';
@@ -82,6 +82,7 @@ import { descargarOrdenCompraPdf } from '@/modules/pedidos/ordenCompraPdf';
 import { listOfertasByOrden, getPdfOfertaSignedUrl } from '@/modules/pedidos/ofertas.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { norm } from '@/shared/lib/texto';
+import { mensajeError } from '@/shared/lib/errores';
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   ingreso: '⬇ Ingreso', salida: '⬆ Egreso', traslado_salida: '↔ Traslado (sale)',
@@ -965,15 +966,32 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
                 ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se registraron seriales en este pago.</span>}
               </div>
 
-              {/* Comprobante de pago (si se subió) */}
-              <div style={{ marginTop: '.6rem' }}>
-                <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.25rem' }}>Comprobante de pago</div>
-                {orden.factura_path ? (
-                  <button className="btn btn-sm btn-ghost" disabled={abriendo} onClick={() => verComprobante(orden.factura_path!)}>
-                    {abriendo ? 'Abriendo…' : `📎 Ver comprobante${orden.factura_nombre ? ` · ${orden.factura_nombre}` : ''}`}
-                  </button>
-                ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se subió comprobante (pago en efectivo, opcional).</span>}
-              </div>
+              {/* Comprobantes del pago. Un pago repartido entre varias cuentas trae una
+                  captura por transferencia; las órdenes viejas traen una sola y llegan por
+                  `factura_path`, que es de donde salían antes. */}
+              {(() => {
+                const lista = (orden.comprobantes_pago ?? []).length
+                  ? orden.comprobantes_pago!
+                  : orden.factura_path
+                    ? [{ path: orden.factura_path, nombre: orden.factura_nombre ?? 'comprobante' }]
+                    : [];
+                return (
+                  <div style={{ marginTop: '.6rem' }}>
+                    <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.25rem' }}>
+                      {lista.length > 1 ? `Comprobantes del pago (${lista.length})` : 'Comprobante de pago'}
+                    </div>
+                    {lista.length ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem' }}>
+                        {lista.map((c, i) => (
+                          <button key={c.path} className="btn btn-sm btn-ghost" disabled={abriendo} onClick={() => verComprobante(c.path)}>
+                            {abriendo ? 'Abriendo…' : `📎 ${lista.length > 1 ? `${i + 1}. ` : 'Ver comprobante · '}${c.nombre}`}
+                          </button>
+                        ))}
+                      </div>
+                    ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se subió comprobante (pago en efectivo, opcional).</span>}
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>
@@ -2495,7 +2513,7 @@ function PagarRenglonModal({ renglon, cajas, actor, actorName, onClose, onPaid }
       });
       notify(`Nómina pagada · ${renglon.nombre} · ${monto(m, moneda)}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar.'); setSaving(false); }
+    } catch (err) { setError(mensajeError(err, 'No se pudo pagar.')); setSaving(false); }
   }
 
   return (
@@ -5125,6 +5143,24 @@ function AnclarGastoFields({ categoria, subcategoria, onChange }: {
   );
 }
 
+/**
+ * Avisa si algún comprobante no llegó a subirse. El pago ya está hecho y el dinero ya
+ * salió: la subida es best-effort a propósito, para que una conexión lenta no descuadre
+ * la caja. Pero el usuario tiene que enterarse de CUÁNTOS quedaron afuera, no de que
+ * «el comprobante» falló, que era lo que decía cuando solo se admitía uno.
+ */
+function avisarComprobantesFaltantes(pedidos: File[], pagada: Orden): void {
+  const subidos = (pagada.comprobantes_pago ?? []).length;
+  const faltan = pedidos.length - subidos;
+  if (faltan <= 0) return;
+  toast(
+    faltan === pedidos.length
+      ? 'OC pagada, pero el comprobante no se pudo adjuntar (conexión lenta). Volvé a subirlo desde el detalle de la OC.'
+      : `OC pagada, pero ${faltan} de ${pedidos.length} comprobantes no se pudieron adjuntar (conexión lenta). Volvé a subirlos desde el detalle de la OC.`,
+    'error',
+  );
+}
+
 function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   row: OrdenPorPagar; cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onPaid: () => void;
 }) {
@@ -5138,7 +5174,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const pagoParcial = row.esContraEntrega && o.recibido_total != null && Number(o.recibido_total) < Number(o.total);
   const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
   const [montoStr, setMontoStr] = useState(String(baseOrden));
-  const [factura, setFactura] = useState<File | null>(null);
+  // Un pago repartido entre varias cuentas tiene una captura por cada transferencia.
+  // Por eso el comprobante es una LISTA (hasta MAX_COMPROBANTES_PAGO), no un archivo.
+  const [comprobantes, setComprobantes] = useState<File[]>([]);
   const [motivoPago, setMotivoPago] = useState('');
   // Anclaje opcional a un gasto (categoría → subcategoría).
   const [gastoCat, setGastoCat] = useState('');
@@ -5360,10 +5398,10 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
-    if (!comprobanteOpcional && !factura) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
-    if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
-      setError('El comprobante debe ser un PDF o una imagen.'); return;
-    }
+    if (!comprobanteOpcional && !comprobantes.length) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
+    if (comprobantes.length > MAX_COMPROBANTES_PAGO) { setError(`Como máximo ${MAX_COMPROBANTES_PAGO} comprobantes por pago.`); return; }
+    const noSirve = comprobantes.find((c) => c.type && c.type !== 'application/pdf' && !c.type.startsWith('image/'));
+    if (noSirve) { setError(`«${noSirve.name}» no es PDF ni imagen. Cada comprobante tiene que ser una de las dos cosas.`); return; }
     // Comisión bancaria opcional: sale de la billetera elegida (egreso extra, no suma al total).
     const comSaldo = saldosCaja.find((s) => s.id === comisionSaldoId) ?? saldosCaja[0] ?? null;
     const comMonto = Number(comisionMonto) || 0;
@@ -5381,8 +5419,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         if (!legs.length) { setError('Indicá cuánto pagar en al menos una cuenta.'); setSaving(false); return; }
         if (excedeTotalMulti) { setError(`No podés pagar más que el total de la OC. Cargado ${monto(sumUsdMulti, 'USD')}, total ${monto(totalUsd, 'USD')} (te pasaste por ${monto(round2(sumUsdMulti - totalUsd), 'USD')}).`); setSaving(false); return; }
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        const pagada = await pagarOrdenCompraMultiCajas({ orden: o, legs, factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
-        if (factura && !pagada.factura_path) toast('OC pagada, pero el comprobante no se pudo adjuntar (conexión lenta). Volvé a subirlo desde el detalle de la OC.', 'error');
+        const pagada = await pagarOrdenCompraMultiCajas({ orden: o, legs, comprobantes, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
+        avisarComprobantesFaltantes(comprobantes, pagada);
         notify(`OC ${o.oc_codigo ?? o.codigo} pagada · multipago ${monto(sumUsdMulti, 'USD')}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
         return;
@@ -5390,13 +5428,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       if (excedeTotalSimple) { setError(`No podés pagar más que el total de la OC (${monto(totalUsd, 'USD')}). El monto ingresado equivale a ${monto(montoUsdSimple, 'USD')}.`); setSaving(false); return; }
       const pagada = await pagarOrdenCompra({
         orden: o, cajaId, monto: Number(montoStr) || 0,
-        factura, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
+        comprobantes, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
         seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName,
       });
-      if (factura && !pagada.factura_path) toast('OC pagada, pero el comprobante no se pudo adjuntar (conexión lenta). Volvé a subirlo desde el detalle de la OC.', 'error');
+      avisarComprobantesFaltantes(comprobantes, pagada);
       notify(`OC ${o.oc_codigo ?? o.codigo} pagada · ${monto(Number(montoStr) || 0, moneda)}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar.'); setSaving(false); }
+    } catch (err) { setError(mensajeError(err, 'No se pudo pagar.')); setSaving(false); }
   }
 
   const footer = (
@@ -5735,9 +5773,44 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
 
         <div className="form-grid">
           <div className="form-row">
-            <label>Comprobante (PDF o imagen) {comprobanteOpcional ? '(opcional)' : '*'}</label>
-            <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} required={!comprobanteOpcional} />
-            {factura && <small className="muted">{factura.name}</small>}
+            <label>Comprobantes (PDF o imagen) {comprobanteOpcional ? '(opcional)' : '*'}</label>
+            <input
+              className="input" type="file" accept="application/pdf,image/*" multiple
+              disabled={comprobantes.length >= MAX_COMPROBANTES_PAGO}
+              required={!comprobanteOpcional && !comprobantes.length}
+              onChange={(e) => {
+                // Se ACUMULAN: elegir de a uno (o de a varios) va sumando a la lista,
+                // porque las capturas suelen estar en carpetas distintas.
+                const nuevos = Array.from(e.target.files ?? []);
+                setComprobantes((xs) => {
+                  const juntos = [...xs];
+                  for (const n of nuevos) {
+                    if (juntos.length >= MAX_COMPROBANTES_PAGO) break;
+                    if (juntos.some((x) => x.name === n.name && x.size === n.size)) continue;
+                    juntos.push(n);
+                  }
+                  return juntos;
+                });
+                e.target.value = '';
+              }}
+            />
+            {comprobantes.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', marginTop: '.4rem' }}>
+                {comprobantes.map((c, i) => (
+                  <span key={`${c.name}-${c.size}-${i}`} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', background: 'var(--bg-1)' }}>
+                    <span className="muted">{i + 1}.</span>
+                    <span>{c.name}</span>
+                    <button type="button" className="btn btn-xs btn-ghost" title="Quitar" onClick={() => setComprobantes((xs) => xs.filter((_, j) => j !== i))}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <small className="muted">
+              {comprobantes.length}/{MAX_COMPROBANTES_PAGO} cargados.
+              {comprobantes.length >= MAX_COMPROBANTES_PAGO
+                ? ' Llegaste al máximo: quitá uno para cambiarlo.'
+                : ' Podés elegir varios de una vez o ir sumándolos de a uno.'}
+            </small>
             {comprobanteOpcional && <small className="muted">Pago en efectivo: el comprobante no es obligatorio.</small>}
           </div>
           <div className="form-row">

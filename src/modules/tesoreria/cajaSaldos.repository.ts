@@ -9,6 +9,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { CajaSaldo, CajaLote, CuentaCaja } from '@/shared/lib/types';
+import { mensajeError } from '@/shared/lib/errores';
 
 const SALDOS = 'caja_saldos';
 const LOTES = 'caja_lotes';
@@ -152,7 +153,16 @@ export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: st
     ref_orden_id: input.refOrdenId ?? null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('id').single();
-  if (movErr) throw movErr;
+  if (movErr) {
+    // El saldo YA bajó (la RPC de arriba es atómica y quedó confirmada) pero el asiento
+    // no se pudo escribir. Sin esto la plata desaparecía: menos saldo y ningún movimiento
+    // que lo explique. Se devuelve el monto y recién después se avisa del fallo.
+    await supabase.rpc('aplicar_saldo_divisa', {
+      p_caja_id: input.cajaId, p_cuenta: input.cuenta, p_moneda: input.moneda,
+      p_delta: monto, p_permitir_negativo: true,
+    });
+    throw new Error(mensajeError(movErr, 'No se pudo registrar el egreso en el libro de la caja. No se descontó nada.'));
+  }
   return mov as { id: string };
 }
 

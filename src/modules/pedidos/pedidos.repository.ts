@@ -1279,6 +1279,41 @@ async function subirAdjuntoOc(ordenId: string, file: File, tipo: 'factura' | 're
   return path;
 }
 
+/** Tope de comprobantes que admite un pago. Se valida acá y también en la base. */
+export const MAX_COMPROBANTES_PAGO = 6;
+
+/**
+ * Sube los comprobantes de un pago (hasta MAX_COMPROBANTES_PAGO) y devuelve la lista
+ * en el mismo orden. El PRIMERO conserva la ruta histórica `factura-…`, para que el
+ * detalle del movimiento, el PDF de la OC y el histórico sigan encontrándolo donde
+ * siempre estuvo; los demás van numerados. Si uno falla, se devuelven los que sí
+ * subieron: mejor tener cinco capturas que ninguna.
+ */
+async function subirComprobantesOc(ordenId: string, files: File[]): Promise<{ path: string; nombre: string }[]> {
+  const out: { path: string; nombre: string }[] = [];
+  const tanda = files.slice(0, MAX_COMPROBANTES_PAGO);
+  for (let i = 0; i < tanda.length; i++) {
+    const file = tanda[i];
+    const safe = file.name.replace(/[^w.-]+/g, '_');
+    const path = `${ordenId}/${i === 0 ? 'factura' : `factura-${i + 1}`}-${safe}`;
+    const { error } = await conTimeout(
+      supabase.storage.from(BUCKET_OC).upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' }),
+      SUBIDA_ADJUNTO_TIMEOUT_MS,
+      `La subida del comprobante ${i + 1} tardó demasiado (> ${SUBIDA_ADJUNTO_TIMEOUT_MS / 1000}s).`,
+    );
+    if (error) break;
+    out.push({ path, nombre: file.name });
+  }
+  return out;
+}
+
+/** Los archivos del pago: la lista nueva si vino, si no el único de siempre. */
+function comprobantesDelPago(comprobantes?: File[] | null, factura?: File | null): File[] {
+  const lista = (comprobantes ?? []).filter(Boolean);
+  if (lista.length) return lista.slice(0, MAX_COMPROBANTES_PAGO);
+  return factura ? [factura] : [];
+}
+
 export async function urlAdjuntoOc(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET_OC).createSignedUrl(path, 60 * 10);
   if (error) throw error;
@@ -1431,6 +1466,8 @@ export interface PagarOcInput {
   cajaId: string;
   monto: number;
   factura?: File | null;
+  /** Comprobantes del pago (hasta 6). Si viene, manda sobre `factura`. */
+  comprobantes?: File[] | null;
   retencion?: File | null;
   motivoPago?: string | null;
   seriales?: string[] | null;   // seriales de billetes (USD físico)
@@ -1558,8 +1595,10 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   //    ya salió, así que un fallo de storage NO debe descuadrar el pago (se recargan luego).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
   let retencionPath: string | null = null, retencionNombre: string | null = null;
+  let comprobantes: { path: string; nombre: string }[] = [];
   try {
-    if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+    comprobantes = await subirComprobantesOc(o.id, comprobantesDelPago(input.comprobantes, input.factura));
+    if (comprobantes.length) { facturaPath = comprobantes[0].path; facturaNombre = comprobantes[0].nombre; }
     if (input.retencion) { retencionPath = await subirAdjuntoOc(o.id, input.retencion, 'retencion'); retencionNombre = input.retencion.name; }
   } catch { /* best-effort: los adjuntos se pueden recargar desde el detalle */ }
 
@@ -1568,6 +1607,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     caja_id: input.cajaId,
     caja_mov_id: mov.id,
     factura_path: facturaPath, factura_nombre: facturaNombre,
+    comprobantes_pago: comprobantes,
     retencion_path: retencionPath, retencion_nombre: retencionNombre,
     comision_monto: comision ? Math.round((Number(comision.monto) || 0) * 100) / 100 : 0,
     comision_moneda: comision?.moneda ?? null,
@@ -1593,6 +1633,8 @@ export interface PagarOcMultiInput {
   cajaId: string;
   legs: PagarOcMultiLeg[];
   factura?: File | null;
+  /** Comprobantes del pago (hasta 6). Si viene, manda sobre `factura`. */
+  comprobantes?: File[] | null;
   motivoPago?: string | null;
   seriales?: string[] | null;   // seriales de billetes (pata USD físico)
   gastoCategoria?: string | null;
@@ -1641,14 +1683,17 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
 
   // Adjunto best-effort tras el cierre atómico (un fallo de storage no descuadra el pago).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
+  let comprobantes: { path: string; nombre: string }[] = [];
   try {
-    if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+    comprobantes = await subirComprobantesOc(o.id, comprobantesDelPago(input.comprobantes, input.factura));
+    if (comprobantes.length) { facturaPath = comprobantes[0].path; facturaNombre = comprobantes[0].nombre; }
   } catch { /* best-effort */ }
 
   const patch = {
     caja_id: input.cajaId,
     caja_mov_id: movIds[0] ?? null,
     factura_path: facturaPath, factura_nombre: facturaNombre,
+    comprobantes_pago: comprobantes,
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
   };
@@ -1697,6 +1742,8 @@ export interface PagarOcMultiCajasInput {
   orden: Orden;
   legs: PagarOcMultiCajasLeg[];
   factura?: File | null;
+  /** Comprobantes del pago (hasta 6). Si viene, manda sobre `factura`. */
+  comprobantes?: File[] | null;
   motivoPago?: string | null;
   seriales?: string[] | null;
   gastoCategoria?: string | null;
@@ -1769,14 +1816,17 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
 
   // Adjunto best-effort tras el cierre atómico (un fallo de storage no descuadra el pago).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
+  let comprobantes: { path: string; nombre: string }[] = [];
   try {
-    if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+    comprobantes = await subirComprobantesOc(o.id, comprobantesDelPago(input.comprobantes, input.factura));
+    if (comprobantes.length) { facturaPath = comprobantes[0].path; facturaNombre = comprobantes[0].nombre; }
   } catch { /* best-effort */ }
 
   const patch = {
     caja_id: legs[0].cajaId,
     caja_mov_id: movIds[0] ?? null,
     factura_path: facturaPath, factura_nombre: facturaNombre,
+    comprobantes_pago: comprobantes,
     comision_monto: comision ? Math.round((Number(comision.monto) || 0) * 100) / 100 : 0,
     comision_moneda: comision?.moneda ?? null,
     comision_usd: comision ? Math.round((Number(comision.montoUsd) || 0) * 100) / 100 : 0,

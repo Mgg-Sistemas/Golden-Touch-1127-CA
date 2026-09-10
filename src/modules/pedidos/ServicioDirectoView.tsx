@@ -31,6 +31,7 @@ import { FacturasDirectas } from './FacturasDirectas';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import { PagoExternoFields, PAGO_EXTERNO_VACIO, pagoExternoDesdeRow, pagoExternoAInput, type PagoExternoState } from './PagoExternoFields';
+import { mensajeError } from '@/shared/lib/errores';
 
 type Vista = 'kanban' | 'lista';
 
@@ -911,7 +912,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
       notify(`Servicio pagado · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar el servicio.'); setSaving(false); }
+    } catch (err) { setError(mensajeError(err, 'No se pudo pagar el servicio.')); setSaving(false); }
   }
 
   const footer = (
