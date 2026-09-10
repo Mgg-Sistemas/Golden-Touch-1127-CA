@@ -274,6 +274,18 @@ export async function eliminarUnidad(nombre: string): Promise<void> {
   await deleteTaxonomia('inventario.unidad', nombre);
 }
 
+/** Productos por id (los que hagan falta y nada más). Se usa desde el historial de
+ *  un equipo para mostrar el stock actual de los repuestos que ese equipo consume,
+ *  sin traerse el inventario entero. Devuelve también los inactivos: si un equipo
+ *  gastó un producto que después se dio de baja, hay que poder decirlo. */
+export async function listProductosPorIds(ids: string[]): Promise<Producto[]> {
+  const limpios = [...new Set(ids.filter(Boolean))];
+  if (!limpios.length) return [];
+  const { data, error } = await supabase.from('productos').select('*').in('id', limpios);
+  if (error) throw error;
+  return (data ?? []) as Producto[];
+}
+
 export async function listProductos(): Promise<Producto[]> {
   const { data, error } = await supabase
     .from('productos')
