@@ -137,8 +137,17 @@ export interface ServicioDeEquipo {
   estado: string;
   total: number | null;
   created_at: string;
-  /** Ítems de servicio de ESTE equipo (tipo de servicio + cantidad). */
-  servicios: { nombre: string; cantidad: number }[];
+  /** Ítems de servicio de ESTE equipo (tipo de servicio + cantidad + el repuesto
+   *  del inventario que llevó, si se declaró). El repuesto es lo que permite
+   *  responder «qué consume este equipo» desde el historial. */
+  servicios: {
+    nombre: string;
+    cantidad: number;
+    insumoProductoId: string | null;
+    insumoNombre: string | null;
+    /** Se declaró expresamente que el servicio NO lleva repuesto (mano de obra). */
+    sinInsumo: boolean;
+  }[];
 }
 
 /**
@@ -156,7 +165,10 @@ export async function listServiciosDeEquipo(equipoId: string): Promise<ServicioD
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map((o) => {
-    const items = (Array.isArray(o.items) ? o.items : []) as Array<{ nombre?: string; cantidad?: number; equipo_id?: string | null }>;
+    const items = (Array.isArray(o.items) ? o.items : []) as Array<{
+      nombre?: string; cantidad?: number; equipo_id?: string | null;
+      insumo_producto_id?: string | null; insumo_nombre?: string | null; sin_insumo?: boolean | null;
+    }>;
     return {
       id: o.id as string,
       codigo: o.codigo as string,
@@ -164,7 +176,13 @@ export async function listServiciosDeEquipo(equipoId: string): Promise<ServicioD
       estado: o.estado as string,
       total: o.total != null ? Number(o.total) : null,
       created_at: o.created_at as string,
-      servicios: items.filter((it) => it.equipo_id === equipoId).map((it) => ({ nombre: it.nombre ?? '—', cantidad: Number(it.cantidad) || 0 })),
+      servicios: items.filter((it) => it.equipo_id === equipoId).map((it) => ({
+        nombre: it.nombre ?? '—',
+        cantidad: Number(it.cantidad) || 0,
+        insumoProductoId: it.insumo_producto_id || null,
+        insumoNombre: (it.insumo_nombre ?? '').trim() || null,
+        sinInsumo: it.sin_insumo === true,
+      })),
     };
   });
 }

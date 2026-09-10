@@ -106,6 +106,9 @@ export interface MovimientoEquipoRow {
   origen: string;      // 'Bitácora' | 'Servicio'
   tipo: string;        // etiqueta del tipo / código del servicio
   detalle: string;     // qué se consumió/hizo (ej. "Cambio de cauchos ×6")
+  /** Repuesto del inventario que llevó, «sin repuesto» si se declaró que no lleva,
+   *  o «sin declarar» cuando nadie contestó la pregunta. */
+  repuesto?: string;
 }
 
 /**
@@ -145,12 +148,12 @@ export async function descargarMovimientosEquipoPdf(
   doc.text(rangoTxt, MARGIN, y); y += 14;
   doc.setTextColor(0, 0, 0);
 
-  const body = rows.map((r) => [fmt.date(r.fecha), r.origen, r.tipo, r.detalle]);
+  const body = rows.map((r) => [fmt.date(r.fecha), r.origen, r.tipo, r.detalle, r.repuesto ?? '—']);
 
   autoTable(doc, {
     startY: y,
-    head: [['FECHA', 'ORIGEN', 'TIPO', 'DETALLE / CONSUMO']],
-    body: body.length ? body : [['—', '—', '—', 'Sin movimientos en el período.']],
+    head: [['FECHA', 'ORIGEN', 'TIPO', 'DETALLE / CONSUMO', 'REPUESTO']],
+    body: body.length ? body : [['—', '—', '—', 'Sin movimientos en el período.', '—']],
     styles: { fontSize: 8.5, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
     columnStyles: {
