@@ -1384,7 +1384,15 @@ function MetodoPagoModal({
     const p = Number(ivaPct) || 0;
     setIvaMontoStr(p > 0 && baseNum > 0 ? String(Math.round(baseNum * (p / 100) * 100) / 100) : '');
   }, [ivaPct, baseNum]);
-  const ivaMonto = conIva ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
+  // El IVA solo entra si el comprobante es FACTURA. Esto tiene que estar acá y no
+  // solo en el payload: hasta el 10/09/2026 la pantalla calculaba (y mostraba) el
+  // total CON IVA aunque el comprobante fuera nota de entrega, y recién al enviar
+  // lo descartaba. La OC quedaba por menos de lo cotizado sin que nadie lo viera, y
+  // el IGTF se guardaba calculado sobre una base que incluía ese IVA fantasma.
+  const ivaActivo = conIva && comprobanteTipo === 'factura';
+  const ivaMonto = ivaActivo ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
+  // La oferta traía IVA y el comprobante elegido lo deja fuera: hay que decirlo.
+  const ivaOfertaPerdido = !ivaActivo ? ivaPrevOc : 0;
   function onIvaPct(v: string) { ivaManualRef.current = false; setConIva(true); setIvaPct(v); }
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
@@ -1492,7 +1500,7 @@ function MetodoPagoModal({
       await onSent(validos, {
         comprobanteTipo,
         retencionModo: comprobanteTipo === 'factura' ? retencionModo : null,
-        conIva: comprobanteTipo === 'factura' && conIva, ivaPct: ivaPctNum, ivaMonto,
+        conIva: ivaActivo, ivaPct: ivaPctNum, ivaMonto,
         conIgtf, igtfPct: igtfPctNum, igtfMonto,
         conDescuento, descuentoMonto,
       }, null, imagenPath);
@@ -1572,6 +1580,17 @@ function MetodoPagoModal({
             <span style={{ fontSize: '.86rem' }}><strong>Factura</strong></span>
           </label>
         </div>
+        {/* La nota de entrega no es documento fiscal: no lleva IVA. Si la oferta del
+            proveedor SÍ lo traía, el total a pagar baja, y eso hay que verlo antes
+            de firmar, no descubrirlo después en el kanban. */}
+        {ivaOfertaPerdido > 0 && (
+          <div className="badge warning" style={{ display: 'block', padding: '.55rem .7rem', marginTop: '.6rem', fontSize: '.8rem' }}>
+            ⚠ La oferta aceptada trae <strong>IVA de {mm(ivaOfertaPerdido)}</strong> y la <strong>nota de entrega no lleva IVA</strong>.
+            Si seguís así, la OC se confirma por <strong>{mm(totalConImp - descuentoMonto)}</strong> en vez de{' '}
+            <strong>{mm(baseNum + ivaPrevOc + igtfMonto - descuentoMonto)}</strong>.
+            Si el proveedor te va a cobrar el IVA, elegí <strong>Factura</strong>.
+          </div>
+        )}
         {comprobanteTipo === 'factura' && (
           <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
             <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>IVA</div>
@@ -2883,15 +2902,62 @@ function OrdenDetailModal({
             </tr>
           ))}
         </tbody>
-        {conPrecio && (
-          <tfoot>
-            <tr>
-              <td colSpan={6} className="num">TOTAL</td>
-              <td className="num">{montoMoneda(o.total, o.total_moneda)}</td>
-              <td></td>
-            </tr>
-          </tfoot>
-        )}
+        {conPrecio && (() => {
+          // DESGLOSE. Antes acá solo estaba el TOTAL, y cuando la OC llevaba
+          // impuestos los renglones sumaban una cosa y el total decía otra, sin
+          // nada que explicara la diferencia (el caso de OC-2026-0085: ítems por
+          // $1.755,10 y total $1.816,18). El total nunca debe ser un número que
+          // no se pueda reconstruir mirando la pantalla.
+          const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+          const ivaM = o.iva_aplicado ? Math.max(0, Number(o.iva_monto) || 0) : 0;
+          const igtfM = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
+          const descM = o.descuento_pago_aplicado ? Math.max(0, Number(o.descuento_pago_monto) || 0) : 0;
+          const hayDesglose = ivaM > 0 || igtfM > 0 || descM > 0;
+          const subtotal = r2((Number(o.total) || 0) - ivaM - igtfM + descM);
+          const pct = (v: unknown) => {
+            const n = Number(v) || 0;
+            return n > 0 ? ` (${n.toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)` : '';
+          };
+          return (
+            <tfoot>
+              {hayDesglose && (
+                <>
+                  <tr>
+                    <td colSpan={6} className="num muted">Subtotal</td>
+                    <td className="num muted">{montoMoneda(subtotal, o.total_moneda)}</td>
+                    <td></td>
+                  </tr>
+                  {descM > 0 && (
+                    <tr>
+                      <td colSpan={6} className="num muted">Descuento</td>
+                      <td className="num muted">− {montoMoneda(descM, o.total_moneda)}</td>
+                      <td></td>
+                    </tr>
+                  )}
+                  {ivaM > 0 && (
+                    <tr>
+                      <td colSpan={6} className="num muted">IVA{pct(o.iva_pct)}</td>
+                      <td className="num muted">+ {montoMoneda(ivaM, o.total_moneda)}</td>
+                      <td></td>
+                    </tr>
+                  )}
+                  {igtfM > 0 && (
+                    <tr>
+                      <td colSpan={6} className="num muted">IGTF{pct(o.igtf_pct)}</td>
+                      <td className="num muted">+ {montoMoneda(igtfM, o.total_moneda)}</td>
+                      <td></td>
+                    </tr>
+                  )}
+                </>
+              )}
+              <tr>
+                <td colSpan={6} className="num">TOTAL</td>
+                <td className="num">{montoMoneda(o.total, o.total_moneda)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          );
+        })()}
       </table>
       </div>
         );

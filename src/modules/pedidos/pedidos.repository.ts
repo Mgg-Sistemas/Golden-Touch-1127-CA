@@ -428,6 +428,13 @@ export async function editarPreciosOrdenPorPagar(
   o: Orden,
   items: ItemOrden[],
   actorEmail: string,
+  /** Ajuste de IVA/IGTF desde la misma pantalla (10/09/2026). Si no viene, se conserva
+   *  lo que la OC ya tenía (comportamiento anterior). Si viene, MANDA: se puede prender,
+   *  apagar o corregir cada impuesto, y el total se recompone desde la base. */
+  impuestos?: {
+    conIva: boolean; ivaPct: number; ivaMonto: number;
+    conIgtf: boolean; igtfPct: number; igtfMonto: number;
+  } | null,
 ): Promise<Orden> {
   if (o.estado !== 'confirmada_metodo' && o.estado !== 'oc_aprobada') {
     throw new Error('Solo se pueden editar los precios de una OC confirmada para pagar.');
@@ -458,12 +465,18 @@ export async function editarPreciosOrdenPorPagar(
   const escala = basePrev > 0 ? baseNueva / basePrev : 0;
   const ivaPct = Math.max(0, Number(o.iva_pct) || 0);
   const igtfPct = Math.max(0, Number(o.igtf_pct) || 0);
-  const ivaNuevo = o.iva_aplicado
-    ? (ivaPct > 0 ? r2((baseNueva * ivaPct) / 100) : r2(ivaPrev * escala))
-    : 0;
-  const igtfNuevo = o.igtf_aplicado
-    ? (igtfPct > 0 ? r2((baseNueva * igtfPct) / 100) : r2(igtfPrev * escala))
-    : 0;
+  // Con `impuestos` manda lo que se escribió en la pantalla; sin él, se conserva
+  // lo que la OC ya traía y solo se re-escala por el cambio de base.
+  const ivaAp = impuestos ? !!impuestos.conIva : !!o.iva_aplicado;
+  const igtfAp = impuestos ? !!impuestos.conIgtf : !!o.igtf_aplicado;
+  const ivaPctFinal = impuestos ? Math.max(0, Math.min(100, r2(impuestos.ivaPct))) : ivaPct;
+  const igtfPctFinal = impuestos ? Math.max(0, Math.min(100, r2(impuestos.igtfPct))) : igtfPct;
+  const ivaNuevo = !ivaAp ? 0
+    : impuestos ? Math.max(0, r2(impuestos.ivaMonto))
+    : (ivaPct > 0 ? r2((baseNueva * ivaPct) / 100) : r2(ivaPrev * escala));
+  const igtfNuevo = !igtfAp ? 0
+    : impuestos ? Math.max(0, r2(impuestos.igtfMonto))
+    : (igtfPct > 0 ? r2((baseNueva * igtfPct) / 100) : r2(igtfPrev * escala));
   // El `total` que paga Tesorería está en divisa cuando el pago es en divisa; si no, en Bs.
   const totalNuevo = Math.max(0, r2(baseNueva + ivaNuevo + igtfNuevo));
   const upd: Record<string, unknown> = {
@@ -474,8 +487,19 @@ export async function editarPreciosOrdenPorPagar(
       iva_anterior: ivaPrev, iva_nuevo: ivaNuevo, igtf_anterior: igtfPrev, igtf_nuevo: igtfNuevo,
     }),
   };
-  if (o.iva_aplicado) upd.iva_monto = ivaNuevo;
-  if (o.igtf_aplicado) upd.igtf_monto = igtfNuevo;
+  if (impuestos) {
+    // La pantalla puede prender o apagar cada impuesto, así que se escriben las tres
+    // columnas. Tesorería lee `total`, así que el monto a pagar queda sincronizado.
+    upd.iva_aplicado = ivaAp;
+    upd.iva_pct = ivaAp ? ivaPctFinal : 0;
+    upd.iva_monto = ivaAp ? ivaNuevo : null;
+    upd.igtf_aplicado = igtfAp;
+    upd.igtf_pct = igtfAp ? igtfPctFinal : 0;
+    upd.igtf_monto = igtfAp ? igtfNuevo : null;
+  } else {
+    if (o.iva_aplicado) upd.iva_monto = ivaNuevo;
+    if (o.igtf_aplicado) upd.igtf_monto = igtfNuevo;
+  }
   if (enDivisa) upd.total_divisa = totalNuevo;
   else if (o.total_divisa != null) upd.total_divisa = Math.max(0, r2((Number(o.total_divisa) || 0) + deltaUsd));
   const { data, error } = await supabase.from(TABLE).update(upd).eq('id', o.id).select('*').single();
