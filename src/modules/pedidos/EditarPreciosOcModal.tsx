@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { editarPreciosOrdenPorPagar } from './pedidos.repository';
@@ -60,7 +60,58 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
   const baseNew = idxComprar.reduce((a, { it }) => a + Number(it.cantidad) * (Number(it[priceKey]) || 0), 0);
   const baseOld = (o.items ?? []).filter((i) => i.comprar !== false)
     .reduce((a, i) => a + Number(i.cantidad) * (Number(i[priceKey]) || 0), 0);
-  const totalNuevo = Math.max(0, r2((Number(o.total) || 0) + r2(baseNew - baseOld)));
+
+  // ── IVA / IGTF editables (10/09/2026) ──────────────────────────────────────
+  // Antes esta pantalla solo tocaba precios y los impuestos quedaban congelados.
+  // Cuando una OC quedaba con el impuesto equivocado —el caso OC-2026-0085, que
+  // perdió el IVA de la oferta al elegir nota de entrega y conservó un IGTF
+  // calculado sobre ese IVA— no había forma de arreglarla desde el sistema.
+  const ivaPrev = o.iva_aplicado ? Math.max(0, Number(o.iva_monto) || 0) : 0;
+  const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
+  const basePrev = Math.max(0, r2((Number(o.total) || 0) - ivaPrev - igtfPrev));
+  const baseNueva = Math.max(0, r2(basePrev + r2(baseNew - baseOld)));
+
+  const [conIva, setConIva] = useState(!!o.iva_aplicado);
+  const [ivaPct, setIvaPct] = useState(String(Number(o.iva_pct) > 0 ? o.iva_pct : 16));
+  const [ivaMontoStr, setIvaMontoStr] = useState(ivaPrev > 0 ? String(ivaPrev) : '');
+  const ivaManualRef = useRef(ivaPrev > 0);
+  const [conIgtf, setConIgtf] = useState(!!o.igtf_aplicado);
+  const [igtfPct, setIgtfPct] = useState(String(Number(o.igtf_pct) > 0 ? o.igtf_pct : 3));
+  const [igtfMontoStr, setIgtfMontoStr] = useState(igtfPrev > 0 ? String(igtfPrev) : '');
+  const igtfManualRef = useRef(igtfPrev > 0);
+
+  // % ↔ monto sincronizados: mientras no se escriba el monto a mano, manda el %.
+  const ivaPctNum = Math.max(0, Math.min(100, r2(Number(ivaPct) || 0)));
+  useEffect(() => {
+    if (ivaManualRef.current) return;
+    const p = Number(ivaPct) || 0;
+    setIvaMontoStr(p > 0 && baseNueva > 0 ? String(r2(baseNueva * (p / 100))) : '');
+  }, [ivaPct, baseNueva]);
+  const ivaMonto = conIva ? Math.max(0, r2(Number(ivaMontoStr) || 0)) : 0;
+  // El IGTF se calcula sobre lo que realmente se paga: base + IVA.
+  const baseIgtf = r2(baseNueva + ivaMonto);
+  const igtfPctNum = Math.max(0, Math.min(100, r2(Number(igtfPct) || 0)));
+  useEffect(() => {
+    if (igtfManualRef.current) return;
+    const p = Number(igtfPct) || 0;
+    setIgtfMontoStr(p > 0 && baseIgtf > 0 ? String(r2(baseIgtf * (p / 100))) : '');
+  }, [igtfPct, baseIgtf]);
+  const igtfMonto = conIgtf ? Math.max(0, r2(Number(igtfMontoStr) || 0)) : 0;
+
+  function onIvaPct(v: string) { ivaManualRef.current = false; setConIva(true); setIvaPct(v); }
+  function onIvaMonto(v: string) {
+    ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
+    const m = Number(v) || 0;
+    setIvaPct(m > 0 && baseNueva > 0 ? String(Math.round((m / baseNueva) * 10000) / 100) : '0');
+  }
+  function onIgtfPct(v: string) { igtfManualRef.current = false; setConIgtf(true); setIgtfPct(v); }
+  function onIgtfMonto(v: string) {
+    igtfManualRef.current = true; setConIgtf(true); setIgtfMontoStr(v);
+    const m = Number(v) || 0;
+    setIgtfPct(m > 0 && baseIgtf > 0 ? String(Math.round((m / baseIgtf) * 10000) / 100) : '0');
+  }
+
+  const totalNuevo = Math.max(0, r2(baseNueva + ivaMonto + igtfMonto));
 
   async function guardar() {
     setError(null);
@@ -70,7 +121,10 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
     setSaving(true);
     try {
       const limpios = items.map((it) => (it.nombre ? { ...it, nombre: it.nombre.trim() } : it));
-      await editarPreciosOrdenPorPagar(o, limpios, actor);
+      await editarPreciosOrdenPorPagar(o, limpios, actor, {
+        conIva, ivaPct: ivaPctNum, ivaMonto,
+        conIgtf, igtfPct: igtfPctNum, igtfMonto,
+      });
       toast('OC actualizada · el total a pagar quedó sincronizado', 'success');
       await onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setSaving(false); }
@@ -85,7 +139,7 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
       <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-        Ajustá el <strong>precio unitario</strong> de cada ítem y, si hace falta, <strong>agregá productos</strong> (hasta {MAX_NUEVOS}). El <strong>total a pagar</strong> se recalcula por la diferencia (se conservan IVA/IGTF/descuentos). El cambio queda en la <strong>traza</strong> de la OC y se sincroniza en Tesorería.
+        Ajustá el <strong>precio unitario</strong> de cada ítem y, si hace falta, <strong>agregá productos</strong> (hasta {MAX_NUEVOS}). También podés <strong>corregir el IVA y el IGTF</strong> acá abajo. El <strong>total a pagar</strong> se recompone desde cero (base + IVA + IGTF), el cambio queda en la <strong>traza</strong> de la OC y se sincroniza solo en Tesorería.
       </p>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.82rem' }}>
@@ -136,8 +190,66 @@ export function EditarPreciosOcModal({ orden: o, actor, onClose, onSaved }: {
           ＋ Agregar producto {nuevos >= MAX_NUEVOS ? `(máx. ${MAX_NUEVOS})` : ''}
         </button>
       </div>
+      {/* IVA / IGTF. Se editan acá porque es donde se corrige el monto a pagar, y
+          porque una OC con el impuesto mal puesto no tenía cómo arreglarse. */}
+      <div className="card" style={{ marginTop: '.7rem', padding: '.6rem .75rem' }}>
+        <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.45rem' }}>
+          IMPUESTOS · se recalculan sobre la base de {monto(baseNueva, moneda)}
+        </div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', fontSize: '.84rem', marginBottom: '.4rem' }}>
+          <input type="checkbox" checked={conIva} onChange={(e) => setConIva(e.target.checked)} disabled={saving} />
+          <strong style={{ minWidth: 42 }}>IVA</strong>
+          <input className="input mono" type="number" min={0} max={100} step="any" value={ivaPct}
+            onChange={(e) => onIvaPct(e.target.value)} disabled={saving}
+            title="Porcentaje de IVA (editable)"
+            style={{ width: 62, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+          <span>%</span>
+          <span className="muted">o</span>
+          <input className="input mono" type="number" min={0} step="any" value={ivaMontoStr}
+            onChange={(e) => onIvaMonto(e.target.value)} disabled={saving}
+            title="Monto del IVA (se puede escribir a mano)" placeholder="0,00"
+            style={{ width: 104, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+          <span className="mono muted">= {monto(ivaMonto, moneda)}</span>
+        </label>
+        {conIva && ivaPctNum !== 16 && ivaPctNum > 0 && (
+          <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>
+            ⚠ Estás aplicando {ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}% en vez del 16% general.
+          </div>
+        )}
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', fontSize: '.84rem' }}>
+          <input type="checkbox" checked={conIgtf} onChange={(e) => setConIgtf(e.target.checked)} disabled={saving} />
+          <strong style={{ minWidth: 42 }}>IGTF</strong>
+          <input className="input mono" type="number" min={0} max={100} step="any" value={igtfPct}
+            onChange={(e) => onIgtfPct(e.target.value)} disabled={saving}
+            title="Porcentaje de IGTF (editable)"
+            style={{ width: 62, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+          <span>%</span>
+          <span className="muted">o</span>
+          <input className="input mono" type="number" min={0} step="any" value={igtfMontoStr}
+            onChange={(e) => onIgtfMonto(e.target.value)} disabled={saving}
+            title="Monto del IGTF (se puede escribir a mano)" placeholder="0,00"
+            style={{ width: 104, textAlign: 'right', padding: '.15rem .3rem', height: 'auto' }} />
+          <span className="mono muted">= {monto(igtfMonto, moneda)}</span>
+        </label>
+        {conIgtf && (
+          <div className="muted" style={{ fontSize: '.74rem', marginTop: '.35rem' }}>
+            El IGTF se calcula sobre {monto(baseIgtf, moneda)} (base{ivaMonto > 0 ? ' + IVA' : ''}), que es lo que de verdad se paga.
+          </div>
+        )}
+      </div>
+
       <div className="card" style={{ marginTop: '.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
-        <div className="muted" style={{ fontSize: '.8rem' }}>Total actual: <strong className="mono">{monto(Number(o.total) || 0, moneda)}</strong></div>
+        <div className="muted" style={{ fontSize: '.8rem' }}>
+          Total actual: <strong className="mono">{monto(Number(o.total) || 0, moneda)}</strong>
+          <br />
+          <span className="mono">
+            {monto(baseNueva, moneda)}
+            {ivaMonto > 0 ? ` + ${monto(ivaMonto, moneda)} IVA` : ''}
+            {igtfMonto > 0 ? ` + ${monto(igtfMonto, moneda)} IGTF` : ''}
+          </span>
+        </div>
         <div style={{ fontSize: '1.05rem' }}>Nuevo total a pagar: <strong className="mono" style={{ color: 'var(--primary-3, #ff8a00)' }}>{monto(totalNuevo, moneda)}</strong></div>
       </div>
     </Modal>
