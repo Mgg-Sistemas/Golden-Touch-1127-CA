@@ -91,4 +91,34 @@ describe('textoOrdenPagar', () => {
     const enDivisa = { ...ordenBase, pago_en_divisa: true, total: 3000, total_divisa: 79 } as unknown as Orden;
     expect(textoOrdenPagar(enDivisa, proveedor)).toContain('💵 *Total:* $79,00');
   });
+
+  // ── Compras a crédito (cuenta abierta) ──────────────────────────────
+  // Mandar el total de un crédito es mandar el número equivocado: lo que se paga
+  // es el saldo. Estos tests fijan que la resta salga y salga bien.
+  it('en una cuenta abierta con abonos manda lo abonado y el saldo', () => {
+    const credito = { ...ordenBase, estado: 'cuenta_abierta', total: 1391.25, abonado_total: 400 } as unknown as Orden;
+    const txt = textoOrdenPagar(credito, proveedor);
+    expect(txt).toContain('💵 *Total:* $1.391,25');
+    expect(txt).toContain('💰 *Abonado:* $400,00');
+    expect(txt).toContain('🧾 *Saldo a pagar:* $991,25');
+  });
+
+  it('en una cuenta abierta sin abonos avisa que es a crédito y no resta nada', () => {
+    const credito = { ...ordenBase, estado: 'cuenta_abierta', total: 756.44, abonado_total: 0 } as unknown as Orden;
+    const txt = textoOrdenPagar(credito, proveedor);
+    expect(txt).toContain('💵 *Total:* $756,44');
+    expect(txt).toContain('🧾 *A crédito:* cuenta abierta, sin abonos todavía');
+    expect(txt).not.toContain('💰 *Abonado:*');
+  });
+
+  it('el saldo nunca sale en negativo, aunque lo abonado pase el total', () => {
+    const credito = { ...ordenBase, estado: 'cuenta_abierta', total: 100, abonado_total: 130 } as unknown as Orden;
+    expect(textoOrdenPagar(credito, proveedor)).toContain('🧾 *Saldo a pagar:* $0,00');
+  });
+
+  it('una orden que no es a crédito no habla de saldos', () => {
+    const txt = textoOrdenPagar(ordenBase, proveedor);
+    expect(txt).not.toContain('Saldo a pagar');
+    expect(txt).not.toContain('Abonado');
+  });
 });
