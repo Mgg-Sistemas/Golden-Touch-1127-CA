@@ -43,6 +43,10 @@ export interface IngresarDivisaInput {
   tasaBs?: number | null;
   origen?: string | null;
   motivo?: string | null;
+  /** Cuándo OCURRIÓ el movimiento, en ISO. Sin esto queda con la hora de apretar el
+   *  botón, que no siempre es la misma: una conversión de ayer cargada hoy fechaba mal
+   *  el libro mayor. */
+  at?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -51,7 +55,7 @@ export interface IngresarDivisaInput {
  * Ingresa divisa a una caja: suma al saldo y recalcula la tasa promedio
  * ponderada. Registra el lote (trazabilidad). Devuelve el saldo actualizado.
  */
-export async function ingresarDivisa(input: IngresarDivisaInput): Promise<CajaSaldo> {
+export async function ingresarDivisa(input: IngresarDivisaInput): Promise<CajaSaldo & { movId?: string | null }> {
   const monto = round2(input.monto);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   const esBs = input.moneda === 'Bs';
@@ -89,15 +93,17 @@ export async function ingresarDivisa(input: IngresarDivisaInput): Promise<CajaSa
   if (loteErr) throw loteErr;
 
   // Movimiento en el libro de la caja (para el historial visible).
-  await supabase.from('movimientos_caja').insert({
+  const { data: movIng } = await supabase.from('movimientos_caja').insert({
     caja_id: input.cajaId, tipo: 'ingreso', monto, moneda: input.moneda,
     cuenta: input.cuenta, tasa_bs: esBs ? null : tasaBs,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
     motivo: input.motivo ?? input.origen ?? 'Ingreso de divisa',
+    ...(input.at ? { at: input.at } : {}),
     actor: input.actor, actor_name: input.actorName ?? null,
-  });
-
-  return up as CajaSaldo;
+  }).select('id').maybeSingle();
+  // El id del movimiento viaja acompañando al saldo: el conversor lo guarda en su
+  // historial para poder saltar del renglón al asiento del libro mayor.
+  return { ...(up as CajaSaldo), movId: (movIng as { id?: string } | null)?.id ?? null };
 }
 
 /** Trazabilidad: lotes (ingresos) de una caja, filtrable por moneda/cuenta. */
@@ -121,6 +127,8 @@ export interface EgresarDivisaInput {
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
   refOrdenId?: string | null;
+  /** Cuándo OCURRIÓ el movimiento, en ISO (ver `IngresarDivisaInput.at`). */
+  at?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -151,6 +159,7 @@ export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: st
     gasto_categoria: input.gastoCategoria?.trim() || null,
     gasto_subcategoria: input.gastoSubcategoria?.trim() || null,
     ref_orden_id: input.refOrdenId ?? null,
+    ...(input.at ? { at: input.at } : {}),
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('id').single();
   if (movErr) {
@@ -334,7 +343,50 @@ export interface ConvertirDivisaInput {
    *  la comisión se calcula como (bruto − este monto). Lo usa el botón «Redondear». */
   montoANeto?: number | null;
   motivo?: string | null;
+  /** Cuándo OCURRIÓ el cambio. Por defecto, ahora. Se indica cuando la conversión
+   *  se carga después: el libro mayor y el historial la fechan ahí, no en el momento
+   *  de apretar el botón. */
+  fecha?: string | null;   // AAAA-MM-DD
+  hora?: string | null;    // HH:MM
+  /** Con quién se hizo el cambio, para poder filtrar el historial por casa de cambio. */
+  contraparteTipo?: 'cliente' | 'proveedor' | null;
+  contraparteNombre?: string | null;
   actor: string; actorName?: string | null;
+}
+
+/** Un renglón del historial del conversor. */
+export interface ConversionCaja {
+  id: string;
+  fecha: string;            // AAAA-MM-DD · cuándo ocurrió
+  hora: string | null;      // HH:MM:SS
+  moneda_de: string; moneda_a: string;
+  monto_de: number; monto_a: number; tasa: number;
+  monto_bruto: number; comision_monto: number; comision_pct: number;
+  origen_caja_id: string | null; origen_cuenta: string | null;
+  destino_caja_id: string | null; destino_cuenta: string | null;
+  contraparte_tipo: 'cliente' | 'proveedor' | null;
+  contraparte_nombre: string | null;
+  motivo: string | null;
+  mov_salida_id: string | null; mov_ingreso_id: string | null;
+  actor: string; actor_name: string | null;
+  created_at: string;       // cuándo se cargó al sistema
+}
+
+/**
+ * Historial del conversor, del más reciente al más viejo. Ordena por cuándo OCURRIÓ
+ * el cambio, no por cuándo se cargó: una conversión de ayer cargada hoy va en su
+ * lugar de ayer, que es donde la busca quien la revisa.
+ */
+export async function listConversiones(): Promise<ConversionCaja[]> {
+  const { data, error } = await supabase
+    .from('caja_conversiones')
+    .select('*')
+    .order('fecha', { ascending: false })
+    .order('hora', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  return (data ?? []) as ConversionCaja[];
 }
 
 /**
@@ -385,17 +437,44 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
   const motivo = input.motivo?.trim()
     || `Conversión ${montoDe} ${input.monedaDe} → ${montoA} ${input.monedaA} (1 ${input.monedaDe} = ${tasa} ${input.monedaA}${pct > 0 ? ` · comisión ${pct}% = ${comision} ${input.monedaA}` : ''})`;
 
+  // CUÁNDO OCURRIÓ el cambio. Si no se indica, ahora. Se arma en hora local y se manda
+  // en ISO: los dos asientos del libro mayor y el renglón del historial quedan con la
+  // MISMA fecha, que es lo que permite revisar una conversión cargada días después.
+  const fechaOp = (input.fecha || '').trim();
+  const horaOp = (input.hora || '').trim();
+  const at = fechaOp ? new Date(`${fechaOp}T${horaOp || '00:00'}`).toISOString() : null;
+
   // 1) Egreso del saldo origen (valida fondos).
-  await egresarDivisa({
+  const salida = await egresarDivisa({
     cajaId: input.origenCajaId, cuenta: input.origenCuenta, moneda: input.monedaDe, monto: montoDe,
-    concepto: motivo, categoria: 'conversion', actor: input.actor, actorName: input.actorName,
+    concepto: motivo, categoria: 'conversion', at, actor: input.actor, actorName: input.actorName,
   });
 
   // 2) Ingreso del convertido al saldo destino (recalcula su promedio).
   const destino = await ingresarDivisa({
     cajaId: input.destinoCajaId, cuenta: input.destinoCuenta, moneda: input.monedaA, monto: montoA,
-    tasaBs: tasaBsDest, origen: 'conversion', motivo, actor: input.actor, actorName: input.actorName,
+    tasaBs: tasaBsDest, origen: 'conversion', motivo, at, actor: input.actor, actorName: input.actorName,
   });
+
+  // 3) El renglón del historial. Va DESPUÉS de mover la plata y a propósito no rompe la
+  //    conversión si falla: el dinero ya se movió y los dos asientos del libro mayor son
+  //    la verdad. Perder el índice es molesto; deshacer un cambio de divisas, mucho peor.
+  try {
+    await supabase.from('caja_conversiones').insert({
+      fecha: fechaOp || new Date().toISOString().slice(0, 10),
+      hora: horaOp || new Date().toTimeString().slice(0, 5),
+      moneda_de: input.monedaDe, moneda_a: input.monedaA,
+      monto_de: montoDe, monto_a: montoA, tasa,
+      monto_bruto: montoBruto, comision_monto: comision, comision_pct: pct,
+      origen_caja_id: input.origenCajaId, origen_cuenta: input.origenCuenta,
+      destino_caja_id: input.destinoCajaId, destino_cuenta: input.destinoCuenta,
+      contraparte_tipo: input.contraparteTipo ?? null,
+      contraparte_nombre: input.contraparteNombre?.trim() || null,
+      motivo,
+      mov_salida_id: salida.id, mov_ingreso_id: destino.movId ?? null,
+      actor: input.actor, actor_name: input.actorName ?? null,
+    });
+  } catch { /* el cambio ya está hecho; el historial se puede reconstruir del libro mayor */ }
 
   // Saldo origen ya actualizado (puede haber quedado en 0 / sin fila visible).
   const { data: origAfter } = await supabase.from(SALDOS).select('*')

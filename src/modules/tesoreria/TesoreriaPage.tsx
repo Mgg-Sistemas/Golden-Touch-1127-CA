@@ -23,7 +23,7 @@ import { listComprasDirectas, getCompraDirectaByCajaMovId, type CompraDirecta } 
 import { listServiciosDirectos, getServicioDirectoByCajaMovId, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
-import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa } from './cajaSaldos.repository';
+import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, listConversiones, type ConversionCaja } from './cajaSaldos.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
   listTransferenciasInter, rechazarEntrante,
@@ -3009,8 +3009,17 @@ const labelCuentaConv = (c: CuentaCaja | string) => c === 'general' ? 'General' 
 function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
   cajas: Caja[]; actor: string; actorName: string | null; onClose: () => void; onConverted: () => void | Promise<void>;
 }) {
+  // El modal tiene dos caras: la que convierte y la que muestra lo ya convertido.
+  const [vista, setVista] = useState<'convertir' | 'historial'>('convertir');
   const [de, setDe] = useState<MonedaCaja>('USD');
   const [a, setA] = useState<MonedaCaja>('Bs');
+  // CUÁNDO OCURRIÓ el cambio. Arranca en ahora y se puede mover hacia atrás: una
+  // conversión de ayer que se carga hoy tiene que quedar fechada ayer, o el libro
+  // mayor cuenta otra historia que la casa de cambio.
+  const [fechaOp, setFechaOp] = useState(() => new Date().toISOString().slice(0, 10));
+  const [horaOp, setHoraOp] = useState(() => new Date().toTimeString().slice(0, 5));
+  const [historial, setHistorial] = useState<ConversionCaja[]>([]);
+  const [cargandoHist, setCargandoHist] = useState(false);
   const [origenSaldoId, setOrigenSaldoId] = useState('');     // saldo existente del que sale el dinero
   const [destinoCajaId, setDestinoCajaId] = useState('');
   const [destinoCuenta, setDestinoCuenta] = useState<CuentaCaja>('general');
@@ -3031,6 +3040,13 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
   useEffect(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
   useEffect(() => { listSaldos().then(setSaldos).catch(() => setSaldos([])); }, []);
+
+  const recargarHistorial = useCallback(() => {
+    setCargandoHist(true);
+    listConversiones().then(setHistorial).catch(() => setHistorial([])).finally(() => setCargandoHist(false));
+  }, []);
+  useEffect(() => { recargarHistorial(); }, [recargarHistorial]);
+  useRealtime(['caja_conversiones'], recargarHistorial);
 
   // Saldos disponibles en la moneda DE (de cualquier caja/cuenta, con saldo > 0).
   const saldosOrigen = useMemo(
@@ -3130,6 +3146,8 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
         origenCajaId: origenSaldo.caja_id, origenCuenta: origenSaldo.cuenta, monedaDe: de,
         destinoCajaId, destinoCuenta, monedaA: a,
         montoDe: montoNum, tasa: tasaNum, comisionPct, montoANeto: netoManual, motivo,
+        fecha: fechaOp, hora: horaOp,
+        contraparteTipo: cpTipo || null, contraparteNombre: cpNombre.trim() || null,
         actor, actorName,
       });
       if (cpTipo && cpNombre.trim()) {
@@ -3148,18 +3166,54 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
 
   return (
     <Modal title="Conversor multimoneda" size="md" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => void convertir()} disabled={!puede}>
-          {saving ? 'Convirtiendo…' : '💱 Convertir'}
-        </button>
-      </>
+      vista === 'historial' ? (
+        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      ) : (
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={() => void convertir()} disabled={!puede}>
+            {saving ? 'Convirtiendo…' : '💱 Convertir'}
+          </button>
+        </>
+      )
     }>
+      {/* Las dos caras del conversor. El historial vive acá adentro y no en otra pantalla:
+          la pregunta «¿a cuánto cambiamos la última vez?» se hace justo antes de convertir. */}
+      <div className="view-toggle" role="tablist" style={{ marginBottom: '.85rem' }}>
+        <button className={vista === 'convertir' ? 'active' : ''} onClick={() => setVista('convertir')}>💱 Convertir</button>
+        <button className={vista === 'historial' ? 'active' : ''} onClick={() => setVista('historial')}>
+          🕓 Historial{historial.length ? ` (${historial.length})` : ''}
+        </button>
+      </div>
+
+      {vista === 'historial' ? (
+        <HistorialConversiones filas={historial} cargando={cargandoHist} nombreCaja={nombreCaja} />
+      ) : (
+      <>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Convierte un <strong>saldo existente</strong> de una moneda a otra: descuenta de la caja
         origen y acredita el equivalente en la caja destino. La tasa sugerida toma el dólar
         de <strong>Binance (USDT/VES)</strong> y la TRM del COP (la <strong>BCV</strong> queda en la barra superior); es editable y se redondea a 2 decimales.
       </p>
+
+      {/* CUÁNDO se hizo el cambio. Va primero porque condiciona todo lo demás: si es de
+          otro día, la tasa que corresponde es la de ese día y no la de mercado de hoy. */}
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Fecha del cambio</label>
+          <input className="input" type="date" value={fechaOp} max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setFechaOp(e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>Hora</label>
+          <input className="input mono" type="time" value={horaOp} onChange={(e) => setHoraOp(e.target.value)} />
+        </div>
+      </div>
+      {fechaOp !== new Date().toISOString().slice(0, 10) && (
+        <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.5rem', color: 'var(--warning, #ff8a00)' }}>
+          Se va a cargar con fecha <strong>{fechaOp}</strong>, no la de hoy. Revisá que la tasa sea la de ese día.
+        </div>
+      )}
 
       <div className="form-grid">
         <div className="form-row">
@@ -3327,7 +3381,154 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
 
       {excede && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.8rem', marginTop: '.4rem' }}>El monto supera el saldo disponible.</div>}
       {err && <div className="muted" style={{ color: 'var(--danger)', fontSize: '.82rem', marginTop: '.4rem' }}>{err}</div>}
+      </>
+      )}
     </Modal>
+  );
+}
+
+/**
+ * Historial del conversor, dentro del mismo modal.
+ *
+ * Filtra por texto, por par de monedas, por quien lo hizo y por rango de fechas. El
+ * rango usa la fecha en que OCURRIO el cambio, no la de carga: quien revisa busca por
+ * el dia en que se cambio la plata, no por el dia en que alguien lo anoto.
+ */
+function HistorialConversiones({ filas, cargando, nombreCaja }: {
+  filas: ConversionCaja[]; cargando: boolean; nombreCaja: (id: string) => string;
+}) {
+  const [texto, setTexto] = useState('');
+  const [par, setPar] = useState('');      // «USDT→Bs»
+  const [quien, setQuien] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+
+  const pares = useMemo(
+    () => Array.from(new Set(filas.map((c) => `${c.moneda_de}→${c.moneda_a}`))).sort(),
+    [filas],
+  );
+  const personas = useMemo(
+    () => Array.from(new Set(filas.map((c) => c.actor_name?.trim() || c.actor))).sort(),
+    [filas],
+  );
+
+  const lista = useMemo(() => {
+    const q = norm(texto);
+    return filas.filter((c) => {
+      if (par && `${c.moneda_de}→${c.moneda_a}` !== par) return false;
+      if (quien && (c.actor_name?.trim() || c.actor) !== quien) return false;
+      if (desde && c.fecha < desde) return false;
+      if (hasta && c.fecha > hasta) return false;
+      if (!q) return true;
+      const heno = [
+        c.moneda_de, c.moneda_a, c.actor, c.actor_name, c.motivo, c.contraparte_nombre,
+        nombreCaja(c.origen_caja_id ?? ''), nombreCaja(c.destino_caja_id ?? ''),
+        String(c.monto_de), String(c.monto_a), String(c.tasa),
+      ].filter(Boolean).join(' ');
+      return norm(heno).includes(q);
+    });
+  }, [filas, texto, par, quien, desde, hasta, nombreCaja]);
+
+  const hayFiltro = !!(texto || par || quien || desde || hasta);
+  function limpiar() { setTexto(''); setPar(''); setQuien(''); setDesde(''); setHasta(''); }
+
+  return (
+    <>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+        Cada cambio de moneda que se hizo desde acá, del más reciente al más viejo. La fecha
+        es la del <strong>cambio</strong>; si se cargó otro día, el renglón lo avisa.
+      </p>
+
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Buscar</label>
+          <input className="input" value={texto} onChange={(e) => setTexto(e.target.value)}
+            placeholder="🔍 Moneda, caja, monto, quién lo hizo, con quién…" />
+        </div>
+        <div className="form-row">
+          <label>Cambio</label>
+          <select className="select" value={par} onChange={(e) => setPar(e.target.value)}>
+            <option value="">Todos los cambios</option>
+            {pares.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="form-grid">
+        <div className="form-row">
+          <label>Quién lo hizo</label>
+          <select className="select" value={quien} onChange={(e) => setQuien(e.target.value)}>
+            <option value="">Cualquiera</option>
+            {personas.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <label>Desde</label>
+          <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>Hasta</label>
+          <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+        </div>
+      </div>
+      <div className="muted" style={{ fontSize: '.78rem', margin: '.2rem 0 .6rem', display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span>{lista.length} de {filas.length} conversión(es).</span>
+        {hayFiltro && <button type="button" className="btn btn-sm btn-ghost" onClick={limpiar}>✕ Quitar filtros</button>}
+      </div>
+
+      <div className="table-wrap" style={{ maxHeight: 420, overflow: 'auto' }}>
+        <table className="table" style={{ fontSize: '.8rem' }}>
+          <thead>
+            <tr>
+              <th>Fecha</th><th>Cambio</th><th style={{ textAlign: 'right' }}>Salió</th>
+              <th style={{ textAlign: 'right' }}>Tasa</th><th style={{ textAlign: 'right' }}>Entró</th><th>Quién</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cargando && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!cargando && !lista.length && (
+              <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>
+                {filas.length ? 'Ninguna conversión coincide con el filtro.' : 'Todavía no se hizo ninguna conversión.'}
+              </td></tr>
+            )}
+            {!cargando && lista.map((c) => {
+              // Cargada otro día: se dice, no se esconde. Una conversión anotada tres días
+              // después no se puede leer como si fuera de hoy.
+              const cargadaEl = c.created_at.slice(0, 10);
+              const aDestiempo = cargadaEl !== c.fecha;
+              return (
+                <tr key={c.id}>
+                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>
+                    {c.fecha}
+                    {c.hora && <div className="muted" style={{ fontSize: '.72rem' }}>{c.hora.slice(0, 5)}</div>}
+                    {aDestiempo && <div className="muted" style={{ fontSize: '.68rem', color: 'var(--warning, #ff8a00)' }}>cargada el {cargadaEl}</div>}
+                  </td>
+                  <td>
+                    <strong>{c.moneda_de} → {c.moneda_a}</strong>
+                    <div className="muted" style={{ fontSize: '.7rem' }}>
+                      {nombreCaja(c.origen_caja_id ?? '')} → {nombreCaja(c.destino_caja_id ?? '')}
+                    </div>
+                    {c.contraparte_nombre && (
+                      <div className="muted" style={{ fontSize: '.7rem' }}>
+                        {c.contraparte_tipo === 'proveedor' ? '🏭' : '👤'} {c.contraparte_nombre}
+                      </div>
+                    )}
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{monto(c.monto_de, c.moneda_de)}</td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {Number(c.tasa).toLocaleString('es-VE', { maximumFractionDigits: 6 })}
+                    {Number(c.comision_monto) > 0 && (
+                      <div className="muted" style={{ fontSize: '.68rem' }}>com. {Number(c.comision_pct).toLocaleString('es-VE')}%</div>
+                    )}
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700 }}>{monto(c.monto_a, c.moneda_a)}</td>
+                  <td>{c.actor_name?.trim() || c.actor}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
