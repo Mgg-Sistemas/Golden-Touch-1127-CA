@@ -6,6 +6,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
+import { mensajeError } from '@/shared/lib/errores';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { MovimientosAcopioView, type ResumenAcopio } from './MovimientosAcopioView';
@@ -349,7 +350,11 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
       toast(`${filas.length} movimiento(s) registrado(s)`, 'success');
       onSaved();
-    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar.'); setSaving(false); }
+    } catch (e) {
+      // Supabase no tira `Error`: con `instanceof` el motivo real se perdía. Por acá
+      // llega el candado que avisa que ese contrato ya existe en Producción.
+      setError(mensajeError(e, 'No se pudo guardar.')); setSaving(false);
+    }
   }
 
   const footer = (
