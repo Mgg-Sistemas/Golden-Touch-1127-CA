@@ -15,6 +15,10 @@
    parte sola. Ahora se escribe con el marcado de WhatsApp —`*negrita*`— y un
    emoji por campo, que es lo que hace que se lea de un vistazo en el chat.
 
+   TAMBIÉN SIRVE PARA LAS COMPRAS A CRÉDITO (cuenta abierta). Ahí el total no
+   es lo que se paga hoy: se agregan lo abonado y el saldo, que es el número que
+   de verdad se manda. Sin eso el mensaje diría de más.
+
    QUÉ LLEVA: la orden, el proveedor, para qué se pide, la nota, cuánto, y por
    dónde se paga. Nada más. No lleva la lista de productos a propósito: quien
    paga necesita a quién, cuánto y por dónde; el detalle de qué se compró vive
@@ -124,7 +128,23 @@ export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
   if (nota) L.push(`🗒 *Nota:* ${nota}`);
   // El total es el de la orden, no la suma de los renglones: puede llevar IVA,
   // IGTF o un descuento por encima de las líneas.
-  L.push(`💵 *Total:* ${monto(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total, moneda)}`);
+  const totalOrden = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
+  L.push(`💵 *Total:* ${monto(totalOrden, moneda)}`);
+
+  // A CRÉDITO: el total no es lo que hay que pagar hoy. Una cuenta abierta se salda
+  // por abonos, así que mandar solo el total es mandar el número equivocado: quien
+  // recibe el mensaje paga de más o vuelve a preguntar. Se dice cuánto se abonó y
+  // cuánto queda. Sin abonos todavía no hay resta que mostrar, pero igual se avisa
+  // que es a crédito para que nadie lo lea como un pago único.
+  if (o.estado === 'cuenta_abierta') {
+    const abonado = Number(o.abonado_total) || 0;
+    if (abonado > 0) {
+      L.push(`💰 *Abonado:* ${monto(abonado, moneda)}`);
+      L.push(`🧾 *Saldo a pagar:* ${monto(Math.max(0, Math.round((totalOrden - abonado) * 100) / 100), moneda)}`);
+    } else {
+      L.push('🧾 *A crédito:* cuenta abierta, sin abonos todavía');
+    }
+  }
 
   const metodos = (o.metodo_pago ?? []) as PagoMetodo[];
   if (!metodos.length) {

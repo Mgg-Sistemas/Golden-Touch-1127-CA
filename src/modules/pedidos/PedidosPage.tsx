@@ -2510,6 +2510,16 @@ function OrdenDetailModal({
       {isCuentaAbierta && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ {ocLbl} PDF</button>
+          {/* La misma instrucción de pago en texto plano que las órdenes por pagar. Acá
+              hace más falta todavía: un crédito se salda de a poco y lo que se manda es
+              el SALDO, no el total. El TXT lo dice. */}
+          <button
+            className="btn btn-ghost"
+            onClick={() => descargarOrdenPagarTxt(o, proveedor)}
+            title="Bajar esta cuenta en texto plano: el proveedor, qué se pidió, el total, lo abonado y el saldo que queda, con el método de pago y sus datos. Para pegarlo en un chat o un correo."
+          >
+            ↓ TXT
+          </button>
           <button className="btn btn-ghost" onClick={onAbono} title="Ver la cuenta del crédito y el historial de abonos">
             📋 Ver crédito / historial
           </button>
