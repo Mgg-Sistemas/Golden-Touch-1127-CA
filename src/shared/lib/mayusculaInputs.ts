@@ -36,6 +36,30 @@ function debeMayuscular(el: EventTarget | null): el is HTMLInputElement | HTMLTe
   return true;
 }
 
+/**
+ * Escribe el valor SIN pasar por el setter que React le pone al nodo.
+ *
+ * React guarda en el nodo un "tracker" con el ultimo valor que vio, y para eso
+ * le redefine la propiedad `value` con un setter propio. Cuando alguien hace
+ * `el.value = x` desde afuera, ese setter actualiza el tracker; despues React
+ * compara el valor del campo contra el tracker, los ve iguales y DECIDE QUE NO
+ * CAMBIO NADA: no dispara onChange.
+ *
+ * Eso es exactamente lo que pasaba acá. Al escribir en minúscula, este listener
+ * convertía a mayúscula, el campo mostraba el texto… y el estado de React quedaba
+ * vacío. De ahí el «Indicá la categoría» con PEAJE escrito en pantalla. Al escribir
+ * en mayúscula no se convertía nada, así que el error aparecía solo a veces.
+ *
+ * Escribiendo por el setter del PROTOTIPO se saltea el de React: el tracker queda
+ * con el valor viejo, React ve la diferencia y dispara onChange como corresponde.
+ */
+function escribirSinEnganarAReact(el: HTMLInputElement | HTMLTextAreaElement, valor: string): void {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+  if (setter) setter.call(el, valor);
+  else el.value = valor; // sin descriptor no hay nada que saltear
+}
+
 let instalado = false;
 
 /** Activa la mayúscula automática global. Idempotente. */
@@ -52,7 +76,7 @@ export function instalarMayusculaAutomatica(): void {
       if (up === el.value) return;
       const start = el.selectionStart;
       const end = el.selectionEnd;
-      el.value = up;
+      escribirSinEnganarAReact(el, up);
       // La longitud no cambia al pasar a mayúscula → el cursor se conserva.
       try { if (start != null && end != null) el.setSelectionRange(start, end); } catch { /* type sin selección */ }
     },

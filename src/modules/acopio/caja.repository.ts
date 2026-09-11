@@ -41,7 +41,11 @@ export async function addClasificacion(grupo: GrupoClasificacion, valor: string)
   if (!v) throw new Error('Indicá el valor de la clasificación.');
   const { data, error } = await supabase
     .from('acopio_clasificaciones')
-    .insert({ grupo, valor: v, orden: 999 })
+    // El número lo pone la base (disparador `acopio_clasificacion_numera`): toma el
+    // siguiente del grupo. Antes acá iba un 999 fijo y todas las categorías nuevas
+    // terminaban amontonadas en el mismo puesto, con lo que la numeración de la
+    // lista dejaba de significar algo.
+    .insert({ grupo, valor: v })
     .select('*')
     .single();
   if (error) {
