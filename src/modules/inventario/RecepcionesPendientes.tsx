@@ -9,6 +9,7 @@ import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { recepcionarCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { nombreCortoAlmacen } from './almacenes.repository';
+import { rotuloMarcaModelo } from '@/shared/lib/marcaModelo';
 
 interface RecepcionesPendientesProps {
   /** Órdenes ya finalizadas (historial). */
@@ -29,10 +30,8 @@ interface RecepcionesPendientesProps {
   onRecibida: () => void | Promise<void>;
 }
 
-/** Marca/modelo ofertado de un ítem (para mostrarlo en el detalle). */
-function ficha(it: ItemOrden): string {
-  return [it.marca, it.modelo].map((v) => (v ?? '').toString().trim()).filter(Boolean).join(' · ');
-}
+/** Marca/modelo del ítem (para mostrarlo en el detalle). */
+const ficha = (it: ItemOrden): string => rotuloMarcaModelo(it);
 
 /** Almacenes ordenados: cada principal seguido de sus sub-almacenes. */
 function almacenesOrdenados(almacenes: Almacen[]): Almacen[] {

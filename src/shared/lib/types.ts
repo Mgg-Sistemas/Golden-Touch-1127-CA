@@ -1127,8 +1127,11 @@ export interface ItemOrden {
   precio_usd?: number | null;
   /** Descuento (monto, en la moneda de la oferta) aplicado a este ítem sobre el total en Bs. */
   descuento?: number | null;
-  /** Marca/modelo ofertado para este producto. Un proveedor puede cotizar el MISMO
-   *  producto en varias marcas/modelos (varias filas con el mismo sku) y su precio. */
+  /** Marca/modelo de este producto. Se escribe en la SOLICITUD (el que pide sabe qué
+   *  marca necesita), viaja a la cotización como valor de arranque y llega al inventario:
+   *  al recibir se suma a la descripción del producto y al detalle del movimiento.
+   *  El proveedor puede ofertar otra: puede cotizar el MISMO producto en varias
+   *  marcas/modelos (varias filas con el mismo sku) y su precio. */
   marca?: string | null;
   modelo?: string | null;
   productoId?: string;

@@ -96,10 +96,13 @@ export function AgregarOfertaModal({
   }, [opcionesProveedor]);
   const statSel = !nuevoProveedor ? stats.get(proveedorId) : undefined;
 
-  // Al editar, se cargan los ítems de la oferta tal cual se guardaron (con su
-  // marca/modelo/precio). Al CREAR una oferta nueva, los ítems "comprar" de la OP
-  // pero EN LIMPIO: precio/precio_usd/marca/modelo en blanco (esos campos son de
-  // cada oferta, no de la orden, que puede traer precios de ofertas/repartos previos).
+  // Al editar, se cargan los ítems de la oferta tal cual se guardaron. Al CREAR una
+  // oferta nueva, los ítems "comprar" de la OP con el PRECIO en blanco (el precio es de
+  // cada oferta, y la orden puede traer precios de ofertas o repartos previos).
+  //
+  // La MARCA y el MODELO no se blanquean: son lo que la solicitud PIDIÓ, y arrancar en
+  // blanco obligaba a reescribirlos en cada cotización y a perderlos si nadie lo hacía.
+  // Quedan editables: si el proveedor ofrece otra marca, se cambia acá y vale la suya.
   const [items, setItems] = useState<FormItem[]>(
     (ofertaEditar
       ? ofertaEditar.items
@@ -108,8 +111,8 @@ export function AgregarOfertaModal({
       ...i, uid: nuevoUid(),
       precio: editando ? Number(i.precio) || 0 : 0,
       precio_usd: editando ? Number((i as ItemOrden).precio_usd) || 0 : 0,
-      marca: editando ? (i as ItemOrden).marca ?? '' : '',
-      modelo: editando ? (i as ItemOrden).modelo ?? '' : '',
+      marca: (i as ItemOrden).marca ?? '',
+      modelo: (i as ItemOrden).modelo ?? '',
     })),
   );
   const [fechaEntrega, setFechaEntrega] = useState<string>(ofertaEditar?.fecha_entrega_prometida ?? '');

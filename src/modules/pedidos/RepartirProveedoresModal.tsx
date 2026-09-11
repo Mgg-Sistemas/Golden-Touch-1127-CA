@@ -5,6 +5,7 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import type { ItemOrden, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { repartirOpEntreProveedores, type GrupoReparto } from './pedidos.repository';
+import { rotuloMarcaModelo } from '@/shared/lib/marcaModelo';
 
 /** Clave estable de un ítem (para casar el mismo producto entre la OP y las ofertas). */
 const keyItem = (it: ItemOrden) => it.productoId ?? it.sku ?? it.nombre;
@@ -30,10 +31,8 @@ export function RepartirProveedoresModal({
   const precioEn = (it: ItemOrden, of: OfertaProveedor) =>
     Number(of.items.find((x) => keyItem(x) === keyItem(it))?.precio) || 0;
   // Marca/modelo que ESE proveedor ofertó para el ítem (para mostrar el detalle al elegirlo).
-  const fichaEn = (it: ItemOrden, of: OfertaProveedor): string => {
-    const x = of.items.find((y) => keyItem(y) === keyItem(it));
-    return [x?.marca, x?.modelo].map((v) => (v ?? '').toString().trim()).filter(Boolean).join(' · ');
-  };
+  const fichaEn = (it: ItemOrden, of: OfertaProveedor): string =>
+    rotuloMarcaModelo(of.items.find((y) => keyItem(y) === keyItem(it)) ?? {});
   // Proveedores (ofertas) que cotizan cada ítem.
   const ofertasDe = (it: ItemOrden) => ofertas.filter((of) => of.items.some((x) => keyItem(x) === keyItem(it)));
 
@@ -60,7 +59,17 @@ export function RepartirProveedoresModal({
       const of = ofertas.find((o) => o.id === ofId);
       if (!of) continue;
       const cur = porOferta.get(ofId) ?? { of, items: [] };
-      cur.items.push({ ...it, precio: precioEn(it, of) });
+      // Los renglones se arman sobre los de la OP, así que hay que traer de la oferta
+      // ganadora lo que es suyo: el precio Y la marca/modelo que ESE proveedor cotizó.
+      // Antes solo se copiaba el precio y la OC hija salía sin marca, aunque la oferta
+      // la dijera. Si la oferta no la aclara, queda la que pidió la solicitud.
+      const ofertado = of.items.find((x) => keyItem(x) === keyItem(it));
+      cur.items.push({
+        ...it,
+        precio: precioEn(it, of),
+        marca: ofertado?.marca?.trim() || it.marca || null,
+        modelo: ofertado?.modelo?.trim() || it.modelo || null,
+      });
       porOferta.set(ofId, cur);
     }
     return Array.from(porOferta.values()).map(({ of, items }) => {

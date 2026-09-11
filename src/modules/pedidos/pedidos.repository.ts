@@ -5,6 +5,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { rotuloMarcaModelo, descripcionConMarcaModelo } from '@/shared/lib/marcaModelo';
 import type {
   AbonoCredito,
   AdjuntoOferta,
@@ -1959,7 +1960,7 @@ export async function recibirOrdenParcial(
     if (!it.productoId || rec <= 0) return;
     const { data: prod, error: pErr } = await supabase
       .from('productos')
-      .select('stock, precio, precio_promedio, almacen, no_inventariable')
+      .select('stock, precio, precio_promedio, almacen, no_inventariable, descripcion')
       .eq('id', it.productoId)
       .maybeSingle();
     if (pErr) throw pErr;
@@ -1988,13 +1989,28 @@ export async function recibirOrdenParcial(
       ref_id: o.id,
       ref_codigo: o.codigo,
       proveedor_id: o.proveedor_id,
-      detalle: `Recepción de ${rec}/${it.cantidad} ${it.sku} @ $${precioCompra.toFixed(2)} (promedio: $${precioPromedio.toFixed(2)}) → ${almacenProd}`,
+      // El kardex dice CON QUÉ MARCA entró este lote. Un mismo producto se compra a
+      // varias marcas y, sin esto, el historial no distinguía una entrada de la otra.
+      detalle: [
+        `Recepción de ${rec}/${it.cantidad} ${it.sku} @ $${precioCompra.toFixed(2)} (promedio: $${precioPromedio.toFixed(2)}) → ${almacenProd}`,
+        rotuloMarcaModelo(it),
+      ].filter(Boolean).join(' · '),
+      // Sin esto la columna «Valor» del histórico de recepciones quedaba siempre vacía:
+      // la compra directa sí lo guardaba, la recepción de OC no.
+      precio_unitario: precioCompra,
     });
     if (mErr) throw mErr;
 
+    // La marca y el modelo que se pidieron en la solicitud se suman a la DESCRIPCIÓN
+    // del producto. Nunca se pisa lo que ya decía: el texto viejo queda y el rótulo
+    // se agrega en una línea nueva, y no se repite si ya estaba.
+    const descNueva = descripcionConMarcaModelo(prod?.descripcion as string | null, it);
     const { error: uErr } = await supabase
       .from('productos')
-      .update({ stock: stockDespues, precio: precioCompra, precio_promedio: precioPromedio })
+      .update({
+        stock: stockDespues, precio: precioCompra, precio_promedio: precioPromedio,
+        ...(descNueva ? { descripcion: descNueva } : {}),
+      })
       .eq('id', it.productoId);
     if (uErr) throw uErr;
 
