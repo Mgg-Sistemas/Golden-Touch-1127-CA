@@ -56,6 +56,7 @@ import { ImportarExcelModal } from './ImportarExcelModal';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { ProductosInactivosModal } from './ProductosInactivosModal';
 import { CostosYMedidasModal, contarSinCosto } from './CostosYMedidasModal';
+import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { norm } from '@/shared/lib/texto';
@@ -119,6 +120,7 @@ type ModalState =
   | { kind: 'export' }
   | { kind: 'inactivos' }
   | { kind: 'resumen' }
+  | { kind: 'recepciones' }
   | { kind: 'costos' }
   | { kind: 'transferencias' }
   | { kind: 'import'; analisis: AnalisisImport };
@@ -470,6 +472,16 @@ export function InventarioPage() {
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
             ↓ Exportar
           </button>
+          {/* Qué entró, quién lo recibió y a qué almacén. El kardex del producto muestra
+              la entrada pero no lleva a la orden, y el histórico de pedidos lista órdenes,
+              no recepciones. */}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setModal({ kind: 'recepciones' })}
+            title="Histórico de recepciones: qué se recibió, cuándo, quién lo recibió y a qué almacén entró"
+          >
+            📦 Histórico de recepciones
+          </button>
           {/* Única puerta a los productos dados de baja: el inventario ya no los
               muestra. Desde ahí se consultan, se filtran y se pueden reactivar. */}
           <button
@@ -645,6 +657,12 @@ export function InventarioPage() {
       {modal.kind === 'resumen' && (
         <ResumenInventarioModal
           defaultEmail={appUser?.email ?? user?.email ?? ''}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+      {modal.kind === 'recepciones' && (
+        <RecepcionesHistorialModal
+          productos={productos}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
