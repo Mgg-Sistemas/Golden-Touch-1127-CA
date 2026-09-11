@@ -94,6 +94,7 @@ import { CrearServicioModal } from './CrearServicioModal';
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import { norm } from '@/shared/lib/texto';
+import { rotuloMarcaModelo, tieneMarcaModelo } from '@/shared/lib/marcaModelo';
 
 /* ============================================================
    Golden Touch · Pedidos / Órdenes · Página principal
@@ -2856,9 +2857,9 @@ function OrdenDetailModal({
               <td className="mono">{it.sku}</td>
               <td>
                 {it.nombre}
-                {(it.marca?.trim() || it.modelo?.trim()) && (
+                {tieneMarcaModelo(it) && (
                   <div className="muted" style={{ fontSize: '.74rem', marginTop: '.1rem' }}>
-                    🏷 {[it.marca?.trim() && `Marca: ${it.marca.trim()}`, it.modelo?.trim() && `Modelo: ${it.modelo.trim()}`].filter(Boolean).join(' · ')}
+                    🏷 {rotuloMarcaModelo(it)}
                   </div>
                 )}
                 {(it.bombonas || it.kg_recarga) && (() => {
@@ -3528,7 +3529,13 @@ function CrearOrdenModal({
       // comprar=true por defecto: se puede desmarcar para no comprarlo.
       return [
         ...prev,
-        { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true },
+        {
+          productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0,
+          unidad: p.unidad, comprar: true,
+          // Arranca con la marca/modelo de la ficha del producto: si ya se sabe cuál
+          // es, no hay que volver a escribirla; y si hace falta otra, se cambia acá.
+          marca: p.marca ?? null, modelo: p.modelo ?? null,
+        },
       ];
     });
   }
@@ -3826,6 +3833,24 @@ function CrearOrdenModal({
                   defaultValue={it.finalidad ?? ''}
                   onChange={(e) => updateItem(idx, { finalidad: e.target.value })}
                 />
+                {/* Marca y modelo que se NECESITAN. Viajan a la cotización como valor
+                    de arranque y, al recibir, se suman a la descripción del producto. */}
+                <div style={{ display: 'flex', gap: '.3rem' }}>
+                  <input
+                    className="input"
+                    style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
+                    placeholder="Marca (opcional)"
+                    defaultValue={it.marca ?? ''}
+                    onChange={(e) => updateItem(idx, { marca: e.target.value.toUpperCase() || null })}
+                  />
+                  <input
+                    className="input"
+                    style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
+                    placeholder="Modelo (opcional)"
+                    defaultValue={it.modelo ?? ''}
+                    onChange={(e) => updateItem(idx, { modelo: e.target.value.toUpperCase() || null })}
+                  />
+                </div>
               </div>
             )}
             </div>
@@ -4336,6 +4361,17 @@ function EditarOrdenModal({
                     <input className="input" style={{ width: '100%', fontSize: '.82rem' }}
                       placeholder="Finalidad de este producto (¿para qué se compra?)"
                       defaultValue={it.finalidad ?? ''} onChange={(e) => updateItem(idx, { finalidad: e.target.value })} />
+                    {/* Marca y modelo pedidos: se pueden corregir mientras la orden se edita. */}
+                    <div style={{ display: 'flex', gap: '.3rem' }}>
+                      <input className="input" style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
+                        placeholder="Marca (opcional)"
+                        defaultValue={it.marca ?? ''}
+                        onChange={(e) => updateItem(idx, { marca: e.target.value.toUpperCase() || null })} />
+                      <input className="input" style={{ flex: 1, minWidth: 0, fontSize: '.82rem' }}
+                        placeholder="Modelo (opcional)"
+                        defaultValue={it.modelo ?? ''}
+                        onChange={(e) => updateItem(idx, { modelo: e.target.value.toUpperCase() || null })} />
+                    </div>
                   </div>
                 )}
               </div>

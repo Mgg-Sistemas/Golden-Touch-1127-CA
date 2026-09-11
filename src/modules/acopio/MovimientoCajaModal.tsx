@@ -9,6 +9,7 @@ import {
   type CajaMovimientoInput,
 } from './caja.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
+import { mensajeError } from '@/shared/lib/errores';
 
 /**
  * Alta/edición de un movimiento de la caja de Acopio (acopio_caja_movimientos).
@@ -98,14 +99,19 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
       if (esNuevo) { await crearMovimientoCaja(buildInput(), actor, actorName); toast('Movimiento registrado', 'success'); }
       else { await actualizarMovimientoCaja(mov!.id, buildInput()); toast('Movimiento actualizado', 'success'); }
       onSaved();
-    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar.'); setSaving(false); }
+    } catch (e) {
+      // Supabase no tira `Error`: con `instanceof` el motivo real se perdía y el
+      // usuario veía «No se pudo guardar.» sin saber qué corregir. El candado que
+      // avisa que el contrato ya existe en Producción llega por acá.
+      setError(mensajeError(e, 'No se pudo guardar.')); setSaving(false);
+    }
   }
   async function eliminar() {
     if (!mov) return;
     setConfirmDel(false);
     setSaving(true);
     try { await eliminarMovimientoCaja(mov.id); toast('Eliminado', 'success'); onSaved(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'Error', 'error'); setSaving(false); }
+    catch (e) { toast(mensajeError(e, 'No se pudo eliminar el movimiento.'), 'error'); setSaving(false); }
   }
 
   const footer = (

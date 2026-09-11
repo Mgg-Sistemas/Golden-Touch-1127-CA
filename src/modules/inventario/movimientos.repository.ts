@@ -207,3 +207,25 @@ export async function transferir(input: TransferirInput): Promise<void> {
     detalle: `Transferencia desde ${input.almacenOrigen}${extra}`,
   });
 }
+
+/**
+ * Movimientos que son una RECEPCIÓN de compra (entradas por orden o por compra
+ * directa) dentro de un rango de días. Es la materia prima del histórico de
+ * recepciones: no hay tabla de recepciones, se reconstruyen agrupando esto.
+ *
+ * El tope de 1.000 filas es el de PostgREST. Por eso la pantalla acota por
+ * fechas antes de pedir, en vez de traer todo y filtrar después.
+ */
+export async function listMovimientosRecepcion(desde: string, hasta: string): Promise<Movimiento[]> {
+  const { data, error } = await supabase
+    .from('movimientos')
+    .select('*')
+    .in('ref_tipo', ['orden', 'compra_directa'])
+    .gt('delta', 0)
+    .gte('at', `${desde}T00:00:00`)
+    .lte('at', `${hasta}T23:59:59`)
+    .order('at', { ascending: false })
+    .limit(1000);
+  if (error) throw error;
+  return (data ?? []) as Movimiento[];
+}
