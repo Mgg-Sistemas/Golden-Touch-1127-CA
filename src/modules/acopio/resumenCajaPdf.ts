@@ -24,12 +24,30 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 58 : MARGIN;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('Resumen de Caja · Centro de Acopio', tx, y + 16);
+  // ENCABEZADO SIN PISARSE. Esta hoja es CARTA VERTICAL (612 pt): el título a 15 pt
+  // y la empresa con la fecha en un solo renglón a la derecha no entran juntos, y se
+  // montaban uno sobre otro. Dos medidas: la derecha se parte en dos renglones (la
+  // empresa arriba, la fecha abajo), que la achica a la mitad; y el título se reduce
+  // lo justo si aun así no entra, en vez de invadir.
+  const empresa = 'GOLDEN TOUCH 1127 C.A.';
+  const fechaHoy = dateTime(new Date().toISOString());
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  const anchoDerecha = Math.max(doc.getTextWidth(empresa), doc.getTextWidth(fechaHoy));
+  doc.text(empresa, PAGE_W - MARGIN, y + 14, { align: 'right' });
+  doc.text(fechaHoy, PAGE_W - MARGIN, y + 26, { align: 'right' });
+
+  const TITULO = 'Resumen de Caja · Centro de Acopio';
+  const disponible = PAGE_W - MARGIN - tx - anchoDerecha - 14; // 14 pt de aire entre los dos
+  doc.setFont('helvetica', 'bold');
+  let tamTitulo = 15;
+  doc.setFontSize(tamTitulo);
+  while (tamTitulo > 9 && doc.getTextWidth(TITULO) > disponible) {
+    tamTitulo -= 0.5;
+    doc.setFontSize(tamTitulo);
+  }
+  doc.text(TITULO, tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   doc.text(`Centro de Acopio: ${r.centro}`, tx, y + 32);
-  doc.setFontSize(9);
-  doc.text(`GOLDEN TOUCH 1127 C.A. · ${dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 16, { align: 'right' });
   y += 54;
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5); doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 14;
 
