@@ -3509,7 +3509,11 @@ function CrearOrdenModal({
 
   function addItem() {
     const p = allProductos.find((x) => x.id === prodSelectId);
-    if (!p) return;
+    if (p) agregarProducto(p);
+  }
+
+  /** Agrega un producto del inventario a la solicitud (o le suma 1 si ya estaba). */
+  function agregarProducto(p: Producto) {
     // El número manda tras (re)agregar: olvidamos el texto crudo de esa cantidad.
     setCantEdit((m) => { const n = { ...m }; delete n[p.id]; return n; });
     // Confirmación en pantalla: antes el producto entraba a la lista en silencio y,
@@ -3556,6 +3560,19 @@ function CrearOrdenModal({
     if (!q) return todos;
     return todos.filter(({ it }) => normalizarBusqueda(`${it.nombre ?? ''} ${it.sku ?? ''}`).includes(q));
   }, [items, filtroItems]);
+
+  // Lo que se escribe en el buscador de la lista y NO está cargado, pero SÍ existe en el
+  // inventario: se ofrece para añadirlo ahí mismo. Antes ese buscador decía «ningún
+  // producto coincide» y parecía que el producto no existía, cuando el que busca en
+  // todo el inventario es el de «+ Añadir», más abajo.
+  const sugeridosInventario = useMemo(() => {
+    const q = normalizarBusqueda(filtroItems);
+    if (q.length < 2) return [];
+    const enLista = new Set(items.map((i) => i.productoId).filter(Boolean));
+    return allProductos
+      .filter((p) => !enLista.has(p.id) && normalizarBusqueda(`${p.nombre ?? ''} ${p.sku ?? ''}`).includes(q))
+      .slice(0, 8);
+  }, [filtroItems, items, allProductos]);
 
   async function handleSubmit() {
     if (!items.length) {
@@ -3771,6 +3788,27 @@ function CrearOrdenModal({
           {!!items.length && !itemsVisibles.length && (
             <div className="muted" style={{ fontSize: '.84rem', padding: '.5rem 0' }}>
               Ningún producto de la lista coincide con «{filtroItems.trim()}».
+            </div>
+          )}
+          {sugeridosInventario.length > 0 && (
+            <div className="card" style={{ padding: '.5rem .6rem', marginBottom: '.5rem', background: 'var(--bg-2)' }}>
+              <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.35rem' }}>
+                No están en esta solicitud, pero sí en el inventario:
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem' }}>
+                {sugeridosInventario.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => agregarProducto(p)}
+                    title={`Añadir ${p.nombre} a la solicitud`}
+                  >
+                    + Añadir {p.nombre}
+                    <span className="muted mono" style={{ fontSize: '.7rem', marginLeft: '.3rem' }}>{p.sku}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {itemsVisibles.map(({ it, idx }) => {
