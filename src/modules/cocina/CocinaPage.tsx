@@ -75,6 +75,10 @@ export function CocinaPage() {
   const [confirmarInicio, setConfirmarInicio] = useState(false);
   const [iniciando, setIniciando] = useState(false);
   const [errorMercado, setErrorMercado] = useState<string | null>(null);
+  // true recién cuando la lectura del mercado salió bien. Sin esto, si fallaba otra
+  // lectura previa (las comidas), la pantalla decía «No hay un mercado abierto» sin
+  // haberlo consultado.
+  const [mercadoLeido, setMercadoLeido] = useState(false);
 
   async function enviarAlertaMercado() {
     setEnviandoAlerta(true);
@@ -114,6 +118,7 @@ export function CocinaPage() {
       try {
         const mk = await getMercadoActivo();
         setMercado(mk);
+        setMercadoLeido(true);
         setErrorMercado(null);
         if (mk) {
           const { items, totales } = await computeResumen(mk, v);
@@ -274,7 +279,7 @@ export function CocinaPage() {
 
       {/* Sin mercado abierto: lo inicia una persona. La pantalla ya no lo crea sola
           (ver iniciarMercado), así que este es el único camino para abrir uno. */}
-      {!loading && !mercado && !errorMercado && (
+      {!loading && mercadoLeido && !mercado && !errorMercado && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--brand, #ff8a00)' }}>
           <div className="card-title"><span>🛒 No hay un mercado abierto</span></div>
           <p className="muted" style={{ marginTop: 0 }}>
