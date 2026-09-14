@@ -215,7 +215,7 @@ export async function ingresarDineroCaja(input: {
    NO se editan acá: se anulan desde su módulo, para no descuadrar el otro lado/inventario.
    Al editar/borrar se SINCRONIZA el saldo de la caja (legacy o multimoneda). */
 
-const CATEGORIAS_VINCULADAS = new Set(['pago_oc', 'traslado', 'conversion', 'compra_directa', 'servicio_directo', 'reverso', 'conciliacion']);
+const CATEGORIAS_VINCULADAS = new Set(['pago_oc', 'reembolso_oc', 'traslado', 'conversion', 'compra_directa', 'servicio_directo', 'reverso', 'conciliacion']);
 
 /** ¿Es un movimiento manual EDITABLE desde Tesorería? (editar monto/motivo/fecha) */
 export function esMovimientoEditable(m: MovimientoCaja): boolean {
@@ -229,7 +229,7 @@ export function esMovimientoEditable(m: MovimientoCaja): boolean {
 /** Categorías cuyo movimiento depende de un DOCUMENTO externo (su borrado debe hacerse
  *  anulando/reabriendo desde su módulo, para no dejar el documento sin respaldo o el
  *  inventario descuadrado). NO se borran directamente desde el libro. */
-const CATEGORIAS_DOCUMENTO = new Set(['pago_oc', 'compra_directa', 'servicio_directo', 'reverso', 'conciliacion']);
+const CATEGORIAS_DOCUMENTO = new Set(['pago_oc', 'reembolso_oc', 'compra_directa', 'servicio_directo', 'reverso', 'conciliacion']);
 
 /**
  * ¿Se puede BORRAR el movimiento desde Tesorería sincronizando el saldo?

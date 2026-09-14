@@ -1296,6 +1296,14 @@ export interface Orden {
   retencion_finalizada_en?: string | null;
   retencion_pagada?: boolean | null;
   retencion_pagada_en?: string | null;
+  /** Al pagar en Tesorería se marcó que la factura tenía retención. */
+  retencion_aplicada?: boolean | null;
+  /** Monto retenido (moneda de la OC). Se restó del total de la factura al pagar. */
+  retencion_monto?: number | null;
+  /** Lo pagado DE MÁS, en USD equivalente. Salió en egresos «REEMBOLSO DE ORDEN DE COMPRA». */
+  reembolso_usd?: number | null;
+  /** Egresos de reembolso de esta OC (movimientos_caja). */
+  reembolso_caja_mov_ids?: string[] | null;
   /** Recepción (parcial): total realmente recibido + nota de diferencias. */
   recibido_total?: number | null;
   nota_recepcion?: string | null;
