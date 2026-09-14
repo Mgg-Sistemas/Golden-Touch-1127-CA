@@ -55,7 +55,8 @@ const DUDAS: Entrada[] = [
       <>
         La tabla muestra los productos <strong>activos</strong> de las categorías de cocina (alimentos, víveres,
         carnes, proteínas, hortalizas, legumbres, verduras y limpieza) que tuvieron saldo, entradas, consumo o
-        stock. Si no aparece, lo primero es mirar su <strong>categoría</strong> y si está activo.
+        stock. Los que no se movieron en el ciclo quedan detrás de «Ver los N víveres que no se movieron», al pie
+        de la tabla. Si tampoco está ahí, lo primero es mirar su <strong>categoría</strong> y si está activo.
       </>
     ),
   },

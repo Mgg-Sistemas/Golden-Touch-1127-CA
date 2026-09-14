@@ -23,6 +23,8 @@ import {
 import { claveDescarte, confirmacionValida, motivoValido, MOTIVO_DESCARTE_MIN } from './mercadoDescarte';
 import { primerDiaElegible, resolverInicio } from './mercadoInicio';
 import { LeyendaCocina } from './LeyendaCocina';
+import { EcuacionMercado, SelectorVista, TablaDisponible } from './PanelMercado';
+import { diferenciasPorViver, explicarDiferencia, guardarVista, vistaGuardada, type VistaMercado } from './mercadoPanel';
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 import { MercadosHistoricoModal } from './MercadosHistoricoModal';
@@ -87,6 +89,12 @@ export function CocinaPage() {
   // lectura previa (las comidas), la pantalla decía «No hay un mercado abierto» sin
   // haberlo consultado.
   const [mercadoLeido, setMercadoLeido] = useState(false);
+  // Panel por capas, como MGG: qué se mira (se recuerda en el navegador), el filtro de
+  // víveres que no cuadran y el aviso de víveres bajos plegado a una línea.
+  const [vista, setVista] = useState<VistaMercado>(() => vistaGuardada());
+  const [soloDif, setSoloDif] = useState(false);
+  const [verBajos, setVerBajos] = useState(false);
+  function elegirVista(v: VistaMercado) { setVista(v); guardarVista(v); }
 
   async function enviarAlertaMercado() {
     setEnviandoAlerta(true);
@@ -188,6 +196,21 @@ export function CocinaPage() {
   // Contador del ciclo (día X de 21, cuántos faltan, si ya venció).
   const ciclo = useMemo(() => (mercado ? diasDelCiclo(mercado) : null), [mercado]);
 
+  // Víveres cuya cuenta del ciclo no da lo que hay en el inventario (para el detalle).
+  const difPorProducto = useMemo(
+    () => new Map(diferenciasPorViver(resMercado).map((d) => [d.producto_id, d] as const)),
+    [resMercado],
+  );
+  // Del aviso a los víveres concretos: enciende el filtro y, si hacía falta, cambia a la
+  // vista que tiene la tabla. Solo cambiar de vista dejaba buscándolos a ojo.
+  function alternarSoloDif(activar: boolean) {
+    setSoloDif(activar);
+    if (activar && vista === 'movimientos') elegirVista('disponible');
+  }
+  const verDisponible = !!mercado && vista !== 'movimientos';
+  // Sin mercado no hay tabla de víveres ni selector: las comidas quedan siempre a la vista.
+  const verMovimientos = vista !== 'disponible' || (!mercado && (mercadoLeido || !!errorMercado));
+
   // Detalle de un víver del ciclo (lo que quedó + la nueva entrada + los consumos).
   async function abrirDetalleViver(item: ResumenViver) {
     if (!mercado) return;
@@ -249,46 +272,13 @@ export function CocinaPage() {
           <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Consumo de víveres por comida (desayuno, almuerzo, cena), con platos y costo del inventario.</p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {ciclo && mercado && (
-            <span className="mono" title={`Mercado ${mercado.numero ?? ''} · inició ${dateTime(mercado.inicio_at)}`}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '.4rem', padding: '.3rem .6rem', borderRadius: 8,
-                fontSize: '.8rem', fontWeight: 700,
-                border: `1px solid ${ciclo.vencido ? 'var(--danger)' : 'var(--border, #334)'}`,
-                color: ciclo.vencido ? 'var(--danger)' : 'inherit',
-                background: ciclo.vencido ? 'color-mix(in srgb, var(--danger) 12%, transparent)' : 'transparent',
-              }}>
-              🛒 Día {ciclo.dia} de {CICLO_DIAS} · {ciclo.vencido ? '¡toca cerrar!' : `faltan ${ciclo.faltan}`}
-            </span>
-          )}
+          {/* El contador del ciclo, «Cerrar» y «Descartar» van en el panel del mercado, como
+              en MGG: la cabecera queda para lo que se hace todos los días. */}
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
           <button className="btn btn-ghost" onClick={() => setModal('historico')} title="Ver los mercados ya cerrados: visualizar, editar y sacar reportes">🗂 Mercados cerrados</button>
-          {canWrite && mercado && (
-            <button className={`btn ${ciclo?.vencido ? 'btn-danger' : 'btn-ghost'}`} onClick={() => setConfirmarCierre(true)}
-              title="Cerrar el ciclo de mercado: genera el reporte (PDF/correo) y arranca el siguiente con lo que quedó">
-              🧾 Cerrar mercado
-            </button>
-          )}
-          {/* DESCARTAR es lo contrario de cerrar: cerrar abre el siguiente con lo que quedó;
-              descartar deja el ciclo fuera de la cuenta y no abre ninguno. Va al lado, en
-              tono discreto: es una salida de excepción, no la habitual. */}
-          {canWrite && mercado && (
-            <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setDescartandoId(mercado?.id ?? null)}
-              title="El mercado no cuenta y no le pasa saldo al siguiente. No se borra nada. El próximo se inicia con «Iniciar mercado».">
-              ⊘ Descartar mercado
-            </button>
-          )}
           {canWrite && <button className="btn btn-warning" onClick={() => setModal('alerta')} title="Avisar a Compras que hay que montar el mercado">🔔 Alerta a Restablecer</button>}
           {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>➕ Añadir Movimiento</button>}
         </div>
-      </div>
-
-      {/* KPIs sincronizados con la tabla (según los filtros de fecha/tipo/búsqueda). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', margin: '1rem 0' }}>
-        <KpiCard titulo="Platos" valor={num(resFiltrado.platos)} nota={`${resFiltrado.movimientos} movimiento(s) · ${notaPeriodo}`} />
-        <KpiCard titulo="Consumo" valor={money(resFiltrado.valorTotal)} nota={`costo de víveres · ${notaPeriodo}`} destacado />
-        <KpiCard titulo="Promedio por plato" valor={money(resFiltrado.promedioPorPlato)} nota={notaPeriodo} />
-        <KpiCard titulo="Víveres en catálogo" valor={num(viveres.length)} nota="productos disponibles" />
       </div>
 
       {/* Sin mercado abierto: lo inicia una persona. La pantalla ya no lo crea sola
@@ -340,70 +330,76 @@ export function CocinaPage() {
         </div>
       )}
 
-      {/* Disponible a consumir en el mercado actual: saldo (lo que quedó) + entrada nuevo = total. */}
-      {mercado && resMercado.length > 0 && (
-        <div className="card" style={{ marginBottom: '1rem' }}>
-          <div className="card-title">
-            <span>🛒 Disponible a consumir <span className="muted" style={{ fontWeight: 400 }}>· Mercado {mercado.numero ?? ''} (ciclo desde {dmy(mercado.inicio_at.slice(0, 10))})</span></span>
-            <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>Tocá un víver para ver lo que quedó, la nueva entrada y los consumos</span>
-          </div>
-          <div className="table-wrap">
-            <table className="table" style={{ fontSize: '.84rem' }}>
-              <thead><tr>
-                <th>Víver</th>
-                <th style={{ textAlign: 'right' }}>Saldo <span className="muted" style={{ fontWeight: 400 }}>(hasta {dmy(mercado.inicio_at.slice(0, 10))})</span></th>
-                <th style={{ textAlign: 'right' }}>＋ Entrada <span className="muted" style={{ fontWeight: 400 }}>(nuevo)</span></th>
-                <th style={{ textAlign: 'right' }}>＝ Disponible</th>
-                <th style={{ textAlign: 'right' }}>Consumo</th>
-                <th style={{ textAlign: 'right' }}>Queda</th>
-              </tr></thead>
-              <tbody>
-                {resMercado.map((r) => (
-                  <tr key={r.producto_id} style={{ cursor: 'pointer' }} onClick={() => void abrirDetalleViver(r)}
-                    title="Ver lo que quedó + la nueva entrada + los consumos">
-                    <td>{r.nombre} {r.unidad && <span className="muted">· {r.unidad}</span>}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(r.saldo_inicial)}</td>
-                    <td className="mono" style={{ textAlign: 'right', color: r.entradas > 0 ? 'var(--brand, #ff8a00)' : undefined }}>{r.entradas > 0 ? `+${num(r.entradas)}` : '—'}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(r.disponible)}</td>
-                    <td className="mono" style={{ textAlign: 'right', color: r.consumo > 0 ? 'var(--danger)' : undefined }}>{r.consumo > 0 ? `−${num(r.consumo)}` : '—'}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: r.queda > 0 ? 'var(--success, #16a34a)' : 'var(--muted)' }}>{num(r.queda)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              {totMercado && (
-                <tfoot><tr>
-                  <td style={{ fontWeight: 700 }}>Total ({totMercado.viveres} víveres)</td>
-                  <td colSpan={3}></td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(totMercado.consumo_valor)}</td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totMercado.queda_viveres)} c/saldo</td>
-                </tr></tfoot>
-              )}
-            </table>
-          </div>
-        </div>
+      {/* ── CAPA 1 · La ecuación del ciclo (portado de MGG) ───────────────────
+          Los cinco números del ciclo, lo que costó el plato y, solo si no cuadra, el
+          contraste con el inventario. Reemplaza al contador de la cabecera. */}
+      {mercado && (
+        <EcuacionMercado mercado={mercado} items={resMercado} platos={totMercado?.platos ?? null}
+          consumoValor={totMercado?.consumo_valor ?? 0} ciclo={ciclo} soloDif={soloDif} onSoloDif={alternarSoloDif} />
       )}
 
-      {/* Dudas frecuentes del mercado, plegadas (portado de MGG). */}
-      {mercado && <LeyendaCocina />}
-
-      {/* Aviso de víveres bajos (20% o menos del mínimo): también se notifica a Compras */}
+      {/* Aviso de víveres bajos (20% o menos del mínimo): también se notifica a Compras.
+          Plegado a una línea: el aviso y la cuenta quedan a la vista; la lista, a un clic. */}
       {bajos.length > 0 && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '1rem' }}>
-          <div className="card-title">
-            <span>🥫 Víveres para reponer <span className="muted" style={{ fontWeight: 400 }}>(20% o menos del mínimo)</span></span>
-            <span className="muted mono">{num(bajos.length)} · avisado a Compras</span>
-          </div>
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            {bajos.slice(0, 12).map((p) => (
-              <span key={p.id} className="btn btn-sm btn-ghost" style={{ cursor: 'default' }}
-                title={`Stock ${num(Number(p.stock))} · mínimo ${num(Number(p.stock_min))} · umbral 20% = ${num(Number(p.stock_min) * 0.2)}`}>
-                {p.nombre} · {num(Number(p.stock))} {p.unidad ?? ''}
-              </span>
-            ))}
-            {bajos.length > 12 && <span className="muted" style={{ alignSelf: 'center' }}>…y {num(bajos.length - 12)} más</span>}
-          </div>
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.7rem', padding: '.55rem .8rem', fontSize: '.83rem' }}>
+          🥫 <strong className="mono">{num(bajos.length)}</strong> {bajos.length === 1 ? 'víver' : 'víveres'} para reponer
+          <span className="muted"> · 20% o menos del mínimo · avisado a Compras</span>
+          <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.4rem' }} aria-expanded={verBajos} onClick={() => setVerBajos((v) => !v)}>
+            {verBajos ? 'ocultar' : 'ver cuáles'}
+          </button>
+          {verBajos && (
+            <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
+              {bajos.map((p) => (
+                <span key={p.id} className="btn btn-sm btn-ghost" style={{ cursor: 'default' }}
+                  title={`Stock ${num(Number(p.stock))} · mínimo ${num(Number(p.stock_min))} · umbral 20% = ${num(Number(p.stock_min) * 0.2)}`}>
+                  {p.nombre} · {num(Number(p.stock))} {p.unidad ?? ''}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
+
+      {/* ── CAPA 2 · Qué se quiere mirar ── */}
+      {mercado && <SelectorVista vista={vista} onElegir={elegirVista} />}
+
+      {/* Cerrar y descartar, al lado del panel como en MGG. Cerrar se resalta pasado el día
+          21; antes queda punteado. DESCARTAR es lo contrario de cerrar: no abre el siguiente
+          ni le pasa saldo. Va en tono discreto: es la salida de excepción, no la habitual. */}
+      {canWrite && mercado && (
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.8rem' }}>
+          <button className={`btn ${ciclo?.vencido ? 'btn-primary' : 'btn-ghost'}`} style={ciclo?.vencido ? undefined : { borderStyle: 'dashed' }}
+            onClick={() => setConfirmarCierre(true)}
+            title={ciclo?.vencido
+              ? 'Cerrar el ciclo: genera el reporte (PDF/correo) y arranca el siguiente con lo que quedó'
+              : `Todavía no llega el día ${CICLO_DIAS + 1}; se puede cerrar igual si hace falta`}>
+            {ciclo?.vencido ? `🧾 Cerrar mercado (día ${ciclo.dia}) — genera PDF y arranca el siguiente` : '🧾 Cerrar mercado anticipadamente'}
+          </button>
+          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setDescartandoId(mercado.id)}
+            title="El mercado no cuenta y no le pasa saldo al siguiente. No se borra nada. El próximo se inicia con «Iniciar mercado».">
+            ⊘ Descartar mercado
+          </button>
+        </div>
+      )}
+
+      {!mercadoLeido && !errorMercado && !verMovimientos && (
+        <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div>
+      )}
+
+      {/* ── CAPA 3a · Disponible a consumir ── */}
+      {verDisponible && (
+        <TablaDisponible items={resMercado} soloDif={soloDif} onSoloDif={setSoloDif} onElegir={(r) => void abrirDetalleViver(r)} />
+      )}
+
+      {/* ── CAPA 3b · Movimientos: las comidas registradas, con sus tarjetas y filtros ──
+          Las tarjetas resumen lo mismo que muestra la tabla, así que van con ella. */}
+      {verMovimientos && (<>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', margin: '0 0 1rem' }}>
+        <KpiCard titulo="Platos" valor={num(resFiltrado.platos)} nota={`${resFiltrado.movimientos} movimiento(s) · ${notaPeriodo}`} />
+        <KpiCard titulo="Consumo" valor={money(resFiltrado.valorTotal)} nota={`costo de víveres · ${notaPeriodo}`} destacado />
+        <KpiCard titulo="Promedio por plato" valor={money(resFiltrado.promedioPorPlato)} nota={notaPeriodo} />
+        <KpiCard titulo="Víveres en catálogo" valor={num(viveres.length)} nota="productos disponibles" />
+      </div>
 
       {/* Filtros de la tabla */}
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -492,6 +488,10 @@ export function CocinaPage() {
           </div>
         </div>
       )}
+      </>)}
+
+      {/* Va al pie y cerrada: las mismas preguntas vuelven cada ciclo (portado de MGG). */}
+      {mercado && <LeyendaCocina />}
 
       {modal === 'add' && (
         <AddMovimientoModal viveres={viveres} actor={actor} actorName={actorName}
@@ -531,54 +531,65 @@ export function CocinaPage() {
 
       {/* Detalle de un víver del ciclo: lo que quedó + la nueva entrada + los consumos. */}
       {detalleViver && (
-        <Modal title={`🛒 ${detalleViver.item.nombre}`} size="md" onClose={() => setDetalleViver(null)}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '.5rem', marginBottom: '.8rem' }}>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Saldo (lo que quedó)</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem' }}>{num(detalleViver.item.saldo_inicial)}</div>
-            </div>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>＋ Entrada (nuevo)</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--brand, #ff8a00)' }}>{num(detalleViver.item.entradas)}</div>
-            </div>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>＝ Disponible</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem' }}>{num(detalleViver.item.disponible)}</div>
-            </div>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Consumo</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--danger)' }}>{num(detalleViver.item.consumo)}</div>
-            </div>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Queda</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--success, #16a34a)' }}>{num(detalleViver.item.queda)}</div>
-            </div>
-          </div>
+        <Modal title={`Víver · ${detalleViver.item.nombre}`} size="lg" onClose={() => setDetalleViver(null)}
+          footer={<button className="btn btn-primary" onClick={() => setDetalleViver(null)}>Cerrar</button>}>
+          {/* La cuenta del víver en el orden en que se lee, como el detalle de MGG. */}
+          {(() => {
+            const it = detalleViver.item;
+            const u = it.unidad ?? '';
+            const dif = difPorProducto.get(it.producto_id);
+            return (
+              <div className="card" style={{ margin: '0 0 .8rem', background: 'var(--bg-2)', fontSize: '.9rem' }}>
+                <div>Al iniciar el ciclo{mercado ? <> (<strong>{dateTime(mercado.inicio_at)}</strong>)</> : null} había <strong className="mono">{num(it.saldo_inicial)} {u}</strong></div>
+                <div>+ entradas desde entonces: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{num(it.entradas)} {u}</strong></div>
+                <div style={{ marginTop: '.2rem' }}>= <strong>TOTAL DISPONIBLE A CONSUMIR</strong>: <strong className="mono" style={{ fontSize: '1.05rem' }}>{num(it.disponible)} {u}</strong></div>
+                <div className="muted">
+                  − consumido: <strong className="mono" style={{ color: 'var(--danger)' }}>{num(it.consumo)} {u}</strong>
+                  {' · en inventario hay: '}<strong className="mono" style={{ color: it.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(it.queda)} {u}</strong>
+                </div>
+                {dif && (
+                  <div style={{ marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px solid var(--border)' }}>
+                    <span style={{ color: 'var(--warning)' }}>
+                      ⚠ la cuenta del ciclo da <strong className="mono">{num(dif.cuenta)} {u}</strong>
+                      {' · '}{dif.diferencia < 0 ? 'faltan' : 'sobran'} <strong className="mono">{num(Math.abs(dif.diferencia))} {u}</strong>
+                    </span>
+                    <div className="dim" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>↳ {explicarDiferencia(dif.diferencia)}</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {cargandoDetalle ? (
             <p className="muted">Cargando detalle…</p>
           ) : (
             <>
-              <div style={{ fontWeight: 700, fontSize: '.85rem', margin: '.3rem 0' }}>Entradas del nuevo mercado</div>
-              {detalleViver.det.entradas.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>Sin entradas en este ciclo.</p>
+              <h4 style={{ margin: '.6rem 0 .35rem', color: 'var(--primary-3, #2ecc71)' }}>Entradas ({detalleViver.det.entradas.length})</h4>
+              {!detalleViver.det.entradas.length ? (
+                <p className="hint muted" style={{ margin: 0 }}>Sin entradas en este ciclo.</p>
               ) : (
-                <div className="table-wrap"><table className="table" style={{ fontSize: '.82rem' }}>
-                  <thead><tr><th>Fecha</th><th>Ref.</th><th style={{ textAlign: 'right' }}>Cantidad</th></tr></thead>
-                  <tbody>{detalleViver.det.entradas.map((e, i) => (
-                    <tr key={i}><td>{dateTime(e.fecha)}</td><td className="mono">{e.ref ?? '—'}</td><td className="mono" style={{ textAlign: 'right' }}>+{num(e.cantidad)}</td></tr>
-                  ))}</tbody>
-                </table></div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                  {detalleViver.det.entradas.map((e, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.25rem', fontSize: '.83rem' }}>
+                      <span className="muted">{dateTime(e.fecha)}{e.ref ? <> · <span className="mono">{e.ref}</span></> : null}</span>
+                      <span className="mono" style={{ color: 'var(--primary-3, #2ecc71)', whiteSpace: 'nowrap' }}>+{num(e.cantidad)} {detalleViver.item.unidad ?? ''}</span>
+                    </div>
+                  ))}
+                </div>
               )}
-              <div style={{ fontWeight: 700, fontSize: '.85rem', margin: '.7rem 0 .3rem' }}>Consumos</div>
-              {detalleViver.det.consumos.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>Sin consumos en este ciclo.</p>
+              <h4 style={{ margin: '.8rem 0 .35rem', color: 'var(--danger)' }}>Consumos ({detalleViver.det.consumos.length})</h4>
+              {!detalleViver.det.consumos.length ? (
+                <p className="hint muted" style={{ margin: 0 }}>Sin consumos de este víver en el ciclo.</p>
               ) : (
-                <div className="table-wrap"><table className="table" style={{ fontSize: '.82rem' }}>
-                  <thead><tr><th>Fecha</th><th>Código</th><th>Comida</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
-                  <tbody>{detalleViver.det.consumos.map((c, i) => (
-                    <tr key={i}><td>{dateTime(c.fecha)}</td><td className="mono">{c.codigo ?? '—'}</td><td>{labelTipoComida(c.tipo_comida ?? '')}</td><td className="mono" style={{ textAlign: 'right' }}>−{num(c.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(c.valor)}</td></tr>
-                  ))}</tbody>
-                </table></div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                  {detalleViver.det.consumos.map((c, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.25rem', fontSize: '.83rem' }}>
+                      <span><span className="mono">{c.codigo ?? '—'}</span> · {labelTipoComida(c.tipo_comida ?? '')} · <span className="muted">{dateTime(c.fecha)}</span></span>
+                      <span className="mono" style={{ color: 'var(--danger)', whiteSpace: 'nowrap' }}>
+                        −{num(c.cantidad)} {detalleViver.item.unidad ?? ''} <span className="muted">· {money(c.valor)}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
             </>
           )}

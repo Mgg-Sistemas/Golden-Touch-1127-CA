@@ -45,6 +45,8 @@ export interface TotalesMercado {
   consumo_valor: number;   // costo total consumido (Bs/$ del inventario)
   entradas_total: number;  // suma de cantidades entradas
   queda_viveres: number;   // víveres con saldo > 0 que pasan al próximo
+  /** Platos servidos en el ciclo (costo por plato del panel). Desde el 14/09/2026: los anteriores no lo traen. */
+  platos?: number;
   /* ── Descarte (14/09/2026) ──
      Viven en este jsonb para no pedir migración; los mercados anteriores no los
      traen. Un mercado descartado queda con estado 'cerrado' y esta marca. */
@@ -141,9 +143,9 @@ export async function iniciarMercado(input: { fecha?: string | null } = {}): Pro
   if ('error' in inicio) throw new Error(inicio.error);
   const ahora = new Date().toISOString();
   const vs = await listViveres();
-  const [entradas, consumos] = await Promise.all([
+  const [entradas, { porViver: consumos }] = await Promise.all([
     entradasPorViver(inicio.inicio_at, ahora, new Set(vs.map((p) => p.id))),
-    consumoPorViver(inicio.inicio_at, ahora),
+    consumoDelCiclo(inicio.inicio_at, ahora),
   ]);
   const numero = await nextNumeroMercado();
   const { data, error } = await supabase.from(TABLE).insert({
@@ -178,13 +180,20 @@ async function entradasPorViver(desde: string, hasta: string, viverIds: Set<stri
   return out;
 }
 
-/** Consumo de cocina por víver (cantidad y valor) dentro de la ventana [desde, hasta]. */
-async function consumoPorViver(desde: string, hasta: string): Promise<Map<string, { cantidad: number; valor: number }>> {
+/**
+ * Consumo de cocina dentro de la ventana [desde, hasta]: por víver (cantidad y valor) y los
+ * platos servidos, que alimentan el costo por plato del panel (como en MGG).
+ */
+async function consumoDelCiclo(desde: string, hasta: string): Promise<{
+  porViver: Map<string, { cantidad: number; valor: number }>; platos: number;
+}> {
   const { data, error } = await supabase.from('cocina_movimientos')
-    .select('items, at').gte('at', desde).lte('at', hasta);
+    .select('items, platos, at').gte('at', desde).lte('at', hasta);
   if (error) throw error;
   const out = new Map<string, { cantidad: number; valor: number }>();
-  for (const m of (data ?? []) as { items: { producto_id: string; cantidad: number; precio: number }[] }[]) {
+  let platos = 0;
+  for (const m of (data ?? []) as { items: { producto_id: string; cantidad: number; precio: number }[]; platos: number | null }[]) {
+    platos += Math.max(0, Math.trunc(Number(m.platos) || 0));
     for (const it of m.items ?? []) {
       const acc = out.get(it.producto_id) ?? { cantidad: 0, valor: 0 };
       acc.cantidad = round2(acc.cantidad + (Number(it.cantidad) || 0));
@@ -192,7 +201,7 @@ async function consumoPorViver(desde: string, hasta: string): Promise<Map<string
       out.set(it.producto_id, acc);
     }
   }
-  return out;
+  return { porViver: out, platos };
 }
 
 /**
@@ -205,9 +214,9 @@ export async function computeResumen(
 ): Promise<{ items: ResumenViver[]; totales: TotalesMercado }> {
   const hasta = hastaISO ?? new Date().toISOString();
   const viverIds = new Set(viveres.map((p) => p.id));
-  const [entradas, consumos] = await Promise.all([
+  const [entradas, { porViver: consumos, platos }] = await Promise.all([
     entradasPorViver(m.inicio_at, hasta, viverIds),
-    consumoPorViver(m.inicio_at, hasta),
+    consumoDelCiclo(m.inicio_at, hasta),
   ]);
   const inicialPorId = new Map(m.saldo_inicial.map((s) => [s.producto_id, Number(s.cantidad) || 0]));
   // Unión de víveres actuales + los que tenían saldo inicial (por si alguno se agotó/desactivó).
@@ -241,6 +250,7 @@ export async function computeResumen(
     consumo_valor: round2([...consumos.values()].reduce((a, c) => a + c.valor, 0)),
     entradas_total: round2(items.reduce((a, i) => a + i.entradas, 0)),
     queda_viveres: items.filter((i) => i.queda > 0).length,
+    platos,
   };
   return { items, totales };
 }
