@@ -21,10 +21,11 @@ import { norm } from '@/shared/lib/texto';
 /** Largo mínimo del motivo. «ok» o «error» no explican nada dentro de seis meses. */
 export const MOTIVO_DESCARTE_MIN = 15;
 
-/** Lo que hay que escribir para confirmar: el número del mercado (MK-AAAA-####). */
+/** Lo que hay que escribir para confirmar, como en MGG: «MERCADO» y el número (MERCADO MK-AAAA-####). */
 export function claveDescarte(numero: string | null | undefined): string {
+  const n = (numero ?? '').trim();
   // Nunca vacía: una clave vacía se confirmaría con cualquier cosa.
-  return (numero ?? '').trim() || 'DESCARTAR';
+  return n ? `MERCADO ${n}` : 'DESCARTAR MERCADO';
 }
 
 /** ¿Lo escrito coincide con la clave? Sin distinguir mayúsculas, acentos ni espacios. */

@@ -2,34 +2,37 @@ import { describe, it, expect } from 'vitest';
 import { claveDescarte, confirmacionValida, esDescartado, motivoValido, MOTIVO_DESCARTE_MIN } from './mercadoDescarte';
 
 describe('claveDescarte', () => {
-  it('es el número del mercado', () => {
-    expect(claveDescarte('MK-2026-0001')).toBe('MK-2026-0001');
+  it('es «MERCADO» y el número, como en MGG', () => {
+    expect(claveDescarte('MK-2026-0001')).toBe('MERCADO MK-2026-0001');
   });
 
   it('sin número no queda vacía: una clave vacía se confirmaría con cualquier cosa', () => {
-    expect(claveDescarte(null)).toBe('DESCARTAR');
-    expect(claveDescarte('   ')).toBe('DESCARTAR');
+    expect(claveDescarte(null)).toBe('DESCARTAR MERCADO');
+    expect(claveDescarte('   ')).toBe('DESCARTAR MERCADO');
   });
 });
 
 describe('confirmacionValida', () => {
-  it('acepta el número tal cual', () => {
-    expect(confirmacionValida('MK-2026-0001', 'MK-2026-0001')).toBe(true);
+  const clave = claveDescarte('MK-2026-0001');
+
+  it('acepta la clave tal cual', () => {
+    expect(confirmacionValida('MERCADO MK-2026-0001', clave)).toBe(true);
   });
 
   it('no distingue mayúsculas ni espacios de sobra', () => {
-    expect(confirmacionValida('  mk-2026-0001 ', 'MK-2026-0001')).toBe(true);
+    expect(confirmacionValida('  mercado   mk-2026-0001 ', clave)).toBe(true);
   });
 
-  it('rechaza otro número o uno a medias', () => {
-    expect(confirmacionValida('MK-2026-0002', 'MK-2026-0001')).toBe(false);
-    expect(confirmacionValida('MK-2026', 'MK-2026-0001')).toBe(false);
+  it('rechaza el número solo, otro número o uno a medias', () => {
+    expect(confirmacionValida('MK-2026-0001', clave)).toBe(false);
+    expect(confirmacionValida('MERCADO MK-2026-0002', clave)).toBe(false);
+    expect(confirmacionValida('MERCADO MK-2026', clave)).toBe(false);
   });
 
   it('en blanco nunca confirma, ni siquiera contra una clave vacía', () => {
-    expect(confirmacionValida('', 'MK-2026-0001')).toBe(false);
+    expect(confirmacionValida('', clave)).toBe(false);
     expect(confirmacionValida('   ', '')).toBe(false);
-    expect(confirmacionValida(null, 'MK-2026-0001')).toBe(false);
+    expect(confirmacionValida(null, clave)).toBe(false);
   });
 });
 

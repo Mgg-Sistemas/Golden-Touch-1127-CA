@@ -17,10 +17,14 @@ import {
 import { descargarCocinaPdf } from './cocinaPdf';
 import { crearAlertaMercado } from './alertasMercado.repository';
 import {
-  getMercadoActivo, iniciarMercado, descartarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
+  getMercadoActivo, listMercados, iniciarMercado, descartarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
   CICLO_DIAS, type Mercado, type ResumenViver, type TotalesMercado, type DetalleViverCiclo,
 } from './cocinaMercado.repository';
 import { claveDescarte, confirmacionValida, motivoValido, MOTIVO_DESCARTE_MIN } from './mercadoDescarte';
+import { primerDiaElegible, resolverInicio } from './mercadoInicio';
+import { LeyendaCocina } from './LeyendaCocina';
+import { EcuacionMercado, SelectorVista, TablaDisponible } from './PanelMercado';
+import { diferenciasPorViver, explicarDiferencia, guardarVista, vistaGuardada, type VistaMercado } from './mercadoPanel';
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 import { MercadosHistoricoModal } from './MercadosHistoricoModal';
@@ -68,17 +72,34 @@ export function CocinaPage() {
   const [totMercado, setTotMercado] = useState<TotalesMercado | null>(null);
   const [detalleViver, setDetalleViver] = useState<{ item: ResumenViver; det: DetalleViverCiclo } | null>(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
-  const [confirmarCierre, setConfirmarCierre] = useState(false);
+  // El diálogo de cierre se ata al mercado para el que se abrió, como el de descarte: si otra
+  // persona lo cierra o descarta mientras tanto, no reaparece para el mercado siguiente.
+  const [cerrandoId, setCerrandoId] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
   const [emailCierre, setEmailCierre] = useState('');
-  const [descartando, setDescartando] = useState(false);
-  const [confirmarInicio, setConfirmarInicio] = useState(false);
+  // El modal se ata al mercado que se estaba descartando, no a un booleano: si otra
+  // persona lo descarta primero y después se inicia uno nuevo, el modal no reaparece
+  // solo para el mercado nuevo.
+  const [descartandoId, setDescartandoId] = useState<string | null>(null);
+  // Iniciar mercado con fecha, como MGG. `previos` son los mercados existentes: con ellos
+  // se calcula la fecha mínima para no pisar a ninguno.
+  const [fechaInicio, setFechaInicio] = useState(() => hoyISO());
+  const [previos, setPrevios] = useState<Mercado[]>([]);
   const [iniciando, setIniciando] = useState(false);
   const [errorMercado, setErrorMercado] = useState<string | null>(null);
+  // Error de la carga general (comidas y víveres). Sin esto, si fallaba la primera carga, con
+  // la vista «Disponible» la pantalla quedaba en «Cargando…» para siempre.
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   // true recién cuando la lectura del mercado salió bien. Sin esto, si fallaba otra
   // lectura previa (las comidas), la pantalla decía «No hay un mercado abierto» sin
   // haberlo consultado.
   const [mercadoLeido, setMercadoLeido] = useState(false);
+  // Panel por capas, como MGG: qué se mira (se recuerda en el navegador), el filtro de
+  // víveres que no cuadran y el aviso de víveres bajos plegado a una línea.
+  const [vista, setVista] = useState<VistaMercado>(() => vistaGuardada());
+  const [soloDif, setSoloDif] = useState(false);
+  const [verBajos, setVerBajos] = useState(false);
+  function elegirVista(v: VistaMercado) { setVista(v); guardarVista(v); }
 
   async function enviarAlertaMercado() {
     setEnviandoAlerta(true);
@@ -107,7 +128,7 @@ export function CocinaPage() {
         listMovimientosCocina({ desde: fDesde || undefined, hasta: fHasta || undefined, tipo: fTipo || undefined }),
         listViveres().catch(() => [] as Producto[]),
       ]);
-      setMovs(m); setViveres(v);
+      setMovs(m); setViveres(v); setErrorCarga(null);
       // Ciclo de mercado: lee el mercado abierto y calcula su resumen (saldo inicial +
       // entradas = disponible; consumo; lo que queda).
       //
@@ -117,13 +138,15 @@ export function CocinaPage() {
       // mercado abierto, se ofrece «Iniciar mercado» y lo abre una persona.
       try {
         const mk = await getMercadoActivo();
+        const anteriores = mk ? [] : await listMercados();
+        // El resumen se calcula ANTES de mostrar el mercado: si no, el panel pintaba ceros y
+        // «Sin víveres» mientras tanto.
+        const res = mk ? await computeResumen(mk, v) : null;
         setMercado(mk);
+        setPrevios(anteriores);
+        setResMercado(res?.items ?? []); setTotMercado(res?.totales ?? null);
         setMercadoLeido(true);
         setErrorMercado(null);
-        if (mk) {
-          const { items, totales } = await computeResumen(mk, v);
-          setResMercado(items); setTotMercado(totales);
-        } else { setResMercado([]); setTotMercado(null); }
       } catch (e) {
         // No bloquea la vista de cocina, pero tampoco se calla: un error de lectura no
         // puede verse igual que «no hay mercado» y ofrecer iniciar uno encima.
@@ -134,7 +157,9 @@ export function CocinaPage() {
       // incluido después de registrar una comida (que baja el stock).
       void alertarViveresBajosACompras(v);
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo cargar Cocina', 'error');
+      const msg = e instanceof Error ? e.message : 'No se pudo cargar Cocina';
+      setErrorCarga(msg);
+      toast(msg, 'error');
     } finally { setLoading(false); }
   }, [fDesde, fHasta, fTipo]);
 
@@ -171,8 +196,27 @@ export function CocinaPage() {
     finally { setAEliminar(null); }
   }
 
+  // Fecha de inicio elegida: cuándo empezaría y por qué no, si pisa a otro mercado.
+  const inicioElegido = useMemo(() => resolverInicio(fechaInicio, previos), [fechaInicio, previos]);
+  const diaMinimo = useMemo(() => primerDiaElegible(previos), [previos]);
+
   // Contador del ciclo (día X de 21, cuántos faltan, si ya venció).
   const ciclo = useMemo(() => (mercado ? diasDelCiclo(mercado) : null), [mercado]);
+
+  // Víveres cuya cuenta del ciclo no da lo que hay en el inventario (para el detalle).
+  const difPorProducto = useMemo(
+    () => new Map(diferenciasPorViver(resMercado).map((d) => [d.producto_id, d] as const)),
+    [resMercado],
+  );
+  // Del aviso a los víveres concretos: enciende el filtro y, si hacía falta, cambia a la
+  // vista que tiene la tabla. Solo cambiar de vista dejaba buscándolos a ojo.
+  function alternarSoloDif(activar: boolean) {
+    setSoloDif(activar);
+    if (activar && vista === 'movimientos') elegirVista('disponible');
+  }
+  const verDisponible = !!mercado && vista !== 'movimientos';
+  // Sin mercado no hay tabla de víveres ni selector: las comidas quedan siempre a la vista.
+  const verMovimientos = vista !== 'disponible' || (!mercado && (mercadoLeido || !!errorMercado));
 
   // Detalle de un víver del ciclo (lo que quedó + la nueva entrada + los consumos).
   async function abrirDetalleViver(item: ResumenViver) {
@@ -204,7 +248,7 @@ export function CocinaPage() {
         toast(`Mercado ${cerrado.numero ?? ''} cerrado · reporte PDF generado`, 'success');
       }
       notify(`Cierre de mercado ${cerrado.numero ?? ''} · el nuevo ciclo arranca con lo que quedó`, 'success', { link: '#/app/cocina' });
-      setConfirmarCierre(false); setEmailCierre('');
+      setCerrandoId(null); setEmailCierre('');
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar el mercado', 'error'); }
     finally { setCerrando(false); }
@@ -214,15 +258,20 @@ export function CocinaPage() {
   async function iniciar() {
     setIniciando(true);
     try {
-      const nuevo = await iniciarMercado();
-      notify(`Mercado ${nuevo.numero ?? ''} iniciado · el saldo inicial es el stock de este momento`, 'success', { link: '#/app/cocina' });
+      const nuevo = await iniciarMercado({ fecha: fechaInicio });
+      setSoloDif(false);
+      notify(`Mercado ${nuevo.numero ?? ''} iniciado · empieza ${dateTime(nuevo.inicio_at)}`, 'success', { link: '#/app/cocina' });
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo iniciar el mercado', 'error'); }
     finally { setIniciando(false); }
   }
 
   async function alDescartar(m: Mercado) {
-    setDescartando(false);
+    setDescartandoId(null);
+    // El descartado deja de mostrarse ya: mientras recarga no se ofrece cerrarlo ni se ve su
+    // panel, y el filtro de descuadrados no pasa al mercado siguiente.
+    setMercado(null); setResMercado([]); setTotMercado(null);
+    setMercadoLeido(false); setSoloDif(false);
     notify(`Mercado ${m.numero ?? ''} descartado · no cuenta y no pasa saldo. El próximo se inicia con «Iniciar mercado».`, 'warning', { link: '#/app/cocina' });
     await cargar();
   }
@@ -235,60 +284,57 @@ export function CocinaPage() {
           <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Consumo de víveres por comida (desayuno, almuerzo, cena), con platos y costo del inventario.</p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {ciclo && mercado && (
-            <span className="mono" title={`Mercado ${mercado.numero ?? ''} · inició ${dateTime(mercado.inicio_at)}`}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '.4rem', padding: '.3rem .6rem', borderRadius: 8,
-                fontSize: '.8rem', fontWeight: 700,
-                border: `1px solid ${ciclo.vencido ? 'var(--danger)' : 'var(--border, #334)'}`,
-                color: ciclo.vencido ? 'var(--danger)' : 'inherit',
-                background: ciclo.vencido ? 'color-mix(in srgb, var(--danger) 12%, transparent)' : 'transparent',
-              }}>
-              🛒 Día {ciclo.dia} de {CICLO_DIAS} · {ciclo.vencido ? '¡toca cerrar!' : `faltan ${ciclo.faltan}`}
-            </span>
-          )}
+          {/* El contador del ciclo, «Cerrar» y «Descartar» van en el panel del mercado, como
+              en MGG: la cabecera queda para lo que se hace todos los días. */}
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
           <button className="btn btn-ghost" onClick={() => setModal('historico')} title="Ver los mercados ya cerrados: visualizar, editar y sacar reportes">🗂 Mercados cerrados</button>
-          {canWrite && mercado && (
-            <button className={`btn ${ciclo?.vencido ? 'btn-danger' : 'btn-ghost'}`} onClick={() => setConfirmarCierre(true)}
-              title="Cerrar el ciclo de mercado: genera el reporte (PDF/correo) y arranca el siguiente con lo que quedó">
-              🧾 Cerrar mercado
-            </button>
-          )}
-          {/* DESCARTAR es lo contrario de cerrar: cerrar abre el siguiente con lo que quedó;
-              descartar deja el ciclo fuera de la cuenta y no abre ninguno. Va al lado, en
-              tono discreto: es una salida de excepción, no la habitual. */}
-          {canWrite && mercado && (
-            <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setDescartando(true)}
-              title="El mercado no cuenta y no le pasa saldo al siguiente. No se borra nada. El próximo se inicia con «Iniciar mercado».">
-              ⊘ Descartar mercado
-            </button>
-          )}
           {canWrite && <button className="btn btn-warning" onClick={() => setModal('alerta')} title="Avisar a Compras que hay que montar el mercado">🔔 Alerta a Restablecer</button>}
           {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>➕ Añadir Movimiento</button>}
         </div>
       </div>
 
-      {/* KPIs sincronizados con la tabla (según los filtros de fecha/tipo/búsqueda). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', margin: '1rem 0' }}>
-        <KpiCard titulo="Platos" valor={num(resFiltrado.platos)} nota={`${resFiltrado.movimientos} movimiento(s) · ${notaPeriodo}`} />
-        <KpiCard titulo="Consumo" valor={money(resFiltrado.valorTotal)} nota={`costo de víveres · ${notaPeriodo}`} destacado />
-        <KpiCard titulo="Promedio por plato" valor={money(resFiltrado.promedioPorPlato)} nota={notaPeriodo} />
-        <KpiCard titulo="Víveres en catálogo" valor={num(viveres.length)} nota="productos disponibles" />
-      </div>
-
       {/* Sin mercado abierto: lo inicia una persona. La pantalla ya no lo crea sola
           (ver iniciarMercado), así que este es el único camino para abrir uno. */}
-      {!loading && mercadoLeido && !mercado && !errorMercado && (
+      {/* No depende de `loading`: cada evento de tiempo real recarga, y la tarjeta se
+          desmontaba y plegaba la leyenda mientras alguien elegía la fecha. */}
+      {mercadoLeido && !mercado && !errorMercado && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--brand, #ff8a00)' }}>
-          <div className="card-title"><span>🛒 No hay un mercado abierto</span></div>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Al iniciarlo, el <strong>stock actual de víveres</strong> pasa a ser el saldo inicial y el conteo de {CICLO_DIAS} días empieza <strong>en ese momento</strong>.
-            Conviene iniciarlo cuando el inventario de cocina esté como debe. Mientras no haya mercado, las comidas se registran y descuentan stock igual, pero no entran en ningún ciclo.
+          <div className="card-title"><span>🛒 Iniciar mercado (ciclo de {CICLO_DIAS} días)</span></div>
+          <p className="hint muted" style={{ marginTop: 0 }}>
+            Todavía no hay un mercado activo. Al iniciarlo, el <strong>stock de víveres a la fecha de inicio</strong> cuenta como saldo inicial y arranca el conteo de {CICLO_DIAS} días.
+            Desde el día {CICLO_DIAS + 1} toca <strong>cerrarlo</strong> (se puede cerrar antes si hace falta), con PDF y el stock de ese momento como saldo del siguiente.
           </p>
-          {canWrite
-            ? <button className="btn btn-primary" onClick={() => setConfirmarInicio(true)} disabled={iniciando}>{iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}</button>
-            : <p className="muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
+          {canWrite ? (
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ margin: 0, maxWidth: 200 }}>
+                <label style={{ fontSize: '.75rem' }}>Fecha de inicio</label>
+                {/* `min` es el día en que terminó el último mercado: el navegador no deja elegir
+                    una fecha que lo pise. El aviso de abajo explica por qué, porque un campo que
+                    no deja elegir y no dice nada se lee como si estuviera roto. */}
+                {/* `max` es hoy: con una fecha futura el saldo inicial sería el stock del clic. */}
+                <input className="input" type="date" value={fechaInicio} min={diaMinimo ?? undefined} max={hoyISO()}
+                  onChange={(e) => setFechaInicio(e.target.value)} />
+              </div>
+              <button className="btn btn-primary" onClick={() => void iniciar()} disabled={iniciando || 'error' in inicioElegido}>
+                {iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}
+              </button>
+            </div>
+          ) : <p className="muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
+          {canWrite && ('error' in inicioElegido ? (
+            <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.6rem' }}>{inicioElegido.error}</div>
+          ) : (
+            <div className="muted" style={{ fontSize: '.82rem', marginTop: '.5rem' }}>
+              Empieza el <strong>{dateTime(inicioElegido.inicio_at)}</strong>
+              {inicioElegido.ajustadoAlCierre ? ', a la hora en que terminó el mercado anterior' : ''}.
+              {fechaInicio < hoyISO() && (
+                <span style={{ color: 'var(--warning)' }}> Con una fecha pasada, el saldo inicial se calcula hacia atrás: si en esos días hubo salidas manuales, ajustes o traslados, no va a coincidir con el inventario. Conviene dejar la fecha en hoy.</span>
+              )}
+            </div>
+          ))}
+          <p className="muted" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
+            Mientras no haya mercado, las comidas se registran y descuentan stock igual, pero no entran en ningún ciclo. Cargá las comidas atrasadas antes de iniciarlo.
+          </p>
+          <LeyendaCocina />
         </div>
       )}
       {errorMercado && (
@@ -298,67 +344,82 @@ export function CocinaPage() {
         </div>
       )}
 
-      {/* Disponible a consumir en el mercado actual: saldo (lo que quedó) + entrada nuevo = total. */}
-      {mercado && resMercado.length > 0 && (
-        <div className="card" style={{ marginBottom: '1rem' }}>
-          <div className="card-title">
-            <span>🛒 Disponible a consumir <span className="muted" style={{ fontWeight: 400 }}>· Mercado {mercado.numero ?? ''} (ciclo desde {dmy(mercado.inicio_at.slice(0, 10))})</span></span>
-            <span className="muted" style={{ fontWeight: 400, fontSize: '.78rem' }}>Tocá un víver para ver lo que quedó, la nueva entrada y los consumos</span>
-          </div>
-          <div className="table-wrap">
-            <table className="table" style={{ fontSize: '.84rem' }}>
-              <thead><tr>
-                <th>Víver</th>
-                <th style={{ textAlign: 'right' }}>Saldo <span className="muted" style={{ fontWeight: 400 }}>(hasta {dmy(mercado.inicio_at.slice(0, 10))})</span></th>
-                <th style={{ textAlign: 'right' }}>＋ Entrada <span className="muted" style={{ fontWeight: 400 }}>(nuevo)</span></th>
-                <th style={{ textAlign: 'right' }}>＝ Disponible</th>
-                <th style={{ textAlign: 'right' }}>Consumo</th>
-                <th style={{ textAlign: 'right' }}>Queda</th>
-              </tr></thead>
-              <tbody>
-                {resMercado.map((r) => (
-                  <tr key={r.producto_id} style={{ cursor: 'pointer' }} onClick={() => void abrirDetalleViver(r)}
-                    title="Ver lo que quedó + la nueva entrada + los consumos">
-                    <td>{r.nombre} {r.unidad && <span className="muted">· {r.unidad}</span>}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(r.saldo_inicial)}</td>
-                    <td className="mono" style={{ textAlign: 'right', color: r.entradas > 0 ? 'var(--brand, #ff8a00)' : undefined }}>{r.entradas > 0 ? `+${num(r.entradas)}` : '—'}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(r.disponible)}</td>
-                    <td className="mono" style={{ textAlign: 'right', color: r.consumo > 0 ? 'var(--danger)' : undefined }}>{r.consumo > 0 ? `−${num(r.consumo)}` : '—'}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: r.queda > 0 ? 'var(--success, #16a34a)' : 'var(--muted)' }}>{num(r.queda)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              {totMercado && (
-                <tfoot><tr>
-                  <td style={{ fontWeight: 700 }}>Total ({totMercado.viveres} víveres)</td>
-                  <td colSpan={3}></td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(totMercado.consumo_valor)}</td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(totMercado.queda_viveres)} c/saldo</td>
-                </tr></tfoot>
-              )}
-            </table>
-          </div>
+      {/* ── CAPA 1 · La ecuación del ciclo (portado de MGG) ───────────────────
+          Los cinco números del ciclo, lo que costó el plato y, solo si no cuadra, el
+          contraste con el inventario. Reemplaza al contador de la cabecera. */}
+      {mercado && (
+        <EcuacionMercado mercado={mercado} items={resMercado} platos={totMercado?.platos ?? null}
+          consumoValor={totMercado?.consumo_valor ?? 0} ciclo={ciclo} soloDif={soloDif} onSoloDif={alternarSoloDif} />
+      )}
+
+      {/* Aviso de víveres bajos (20% o menos del mínimo): también se notifica a Compras.
+          Plegado a una línea: el aviso y la cuenta quedan a la vista; la lista, a un clic. */}
+      {bajos.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.7rem', padding: '.55rem .8rem', fontSize: '.83rem' }}>
+          🥫 <strong className="mono">{num(bajos.length)}</strong> {bajos.length === 1 ? 'víver' : 'víveres'} para reponer
+          <span className="muted"> · 20% o menos del mínimo · avisado a Compras</span>
+          <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.4rem' }} aria-expanded={verBajos} onClick={() => setVerBajos((v) => !v)}>
+            {verBajos ? 'ocultar' : 'ver cuáles'}
+          </button>
+          {verBajos && (
+            <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
+              {bajos.map((p) => (
+                <span key={p.id} className="btn btn-sm btn-ghost" style={{ cursor: 'default' }}
+                  title={`Stock ${num(Number(p.stock))} · mínimo ${num(Number(p.stock_min))} · umbral 20% = ${num(Number(p.stock_min) * 0.2)}`}>
+                  {p.nombre} · {num(Number(p.stock))} {p.unidad ?? ''}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Aviso de víveres bajos (20% o menos del mínimo): también se notifica a Compras */}
-      {bajos.length > 0 && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '1rem' }}>
-          <div className="card-title">
-            <span>🥫 Víveres para reponer <span className="muted" style={{ fontWeight: 400 }}>(20% o menos del mínimo)</span></span>
-            <span className="muted mono">{num(bajos.length)} · avisado a Compras</span>
-          </div>
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            {bajos.slice(0, 12).map((p) => (
-              <span key={p.id} className="btn btn-sm btn-ghost" style={{ cursor: 'default' }}
-                title={`Stock ${num(Number(p.stock))} · mínimo ${num(Number(p.stock_min))} · umbral 20% = ${num(Number(p.stock_min) * 0.2)}`}>
-                {p.nombre} · {num(Number(p.stock))} {p.unidad ?? ''}
-              </span>
-            ))}
-            {bajos.length > 12 && <span className="muted" style={{ alignSelf: 'center' }}>…y {num(bajos.length - 12)} más</span>}
-          </div>
+      {/* ── CAPA 2 · Qué se quiere mirar ── */}
+      {mercado && <SelectorVista vista={vista} onElegir={elegirVista} />}
+
+      {/* Cerrar y descartar, al lado del panel como en MGG. Cerrar se resalta pasado el día
+          21; antes queda punteado. DESCARTAR es lo contrario de cerrar: no abre el siguiente
+          ni le pasa saldo. Va en tono discreto: es la salida de excepción, no la habitual. */}
+      {canWrite && mercado && (
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.8rem' }}>
+          <button className={`btn ${ciclo?.vencido ? 'btn-primary' : 'btn-ghost'}`} style={ciclo?.vencido ? undefined : { borderStyle: 'dashed' }}
+            onClick={() => setCerrandoId(mercado.id)}
+            title={ciclo?.vencido
+              ? 'Cerrar el ciclo: genera el reporte (PDF/correo) y arranca el siguiente con lo que quedó'
+              : `Todavía no llega el día ${CICLO_DIAS + 1}; se puede cerrar igual si hace falta`}>
+            {ciclo?.vencido ? `🧾 Cerrar mercado (día ${ciclo.dia}) — genera PDF y arranca el siguiente` : '🧾 Cerrar mercado anticipadamente'}
+          </button>
+          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setDescartandoId(mercado.id)}
+            title="El mercado no cuenta y no le pasa saldo al siguiente. No se borra nada. El próximo se inicia con «Iniciar mercado».">
+            ⊘ Descartar mercado
+          </button>
         </div>
       )}
+
+      {!mercadoLeido && !errorMercado && errorCarga && (
+        <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--danger)' }}>
+          <strong>No se pudo cargar Cocina.</strong> <span className="muted">{errorCarga}</span>
+          <div style={{ marginTop: '.5rem' }}><button className="btn btn-sm btn-ghost" onClick={() => void cargar()}>↻ Reintentar</button></div>
+        </div>
+      )}
+      {!mercadoLeido && !errorMercado && !errorCarga && !verMovimientos && (
+        <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div>
+      )}
+
+      {/* ── CAPA 3a · Disponible a consumir ── */}
+      {verDisponible && (
+        <TablaDisponible items={resMercado} soloDif={soloDif} onSoloDif={setSoloDif} onElegir={(r) => void abrirDetalleViver(r)} />
+      )}
+
+      {/* ── CAPA 3b · Movimientos: las comidas registradas, con sus tarjetas y filtros ──
+          Las tarjetas resumen lo mismo que muestra la tabla, así que van con ella. */}
+      {verMovimientos && (<>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', margin: '0 0 1rem' }}>
+        <KpiCard titulo="Platos" valor={num(resFiltrado.platos)} nota={`${resFiltrado.movimientos} movimiento(s) · ${notaPeriodo}`} />
+        <KpiCard titulo="Consumo" valor={money(resFiltrado.valorTotal)} nota={`costo de víveres · ${notaPeriodo}`} destacado />
+        <KpiCard titulo="Promedio por plato" valor={money(resFiltrado.promedioPorPlato)} nota={notaPeriodo} />
+        <KpiCard titulo="Víveres en catálogo" valor={num(viveres.length)} nota="productos disponibles" />
+      </div>
 
       {/* Filtros de la tabla */}
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -447,6 +508,10 @@ export function CocinaPage() {
           </div>
         </div>
       )}
+      </>)}
+
+      {/* Va al pie y cerrada: las mismas preguntas vuelven cada ciclo (portado de MGG). */}
+      {mercado && <LeyendaCocina />}
 
       {modal === 'add' && (
         <AddMovimientoModal viveres={viveres} actor={actor} actorName={actorName}
@@ -486,54 +551,65 @@ export function CocinaPage() {
 
       {/* Detalle de un víver del ciclo: lo que quedó + la nueva entrada + los consumos. */}
       {detalleViver && (
-        <Modal title={`🛒 ${detalleViver.item.nombre}`} size="md" onClose={() => setDetalleViver(null)}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '.5rem', marginBottom: '.8rem' }}>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Saldo (lo que quedó)</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem' }}>{num(detalleViver.item.saldo_inicial)}</div>
-            </div>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>＋ Entrada (nuevo)</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--brand, #ff8a00)' }}>{num(detalleViver.item.entradas)}</div>
-            </div>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>＝ Disponible</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem' }}>{num(detalleViver.item.disponible)}</div>
-            </div>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Consumo</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--danger)' }}>{num(detalleViver.item.consumo)}</div>
-            </div>
-            <div className="card" style={{ padding: '.5rem', textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '.72rem' }}>Queda</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--success, #16a34a)' }}>{num(detalleViver.item.queda)}</div>
-            </div>
-          </div>
+        <Modal title={`Víver · ${detalleViver.item.nombre}`} size="lg" onClose={() => setDetalleViver(null)}
+          footer={<button className="btn btn-primary" onClick={() => setDetalleViver(null)}>Cerrar</button>}>
+          {/* La cuenta del víver en el orden en que se lee, como el detalle de MGG. */}
+          {(() => {
+            const it = detalleViver.item;
+            const u = it.unidad ?? '';
+            const dif = difPorProducto.get(it.producto_id);
+            return (
+              <div className="card" style={{ margin: '0 0 .8rem', background: 'var(--bg-2)', fontSize: '.9rem' }}>
+                <div>Al iniciar el ciclo{mercado ? <> (<strong>{dateTime(mercado.inicio_at)}</strong>)</> : null} había <strong className="mono">{num(it.saldo_inicial)} {u}</strong></div>
+                <div>+ entradas desde entonces: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{num(it.entradas)} {u}</strong></div>
+                <div style={{ marginTop: '.2rem' }}>= <strong>TOTAL DISPONIBLE A CONSUMIR</strong>: <strong className="mono" style={{ fontSize: '1.05rem' }}>{num(it.disponible)} {u}</strong></div>
+                <div className="muted">
+                  − consumido: <strong className="mono" style={{ color: 'var(--danger)' }}>{num(it.consumo)} {u}</strong>
+                  {' · en inventario hay: '}<strong className="mono" style={{ color: it.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(it.queda)} {u}</strong>
+                </div>
+                {dif && (
+                  <div style={{ marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px solid var(--border)' }}>
+                    <span style={{ color: 'var(--warning)' }}>
+                      ⚠ la cuenta del ciclo da <strong className="mono">{num(dif.cuenta)} {u}</strong>
+                      {' · '}{dif.diferencia < 0 ? 'faltan' : 'sobran'} <strong className="mono">{num(Math.abs(dif.diferencia))} {u}</strong>
+                    </span>
+                    <div className="dim" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>↳ {explicarDiferencia(dif.diferencia)}</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {cargandoDetalle ? (
             <p className="muted">Cargando detalle…</p>
           ) : (
             <>
-              <div style={{ fontWeight: 700, fontSize: '.85rem', margin: '.3rem 0' }}>Entradas del nuevo mercado</div>
-              {detalleViver.det.entradas.length === 0 ? (
+              <h4 style={{ margin: '.6rem 0 .35rem', color: 'var(--primary-3, #2ecc71)' }}>Entradas ({detalleViver.det.entradas.length})</h4>
+              {!detalleViver.det.entradas.length ? (
                 <p className="muted" style={{ margin: 0 }}>Sin entradas en este ciclo.</p>
               ) : (
-                <div className="table-wrap"><table className="table" style={{ fontSize: '.82rem' }}>
-                  <thead><tr><th>Fecha</th><th>Ref.</th><th style={{ textAlign: 'right' }}>Cantidad</th></tr></thead>
-                  <tbody>{detalleViver.det.entradas.map((e, i) => (
-                    <tr key={i}><td>{dateTime(e.fecha)}</td><td className="mono">{e.ref ?? '—'}</td><td className="mono" style={{ textAlign: 'right' }}>+{num(e.cantidad)}</td></tr>
-                  ))}</tbody>
-                </table></div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                  {detalleViver.det.entradas.map((e, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.25rem', fontSize: '.83rem' }}>
+                      <span className="muted">{dateTime(e.fecha)}{e.ref ? <> · <span className="mono">{e.ref}</span></> : null}</span>
+                      <span className="mono" style={{ color: 'var(--primary-3, #2ecc71)', whiteSpace: 'nowrap' }}>+{num(e.cantidad)} {detalleViver.item.unidad ?? ''}</span>
+                    </div>
+                  ))}
+                </div>
               )}
-              <div style={{ fontWeight: 700, fontSize: '.85rem', margin: '.7rem 0 .3rem' }}>Consumos</div>
-              {detalleViver.det.consumos.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>Sin consumos en este ciclo.</p>
+              <h4 style={{ margin: '.8rem 0 .35rem', color: 'var(--danger)' }}>Consumos ({detalleViver.det.consumos.length})</h4>
+              {!detalleViver.det.consumos.length ? (
+                <p className="muted" style={{ margin: 0 }}>Sin consumos de este víver en el ciclo.</p>
               ) : (
-                <div className="table-wrap"><table className="table" style={{ fontSize: '.82rem' }}>
-                  <thead><tr><th>Fecha</th><th>Código</th><th>Comida</th><th style={{ textAlign: 'right' }}>Cantidad</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
-                  <tbody>{detalleViver.det.consumos.map((c, i) => (
-                    <tr key={i}><td>{dateTime(c.fecha)}</td><td className="mono">{c.codigo ?? '—'}</td><td>{labelTipoComida(c.tipo_comida ?? '')}</td><td className="mono" style={{ textAlign: 'right' }}>−{num(c.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(c.valor)}</td></tr>
-                  ))}</tbody>
-                </table></div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                  {detalleViver.det.consumos.map((c, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.25rem', fontSize: '.83rem' }}>
+                      <span><span className="mono">{c.codigo ?? '—'}</span> · {labelTipoComida(c.tipo_comida ?? '')} · <span className="muted">{dateTime(c.fecha)}</span></span>
+                      <span className="mono" style={{ color: 'var(--danger)', whiteSpace: 'nowrap' }}>
+                        −{num(c.cantidad)} {detalleViver.item.unidad ?? ''} <span className="muted">· {money(c.valor)}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
             </>
           )}
@@ -541,10 +617,10 @@ export function CocinaPage() {
       )}
 
       {/* Cierre del mercado: reporte PDF (descargable / por correo) + arranca el próximo ciclo. */}
-      {confirmarCierre && mercado && (
-        <Modal title="🧾 Cerrar mercado" size="md" onClose={() => !cerrando && setConfirmarCierre(false)} footer={
+      {cerrandoId && mercado && mercado.id === cerrandoId && (
+        <Modal title="🧾 Cerrar mercado" size="md" onClose={() => !cerrando && setCerrandoId(null)} footer={
           <>
-            <button className="btn btn-ghost" onClick={() => setConfirmarCierre(false)} disabled={cerrando}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => setCerrandoId(null)} disabled={cerrando}>Cancelar</button>
             <button className="btn btn-primary" onClick={() => void ejecutarCierre()} disabled={cerrando}>{cerrando ? 'Cerrando…' : '🧾 Cerrar mercado'}</button>
           </>
         }>
@@ -564,17 +640,10 @@ export function CocinaPage() {
         </Modal>
       )}
 
-      {descartando && mercado && (
+      {descartandoId && mercado && mercado.id === descartandoId && (
         <DescartarMercadoModal mercado={mercado} dia={ciclo?.dia ?? null} totales={totMercado}
           actor={actor} actorName={actorName}
-          onClose={() => setDescartando(false)} onDone={alDescartar} />
-      )}
-      {confirmarInicio && (
-        <ConfirmDialog title="🛒 Iniciar mercado"
-          message={`Se abre un mercado nuevo desde este momento. El stock actual de víveres pasa a ser su saldo inicial y empieza el conteo de ${CICLO_DIAS} días.`}
-          confirmText="Iniciar mercado"
-          onCancel={() => setConfirmarInicio(false)}
-          onConfirm={() => { setConfirmarInicio(false); void iniciar(); }} />
+          onClose={() => setDescartandoId(null)} onDone={alDescartar} />
       )}
     </div>
   );
@@ -616,18 +685,20 @@ function DescartarMercadoModal({ mercado, dia, totales, actor, actorName, onClos
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
         <button className="btn btn-danger" onClick={() => void confirmar()} disabled={!listo}>
-          {guardando ? 'Descartando…' : '⊘ Descartar mercado'}
+          {guardando ? 'Descartando…' : '⊘ Descartar'}
         </button>
       </>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
       <div className="card" style={{ borderColor: 'var(--danger)', marginTop: 0, marginBottom: '.75rem' }}>
-        <strong>Esto no se deshace.</strong> El mercado <strong>deja de contar</strong>: no le pasa saldo al siguiente y queda marcado como descartado en «Mercados cerrados».
+        <strong>Esto no se deshace.</strong> El ciclo <strong>deja de contar</strong>: no le pasa saldo al siguiente y sus cifras salen de la cadena.
       </div>
       <p className="muted" style={{ marginTop: 0 }}>
-        <strong>No se borra nada</strong>: las comidas, los movimientos de inventario y el resumen del ciclo quedan guardados y se pueden consultar.
-        <strong> No se abre un mercado nuevo</strong>: se inicia con «Iniciar mercado», y su saldo inicial es el stock de ese momento.
-        Mientras tanto, las comidas se siguen registrando y descontando del inventario, pero no entran en ningún ciclo.
+        No se borra nada — las comidas, los movimientos y el resumen quedan donde están, y el ciclo se sigue
+        consultando en «Mercados cerrados» con todas sus cifras. No se abre otro mercado: cuando alguien lo inicie,
+        el <strong>saldo inicial saldrá del inventario real</strong> a la fecha de inicio, que podrá ser hoy desde la
+        hora del descarte, pero no antes: dos ciclos no comparten días. Mientras tanto, las comidas se registran y
+        descuentan stock, pero no entran en ningún ciclo.
       </p>
       <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
         <div><div className="muted" style={{ fontSize: '.72rem' }}>Ciclo</div><div className="mono" style={{ fontWeight: 700 }}>{dia != null ? `día ${dia} de ${CICLO_DIAS}` : '—'}</div></div>
@@ -639,18 +710,22 @@ function DescartarMercadoModal({ mercado, dia, totales, actor, actorName, onClos
         <textarea id="motivo-descarte" className="textarea" rows={3} value={motivo} disabled={guardando}
           onChange={(e) => setMotivo(e.target.value)}
           placeholder="Qué pasó con este ciclo y por qué sus cifras no sirven de punto de partida." />
-        <small className="muted" style={{ color: motivo.trim() && !motivoOk ? 'var(--danger)' : undefined }}>
-          {motivoOk
-            ? 'Queda escrito en el histórico, con tu nombre y la fecha.'
-            : `Obligatorio · al menos ${MOTIVO_DESCARTE_MIN} caracteres (${motivo.trim().length}/${MOTIVO_DESCARTE_MIN}).`}
-        </small>
+        {/* Obligatorio y con un mínimo real: dentro de seis meses, un ciclo que no cuenta y
+            no dice por qué parece un error del sistema en vez de una decisión de alguien. */}
+        {!motivoOk && (
+          <small className="muted" style={{ color: motivo.trim() ? 'var(--danger)' : undefined }}>
+            {motivo.trim()
+              ? `Explicá un poco más: esto queda en el historial (${motivo.trim().length}/${MOTIVO_DESCARTE_MIN}).`
+              : 'Obligatorio.'}
+          </small>
+        )}
       </div>
       <div className="form-row">
         <label htmlFor="clave-descarte">Para confirmar, escribí <strong className="mono">{clave}</strong></label>
         <input id="clave-descarte" className="input mono" value={escrito} disabled={guardando} autoComplete="off"
           onChange={(e) => setEscrito(e.target.value)} placeholder={clave}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void confirmar(); } }} />
-        {escrito.trim() !== '' && !confirmado && <small style={{ color: 'var(--danger)' }}>No coincide con {clave}.</small>}
+        {escrito.trim() !== '' && !confirmado && <small className="muted" style={{ color: 'var(--danger)' }}>No coincide.</small>}
       </div>
     </Modal>
   );
@@ -761,11 +836,19 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, onClose, onSave
     if (exc) { setError(`No hay stock suficiente de ${exc.info?.nombre} (disponible ${num(Number((prodMap.get(exc.pid)?.stock ?? 0)) + (esEdicion ? (oldQty.get(exc.pid) ?? 0) : 0))}).`); return; }
     const nPlatos = Number(platos) || 0;
     if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
-    // Fecha del servicio: se combina el día elegido con la hora actual (para el orden dentro
-    // del día). Si es una fecha desfasada, queda registrado en ese día.
+    // Fecha del servicio: se combina el día elegido con una hora (para el orden dentro del
+    // día). Si es una fecha desfasada, queda registrado en ese día.
+    //
+    // Al EDITAR se conserva la hora original, y si el día no cambió no se manda `at`. Antes se
+    // le ponía la hora del momento de editar: una comida de la mañana editada por la tarde
+    // podía pasar de un ciclo al siguiente cuando el límite cae a mitad del día, como el
+    // descarte y el inicio del 14/09.
     let at: string | undefined;
-    if (fecha) {
-      const d = new Date(`${fecha}T${new Date().toTimeString().slice(0, 8)}`);
+    const original = editar?.at ? new Date(editar.at) : null;
+    const diaOriginal = original ? original.toLocaleDateString('en-CA') : null;
+    if (fecha && fecha !== diaOriginal) {
+      const hora = (original ?? new Date()).toTimeString().slice(0, 8);
+      const d = new Date(`${fecha}T${hora}`);
       if (!Number.isNaN(d.getTime())) at = d.toISOString();
     }
     setSaving(true);

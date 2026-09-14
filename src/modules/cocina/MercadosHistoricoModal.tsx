@@ -11,6 +11,7 @@ import {
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 import { esDescartado } from './mercadoDescarte';
+import { EcuacionMercado, TablaDisponible } from './PanelMercado';
 
 const dmy = (iso?: string | null): string => {
   if (!iso) return '—';
@@ -35,6 +36,7 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
   const [enviando, setEnviando] = useState(false);
   const [emailTo, setEmailTo] = useState('');
   const [aBorrar, setABorrar] = useState<Mercado | null>(null);
+  const [soloDif, setSoloDif] = useState(false);
 
   const cargar = useCallback(async () => {
     try { setLista(await listMercadosCerrados()); }
@@ -43,7 +45,7 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
   useEffect(() => { setLoading(true); cargar().finally(() => setLoading(false)); }, [cargar]);
   useRealtime(['cocina_mercados'], () => { void cargar(); });
 
-  function abrirDetalle(m: Mercado) { setVer(m); setEditando(false); setEditNota(m.nota ?? ''); setMode('detalle'); }
+  function abrirDetalle(m: Mercado) { setVer(m); setEditando(false); setSoloDif(false); setEditNota(m.nota ?? ''); setMode('detalle'); }
   function volver() { setVer(null); setEditando(false); setMode('list'); }
 
   function empezarEdicion() {
@@ -118,7 +120,7 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
                     /* Un mercado DESCARTADO no es uno cerrado: no le pasó saldo al siguiente.
                        Mostrarlos iguales haría pensar que su remanente sigue en la cadena. */
                     <tr key={m.id} className="row-selectable"
-                      style={{ cursor: 'pointer', ...(desc ? { borderLeft: '3px solid var(--danger)', opacity: 0.85 } : {}) }}
+                      style={{ cursor: 'pointer', ...(desc ? { borderLeft: '3px solid var(--danger)', opacity: 0.72 } : {}) }}
                       onClick={() => abrirDetalle(m)}
                       title={desc ? `Descartado · ${m.totales?.motivo_descarte ?? ''}` : 'Ver detalle'}>
                       <td className="mono" style={{ fontWeight: 700 }}>
@@ -177,28 +179,14 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
           </div>
 
           {!editando ? (
-            // VISUALIZAR: tabla (saldo + entrada = disponible, consumo, queda).
+            // VISUALIZAR: las mismas capas que el panel del mercado abierto, como el histórico
+            // de MGG. «Quedó» es el stock del momento del cierre, así que el contraste vale.
             resumen.length === 0 ? <p className="muted">Este ciclo no tiene resumen guardado.</p> : (
-              <div className="table-wrap" style={{ maxHeight: '52vh', overflow: 'auto' }}>
-                <table className="table" style={{ fontSize: '.83rem' }}>
-                  <thead><tr>
-                    <th>Víver</th><th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'right' }}>＋ Entrada</th>
-                    <th style={{ textAlign: 'right' }}>＝ Disponible</th><th style={{ textAlign: 'right' }}>Consumo</th><th style={{ textAlign: 'right' }}>Quedó</th>
-                  </tr></thead>
-                  <tbody>
-                    {resumen.map((r) => (
-                      <tr key={r.producto_id}>
-                        <td>{r.nombre} {r.unidad && <span className="muted">· {r.unidad}</span>}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{num(r.saldo_inicial)}</td>
-                        <td className="mono" style={{ textAlign: 'right', color: r.entradas > 0 ? 'var(--brand, #ff8a00)' : undefined }}>{r.entradas > 0 ? `+${num(r.entradas)}` : '—'}</td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(r.disponible)}</td>
-                        <td className="mono" style={{ textAlign: 'right', color: r.consumo > 0 ? 'var(--danger)' : undefined }}>{r.consumo > 0 ? `−${num(r.consumo)}` : '—'}</td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: r.queda > 0 ? 'var(--success, #16a34a)' : 'var(--muted)' }}>{num(r.queda)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                <EcuacionMercado mercado={ver} items={resumen} platos={ver.totales?.platos ?? null}
+                  consumoValor={consumoValor} ciclo={null} soloDif={soloDif} onSoloDif={setSoloDif} />
+                <TablaDisponible items={resumen} soloDif={soloDif} onSoloDif={setSoloDif} alCierre maxHeight="52vh" />
+              </>
             )
           ) : (
             // EDITAR: tabla editable de cantidades por víver + nota.

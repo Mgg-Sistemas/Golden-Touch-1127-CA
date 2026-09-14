@@ -10,6 +10,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
 import { MOTIVO_DESCARTE_MIN, motivoValido } from './mercadoDescarte';
+import { diaCaracas, reconstruirSaldo, resolverInicio } from './mercadoInicio';
 
 const TABLE = 'cocina_mercados';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -44,6 +45,8 @@ export interface TotalesMercado {
   consumo_valor: number;   // costo total consumido (Bs/$ del inventario)
   entradas_total: number;  // suma de cantidades entradas
   queda_viveres: number;   // víveres con saldo > 0 que pasan al próximo
+  /** Platos servidos en el ciclo (costo por plato del panel). Desde el 14/09/2026: los anteriores no lo traen. */
+  platos?: number;
   /* ── Descarte (14/09/2026) ──
      Viven en este jsonb para no pedir migración; los mercados anteriores no los
      traen. Un mercado descartado queda con estado 'cerrado' y esta marca. */
@@ -124,18 +127,30 @@ export async function getMercadoActivo(): Promise<Mercado | null> {
  * descartado reaparecía abierto en la carga siguiente sin que nadie lo decidiera,
  * y dos pantallas abiertas a la vez podían crear dos.
  *
- * El inicio es el instante en que se aprieta el botón y el saldo inicial es la foto
- * del stock de ese momento, leída de la base. No hay fecha para elegir: un inicio
- * hacia atrás vuelve a contar lo que la foto ya incluye.
+ * La fecha de inicio se elige, como en MGG (decisión del usuario, 14/09/2026). Las
+ * reglas viven en mercadoInicio.ts:
+ * · no puede pisar a ningún ciclo anterior, ni siquiera a uno descartado;
+ * · el saldo inicial es el stock A ESA FECHA: stock de ahora − entradas + consumos desde
+ *   el inicio, contados igual que el panel. Con la fecha de hoy y sin movimientos en el
+ *   día, es el stock real.
+ * La guarda está acá y no solo en la pantalla, porque la pantalla se puede saltear.
  */
-export async function iniciarMercado(): Promise<Mercado> {
+export async function iniciarMercado(input: { fecha?: string | null } = {}): Promise<Mercado> {
   const actual = await getMercadoActivo();
   if (actual) throw new Error(`Ya hay un mercado abierto (${actual.numero ?? 'sin número'}). Recargá la pantalla.`);
+  const previos = await listMercados();
+  const inicio = resolverInicio(input.fecha || diaCaracas(new Date()), previos);
+  if ('error' in inicio) throw new Error(inicio.error);
+  const ahora = new Date().toISOString();
   const vs = await listViveres();
+  const [entradas, { porViver: consumos }] = await Promise.all([
+    entradasPorViver(inicio.inicio_at, ahora, new Set(vs.map((p) => p.id))),
+    consumoDelCiclo(inicio.inicio_at, ahora),
+  ]);
   const numero = await nextNumeroMercado();
   const { data, error } = await supabase.from(TABLE).insert({
-    numero, estado: 'abierto', inicio_at: new Date().toISOString(),
-    saldo_inicial: snapshotViveres(vs),
+    numero, estado: 'abierto', inicio_at: inicio.inicio_at,
+    saldo_inicial: reconstruirSaldo(vs, entradas, consumos),
   }).select('*').single();
   if (error) throw error;
   return normalizar(data as Record<string, unknown>);
@@ -165,13 +180,20 @@ async function entradasPorViver(desde: string, hasta: string, viverIds: Set<stri
   return out;
 }
 
-/** Consumo de cocina por víver (cantidad y valor) dentro de la ventana [desde, hasta]. */
-async function consumoPorViver(desde: string, hasta: string): Promise<Map<string, { cantidad: number; valor: number }>> {
+/**
+ * Consumo de cocina dentro de la ventana [desde, hasta]: por víver (cantidad y valor) y los
+ * platos servidos, que alimentan el costo por plato del panel (como en MGG).
+ */
+async function consumoDelCiclo(desde: string, hasta: string): Promise<{
+  porViver: Map<string, { cantidad: number; valor: number }>; platos: number;
+}> {
   const { data, error } = await supabase.from('cocina_movimientos')
-    .select('items, at').gte('at', desde).lte('at', hasta);
+    .select('items, platos, at').gte('at', desde).lte('at', hasta);
   if (error) throw error;
   const out = new Map<string, { cantidad: number; valor: number }>();
-  for (const m of (data ?? []) as { items: { producto_id: string; cantidad: number; precio: number }[] }[]) {
+  let platos = 0;
+  for (const m of (data ?? []) as { items: { producto_id: string; cantidad: number; precio: number }[]; platos: number | null }[]) {
+    platos += Math.max(0, Math.trunc(Number(m.platos) || 0));
     for (const it of m.items ?? []) {
       const acc = out.get(it.producto_id) ?? { cantidad: 0, valor: 0 };
       acc.cantidad = round2(acc.cantidad + (Number(it.cantidad) || 0));
@@ -179,7 +201,7 @@ async function consumoPorViver(desde: string, hasta: string): Promise<Map<string
       out.set(it.producto_id, acc);
     }
   }
-  return out;
+  return { porViver: out, platos };
 }
 
 /**
@@ -192,9 +214,9 @@ export async function computeResumen(
 ): Promise<{ items: ResumenViver[]; totales: TotalesMercado }> {
   const hasta = hastaISO ?? new Date().toISOString();
   const viverIds = new Set(viveres.map((p) => p.id));
-  const [entradas, consumos] = await Promise.all([
+  const [entradas, { porViver: consumos, platos }] = await Promise.all([
     entradasPorViver(m.inicio_at, hasta, viverIds),
-    consumoPorViver(m.inicio_at, hasta),
+    consumoDelCiclo(m.inicio_at, hasta),
   ]);
   const inicialPorId = new Map(m.saldo_inicial.map((s) => [s.producto_id, Number(s.cantidad) || 0]));
   // Unión de víveres actuales + los que tenían saldo inicial (por si alguno se agotó/desactivó).
@@ -228,6 +250,7 @@ export async function computeResumen(
     consumo_valor: round2([...consumos.values()].reduce((a, c) => a + c.valor, 0)),
     entradas_total: round2(items.reduce((a, i) => a + i.entradas, 0)),
     queda_viveres: items.filter((i) => i.queda > 0).length,
+    platos,
   };
   return { items, totales };
 }
@@ -390,8 +413,19 @@ export async function actualizarMercadoHistorico(
   return normalizar(data as Record<string, unknown>);
 }
 
-/** Elimina un ciclo del histórico (no repone stock ni toca el ciclo abierto). */
+/**
+ * Elimina un ciclo del histórico (no repone stock ni toca el ciclo abierto).
+ *
+ * Un mercado DESCARTADO no se elimina: es el rastro de por qué ese ciclo no cuenta.
+ * La pantalla ya oculta el botón; la guarda va también acá porque la pantalla se
+ * puede saltear.
+ */
 export async function eliminarMercado(id: string): Promise<void> {
+  const { data: actual, error: eActual } = await supabase.from(TABLE).select('totales').eq('id', id).maybeSingle();
+  if (eActual) throw eActual;
+  if ((actual as { totales?: TotalesMercado | null } | null)?.totales?.descartado) {
+    throw new Error('Un mercado descartado no se elimina: es el rastro de por qué ese ciclo no cuenta.');
+  }
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
 }
