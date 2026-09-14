@@ -17,11 +17,10 @@ import {
 import { descargarCocinaPdf } from './cocinaPdf';
 import { crearAlertaMercado } from './alertasMercado.repository';
 import {
-  getMercadoActivo, listMercados, iniciarMercado, descartarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
+  getMercadoActivo, iniciarMercado, descartarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
   CICLO_DIAS, type Mercado, type ResumenViver, type TotalesMercado, type DetalleViverCiclo,
 } from './cocinaMercado.repository';
 import { claveDescarte, confirmacionValida, motivoValido, MOTIVO_DESCARTE_MIN } from './mercadoDescarte';
-import { primerDiaElegible, resolverInicio } from './mercadoInicio';
 import { LeyendaCocina } from './LeyendaCocina';
 import { EcuacionMercado, SelectorVista, TablaDisponible } from './PanelMercado';
 import { diferenciasPorViver, explicarDiferencia, guardarVista, vistaGuardada, type VistaMercado } from './mercadoPanel';
@@ -81,10 +80,6 @@ export function CocinaPage() {
   // persona lo descarta primero y después se inicia uno nuevo, el modal no reaparece
   // solo para el mercado nuevo.
   const [descartandoId, setDescartandoId] = useState<string | null>(null);
-  // Iniciar mercado con fecha, como MGG. `previos` son los mercados existentes: con ellos
-  // se calcula la fecha mínima para no pisar a ninguno.
-  const [fechaInicio, setFechaInicio] = useState(() => hoyISO());
-  const [previos, setPrevios] = useState<Mercado[]>([]);
   const [iniciando, setIniciando] = useState(false);
   const [errorMercado, setErrorMercado] = useState<string | null>(null);
   // Error de la carga general (comidas y víveres). Sin esto, si fallaba la primera carga, con
@@ -138,12 +133,10 @@ export function CocinaPage() {
       // mercado abierto, se ofrece «Iniciar mercado» y lo abre una persona.
       try {
         const mk = await getMercadoActivo();
-        const anteriores = mk ? [] : await listMercados();
         // El resumen se calcula ANTES de mostrar el mercado: si no, el panel pintaba ceros y
         // «Sin víveres» mientras tanto.
         const res = mk ? await computeResumen(mk, v) : null;
         setMercado(mk);
-        setPrevios(anteriores);
         setResMercado(res?.items ?? []); setTotMercado(res?.totales ?? null);
         setMercadoLeido(true);
         setErrorMercado(null);
@@ -196,9 +189,6 @@ export function CocinaPage() {
     finally { setAEliminar(null); }
   }
 
-  // Fecha de inicio elegida: cuándo empezaría y por qué no, si pisa a otro mercado.
-  const inicioElegido = useMemo(() => resolverInicio(fechaInicio, previos), [fechaInicio, previos]);
-  const diaMinimo = useMemo(() => primerDiaElegible(previos), [previos]);
 
   // Contador del ciclo (día X de 21, cuántos faltan, si ya venció).
   const ciclo = useMemo(() => (mercado ? diasDelCiclo(mercado) : null), [mercado]);
@@ -258,7 +248,7 @@ export function CocinaPage() {
   async function iniciar() {
     setIniciando(true);
     try {
-      const nuevo = await iniciarMercado({ fecha: fechaInicio });
+      const nuevo = await iniciarMercado();
       setSoloDif(false);
       notify(`Mercado ${nuevo.numero ?? ''} iniciado · empieza ${dateTime(nuevo.inicio_at)}`, 'success', { link: '#/app/cocina' });
       await cargar();
@@ -296,43 +286,24 @@ export function CocinaPage() {
       {/* Sin mercado abierto: lo inicia una persona. La pantalla ya no lo crea sola
           (ver iniciarMercado), así que este es el único camino para abrir uno. */}
       {/* No depende de `loading`: cada evento de tiempo real recarga, y la tarjeta se
-          desmontaba y plegaba la leyenda mientras alguien elegía la fecha. */}
+          desmontaba y plegaba la leyenda. */}
       {mercadoLeido && !mercado && !errorMercado && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--brand, #ff8a00)' }}>
           <div className="card-title"><span>🛒 Iniciar mercado (ciclo de {CICLO_DIAS} días)</span></div>
           <p className="hint muted" style={{ marginTop: 0 }}>
-            Todavía no hay un mercado activo. Al iniciarlo, el <strong>stock de víveres a la fecha de inicio</strong> cuenta como saldo inicial y arranca el conteo de {CICLO_DIAS} días.
+            Todavía no hay un mercado activo. El mercado empieza en el <strong>instante exacto en que presiones «Iniciar mercado ahora»</strong>:
+            el <strong>stock de víveres de ese momento</strong> es el saldo inicial, y solo cuentan las entradas y comidas registradas desde ahí. Ahí arranca el conteo de {CICLO_DIAS} días.
             Desde el día {CICLO_DIAS + 1} toca <strong>cerrarlo</strong> (se puede cerrar antes si hace falta), con PDF y el stock de ese momento como saldo del siguiente.
           </p>
+          {/* Sin fecha para elegir (decisión del usuario, 14/09/2026 16:54): el inicio es el
+              instante del clic, y lo movido antes queda dentro del saldo inicial. */}
           {canWrite ? (
-            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
-              <div className="form-row" style={{ margin: 0, maxWidth: 200 }}>
-                <label style={{ fontSize: '.75rem' }}>Fecha de inicio</label>
-                {/* `min` es el día en que terminó el último mercado: el navegador no deja elegir
-                    una fecha que lo pise. El aviso de abajo explica por qué, porque un campo que
-                    no deja elegir y no dice nada se lee como si estuviera roto. */}
-                {/* `max` es hoy: con una fecha futura el saldo inicial sería el stock del clic. */}
-                <input className="input" type="date" value={fechaInicio} min={diaMinimo ?? undefined} max={hoyISO()}
-                  onChange={(e) => setFechaInicio(e.target.value)} />
-              </div>
-              <button className="btn btn-primary" onClick={() => void iniciar()} disabled={iniciando || 'error' in inicioElegido}>
-                {iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}
-              </button>
-            </div>
+            <button className="btn btn-primary" onClick={() => void iniciar()} disabled={iniciando}>
+              {iniciando ? 'Iniciando…' : '🛒 Iniciar mercado ahora'}
+            </button>
           ) : <p className="muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
-          {canWrite && ('error' in inicioElegido ? (
-            <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.6rem' }}>{inicioElegido.error}</div>
-          ) : (
-            <div className="muted" style={{ fontSize: '.82rem', marginTop: '.5rem' }}>
-              Empieza el <strong>{dateTime(inicioElegido.inicio_at)}</strong>
-              {inicioElegido.ajustadoAlCierre ? ', a la hora en que terminó el mercado anterior' : ''}.
-              {fechaInicio < hoyISO() && (
-                <span style={{ color: 'var(--warning)' }}> Con una fecha pasada, el saldo inicial se calcula hacia atrás: si en esos días hubo salidas manuales, ajustes o traslados, no va a coincidir con el inventario. Conviene dejar la fecha en hoy.</span>
-              )}
-            </div>
-          ))}
           <p className="muted" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
-            Mientras no haya mercado, las comidas se registran y descuentan stock igual, pero no entran en ningún ciclo. Cargá las comidas atrasadas antes de iniciarlo.
+            Mientras no haya mercado, las comidas se registran y descuentan stock igual, pero no entran en ningún ciclo. Cargá las comidas atrasadas antes de iniciarlo: lo registrado antes del clic queda dentro del saldo inicial.
           </p>
           <LeyendaCocina />
         </div>
@@ -696,9 +667,9 @@ function DescartarMercadoModal({ mercado, dia, totales, actor, actorName, onClos
       <p className="muted" style={{ marginTop: 0 }}>
         No se borra nada — las comidas, los movimientos y el resumen quedan donde están, y el ciclo se sigue
         consultando en «Mercados cerrados» con todas sus cifras. No se abre otro mercado: cuando alguien lo inicie,
-        el <strong>saldo inicial saldrá del inventario real</strong> a la fecha de inicio, que podrá ser hoy desde la
-        hora del descarte, pero no antes: dos ciclos no comparten días. Mientras tanto, las comidas se registran y
-        descuentan stock, pero no entran en ningún ciclo.
+        el <strong>saldo inicial será el stock del instante</strong> en que alguien presione «Iniciar mercado ahora», y
+        solo cuenta lo que pase desde ahí. Mientras tanto, las comidas se registran y descuentan stock, pero no entran
+        en ningún ciclo.
       </p>
       <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
         <div><div className="muted" style={{ fontSize: '.72rem' }}>Ciclo</div><div className="mono" style={{ fontWeight: 700 }}>{dia != null ? `día ${dia} de ${CICLO_DIAS}` : '—'}</div></div>

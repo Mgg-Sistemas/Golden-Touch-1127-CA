@@ -1,23 +1,18 @@
 /* ============================================================
-   Golden Touch · Cocina · Iniciar un mercado con fecha, como MGG
+   Golden Touch · Cocina · Iniciar un mercado en el instante del clic
 
-   Decisión del usuario (14/09/2026): la fecha de inicio se elige, como en MGG.
+   Decisión del usuario (14/09/2026, 16:54): el mercado empieza en el momento
+   exacto en que se presiona «Iniciar mercado», no a las 00:00 ni en una fecha
+   elegida. Lo movido antes de ese instante no cuenta como entrada ni consumo del
+   ciclo: queda dentro del saldo inicial. Reemplaza a la fecha elegible «como
+   MGG» de la mañana del mismo día.
 
-   DOS REGLAS QUE VIENEN DE MGG
-   1. Ningún ciclo pisa a otro, ni siquiera a uno descartado. Los ciclos toman
-      comidas y entradas por rango de tiempo, no por identificador: si dos rangos
-      se solapan, los mismos platos entran en los dos.
-   2. El saldo inicial es el stock A LA FECHA DE INICIO:
-         saldo = stock de ahora − entradas desde el inicio + consumos desde el inicio
-      con las mismas entradas y consumos que después cuenta el panel. Solo es
-      exacto si en esos días nadie sacó nada por otra puerta (salida manual,
-      ajuste, traslado): por eso conviene dejar la fecha en hoy.
-
-   LA ADAPTACIÓN A GT
-   GT guarda instantes (inicio_at, cierre_at), no fechas. El ciclo elegido empieza
-   a las 00:00 de ese día en Caracas, salvo que ese mismo día haya terminado el
-   ciclo anterior: entonces empieza en el instante en que terminó, porque las horas
-   previas ya son de ese ciclo.
+   EL SALDO INICIAL
+   Es el stock de ese instante. Leer el inventario tarda: si entre el clic y la
+   lectura entra o sale algo, el stock leído ya lo incluye y el ciclo también lo
+   contaría. Por eso se corrige con lo movido desde el clic:
+      saldo = stock leído − entradas + consumos desde el clic
+   con las mismas lecturas que después usa el panel.
 
    Piezas puras: se prueban sin base ni React.
    ============================================================ */
@@ -29,11 +24,6 @@ const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 export function diaCaracas(instante: string | Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
     .format(new Date(instante));
-}
-
-/** Las 00:00 de un día en Caracas (UTC−4 todo el año, sin horario de verano), como instante ISO. */
-export function inicioDelDia(dia: string): string {
-  return new Date(`${dia}T00:00:00-04:00`).toISOString();
 }
 
 /** Lo mínimo de un mercado existente para saber hasta dónde llega. */
@@ -55,45 +45,27 @@ export function ultimoCierre(previos: CicloPrevio[]): { numero: string | null; c
   return ultimo;
 }
 
-/** Primer día que se puede elegir: el del último cierre, en Caracas. Sin ciclos cerrados, no hay mínimo. */
-export function primerDiaElegible(previos: CicloPrevio[]): string | null {
-  const u = ultimoCierre(previos);
-  return u ? diaCaracas(u.cierre_at) : null;
-}
-
 export type InicioResuelto = { inicio_at: string; ajustadoAlCierre: boolean } | { error: string };
 
-const dmy = (dia: string) => { const [y, m, d] = dia.split('-'); return `${d}/${m}/${y}`; };
-
 /**
- * El instante de inicio para la fecha elegida, o por qué no se puede.
+ * El instante de inicio: el del clic.
  *
- * · Después de hoy: error. El saldo se reconstruye con lo que ya pasó; con una fecha
- *   futura sería el stock del momento del clic, y lo que se consumiera hasta el inicio
- *   quedaría como faltante para siempre.
- * · Antes del día del último cierre: pisaría ese ciclo → error.
- * · El mismo día del último cierre: empieza en el instante del cierre, no a las 00:00.
- * · Después: a las 00:00 de ese día.
+ * · Con un mercado abierto: error. Hay uno a la vez.
+ * · Si el último cierre quedó DESPUÉS del clic (el reloj de la computadora que cerró iba
+ *   adelantado), empieza en ese cierre: dos ciclos no comparten ni un instante.
  */
-export function resolverInicio(dia: string, previos: CicloPrevio[], hoy: string = diaCaracas(new Date())): InicioResuelto {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia ?? '')) return { error: 'Elegí una fecha de inicio válida.' };
+export function resolverInicio(clic: string, previos: CicloPrevio[]): InicioResuelto {
+  const ms = Date.parse(clic ?? '');
+  if (!Number.isFinite(ms)) return { error: 'No se pudo tomar la hora del inicio. Probá de nuevo.' };
   if (previos.some((p) => p.estado === 'abierto')) {
     return { error: 'Ya hay un mercado abierto: se cierra o se descarta antes de iniciar otro.' };
   }
-  if (dia > hoy) {
-    return { error: 'La fecha de inicio no puede ser posterior a hoy: el saldo inicial se calcula con lo que ya pasó.' };
-  }
-  const inicio = inicioDelDia(dia);
   const u = ultimoCierre(previos);
-  if (!u) return { inicio_at: inicio, ajustadoAlCierre: false };
-  const cierreMs = new Date(u.cierre_at).getTime();
-  if (new Date(inicio).getTime() >= cierreMs) return { inicio_at: inicio, ajustadoAlCierre: false };
-  const diaCierre = diaCaracas(u.cierre_at);
-  if (dia === diaCierre) return { inicio_at: new Date(cierreMs).toISOString(), ajustadoAlCierre: true };
-  return {
-    error: `Esa fecha pisa al mercado ${u.numero ?? 'anterior'}, que terminó el ${dmy(diaCierre)}. `
-      + 'Elegí desde ese día en adelante: dos ciclos sobre los mismos días cuentan los consumos dos veces.',
-  };
+  const cierreMs = u ? Date.parse(u.cierre_at) : NaN;
+  if (Number.isFinite(cierreMs) && cierreMs > ms) {
+    return { inicio_at: new Date(cierreMs).toISOString(), ajustadoAlCierre: true };
+  }
+  return { inicio_at: new Date(ms).toISOString(), ajustadoAlCierre: false };
 }
 
 /** Un víver con su stock actual, tal como lo trae el inventario. */
@@ -114,10 +86,10 @@ export interface SaldoCalculado {
 }
 
 /**
- * Saldo inicial a la fecha de inicio: stock de ahora − entradas + consumos desde el inicio.
+ * Saldo inicial al instante del clic: stock leído − entradas + consumos desde el clic.
  *
  * Como en MGG, un saldo en cero o negativo no entra. Negativo quiere decir que en esos
- * días salió algo por otra puerta; el víver igual aparece en el panel si tiene stock.
+ * segundos salió algo por otra puerta; el víver igual aparece en el panel si tiene stock.
  */
 export function reconstruirSaldo(
   viveres: ViverParaSaldo[],
