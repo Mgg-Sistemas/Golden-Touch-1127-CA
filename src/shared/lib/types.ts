@@ -1300,6 +1300,10 @@ export interface Orden {
   retencion_aplicada?: boolean | null;
   /** Monto retenido (moneda de la OC). Se restó del total de la factura al pagar. */
   retencion_monto?: number | null;
+  /** Retención en bolívares, tal como se cargó al pagar. */
+  retencion_monto_bs?: number | null;
+  /** Tasa (Bs por $) con la que se convirtió la retención. */
+  retencion_tasa?: number | null;
   /** Lo pagado DE MÁS, en USD equivalente. Salió en egresos «REEMBOLSO DE ORDEN DE COMPRA». */
   reembolso_usd?: number | null;
   /** Egresos de reembolso de esta OC (movimientos_caja). */

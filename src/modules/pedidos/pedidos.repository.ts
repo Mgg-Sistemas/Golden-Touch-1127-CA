@@ -1479,6 +1479,10 @@ export interface PagarOcInput {
   comision?: AbonoComision | null;
   /** Retención descontada del total de la factura (moneda de la OC). */
   retencionMonto?: number | null;
+  /** La misma retención en bolívares (el comprobante sale en Bs). */
+  retencionMontoBs?: number | null;
+  /** Tasa (Bs por $) con la que se convirtió la retención. */
+  retencionTasa?: number | null;
   /** Lo pagado DE MÁS, en la moneda de la caja: sale en otro egreso «REEMBOLSO DE ORDEN DE COMPRA». */
   reembolsoMonto?: number | null;
   /** El mismo excedente en USD equivalente (para la traza en la orden). */
@@ -1558,9 +1562,16 @@ function conceptoReembolsoOc(o: Orden, motivoPago?: string | null, sufijo?: stri
   return `REEMBOLSO DE ORDEN DE COMPRA ${o.oc_codigo ?? o.codigo}${pago}${sufijo ? ` · ${sufijo}` : ''}`;
 }
 
-/** Texto de la retención para el concepto del pago. */
-function textoRetencion(o: Orden, retencion: number): string {
-  return retencion > 0 ? `retención ${retencion.toFixed(2)} ${o.total_moneda ?? 'USD'}` : '';
+/** Texto de la retención para el concepto del pago: dice en Bs, la tasa y lo que se restó. */
+function textoRetencion(o: Orden, retencion: number, enBs?: number | null, tasa?: number | null): string {
+  if (retencion <= 0) return '';
+  const monedaOc = o.total_moneda ?? 'USD';
+  const bs = Number(enBs) || 0;
+  const t = Number(tasa) || 0;
+  if (bs > 0 && monedaOc !== 'Bs' && t > 0) {
+    return `retención ${bs.toFixed(2)} Bs a tasa ${t} = ${retencion.toFixed(2)} ${monedaOc}`;
+  }
+  return `retención ${retencion.toFixed(2)} ${monedaOc}${t > 0 ? ` (tasa ${t})` : ''}`;
 }
 
 /** Valida la retención contra el total de la factura. */
@@ -1577,8 +1588,18 @@ function validarRetencion(o: Orden, retencion: number): void {
  */
 async function anotarRetencionYReembolso(
   o: Orden, pagada: Orden, retencion: number, reembolsoUsd: number, reembolsoMovIds: string[],
+  retencionBs = 0, retencionTasa = 0,
 ): Promise<Orden> {
   if (retencion <= 0 && reembolsoUsd <= 0) return pagada;
+  // El monto en Bs y la tasa van en OTRA escritura: son columnas de una migración
+  // posterior, y si no existieran no deben arrastrar al monto retenido ni al reembolso.
+  if (retencion > 0 && (retencionBs > 0 || retencionTasa > 0)) {
+    const { error: eBs } = await supabase.from(TABLE).update({
+      retencion_monto_bs: retencionBs > 0 ? retencionBs : null,
+      retencion_tasa: retencionTasa > 0 ? retencionTasa : null,
+    }).eq('id', o.id);
+    if (eBs) console.warn('No se pudo anotar la retención en Bs / tasa en la OC', o.id, eBs);
+  }
   const { data, error } = await supabase.from(TABLE).update({
     retencion_aplicada: retencion > 0,
     retencion_monto: retencion,
@@ -1626,7 +1647,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   try {
     mov = await pagarOrden({
       cajaId: input.cajaId, ordenId: o.id, monto,
-      concepto: conceptoPagoOc(o, input.motivoPago, textoRetencion(o, retencion) || undefined, seriales),
+      concepto: conceptoPagoOc(o, input.motivoPago, textoRetencion(o, retencion, input.retencionMontoBs, input.retencionTasa) || undefined, seriales),
       gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
@@ -1682,7 +1703,8 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
-  return anotarRetencionYReembolso(o, data as Orden, retencion, centavos(input.reembolsoUsd), reembolsoMovIds);
+  return anotarRetencionYReembolso(o, data as Orden, retencion, centavos(input.reembolsoUsd), reembolsoMovIds,
+    centavos(input.retencionMontoBs), Number(input.retencionTasa) || 0);
 }
 
 export interface PagarOcMultiLeg {
@@ -1817,6 +1839,10 @@ export interface PagarOcMultiCajasInput {
   comision?: AbonoComision | null;
   /** Retención descontada del total de la factura (moneda de la OC). */
   retencionMonto?: number | null;
+  /** La misma retención en bolívares (el comprobante sale en Bs). */
+  retencionMontoBs?: number | null;
+  /** Tasa (Bs por $) con la que se convirtió la retención. */
+  retencionTasa?: number | null;
   /** Lo pagado DE MÁS: una pata por cuenta, cada una sale en su egreso de reembolso. */
   reembolsoLegs?: PagarOcMultiCajasLeg[] | null;
   /** El excedente en USD equivalente (para la traza en la orden). */
@@ -1847,7 +1873,7 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
   const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
   const retencion = centavos(input.retencionMonto);
   validarRetencion(o, retencion);
-  const retTxt = textoRetencion(o, retencion);
+  const retTxt = textoRetencion(o, retencion, input.retencionMontoBs, input.retencionTasa);
   const reembolsoLegs = (input.reembolsoLegs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
   const reembolsoMovIds: string[] = [];
   const movIds: string[] = [];
@@ -1930,7 +1956,8 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
-  return anotarRetencionYReembolso(o, data as Orden, retencion, centavos(input.reembolsoUsd), reembolsoMovIds);
+  return anotarRetencionYReembolso(o, data as Orden, retencion, centavos(input.reembolsoUsd), reembolsoMovIds,
+    centavos(input.retencionMontoBs), Number(input.retencionTasa) || 0);
 }
 
 /**
