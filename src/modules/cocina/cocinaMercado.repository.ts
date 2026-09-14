@@ -10,7 +10,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
 import { MOTIVO_DESCARTE_MIN, motivoValido } from './mercadoDescarte';
-import { diaCaracas, reconstruirSaldo, resolverInicio } from './mercadoInicio';
+import { reconstruirSaldo, resolverInicio } from './mercadoInicio';
 
 const TABLE = 'cocina_mercados';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -127,22 +127,22 @@ export async function getMercadoActivo(): Promise<Mercado | null> {
  * descartado reaparecía abierto en la carga siguiente sin que nadie lo decidiera,
  * y dos pantallas abiertas a la vez podían crear dos.
  *
- * La fecha de inicio se elige, como en MGG (decisión del usuario, 14/09/2026). Las
- * reglas viven en mercadoInicio.ts:
- * · no puede pisar a ningún ciclo anterior, ni siquiera a uno descartado;
- * · el saldo inicial es el stock A ESA FECHA: stock de ahora − entradas + consumos desde
- *   el inicio, contados igual que el panel. Con la fecha de hoy y sin movimientos en el
- *   día, es el stock real.
- * La guarda está acá y no solo en la pantalla, porque la pantalla se puede saltear.
+ * Empieza en el INSTANTE del clic (decisión del usuario, 14/09/2026 16:54): lo movido antes
+ * queda dentro del saldo inicial y no cuenta como entrada ni consumo del ciclo. El saldo es
+ * el stock de ese instante; como leer el inventario tarda, se corrige con lo movido desde el
+ * clic (reconstruirSaldo). Las reglas viven en mercadoInicio.ts. La guarda está acá y no
+ * solo en la pantalla, porque la pantalla se puede saltear.
  */
-export async function iniciarMercado(input: { fecha?: string | null } = {}): Promise<Mercado> {
+export async function iniciarMercado(): Promise<Mercado> {
+  // La hora va primero, antes de cualquier espera: es el instante en que se presionó el botón.
+  const clic = new Date().toISOString();
   const actual = await getMercadoActivo();
   if (actual) throw new Error(`Ya hay un mercado abierto (${actual.numero ?? 'sin número'}). Recargá la pantalla.`);
   const previos = await listMercados();
-  const inicio = resolverInicio(input.fecha || diaCaracas(new Date()), previos);
+  const inicio = resolverInicio(clic, previos);
   if ('error' in inicio) throw new Error(inicio.error);
-  const ahora = new Date().toISOString();
   const vs = await listViveres();
+  const ahora = new Date().toISOString();
   const [entradas, { porViver: consumos }] = await Promise.all([
     entradasPorViver(inicio.inicio_at, ahora, new Set(vs.map((p) => p.id))),
     consumoDelCiclo(inicio.inicio_at, ahora),

@@ -3,10 +3,10 @@
 
    Portada de MGG (LeyendaMercado). Las mismas preguntas vuelven cada ciclo:
    por qué la cuenta no da lo que queda, por qué un víver no aparece, qué pasa
-   al descartar, por qué no deja iniciar un mercado en cierta fecha.
+   al descartar, desde cuándo cuenta un mercado nuevo.
 
    Las respuestas están escritas para GT, no copiadas: acá «Queda» es el stock
-   del inventario y el mercado siguiente arranca de una foto del stock.
+   del inventario y el mercado arranca de una foto del stock en un instante.
 
    Va plegada y con la clase `hint`, así el botón «?» del topbar la esconde junto
    con el resto de las ayudas del sistema.
@@ -70,13 +70,13 @@ const DUDAS: Entrada[] = [
     ),
   },
   {
-    pregunta: '¿Con qué saldo arranca un mercado?',
+    pregunta: '¿Desde cuándo cuenta un mercado y con qué saldo arranca?',
     respuesta: (
       <>
-        Si nace de un <strong>cierre</strong>, con el stock de ese momento. Si se <strong>inicia a mano</strong>,
-        con el stock a la fecha de inicio: stock de hoy − entradas + consumos desde esa fecha. Por eso conviene
-        dejar la fecha en <strong>hoy</strong>: con una fecha pasada, si en esos días hubo salidas manuales, ajustes
-        o traslados, el saldo no coincide con el inventario.
+        Desde el <strong>instante exacto</strong> en que empieza, no desde las 00:00: el del <strong>cierre</strong> si
+        nace de un cierre, o el del <strong>clic en «Iniciar mercado ahora»</strong> si se inicia a mano. El saldo
+        inicial es el stock de ese instante. Lo movido antes queda dentro de ese saldo y no cuenta como entrada ni
+        como consumo del ciclo.
       </>
     ),
   },
@@ -87,7 +87,7 @@ const DUDAS: Entrada[] = [
         El mercado deja de contar: no le pasa saldo al siguiente y sus cifras salen de la cadena.
         <strong> No se borra nada</strong>: las comidas, los movimientos y el resumen quedan donde están, y el mercado
         se sigue consultando en «Mercados cerrados», marcado como descartado. No se abre otro: se inicia con
-        «Iniciar mercado». Hay que escribir por qué, y eso queda firmado.
+        «Iniciar mercado ahora». Hay que escribir por qué, y eso queda firmado.
       </>
     ),
   },
@@ -95,11 +95,9 @@ const DUDAS: Entrada[] = [
     pregunta: 'Quiero iniciar un mercado y el sistema no me deja.',
     respuesta: (
       <>
-        Dos mercados no pueden compartir días, ni siquiera con uno descartado: los mismos consumos se contarían dos
-        veces. La fecha mínima es el día en que terminó el último mercado; si elegís ese mismo día, el nuevo empieza
-        a la hora en que terminó, y tampoco se puede elegir una fecha posterior a hoy. Antes de iniciarlo, cargá las
-        comidas atrasadas: mientras no hay mercado, se
-        registran y descuentan stock, pero no entran en ningún ciclo.
+        Hay un solo mercado abierto a la vez: si ya hay uno, se cierra o se descarta antes. Antes de iniciarlo,
+        cargá las comidas atrasadas: mientras no hay mercado se registran y descuentan stock, pero no entran en
+        ningún ciclo, y lo registrado antes del clic queda dentro del saldo inicial.
       </>
     ),
   },
