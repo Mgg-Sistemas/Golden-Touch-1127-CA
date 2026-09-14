@@ -97,7 +97,8 @@ const DUDAS: Entrada[] = [
       <>
         Dos mercados no pueden compartir días, ni siquiera con uno descartado: los mismos consumos se contarían dos
         veces. La fecha mínima es el día en que terminó el último mercado; si elegís ese mismo día, el nuevo empieza
-        a la hora en que terminó. Antes de iniciarlo, cargá las comidas atrasadas: mientras no hay mercado, se
+        a la hora en que terminó, y tampoco se puede elegir una fecha posterior a hoy. Antes de iniciarlo, cargá las
+        comidas atrasadas: mientras no hay mercado, se
         registran y descuentan stock, pero no entran en ningún ciclo.
       </>
     ),

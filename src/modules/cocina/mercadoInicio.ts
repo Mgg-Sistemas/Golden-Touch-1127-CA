@@ -68,14 +68,20 @@ const dmy = (dia: string) => { const [y, m, d] = dia.split('-'); return `${d}/${
 /**
  * El instante de inicio para la fecha elegida, o por qué no se puede.
  *
+ * · Después de hoy: error. El saldo se reconstruye con lo que ya pasó; con una fecha
+ *   futura sería el stock del momento del clic, y lo que se consumiera hasta el inicio
+ *   quedaría como faltante para siempre.
  * · Antes del día del último cierre: pisaría ese ciclo → error.
  * · El mismo día del último cierre: empieza en el instante del cierre, no a las 00:00.
  * · Después: a las 00:00 de ese día.
  */
-export function resolverInicio(dia: string, previos: CicloPrevio[]): InicioResuelto {
+export function resolverInicio(dia: string, previos: CicloPrevio[], hoy: string = diaCaracas(new Date())): InicioResuelto {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dia ?? '')) return { error: 'Elegí una fecha de inicio válida.' };
   if (previos.some((p) => p.estado === 'abierto')) {
     return { error: 'Ya hay un mercado abierto: se cierra o se descarta antes de iniciar otro.' };
+  }
+  if (dia > hoy) {
+    return { error: 'La fecha de inicio no puede ser posterior a hoy: el saldo inicial se calcula con lo que ya pasó.' };
   }
   const inicio = inicioDelDia(dia);
   const u = ultimoCierre(previos);

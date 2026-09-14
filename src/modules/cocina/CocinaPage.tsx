@@ -72,7 +72,9 @@ export function CocinaPage() {
   const [totMercado, setTotMercado] = useState<TotalesMercado | null>(null);
   const [detalleViver, setDetalleViver] = useState<{ item: ResumenViver; det: DetalleViverCiclo } | null>(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
-  const [confirmarCierre, setConfirmarCierre] = useState(false);
+  // El diálogo de cierre se ata al mercado para el que se abrió, como el de descarte: si otra
+  // persona lo cierra o descarta mientras tanto, no reaparece para el mercado siguiente.
+  const [cerrandoId, setCerrandoId] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
   const [emailCierre, setEmailCierre] = useState('');
   // El modal se ata al mercado que se estaba descartando, no a un booleano: si otra
@@ -85,6 +87,9 @@ export function CocinaPage() {
   const [previos, setPrevios] = useState<Mercado[]>([]);
   const [iniciando, setIniciando] = useState(false);
   const [errorMercado, setErrorMercado] = useState<string | null>(null);
+  // Error de la carga general (comidas y víveres). Sin esto, si fallaba la primera carga, con
+  // la vista «Disponible» la pantalla quedaba en «Cargando…» para siempre.
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   // true recién cuando la lectura del mercado salió bien. Sin esto, si fallaba otra
   // lectura previa (las comidas), la pantalla decía «No hay un mercado abierto» sin
   // haberlo consultado.
@@ -123,7 +128,7 @@ export function CocinaPage() {
         listMovimientosCocina({ desde: fDesde || undefined, hasta: fHasta || undefined, tipo: fTipo || undefined }),
         listViveres().catch(() => [] as Producto[]),
       ]);
-      setMovs(m); setViveres(v);
+      setMovs(m); setViveres(v); setErrorCarga(null);
       // Ciclo de mercado: lee el mercado abierto y calcula su resumen (saldo inicial +
       // entradas = disponible; consumo; lo que queda).
       //
@@ -134,14 +139,14 @@ export function CocinaPage() {
       try {
         const mk = await getMercadoActivo();
         const anteriores = mk ? [] : await listMercados();
+        // El resumen se calcula ANTES de mostrar el mercado: si no, el panel pintaba ceros y
+        // «Sin víveres» mientras tanto.
+        const res = mk ? await computeResumen(mk, v) : null;
         setMercado(mk);
         setPrevios(anteriores);
+        setResMercado(res?.items ?? []); setTotMercado(res?.totales ?? null);
         setMercadoLeido(true);
         setErrorMercado(null);
-        if (mk) {
-          const { items, totales } = await computeResumen(mk, v);
-          setResMercado(items); setTotMercado(totales);
-        } else { setResMercado([]); setTotMercado(null); }
       } catch (e) {
         // No bloquea la vista de cocina, pero tampoco se calla: un error de lectura no
         // puede verse igual que «no hay mercado» y ofrecer iniciar uno encima.
@@ -152,7 +157,9 @@ export function CocinaPage() {
       // incluido después de registrar una comida (que baja el stock).
       void alertarViveresBajosACompras(v);
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo cargar Cocina', 'error');
+      const msg = e instanceof Error ? e.message : 'No se pudo cargar Cocina';
+      setErrorCarga(msg);
+      toast(msg, 'error');
     } finally { setLoading(false); }
   }, [fDesde, fHasta, fTipo]);
 
@@ -241,7 +248,7 @@ export function CocinaPage() {
         toast(`Mercado ${cerrado.numero ?? ''} cerrado · reporte PDF generado`, 'success');
       }
       notify(`Cierre de mercado ${cerrado.numero ?? ''} · el nuevo ciclo arranca con lo que quedó`, 'success', { link: '#/app/cocina' });
-      setConfirmarCierre(false); setEmailCierre('');
+      setCerrandoId(null); setEmailCierre('');
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar el mercado', 'error'); }
     finally { setCerrando(false); }
@@ -252,6 +259,7 @@ export function CocinaPage() {
     setIniciando(true);
     try {
       const nuevo = await iniciarMercado({ fecha: fechaInicio });
+      setSoloDif(false);
       notify(`Mercado ${nuevo.numero ?? ''} iniciado · empieza ${dateTime(nuevo.inicio_at)}`, 'success', { link: '#/app/cocina' });
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo iniciar el mercado', 'error'); }
@@ -260,6 +268,10 @@ export function CocinaPage() {
 
   async function alDescartar(m: Mercado) {
     setDescartandoId(null);
+    // El descartado deja de mostrarse ya: mientras recarga no se ofrece cerrarlo ni se ve su
+    // panel, y el filtro de descuadrados no pasa al mercado siguiente.
+    setMercado(null); setResMercado([]); setTotMercado(null);
+    setMercadoLeido(false); setSoloDif(false);
     notify(`Mercado ${m.numero ?? ''} descartado · no cuenta y no pasa saldo. El próximo se inicia con «Iniciar mercado».`, 'warning', { link: '#/app/cocina' });
     await cargar();
   }
@@ -283,12 +295,14 @@ export function CocinaPage() {
 
       {/* Sin mercado abierto: lo inicia una persona. La pantalla ya no lo crea sola
           (ver iniciarMercado), así que este es el único camino para abrir uno. */}
-      {!loading && mercadoLeido && !mercado && !errorMercado && (
+      {/* No depende de `loading`: cada evento de tiempo real recarga, y la tarjeta se
+          desmontaba y plegaba la leyenda mientras alguien elegía la fecha. */}
+      {mercadoLeido && !mercado && !errorMercado && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--brand, #ff8a00)' }}>
           <div className="card-title"><span>🛒 Iniciar mercado (ciclo de {CICLO_DIAS} días)</span></div>
           <p className="hint muted" style={{ marginTop: 0 }}>
             Todavía no hay un mercado activo. Al iniciarlo, el <strong>stock de víveres a la fecha de inicio</strong> cuenta como saldo inicial y arranca el conteo de {CICLO_DIAS} días.
-            Al llegar el día {CICLO_DIAS + 1} vas a poder <strong>cerrarlo</strong> (con PDF, y el stock de ese momento como saldo del siguiente).
+            Desde el día {CICLO_DIAS + 1} toca <strong>cerrarlo</strong> (se puede cerrar antes si hace falta), con PDF y el stock de ese momento como saldo del siguiente.
           </p>
           {canWrite ? (
             <div style={{ display: 'flex', gap: '.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
@@ -297,14 +311,15 @@ export function CocinaPage() {
                 {/* `min` es el día en que terminó el último mercado: el navegador no deja elegir
                     una fecha que lo pise. El aviso de abajo explica por qué, porque un campo que
                     no deja elegir y no dice nada se lee como si estuviera roto. */}
-                <input className="input" type="date" value={fechaInicio} min={diaMinimo ?? undefined}
+                {/* `max` es hoy: con una fecha futura el saldo inicial sería el stock del clic. */}
+                <input className="input" type="date" value={fechaInicio} min={diaMinimo ?? undefined} max={hoyISO()}
                   onChange={(e) => setFechaInicio(e.target.value)} />
               </div>
               <button className="btn btn-primary" onClick={() => void iniciar()} disabled={iniciando || 'error' in inicioElegido}>
                 {iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}
               </button>
             </div>
-          ) : <p className="hint muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
+          ) : <p className="muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
           {canWrite && ('error' in inicioElegido ? (
             <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.6rem' }}>{inicioElegido.error}</div>
           ) : (
@@ -314,7 +329,6 @@ export function CocinaPage() {
               {fechaInicio < hoyISO() && (
                 <span style={{ color: 'var(--warning)' }}> Con una fecha pasada, el saldo inicial se calcula hacia atrás: si en esos días hubo salidas manuales, ajustes o traslados, no va a coincidir con el inventario. Conviene dejar la fecha en hoy.</span>
               )}
-              {fechaInicio > hoyISO() && <span> Lo que se mueva antes de esa fecha no entra en el ciclo.</span>}
             </div>
           ))}
           <p className="muted" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
@@ -369,7 +383,7 @@ export function CocinaPage() {
       {canWrite && mercado && (
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.8rem' }}>
           <button className={`btn ${ciclo?.vencido ? 'btn-primary' : 'btn-ghost'}`} style={ciclo?.vencido ? undefined : { borderStyle: 'dashed' }}
-            onClick={() => setConfirmarCierre(true)}
+            onClick={() => setCerrandoId(mercado.id)}
             title={ciclo?.vencido
               ? 'Cerrar el ciclo: genera el reporte (PDF/correo) y arranca el siguiente con lo que quedó'
               : `Todavía no llega el día ${CICLO_DIAS + 1}; se puede cerrar igual si hace falta`}>
@@ -382,7 +396,13 @@ export function CocinaPage() {
         </div>
       )}
 
-      {!mercadoLeido && !errorMercado && !verMovimientos && (
+      {!mercadoLeido && !errorMercado && errorCarga && (
+        <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--danger)' }}>
+          <strong>No se pudo cargar Cocina.</strong> <span className="muted">{errorCarga}</span>
+          <div style={{ marginTop: '.5rem' }}><button className="btn btn-sm btn-ghost" onClick={() => void cargar()}>↻ Reintentar</button></div>
+        </div>
+      )}
+      {!mercadoLeido && !errorMercado && !errorCarga && !verMovimientos && (
         <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div>
       )}
 
@@ -565,7 +585,7 @@ export function CocinaPage() {
             <>
               <h4 style={{ margin: '.6rem 0 .35rem', color: 'var(--primary-3, #2ecc71)' }}>Entradas ({detalleViver.det.entradas.length})</h4>
               {!detalleViver.det.entradas.length ? (
-                <p className="hint muted" style={{ margin: 0 }}>Sin entradas en este ciclo.</p>
+                <p className="muted" style={{ margin: 0 }}>Sin entradas en este ciclo.</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
                   {detalleViver.det.entradas.map((e, i) => (
@@ -578,7 +598,7 @@ export function CocinaPage() {
               )}
               <h4 style={{ margin: '.8rem 0 .35rem', color: 'var(--danger)' }}>Consumos ({detalleViver.det.consumos.length})</h4>
               {!detalleViver.det.consumos.length ? (
-                <p className="hint muted" style={{ margin: 0 }}>Sin consumos de este víver en el ciclo.</p>
+                <p className="muted" style={{ margin: 0 }}>Sin consumos de este víver en el ciclo.</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
                   {detalleViver.det.consumos.map((c, i) => (
@@ -597,10 +617,10 @@ export function CocinaPage() {
       )}
 
       {/* Cierre del mercado: reporte PDF (descargable / por correo) + arranca el próximo ciclo. */}
-      {confirmarCierre && mercado && (
-        <Modal title="🧾 Cerrar mercado" size="md" onClose={() => !cerrando && setConfirmarCierre(false)} footer={
+      {cerrandoId && mercado && mercado.id === cerrandoId && (
+        <Modal title="🧾 Cerrar mercado" size="md" onClose={() => !cerrando && setCerrandoId(null)} footer={
           <>
-            <button className="btn btn-ghost" onClick={() => setConfirmarCierre(false)} disabled={cerrando}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => setCerrandoId(null)} disabled={cerrando}>Cancelar</button>
             <button className="btn btn-primary" onClick={() => void ejecutarCierre()} disabled={cerrando}>{cerrando ? 'Cerrando…' : '🧾 Cerrar mercado'}</button>
           </>
         }>
@@ -676,8 +696,9 @@ function DescartarMercadoModal({ mercado, dia, totales, actor, actorName, onClos
       <p className="muted" style={{ marginTop: 0 }}>
         No se borra nada — las comidas, los movimientos y el resumen quedan donde están, y el ciclo se sigue
         consultando en «Mercados cerrados» con todas sus cifras. No se abre otro mercado: cuando alguien lo inicie,
-        el <strong>saldo inicial saldrá del inventario real</strong> a la fecha de inicio. Mientras tanto, las comidas
-        se registran y descuentan stock, pero no entran en ningún ciclo.
+        el <strong>saldo inicial saldrá del inventario real</strong> a la fecha de inicio, que podrá ser hoy desde la
+        hora del descarte, pero no antes: dos ciclos no comparten días. Mientras tanto, las comidas se registran y
+        descuentan stock, pero no entran en ningún ciclo.
       </p>
       <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
         <div><div className="muted" style={{ fontSize: '.72rem' }}>Ciclo</div><div className="mono" style={{ fontWeight: 700 }}>{dia != null ? `día ${dia} de ${CICLO_DIAS}` : '—'}</div></div>
@@ -815,11 +836,19 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, onClose, onSave
     if (exc) { setError(`No hay stock suficiente de ${exc.info?.nombre} (disponible ${num(Number((prodMap.get(exc.pid)?.stock ?? 0)) + (esEdicion ? (oldQty.get(exc.pid) ?? 0) : 0))}).`); return; }
     const nPlatos = Number(platos) || 0;
     if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
-    // Fecha del servicio: se combina el día elegido con la hora actual (para el orden dentro
-    // del día). Si es una fecha desfasada, queda registrado en ese día.
+    // Fecha del servicio: se combina el día elegido con una hora (para el orden dentro del
+    // día). Si es una fecha desfasada, queda registrado en ese día.
+    //
+    // Al EDITAR se conserva la hora original, y si el día no cambió no se manda `at`. Antes se
+    // le ponía la hora del momento de editar: una comida de la mañana editada por la tarde
+    // podía pasar de un ciclo al siguiente cuando el límite cae a mitad del día, como el
+    // descarte y el inicio del 14/09.
     let at: string | undefined;
-    if (fecha) {
-      const d = new Date(`${fecha}T${new Date().toTimeString().slice(0, 8)}`);
+    const original = editar?.at ? new Date(editar.at) : null;
+    const diaOriginal = original ? original.toLocaleDateString('en-CA') : null;
+    if (fecha && fecha !== diaOriginal) {
+      const hora = (original ?? new Date()).toTimeString().slice(0, 8);
+      const d = new Date(`${fecha}T${hora}`);
       if (!Number.isNaN(d.getTime())) at = d.toISOString();
     }
     setSaving(true);

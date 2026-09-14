@@ -32,33 +32,49 @@ describe('ultimoCierre y primerDiaElegible', () => {
 });
 
 describe('resolverInicio', () => {
+  // «Hoy» fijo: los casos no dependen del día en que corren las pruebas.
+  const HOY = '2026-09-20';
+
   it('sin ciclos previos, empieza a las 00:00 del día elegido', () => {
-    expect(resolverInicio('2026-09-15', [])).toEqual({ inicio_at: '2026-09-15T04:00:00.000Z', ajustadoAlCierre: false });
+    expect(resolverInicio('2026-09-15', [], HOY)).toEqual({ inicio_at: '2026-09-15T04:00:00.000Z', ajustadoAlCierre: false });
   });
 
   it('el día siguiente al último cierre no lo pisa', () => {
-    expect(resolverInicio('2026-09-15', [DESCARTADO])).toEqual({ inicio_at: '2026-09-15T04:00:00.000Z', ajustadoAlCierre: false });
+    expect(resolverInicio('2026-09-15', [DESCARTADO], HOY)).toEqual({ inicio_at: '2026-09-15T04:00:00.000Z', ajustadoAlCierre: false });
   });
 
   it('el mismo día del cierre empieza a la hora en que terminó, no a las 00:00', () => {
     // Las horas del 14 antes de las 15:30 son del mercado descartado.
-    expect(resolverInicio('2026-09-14', [DESCARTADO])).toEqual({ inicio_at: '2026-09-14T19:30:00.000Z', ajustadoAlCierre: true });
+    expect(resolverInicio('2026-09-14', [DESCARTADO], HOY)).toEqual({ inicio_at: '2026-09-14T19:30:00.000Z', ajustadoAlCierre: true });
   });
 
   it('una fecha anterior al último cierre se rechaza, aunque ese ciclo esté descartado', () => {
-    const r = resolverInicio('2026-08-22', [DESCARTADO]);
+    const r = resolverInicio('2026-08-22', [DESCARTADO], HOY);
     expect('error' in r && r.error).toContain('MK-2026-0001');
     expect('error' in r && r.error).toContain('14/09/2026');
   });
 
   it('con un mercado abierto no se inicia otro', () => {
-    const r = resolverInicio('2026-09-15', [{ numero: 'MK-2026-0002', estado: 'abierto', cierre_at: null }]);
+    const r = resolverInicio('2026-09-15', [{ numero: 'MK-2026-0002', estado: 'abierto', cierre_at: null }], HOY);
     expect('error' in r).toBe(true);
   });
 
   it('una fecha mal formada no se acepta', () => {
-    expect('error' in resolverInicio('15/09/2026', [])).toBe(true);
-    expect('error' in resolverInicio('', [])).toBe(true);
+    expect('error' in resolverInicio('15/09/2026', [], HOY)).toBe(true);
+    expect('error' in resolverInicio('', [], HOY)).toBe(true);
+  });
+
+  it('hoy se acepta; una fecha posterior a hoy no', () => {
+    // Con una fecha futura, el saldo sería el stock del clic y lo consumido hasta el inicio
+    // quedaría como faltante para siempre.
+    expect('error' in resolverInicio(HOY, [DESCARTADO], HOY)).toBe(false);
+    const r = resolverInicio('2026-09-21', [DESCARTADO], HOY);
+    expect('error' in r && r.error).toContain('posterior a hoy');
+  });
+
+  it('el descarte de hoy deja hoy como único día posible, a partir de la hora del descarte', () => {
+    expect(resolverInicio('2026-09-14', [DESCARTADO], '2026-09-14'))
+      .toEqual({ inicio_at: '2026-09-14T19:30:00.000Z', ajustadoAlCierre: true });
   });
 });
 

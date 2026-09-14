@@ -189,7 +189,7 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
       )}
 
       {!filas.length ? (
-        <p className="hint muted" style={{ margin: 0 }}>
+        <p className="muted" style={{ margin: 0 }}>
           {soloDif
             ? 'Ya no queda ningún víver descuadrado: la cuenta del ciclo y el inventario coinciden.'
             : items.length ? 'Ningún víver se movió en este mercado todavía.' : 'Sin víveres en este mercado todavía.'}
