@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { obtenerCocinaCierreBase64 } from './cocinaCierrePdf';
 import type { Mercado } from './cocinaMercado.repository';
+import { esDescartado } from './mercadoDescarte';
 
 const FUNCTION_SLUG = 'enviar-reporte';
 
@@ -20,8 +21,10 @@ export async function enviarCierreCocinaPorCorreo(
     body: {
       pdf_base64: base64,
       nombre_archivo: nombre,
-      asunto: `Cierre de mercado · Cocina · ${m.numero ?? ''}`,
-      mensaje: `Reporte del cierre del ciclo de mercado ${m.numero ?? ''} (consumo por víver y lo que queda para el próximo mercado).`,
+      asunto: esDescartado(m) ? `Mercado descartado · Cocina · ${m.numero ?? ''}` : `Cierre de mercado · Cocina · ${m.numero ?? ''}`,
+      mensaje: esDescartado(m)
+        ? `Reporte del mercado ${m.numero ?? ''}, descartado: no cuenta y no le pasa saldo al próximo mercado. Motivo: ${m.totales?.motivo_descarte ?? '—'}.`
+        : `Reporte del cierre del ciclo de mercado ${m.numero ?? ''} (consumo por víver y lo que queda para el próximo mercado).`,
       to_emails: lista,
     },
   });
