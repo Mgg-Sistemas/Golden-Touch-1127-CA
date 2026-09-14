@@ -8,6 +8,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { ultimoHorometroEquipo, kilometrajesVigentesPorEquipo, consumoPorEquipo } from '@/modules/combustible/tanques.repository';
 import { norm } from '@/shared/lib/texto';
+import { pathsDocumentosDeEquipo, borrarArchivosDocumentos } from './maquinariaDocumentos.repository';
 
 export interface MaquinariaEquipo {
   id: string;
@@ -126,10 +127,14 @@ export async function setEquipoActivo(id: string, activo: boolean): Promise<void
  * mantenimientos (para no chocar contra la FK) y luego el equipo.
  */
 export async function eliminarEquipo(id: string): Promise<void> {
+  // Rutas de sus documentos (📎): los registros se van solos por la FK en cascada,
+  // pero los archivos del bucket hay que borrarlos a mano, y solo si el equipo se borró.
+  const archivos = await pathsDocumentosDeEquipo(id).catch(() => [] as string[]);
   // Borra la bitácora del equipo (mantenimientos) antes que el equipo.
   await supabase.from('maquinaria_mantenimientos').delete().eq('equipo_id', id);
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
+  await borrarArchivosDocumentos(archivos);
 }
 
 /**
