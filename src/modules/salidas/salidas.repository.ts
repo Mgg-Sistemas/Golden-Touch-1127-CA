@@ -283,8 +283,27 @@ function normalizarItemsSalida(input: CrearSolicitudSalidaInput): ItemSalida[] {
 }
 
 /** Crea la solicitud en estado 'por_aprobar'. NO ejecuta el movimiento. */
+/** Letras mínimas del motivo: igual que en el movimiento manual del inventario. */
+export const MOTIVO_SALIDA_MINIMO = 3;
+
+/**
+ * ¿Esta solicitud exige motivo? Solo la SALIDA DE MATERIAL: saca stock del
+ * inventario y, sin motivo, después nadie sabe explicarla. Traslados y salidas
+ * de dinero quedan como estaban. La regla vive en la base
+ * (`salida_material_lleva_motivo`); acá se valida para avisar antes y claro.
+ */
+export function exigeMotivoSalida(scope: string | null | undefined, tipo: string | null | undefined): boolean {
+  return scope === 'salida' && tipo === 'material';
+}
+
+export const MSG_MOTIVO_SALIDA =
+  'Escribí el motivo de la salida de material. Queda en el historial del producto y es lo que permite explicarla después.';
+
+const motivoCorto = (m: string | null | undefined) => (m ?? '').trim().length < MOTIVO_SALIDA_MINIMO;
+
 export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Promise<SolicitudSalida> {
   if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+  if (exigeMotivoSalida(input.scope, input.tipo) && motivoCorto(input.motivo)) throw new Error(MSG_MOTIVO_SALIDA);
   let items: ItemSalida[] = [];
   if (input.tipo === 'material') {
     items = normalizarItemsSalida(input);
@@ -538,7 +557,10 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
   }
   if (input.unidadSolicitante !== undefined) patch.unidad_solicitante = input.unidadSolicitante?.trim() || null;
   if (input.sedeOrigen !== undefined) patch.sede_origen = input.sedeOrigen?.trim() || null;
-  if (input.motivo !== undefined) patch.motivo = input.motivo?.trim() || null;
+  if (input.motivo !== undefined) {
+    if (exigeMotivoSalida(s.scope, s.tipo) && motivoCorto(input.motivo)) throw new Error(MSG_MOTIVO_SALIDA);
+    patch.motivo = input.motivo?.trim() || null;
+  }
   if (input.fechaEntrega !== undefined) patch.fecha_entrega = input.fechaEntrega || null;
   if (input.notaEntrega !== undefined) patch.nota_entrega = input.notaEntrega?.trim() || null;
   if (input.choferNombre !== undefined) patch.chofer_nombre = input.choferNombre?.trim() || null;
@@ -607,6 +629,9 @@ export async function editarNotasSolicitudFinalizada(
 ): Promise<void> {
   if (s.estado !== 'ejecutada') throw new Error('Esta acción es solo para solicitudes finalizadas.');
   const motivo = input.motivo !== undefined ? (input.motivo?.trim() || null) : (s.motivo ?? null);
+  // Al tocar la nota de una salida de material ya ejecutada, el motivo tiene que
+  // quedar escrito: es la ocasión de completarlo en las viejas que no lo tenían.
+  if (exigeMotivoSalida(s.scope, s.tipo) && motivoCorto(motivo)) throw new Error(MSG_MOTIVO_SALIDA);
   const notaEntrega = input.notaEntrega !== undefined ? (input.notaEntrega?.trim() || null) : (s.nota_entrega ?? null);
   const patch: Record<string, unknown> = {
     motivo, nota_entrega: notaEntrega,

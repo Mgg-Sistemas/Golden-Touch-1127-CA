@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
+import { mensajeError } from '@/shared/lib/errores';
 import { money, num } from '@/shared/lib/format';
 import type { Existencia, Producto, ItemSalida } from '@/shared/lib/types';
-import { crearSolicitudSalida } from './salidas.repository';
+import { crearSolicitudSalida, MOTIVO_SALIDA_MINIMO, MSG_MOTIVO_SALIDA } from './salidas.repository';
 import { updateProducto } from '@/modules/inventario/inventario.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -188,6 +189,7 @@ export function SalidaMaterialForm({
     // Mismo material+almacén repetido en dos renglones → uniría a sumas inválidas.
     const keys = lineas.map((l) => l.key);
     if (new Set(keys).size !== keys.length) { setError('Hay un material repetido (mismo almacén) en dos renglones. Unilo en uno solo.'); return; }
+    if (motivo.trim().length < MOTIVO_SALIDA_MINIMO) { setError(MSG_MOTIVO_SALIDA); return; }
     setSaving(true);
     try {
       await crearSolicitudSalida({
@@ -218,7 +220,7 @@ export function SalidaMaterialForm({
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo crear la solicitud.');
+      setError(mensajeError(err, 'No se pudo crear la solicitud.'));
     } finally {
       setSaving(false);
     }
@@ -337,8 +339,12 @@ export function SalidaMaterialForm({
 
         <div className="form-grid">
           <div className="form-row">
-            <label>Motivo / detalle</label>
-            <input className="input" name="f-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del despacho, referencia…" />
+            <label>Motivo de la salida</label>
+            {/* Obligatorio: sin motivo, una salida de stock después no se puede explicar. */}
+            <input className="input" name="f-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)}
+              required minLength={MOTIVO_SALIDA_MINIMO}
+              placeholder="Por qué sale el material (ej. Reparación del jumbo, Consumo de obra)" />
+            <small className="muted">Obligatorio. Queda en el historial del producto.</small>
           </div>
           <div className="form-row">
             <label>Fecha de entrega</label>

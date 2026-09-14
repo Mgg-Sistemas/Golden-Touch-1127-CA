@@ -33,6 +33,8 @@ import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { norm } from '@/shared/lib/texto';
+import { mensajeError } from '@/shared/lib/errores';
+import { exigeMotivoSalida, MOTIVO_SALIDA_MINIMO, MSG_MOTIVO_SALIDA } from './salidas.repository';
 import {
   descargarResumenUnidadPdf, descargarResumenUnidadExcel, enviarResumenUnidadCorreo,
   type SalidaResumenRow, type GrupoUnidad, type GrupoProducto,
@@ -872,6 +874,9 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
         if (!almOrigen.trim() || !almDestino.trim()) { setError('Indicá el almacén de origen y el destino.'); setSaving(false); return; }
         if (almOrigen === almDestino) { setError('El almacén origen y destino deben ser distintos.'); setSaving(false); return; }
       }
+      if (exigeMotivoSalida(sol.scope, sol.tipo) && motivo.trim().length < MOTIVO_SALIDA_MINIMO) {
+        setError(MSG_MOTIVO_SALIDA); setSaving(false); return;
+      }
       await editarSolicitudSalida(sol, {
         items: sol.tipo === 'material' ? itemsLimpios : undefined,
         almacenOrigen: esTraslado ? almOrigen : undefined,
@@ -890,7 +895,7 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
       notify(`Solicitud ${sol.codigo} actualizada`, 'success');
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo guardar.');
+      setError(mensajeError(e, 'No se pudo guardar.'));
     } finally {
       setSaving(false);
     }
@@ -977,8 +982,11 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
 
       <div className="form-grid" style={{ marginTop: '.5rem' }}>
         <div className="form-row">
-          <label>Motivo / detalle</label>
-          <input className="input" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del despacho, referencia…" />
+          <label>{exigeMotivoSalida(sol.scope, sol.tipo) ? 'Motivo de la salida' : 'Motivo / detalle'}</label>
+          <input className="input" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)}
+            required={exigeMotivoSalida(sol.scope, sol.tipo)}
+            minLength={exigeMotivoSalida(sol.scope, sol.tipo) ? MOTIVO_SALIDA_MINIMO : undefined}
+            placeholder="Motivo del despacho, referencia…" />
         </div>
         <div className="form-row">
           <label>Fecha de entrega</label>
@@ -1073,6 +1081,8 @@ function SolicitudDetalleModal({
   const puedeEditarNota = canWrite && sol.estado === 'ejecutada';
   const [editandoNota, setEditandoNota] = useState(false);
   const [nMotivo, setNMotivo] = useState(sol.motivo ?? '');
+  // En la salida de material el motivo no se puede dejar vacío al editar la nota.
+  const motivoNotaFalta = exigeMotivoSalida(sol.scope, sol.tipo) && nMotivo.trim().length < MOTIVO_SALIDA_MINIMO;
   const [nNota, setNNota] = useState(sol.nota_entrega ?? '');
 
   const ejecutarLabel =
@@ -1088,7 +1098,7 @@ function SolicitudDetalleModal({
       onChanged();
       onClose();
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo completar la acción', 'error');
+      toast(mensajeError(e, 'No se pudo completar la acción'), 'error');
     } finally {
       setBusy(false);
     }
@@ -1099,7 +1109,8 @@ function SolicitudDetalleModal({
   ) : editandoNota ? (
     <>
       <button className="btn btn-ghost" onClick={() => setEditandoNota(false)} disabled={busy}>Cancelar</button>
-      <button className="btn btn-primary" disabled={busy}
+      <button className="btn btn-primary" disabled={busy || motivoNotaFalta}
+        title={motivoNotaFalta ? MSG_MOTIVO_SALIDA : undefined}
         onClick={() => run(() => editarNotasSolicitudFinalizada(sol, { motivo: nMotivo, notaEntrega: nNota, actor }), 'Nota actualizada')}>
         💾 Guardar nota
       </button>
@@ -1156,7 +1167,7 @@ function SolicitudDetalleModal({
           Solo edita la <strong>nota/motivo</strong>. No cambia productos, cantidades, montos ni el estado (sigue <strong>Finalizada</strong>).
         </p>
         <div className="form-row" style={{ marginBottom: '.6rem' }}>
-          <label>Motivo / detalle</label>
+          <label>{exigeMotivoSalida(sol.scope, sol.tipo) ? 'Motivo de la salida (obligatorio)' : 'Motivo / detalle'}</label>
           <textarea className="input" rows={2} value={nMotivo} onChange={(e) => setNMotivo(e.target.value)} placeholder="Motivo del movimiento…" />
         </div>
         <div className="form-row">

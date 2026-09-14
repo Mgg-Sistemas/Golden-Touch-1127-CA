@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { money, num, dosDecimales } from '@/shared/lib/format';
 import type { Existencia, Producto, TipoMovimiento } from '@/shared/lib/types';
+import { mensajeError } from '@/shared/lib/errores';
 import { calcularPMP, type MovimientoInput } from './movimientos.repository';
 
 interface MovimientoFormProps {
@@ -130,7 +131,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
       await onSubmit(payload);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar el movimiento.');
+      setError(mensajeError(err, 'No se pudo registrar el movimiento.'));
     } finally {
       setSaving(false);
     }
