@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { Modal } from '@/shared/ui/Modal';
@@ -10,6 +10,7 @@ import { recepcionarCompraDirecta, type CompraDirecta } from '@/modules/pedidos/
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { nombreCortoAlmacen } from './almacenes.repository';
 import { rotuloMarcaModelo } from '@/shared/lib/marcaModelo';
+import { MAX_RECEPCIONES_VISIBLES, filtrarRecepciones, partirRecepciones, unidadesDeOrden } from './recepcionesFinalizadas';
 
 interface RecepcionesPendientesProps {
   /** Órdenes ya finalizadas (historial). */
@@ -418,10 +419,90 @@ function DetalleRecepcionModal({ orden, onClose }: { orden: Orden; onClose: () =
  *    eligiendo el almacén destino (botón «Recibir»).
  *  · Abajo, el historial de órdenes ya finalizadas (click → detalle).
  */
+/**
+ * Histórico de recepciones finalizadas: las que no entran entre las más recientes,
+ * en una lista buscable por código, OC, quién solicitó o producto.
+ */
+function HistoricoRecepcionesModal({ ordenes, onVer, onClose }: {
+  ordenes: Orden[];
+  onVer: (o: Orden) => void;
+  onClose: () => void;
+}) {
+  const [consulta, setConsulta] = useState('');
+  const lista = useMemo(() => filtrarRecepciones(ordenes, consulta), [ordenes, consulta]);
+
+  return (
+    <Modal
+      title="🗂 Histórico de recepciones finalizadas"
+      size="lg"
+      onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}
+    >
+      <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+        Las recepciones finalizadas anteriores a las {MAX_RECEPCIONES_VISIBLES} más recientes. Tocá una para ver su detalle.
+      </p>
+      <input
+        className="input"
+        value={consulta}
+        onChange={(e) => setConsulta(e.target.value)}
+        placeholder="🔎 Buscar por código, OC, quién solicitó o producto…"
+        aria-label="Buscar en el histórico de recepciones"
+        style={{ marginBottom: '.4rem' }}
+      />
+      <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.4rem' }}>
+        {consulta.trim() ? `${num(lista.length)} de ${num(ordenes.length)} órdenes` : `${num(ordenes.length)} órdenes`}
+      </div>
+
+      {!lista.length ? (
+        <EmptyState message={`Ninguna recepción coincide con «${consulta.trim()}».`} icon="🔎" />
+      ) : (
+        <div className="table-wrap" style={{ maxHeight: '55vh', overflow: 'auto' }}>
+          <table className="table" style={{ fontSize: '.84rem' }}>
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Fecha</th>
+                <th>Solicita</th>
+                <th className="num">Ítems</th>
+                <th className="num">Und.</th>
+                <th className="num">Total</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lista.map((o) => (
+                <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => onVer(o)}>
+                  <td className="mono">
+                    <strong>{o.codigo}</strong>
+                    {o.oc_codigo && <div className="muted" style={{ fontSize: '.7rem' }}>{o.oc_codigo}</div>}
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{date(o.created_at)}</td>
+                  <td>{o.solicitante ?? '—'}</td>
+                  <td className="num mono">{num(Array.isArray(o.items) ? o.items.length : 0)}</td>
+                  <td className="num mono">{num(unidadesDeOrden(o))}</td>
+                  <td className="num mono">{money(o.total)}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); onVer(o); }}>
+                      👁 Ver
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export function RecepcionesPendientes({
   ordenes, pendientes, comprasPendientes, almacenes, actor, actorName, canWrite, onRecibida,
 }: RecepcionesPendientesProps) {
   const [detalle, setDetalle] = useState<Orden | null>(null);
+  // Tarjetas: solo las más recientes. El resto va al Histórico (lista buscable).
+  const [historicoOpen, setHistoricoOpen] = useState(false);
+  const { recientes, anteriores } = useMemo(() => partirRecepciones(ordenes), [ordenes]);
   const [recibir, setRecibir] = useState<Orden | null>(null);
   const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
 
@@ -527,7 +608,19 @@ export function RecepcionesPendientes({
       <div className="card">
         <div className="card-title">
           <span>Recepciones (finalizadas)</span>
-          <span className="muted mono">{num(ordenes.length)} órdenes</span>
+          <span style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="muted mono">{num(ordenes.length)} órdenes</span>
+            {anteriores.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setHistoricoOpen(true)}
+                title="Ver las recepciones finalizadas anteriores en una lista buscable"
+              >
+                🗂 Histórico ({num(anteriores.length)})
+              </button>
+            )}
+          </span>
         </div>
 
         {!ordenes.length ? (
@@ -540,7 +633,7 @@ export function RecepcionesPendientes({
               gap: '.75rem',
             }}
           >
-            {ordenes.map((o) => {
+            {recientes.map((o) => {
               const itemsCount = Array.isArray(o.items) ? o.items.length : 0;
               const totalUnidades = Array.isArray(o.items)
                 ? o.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0)
@@ -585,8 +678,19 @@ export function RecepcionesPendientes({
             })}
           </div>
         )}
+        {anteriores.length > 0 && (
+          <div className="muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>
+            Se muestran las {MAX_RECEPCIONES_VISIBLES} más recientes. Las otras {num(anteriores.length)} están en el{' '}
+            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setHistoricoOpen(true)}>
+              🗂 Histórico
+            </button>.
+          </div>
+        )}
       </div>
 
+      {historicoOpen && (
+        <HistoricoRecepcionesModal ordenes={anteriores} onVer={setDetalle} onClose={() => setHistoricoOpen(false)} />
+      )}
       {detalle && <DetalleRecepcionModal orden={detalle} onClose={() => setDetalle(null)} />}
       {recibir && (
         <RecibirOrdenModal
