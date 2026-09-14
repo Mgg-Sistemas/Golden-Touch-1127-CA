@@ -1477,6 +1477,12 @@ export interface PagarOcInput {
   gastoSubcategoria?: string | null;
   /** Comisión bancaria opcional: egreso EXTRA de la caja, NO suma al total de la OC. */
   comision?: AbonoComision | null;
+  /** Retención descontada del total de la factura (moneda de la OC). */
+  retencionMonto?: number | null;
+  /** Lo pagado DE MÁS, en la moneda de la caja: sale en otro egreso «REEMBOLSO DE ORDEN DE COMPRA». */
+  reembolsoMonto?: number | null;
+  /** El mismo excedente en USD equivalente (para la traza en la orden). */
+  reembolsoUsd?: number | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -1544,6 +1550,48 @@ async function liberarCierrePagoOrden(o: Orden): Promise<void> {
     .eq('estado', 'pagada');
 }
 
+const centavos = (n: unknown) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** Concepto del egreso por lo pagado DE MÁS en una OC. */
+function conceptoReembolsoOc(o: Orden, motivoPago?: string | null, sufijo?: string): string {
+  const pago = motivoPago?.trim() ? ` · pago: ${motivoPago.trim()}` : '';
+  return `REEMBOLSO DE ORDEN DE COMPRA ${o.oc_codigo ?? o.codigo}${pago}${sufijo ? ` · ${sufijo}` : ''}`;
+}
+
+/** Texto de la retención para el concepto del pago. */
+function textoRetencion(o: Orden, retencion: number): string {
+  return retencion > 0 ? `retención ${retencion.toFixed(2)} ${o.total_moneda ?? 'USD'}` : '';
+}
+
+/** Valida la retención contra el total de la factura. */
+function validarRetencion(o: Orden, retencion: number): void {
+  if (retencion < 0) throw new Error('La retención no puede ser negativa.');
+  if (retencion > 0 && retencion >= (Number(o.total) || 0))
+    throw new Error('La retención tiene que ser menor que el total de la factura.');
+}
+
+/**
+ * Anota en la orden la retención y el reembolso. Va APARTE del cierre del pago y es
+ * best-effort: el dinero ya se movió bien, y si esta escritura fallara (por ejemplo,
+ * antes de correr la migración de estas columnas) no puede dejar el pago a medias.
+ */
+async function anotarRetencionYReembolso(
+  o: Orden, pagada: Orden, retencion: number, reembolsoUsd: number, reembolsoMovIds: string[],
+): Promise<Orden> {
+  if (retencion <= 0 && reembolsoUsd <= 0) return pagada;
+  const { data, error } = await supabase.from(TABLE).update({
+    retencion_aplicada: retencion > 0,
+    retencion_monto: retencion,
+    reembolso_usd: reembolsoUsd,
+    reembolso_caja_mov_ids: reembolsoMovIds,
+  }).eq('id', o.id).select('*').single();
+  if (error) {
+    console.warn('No se pudo anotar retención/reembolso en la OC', o.id, error);
+    return pagada;
+  }
+  return data as Orden;
+}
+
 /**
  * Paga una OC confirmada (estaba `oc_aprobada`): descuenta el monto de la caja
  * elegida (egreso en Tesorería / Libro Mayor, categoría 'pago_oc' casado con la
@@ -1569,15 +1617,29 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   // 1) Egreso(s). Si falla (p. ej. saldo insuficiente), liberamos la reserva para que la
   //    OC no quede «pagada» sin dinero movido.
   const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
+  const retencion = centavos(input.retencionMonto);
+  validarRetencion(o, retencion);
+  const reembolso = centavos(input.reembolsoMonto);
+  const reembolsoMovIds: string[] = [];
   let mov: { id: string };
   let comisionMovId: string | null = null;
   try {
     mov = await pagarOrden({
       cajaId: input.cajaId, ordenId: o.id, monto,
-      concepto: conceptoPagoOc(o, input.motivoPago, undefined, seriales),
+      concepto: conceptoPagoOc(o, input.motivoPago, textoRetencion(o, retencion) || undefined, seriales),
       gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
+    // Lo pagado DE MÁS: sale de la misma caja en un egreso APARTE, para que el pago
+    // de la OC diga exactamente lo que valía la factura.
+    if (reembolso > 0) {
+      const movR = await pagarOrden({
+        cajaId: input.cajaId, ordenId: o.id, monto: reembolso,
+        concepto: conceptoReembolsoOc(o, input.motivoPago), categoria: 'reembolso_oc',
+        actor: input.actorEmail, actorName: input.actorName ?? null,
+      });
+      reembolsoMovIds.push(movR.id);
+    }
     // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
     if (comision) {
       const movC = await egresarDivisa({
@@ -1620,7 +1682,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
-  return data as Orden;
+  return anotarRetencionYReembolso(o, data as Orden, retencion, centavos(input.reembolsoUsd), reembolsoMovIds);
 }
 
 export interface PagarOcMultiLeg {
@@ -1707,6 +1769,8 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
  *  y espeja caja_saldos general si existe. Para cajas sin saldos multimoneda. */
 async function egresarLegacyOC(input: {
   cajaId: string; monto: number; concepto: string; refOrdenId: string;
+  /** Por defecto 'pago_oc'. */
+  categoria?: string | null;
   gastoCategoria?: string | null; gastoSubcategoria?: string | null;
   actor: string; actorName?: string | null;
 }): Promise<{ id: string }> {
@@ -1720,7 +1784,7 @@ async function egresarLegacyOC(input: {
   const { data: mov, error: mErr } = await supabase.from('movimientos_caja').insert({
     caja_id: input.cajaId, tipo: 'salida', monto, moneda: cajaMon,
     saldo_antes: saldoAntes, saldo_despues: saldoDespues,
-    motivo: input.concepto, categoria: 'pago_oc', ref_orden_id: input.refOrdenId,
+    motivo: input.concepto, categoria: input.categoria || 'pago_oc', ref_orden_id: input.refOrdenId,
     gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('id').single();
@@ -1751,6 +1815,12 @@ export interface PagarOcMultiCajasInput {
   gastoSubcategoria?: string | null;
   /** Comisión bancaria opcional: egreso EXTRA de la caja, NO suma al total de la OC. */
   comision?: AbonoComision | null;
+  /** Retención descontada del total de la factura (moneda de la OC). */
+  retencionMonto?: number | null;
+  /** Lo pagado DE MÁS: una pata por cuenta, cada una sale en su egreso de reembolso. */
+  reembolsoLegs?: PagarOcMultiCajasLeg[] | null;
+  /** El excedente en USD equivalente (para la traza en la orden). */
+  reembolsoUsd?: number | null;
   actorEmail: string;
   actorName?: string | null;
 }
@@ -1775,12 +1845,17 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
     throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
 
   const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
+  const retencion = centavos(input.retencionMonto);
+  validarRetencion(o, retencion);
+  const retTxt = textoRetencion(o, retencion);
+  const reembolsoLegs = (input.reembolsoLegs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
+  const reembolsoMovIds: string[] = [];
   const movIds: string[] = [];
   let comisionMovId: string | null = null;
   try {
     for (const leg of legs) {
       const serLeg = leg.moneda === 'USD' ? seriales : null;
-      const concepto = conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg);
+      const concepto = conceptoPagoOc(o, input.motivoPago, retTxt ? `${leg.moneda} · ${retTxt}` : leg.moneda, serLeg);
       // ¿La caja maneja este saldo en caja_saldos? Si sí, egreso multimoneda; si no, legado.
       const { data: row } = await supabase.from('caja_saldos').select('id')
         .eq('caja_id', leg.cajaId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
@@ -1800,6 +1875,24 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
         });
         movIds.push(mov.id);
       }
+    }
+    // Lo pagado DE MÁS: cada cuenta devuelve su parte en un egreso APARTE, desde el
+    // mismo saldo del que salió.
+    for (const leg of reembolsoLegs) {
+      const concepto = conceptoReembolsoOc(o, input.motivoPago, leg.moneda);
+      const { data: rowR } = await supabase.from('caja_saldos').select('id')
+        .eq('caja_id', leg.cajaId).eq('cuenta', leg.cuenta).eq('moneda', leg.moneda).maybeSingle();
+      const movR = rowR
+        ? await egresarDivisa({
+            cajaId: leg.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
+            concepto, categoria: 'reembolso_oc', refOrdenId: o.id,
+            actor: input.actorEmail, actorName: input.actorName ?? null,
+          })
+        : await egresarLegacyOC({
+            cajaId: leg.cajaId, monto: leg.monto, concepto, refOrdenId: o.id, categoria: 'reembolso_oc',
+            actor: input.actorEmail, actorName: input.actorName ?? null,
+          });
+      reembolsoMovIds.push(movR.id);
     }
     // Comisión bancaria opcional: egreso EXTRA (no suma al total de la OC).
     if (comision) {
@@ -1837,7 +1930,7 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
-  return data as Orden;
+  return anotarRetencionYReembolso(o, data as Orden, retencion, centavos(input.reembolsoUsd), reembolsoMovIds);
 }
 
 /**
