@@ -17,10 +17,12 @@ import {
 import { descargarCocinaPdf } from './cocinaPdf';
 import { crearAlertaMercado } from './alertasMercado.repository';
 import {
-  getMercadoActivo, iniciarMercado, descartarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
+  getMercadoActivo, listMercados, iniciarMercado, descartarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
   CICLO_DIAS, type Mercado, type ResumenViver, type TotalesMercado, type DetalleViverCiclo,
 } from './cocinaMercado.repository';
 import { claveDescarte, confirmacionValida, motivoValido, MOTIVO_DESCARTE_MIN } from './mercadoDescarte';
+import { primerDiaElegible, resolverInicio } from './mercadoInicio';
+import { LeyendaCocina } from './LeyendaCocina';
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 import { MercadosHistoricoModal } from './MercadosHistoricoModal';
@@ -71,8 +73,14 @@ export function CocinaPage() {
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [cerrando, setCerrando] = useState(false);
   const [emailCierre, setEmailCierre] = useState('');
-  const [descartando, setDescartando] = useState(false);
-  const [confirmarInicio, setConfirmarInicio] = useState(false);
+  // El modal se ata al mercado que se estaba descartando, no a un booleano: si otra
+  // persona lo descarta primero y después se inicia uno nuevo, el modal no reaparece
+  // solo para el mercado nuevo.
+  const [descartandoId, setDescartandoId] = useState<string | null>(null);
+  // Iniciar mercado con fecha, como MGG. `previos` son los mercados existentes: con ellos
+  // se calcula la fecha mínima para no pisar a ninguno.
+  const [fechaInicio, setFechaInicio] = useState(() => hoyISO());
+  const [previos, setPrevios] = useState<Mercado[]>([]);
   const [iniciando, setIniciando] = useState(false);
   const [errorMercado, setErrorMercado] = useState<string | null>(null);
   // true recién cuando la lectura del mercado salió bien. Sin esto, si fallaba otra
@@ -117,7 +125,9 @@ export function CocinaPage() {
       // mercado abierto, se ofrece «Iniciar mercado» y lo abre una persona.
       try {
         const mk = await getMercadoActivo();
+        const anteriores = mk ? [] : await listMercados();
         setMercado(mk);
+        setPrevios(anteriores);
         setMercadoLeido(true);
         setErrorMercado(null);
         if (mk) {
@@ -171,6 +181,10 @@ export function CocinaPage() {
     finally { setAEliminar(null); }
   }
 
+  // Fecha de inicio elegida: cuándo empezaría y por qué no, si pisa a otro mercado.
+  const inicioElegido = useMemo(() => resolverInicio(fechaInicio, previos), [fechaInicio, previos]);
+  const diaMinimo = useMemo(() => primerDiaElegible(previos), [previos]);
+
   // Contador del ciclo (día X de 21, cuántos faltan, si ya venció).
   const ciclo = useMemo(() => (mercado ? diasDelCiclo(mercado) : null), [mercado]);
 
@@ -214,15 +228,15 @@ export function CocinaPage() {
   async function iniciar() {
     setIniciando(true);
     try {
-      const nuevo = await iniciarMercado();
-      notify(`Mercado ${nuevo.numero ?? ''} iniciado · el saldo inicial es el stock de este momento`, 'success', { link: '#/app/cocina' });
+      const nuevo = await iniciarMercado({ fecha: fechaInicio });
+      notify(`Mercado ${nuevo.numero ?? ''} iniciado · empieza ${dateTime(nuevo.inicio_at)}`, 'success', { link: '#/app/cocina' });
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo iniciar el mercado', 'error'); }
     finally { setIniciando(false); }
   }
 
   async function alDescartar(m: Mercado) {
-    setDescartando(false);
+    setDescartandoId(null);
     notify(`Mercado ${m.numero ?? ''} descartado · no cuenta y no pasa saldo. El próximo se inicia con «Iniciar mercado».`, 'warning', { link: '#/app/cocina' });
     await cargar();
   }
@@ -259,7 +273,7 @@ export function CocinaPage() {
               descartar deja el ciclo fuera de la cuenta y no abre ninguno. Va al lado, en
               tono discreto: es una salida de excepción, no la habitual. */}
           {canWrite && mercado && (
-            <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setDescartando(true)}
+            <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setDescartandoId(mercado?.id ?? null)}
               title="El mercado no cuenta y no le pasa saldo al siguiente. No se borra nada. El próximo se inicia con «Iniciar mercado».">
               ⊘ Descartar mercado
             </button>
@@ -281,14 +295,42 @@ export function CocinaPage() {
           (ver iniciarMercado), así que este es el único camino para abrir uno. */}
       {!loading && mercadoLeido && !mercado && !errorMercado && (
         <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--brand, #ff8a00)' }}>
-          <div className="card-title"><span>🛒 No hay un mercado abierto</span></div>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Al iniciarlo, el <strong>stock actual de víveres</strong> pasa a ser el saldo inicial y el conteo de {CICLO_DIAS} días empieza <strong>en ese momento</strong>.
-            Conviene iniciarlo cuando el inventario de cocina esté como debe. Mientras no haya mercado, las comidas se registran y descuentan stock igual, pero no entran en ningún ciclo.
+          <div className="card-title"><span>🛒 Iniciar mercado (ciclo de {CICLO_DIAS} días)</span></div>
+          <p className="hint muted" style={{ marginTop: 0 }}>
+            Todavía no hay un mercado activo. Al iniciarlo, el <strong>stock de víveres a la fecha de inicio</strong> cuenta como saldo inicial y arranca el conteo de {CICLO_DIAS} días.
+            Al llegar el día {CICLO_DIAS + 1} vas a poder <strong>cerrarlo</strong> (con PDF, y el stock de ese momento como saldo del siguiente).
           </p>
-          {canWrite
-            ? <button className="btn btn-primary" onClick={() => setConfirmarInicio(true)} disabled={iniciando}>{iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}</button>
-            : <p className="muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
+          {canWrite ? (
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ margin: 0, maxWidth: 200 }}>
+                <label style={{ fontSize: '.75rem' }}>Fecha de inicio</label>
+                {/* `min` es el día en que terminó el último mercado: el navegador no deja elegir
+                    una fecha que lo pise. El aviso de abajo explica por qué, porque un campo que
+                    no deja elegir y no dice nada se lee como si estuviera roto. */}
+                <input className="input" type="date" value={fechaInicio} min={diaMinimo ?? undefined}
+                  onChange={(e) => setFechaInicio(e.target.value)} />
+              </div>
+              <button className="btn btn-primary" onClick={() => void iniciar()} disabled={iniciando || 'error' in inicioElegido}>
+                {iniciando ? 'Iniciando…' : '🛒 Iniciar mercado'}
+              </button>
+            </div>
+          ) : <p className="hint muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
+          {canWrite && ('error' in inicioElegido ? (
+            <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.6rem' }}>{inicioElegido.error}</div>
+          ) : (
+            <div className="muted" style={{ fontSize: '.82rem', marginTop: '.5rem' }}>
+              Empieza el <strong>{dateTime(inicioElegido.inicio_at)}</strong>
+              {inicioElegido.ajustadoAlCierre ? ', a la hora en que terminó el mercado anterior' : ''}.
+              {fechaInicio < hoyISO() && (
+                <span style={{ color: 'var(--warning)' }}> Con una fecha pasada, el saldo inicial se calcula hacia atrás: si en esos días hubo salidas manuales, ajustes o traslados, no va a coincidir con el inventario. Conviene dejar la fecha en hoy.</span>
+              )}
+              {fechaInicio > hoyISO() && <span> Lo que se mueva antes de esa fecha no entra en el ciclo.</span>}
+            </div>
+          ))}
+          <p className="muted" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
+            Mientras no haya mercado, las comidas se registran y descuentan stock igual, pero no entran en ningún ciclo. Cargá las comidas atrasadas antes de iniciarlo.
+          </p>
+          <LeyendaCocina />
         </div>
       )}
       {errorMercado && (
@@ -340,6 +382,9 @@ export function CocinaPage() {
           </div>
         </div>
       )}
+
+      {/* Dudas frecuentes del mercado, plegadas (portado de MGG). */}
+      {mercado && <LeyendaCocina />}
 
       {/* Aviso de víveres bajos (20% o menos del mínimo): también se notifica a Compras */}
       {bajos.length > 0 && (
@@ -564,17 +609,10 @@ export function CocinaPage() {
         </Modal>
       )}
 
-      {descartando && mercado && (
+      {descartandoId && mercado && mercado.id === descartandoId && (
         <DescartarMercadoModal mercado={mercado} dia={ciclo?.dia ?? null} totales={totMercado}
           actor={actor} actorName={actorName}
-          onClose={() => setDescartando(false)} onDone={alDescartar} />
-      )}
-      {confirmarInicio && (
-        <ConfirmDialog title="🛒 Iniciar mercado"
-          message={`Se abre un mercado nuevo desde este momento. El stock actual de víveres pasa a ser su saldo inicial y empieza el conteo de ${CICLO_DIAS} días.`}
-          confirmText="Iniciar mercado"
-          onCancel={() => setConfirmarInicio(false)}
-          onConfirm={() => { setConfirmarInicio(false); void iniciar(); }} />
+          onClose={() => setDescartandoId(null)} onDone={alDescartar} />
       )}
     </div>
   );
@@ -616,18 +654,19 @@ function DescartarMercadoModal({ mercado, dia, totales, actor, actorName, onClos
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
         <button className="btn btn-danger" onClick={() => void confirmar()} disabled={!listo}>
-          {guardando ? 'Descartando…' : '⊘ Descartar mercado'}
+          {guardando ? 'Descartando…' : '⊘ Descartar'}
         </button>
       </>
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
       <div className="card" style={{ borderColor: 'var(--danger)', marginTop: 0, marginBottom: '.75rem' }}>
-        <strong>Esto no se deshace.</strong> El mercado <strong>deja de contar</strong>: no le pasa saldo al siguiente y queda marcado como descartado en «Mercados cerrados».
+        <strong>Esto no se deshace.</strong> El ciclo <strong>deja de contar</strong>: no le pasa saldo al siguiente y sus cifras salen de la cadena.
       </div>
       <p className="muted" style={{ marginTop: 0 }}>
-        <strong>No se borra nada</strong>: las comidas, los movimientos de inventario y el resumen del ciclo quedan guardados y se pueden consultar.
-        <strong> No se abre un mercado nuevo</strong>: se inicia con «Iniciar mercado», y su saldo inicial es el stock de ese momento.
-        Mientras tanto, las comidas se siguen registrando y descontando del inventario, pero no entran en ningún ciclo.
+        No se borra nada — las comidas, los movimientos y el resumen quedan donde están, y el ciclo se sigue
+        consultando en «Mercados cerrados» con todas sus cifras. No se abre otro mercado: cuando alguien lo inicie,
+        el <strong>saldo inicial saldrá del inventario real</strong> a la fecha de inicio. Mientras tanto, las comidas
+        se registran y descuentan stock, pero no entran en ningún ciclo.
       </p>
       <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
         <div><div className="muted" style={{ fontSize: '.72rem' }}>Ciclo</div><div className="mono" style={{ fontWeight: 700 }}>{dia != null ? `día ${dia} de ${CICLO_DIAS}` : '—'}</div></div>
@@ -639,18 +678,22 @@ function DescartarMercadoModal({ mercado, dia, totales, actor, actorName, onClos
         <textarea id="motivo-descarte" className="textarea" rows={3} value={motivo} disabled={guardando}
           onChange={(e) => setMotivo(e.target.value)}
           placeholder="Qué pasó con este ciclo y por qué sus cifras no sirven de punto de partida." />
-        <small className="muted" style={{ color: motivo.trim() && !motivoOk ? 'var(--danger)' : undefined }}>
-          {motivoOk
-            ? 'Queda escrito en el histórico, con tu nombre y la fecha.'
-            : `Obligatorio · al menos ${MOTIVO_DESCARTE_MIN} caracteres (${motivo.trim().length}/${MOTIVO_DESCARTE_MIN}).`}
-        </small>
+        {/* Obligatorio y con un mínimo real: dentro de seis meses, un ciclo que no cuenta y
+            no dice por qué parece un error del sistema en vez de una decisión de alguien. */}
+        {!motivoOk && (
+          <small className="muted" style={{ color: motivo.trim() ? 'var(--danger)' : undefined }}>
+            {motivo.trim()
+              ? `Explicá un poco más: esto queda en el historial (${motivo.trim().length}/${MOTIVO_DESCARTE_MIN}).`
+              : 'Obligatorio.'}
+          </small>
+        )}
       </div>
       <div className="form-row">
         <label htmlFor="clave-descarte">Para confirmar, escribí <strong className="mono">{clave}</strong></label>
         <input id="clave-descarte" className="input mono" value={escrito} disabled={guardando} autoComplete="off"
           onChange={(e) => setEscrito(e.target.value)} placeholder={clave}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void confirmar(); } }} />
-        {escrito.trim() !== '' && !confirmado && <small style={{ color: 'var(--danger)' }}>No coincide con {clave}.</small>}
+        {escrito.trim() !== '' && !confirmado && <small className="muted" style={{ color: 'var(--danger)' }}>No coincide.</small>}
       </div>
     </Modal>
   );

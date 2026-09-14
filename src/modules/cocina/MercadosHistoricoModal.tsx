@@ -118,7 +118,7 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
                     /* Un mercado DESCARTADO no es uno cerrado: no le pasó saldo al siguiente.
                        Mostrarlos iguales haría pensar que su remanente sigue en la cadena. */
                     <tr key={m.id} className="row-selectable"
-                      style={{ cursor: 'pointer', ...(desc ? { borderLeft: '3px solid var(--danger)', opacity: 0.85 } : {}) }}
+                      style={{ cursor: 'pointer', ...(desc ? { borderLeft: '3px solid var(--danger)', opacity: 0.72 } : {}) }}
                       onClick={() => abrirDetalle(m)}
                       title={desc ? `Descartado · ${m.totales?.motivo_descarte ?? ''}` : 'Ver detalle'}>
                       <td className="mono" style={{ fontWeight: 700 }}>

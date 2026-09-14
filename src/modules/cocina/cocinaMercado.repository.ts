@@ -10,6 +10,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
 import { MOTIVO_DESCARTE_MIN, motivoValido } from './mercadoDescarte';
+import { diaCaracas, reconstruirSaldo, resolverInicio } from './mercadoInicio';
 
 const TABLE = 'cocina_mercados';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -124,18 +125,30 @@ export async function getMercadoActivo(): Promise<Mercado | null> {
  * descartado reaparecía abierto en la carga siguiente sin que nadie lo decidiera,
  * y dos pantallas abiertas a la vez podían crear dos.
  *
- * El inicio es el instante en que se aprieta el botón y el saldo inicial es la foto
- * del stock de ese momento, leída de la base. No hay fecha para elegir: un inicio
- * hacia atrás vuelve a contar lo que la foto ya incluye.
+ * La fecha de inicio se elige, como en MGG (decisión del usuario, 14/09/2026). Las
+ * reglas viven en mercadoInicio.ts:
+ * · no puede pisar a ningún ciclo anterior, ni siquiera a uno descartado;
+ * · el saldo inicial es el stock A ESA FECHA: stock de ahora − entradas + consumos desde
+ *   el inicio, contados igual que el panel. Con la fecha de hoy y sin movimientos en el
+ *   día, es el stock real.
+ * La guarda está acá y no solo en la pantalla, porque la pantalla se puede saltear.
  */
-export async function iniciarMercado(): Promise<Mercado> {
+export async function iniciarMercado(input: { fecha?: string | null } = {}): Promise<Mercado> {
   const actual = await getMercadoActivo();
   if (actual) throw new Error(`Ya hay un mercado abierto (${actual.numero ?? 'sin número'}). Recargá la pantalla.`);
+  const previos = await listMercados();
+  const inicio = resolverInicio(input.fecha || diaCaracas(new Date()), previos);
+  if ('error' in inicio) throw new Error(inicio.error);
+  const ahora = new Date().toISOString();
   const vs = await listViveres();
+  const [entradas, consumos] = await Promise.all([
+    entradasPorViver(inicio.inicio_at, ahora, new Set(vs.map((p) => p.id))),
+    consumoPorViver(inicio.inicio_at, ahora),
+  ]);
   const numero = await nextNumeroMercado();
   const { data, error } = await supabase.from(TABLE).insert({
-    numero, estado: 'abierto', inicio_at: new Date().toISOString(),
-    saldo_inicial: snapshotViveres(vs),
+    numero, estado: 'abierto', inicio_at: inicio.inicio_at,
+    saldo_inicial: reconstruirSaldo(vs, entradas, consumos),
   }).select('*').single();
   if (error) throw error;
   return normalizar(data as Record<string, unknown>);
@@ -390,8 +403,19 @@ export async function actualizarMercadoHistorico(
   return normalizar(data as Record<string, unknown>);
 }
 
-/** Elimina un ciclo del histórico (no repone stock ni toca el ciclo abierto). */
+/**
+ * Elimina un ciclo del histórico (no repone stock ni toca el ciclo abierto).
+ *
+ * Un mercado DESCARTADO no se elimina: es el rastro de por qué ese ciclo no cuenta.
+ * La pantalla ya oculta el botón; la guarda va también acá porque la pantalla se
+ * puede saltear.
+ */
 export async function eliminarMercado(id: string): Promise<void> {
+  const { data: actual, error: eActual } = await supabase.from(TABLE).select('totales').eq('id', id).maybeSingle();
+  if (eActual) throw eActual;
+  if ((actual as { totales?: TotalesMercado | null } | null)?.totales?.descartado) {
+    throw new Error('Un mercado descartado no se elimina: es el rastro de por qué ese ciclo no cuenta.');
+  }
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
 }
