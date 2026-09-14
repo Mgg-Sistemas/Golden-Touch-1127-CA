@@ -9,6 +9,8 @@ import { num as fmtNum } from '@/shared/lib/format';
 import { MaquinariaCatalogoModal } from './MaquinariaCatalogoModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { BitacoraModal } from './BitacoraModal';
+import { EquipoDocumentosModal } from './EquipoDocumentosModal';
+import { contarDocumentosPorEquipo } from './maquinariaDocumentos.repository';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, setEquipoActivo, eliminarEquipo, reiniciarMantenimientoDeEquipo, type MaquinariaEquipo } from './maquinariaEquipos.repository';
@@ -80,6 +82,9 @@ export function MaquinariaPage() {
   const [correoOpen, setCorreoOpen] = useState(false);
   const [form, setForm] = useState<{ open: boolean; equipo: MaquinariaEquipo | null }>({ open: false, equipo: null });
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
+  // 📎 Documentos del equipo (contrato, catálogo…) y cuántos tiene cada uno.
+  const [documentos, setDocumentos] = useState<MaquinariaEquipo | null>(null);
+  const [docsPorEquipo, setDocsPorEquipo] = useState<Map<string, number>>(new Map());
   // GT-INT-15 · Valores vigentes del catalogo de Combustible, para detectar fichas que
   // quedaron apuntando a un nombre renombrado (vinculo roto = alerta apagada en silencio).
   const [combEquipos, setCombEquipos] = useState<string[]>([]);
@@ -87,15 +92,17 @@ export function MaquinariaPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, kms, bit, sol, cats] = await Promise.all([
+      const [eqs, horos, kms, bit, sol, cats, nDocs] = await Promise.all([
         listEquipos(),
         horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
         kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
         horasUltimoPorEquipo().catch(() => new Map()),
         solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
         listCatalogos().catch(() => []),
+        contarDocumentosPorEquipo().catch(() => new Map<string, number>()),
       ]);
       setEquipos(eqs);
+      setDocsPorEquipo(nDocs);
       setHorometros(horos);
       setKilometrajes(kms);
       setBitMap(bit);
@@ -106,7 +113,7 @@ export function MaquinariaPage() {
   useEffect(() => { void cargar(); }, [cargar]);
   // También vigila los movimientos de combustible (horómetro vigente) y las órdenes
   // (solicitudes de servicio que casan a un equipo).
-  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'combustible_tanque_movimientos', 'ordenes'], () => { void cargar(); });
+  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'maquinaria_documentos', 'combustible_tanque_movimientos', 'ordenes'], () => { void cargar(); });
 
   // HRS / KM restantes + alerta por equipo. Las lecturas vigentes (horómetro y
   // kilometraje) se traen de Combustible por el equipo vinculado (combustible_equipo);
@@ -337,6 +344,14 @@ export function MaquinariaPage() {
                       </button>
                     )}
                     <button className="btn btn-sm btn-ghost" title="Bitácora / horómetro" onClick={() => setBitacora(e)}>🔧</button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      title={`Documentos del equipo (contrato, catálogo…): ${docsPorEquipo.get(e.id) ?? 0} de 4`}
+                      aria-label={`Documentos de ${e.equipo}`}
+                      onClick={() => setDocumentos(e)}
+                    >
+                      📎{docsPorEquipo.get(e.id) ? ` ${docsPorEquipo.get(e.id)}` : ''}
+                    </button>
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, equipo: e })}>✎</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" title={e.activo ? 'Desactivar (queda inactivo, no se borra)' : 'Reactivar'} onClick={() => void toggleActivo(e)}>{e.activo ? 'Desactivar' : 'Activar'}</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" title="Eliminar definitivamente (borra también su bitácora)" onClick={() => setBorrar(e)}>🗑</button>}
@@ -352,7 +367,7 @@ export function MaquinariaPage() {
       {borrar && (
         <ConfirmDialog
           title="Eliminar equipo"
-          message={`¿Eliminar definitivamente "${borrar.equipo}"? Se borrará también toda su bitácora de mantenimientos. Esta acción no se puede deshacer.`}
+          message={`¿Eliminar definitivamente "${borrar.equipo}"? Se borrarán también su bitácora de mantenimientos y sus documentos. Esta acción no se puede deshacer.`}
           confirmText="Eliminar"
           danger
           onCancel={() => setBorrar(null)}
@@ -364,6 +379,7 @@ export function MaquinariaPage() {
       {resumenOpen && <ResumenMaquinariaModal equipos={equipos.filter((e) => e.activo)} onClose={() => setResumenOpen(false)} />}
       {form.open && <EquipoFormModal equipo={form.equipo} actor={actor} onClose={() => setForm({ open: false, equipo: null })} onSaved={cargar} />}
       {bitacora && <BitacoraModal equipo={bitacora} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setBitacora(null)} />}
+      {documentos && <EquipoDocumentosModal equipo={documentos} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setDocumentos(null)} />}
       {correoOpen && (
         <CorreoReporteModal
           titulo="Enviar Control de Maquinaria y Vehículos"

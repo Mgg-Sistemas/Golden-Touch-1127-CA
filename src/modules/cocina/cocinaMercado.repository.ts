@@ -9,6 +9,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
+import { MOTIVO_DESCARTE_MIN, motivoValido } from './mercadoDescarte';
 
 const TABLE = 'cocina_mercados';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -43,6 +44,19 @@ export interface TotalesMercado {
   consumo_valor: number;   // costo total consumido (Bs/$ del inventario)
   entradas_total: number;  // suma de cantidades entradas
   queda_viveres: number;   // víveres con saldo > 0 que pasan al próximo
+  /* ── Descarte (14/09/2026) ──
+     Viven en este jsonb para no pedir migración; los mercados anteriores no los
+     traen. Un mercado descartado queda con estado 'cerrado' y esta marca. */
+  /** true si el ciclo se descartó: no cuenta y no le pasa saldo al siguiente. */
+  descartado?: boolean;
+  /** Por qué se descartó. Obligatorio al descartar. */
+  motivo_descarte?: string | null;
+  /** Correo de quien descartó. */
+  descartado_por?: string | null;
+  /** Nombre visible de quien descartó. */
+  descartado_por_nombre?: string | null;
+  /** Instante del descarte (ISO). */
+  descartado_at?: string | null;
 }
 
 export interface Mercado {
@@ -103,13 +117,21 @@ export async function getMercadoActivo(): Promise<Mercado | null> {
 }
 
 /**
- * Garantiza que haya un mercado abierto: si no existe (primera vez), lo crea con el
- * saldo inicial = foto del stock actual de víveres. Devuelve el mercado abierto.
+ * Inicia un mercado. Lo abre una PERSONA, con el botón «Iniciar mercado».
+ *
+ * Reemplaza a `asegurarMercadoActivo`, que la pantalla llamaba en cada carga y que
+ * creaba un mercado cada vez que no encontraba uno abierto. Con eso, un mercado
+ * descartado reaparecía abierto en la carga siguiente sin que nadie lo decidiera,
+ * y dos pantallas abiertas a la vez podían crear dos.
+ *
+ * El inicio es el instante en que se aprieta el botón y el saldo inicial es la foto
+ * del stock de ese momento, leída de la base. No hay fecha para elegir: un inicio
+ * hacia atrás vuelve a contar lo que la foto ya incluye.
  */
-export async function asegurarMercadoActivo(viveres?: Producto[]): Promise<Mercado> {
+export async function iniciarMercado(): Promise<Mercado> {
   const actual = await getMercadoActivo();
-  if (actual) return actual;
-  const vs = viveres ?? await listViveres();
+  if (actual) throw new Error(`Ya hay un mercado abierto (${actual.numero ?? 'sin número'}). Recargá la pantalla.`);
+  const vs = await listViveres();
   const numero = await nextNumeroMercado();
   const { data, error } = await supabase.from(TABLE).insert({
     numero, estado: 'abierto', inicio_at: new Date().toISOString(),
@@ -255,6 +277,55 @@ export async function cerrarMercado(
   return normalizar(data as Record<string, unknown>);
 }
 
+/**
+ * Descarta el mercado abierto: queda guardado y marcado, pero NO cuenta.
+ *
+ * Portado de MGG. Descartar no es cerrar ni borrar:
+ * · no abre el mercado siguiente (lo inicia una persona con «Iniciar mercado»);
+ * · no le pasa saldo a nadie (`saldo_final` queda vacío);
+ * · no borra nada: comidas, movimientos de inventario y el resumen del ciclo quedan.
+ *
+ * El resumen se relee de la base en el instante del descarte, igual que al cerrar.
+ * Lo que el ciclo movió es un hecho y se conserva; lo que se anula es su valor como
+ * punto de partida. En MGG, guardar ceros hizo que el histórico dijera «0 platos»
+ * sobre un ciclo que había servido 1.877.
+ *
+ * La reserva es el propio update con `.eq('estado','abierto')`: si otra persona cerró
+ * o descartó en el medio, no pisa nada y lo dice.
+ */
+export async function descartarMercado(
+  m: Mercado, input: { actor: string; actorName?: string | null; motivo: string },
+): Promise<Mercado> {
+  if (m.estado !== 'abierto') throw new Error('Solo se puede descartar un mercado abierto.');
+  const motivo = (input.motivo ?? '').trim();
+  if (!motivoValido(motivo)) {
+    throw new Error(`Explicá por qué se descarta (al menos ${MOTIVO_DESCARTE_MIN} caracteres): queda escrito en el histórico.`);
+  }
+  const instante = new Date().toISOString();
+  const viveres = await listViveres();
+  const { items, totales } = await computeResumen(m, viveres, instante);
+  const { data, error } = await supabase.from(TABLE).update({
+    estado: 'cerrado',
+    cierre_at: instante,
+    cerrado_por: input.actor,
+    saldo_final: null,
+    resumen: items,
+    totales: {
+      ...totales,
+      descartado: true,
+      motivo_descarte: motivo,
+      descartado_por: input.actor,
+      descartado_por_nombre: input.actorName ?? null,
+      descartado_at: instante,
+    },
+  }).eq('id', m.id).eq('estado', 'abierto').select('*').maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    throw new Error('Este mercado ya no está abierto, o no tenés permiso para modificarlo: otra persona pudo cerrarlo o descartarlo. Recargá la pantalla.');
+  }
+  return normalizar(data as Record<string, unknown>);
+}
+
 /** Historial de ciclos (cerrados y el abierto), más recientes primero. */
 export async function listMercados(): Promise<Mercado[]> {
   const { data, error } = await supabase.from(TABLE).select('*').order('inicio_at', { ascending: false });
@@ -292,6 +363,15 @@ export async function actualizarMercadoHistorico(
   const upd: Record<string, unknown> = {};
   if (patch.nota !== undefined) upd.nota = patch.nota?.trim() || null;
   if (patch.resumen !== undefined) {
+    // Lo que la edición no recalcula se toma de lo guardado: el valor del consumo
+    // (antes quedaba en $0 al guardar, aunque solo se tocara la nota) y la marca de
+    // descarte. Un mercado descartado no se corrige: sus cifras son las del descarte.
+    const { data: actual, error: eActual } = await supabase.from(TABLE).select('totales').eq('id', id).single();
+    if (eActual) throw eActual;
+    const previos = (actual as { totales?: TotalesMercado | null } | null)?.totales ?? null;
+    if (previos?.descartado) {
+      throw new Error('Un mercado descartado no se corrige: sus cifras quedan como estaban al descartarlo.');
+    }
     const items = patch.resumen.map((r) => {
       const saldo = round2(Number(r.saldo_inicial) || 0);
       const ent = round2(Number(r.entradas) || 0);
@@ -300,7 +380,7 @@ export async function actualizarMercadoHistorico(
       return { ...r, saldo_inicial: saldo, entradas: ent, consumo: cons, queda, disponible: round2(saldo + ent) };
     });
     upd.resumen = items;
-    upd.totales = totalesDesdeResumen(items);
+    upd.totales = { ...(previos ?? {}), ...totalesDesdeResumen(items), consumo_valor: previos?.consumo_valor ?? 0 };
     upd.saldo_final = items.filter((i) => i.queda > 0).map((i) => ({
       producto_id: i.producto_id, sku: i.sku, nombre: i.nombre, unidad: i.unidad, cantidad: i.queda,
     }));

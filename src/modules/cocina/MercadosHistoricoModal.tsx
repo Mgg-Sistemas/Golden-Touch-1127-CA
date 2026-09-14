@@ -10,6 +10,7 @@ import {
 } from './cocinaMercado.repository';
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
+import { esDescartado } from './mercadoDescarte';
 
 const dmy = (iso?: string | null): string => {
   if (!iso) return '—';
@@ -88,7 +89,8 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
     <>
       <button className="btn btn-ghost" onClick={volver}>← Volver</button>
       <button className="btn btn-ghost" onClick={() => void descargarCocinaCierrePdf(ver)}>↓ PDF</button>
-      {canWrite && !editando && <button className="btn btn-ghost" onClick={empezarEdicion}>✏️ Editar</button>}
+      {/* Un mercado descartado no se corrige: sus cifras son las del momento del descarte. */}
+      {canWrite && !editando && !esDescartado(ver) && <button className="btn btn-ghost" onClick={empezarEdicion}>✏️ Editar</button>}
       {canWrite && editando && <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : '💾 Guardar'}</button>}
     </>
   ) : (
@@ -97,7 +99,7 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
 
   return (
     <Modal
-      title={mode === 'detalle' && ver ? `🗂 Mercado ${ver.numero ?? ''} (cerrado)` : '🗂 Mercados cerrados (histórico)'}
+      title={mode === 'detalle' && ver ? `🗂 Mercado ${ver.numero ?? ''} (${esDescartado(ver) ? 'descartado' : 'cerrado'})` : '🗂 Mercados cerrados (histórico)'}
       size="xl" onClose={onClose} footer={footer}>
       {mode === 'list' && (
         loading ? <p className="muted">Cargando…</p> : !lista.length ? (
@@ -110,16 +112,38 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
                 <th style={{ textAlign: 'right' }}>Consumo</th><th style={{ textAlign: 'right' }}>Pasaron</th>{canWrite && <th></th>}
               </tr></thead>
               <tbody>
-                {lista.map((m) => (
-                  <tr key={m.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => abrirDetalle(m)} title="Ver detalle">
-                    <td className="mono" style={{ fontWeight: 700 }}>{m.numero ?? '—'}</td>
-                    <td>{dmy(m.inicio_at)} → {dmy(m.cierre_at)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(m.totales?.viveres ?? (m.resumen?.length ?? 0))}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(m.totales?.consumo_valor ?? 0)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(m.totales?.queda_viveres ?? 0)}</td>
-                    {canWrite && <td><button className="btn btn-sm btn-ghost" title="Eliminar del histórico" onClick={(e) => { e.stopPropagation(); setABorrar(m); }}>🗑</button></td>}
-                  </tr>
-                ))}
+                {lista.map((m) => {
+                  const desc = esDescartado(m);
+                  return (
+                    /* Un mercado DESCARTADO no es uno cerrado: no le pasó saldo al siguiente.
+                       Mostrarlos iguales haría pensar que su remanente sigue en la cadena. */
+                    <tr key={m.id} className="row-selectable"
+                      style={{ cursor: 'pointer', ...(desc ? { borderLeft: '3px solid var(--danger)', opacity: 0.85 } : {}) }}
+                      onClick={() => abrirDetalle(m)}
+                      title={desc ? `Descartado · ${m.totales?.motivo_descarte ?? ''}` : 'Ver detalle'}>
+                      <td className="mono" style={{ fontWeight: 700 }}>
+                        {m.numero ?? '—'}
+                        {desc && (
+                          <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.66rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}>⊘ descartado</span>
+                        )}
+                      </td>
+                      <td>{dmy(m.inicio_at)} → {dmy(m.cierre_at)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{num(m.totales?.viveres ?? (m.resumen?.length ?? 0))}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money(m.totales?.consumo_valor ?? 0)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>
+                        {desc
+                          ? <span className="dim" title="Descartado: no le pasó saldo al siguiente">n/c</span>
+                          : num(m.totales?.queda_viveres ?? 0)}
+                      </td>
+                      {canWrite && (
+                        <td>
+                          {/* Un descartado no se borra: es el rastro de por qué ese ciclo no cuenta. */}
+                          {!desc && <button className="btn btn-sm btn-ghost" title="Eliminar del histórico" onClick={(e) => { e.stopPropagation(); setABorrar(m); }}>🗑</button>}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -129,9 +153,21 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
       {mode === 'detalle' && ver && (
         <div style={{ display: 'grid', gap: '.6rem' }}>
           <div className="muted" style={{ fontSize: '.82rem' }}>
-            Ciclo <strong>{dmy(ver.inicio_at)} → {dmy(ver.cierre_at)}</strong> · cerrado {dateTime(ver.cierre_at ?? ver.created_at)}
+            Ciclo <strong>{dmy(ver.inicio_at)} → {dmy(ver.cierre_at)}</strong> · {esDescartado(ver) ? 'descartado' : 'cerrado'} {dateTime(ver.cierre_at ?? ver.created_at)}
             {ver.cerrado_por ? ` · por ${ver.cerrado_por}` : ''} · consumo total <strong className="mono">{money(consumoValor)}</strong>
           </div>
+
+          {esDescartado(ver) && (
+            <div className="card" style={{ borderColor: 'var(--danger)', padding: '.6rem .8rem' }}>
+              <strong style={{ color: 'var(--danger)' }}>⊘ Mercado descartado</strong>
+              {' · '}{dateTime(ver.totales?.descartado_at ?? ver.cierre_at ?? ver.created_at)}
+              {' · por '}{ver.totales?.descartado_por_nombre || ver.totales?.descartado_por || ver.cerrado_por || '—'}
+              <div style={{ marginTop: '.25rem' }}>Motivo: «{ver.totales?.motivo_descarte ?? '—'}»</div>
+              <div className="muted" style={{ fontSize: '.8rem', marginTop: '.25rem' }}>
+                No cuenta y no le pasó saldo al siguiente. Las cifras de abajo son lo que el ciclo movió hasta el descarte; «Quedó» es el stock de ese momento.
+              </div>
+            </div>
+          )}
 
           {/* Enviar el reporte por correo */}
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>

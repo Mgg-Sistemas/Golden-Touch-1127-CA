@@ -7,6 +7,7 @@
    ============================================================ */
 import { previewPdf } from '@/shared/lib/reportePreview';
 import type { Mercado, ResumenViver } from './cocinaMercado.repository';
+import { esDescartado } from './mercadoDescarte';
 
 type JsPDFDoc = import('jspdf').jsPDF;
 
@@ -34,8 +35,10 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
-  doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text('CIERRE DE MERCADO · COCINA', W / 2 + 28, y + 18, { align: 'center' });
+  const descartado = esDescartado(m);
+  if (descartado) doc.setTextColor(190, 30, 45); else doc.setTextColor(255, 138, 0);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+  doc.text(descartado ? 'MERCADO DESCARTADO · COCINA' : 'CIERRE DE MERCADO · COCINA', W / 2 + 28, y + 18, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   doc.text(`${m.numero ?? ''} · ${soloFecha(m.inicio_at)} a ${soloFecha(m.cierre_at)}`, W / 2 + 28, y + 34, { align: 'center' });
   doc.setTextColor(120, 120, 120); doc.setFontSize(8);
@@ -45,7 +48,21 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
 
   // Totales del ciclo
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text(`${t?.viveres ?? resumen.length} víveres   ·   Consumo total ${money(t?.consumo_valor ?? 0)}   ·   ${t?.queda_viveres ?? 0} con saldo que pasa al próximo mercado`, MARGIN, y);
+  if (descartado) {
+    // Un descartado no le pasa saldo a nadie: decir «pasa al próximo mercado» sería falso.
+    doc.text(`${t?.viveres ?? resumen.length} víveres   ·   Consumo total ${money(t?.consumo_valor ?? 0)}   ·   NO pasa saldo al próximo mercado`, MARGIN, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(190, 30, 45);
+    const quien = t?.descartado_por_nombre || t?.descartado_por || m.cerrado_por || '—';
+    const lineas: string[] = doc.splitTextToSize(
+      `Descartado el ${fmt.dateTime(t?.descartado_at ?? m.cierre_at ?? m.created_at)} por ${quien}. Motivo: ${t?.motivo_descarte ?? '—'}`,
+      W - MARGIN * 2,
+    );
+    doc.text(lineas, MARGIN, y + 14);
+    doc.setTextColor(0, 0, 0);
+    y += 14 + lineas.length * 11;
+  } else {
+    doc.text(`${t?.viveres ?? resumen.length} víveres   ·   Consumo total ${money(t?.consumo_valor ?? 0)}   ·   ${t?.queda_viveres ?? 0} con saldo que pasa al próximo mercado`, MARGIN, y);
+  }
   y += 8;
 
   // Detalle por víver: saldo inicial + entradas = disponible; consumo; QUEDA
@@ -74,12 +91,12 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
 /** Abre el PDF del cierre en vista previa (se descarga al pulsar Descargar). */
 export async function descargarCocinaCierrePdf(m: Mercado): Promise<void> {
   const doc = await construirDocCierre(m);
-  previewPdf(doc, `cierre-mercado-${(m.numero ?? 'MK')}-${soloFecha(m.cierre_at).replace(/\//g, '-')}.pdf`);
+  previewPdf(doc, `${esDescartado(m) ? 'mercado-descartado' : 'cierre-mercado'}-${(m.numero ?? 'MK')}-${soloFecha(m.cierre_at).replace(/\//g, '-')}.pdf`);
 }
 
 /** Genera el PDF del cierre y devuelve el base64 (sin prefijo) + nombre, para el correo. */
 export async function obtenerCocinaCierreBase64(m: Mercado): Promise<{ base64: string; nombre: string }> {
   const doc = await construirDocCierre(m);
   const dataUri = doc.output('datauristring');
-  return { base64: dataUri.split(',')[1] ?? '', nombre: `cierre-mercado-${m.numero ?? 'MK'}.pdf` };
+  return { base64: dataUri.split(',')[1] ?? '', nombre: `${esDescartado(m) ? 'mercado-descartado' : 'cierre-mercado'}-${m.numero ?? 'MK'}.pdf` };
 }

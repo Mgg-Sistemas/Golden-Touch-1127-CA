@@ -13,6 +13,7 @@ const TABS: { key: TipoCatalogoMaquinaria; label: string; singular: string }[] =
   { key: 'tipo_maquinaria', label: 'Tipo de maquinaria', singular: 'tipo de maquinaria' },
   { key: 'propietario', label: 'Propietario', singular: 'propietario' },
   { key: 'status', label: 'Status', singular: 'status' },
+  { key: 'documento', label: 'Nombres de documentos', singular: 'nombre de documento' },
 ];
 
 /**
@@ -20,8 +21,13 @@ const TABS: { key: TipoCatalogoMaquinaria; label: string; singular: string }[] =
  * Mismo patrón que el catálogo de la OP: pestañas, agregar, filtrar, editar y
  * activar/desactivar (los inactivos dejan de aparecer en los selectores). En vivo.
  */
-export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boolean; onClose: () => void }) {
-  const [tab, setTab] = useState<TipoCatalogoMaquinaria>('tipo_maquinaria');
+export function MaquinariaCatalogoModal({ canWrite, onClose, tabInicial }: {
+  canWrite: boolean;
+  onClose: () => void;
+  /** Pestaña con la que abre (📎 Documentos la abre en «Nombres de documentos»). */
+  tabInicial?: TipoCatalogoMaquinaria;
+}) {
+  const [tab, setTab] = useState<TipoCatalogoMaquinaria>(tabInicial ?? 'tipo_maquinaria');
   const [items, setItems] = useState<CatalogoMaquinaria[]>([]);
   const [valor, setValor] = useState('');
   const [valorKey, setValorKey] = useState(0);
