@@ -42,3 +42,28 @@ supabase/.branches/
 # Reportes de inspeccion de usuarios (solo local, nunca a git)
 Inspeccion-Usuario-*.html
 q2.sql
+
+# Documentacion en Markdown: TODOS los .md son locales (norma del proyecto).
+# Van dentro de docs/ y nunca se commitean.
+*.md
+
+# SQL y datos sensibles: nunca a git (norma del usuario, 14/09/2026).
+# Los .sql de supabase/ y deploy/README-deploy.md se dejaron de versionar ese dia:
+# siguen en disco y en la historia de git. Una excepcion va solo si el usuario la indica,
+# con una linea `!ruta` aca y la misma ruta en EXCEPCIONES del hook local de pre-commit.
+*.sql
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.dump
+*.backup
+*.bak
+*.csv
+*.xls
+*.xlsx
+respaldo*.json
+respaldo*.zip
+backup-*.json
