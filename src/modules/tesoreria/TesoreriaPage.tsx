@@ -24,6 +24,7 @@ import { listServiciosDirectos, getServicioDirectoByCajaMovId, type ServicioDire
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { repartirPagoYReembolso } from './reembolsoPago';
+import { convertirRetencion } from './retencionPago';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, listConversiones, type ConversionCaja } from './cajaSaldos.repository';
 import {
   crearTransferenciaSaliente, confirmarTransferenciaEntrante, reintentarTransferencia,
@@ -5377,8 +5378,18 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   // la OC). Se RESTA del total antes de pagar: todo lo de abajo trabaja con el neto.
   const [conRetencion, setConRetencion] = useState(false);
   const [retencionStr, setRetencionStr] = useState('');
-  const retencionNum = conRetencion ? round2(Number(retencionStr) || 0) : 0;
-  const retencionInvalida = conRetencion && (retencionNum <= 0 || retencionNum >= baseFactura);
+  // Se carga en Bs (como sale el comprobante) o en $, y se convierte con SU tasa:
+  // arranca en la BCV del día y se puede cambiar por la del comprobante.
+  const [retencionMoneda, setRetencionMoneda] = useState<'Bs' | 'USD'>('Bs');
+  const [tasaRetStr, setTasaRetStr] = useState('');
+  const [tasaRetEditada, setTasaRetEditada] = useState(false);
+  const monedaOc: 'Bs' | 'USD' = (o.total_moneda ?? 'USD') === 'Bs' ? 'Bs' : 'USD';
+  const tasaRetNum = Number(tasaRetStr) || 0;
+  const retConv = convertirRetencion(conRetencion ? Number(retencionStr) || 0 : 0, retencionMoneda, tasaRetNum, monedaOc);
+  const faltaTasaRet = conRetencion && retConv.faltaTasa;
+  // Lo que se resta del total: la retención en la moneda de la OC.
+  const retencionNum = conRetencion ? retConv.enMonedaOc : 0;
+  const retencionInvalida = conRetencion && (faltaTasaRet || retencionNum <= 0 || retencionNum >= baseFactura);
   const baseOrden = retencionInvalida ? baseFactura : round2(baseFactura - retencionNum);
   // Pagar de más ya no se bloquea: se pide confirmación y el excedente sale como reembolso.
   const [confirmarReembolso, setConfirmarReembolso] = useState(false);
@@ -5465,6 +5476,11 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       .catch(() => { /* sin tasa: el usuario la ingresa manualmente */ })
       .finally(() => setTasaLista(true));
   }, []);
+
+  // La tasa de la retención arranca en la BCV del día y la sigue hasta que se edite a mano.
+  useEffect(() => {
+    if (!tasaRetEditada && tasa > 0) setTasaRetStr(String(tasa));
+  }, [tasa, tasaRetEditada]);
 
   // Autocompletar el monto cuando cambia la moneda de la caja o la tasa.
   useEffect(() => {
@@ -5621,7 +5637,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   async function pagar(confirmado: boolean) {
     setError(null);
     if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
-    if (retencionInvalida) { setError('La retención tiene que ser mayor que 0 y menor que el total de la factura.'); return; }
+    if (retencionInvalida) {
+      setError(faltaTasaRet
+        ? 'Indicá la tasa (Bs por $) para convertir la retención.'
+        : 'La retención tiene que ser mayor que 0 y menor que el total de la factura.');
+      return;
+    }
     if (!comprobanteOpcional && !comprobantes.length) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
     if (comprobantes.length > MAX_COMPROBANTES_PAGO) { setError(`Como máximo ${MAX_COMPROBANTES_PAGO} comprobantes por pago.`); return; }
     const noSirve = comprobantes.find((c) => c.type && c.type !== 'application/pdf' && !c.type.startsWith('image/'));
@@ -5646,7 +5667,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         // resto es reembolso, que sale de esa misma cuenta en su propio egreso.
         const { pago: legsPago, reembolso: legsReembolso, reembolsoUsd } = repartirPagoYReembolso(legs, totalUsd, legUsd, montoDesdeUsd);
         if (!cubreTotalMulti) { setError(`Lo cargado (${monto(sumUsdMulti, 'USD')}) no cubre el total (${monto(totalUsd, 'USD')}).`); setSaving(false); return; }
-        const pagada = await pagarOrdenCompraMultiCajas({ orden: o, legs: legsPago, reembolsoLegs: legsReembolso, reembolsoUsd, retencionMonto: retencionNum, comprobantes, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
+        const pagada = await pagarOrdenCompraMultiCajas({ orden: o, legs: legsPago, reembolsoLegs: legsReembolso, reembolsoUsd, retencionMonto: retencionNum, retencionMontoBs: conRetencion ? retConv.enBs : null, retencionTasa: conRetencion ? tasaRetNum : null, comprobantes, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null, seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName });
         avisarComprobantesFaltantes(comprobantes, pagada);
         notify(`OC ${etiquetaOc} pagada · multipago ${monto(round2(sumUsdMulti - reembolsoUsd), 'USD')}${reembolsoUsd > 0 ? ` · reembolso ${monto(reembolsoUsd, 'USD')}` : ''}`, 'success', { link: '#/app/tesoreria' });
         onPaid();
@@ -5655,7 +5676,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       const pagoSimple = excedeTotalSimple ? debidoEnMoneda : (Number(montoStr) || 0);
       const pagada = await pagarOrdenCompra({
         orden: o, cajaId, monto: pagoSimple,
-        reembolsoMonto: excedenteEnMoneda, reembolsoUsd: excedenteUsd, retencionMonto: retencionNum,
+        reembolsoMonto: excedenteEnMoneda, reembolsoUsd: excedenteUsd, retencionMonto: retencionNum, retencionMontoBs: conRetencion ? retConv.enBs : null, retencionTasa: conRetencion ? tasaRetNum : null,
         comprobantes, motivoPago: motivoPago || null, gastoCategoria: gastoCat || null, gastoSubcategoria: gastoSub || null,
         seriales: pagaUsdEfectivo ? seriales : null, comision, actorEmail: actor, actorName,
       });
@@ -5820,23 +5841,64 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             Tiene retención
           </label>
           {conRetencion && (
-            <div style={{ display: 'flex', gap: '.9rem', alignItems: 'flex-end', flexWrap: 'wrap', marginTop: '.5rem' }}>
-              <div className="form-row" style={{ marginBottom: 0, minWidth: 170 }}>
-                <label>Monto de la retención ({o.total_moneda ?? 'USD'})</label>
-                <input className="input mono" type="number" min={0} step="any" value={retencionStr} autoFocus
-                  onChange={(e) => setRetencionStr(dosDecimales(e.target.value))} placeholder="0,00"
-                  style={{ textAlign: 'right', borderColor: retencionInvalida ? 'var(--danger)' : undefined }} />
+            <div style={{ display: 'grid', gap: '.5rem', marginTop: '.5rem' }}>
+              <div style={{ display: 'flex', gap: '.7rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                {/* Moneda en la que se carga. Al cambiarla, lo ya escrito se convierte. */}
+                <div className="form-row" style={{ marginBottom: 0 }}>
+                  <label>Moneda</label>
+                  <div style={{ display: 'inline-flex', gap: '.25rem' }}>
+                    {(['Bs', 'USD'] as const).map((m) => (
+                      <button key={m} type="button"
+                        className={`btn btn-sm ${retencionMoneda === m ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => {
+                          if (m === retencionMoneda) return;
+                          const n = Number(retencionStr) || 0;
+                          if (n > 0 && tasaRetNum > 0) {
+                            setRetencionStr(String(m === 'Bs' ? round2(n * tasaRetNum) : round2(n / tasaRetNum)));
+                          }
+                          setRetencionMoneda(m);
+                        }}>
+                        {m === 'Bs' ? 'Bs' : '$'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="form-row" style={{ marginBottom: 0, minWidth: 160 }}>
+                  <label>Monto de la retención ({retencionMoneda === 'Bs' ? 'Bs' : '$'})</label>
+                  <input className="input mono" type="number" min={0} step="any" value={retencionStr} autoFocus
+                    onChange={(e) => setRetencionStr(dosDecimales(e.target.value))} placeholder="0,00"
+                    style={{ textAlign: 'right', borderColor: retencionInvalida && !faltaTasaRet ? 'var(--danger)' : undefined }} />
+                </div>
+                <div className="form-row" style={{ marginBottom: 0, minWidth: 150 }}>
+                  <label>Tasa (Bs por $){tasaRetEditada ? ' · modificada' : ' · BCV'}</label>
+                  <input className="input mono" type="number" min={0} step="any" value={tasaRetStr}
+                    onChange={(e) => { setTasaRetEditada(true); setTasaRetStr(e.target.value); }} placeholder="0,00"
+                    style={{ textAlign: 'right', borderColor: faltaTasaRet ? 'var(--danger)' : undefined }} />
+                </div>
+                {tasaRetEditada && tasa > 0 && (
+                  <button type="button" className="btn btn-sm btn-ghost" title="Volver a la tasa BCV del día"
+                    onClick={() => { setTasaRetEditada(false); setTasaRetStr(String(tasa)); }}>
+                    ↺ Tasa BCV
+                  </button>
+                )}
               </div>
               <div style={{ fontSize: '.88rem', lineHeight: 1.5 }}>
-                Factura <strong className="mono">{monto(baseFactura, o.total_moneda ?? 'USD')}</strong>
-                {' − '}retención <strong className="mono">{monto(retencionNum, o.total_moneda ?? 'USD')}</strong>
-                {' = '}<strong className="mono" style={{ color: retencionInvalida ? 'var(--danger)' : 'var(--success)' }}>{monto(round2(baseFactura - retencionNum), o.total_moneda ?? 'USD')}</strong> a pagar
+                Retención <strong className="mono">{monto(retConv.enBs, 'Bs')}</strong>
+                {' ⇄ '}<strong className="mono">{monto(retConv.enUsd, 'USD')}</strong>
+                {tasaRetNum > 0 && <span className="muted"> · a {tasaRetNum.toLocaleString('es-VE')} Bs por $</span>}
+              </div>
+              <div style={{ fontSize: '.88rem', lineHeight: 1.5 }}>
+                Factura <strong className="mono">{monto(baseFactura, monedaOc)}</strong>
+                {' − '}retención <strong className="mono">{monto(retencionNum, monedaOc)}</strong>
+                {' = '}<strong className="mono" style={{ color: retencionInvalida ? 'var(--danger)' : 'var(--success)' }}>{monto(round2(baseFactura - retencionNum), monedaOc)}</strong> a pagar
               </div>
             </div>
           )}
           {retencionInvalida && (
             <small style={{ color: 'var(--danger)', display: 'block', marginTop: '.3rem' }}>
-              La retención tiene que ser mayor que 0 y menor que el total de la factura.
+              {faltaTasaRet
+                ? 'Indicá la tasa (Bs por $) para convertir la retención.'
+                : 'La retención tiene que ser mayor que 0 y menor que el total de la factura.'}
             </small>
           )}
           {!conRetencion && <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>Marcalo si la factura tiene retención: el monto se resta del total a pagar.</small>}
