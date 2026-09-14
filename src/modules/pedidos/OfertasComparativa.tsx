@@ -16,6 +16,7 @@ import { listOfertasByOrden, aceptarOferta as aceptarOfertaRepo, getPdfOfertaSig
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, type ScoredOferta } from './score';
 import { aprobarOrdenConOferta } from './pedidos.repository';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { RepartirProveedoresModal } from './RepartirProveedoresModal';
 import { agruparVariantes, hayVariantes, totalesRepresentativos } from './variantesOferta';
 
@@ -91,6 +92,10 @@ export function OfertasComparativa({
   const [aEliminar, setAEliminar] = useState<OfertaProveedor | null>(null);
   // Modal para repartir la OP entre varios proveedores (multi-proveedor).
   const [repartir, setRepartir] = useState(false);
+  // En vivo: si otro usuario agrega, edita o elimina una cotización, la comparativa se
+  // recarga sola (sin cerrar el detalle ni perder lo que se está escribiendo).
+  const [rtTick, setRtTick] = useState(0);
+  useRealtime(['ofertas_proveedor'], () => setRtTick((t) => t + 1));
 
   // Órdenes HIJAS (reparto): las ofertas viven en la orden PADRE. Para mostrar la
   // comparativa igual que el padre, se cargan las del padre y se ven en SOLO LECTURA
@@ -126,7 +131,7 @@ export function OfertasComparativa({
       })
       .finally(() => { if (!cancelled) { yaCargoAlgunaVez.current = true; setLoading(false); } });
     return () => { cancelled = true; };
-  }, [ofertasOrdenId, reloadKey]);
+  }, [ofertasOrdenId, reloadKey, rtTick]);
 
   const scored = scoreOfertas(ofertas, stats);
   // En una orden HIJA se muestra SOLO la oferta del proveedor que se le asignó
@@ -347,6 +352,16 @@ export function OfertasComparativa({
                       <div>
                         <span className="muted" style={{ marginRight: '.35rem' }}>{expandido === s.oferta.id ? '▾' : '▸'}</span>
                         <strong>{prov?.razon_social ?? '—'}</strong>{' '}
+                        {puedeEditarOfertas && onEditarOferta && s.oferta.estado === 'pendiente' && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-ghost"
+                            title="Editar esta cotización (proveedor, marca/modelo, cantidad, precios, condiciones…)"
+                            aria-label={`Editar la cotización de ${prov?.razon_social ?? 'este proveedor'}`}
+                            style={{ padding: '0 .4rem', marginLeft: '.1rem' }}
+                            onClick={(e) => { e.stopPropagation(); onEditarOferta(s.oferta); }}
+                          >✎</button>
+                        )}
                         {recomendada && <span className="badge primary" style={{ marginLeft: '.4rem' }}>★ Recomendada</span>}
                         {aceptada && <span className="badge success" style={{ marginLeft: '.4rem' }}>Aceptada</span>}
                       </div>

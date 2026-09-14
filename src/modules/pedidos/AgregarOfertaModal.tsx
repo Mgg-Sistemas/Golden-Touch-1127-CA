@@ -271,10 +271,11 @@ export function AgregarOfertaModal({
   const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
   const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
-  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'precio' | 'precio_usd' | 'marca' | 'modelo'>>) {
+  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'cantidad' | 'precio' | 'precio_usd' | 'marca' | 'modelo'>>) {
     setItems((prev) => prev.map((it, k) => {
       if (k !== idx) return it;
       const next = { ...it, ...patch };
+      next.cantidad = Math.max(0, Number(next.cantidad) || 0);
       next.precio = Math.max(0, next.precio);
       next.precio_usd = Math.max(0, next.precio_usd);
       return next;
@@ -306,6 +307,10 @@ export function AgregarOfertaModal({
     // de los dos totales sea mayor a cero.
     if (precioTotal <= 0 && totalUsd <= 0) {
       toast('Ingresá el precio en Bs (BCV) o en USD (al menos uno)', 'error');
+      return;
+    }
+    if (items.some((i) => !(Number(i.cantidad) > 0))) {
+      toast('Cada renglón tiene que tener una cantidad mayor a 0', 'error');
       return;
     }
     if (!condiciones.trim()) {
@@ -462,16 +467,18 @@ export function AgregarOfertaModal({
         </>
       }
     >
-      <div className="form-row">
-        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={nuevoProveedor}
-            onChange={(e) => setNuevoProveedor(e.target.checked)}
-          />
-          <span>Proveedor no registrado (lo creo ahora junto con la oferta)</span>
-        </label>
-      </div>
+      {!editando && (
+        <div className="form-row">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={nuevoProveedor}
+              onChange={(e) => setNuevoProveedor(e.target.checked)}
+            />
+            <span>Proveedor no registrado (lo creo ahora junto con la oferta)</span>
+          </label>
+        </div>
+      )}
 
       {nuevoProveedor ? (
         <div className="card" style={{ background: 'var(--bg-2)', padding: '1rem', marginBottom: '.75rem' }}>
@@ -606,6 +613,9 @@ export function AgregarOfertaModal({
                 placeholder="Buscar proveedor por nombre o RIF…"
                 emptyText="Ningún proveedor coincide"
               />
+              {editando && (
+                <small className="muted">Podés corregir el proveedor de la oferta. El resto de datos se edita abajo.</small>
+              )}
               {statSel && (
                 <div className="card" style={{ marginTop: '.4rem', padding: '.45rem .6rem', background: 'var(--bg-1)', fontSize: '.82rem' }}>
                   {statSel.total_evaluaciones > 0 ? (
@@ -656,17 +666,20 @@ export function AgregarOfertaModal({
       </div>
 
       <div className="form-row">
-        <label>Cotización por ítem · Pago en Bs (BCV) vs Pago en USD <span className="muted" style={{ fontWeight: 400 }}>(podés llenar solo una columna si el proveedor cotiza en una sola moneda)</span></label>
+        <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y/o en USD efectivo — completá al menos una columna)</span></label>
         <div className="table-wrap">
           <table className="items-table" style={{ fontSize: '.84rem' }}>
             <thead>
               <tr>
-                <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Descripción</th>
-                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant</th>
+                <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>SKU</th>
+                <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>{esServicioOrden ? 'Servicio' : 'Producto'}</th>
+                <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Marca / modelo</th>
+                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant.</th>
                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>Pago en Bs a BCV</th>
                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(248,113,113,.12)' }}>Pago en USD</th>
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Diferencia</th>
-                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Variación %</th>
+                <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Var. %</th>
+                <th rowSpan={2}></th>
               </tr>
               <tr>
                 <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Precio</th>
@@ -679,19 +692,25 @@ export function AgregarOfertaModal({
               {items.map((it, idx) => {
                 const totalBs = it.cantidad * it.precio;
                 const totalU = it.cantidad * it.precio_usd;
+                const conUsd = it.precio_usd > 0;
                 const dif = (it.precio - it.precio_usd) * it.cantidad;
                 const pct = it.precio > 0 ? ((it.precio - it.precio_usd) / it.precio) * 100 : 0;
+                // Otra marca/modelo del mismo producto: se agrega justo debajo del renglón base.
+                const previo = items[idx - 1];
+                const esVariante = !!previo && previo.sku === it.sku && previo.nombre === it.nombre;
                 return (
                   <tr key={it.uid}>
+                    <td className="mono" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                      {esVariante ? <span className="muted" title="Otra marca/modelo del mismo producto">↳</span> : (it.sku || '—')}
+                    </td>
                     <td>
-                      {it.nombre}
-                      <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
-                      {it.es_servicio && (it.categoria_servicio || it.equipo_nombre) && (
+                      {esVariante ? <span className="muted">{it.nombre}</span> : it.nombre}
+                      {!esVariante && it.es_servicio && (it.categoria_servicio || it.equipo_nombre) && (
                         <div className="muted" style={{ fontSize: '.72rem' }}>
                           {[it.categoria_servicio && `🗂 ${it.categoria_servicio}`, it.equipo_nombre && `🚜 ${it.equipo_nombre}`].filter(Boolean).join(' · ')}
                         </div>
                       )}
-                      {(it.bombonas || it.kg_recarga) && (() => {
+                      {!esVariante && (it.bombonas || it.kg_recarga) && (() => {
                         const agua = esRecargaAgua(it.categoria_servicio, it.nombre);
                         return (
                         <div className="muted" style={{ fontSize: '.72rem' }}>
@@ -699,25 +718,24 @@ export function AgregarOfertaModal({
                         </div>
                         );
                       })()}
-                      <div style={{ display: 'flex', gap: '.3rem', marginTop: '.25rem' }}>
-                        {/* No controlado (defaultValue) como los precios: así un re-render
-                            por realtime no borra lo que se está tecleando. La key={it.uid}
-                            del <tr> conserva el DOM por variante. */}
-                        <input className="input" style={{ fontSize: '.74rem', padding: '.2rem .4rem' }} placeholder="Marca"
+                    </td>
+                    <td>
+                      {/* No controlado (defaultValue) como los precios: así un re-render
+                          por realtime no borra lo que se está tecleando. La key={it.uid}
+                          del <tr> conserva el DOM por variante. */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', minWidth: 130 }}>
+                        <input className="input" placeholder="Marca" aria-label={`Marca de ${it.nombre}`}
                           defaultValue={it.marca} onChange={(e) => updateItem(idx, { marca: e.target.value })} />
-                        <input className="input" style={{ fontSize: '.74rem', padding: '.2rem .4rem' }} placeholder="Modelo"
+                        <input className="input" style={{ fontSize: '.78rem' }} placeholder="Modelo (opcional)" aria-label={`Modelo de ${it.nombre}`}
                           defaultValue={it.modelo} onChange={(e) => updateItem(idx, { modelo: e.target.value })} />
                       </div>
-                      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.2rem' }}>
-                        <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', fontSize: '.72rem' }}
-                          onClick={() => addVariante(idx)} title="Cotizar este mismo producto en otra marca/modelo">+ Otra marca/modelo</button>
-                        {countSku(it.sku) > 1 && (
-                          <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', fontSize: '.72rem', color: 'var(--danger)' }}
-                            onClick={() => removeItem(idx)} title="Quitar esta variante">✕</button>
-                        )}
-                      </div>
                     </td>
-                    <td className="num">{it.cantidad}</td>
+                    <td className="num">
+                      <input className="input mono" inputMode="decimal" style={{ width: 70, textAlign: 'right' }} aria-label={`Cantidad de ${it.nombre}`}
+                        defaultValue={it.cantidad ? String(it.cantidad) : ''} onFocus={(e) => e.target.select()}
+                        onChange={(e) => { const v = e.target.value.replace(/[^0-9.,]/g, ''); if (v !== e.target.value) e.target.value = v; updateItem(idx, { cantidad: Number(v.replace(',', '.')) || 0 }); }} />
+                      {it.unidad && <div className="muted" style={{ fontSize: '.66rem' }}>{it.unidad}</div>}
+                    </td>
                     <td className="num">
                       <input className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}
                         defaultValue={it.precio ? String(it.precio) : ''} onFocus={(e) => e.target.select()}
@@ -726,26 +744,35 @@ export function AgregarOfertaModal({
                     </td>
                     <td className="num mono">{money(totalBs)}</td>
                     <td className="num">
-                      <input className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}
+                      <input className="input mono" inputMode="decimal" placeholder="—" style={{ width: 90, textAlign: 'right' }}
                         defaultValue={it.precio_usd ? String(it.precio_usd) : ''} onFocus={(e) => e.target.select()}
                         onChange={(e) => { const v = e.target.value.replace(/[^0-9.,]/g, ''); if (v !== e.target.value) e.target.value = v; updateItem(idx, { precio_usd: Number(v.replace(',', '.')) || 0 }); }} />
                       {tasa > 0 && it.precio_usd > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio_usd * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
                     </td>
-                    <td className="num mono">{money(totalU)}</td>
-                    <td className="num mono" style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }}>{money(dif)}</td>
-                    <td className="num mono">{pct.toFixed(2)}%</td>
+                    <td className="num mono">{conUsd ? money(totalU) : '—'}</td>
+                    <td className="num mono" style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }}>{conUsd ? money(dif) : '—'}</td>
+                    <td className="num mono">{conUsd ? `${pct.toFixed(2)}%` : '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', fontSize: '.74rem' }}
+                        onClick={() => addVariante(idx)} title="Cotizar este mismo producto en otra marca/modelo">+ marca</button>
+                      {countSku(it.sku) > 1 && (
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', fontSize: '.74rem', color: 'var(--danger)' }}
+                          onClick={() => removeItem(idx)} title="Quitar esta variante" aria-label="Quitar esta variante">✕</button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
-                <td colSpan={3} className="num">TOTAL{conAlternativas ? ' *' : ''}</td>
+                <td colSpan={5} className="num">SUBTOTAL{conAlternativas ? ' *' : ''}</td>
                 <td className="num mono">{money(precioTotal)}</td>
                 <td></td>
-                <td className="num mono">{money(totalUsd)}</td>
+                <td className="num mono">{tieneUsd ? money(totalUsd) : '—'}</td>
                 <td className="num mono" style={{ color: diferencia >= 0 ? 'var(--success)' : 'var(--danger)' }}>{tieneUsd ? money(diferencia) : '—'}</td>
                 <td className="num mono">{tieneUsd ? `${ahorroPct.toFixed(2)}%` : '—'}</td>
+                <td></td>
               </tr>
             </tfoot>
           </table>
@@ -759,8 +786,37 @@ export function AgregarOfertaModal({
         <small className="muted">
           <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. Si el proveedor cotiza en una sola moneda, <strong>llená solo esa columna</strong> (la otra puede quedar en blanco). La <strong>Diferencia</strong> = (Bs − USD)
           y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
-          Si el proveedor ofrece el <strong>mismo producto en varias marcas/modelos</strong>, usá <strong>+ Otra marca/modelo</strong> para cargar cada variante con su precio.
+          Si el proveedor ofrece el <strong>mismo producto en varias marcas/modelos</strong>, usá <strong>+ marca</strong> para cargar cada variante con su precio.
         </small>
+      </div>
+
+      {/* Totales BCV / USD / diferencia + descuento obtenido (se resta del total de la factura). */}
+      <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.5rem' }}><span>💵 Totales</span></div>
+        <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
+          <div>Total BCV: <strong>{precioTotal > 0 ? money(precioTotal) : '—'}</strong></div>
+          <div>Total USD: <strong style={{ color: 'var(--success)' }}>{tieneUsd ? money(totalUsd) : '—'}</strong></div>
+          {tieneUsd && precioTotal > 0 && (
+            <div>
+              Diferencia: <strong>{money(diferencia)}</strong>{' '}
+              <span className={`badge ${diferencia >= 0 ? 'success' : 'danger'}`} style={{ marginLeft: '.3rem' }}>
+                {diferencia >= 0 ? '−' : '+'}{Math.abs(ahorroPct).toFixed(2)}%
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="form-row" style={{ marginTop: '.6rem', marginBottom: 0 }}>
+          <label>Descuento obtenido <span className="muted">(opcional, $)</span></label>
+          <input className="input mono" type="number" min={0} step="any" value={descuento}
+            onChange={(e) => setDescuento(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
+          {descuentoNum > 0 && (
+            <small className="muted">
+              Total con descuento: <strong className="mono">{money(netoBcv)}</strong>
+              {tieneUsd && <> · en USD <strong className="mono">{money(netoUsd)}</strong></>}
+              {' '}(antes {money(precioTotal)}{tieneUsd ? ` / ${money(totalUsd)}` : ''}).
+            </small>
+          )}
+        </div>
       </div>
 
       <div className="form-grid">
@@ -798,20 +854,6 @@ export function AgregarOfertaModal({
           </small>
         </div>
       )}
-
-      {/* Descuento obtenido: se resta del total de la factura (sincroniza el monto). */}
-      <div className="form-row">
-        <label>Descuento obtenido <span className="muted">(opcional, $)</span></label>
-        <input className="input mono" type="number" min={0} step="any" value={descuento}
-          onChange={(e) => setDescuento(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
-        {descuentoNum > 0 && (
-          <small className="muted">
-            Total con descuento: <strong className="mono">{money(netoBcv)}</strong>
-            {tieneUsd && <> · en USD <strong className="mono">{money(netoUsd)}</strong></>}
-            {' '}(antes {money(precioTotal)}{tieneUsd ? ` / ${money(totalUsd)}` : ''}).
-          </small>
-        )}
-      </div>
 
       {/* IVA / IGTF de la factura del proveedor: por % o por monto manual. Se SUMAN al total
           de la OC y se arrastran a Tesorería (precargados al indicar el método de pago). */}
