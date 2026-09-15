@@ -51,15 +51,43 @@ export function guardarVista(v: VistaMercado): void {
 export function separarMovidos(items: ResumenViver[]): { movidos: ResumenViver[]; quietos: ResumenViver[] } {
   const movidos: ResumenViver[] = [];
   const quietos: ResumenViver[] = [];
-  for (const d of items) (n(d.entradas) !== 0 || n(d.consumo) !== 0 ? movidos : quietos).push(d);
+  for (const d of items) (n(d.entradas) !== 0 || n(d.consumo) !== 0 || n(d.mermas) !== 0 ? movidos : quietos).push(d);
   return { movidos, quietos };
+}
+
+/* ───────── Mermas y salidas ───────── */
+
+/** Lo mínimo de una fila del kardex para saber si es merma. */
+export interface MovimientoParaMerma {
+  producto_id: string;
+  delta: number | string | null;
+  ref_tipo?: string | null;
+}
+
+/**
+ * Mermas y salidas por víver: lo que bajó el inventario sin ser una comida de la cocina
+ * (salida manual, ajuste a la baja, traslado). Decisión del usuario (15/09/2026): el ciclo
+ * las resta en su propia columna, a la vista, y NO entran en el costo por plato.
+ *
+ * Las comidas se registran con `ref_tipo = 'cocina'`, y también sus reversos y las
+ * ediciones: todo eso ya lo cuenta el consumo, y contarlo acá lo restaría dos veces.
+ * Solo cuentan los víveres del ciclo y solo lo que baja. Devuelve cantidades positivas.
+ */
+export function sumarMermas(movs: MovimientoParaMerma[], viverIds: Set<string>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const m of movs) {
+    const delta = n(m.delta);
+    if (delta >= 0 || m.ref_tipo === 'cocina' || !viverIds.has(m.producto_id)) continue;
+    out.set(m.producto_id, r2((out.get(m.producto_id) ?? 0) - delta));
+  }
+  return out;
 }
 
 /* ───────── Contraste: la cuenta del ciclo contra el inventario ───────── */
 
 export interface DiferenciaViver {
   producto_id: string;
-  /** Lo que da la cuenta del ciclo: disponible − consumo. */
+  /** Lo que da la cuenta del ciclo: disponible − consumo − mermas. */
   cuenta: number;
   /** Lo que hay en el inventario: la columna «Queda». */
   inventario: number;
@@ -74,7 +102,7 @@ export interface DiferenciaViver {
 export function diferenciasPorViver(items: ResumenViver[]): DiferenciaViver[] {
   const out: DiferenciaViver[] = [];
   for (const d of items) {
-    const cuenta = r2(n(d.disponible) - n(d.consumo));
+    const cuenta = r2(n(d.disponible) - n(d.consumo) - n(d.mermas));
     const inventario = r2(n(d.queda));
     const diferencia = r2(inventario - cuenta);
     if (Math.abs(diferencia) < 0.01) continue;
@@ -84,12 +112,13 @@ export function diferenciasPorViver(items: ResumenViver[]): DiferenciaViver[] {
 }
 
 /**
- * Por dónde pudo irse (o venir) la diferencia. La cuenta del ciclo solo ve comidas y
- * entradas; lo demás mueve el inventario sin que el ciclo se entere.
+ * Por dónde pudo irse (o venir) la diferencia. La cuenta del ciclo ve entradas, comidas y,
+ * desde el 15/09/2026, las mermas y salidas; un faltante que queda es algo que bajó el
+ * inventario sin caer en la ventana del ciclo.
  */
 export function explicarDiferencia(diferencia: number): string {
   return diferencia < 0
-    ? 'salió por un movimiento que no es una comida del ciclo: salida manual, ajuste, traslado, o una comida con fecha anterior al inicio.'
+    ? 'salió del inventario sin quedar en la cuenta del ciclo: por ejemplo, una comida registrada con fecha anterior al inicio del mercado.'
     : 'entró por un movimiento que no es una entrada: un ajuste, un traslado o una devolución.';
 }
 
@@ -100,9 +129,11 @@ export interface EcuacionCiclo {
   entradas: number;
   disponible: number;
   consumo: number;
+  /** Mermas y salidas: bajan el inventario pero no son comidas (no van al costo por plato). */
+  mermas: number;
   /** Suma del stock del inventario. */
   queda: number;
-  /** disponible − consumo: lo que debería quedar según el ciclo. */
+  /** disponible − consumo − mermas: lo que debería quedar según el ciclo. */
   cuenta: number;
   /** queda − cuenta. */
   diferencia: number;
@@ -111,17 +142,18 @@ export interface EcuacionCiclo {
 }
 
 export function ecuacionDelCiclo(items: ResumenViver[]): EcuacionCiclo {
-  let saldoInicial = 0, entradas = 0, consumo = 0, queda = 0;
+  let saldoInicial = 0, entradas = 0, consumo = 0, mermas = 0, queda = 0;
   for (const d of items) {
     saldoInicial = r2(saldoInicial + n(d.saldo_inicial));
     entradas = r2(entradas + n(d.entradas));
     consumo = r2(consumo + n(d.consumo));
+    mermas = r2(mermas + n(d.mermas));
     queda = r2(queda + n(d.queda));
   }
   const disponible = r2(saldoInicial + entradas);
-  const cuenta = r2(disponible - consumo);
+  const cuenta = r2(disponible - consumo - mermas);
   return {
-    saldoInicial, entradas, disponible, consumo, queda, cuenta,
+    saldoInicial, entradas, disponible, consumo, mermas, queda, cuenta,
     diferencia: r2(queda - cuenta),
     viveresConDiferencia: diferenciasPorViver(items).length,
   };

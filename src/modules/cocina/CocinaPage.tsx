@@ -212,7 +212,7 @@ export function CocinaPage() {
   async function abrirDetalleViver(item: ResumenViver) {
     if (!mercado) return;
     setCargandoDetalle(true);
-    setDetalleViver({ item, det: { entradas: [], consumos: [] } });
+    setDetalleViver({ item, det: { entradas: [], consumos: [], mermas: [] } });
     try {
       const det = await detalleViverCiclo(mercado, item.producto_id);
       setDetalleViver({ item, det });
@@ -536,6 +536,7 @@ export function CocinaPage() {
                 <div style={{ marginTop: '.2rem' }}>= <strong>TOTAL DISPONIBLE A CONSUMIR</strong>: <strong className="mono" style={{ fontSize: '1.05rem' }}>{num(it.disponible)} {u}</strong></div>
                 <div className="muted">
                   − consumido: <strong className="mono" style={{ color: 'var(--danger)' }}>{num(it.consumo)} {u}</strong>
+                  {' · − mermas / salidas: '}<strong className="mono" style={{ color: 'var(--warning)' }}>{num(it.mermas ?? 0)} {u}</strong>
                   {' · en inventario hay: '}<strong className="mono" style={{ color: it.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(it.queda)} {u}</strong>
                 </div>
                 {dif && (
@@ -578,6 +579,24 @@ export function CocinaPage() {
                       <span className="mono" style={{ color: 'var(--danger)', whiteSpace: 'nowrap' }}>
                         −{num(c.cantidad)} {detalleViver.item.unidad ?? ''} <span className="muted">· {money(c.valor)}</span>
                       </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <h4 style={{ margin: '.8rem 0 .35rem', color: 'var(--warning)' }}>Mermas / salidas ({detalleViver.det.mermas.length})</h4>
+              {!detalleViver.det.mermas.length ? (
+                <p className="muted" style={{ margin: 0 }}>Sin mermas ni salidas de este víver en el ciclo.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                  {detalleViver.det.mermas.map((s, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.25rem', fontSize: '.83rem' }}>
+                      {/* El motivo tal como se escribió: es lo que explica la pérdida. */}
+                      <span>
+                        <span className="badge" style={{ fontSize: '.66rem' }}>{s.tipo}</span>{' '}
+                        {s.detalle ?? <span className="muted">sin motivo escrito</span>}
+                        <span className="muted"> · {dateTime(s.fecha)}{s.actor ? ` · ${s.actor}` : ''}</span>
+                      </span>
+                      <span className="mono" style={{ color: 'var(--warning)', whiteSpace: 'nowrap' }}>−{num(s.cantidad)} {detalleViver.item.unidad ?? ''}</span>
                     </div>
                   ))}
                 </div>

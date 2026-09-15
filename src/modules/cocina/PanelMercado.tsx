@@ -63,6 +63,9 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
         <Cifra rotulo="+ Entradas" valor={num(ec.entradas)} color="var(--primary-3, #2ecc71)" />
         <Cifra rotulo="= Disponible" valor={num(ec.disponible)} fuerte />
         <Cifra rotulo="− Consumo" valor={num(ec.consumo)} color="var(--danger)" />
+        {/* Las pérdidas restan en la cuenta a la vista, pero no son comida servida: no van
+            al costo por plato de abajo (decisión del usuario, 15/09/2026). */}
+        <Cifra rotulo="− Mermas / salidas" valor={num(ec.mermas)} color="var(--warning)" />
         {/* Sin «=», a diferencia de MGG: en GT «Queda» no sale de la cuenta, es el stock. */}
         <Cifra rotulo={abierto ? 'Queda en inventario' : 'Quedó en inventario'} valor={num(ec.queda)} fuerte color="var(--primary-3, #2ecc71)" />
       </div>
@@ -170,7 +173,7 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
       <div className="card-title" style={{ marginBottom: '.5rem' }}>
         Disponible a consumir{' '}
         <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-          · saldo inicial + entradas − consumos{onElegir ? ' · tocá un víver para el detalle' : ''}
+          · saldo inicial + entradas − consumos − mermas{onElegir ? ' · tocá un víver para el detalle' : ''}
         </span>
       </div>
 
@@ -203,6 +206,7 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
               <th style={{ textAlign: 'right' }}>Entradas</th>
               <th style={{ textAlign: 'right' }}>Disponible</th>
               <th style={{ textAlign: 'right' }}>Consumido</th>
+              <th style={{ textAlign: 'right' }} title="Salidas que no son comidas: pérdidas, salidas manuales, ajustes a la baja, traslados">Mermas / salidas</th>
               <th style={{ textAlign: 'right' }}>{alCierre ? 'Quedó' : 'Queda'}</th>
             </tr></thead>
             <tbody>
@@ -228,12 +232,13 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
                       <td className="mono" style={{ textAlign: 'right', color: r.entradas ? 'var(--primary-3, #2ecc71)' : undefined }}>{r.entradas ? `+${num(r.entradas)}` : '·'}</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{cifra(r.disponible)}</td>
                       <td className="mono" style={{ textAlign: 'right', color: r.consumo ? 'var(--danger)' : undefined }}>{r.consumo ? `−${num(r.consumo)}` : '·'}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: r.mermas ? 'var(--warning)' : undefined }}>{r.mermas ? `−${num(r.mermas)}` : '·'}</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 800, color: r.queda <= 0 ? 'var(--danger)' : 'var(--primary-3, #2ecc71)' }}>{num(r.queda)}</td>
                     </tr>
                     {/* La diferencia se dice con números y palabras, no solo con el color. */}
                     {dif && (
                       <tr style={{ borderLeft: '3px solid var(--warning)' }}>
-                        <td colSpan={6} style={{ paddingTop: 0, fontSize: '.76rem' }}>
+                        <td colSpan={7} style={{ paddingTop: 0, fontSize: '.76rem' }}>
                           <span style={{ color: 'var(--warning)' }}>
                             ⚠ la cuenta del ciclo {alCierre ? 'daba' : 'da'} <strong className="mono">{num(dif.cuenta)}</strong>
                           </span>
