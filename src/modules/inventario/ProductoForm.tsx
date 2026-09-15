@@ -216,6 +216,11 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       ubicacion: form.ubicacion.trim().toUpperCase() || null,
     };
 
+    // EDICIÓN con otra categoría: el código nuevo lo asigna la base al guardar (reserva
+    // el correlativo y lo reemplaza en solicitudes, OC, salidas y cocina). Se manda el
+    // original para que no quede un número previsualizado sin reservar.
+    if (isEdit && skuOriginal && form.categoria !== catOriginal) payload.sku = skuOriginal;
+
     setSaving(true);
     try {
       // Producto NUEVO: reservamos el SKU correlativo REAL (atómico, persistente)

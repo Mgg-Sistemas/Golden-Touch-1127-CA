@@ -78,7 +78,7 @@ export function ProductoDetail({ producto, onClose }: ProductoDetailProps) {
           </div>
           <h3 style={{ margin: '.15rem 0 0' }}>{producto.nombre}</h3>
           <div className="muted mono" style={{ fontSize: '.78rem' }}>
-            {producto.sku} · {producto.categoria} · {producto.unidad} · Inventario General
+            {producto.sku}{producto.sku_anteriores?.length ? ` (antes ${producto.sku_anteriores.join(', ')})` : ''} · {producto.categoria} · {producto.unidad} · Inventario General
           </div>
           <div style={{ marginTop: '.35rem', display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
             {producto.receta_fundicion && (
