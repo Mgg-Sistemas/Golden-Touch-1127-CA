@@ -13,6 +13,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { crearRetencion, borrarRetencionesDeCompra } from '@/modules/tesoreria/tesoreria.repository';
+import { CATEGORIA_REEMBOLSO, errorRetencionPago, montoLegadoARevertir, netoAPagar, patasConMonto } from './pagoDirecto';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import type { Producto, CuentaCaja, TipoRetencion } from '@/shared/lib/types';
 
@@ -114,6 +115,15 @@ export interface CompraDirecta {
   /** Etiqueta de gasto que coloca Tesorería al pagar. */
   gasto_categoria: string | null;
   gasto_subcategoria: string | null;
+  /** Retención que Tesorería restó al pagar (moneda de la compra): se pagó `gasto − esto`.
+   *  Distinta de `retencion_monto`, la retención en % que carga Compras al montar. */
+  retencion_pago_monto?: number | null;
+  retencion_pago_bs?: number | null;
+  retencion_pago_tasa?: number | null;
+  /** Lo pagado de más, en USD, y de qué cuentas salió (se devuelve al reabrir). */
+  reembolso_usd?: number | null;
+  reembolso_legs?: PagoLeg[] | null;
+  reembolso_caja_mov_ids?: string[] | null;
   /** Comprobante de pago (lo completa Tesorería al pagar). */
   pagada_at: string | null;
   pagada_por: string | null;
@@ -565,15 +575,27 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
   const legs = Array.isArray(compra.pago_legs) ? compra.pago_legs.filter((l) => Number(l.monto) > 0) : [];
   if (legs.length) {
     for (const leg of legs) {
+      // Cada pata vuelve a SU caja: con el multipago entre cajas no todas salen de la principal.
       await revertirEgresoDivisa({
-        cajaId: compra.caja_id!, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: leg.cajaId ?? compra.caja_id!, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, actor, actorName: actorName ?? null,
       });
     }
   } else if (compra.caja_id && (compra.gasto || 0) > 0) {
+    // Caja simple: salió el NETO (total − retención), no el total de la factura.
     await ingresarDineroCaja({
-      cajaId: compra.caja_id, monto: Number(compra.gasto), concepto, categoria: 'reverso',
+      cajaId: compra.caja_id, monto: montoLegadoARevertir(compra.gasto, compra.retencion_pago_monto), concepto, categoria: 'reverso',
       actor, actorName: actorName ?? null,
+    });
+  }
+
+  // 1.a) Devolver los reembolsos de lo pagado de más (egresos aparte, cada uno a su cuenta).
+  for (const leg of patasConMonto(compra.reembolso_legs)) {
+    const cajaLeg = leg.cajaId ?? compra.caja_id;
+    if (!cajaLeg) continue;
+    await revertirEgresoDivisa({
+      cajaId: cajaLeg, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+      concepto: `Reapertura ${compra.codigo ?? ''} · reembolso`.trim(), actor, actorName: actorName ?? null,
     });
   }
 
@@ -626,6 +648,8 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
       estado: 'en_proceso', gasto: null, caja_id: null, caja_mov_id: null, pago_legs: null,
       comision_bancaria: 0, recepcion_pendiente: false,
       retencion_tipo: null, retencion_base: 0, retencion_pct: 0, retencion_monto: 0,
+      retencion_pago_monto: 0, retencion_pago_bs: null, retencion_pago_tasa: null,
+      reembolso_usd: 0, reembolso_legs: null, reembolso_caja_mov_ids: null,
       mov_id: null, finalizada_at: null, updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
@@ -844,6 +868,8 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
  *  y hay que avisarle a la persona (hoy: la retención fiscal que no se pudo registrar). */
 export interface PagoCompraResultado {
   retencionPendiente?: string;
+  /** El pago salió bien, pero algo accesorio no se pudo anotar (se muestra como aviso). */
+  aviso?: string;
 }
 
 export interface PagarCompraInput {
@@ -854,6 +880,13 @@ export interface PagarCompraInput {
   /** Categoría/subcategoría de gasto que coloca Tesorería al pagar. */
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Retención (moneda de la compra): se paga total − retención. En Bs y su tasa, como referencia. */
+  retencionMonto?: number;
+  retencionMontoBs?: number;
+  retencionTasa?: number;
+  /** Lo pagado de más: sale en egresos aparte, desde estas cuentas. */
+  reembolsoLegs?: PagoLeg[];
+  reembolsoUsd?: number;
   /** Comisión bancaria: egreso ADICIONAL de la caja (NO suma al total de la factura).
    *  Sale de la misma billetera/moneda del pago. */
   comision?: number;
@@ -880,6 +913,13 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
   const ivaCompra = Math.max(0, Math.round((Number(compra.iva) || 0) * 100) / 100);
   const total = Math.round((subtotal - descuento + ivaCompra) * 100) / 100;
   if (total <= 0) throw new Error('La compra no tiene montos cargados.');
+  // Retención al pagar (como en la OC): se resta DESPUÉS del total con IVA; sale el neto.
+  const retencion = Math.round((Number(input.retencionMonto) || 0) * 100) / 100;
+  if (retencion < 0) throw new Error('La retención no puede ser negativa.');
+  if (retencion > 0) { const e = errorRetencionPago(total, retencion); if (e) throw new Error(e); }
+  const neto = netoAPagar(total, retencion);
+  const reembolsoLegs = patasConMonto(input.reembolsoLegs);
+  const reembolsoMovIds: string[] = [];
 
   // ── Reserva atómica (GT-SIN-04) ────────────────────────────────────────────
   // El `if (compra.estado === 'finalizada')` de arriba mira el objeto que este
@@ -918,7 +958,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
     movCajaId = primero;
   } else {
     const movCaja = await egresarGastoCaja({
-      cajaId: input.cajaId, monto: total, concepto, categoria: 'compra_directa',
+      cajaId: input.cajaId, monto: neto, concepto, categoria: 'compra_directa',
       gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actor, actorName: input.actorName ?? null,
     });
@@ -942,6 +982,18 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
         gastoCategoria: 'Comisión bancaria', actor: input.actor, actorName: input.actorName ?? null,
       });
     }
+  }
+
+  // 1.c) Lo pagado DE MÁS: cada cuenta devuelve su parte en un egreso APARTE, desde el
+  //      mismo saldo del que salió (igual que la OC). No suma al gasto de la compra.
+  for (const leg of reembolsoLegs) {
+    const r = await egresarDivisa({
+      cajaId: leg.cajaId ?? input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+      concepto: `REEMBOLSO DE COMPRA DIRECTA ${compra.codigo ?? compra.producto_nombre}`,
+      categoria: CATEGORIA_REEMBOLSO.compra,
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
+    reembolsoMovIds.push(r.id);
   }
 
   // 2) La ENTRADA al inventario NO ocurre al pagar: es INDEPENDIENTE del pago. La mercancía
@@ -979,6 +1031,26 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
     throw e;
   }
 
+  // Retención y reintegro: escritura APARTE y best-effort, como en la OC. El dinero ya se
+  // movió bien; si esto fallara, se avisa en vez de dejar el pago a medias.
+  let aviso: string | undefined;
+  if (retencion > 0 || reembolsoLegs.length) {
+    const retBs = Math.round((Number(input.retencionMontoBs) || 0) * 100) / 100;
+    const retTasa = Number(input.retencionTasa) || 0;
+    const { error: eExtra } = await supabase.from('compras_directas').update({
+      retencion_pago_monto: retencion,
+      retencion_pago_bs: retencion > 0 && retBs > 0 ? retBs : null,
+      retencion_pago_tasa: retencion > 0 && retTasa > 0 ? retTasa : null,
+      reembolso_usd: Math.round((Number(input.reembolsoUsd) || 0) * 100) / 100,
+      reembolso_legs: reembolsoLegs.length ? reembolsoLegs : null,
+      reembolso_caja_mov_ids: reembolsoMovIds.length ? reembolsoMovIds : null,
+    }).eq('id', compra.id);
+    if (eExtra) {
+      aviso = `La compra se pagó, pero no se pudo anotar la retención o el reembolso en su ficha (${eExtra.message}). `
+        + 'Si se reabre, revisá a mano lo que vuelve a la caja.';
+    }
+  }
+
   // Retención → módulo Retenciones: se crea el registro vinculado a la compra directa.
   //
   // GT-INT-09 · Antes, si esto fallaba, el error se iba a `console.error` y nadie se
@@ -1008,10 +1080,11 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
           `La compra se pagó, pero NO se registró la retención de ${compra.retencion_tipo || 'IVA'} `
           + `(${retPct}% sobre ${retBase}). Cargala a mano en Retenciones → pestaña «Compras directas» `
           + `→ botón «Cargar retención». Motivo: ${detalle}`,
+        aviso,
       };
     }
   }
-  return {};
+  return aviso ? { aviso } : {};
 }
 
 /* ───────── Recepción en inventario (la da el ALMACENISTA tras el pago) ───────── */

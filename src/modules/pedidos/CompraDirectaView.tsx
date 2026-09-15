@@ -19,6 +19,8 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
+import { RetencionPagoCard, useRetencionPago } from '@/modules/tesoreria/RetencionPagoCard';
+import { repartirPagoYReembolso } from '@/modules/tesoreria/reembolsoPago';
 import {
   crearCompraDirecta, enviarCompraAPagar, pagarCompraDirecta,
   eliminarCompraDirecta, eliminarCompraDirectaConReverso, listComprasDirectas, reabrirCompraDirecta, editarCompraDirectaEnProceso,
@@ -915,6 +917,14 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
 
+  // Retención al pagar (como en la OC): se paga el NETO. Si Compras ya cargó la retención en
+  // % al montar, arranca marcada con ese monto, para que Tesorería no la cargue dos veces.
+  const ret = useRetencionPago(total, monedaCompra, tasa, esPago ? compra.retencion_monto : null);
+  const aPagar = esPago ? ret.neto : total;
+  // Pagar de más ya no se bloquea: con confirmación, lo que sobra sale como reembolso.
+  const [confirmarReembolso, setConfirmarReembolso] = useState(false);
+  const reembolsoConfirmado = useRef(false);
+
   // Caja con varias monedas (Multimoneda) → se paga repartiendo por cuenta.
   const esMultimoneda = saldosCaja.length >= 2;
   // Conversión entre monedas con la tasa BCV editable (y COP de mercado).
@@ -936,16 +946,17 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const convertir = (n: number, from: string, to: string): number => (from === to ? round2(n) : desdeUsd(to, legUsd(from, n)));
   // Total objetivo en USD: la compra puede estar en $ o Bs (monedaCompra); si la caja
   // es de otra moneda se paga el equivalente con la tasa editable.
-  const totalUsdObjetivo = legUsd(monedaCompra, total);
+  const totalUsdObjetivo = legUsd(monedaCompra, aPagar);
   const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
   const cubreTotalMulti = sumUsdMulti >= totalUsdObjetivo - 0.01;
-  // No se puede pagar más que el total de la compra.
+  // Pagar MÁS que lo debido: se paga lo debido y el resto sale como reembolso (se confirma).
   const excedeTotalMulti = esMultimoneda && sumUsdMulti > totalUsdObjetivo + 0.01;
+  const excedenteUsd = excedeTotalMulti ? round2(sumUsdMulti - totalUsdObjetivo) : 0;
   const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
 
   // Equivalentes del total de la COMPRA (en su moneda) a USD y a Bs con la tasa editable.
   const totalUsd = totalUsdObjetivo;
-  const totalBs = convertir(total, monedaCompra, 'Bs');
+  const totalBs = convertir(aPagar, monedaCompra, 'Bs');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -967,31 +978,51 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     }
 
     // MODO PAGAR (Tesorería): egreso + inventario + finaliza.
+    const confirmado = reembolsoConfirmado.current;
+    reembolsoConfirmado.current = false;
+    if (ret.error) { setError(ret.error); return; }
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
     let legs: PagoLeg[] | undefined;
+    let reembolsoLegs: PagoLeg[] = [];
+    let reembolsoUsd = 0;
     if (esMultimoneda) {
       legs = saldosCaja
         .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, cajaId: s.caja_id }))
         .filter((l) => l.monto > 0);
       if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
-      if (excedeTotalMulti) { setError(`No podés pagar más que el total de la compra. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(totalUsdObjetivo, 'USD')} (te pasaste por ${montoCaja(round2(sumUsdMulti - totalUsdObjetivo), 'USD')}).`); return; }
       if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(totalUsdObjetivo, 'USD')}).`); return; }
+      if (excedeTotalMulti) {
+        if (!confirmado) { setConfirmarReembolso(true); return; }
+        const rep = repartirPagoYReembolso(legs, totalUsdObjetivo, legUsd, desdeUsd);
+        legs = rep.pago; reembolsoLegs = rep.reembolso; reembolsoUsd = rep.reembolsoUsd;
+      }
     } else if (saldosCaja.length === 1) {
       // Caja de UNA sola moneda con billetera: el dinero vive en caja_saldos (no en cajas.saldo),
       // así que el egreso sale de la billetera real. Si la compra está en OTRA moneda que la
       // billetera (ej. compra en $ y billetera en Bs), se descuenta el EQUIVALENTE con la tasa.
       const s = saldosCaja[0];
       if (monedaCompra !== s.moneda && !(tasa > 0)) { setError('Indicá la tasa (Bs por $) para convertir el total a la moneda de la billetera.'); return; }
-      const montoLeg = convertir(total, monedaCompra, s.moneda);
+      const montoLeg = convertir(aPagar, monedaCompra, s.moneda);
       if (montoLeg > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}). Requiere ${montoCaja(montoLeg, s.moneda)}.`); return; }
       legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: montoLeg, cajaId: s.caja_id }];
     }
     setSaving(true);
     try {
-      const res = await pagarCompraDirecta({ compra, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision: Number(comision) || 0 });
-      const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, monedaCompra);
-      notify(`Compra pagada y finalizada · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
+      const res = await pagarCompraDirecta({
+        compra, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre, comision: Number(comision) || 0,
+        retencionMonto: ret.activa ? ret.monto : 0,
+        retencionMontoBs: ret.activa ? ret.conv.enBs : 0,
+        retencionTasa: ret.activa ? Number(ret.tasaStr) || 0 : 0,
+        reembolsoLegs, reembolsoUsd,
+      });
+      const resumenPago = esMultimoneda ? `multipago ${montoCaja(round2(sumUsdMulti - reembolsoUsd), 'USD')}` : montoCaja(aPagar, monedaCompra);
+      const extras = [
+        ret.activa ? `retención ${montoCaja(ret.monto, monedaCompra)}` : '',
+        reembolsoUsd > 0 ? `reembolso ${montoCaja(reembolsoUsd, 'USD')}` : '',
+      ].filter(Boolean).join(' · ');
+      notify(`Compra pagada y finalizada · ${resumenPago}${extras ? ` · ${extras}` : ''} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/inventario' });
+      if (res.aviso) notify(res.aviso, 'warning', { link: '#/app/tesoreria' });
       // La retención es un registro fiscal: si no se pudo crear, hay que verlo. El pago
       // está hecho igual, así que se avisa en vez de hacer fallar la operación entera.
       if (res.retencionPendiente) notify(res.retencionPendiente, 'warning', { link: '#/app/retenciones' });
@@ -1003,7 +1034,9 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       {esPago ? (
-        <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `💳 Pagar · ${montoCaja(total, monedaCompra)}`}</button>
+        <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving || !!ret.error}>
+          {saving ? 'Pagando…' : `💳 Pagar · ${montoCaja(aPagar, monedaCompra)}${excedenteUsd > 0 ? ` · reembolso ${montoCaja(excedenteUsd, 'USD')}` : ''}`}
+        </button>
       ) : (
         <button type="submit" form="cd-fin-form" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : '🧾 Enviar a pagar'}</button>
       )}
@@ -1014,6 +1047,20 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     <Modal title={esPago ? `💳 Pagar compra ${compra.codigo ?? ''}` : 'Cargar factura y montos'} size="lg" onClose={onClose} footer={footer}>
       <form id="cd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {confirmarReembolso && (
+          <ConfirmDialog
+            title="Se pagó de más"
+            confirmText="Sí, pagar y registrar el reembolso"
+            message={`A la compra ${compra.codigo ?? ''} le corresponden ${montoCaja(totalUsdObjetivo, 'USD')} y se cargaron ${montoCaja(sumUsdMulti, 'USD')}. Se pagan ${montoCaja(totalUsdObjetivo, 'USD')} a la compra y los ${montoCaja(excedenteUsd, 'USD')} de más salen en otro movimiento: «REEMBOLSO DE COMPRA DIRECTA ${compra.codigo ?? ''}», desde las mismas cuentas. ¿Continuar?`}
+            onCancel={() => setConfirmarReembolso(false)}
+            onConfirm={() => {
+              setConfirmarReembolso(false);
+              reembolsoConfirmado.current = true;
+              (document.getElementById('cd-fin-form') as HTMLFormElement | null)?.requestSubmit();
+            }}
+          />
+        )}
 
         {/* Nota de la compra: al PAGAR se muestra resaltada (suele traer los datos de
             quién cobra); a Tesorería le sirve para saber a quién/ cómo pagar. */}
@@ -1123,9 +1170,10 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
             </tbody>
           </table>
         </div>
+        {esPago && <RetencionPagoCard r={ret} total={total} monedaDoc={monedaCompra} tasaBcv={tasa} />}
         <div className="card" style={{ margin: '.5rem 0' }}>
           {esPago
-            ? <>Total a descontar: <strong className="mono">{montoCaja(total, moneda)}</strong> → entra al <strong>{almacenVisible(compra.almacen)}</strong></>
+            ? <>Total a descontar: <strong className="mono">{montoCaja(aPagar, monedaCompra)}</strong>{ret.activa && !ret.error ? <span className="muted"> (factura {montoCaja(total, monedaCompra)} − retención)</span> : null} → entra al <strong>{almacenVisible(compra.almacen)}</strong></>
             : <>Total a pagar: <strong className="mono">{montoCaja(total, monedaCompra)}</strong> · queda <strong>Por pagar</strong>; Tesorería lo abona y entra al <strong>{almacenVisible(compra.almacen)}</strong></>}
         </div>
 
@@ -1179,7 +1227,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                 <tfoot>
                   <tr>
                     <td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--warning)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
                       {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(totalUsd, 'USD')}
                     </td>
                   </tr>
@@ -1188,7 +1236,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
               {excedeTotalMulti
-                ? <span style={{ color: 'var(--danger)' }}>⚠ Te pasaste por <strong>{montoCaja(round2(sumUsdMulti - totalUsd), 'USD')}</strong>. No podés pagar más que el total de la compra ({montoCaja(totalUsd, 'USD')}).</span>
+                ? <span style={{ color: 'var(--warning)' }}>↩ Te pasaste por <strong>{montoCaja(excedenteUsd, 'USD')}</strong>: se pagan {montoCaja(totalUsd, 'USD')} a la compra y el resto sale como <strong>REEMBOLSO DE COMPRA DIRECTA {compra.codigo ?? ''}</strong>, desde las mismas cuentas. Se pide confirmación.</span>
                 : cubreTotalMulti
                 ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
                 : <>Faltan <strong>{montoCaja(round2(totalUsd - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}

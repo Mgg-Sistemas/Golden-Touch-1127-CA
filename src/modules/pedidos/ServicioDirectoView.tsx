@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
@@ -21,6 +21,8 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
+import { RetencionPagoCard, useRetencionPago } from '@/modules/tesoreria/RetencionPagoCard';
+import { repartirPagoYReembolso } from '@/modules/tesoreria/reembolsoPago';
 import {
   crearServicioDirecto, enviarServicioAPagar, pagarServicioDirecto, eliminarServicioDirecto, listServiciosDirectos,
   reabrirServicioDirecto, editarServicioDirectoEnProceso, actualizarDetalleServicioDirecto,
@@ -850,6 +852,13 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
 
+  // Retención al pagar (como en la OC): se paga el NETO (total − retención).
+  const ret = useRetencionPago(total, monedaServicio, tasa);
+  const aPagar = esPago ? ret.neto : total;
+  // Pagar de más ya no se bloquea: con confirmación, lo que sobra sale como reembolso.
+  const [confirmarReembolso, setConfirmarReembolso] = useState(false);
+  const reembolsoConfirmado = useRef(false);
+
   const esMultimoneda = saldosCaja.length >= 2;
   function legUsd(monedaLeg: string, n: number): number {
     if (!n || n <= 0) return 0;
@@ -862,12 +871,22 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   // (monedaServicio), no de la caja. El multipago normaliza cada leg a USD, así que la
   // cobertura se compara en USD (antes se comparaba contra `total` crudo: si la factura
   // era en Bs, exigía "cubrir" 8.000 USD con 8.000 Bs = 10,84 USD y nunca dejaba pagar).
-  const totalUsd = monedaServicio === 'Bs' ? (tasa > 0 ? round2(total / tasa) : 0) : total;
-  const totalBs = monedaServicio === 'Bs' ? total : (tasa > 0 ? round2(total * tasa) : 0);
+  const totalUsd = monedaServicio === 'Bs' ? (tasa > 0 ? round2(aPagar / tasa) : 0) : aPagar;
+  const totalBs = monedaServicio === 'Bs' ? aPagar : (tasa > 0 ? round2(aPagar * tasa) : 0);
+  // Inverso de legUsd: cuánto representa, en la moneda de la cuenta, un monto en USD.
+  function desdeUsd(monedaLeg: string, usd: number): number {
+    if (!usd || usd <= 0) return 0;
+    if (monedaLeg === 'USD' || monedaLeg === 'USDT') return round2(usd);
+    if (monedaLeg === 'Bs') return round2(usd * tasa);
+    if (monedaLeg === 'COP') return mercado?.copUsd ? round2(usd * mercado.copUsd) : 0;
+    return round2(usd);
+  }
 
   const sumUsdMulti = round2(saldosCaja.reduce((a, s) => a + legUsd(s.moneda, Number(legMontos[s.id]) || 0), 0));
   const cubreTotalMulti = sumUsdMulti >= totalUsd - 0.01;
+  // Pagar MÁS que lo debido: se paga lo debido y el resto sale como reembolso (se confirma).
   const excedeTotalMulti = esMultimoneda && sumUsdMulti > totalUsd + 0.01;
+  const excedenteUsd = excedeTotalMulti ? round2(sumUsdMulti - totalUsd) : 0;
   const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
 
   async function handleSubmit(e: FormEvent) {
@@ -891,26 +910,46 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
     }
 
     // MODO PAGAR (Tesorería): valida la caja y descuenta el dinero.
+    const confirmado = reembolsoConfirmado.current;
+    reembolsoConfirmado.current = false;
+    if (ret.error) { setError(ret.error); return; }
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
     let legs: PagoLeg[] | undefined;
+    let reembolsoLegs: PagoLeg[] = [];
+    let reembolsoUsd = 0;
     if (esMultimoneda) {
       legs = saldosCaja
         .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, cajaId: s.caja_id }))
         .filter((l) => l.monto > 0);
       if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
-      if (excedeTotalMulti) { setError(`No podés pagar más que el total del servicio. Cargado ${montoCaja(sumUsdMulti, 'USD')}, total ${montoCaja(totalUsd, 'USD')}.`); return; }
       if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(totalUsd, 'USD')}).`); return; }
+      if (excedeTotalMulti) {
+        if (!confirmado) { setConfirmarReembolso(true); return; }
+        const rep = repartirPagoYReembolso(legs, totalUsd, legUsd, desdeUsd);
+        legs = rep.pago; reembolsoLegs = rep.reembolso; reembolsoUsd = rep.reembolsoUsd;
+      }
     } else if (saldosCaja.length === 1) {
       const s = saldosCaja[0];
-      if (total > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
-      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: total, cajaId: s.caja_id }];
+      if (aPagar > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
+      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: aPagar, cajaId: s.caja_id }];
     }
     setSaving(true);
     try {
-      await pagarServicioDirecto({ servicio, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre });
-      const resumenPago = esMultimoneda ? `multipago ${montoCaja(sumUsdMulti, 'USD')}` : montoCaja(total, moneda);
-      notify(`Servicio pagado · ${resumenPago} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/tesoreria' });
+      const res = await pagarServicioDirecto({
+        servicio, cajaId, legs, actor, actorName, gastoCategoria: catNombre, gastoSubcategoria: subNombre,
+        retencionMonto: ret.activa ? ret.monto : 0,
+        retencionMontoBs: ret.activa ? ret.conv.enBs : 0,
+        retencionTasa: ret.activa ? Number(ret.tasaStr) || 0 : 0,
+        reembolsoLegs, reembolsoUsd,
+      });
+      const resumenPago = esMultimoneda ? `multipago ${montoCaja(round2(sumUsdMulti - reembolsoUsd), 'USD')}` : montoCaja(aPagar, moneda);
+      const extras = [
+        ret.activa ? `retención ${montoCaja(ret.monto, monedaServicio)}` : '',
+        reembolsoUsd > 0 ? `reembolso ${montoCaja(reembolsoUsd, 'USD')}` : '',
+      ].filter(Boolean).join(' · ');
+      notify(`Servicio pagado · ${resumenPago}${extras ? ` · ${extras}` : ''} desde ${caja?.nombre ?? ''}`, 'success', { link: '#/app/tesoreria' });
+      if (res.aviso) notify(res.aviso, 'warning', { link: '#/app/tesoreria' });
       onSaved();
     } catch (err) { setError(mensajeError(err, 'No se pudo pagar el servicio.')); setSaving(false); }
   }
@@ -919,7 +958,9 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
       {esPago
-        ? <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving || excedeTotalMulti}>{saving ? 'Pagando…' : excedeTotalMulti ? 'Excede el total' : `💳 Pagar · ${montoCaja(total, moneda)}`}</button>
+        ? <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving || !!ret.error}>
+            {saving ? 'Pagando…' : `💳 Pagar · ${montoCaja(aPagar, monedaServicio)}${excedenteUsd > 0 ? ` · reembolso ${montoCaja(excedenteUsd, 'USD')}` : ''}`}
+          </button>
         : <button type="submit" form="sd-fin-form" className="btn btn-primary" disabled={saving}>{saving ? 'Enviando…' : '🧾 Enviar a pagar'}</button>}
     </>
   );
@@ -928,6 +969,20 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
     <Modal title={esPago ? 'Pagar servicio' : 'Cargar factura y monto'} size="lg" onClose={onClose} footer={footer}>
       <form id="sd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {confirmarReembolso && (
+          <ConfirmDialog
+            title="Se pagó de más"
+            confirmText="Sí, pagar y registrar el reembolso"
+            message={`Al servicio ${servicio.codigo ?? ''} le corresponden ${montoCaja(totalUsd, 'USD')} y se cargaron ${montoCaja(sumUsdMulti, 'USD')}. Se pagan ${montoCaja(totalUsd, 'USD')} al servicio y los ${montoCaja(excedenteUsd, 'USD')} de más salen en otro movimiento: «REEMBOLSO DE SERVICIO DIRECTO ${servicio.codigo ?? ''}», desde las mismas cuentas. ¿Continuar?`}
+            onCancel={() => setConfirmarReembolso(false)}
+            onConfirm={() => {
+              setConfirmarReembolso(false);
+              reembolsoConfirmado.current = true;
+              (document.getElementById('sd-fin-form') as HTMLFormElement | null)?.requestSubmit();
+            }}
+          />
+        )}
 
         {servicio.equipo_nombre && (
           <div className="card" style={{ marginBottom: '.75rem' }}>🚜 Servicio del equipo <strong>{servicio.equipo_nombre}</strong> — se reflejará en su historial de Control de Maquinaria.</div>
@@ -1046,7 +1101,11 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
             </tbody>
           </table>
         </div>
-        <div className="card" style={{ margin: '.5rem 0' }}>{esPago ? 'Total a descontar' : 'Total del servicio'}: <strong className="mono">{montoCaja(total, esPago ? moneda : monedaServicio)}</strong></div>
+        {esPago && <RetencionPagoCard r={ret} total={total} monedaDoc={monedaServicio} tasaBcv={tasa} />}
+        <div className="card" style={{ margin: '.5rem 0' }}>
+          {esPago ? 'Total a descontar' : 'Total del servicio'}: <strong className="mono">{montoCaja(aPagar, monedaServicio)}</strong>
+          {esPago && ret.activa && !ret.error ? <span className="muted"> (factura {montoCaja(total, monedaServicio)} − retención)</span> : null}
+        </div>
 
         {!esPago && (
           <div className="form-row" style={{ margin: '.25rem 0 .5rem' }}>
@@ -1126,13 +1185,20 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
                 <tfoot>
                   <tr>
                     <td colSpan={4} style={{ textAlign: 'right', fontWeight: 600 }}>Cubierto / Total</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--danger)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: excedeTotalMulti ? 'var(--warning)' : cubreTotalMulti ? 'var(--success)' : 'var(--warning)' }}>
                       {montoCaja(sumUsdMulti, 'USD')} / {montoCaja(totalUsd, 'USD')}
                     </td>
                   </tr>
                 </tfoot>
               </table>
             </div>
+            <small className="muted" style={{ display: 'block', marginTop: '.3rem' }}>
+              {excedeTotalMulti
+                ? <span style={{ color: 'var(--warning)' }}>↩ Te pasaste por <strong>{montoCaja(excedenteUsd, 'USD')}</strong>: se pagan {montoCaja(totalUsd, 'USD')} al servicio y el resto sale como <strong>REEMBOLSO DE SERVICIO DIRECTO {servicio.codigo ?? ''}</strong>, desde las mismas cuentas. Se pide confirmación.</span>
+                : cubreTotalMulti
+                ? <>✓ Cubre exactamente el total. Cada moneda se descuenta de su saldo real con la tasa del día.</>
+                : <>Faltan <strong>{montoCaja(round2(totalUsd - sumUsdMulti), 'USD')}</strong>. Bs↔$ usa la tasa BCV de arriba.</>}
+            </small>
           </div>
         )}
 
