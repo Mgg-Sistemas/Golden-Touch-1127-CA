@@ -48,6 +48,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   createProducto, getCategorias, getUnidades, listProductos, nextSku,
 } from '@/modules/inventario/inventario.repository';
+import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { listSaldos } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Caja, CajaSaldo, Producto } from '@/shared/lib/types';
@@ -91,7 +92,8 @@ function NuevaFichaModal({ categorias, unidades, onCancel, onCreada }: {
   onCreada: (p: Producto) => void;
 }) {
   const [nombre, setNombre] = useState('');
-  const [categoria, setCategoria] = useState(categorias[0] ?? 'GENERAL');
+  // Arranca vacía a propósito: la categoría se elige, no se hereda la primera de la lista.
+  const [categoria, setCategoria] = useState('');
   const [unidad, setUnidad] = useState(unidades[0] ?? 'und');
   const [creando, setCreando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,10 +101,11 @@ function NuevaFichaModal({ categorias, unidades, onCancel, onCreada }: {
   async function crear() {
     const n = nombre.trim().toUpperCase();
     if (!n) { setError('Escribí el nombre del material.'); return; }
+    if (!esCategoriaReal(categoria)) { setError(MENSAJE_CATEGORIA_OBLIGATORIA); return; }
     setError(null);
     setCreando(true);
     try {
-      const cat = categoria.trim().toUpperCase() || 'GENERAL';
+      const cat = categoria.trim().toUpperCase();
       // SKU correlativo por categoría, reservado de forma atómica en la base.
       const sku = await nextSku(cat);
       const creado = await createProducto({
@@ -144,8 +147,9 @@ function NuevaFichaModal({ categorias, unidades, onCancel, onCreada }: {
       </div>
       <div className="form-grid">
         <div className="form-row">
-          <label>Categoría</label>
+          <label>Categoría *</label>
           <select className="select" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+            <option value="">Elegí una categoría…</option>
             {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <small className="muted">De ahí sale el prefijo del SKU.</small>
@@ -249,7 +253,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
           getUnidades(prods).catch(() => [] as string[]),
         ]);
         if (cancel) return;
-        setCategorias(cats.length ? cats : ['GENERAL']);
+        setCategorias(cats);
         setUnidades(unis.length ? unis : ['und']);
       } catch (e) {
         if (!cancel) toast(e instanceof Error ? e.message : 'No se pudieron cargar los catálogos', 'error');

@@ -50,6 +50,7 @@ import {
   type CuentaPorPagar, type AbonoCxP, type IngresoCxP,
 } from './cuentasPorPagar.repository';
 import { listProductos, createProducto, getUnidades, nextSku } from '@/modules/inventario/inventario.repository';
+import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
 import type { Producto } from '@/shared/lib/types';
 import {
   listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro, crearOAcumularCuentaPorCobrar,
@@ -4894,7 +4895,7 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
   const [noRegistrado, setNoRegistrado] = useState(false);
   const [productoId, setProductoId] = useState('');
   const [nuevoNombre, setNuevoNombre] = useState('');
-  const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
+  const [nuevoCategoria, setNuevoCategoria] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
   // Inventario único: el producto recibido siempre entra al Inventario General ('General' en BD).
   const almacen = 'General';
@@ -4920,13 +4921,14 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
     if (valor <= 0) { setError('Indicá el valor del producto al cambio (USD).'); return; }
     if (!noRegistrado && !productoId) { setError('Elegí el producto recibido (o marcá «producto no registrado»).'); return; }
     if (noRegistrado && !nuevoNombre.trim()) { setError('Escribí el nombre del producto nuevo.'); return; }
+    if (noRegistrado && !esCategoriaReal(nuevoCategoria)) { setError(MENSAJE_CATEGORIA_OBLIGATORIA); return; }
     setSaving(true);
     try {
       let pid = productoId;
       if (noRegistrado) {
         const nombre = nuevoNombre.trim().toUpperCase();
         // SKU correlativo por categoría (prefijo 3 letras + Nº incremental, p. ej. PRO-001).
-        const categoria = nuevoCategoria.trim().toUpperCase() || 'GENERAL';
+        const categoria = nuevoCategoria.trim().toUpperCase();
         const sku = await nextSku(categoria);
         const creado = await createProducto({
           sku, nombre, categoria,
@@ -4971,8 +4973,8 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
           </div>
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
             <div className="form-row" style={{ margin: 0, flex: '1 1 160px' }}>
-              <label>Categoría</label>
-              <input className="input" value={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+              <label>Categoría *</label>
+              <input className="input" value={nuevoCategoria} placeholder="Ej.: REPUESTOS (no GENERAL)" onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
             </div>
             <div className="form-row" style={{ margin: 0, flex: '1 1 120px' }}>
               <label>Unidad</label>

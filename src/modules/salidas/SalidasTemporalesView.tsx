@@ -15,6 +15,7 @@ import { num, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Existencia, Producto, SalidaTemporal, EstadoSalidaTemporal, EventoHistorial } from '@/shared/lib/types';
 import { getCategorias, getUnidades } from '@/modules/inventario/inventario.repository';
+import { esCategoriaReal } from '@/modules/inventario/categoriaReal';
 import { puedeAprobarOc } from '@/modules/pedidos/aprobadoresOc';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
 import {
@@ -512,13 +513,14 @@ function SalidaTemporalForm({
           continue; // renglón vacío: se ignora
         }
         if (cant <= 0) { setError(`Poné una cantidad mayor que 0 para «${r.nombre.trim()}».`); return; }
+        if (!esCategoriaReal(r.categoria)) { setError(`Elegí la categoría de «${r.nombre.trim()}». GENERAL ya no es una categoría.`); return; }
         itemsInput.push({
           producto_nombre: r.nombre.trim(),
           unidad: r.unidadNueva.trim() || 'UND',
           cantidad: cant,
           almacen: r.almacen || almacenes[0],
           es_nuevo: true,
-          categoria: r.categoria.trim() || 'GENERAL',
+          categoria: r.categoria.trim().toUpperCase(),
           observacion: r.observacion.trim() || null,
         });
       } else {
@@ -655,7 +657,7 @@ function SalidaTemporalForm({
                   </div>
                   <div className="form-grid" style={{ marginTop: '.5rem' }}>
                     <div className="form-row" style={{ marginBottom: 0 }}>
-                      <label>Categoría</label>
+                      <label>Categoría *</label>
                       <SearchCreateSelect value={r.categoria} onChange={(v) => setRenglon(r.key, { categoria: v.toUpperCase() })}
                         options={categorias} placeholder="Elegí o escribí una categoría" />
                     </div>

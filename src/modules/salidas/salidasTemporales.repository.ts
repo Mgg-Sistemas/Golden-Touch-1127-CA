@@ -15,6 +15,7 @@ import type {
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, nextSku, listProductos } from '@/modules/inventario/inventario.repository';
+import { esCategoriaReal } from '@/modules/inventario/categoriaReal';
 import { firmaDeAprobador } from '@/modules/pedidos/aprobadoresOc';
 
 const TABLE = 'salidas_temporales';
@@ -110,7 +111,8 @@ async function resolverItems(items: ItemSalidaTemporalInput[]): Promise<ItemSali
       // Material NUEVO: se da de alta en inventario (stock 0, sin precio). SKU automático.
       const nombre = (it.producto_nombre ?? '').trim().toUpperCase();
       if (!nombre) throw new Error('Indicá el nombre del material nuevo.');
-      const categoria = (it.categoria ?? '').trim() || 'GENERAL';
+      const categoria = (it.categoria ?? '').trim().toUpperCase();
+      if (!esCategoriaReal(categoria)) throw new Error(`Elegí la categoría de «${nombre}». GENERAL ya no es una categoría.`);
       if (productos == null) productos = await listProductos().catch(() => [] as Producto[]);
       const nuevo = await createProducto({
         sku: await nextSku(categoria, productos),
