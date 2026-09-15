@@ -1420,10 +1420,23 @@ export async function reconciliarPagosOcHuerfanos(): Promise<number> {
   return reparadas;
 }
 
+/** Última vez (ms) que esta sesión corrió la reconciliación de pagos huérfanos de OC. */
+let ultimaReconciliacionOc = 0;
+/** Cada cuánto, como máximo, se vuelve a reconciliar al listar (ver `listOrdenesPorPagar`). */
+const RECONCILIAR_CADA_MS = 5 * 60_000;
+
 export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   // Antes de listar, reconciliamos pagos huérfanos (caja descontada pero OC sin cerrar)
   // para que no aparezcan como pendientes cuando ya se pagaron. Best-effort.
-  await reconciliarPagosOcHuerfanos().catch(() => 0);
+  //
+  // Una vez cada 5 min por sesión, no en cada listado: Tesorería lista con cada evento
+  // de tiempo real, y la reconciliación lee las OC enteras y la caja (y a veces escribe,
+  // lo que dispara otro evento). Un pago huérfano es un accidente raro (corte de red
+  // justo después del egreso); esperarlo hasta 5 min no cambia nada.
+  if (Date.now() - ultimaReconciliacionOc >= RECONCILIAR_CADA_MS) {
+    ultimaReconciliacionOc = Date.now();
+    await reconciliarPagosOcHuerfanos().catch(() => 0);
+  }
   const [{ data: os, error }, { data: provs }] = await Promise.all([
     supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada']).order('oc_aprobada_en', { ascending: true }),
     supabase.from('proveedores').select('*'),

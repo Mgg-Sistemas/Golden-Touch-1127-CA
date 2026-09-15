@@ -43,7 +43,6 @@ import {
   getHistoricoPreciosPorSku,
   listOrdenes,
   listProductosActivos,
-  listProveedoresActivos,
   listProveedores,
   nextCodigo,
   recibirOrdenParcial,
@@ -264,15 +263,16 @@ export function PedidosPage() {
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const [os, pvs, pvsAll, pds, usrs] = await Promise.all([
+      const [os, pvsAll, pds, usrs] = await Promise.all([
         listOrdenes(),
-        listProveedoresActivos(),
         listProveedores(),
         listProductosActivos(),
         listUsuarios().catch(() => [] as Usuario[]),
       ]);
       setOrdenes(os);
-      setProveedores(pvs);
+      // Los activos salen de la misma lista (mismo orden por razón social): antes se
+      // pedían los proveedores dos veces en cada recarga.
+      setProveedores(pvsAll.filter((p) => p.estado === 'activo'));
       setProveedoresAll(pvsAll);
       setProductos(pds);
       setUsuarios(usrs);

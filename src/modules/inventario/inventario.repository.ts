@@ -293,7 +293,10 @@ export async function listProductosPorIds(ids: string[]): Promise<Producto[]> {
   return (data ?? []) as Producto[];
 }
 
-export async function listProductos(): Promise<Producto[]> {
+/** Pedido del inventario completo que está viajando ahora mismo (ver `listProductos`). */
+let productosEnCurso: Promise<Producto[]> | null = null;
+
+async function cargarProductos(): Promise<Producto[]> {
   const { data, error } = await supabase
     .from('productos')
     .select('*')
@@ -304,6 +307,23 @@ export async function listProductos(): Promise<Producto[]> {
   // así que se reordena en el cliente para que la lista quede siempre A-Z.
   return ((data ?? []) as Producto[]).sort((a, b) =>
     (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es', { sensitivity: 'base', numeric: true }));
+}
+
+/** Inventario completo, A→Z.
+ *
+ *  Varias partes de una misma pantalla lo piden a la vez al abrir (la página, sus
+ *  modales, los selectores): antes cada una bajaba los ~550 productos por su cuenta.
+ *  Si ya hay un pedido en viaje, se comparte ese mismo. NO es caché: apenas llega la
+ *  respuesta se olvida, y el siguiente pedido vuelve a la base (el stock cambia todo
+ *  el tiempo). Cada quien recibe su propia copia del arreglo. */
+export function listProductos(): Promise<Producto[]> {
+  if (!productosEnCurso) {
+    const pedido = cargarProductos();
+    productosEnCurso = pedido;
+    const soltar = () => { if (productosEnCurso === pedido) productosEnCurso = null; };
+    pedido.then(soltar, soltar);
+  }
+  return productosEnCurso.then((ps) => ps.slice());
 }
 
 export async function findProducto(id: string): Promise<Producto | null> {

@@ -32,9 +32,21 @@ function escribiendoAhora(): boolean {
   return editable && Date.now() - ultimaEscrituraAt < 4000;
 }
 
+/** Espera tras el primer evento, para juntar la ráfaga de cambios de una misma operación. */
+const DEBOUNCE_MS = 400;
+/** Tiempo mínimo entre dos recargas de la misma suscripción.
+ *
+ *  Antes solo había debounce: con varios usuarios operando, los eventos llegaban
+ *  espaciados más de 400 ms y CADA uno recargaba la pantalla entera (Tesorería
+ *  son 12 consultas; Inventario y Salidas, 10). El sistema se ponía lento para
+ *  todos justo cuando más se usaba. Ahora los cambios que llegan mientras hay una
+ *  recarga programada se suman a esa misma, y entre recarga y recarga pasan al
+ *  menos 2,5 s. Lo nuevo sigue apareciendo solo, a lo sumo 2,5 s después. */
+const RECARGA_MIN_MS = 2500;
+
 /**
- * Suscribe `onChange` a los cambios de `tables`. Recarga con debounce (300 ms)
- * para agrupar ráfagas de eventos. Se desuscribe al desmontar o cambiar tablas.
+ * Suscribe `onChange` a los cambios de `tables`. Agrupa ráfagas (400 ms) y no
+ * recarga más de una vez cada 2,5 s. Se desuscribe al desmontar o cambiar tablas.
  */
 export function useRealtime(tables: string[], onChange: () => void, opts?: { enabled?: boolean }): void {
   const cb = useRef(onChange);
@@ -48,17 +60,24 @@ export function useRealtime(tables: string[], onChange: () => void, opts?: { ena
     try { sb = getSupabase(); } catch { return; }
 
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let ultimaRecarga = 0;
     let pendienteOculto = false;            // hubo cambios mientras la pestaña no estaba visible
     const ocultaApi = typeof document !== 'undefined';
 
-    // Recarga con debounce (400 ms) para agrupar ráfagas de eventos relacionados.
     // Si el usuario está escribiendo en un campo, se pospone hasta que termine para
     // no pisar lo tecleado (el realtime no se apaga, solo se difiere el re-render).
     const ejecutar = () => {
       if (escribiendoAhora()) { timer = setTimeout(ejecutar, 500); return; }
+      timer = null;
+      ultimaRecarga = Date.now();
       cb.current();
     };
-    const programar = () => { if (timer) clearTimeout(timer); timer = setTimeout(ejecutar, 400); };
+    // Con una recarga ya programada, el evento nuevo se suma a ella (no la corre).
+    const programar = () => {
+      if (timer) return;
+      const espera = Math.max(DEBOUNCE_MS, RECARGA_MIN_MS - (Date.now() - ultimaRecarga));
+      timer = setTimeout(ejecutar, espera);
+    };
     const alEvento = () => {
       // En segundo plano no recargamos (ahorra red/CPU); marcamos para ponernos al día al volver.
       if (ocultaApi && document.hidden) { pendienteOculto = true; return; }
