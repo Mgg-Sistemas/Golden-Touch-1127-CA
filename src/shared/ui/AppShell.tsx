@@ -35,6 +35,14 @@ const CAPTURA_RUTAS: Array<{ key: string; ruta: string; permiso: ModuleKey }> = 
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** `true` con ahorro de datos activado o conexión 2G/3G (en campo pasa seguido).
+ *  Si el navegador no informa la conexión, se asume que no es lenta. */
+function conexionLenta(): boolean {
+  const c = (navigator as unknown as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+  if (!c) return false;
+  return !!c.saveData || ['slow-2g', '2g', '3g'].includes(c.effectiveType ?? '');
+}
+
 export function AppShell() {
   const { user } = useSession();
   const { can, role, appUser, isAdmin } = usePermissions();
@@ -120,7 +128,7 @@ export function AppShell() {
   // las encuentra en caché y responde al instante, en vez de descargar el chunk
   // de ~200-320 kB en ese momento. No bloquea el arranque.
   useEffect(() => {
-    if (!user) return;
+    if (!user || conexionLenta()) return;
     let done = false;
     const warm = () => {
       if (done) return; done = true;
@@ -141,7 +149,9 @@ export function AppShell() {
   // el usuario tiene acceso, así al hacer clic en el menú la navegación es instantánea
   // (no espera a descargar el JS). Deja cargar primero la página actual.
   useEffect(() => {
-    if (!user) return;
+    // Con conexión lenta no se precarga nada: esos cientos de kB competirían con los
+    // datos de la pantalla que se está usando. El menú igual precarga al pasar el mouse.
+    if (!user || conexionLenta()) return;
     const rutas = ([
       ['dashboard', '/app/dashboard'], ['pedidos', '/app/pedidos'], ['inventario', '/app/inventario'],
       ['salidas', '/app/salidas'], ['produccion', '/app/produccion'], ['tesoreria', '/app/tesoreria'],

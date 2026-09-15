@@ -17,7 +17,7 @@ export interface AuditoriaEvento {
   entidad_id: string | null;
   etiqueta: string | null;
   cambios: Record<string, [unknown, unknown]> | null;   // update: col → [viejo, nuevo]
-  datos: Record<string, unknown> | null;                // insert/delete: fila
+  datos?: Record<string, unknown> | null;               // insert/delete: fila (no la trae `listEventos`)
 }
 
 /** tabla → módulo legible + ícono, para agrupar y mostrar. */
@@ -120,7 +120,11 @@ export interface AuditoriaFiltro { desde?: string | null; hasta?: string | null;
 
 /** Lista eventos de auditoría (más recientes primero) con filtros. */
 export async function listEventos(f: AuditoriaFiltro = {}): Promise<AuditoriaEvento[]> {
-  let q = supabase.from('auditoria_eventos').select('*').order('at', { ascending: false });
+  // Sin `datos` (la fila entera en altas y bajas): la pantalla nunca la muestra y era la
+  // mitad del peso de cada carga (hasta 2000 eventos, con cada recarga en vivo).
+  let q = supabase.from('auditoria_eventos')
+    .select('id, at, user_id, email, nombre, tabla, accion, entidad_id, etiqueta, cambios')
+    .order('at', { ascending: false });
   if (f.desde) q = q.gte('at', `${f.desde}T00:00:00`);
   if (f.hasta) q = q.lte('at', `${f.hasta}T23:59:59.999`);
   if (f.userId) q = q.eq('user_id', f.userId);

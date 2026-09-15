@@ -239,10 +239,20 @@ export async function reconciliarComprasDirectasHuerfanas(): Promise<number> {
   return reparadas;
 }
 
+/** Última vez (ms) que esta sesión corrió la reconciliación de compras directas huérfanas. */
+let ultimaReconciliacionCd = 0;
+/** Cada cuánto, como máximo, se vuelve a reconciliar al listar (ver `listComprasDirectas`). */
+const RECONCILIAR_CADA_MS = 5 * 60_000;
+
 export async function listComprasDirectas(): Promise<CompraDirecta[]> {
   // Antes de listar, reconciliamos pagos huérfanos (caja descontada pero CD sin cerrar)
   // para que no aparezcan como pendientes con la caja ya descontada. Best-effort.
-  await reconciliarComprasDirectasHuerfanas().catch(() => 0);
+  // Una vez cada 5 min por sesión: esta lista se recarga con cada evento de tiempo real
+  // en Compras y Tesorería, y la reconciliación lee y a veces escribe.
+  if (Date.now() - ultimaReconciliacionCd >= RECONCILIAR_CADA_MS) {
+    ultimaReconciliacionCd = Date.now();
+    await reconciliarComprasDirectasHuerfanas().catch(() => 0);
+  }
   const { data, error } = await supabase
     .from('compras_directas')
     .select('*')
