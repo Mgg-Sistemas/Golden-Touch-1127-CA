@@ -71,6 +71,7 @@ import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, updateProducto, getUnidades, nextSku, buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
 import { ProductoParecidoModal } from '@/modules/inventario/ProductoParecidoModal';
+import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
@@ -3360,7 +3361,7 @@ function CrearOrdenModal({
   // el resto se completa luego desde el módulo de inventario).
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
-  const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
+  const [nuevoCategoria, setNuevoCategoria] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
   const [creandoNuevo, setCreandoNuevo] = useState(false);
   // Ref al input de nombre: tras crear, lo limpiamos y re-enfocamos SIN cerrar el
@@ -3397,7 +3398,8 @@ function CrearOrdenModal({
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
     // En MERCADO los productos nuevos entran SIEMPRE como VÍVERES (para que queden
     // disponibles en Cocina); fuera de MERCADO, la categoría elegida.
-    const categoria = mercado ? 'VÍVERES' : ((nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase() || 'GENERAL');
+    const categoria = mercado ? 'VÍVERES' : (nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase();
+    if (!esCategoriaReal(categoria)) { toast(MENSAJE_CATEGORIA_OBLIGATORIA, 'error'); nuevoCategoriaRef.current?.focus(); return; }
     setCreandoNuevo(true);
     try {
       const similares = await buscarProductosParecidos(nombre, categoria);
@@ -3938,7 +3940,7 @@ function CrearOrdenModal({
                 {mercado ? (
                   <input className="input" value="VÍVERES" disabled title="En MERCADO los productos nuevos entran como VÍVERES y quedan disponibles en Cocina" />
                 ) : (
-                  <input ref={nuevoCategoriaRef} className="input" name="op-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
+                  <input ref={nuevoCategoriaRef} className="input" name="op-nuevo-categoria" placeholder="Categoría * (no GENERAL)" defaultValue={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
                 )}
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
@@ -4112,7 +4114,7 @@ function EditarOrdenModal({
   // Alta rápida de producto nuevo (no en inventario), igual que al crear la OP.
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
-  const [nuevoCategoria, setNuevoCategoria] = useState('GENERAL');
+  const [nuevoCategoria, setNuevoCategoria] = useState('');
   const [nuevoUnidad, setNuevoUnidad] = useState('und');
   // Inventario único: el producto nuevo entra siempre al Inventario General ('General' en BD).
   const nuevoAlmacen = 'General';
@@ -4174,7 +4176,8 @@ function EditarOrdenModal({
     // re-render pesado del modal no pisa lo tecleado (el nombre "cortado a medias").
     const nombre = (nuevoNombreRef.current?.value ?? nuevoNombre).trim().toUpperCase();
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
-    const categoria = (nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase() || 'GENERAL';
+    const categoria = (nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase();
+    if (!esCategoriaReal(categoria)) { toast(MENSAJE_CATEGORIA_OBLIGATORIA, 'error'); nuevoCategoriaRef.current?.focus(); return; }
     setCreandoNuevo(true);
     try {
       const similares = await buscarProductosParecidos(nombre, categoria);
@@ -4505,7 +4508,7 @@ function EditarOrdenModal({
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
               />
               <div className="form-grid">
-                <input ref={nuevoCategoriaRef} className="input" name="op-edit-nuevo-categoria" placeholder="Categoría" defaultValue={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
+                <input ref={nuevoCategoriaRef} className="input" name="op-edit-nuevo-categoria" placeholder="Categoría * (no GENERAL)" defaultValue={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
                     placeholder="🔍 Unidad…" options={unidadesList.map((u) => ({ value: u, label: u }))} />

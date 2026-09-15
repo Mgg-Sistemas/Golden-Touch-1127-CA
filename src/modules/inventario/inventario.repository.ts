@@ -5,6 +5,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { EstadoGenerico, Orden, Producto, RecetaFundicion } from '@/shared/lib/types';
+import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from './categoriaReal';
 
 export interface ProductoInput {
   sku: string;
@@ -154,10 +155,12 @@ export async function getCategorias(fromProductos: Producto[] = []): Promise<str
   fromProductos.forEach((p) => p.categoria && set.add(p.categoria));
   // Defaults de respaldo sólo si la lectura del catálogo falló completamente.
   if (set.size === 0) CATEGORIAS_DEFAULT.forEach((c) => set.add(c));
-  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  // GENERAL ya no es una categoría: nunca se ofrece, aunque quede en datos viejos en memoria.
+  return Array.from(set).filter(esCategoriaReal).sort((a, b) => a.localeCompare(b, 'es'));
 }
 
 export async function addCategoria(nombre: string, actorEmail?: string): Promise<string | null> {
+  if (!esCategoriaReal(nombre)) throw new Error(MENSAJE_CATEGORIA_OBLIGATORIA);
   return addTaxonomia('inventario.categoria', nombre, actorEmail);
 }
 

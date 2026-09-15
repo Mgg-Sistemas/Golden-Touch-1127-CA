@@ -2,6 +2,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import { getCategorias, getUnidades, nextSku } from './inventario.repository';
+import { esCategoriaReal } from './categoriaReal';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 import { norm } from '@/shared/lib/texto';
 
@@ -202,6 +203,8 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     // El SKU NO se carga en la plantilla: el sistema lo asigna solo (correlativo
     // por categoría) al importar. Solo se respeta si el archivo trae la columna.
     if (!nombre) { errores.push('Nombre vacío'); sumCol('nombre'); }
+    // La categoría es obligatoria y tiene que ser real: GENERAL ya no existe.
+    if (!esCategoriaReal(toStr(norm.categoria))) { errores.push('Categoría vacía o GENERAL: poné su categoría real'); sumCol('categoria'); }
 
     const precio = toNum(norm.precio);
     if (norm.precio != null && norm.precio !== '' && (!Number.isFinite(precio) || isLetter(norm.precio))) {
@@ -364,7 +367,7 @@ export async function aplicarImportacion(analisis: AnalisisImport, actor = 'impo
     // canónica de la tabla `almacenes` (ej. "General", "Almacén 1") para que
     // coincidan con las existencias y la vista de producción.
     const almacen = toStr(r.almacen).trim() || 'General';
-    const categoria = canon(canonCat, toStr(r.categoria).toUpperCase() || 'GENERAL');
+    const categoria = canon(canonCat, toStr(r.categoria).toUpperCase());
     // SKU: incremental por categoría desde el sistema (o el del Excel si viene).
     const sku = await resolverSku(f.nombre, categoria, toStr(r.sku).toUpperCase());
 
@@ -464,7 +467,7 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     [''],
     ['2. COLUMNAS Y FORMATO'],
     ['• nombre (texto): obligatorio, descripción corta del producto. Se guarda en MAYÚSCULAS.'],
-    ['• categoria (texto): opcional. Si la dejás vacía se asigna "GENERAL". Define el PREFIJO del SKU.'],
+    ['• categoria (texto): OBLIGATORIA. Tiene que ser una categoría real (REPUESTOS, MATERIALES, VÍVERES…): vacía o "GENERAL" es error. Define el PREFIJO del SKU.'],
     ['• unidad (texto): opcional (und, kg, tambor, caja, …). Por defecto "und".'],
     ['• stock (número ≥ 0): no acepta letras ni negativos. Vacío = 0.'],
     ['• stock_min (número ≥ 0): umbral de reabastecimiento. Vacío = 0.'],
