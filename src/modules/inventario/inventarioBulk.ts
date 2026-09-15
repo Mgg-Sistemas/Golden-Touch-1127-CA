@@ -574,7 +574,8 @@ export function filtrarParaExport(productos: Producto[], f: ExportFiltros): Prod
     if (f.receta === 'sin_receta' && p.receta_fundicion) return false;
     if (f.receta === 'en_proceso' && !p.en_fundicion) return false;
     if ((['RECETA 1', 'RECETA 2', 'RECETA 3'] as string[]).includes(f.receta ?? '') && p.receta_fundicion !== f.receta) return false;
-    if (q && !(norm(p.sku).includes(q) || norm(p.nombre).includes(q))) return false;
+    if (q && !(norm(p.sku).includes(q) || norm(p.nombre).includes(q)
+      || (p.sku_anteriores ?? []).some((s) => norm(s).includes(q)))) return false;
     return true;
   });
 }

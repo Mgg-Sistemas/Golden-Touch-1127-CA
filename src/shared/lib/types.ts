@@ -1039,6 +1039,8 @@ export const RECETAS_FUNDICION: RecetaFundicion[] = ['RECETA 1', 'RECETA 2', 'RE
 export interface Producto {
   id: string;
   sku: string;
+  /** Códigos que tuvo antes (al cambiar de categoría el SKU se recodifica). */
+  sku_anteriores?: string[] | null;
   nombre: string;
   categoria: string;
   unidad: string;

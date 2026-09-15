@@ -101,6 +101,8 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
     const haystack = [
       p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.serial, p.codigo, p.numero,
       p.unidad, p.categoria, p.descripcion, p.ubicacion,
+      // Códigos anteriores (el SKU cambia con la categoría): «GEN-179» sigue encontrando el aceite.
+      ...(p.sku_anteriores ?? []),
     ].map((c) => norm(String(c ?? ''))).join(' ');
     // Cada palabra del término debe aparecer en algún dato: "clavo media pulgada"
     // encuentra el clavo cuya medida/detalle es "media pulgada" (aunque el nombre sea solo "CLAVO").

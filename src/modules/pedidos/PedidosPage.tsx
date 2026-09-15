@@ -3268,7 +3268,11 @@ function CrearOrdenModal({
   // render (al teclear en Solicitante/Finalidad), el SearchSelect se rehace y el
   // input pierde el foco a las pocas letras. Memoizado, el tecleo es fluido.
   const prodOptions = useMemo(
-    () => allProductos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` })),
+    // Con el código anterior al final: quien busca por «GEN-179» sigue encontrando el producto.
+    () => allProductos.map((p) => ({
+      value: p.id,
+      label: `${p.sku} · ${p.nombre}${p.sku_anteriores?.length ? ` (antes ${p.sku_anteriores.join(', ')})` : ''}`,
+    })),
     [allProductos],
   );
   const [prodSelectId, setProdSelectId] = useState<string>(productos[0]?.id ?? '');
@@ -4121,7 +4125,11 @@ function EditarOrdenModal({
   }, []);
   // Opciones del selector de producto: se arman SOLO cuando cambia la lista.
   const prodOptions = useMemo(
-    () => allProductos.map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` })),
+    // Con el código anterior al final: quien busca por «GEN-179» sigue encontrando el producto.
+    () => allProductos.map((p) => ({
+      value: p.id,
+      label: `${p.sku} · ${p.nombre}${p.sku_anteriores?.length ? ` (antes ${p.sku_anteriores.join(', ')})` : ''}`,
+    })),
     [allProductos],
   );
 

@@ -175,6 +175,10 @@ export async function renombrarCategoria(oldNombre: string, newNombre: string, a
 
   await renameTaxonomia('inventario.categoria', oldClean, newClean, actorEmail);
 
+  // El prefijo del SKU pasa al nombre nuevo: renombrar NO recodifica los productos.
+  // (Si el nombre nuevo ya era otra categoría, es una fusión y toman el prefijo de esa.)
+  await supabase.rpc('renombrar_prefijo_categoria', { p_old: oldClean, p_new: newClean });
+
   const { data, error } = await supabase
     .from('productos')
     .update({ categoria: newClean })
