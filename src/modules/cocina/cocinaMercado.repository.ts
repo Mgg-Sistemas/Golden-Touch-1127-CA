@@ -11,6 +11,7 @@ import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
 import { MOTIVO_DESCARTE_MIN, motivoValido } from './mercadoDescarte';
 import { reconstruirSaldo, resolverInicio } from './mercadoInicio';
+import { sumarMermas, type MovimientoParaMerma } from './mercadoPanel';
 
 const TABLE = 'cocina_mercados';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -37,7 +38,10 @@ export interface ResumenViver {
   entradas: number;        // entradas de inventario (nuevo mercado) durante el ciclo
   disponible: number;      // saldo_inicial + entradas (total disponible a consumir)
   consumo: number;         // consumido por cocina durante el ciclo
-  queda: number;           // stock actual (lo que queda → pasa al próximo ciclo)
+  /** Mermas y salidas: lo que bajó el inventario sin ser una comida (salida manual, ajuste a la
+   *  baja, traslado). Desde el 15/09/2026; los mercados cerrados antes no la traen (= 0). */
+  mermas?: number;
+  queda: number;          // stock actual (lo que queda → pasa al próximo ciclo)
 }
 
 export interface TotalesMercado {
@@ -45,6 +49,8 @@ export interface TotalesMercado {
   consumo_valor: number;   // costo total consumido (Bs/$ del inventario)
   entradas_total: number;  // suma de cantidades entradas
   queda_viveres: number;   // víveres con saldo > 0 que pasan al próximo
+  /** Suma de las mermas y salidas del ciclo, en unidades. Desde el 15/09/2026. */
+  mermas_total?: number;
   /** Platos servidos en el ciclo (costo por plato del panel). Desde el 14/09/2026: los anteriores no lo traen. */
   platos?: number;
   /* ── Descarte (14/09/2026) ──
@@ -143,14 +149,16 @@ export async function iniciarMercado(): Promise<Mercado> {
   if ('error' in inicio) throw new Error(inicio.error);
   const vs = await listViveres();
   const ahora = new Date().toISOString();
-  const [entradas, { porViver: consumos }] = await Promise.all([
-    entradasPorViver(inicio.inicio_at, ahora, new Set(vs.map((p) => p.id))),
+  const ids = new Set(vs.map((p) => p.id));
+  const [entradas, { porViver: consumos }, mermas] = await Promise.all([
+    entradasPorViver(inicio.inicio_at, ahora, ids),
     consumoDelCiclo(inicio.inicio_at, ahora),
+    mermasPorViver(inicio.inicio_at, ahora, ids),
   ]);
   const numero = await nextNumeroMercado();
   const { data, error } = await supabase.from(TABLE).insert({
     numero, estado: 'abierto', inicio_at: inicio.inicio_at,
-    saldo_inicial: reconstruirSaldo(vs, entradas, consumos),
+    saldo_inicial: reconstruirSaldo(vs, entradas, consumos, mermas),
   }).select('*').single();
   if (error) throw error;
   return normalizar(data as Record<string, unknown>);
@@ -178,6 +186,27 @@ async function entradasPorViver(desde: string, hasta: string, viverIds: Set<stri
     out.set(r.producto_id, round2((out.get(r.producto_id) ?? 0) + (Number(r.delta) || 0)));
   }
   return out;
+}
+
+/** Movimientos del kardex que NO vienen de la cocina (PostgREST: `ref_tipo` nulo o distinto). */
+const NO_COCINA = 'ref_tipo.is.null,ref_tipo.neq.cocina';
+
+/**
+ * Mermas y salidas por víver dentro de la ventana [desde, hasta]: todo lo que bajó el
+ * inventario sin ser una comida. Decisión del usuario (15/09/2026): el mercado resta las
+ * pérdidas en su propia columna, a la vista y sin mezclarlas con el costo por plato. Antes
+ * quedaban fuera de la cuenta y aparecían como «diferencia»: 25 pollos perdidos se leían
+ * como un −25 sin explicación. Las reglas (qué es merma) viven en `sumarMermas`.
+ *
+ * El filtro de cocina va también en la consulta: las comidas son cientos de filas por ciclo
+ * y, sin él, el tope de filas de la API podía dejar mermas afuera.
+ */
+async function mermasPorViver(desde: string, hasta: string, viverIds: Set<string>): Promise<Map<string, number>> {
+  const { data, error } = await supabase.from('movimientos')
+    .select('producto_id, delta, ref_tipo')
+    .lt('delta', 0).or(NO_COCINA).gte('at', desde).lte('at', hasta);
+  if (error) throw error;
+  return sumarMermas((data ?? []) as MovimientoParaMerma[], viverIds);
 }
 
 /**
@@ -214,9 +243,10 @@ export async function computeResumen(
 ): Promise<{ items: ResumenViver[]; totales: TotalesMercado }> {
   const hasta = hastaISO ?? new Date().toISOString();
   const viverIds = new Set(viveres.map((p) => p.id));
-  const [entradas, { porViver: consumos, platos }] = await Promise.all([
+  const [entradas, { porViver: consumos, platos }, mermas] = await Promise.all([
     entradasPorViver(m.inicio_at, hasta, viverIds),
     consumoDelCiclo(m.inicio_at, hasta),
+    mermasPorViver(m.inicio_at, hasta, viverIds),
   ]);
   const inicialPorId = new Map(m.saldo_inicial.map((s) => [s.producto_id, Number(s.cantidad) || 0]));
   // Unión de víveres actuales + los que tenían saldo inicial (por si alguno se agotó/desactivó).
@@ -231,25 +261,28 @@ export async function computeResumen(
     const saldoInicial = inicialPorId.get(id) ?? 0;
     const ent = entradas.get(id) ?? 0;
     const cons = consumos.get(id)?.cantidad ?? 0;
-    const queda = p ? round2(Number(p.stock) || 0) : round2(saldoInicial + ent - cons);
+    const mer = mermas.get(id) ?? 0;
+    const queda = p ? round2(Number(p.stock) || 0) : round2(saldoInicial + ent - cons - mer);
     const disponible = round2(saldoInicial + ent);
     // Solo interesan víveres con algún movimiento/saldo en el ciclo.
-    if (saldoInicial === 0 && ent === 0 && cons === 0 && queda === 0) continue;
+    if (saldoInicial === 0 && ent === 0 && cons === 0 && mer === 0 && queda === 0) continue;
     items.push({
       producto_id: id,
       sku: p?.sku ?? ini?.sku ?? '',
       nombre: p?.nombre ?? ini?.nombre ?? '(víver)',
       unidad: p?.unidad ?? ini?.unidad ?? null,
-      saldo_inicial: round2(saldoInicial), entradas: ent, disponible, consumo: cons, queda,
+      saldo_inicial: round2(saldoInicial), entradas: ent, disponible, consumo: cons, mermas: mer, queda,
     });
   }
   items.sort((a, b) => a.nombre.localeCompare(b.nombre));
 
   const totales: TotalesMercado = {
     viveres: items.length,
+    // Solo las comidas: las mermas se ven en su columna pero no encarecen el plato.
     consumo_valor: round2([...consumos.values()].reduce((a, c) => a + c.valor, 0)),
     entradas_total: round2(items.reduce((a, i) => a + i.entradas, 0)),
     queda_viveres: items.filter((i) => i.queda > 0).length,
+    mermas_total: round2(items.reduce((a, i) => a + (i.mermas ?? 0), 0)),
     platos,
   };
   return { items, totales };
@@ -371,6 +404,7 @@ export function totalesDesdeResumen(items: ResumenViver[]): TotalesMercado {
     consumo_valor: 0,   // el valor $ del consumo no se recalcula al editar cantidades a mano
     entradas_total: round2(items.reduce((a, i) => a + (Number(i.entradas) || 0), 0)),
     queda_viveres: items.filter((i) => (Number(i.queda) || 0) > 0).length,
+    mermas_total: round2(items.reduce((a, i) => a + (Number(i.mermas) || 0), 0)),
   };
 }
 
@@ -399,8 +433,9 @@ export async function actualizarMercadoHistorico(
       const saldo = round2(Number(r.saldo_inicial) || 0);
       const ent = round2(Number(r.entradas) || 0);
       const cons = round2(Number(r.consumo) || 0);
+      const mer = round2(Number(r.mermas) || 0);
       const queda = round2(Number(r.queda) || 0);
-      return { ...r, saldo_inicial: saldo, entradas: ent, consumo: cons, queda, disponible: round2(saldo + ent) };
+      return { ...r, saldo_inicial: saldo, entradas: ent, consumo: cons, mermas: mer, queda, disponible: round2(saldo + ent) };
     });
     upd.resumen = items;
     upd.totales = { ...(previos ?? {}), ...totalesDesdeResumen(items), consumo_valor: previos?.consumo_valor ?? 0 };
@@ -430,21 +465,30 @@ export async function eliminarMercado(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Detalle por víver de un ciclo: la nueva entrada (con fechas) y los consumos (con fechas). */
+/** Detalle por víver de un ciclo: la nueva entrada, los consumos y las mermas (con fechas). */
 export interface DetalleViverCiclo {
   entradas: { fecha: string; cantidad: number; ref?: string | null }[];
   consumos: { fecha: string; cantidad: number; valor: number; codigo?: string | null; tipo_comida?: string | null }[];
+  /** Salidas que no son comidas, con su motivo tal como se escribió en el inventario. */
+  mermas: { fecha: string; cantidad: number; tipo: string; detalle: string | null; actor: string | null }[];
 }
 export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO?: string): Promise<DetalleViverCiclo> {
   const hasta = hastaISO ?? m.cierre_at ?? new Date().toISOString();
-  const [movs, cocina] = await Promise.all([
+  const [movs, cocina, salidas] = await Promise.all([
     supabase.from('movimientos').select('delta, at, ref_codigo, tipo')
       .eq('tipo', 'entrada').eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
     supabase.from('cocina_movimientos').select('codigo, tipo_comida, items, at')
       .gte('at', m.inicio_at).lte('at', hasta).order('at'),
+    supabase.from('movimientos').select('delta, at, tipo, detalle, actor_name, actor')
+      .eq('producto_id', productoId).lt('delta', 0).or(NO_COCINA).gte('at', m.inicio_at).lte('at', hasta).order('at'),
   ]);
   const entradas = ((movs.data ?? []) as { delta: number; at: string; ref_codigo: string | null }[])
     .map((r) => ({ fecha: r.at, cantidad: round2(Number(r.delta) || 0), ref: r.ref_codigo }));
+  const mermas = ((salidas.data ?? []) as { delta: number; at: string; tipo: string; detalle: string | null; actor_name: string | null; actor: string | null }[])
+    .map((r) => ({
+      fecha: r.at, cantidad: round2(Math.abs(Number(r.delta) || 0)), tipo: r.tipo,
+      detalle: r.detalle?.trim() || null, actor: r.actor_name ?? r.actor ?? null,
+    }));
   const consumos: DetalleViverCiclo['consumos'] = [];
   for (const c of (cocina.data ?? []) as { codigo: string | null; tipo_comida: string; items: { producto_id: string; cantidad: number; precio: number }[]; at: string }[]) {
     for (const it of c.items ?? []) {
@@ -456,5 +500,5 @@ export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO
       });
     }
   }
-  return { entradas, consumos };
+  return { entradas, consumos, mermas };
 }

@@ -10,6 +10,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa, saldosDeCaja } from '@/modules/tesoreria/cajaSaldos.repository';
+import { CATEGORIA_REEMBOLSO, errorRetencionPago, montoLegadoARevertir, netoAPagar, patasConMonto } from './pagoDirecto';
 import { columnasPagoExterno, type PagoExternoInput } from '@/modules/pedidos/compras.repository';
 import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { CuentaCaja, DetalleServicioItem } from '@/shared/lib/types';
@@ -108,6 +109,14 @@ export interface ServicioDirecto {
   adjunto_nombre: string | null;
   gasto_categoria: string | null;
   gasto_subcategoria: string | null;
+  /** Retención que Tesorería restó al pagar (moneda del servicio): se pagó `gasto − esto`. */
+  retencion_pago_monto?: number | null;
+  retencion_pago_bs?: number | null;
+  retencion_pago_tasa?: number | null;
+  /** Lo pagado de más, en USD, y de qué cuentas salió (se devuelve al reabrir). */
+  reembolso_usd?: number | null;
+  reembolso_legs?: PagoLeg[] | null;
+  reembolso_caja_mov_ids?: string[] | null;
   pagada_at: string | null;
   pagada_por: string | null;
   pagada_por_name: string | null;
@@ -482,6 +491,13 @@ export interface PagarServicioInput {
   legs?: PagoLeg[];
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
+  /** Retención (moneda del servicio): se paga total − retención. En Bs y su tasa, como referencia. */
+  retencionMonto?: number;
+  retencionMontoBs?: number;
+  retencionTasa?: number;
+  /** Lo pagado de más: sale en egresos aparte, desde estas cuentas. */
+  reembolsoLegs?: PagoLeg[];
+  reembolsoUsd?: number;
   actor: string;
   actorName?: string | null;
 }
@@ -490,8 +506,12 @@ export interface PagarServicioInput {
  * TESORERÍA PAGA un servicio que estaba "Por pagar": descuenta el total de la caja
  * elegida (egreso en Tesorería con su categoría/subcategoría de gasto) y lo marca
  * FINALIZADO, dejando el comprobante de pago. NO toca inventario (es un servicio).
+ *
+ * Con retención se paga el NETO; lo pagado de más sale en egresos «REEMBOLSO DE SERVICIO
+ * DIRECTO …» desde las mismas cuentas (15/09/2026, igual que la OC). Devuelve un aviso si
+ * el pago salió bien pero no se pudo anotar la retención o el reembolso.
  */
-export async function pagarServicioDirecto(input: PagarServicioInput): Promise<void> {
+export async function pagarServicioDirecto(input: PagarServicioInput): Promise<{ aviso?: string }> {
   const { servicio } = input;
   if (servicio.estado === 'finalizada') throw new Error('Este servicio ya fue pagado.');
   if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
@@ -499,6 +519,12 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<v
   if (!items.length) throw new Error('El servicio no tiene renglones.');
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
   if (total <= 0) throw new Error('El servicio no tiene montos cargados.');
+  const retencion = Math.round((Number(input.retencionMonto) || 0) * 100) / 100;
+  if (retencion < 0) throw new Error('La retención no puede ser negativa.');
+  if (retencion > 0) { const e = errorRetencionPago(total, retencion); if (e) throw new Error(e); }
+  const neto = netoAPagar(total, retencion);
+  const reembolsoLegs = patasConMonto(input.reembolsoLegs);
+  const reembolsoMovIds: string[] = [];
 
   const concepto = `Servicio directo · ${servicio.codigo ?? servicio.descripcion}${servicio.equipo_nombre ? ` · ${servicio.equipo_nombre}` : ''}`;
   const legs = (input.legs ?? []).filter((l) => Number(l.monto) > 0);
@@ -518,11 +544,23 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<v
     movCajaId = primero;
   } else {
     const movCaja = await egresarGastoCaja({
-      cajaId: input.cajaId, monto: total, concepto, categoria: 'servicio_directo',
+      cajaId: input.cajaId, monto: neto, concepto, categoria: 'servicio_directo',
       gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actor, actorName: input.actorName ?? null,
     });
     movCajaId = movCaja.id;
+  }
+
+  // Lo pagado DE MÁS: cada cuenta devuelve su parte en un egreso APARTE, desde el mismo
+  // saldo del que salió (igual que la OC). No suma al gasto del servicio.
+  for (const leg of reembolsoLegs) {
+    const r = await egresarDivisa({
+      cajaId: leg.cajaId ?? input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+      concepto: `REEMBOLSO DE SERVICIO DIRECTO ${servicio.codigo ?? servicio.descripcion}`,
+      categoria: CATEGORIA_REEMBOLSO.servicio,
+      actor: input.actor, actorName: input.actorName ?? null,
+    });
+    reembolsoMovIds.push(r.id);
   }
 
   const { error } = await supabase
@@ -536,8 +574,28 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<v
     })
     .eq('id', servicio.id);
   if (error) throw error;
+
+  // Retención y reembolso: escritura APARTE y best-effort, como en la OC.
+  let aviso: string | undefined;
+  if (retencion > 0 || reembolsoLegs.length) {
+    const retBs = Math.round((Number(input.retencionMontoBs) || 0) * 100) / 100;
+    const retTasa = Number(input.retencionTasa) || 0;
+    const { error: eExtra } = await supabase.from('servicios_directos').update({
+      retencion_pago_monto: retencion,
+      retencion_pago_bs: retencion > 0 && retBs > 0 ? retBs : null,
+      retencion_pago_tasa: retencion > 0 && retTasa > 0 ? retTasa : null,
+      reembolso_usd: Math.round((Number(input.reembolsoUsd) || 0) * 100) / 100,
+      reembolso_legs: reembolsoLegs.length ? reembolsoLegs : null,
+      reembolso_caja_mov_ids: reembolsoMovIds.length ? reembolsoMovIds : null,
+    }).eq('id', servicio.id);
+    if (eExtra) {
+      aviso = `El servicio se pagó, pero no se pudo anotar la retención o el reembolso en su ficha (${eExtra.message}). `
+        + 'Si se reabre, revisá a mano lo que vuelve a la caja.';
+    }
+  }
   // Compra del mantenimiento concretada (Tesorería pagó) → reinicia el contador del equipo.
   await reiniciarMantenimientoServicio({ ...servicio, items });
+  return aviso ? { aviso } : {};
 }
 
 /* ───────── Abonos (cuotas) de un servicio directo ───────── */
@@ -711,15 +769,27 @@ export async function reabrirServicioDirecto(servicio: ServicioDirecto, actor: s
   const legs = Array.isArray(servicio.pago_legs) ? servicio.pago_legs.filter((l) => Number(l.monto) > 0) : [];
   if (legs.length) {
     for (const leg of legs) {
+      // Cada pata vuelve a SU caja: con el multipago entre cajas no todas salen de la principal.
       await revertirEgresoDivisa({
-        cajaId: servicio.caja_id!, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+        cajaId: leg.cajaId ?? servicio.caja_id!, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
         concepto, actor, actorName: actorName ?? null,
       });
     }
   } else if (servicio.caja_id && (servicio.gasto || 0) > 0) {
+    // Caja simple: salió el NETO (total − retención), no el total de la factura.
     await ingresarDineroCaja({
-      cajaId: servicio.caja_id, monto: Number(servicio.gasto), concepto, categoria: 'reverso',
+      cajaId: servicio.caja_id, monto: montoLegadoARevertir(servicio.gasto, servicio.retencion_pago_monto), concepto, categoria: 'reverso',
       actor, actorName: actorName ?? null,
+    });
+  }
+
+  // Devolver los reembolsos de lo pagado de más (egresos aparte, cada uno a su cuenta).
+  for (const leg of patasConMonto(servicio.reembolso_legs)) {
+    const cajaLeg = leg.cajaId ?? servicio.caja_id;
+    if (!cajaLeg) continue;
+    await revertirEgresoDivisa({
+      cajaId: cajaLeg, cuenta: leg.cuenta, moneda: leg.moneda, monto: Number(leg.monto),
+      concepto: `${concepto} · reembolso`, actor, actorName: actorName ?? null,
     });
   }
 
@@ -727,6 +797,8 @@ export async function reabrirServicioDirecto(servicio: ServicioDirecto, actor: s
     .from('servicios_directos')
     .update({
       estado: 'en_proceso', gasto: null, caja_id: null, caja_mov_id: null, pago_legs: null,
+      retencion_pago_monto: 0, retencion_pago_bs: null, retencion_pago_tasa: null,
+      reembolso_usd: 0, reembolso_legs: null, reembolso_caja_mov_ids: null,
       finalizada_at: null, updated_at: new Date().toISOString(),
     })
     .eq('id', servicio.id);

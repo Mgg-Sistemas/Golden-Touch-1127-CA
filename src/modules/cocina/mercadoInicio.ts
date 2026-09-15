@@ -11,7 +11,7 @@
    Es el stock de ese instante. Leer el inventario tarda: si entre el clic y la
    lectura entra o sale algo, el stock leído ya lo incluye y el ciclo también lo
    contaría. Por eso se corrige con lo movido desde el clic:
-      saldo = stock leído − entradas + consumos desde el clic
+      saldo = stock leído − entradas + consumos + mermas desde el clic
    con las mismas lecturas que después usa el panel.
 
    Piezas puras: se prueban sin base ni React.
@@ -86,19 +86,22 @@ export interface SaldoCalculado {
 }
 
 /**
- * Saldo inicial al instante del clic: stock leído − entradas + consumos desde el clic.
+ * Saldo inicial al instante del clic: stock leído − entradas + consumos + mermas desde el clic.
  *
  * Como en MGG, un saldo en cero o negativo no entra. Negativo quiere decir que en esos
  * segundos salió algo por otra puerta; el víver igual aparece en el panel si tiene stock.
+ * Las mermas van desde el 15/09/2026: el ciclo las resta, así que una salida entre el clic
+ * y la lectura también tiene que volver al saldo, o se contaría dos veces.
  */
 export function reconstruirSaldo(
   viveres: ViverParaSaldo[],
   entradas: Map<string, number>,
   consumos: Map<string, { cantidad: number }>,
+  mermas: Map<string, number> = new Map(),
 ): SaldoCalculado[] {
   const out: SaldoCalculado[] = [];
   for (const v of viveres) {
-    const cantidad = r2((Number(v.stock) || 0) - (entradas.get(v.id) ?? 0) + (consumos.get(v.id)?.cantidad ?? 0));
+    const cantidad = r2((Number(v.stock) || 0) - (entradas.get(v.id) ?? 0) + (consumos.get(v.id)?.cantidad ?? 0) + (mermas.get(v.id) ?? 0));
     if (cantidad <= 0) continue;
     out.push({ producto_id: v.id, sku: v.sku, nombre: v.nombre, unidad: v.unidad ?? null, cantidad });
   }

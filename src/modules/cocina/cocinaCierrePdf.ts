@@ -68,19 +68,22 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
   // Detalle por víver: saldo inicial + entradas = disponible; consumo; QUEDA
   autoTable(doc, {
     startY: y + 6,
-    head: [['VÍVER', 'UND', 'SALDO INICIAL', 'ENTRADAS (NUEVO)', 'DISPONIBLE', 'CONSUMO', 'QUEDA']],
+    // MERMAS / SALIDAS desde el 15/09/2026: pérdidas y salidas que no son comidas. Restan en la
+    // cuenta del víver, pero el «Consumo total» de arriba es solo lo que se sirvió.
+    head: [['VÍVER', 'UND', 'SALDO INICIAL', 'ENTRADAS', 'DISPONIBLE', 'CONSUMO', 'MERMAS / SALIDAS', 'QUEDA']],
     body: resumen.map((r) => [
       r.nombre, r.unidad ?? '', num(r.saldo_inicial), num(r.entradas),
-      num(r.disponible), num(r.consumo), num(r.queda),
+      num(r.disponible), num(r.consumo), num(Number(r.mermas) || 0), num(r.queda),
     ]),
     styles: { fontSize: 8, cellPadding: 3.2, valign: 'middle', overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
     columnStyles: {
       0: { cellWidth: 'auto' }, 1: { cellWidth: 34, halign: 'center' },
-      2: { cellWidth: 66, halign: 'right' }, 3: { cellWidth: 76, halign: 'right' },
-      4: { cellWidth: 62, halign: 'right', fontStyle: 'bold' },
-      5: { cellWidth: 58, halign: 'right' },
-      6: { cellWidth: 56, halign: 'right', fontStyle: 'bold', textColor: [0, 120, 60] },
+      2: { cellWidth: 58, halign: 'right' }, 3: { cellWidth: 56, halign: 'right' },
+      4: { cellWidth: 60, halign: 'right', fontStyle: 'bold' },
+      5: { cellWidth: 54, halign: 'right' },
+      6: { cellWidth: 60, halign: 'right', textColor: [170, 100, 0] },
+      7: { cellWidth: 54, halign: 'right', fontStyle: 'bold', textColor: [0, 120, 60] },
     },
     margin: MARGIN,
   });

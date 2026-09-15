@@ -194,12 +194,12 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
               <div className="muted" style={{ fontSize: '.76rem' }}>Corregí las cantidades de ESTE ciclo (no reescribe el ciclo siguiente). «Disponible» = saldo + entrada.</div>
               <div className="table-wrap" style={{ maxHeight: '48vh', overflow: 'auto' }}>
                 <table className="table" style={{ fontSize: '.82rem' }}>
-                  <thead><tr><th>Víver</th><th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'right' }}>Entrada</th><th style={{ textAlign: 'right' }}>Consumo</th><th style={{ textAlign: 'right' }}>Queda</th></tr></thead>
+                  <thead><tr><th>Víver</th><th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'right' }}>Entrada</th><th style={{ textAlign: 'right' }}>Consumo</th><th style={{ textAlign: 'right' }}>Mermas / salidas</th><th style={{ textAlign: 'right' }}>Queda</th></tr></thead>
                   <tbody>
                     {editItems.map((r, i) => (
                       <tr key={r.producto_id}>
                         <td>{r.nombre} {r.unidad && <span className="muted">· {r.unidad}</span>}</td>
-                        {(['saldo_inicial', 'entradas', 'consumo', 'queda'] as const).map((campo) => (
+                        {(['saldo_inicial', 'entradas', 'consumo', 'mermas', 'queda'] as const).map((campo) => (
                           <td key={campo} style={{ textAlign: 'right' }}>
                             <input className="input mono" type="number" step="any" style={{ width: 84, textAlign: 'right' }}
                               value={String(r[campo] ?? 0)} onChange={(e) => setItem(i, { [campo]: Number(e.target.value) || 0 })} />

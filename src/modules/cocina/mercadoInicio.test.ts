@@ -66,6 +66,12 @@ describe('reconstruirSaldo', () => {
     expect(saldo).toEqual([{ producto_id: 'a', sku: 'A', nombre: 'VIVER a', unidad: 'UND', cantidad: 9 }]);
   });
 
+  it('una merma entre el clic y la lectura vuelve al saldo: el ciclo ya la resta', () => {
+    // Al leer hay 5; entre el clic y la lectura se perdieron 2 → al clic había 7.
+    const saldo = reconstruirSaldo([viver('a', 5)], new Map(), new Map(), new Map([['a', 2]]));
+    expect(saldo[0].cantidad).toBe(7);
+  });
+
   it('sin movimientos desde el clic, el saldo es el stock', () => {
     expect(reconstruirSaldo([viver('a', 7.5)], new Map(), new Map())[0].cantidad).toBe(7.5);
   });

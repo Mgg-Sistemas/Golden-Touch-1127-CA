@@ -96,6 +96,9 @@ const CAT_LABEL: Record<string, string> = {
   // Ventas: el cobro de una venta es el PRIMER ingreso clasificado del sistema
   // (hasta hoy todas las entradas de dinero venían sin categoría). Que se lea.
   cobro_venta: 'Cobro de venta', reverso_venta: 'Reverso de venta',
+  // Lo pagado de más, que sale en un egreso aparte desde las mismas cuentas.
+  reembolso_oc: 'Reembolso de OC', reembolso_compra_directa: 'Reembolso de compra directa',
+  reembolso_servicio_directo: 'Reembolso de servicio directo',
 };
 
 /** Estado de la venta con el color que le corresponde en el badge. */

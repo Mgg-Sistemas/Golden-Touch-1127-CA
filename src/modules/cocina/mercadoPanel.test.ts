@@ -2,18 +2,19 @@ import { describe, it, expect } from 'vitest';
 import type { ResumenViver } from './cocinaMercado.repository';
 import {
   costoDelCiclo, diferenciasPorViver, ecuacionDelCiclo, explicarDiferencia, filasDisponible, leerVista,
-  separarMovidos, vistaGuardada,
+  separarMovidos, sumarMermas, vistaGuardada,
 } from './mercadoPanel';
 
-function fila(id: string, v: { saldo?: number; ent?: number; cons?: number; queda?: number } = {}): ResumenViver {
+function fila(id: string, v: { saldo?: number; ent?: number; cons?: number; mer?: number; queda?: number } = {}): ResumenViver {
   const saldo = v.saldo ?? 0;
   const ent = v.ent ?? 0;
   const cons = v.cons ?? 0;
+  const mer = v.mer ?? 0;
   return {
     producto_id: id, sku: id.toUpperCase(), nombre: `VIVER ${id}`, unidad: 'KG',
-    saldo_inicial: saldo, entradas: ent, disponible: saldo + ent, consumo: cons,
+    saldo_inicial: saldo, entradas: ent, disponible: saldo + ent, consumo: cons, mermas: mer,
     // Por defecto cuadra: en el inventario hay lo que da la cuenta.
-    queda: v.queda ?? saldo + ent - cons,
+    queda: v.queda ?? saldo + ent - cons - mer,
   };
 }
 const ids = (rs: ResumenViver[]) => rs.map((r) => r.producto_id);
@@ -45,6 +46,10 @@ describe('separarMovidos', () => {
     expect(ids(movidos)).toEqual(['a', 'b']);
     expect(ids(quietos)).toEqual(['c']);
   });
+
+  it('una merma también es movimiento: la pérdida tiene que verse en la tabla', () => {
+    expect(ids(separarMovidos([fila('a', { saldo: 5, mer: 2 })]).movidos)).toEqual(['a']);
+  });
 });
 
 describe('diferenciasPorViver', () => {
@@ -65,6 +70,17 @@ describe('diferenciasPorViver', () => {
     expect(diferenciasPorViver([fila('a', { saldo: 10, queda: 10.004 })])).toEqual([]);
   });
 
+  it('una merma registrada no es diferencia: los 25 pollos perdidos del MK-2026-0002', () => {
+    // 1,5 al iniciar + 25 comprados − 25 perdidos (salida manual) = 1,5 en el inventario.
+    expect(diferenciasPorViver([fila('pollo', { saldo: 1.5, ent: 25, mer: 25, queda: 1.5 })])).toEqual([]);
+  });
+
+  it('un mercado cerrado antes de las mermas (sin el campo) cuenta como antes', () => {
+    const viejo = fila('a', { saldo: 10, cons: 3, queda: 7 });
+    delete viejo.mermas;
+    expect(diferenciasPorViver([viejo])).toEqual([]);
+  });
+
   it('lo más descuadrado primero, sin importar el signo', () => {
     const difs = diferenciasPorViver([fila('a', { saldo: 10, queda: 9 }), fila('b', { saldo: 10, queda: 15 })]);
     expect(difs.map((d) => d.producto_id)).toEqual(['b', 'a']);
@@ -75,8 +91,13 @@ describe('ecuacionDelCiclo', () => {
   it('suma los cinco números y compara la cuenta con el inventario', () => {
     const ec = ecuacionDelCiclo([fila('a', { saldo: 10, ent: 5, cons: 3, queda: 9 }), fila('b', { saldo: 4, cons: 1 })]);
     expect(ec).toEqual({
-      saldoInicial: 14, entradas: 5, disponible: 19, consumo: 4, queda: 12, cuenta: 15, diferencia: -3, viveresConDiferencia: 1,
+      saldoInicial: 14, entradas: 5, disponible: 19, consumo: 4, mermas: 0, queda: 12, cuenta: 15, diferencia: -3, viveresConDiferencia: 1,
     });
+  });
+
+  it('las mermas restan en la cuenta del ciclo', () => {
+    const ec = ecuacionDelCiclo([fila('pollo', { saldo: 1.5, ent: 25, mer: 25 }), fila('b', { saldo: 4, cons: 1 })]);
+    expect(ec).toMatchObject({ disponible: 30.5, consumo: 1, mermas: 25, queda: 4.5, cuenta: 4.5, diferencia: 0, viveresConDiferencia: 0 });
   });
 
   it('sin víveres, todo en cero', () => {
@@ -133,11 +154,36 @@ describe('filasDisponible', () => {
 });
 
 describe('explicarDiferencia', () => {
-  it('un faltante apunta a las salidas que el ciclo no ve', () => {
-    expect(explicarDiferencia(-3)).toContain('salida manual');
+  it('un faltante ya no culpa a las salidas manuales: esas ahora son mermas', () => {
+    expect(explicarDiferencia(-3)).not.toContain('salida manual');
+    expect(explicarDiferencia(-3)).toContain('fecha anterior');
   });
 
   it('un sobrante apunta a lo que entró sin ser entrada', () => {
     expect(explicarDiferencia(2)).toContain('ajuste');
+  });
+});
+
+describe('sumarMermas', () => {
+  const viveres = new Set(['pollo', 'arroz']);
+
+  it('suma lo que bajó el inventario sin ser comida, en positivo', () => {
+    const m = sumarMermas([
+      { producto_id: 'pollo', delta: -25, ref_tipo: null },          // salida manual: se perdieron
+      { producto_id: 'pollo', delta: '-1.5', ref_tipo: 'ajuste' },    // conteo real a la baja
+    ], viveres);
+    expect(m.get('pollo')).toBe(26.5);
+  });
+
+  it('las comidas (y sus reversos) no son merma: ya las cuenta el consumo', () => {
+    expect(sumarMermas([{ producto_id: 'arroz', delta: -3, ref_tipo: 'cocina' }], viveres).size).toBe(0);
+  });
+
+  it('solo lo que baja y solo los víveres del ciclo', () => {
+    const m = sumarMermas([
+      { producto_id: 'arroz', delta: 4, ref_tipo: null },     // un ajuste hacia arriba no es merma
+      { producto_id: 'filtro', delta: -2, ref_tipo: null },   // no es víver
+    ], viveres);
+    expect(m.size).toBe(0);
   });
 });

@@ -18,6 +18,8 @@ const TIPO_LABEL: Record<string, string> = {
 };
 const CAT_LABEL: Record<string, string> = {
   gasto: 'Gasto', pago_personal: 'Pago a personal', pago_oc: 'Pago de compra', traslado: 'Traslado',
+  reembolso_oc: 'Reembolso de OC', reembolso_compra_directa: 'Reembolso de compra directa',
+  reembolso_servicio_directo: 'Reembolso de servicio directo',
 };
 
 function montoStr(n: number | null | undefined, moneda: string): string {
