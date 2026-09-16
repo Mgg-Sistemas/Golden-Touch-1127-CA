@@ -10,11 +10,16 @@ import type { WorkBook } from 'xlsx-js-style';
  *
  *  · `previewPdf(doc, filename)`   → reemplaza `doc.save(filename)`
  *  · `previewExcel(wb, filename)`  → reemplaza `XLSX.writeFile(wb, filename)`
+ *
+ * Las vistas de PDF y de archivos (PDF/imagen) traen además 🖨 Imprimir, que abre
+ * el diálogo de impresión del navegador con el documento, sin descargarlo.
  */
 
 interface OverlayUI {
   body: HTMLDivElement;
   btnDl: HTMLButtonElement;
+  /** Oculto por defecto: cada visor lo muestra si sabe imprimir su contenido. */
+  btnPrint: HTMLButtonElement;
   onClose: (fn: () => void) => void;
 }
 
@@ -37,6 +42,13 @@ function buildOverlay(filename: string): OverlayUI {
   btnDl.style.cssText =
     'background:#ff8a00;color:#111;border:0;border-radius:6px;padding:.5rem .9rem;font:600 .9rem system-ui;cursor:pointer;';
 
+  const btnPrint = document.createElement('button');
+  btnPrint.type = 'button';
+  btnPrint.textContent = '🖨 Imprimir';
+  btnPrint.title = 'Imprimir';
+  btnPrint.style.cssText =
+    'display:none;background:transparent;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.5rem .9rem;font:600 .9rem system-ui;cursor:pointer;';
+
   const btnClose = document.createElement('button');
   btnClose.type = 'button';
   btnClose.textContent = '✕ Cerrar';
@@ -46,7 +58,7 @@ function buildOverlay(filename: string): OverlayUI {
   const body = document.createElement('div');
   body.style.cssText = 'flex:1;overflow:auto;background:#0d1117;';
 
-  bar.append(title, btnDl, btnClose);
+  bar.append(title, btnPrint, btnDl, btnClose);
   root.append(bar, body);
   document.body.appendChild(root);
 
@@ -58,7 +70,35 @@ function buildOverlay(filename: string): OverlayUI {
   document.addEventListener('keydown', onKey);
   closers.push(() => document.removeEventListener('keydown', onKey));
 
-  return { body, btnDl, onClose: (fn) => closers.push(fn) };
+  return { body, btnDl, btnPrint, onClose: (fn) => closers.push(fn) };
+}
+
+/**
+ * Imprime un documento del MISMO origen (URL de un blob) desde un iframe oculto.
+ * Si el navegador no deja imprimir el iframe, lo abre en una pestaña para imprimir desde ahí.
+ */
+function imprimirUrlLocal(url: string, ui: OverlayUI): void {
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+  frame.onload = () => {
+    try {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+    } catch {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+  frame.src = url;
+  document.body.appendChild(frame);
+  ui.onClose(() => frame.remove());
+}
+
+/** Página mínima con la imagen a hoja completa, para imprimirla sin la interfaz. */
+function htmlImagen(src: string, titulo: string): string {
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(titulo)}</title>` +
+    '<style>@page{margin:10mm}html,body{margin:0}img{display:block;max-width:100%;max-height:100vh;margin:0 auto;object-fit:contain}</style>' +
+    `</head><body><img src="${esc(src)}"></body></html>`;
 }
 
 /** Muestra el PDF (jsPDF) en un visor embebido; descarga solo si el usuario lo pide. */
@@ -72,6 +112,8 @@ export function previewPdf(doc: JsPDFType, filename: string): void {
   iframe.style.cssText = 'width:100%;height:100%;border:0;background:#fff;';
   ui.body.appendChild(iframe);
   ui.btnDl.onclick = () => doc.save(filename);
+  ui.btnPrint.style.display = '';
+  ui.btnPrint.onclick = () => imprimirUrlLocal(url, ui);
   ui.onClose(() => URL.revokeObjectURL(url));
 }
 
@@ -79,7 +121,7 @@ export function previewPdf(doc: JsPDFType, filename: string): void {
  * Vista previa de un ARCHIVO ya subido (factura, comprobante, oferta…) a partir de
  * su URL firmada. Lo muestra DENTRO del sistema (overlay), no en una pestaña nueva:
  *  · PDF / imagen → visor embebido (iframe).
- *  · botón ⬇ Descargar (baja el archivo) y ↗ Abrir en pestaña (fallback).
+ *  · botón ⬇ Descargar (baja el archivo), 🖨 Imprimir y ↗ Abrir en pestaña (fallback).
  * Reemplaza a `window.open(url, '_blank')`.
  */
 export function previewArchivo(url: string, filename = 'archivo'): void {
@@ -107,6 +149,35 @@ export function previewArchivo(url: string, filename = 'archivo'): void {
   btnTab.href = url; btnTab.target = '_blank'; btnTab.rel = 'noopener noreferrer';
   btnTab.style.cssText = 'text-decoration:none;background:transparent;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.5rem .9rem;font:600 .9rem system-ui;cursor:pointer;';
   ui.btnDl.insertAdjacentElement('beforebegin', btnTab);
+  // 🖨 Imprimir: la URL firmada es de otro origen y su iframe no se deja imprimir,
+  // así que se baja el archivo y se imprime la copia local (blob). Una imagen va
+  // dentro de una página mínima, para que salga sola en la hoja.
+  ui.btnPrint.style.display = '';
+  ui.btnPrint.onclick = async () => {
+    const texto = ui.btnPrint.textContent;
+    ui.btnPrint.disabled = true;
+    ui.btnPrint.textContent = '🖨 Preparando…';
+    try {
+      const bajado = await (await fetch(url)).blob();
+      const imagen = esImagen || bajado.type.startsWith('image/');
+      // Storage a veces lo sirve como octet-stream: así el iframe lo descargaría en vez de mostrarlo.
+      const blob = imagen || bajado.type === 'application/pdf' ? bajado : new Blob([bajado], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      ui.onClose(() => URL.revokeObjectURL(blobUrl));
+      if (imagen) {
+        const pagina = URL.createObjectURL(new Blob([htmlImagen(blobUrl, filename)], { type: 'text/html' }));
+        ui.onClose(() => URL.revokeObjectURL(pagina));
+        imprimirUrlLocal(pagina, ui);
+      } else {
+        imprimirUrlLocal(blobUrl, ui);
+      }
+    } catch {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } finally {
+      ui.btnPrint.disabled = false;
+      ui.btnPrint.textContent = texto;
+    }
+  };
   // ⬇ Descargar: baja el blob para forzar la descarga con el nombre correcto.
   ui.btnDl.onclick = async () => {
     try {
