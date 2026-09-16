@@ -3,7 +3,8 @@
    Sacar un material a MANTENIMIENTO y retornarlo al inventario.
    Flujo:  pendiente → (aprobar, firma Leydis/Jesús) en_transito
            → (finalizar) finalizada  (muestra el tiempo en tránsito).
-   Editable en CUALQUIER estado (si ya movió inventario, se ajusta la diferencia);
+   Editable mientras está pendiente o en tránsito (si ya salió, se ajusta la
+   diferencia); una FINALIZADA ya no se edita.
    eliminable SOLO mientras está 'pendiente'.
    Al pasar a en_transito el material SALE del inventario; al finalizar
    RETORNA. Reutiliza el kardex (movimientos) y el catálogo de choferes
@@ -18,7 +19,7 @@ import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, nextSku, listProductos } from '@/modules/inventario/inventario.repository';
 import { esCategoriaReal } from '@/modules/inventario/categoriaReal';
 import { firmaDeAprobador } from '@/modules/pedidos/aprobadoresOc';
-import { ajustesPorEdicion, duracionEntre, efectosInventario, faltantesDeStock, type AjusteMovimiento } from './salidaTemporalAjuste';
+import { ajustesPorEdicion, efectosInventario, faltantesDeStock, type AjusteMovimiento } from './salidaTemporalAjuste';
 
 const TABLE = 'salidas_temporales';
 
@@ -201,19 +202,17 @@ export interface EditarSalidaTemporalInput {
   direccionDestino?: string | null;
   /** Desde cuándo está en tránsito (solo si ya se aprobó). ISO. */
   enTransitoEn?: string | null;
-  /** Cuándo retornó (solo si está finalizada). ISO. */
-  finalizadaEn?: string | null;
   actor: string;
   actorName?: string | null;
 }
 
 /**
- * Edita una salida temporal en CUALQUIER estado. Si ya movió inventario (en tránsito
- * o finalizada) y cambian los materiales o las cantidades, registra solo la diferencia
- * en el kardex. En tránsito/finalizada también se corrigen la hora de salida y la de
- * retorno, y se recalcula el tiempo en tránsito.
+ * Edita una salida temporal PENDIENTE o EN TRÁNSITO. En tránsito el material ya salió:
+ * si cambian los materiales o las cantidades, registra solo la diferencia en el kardex,
+ * y también se corrige desde cuándo está en tránsito. Una FINALIZADA no se edita.
  */
 export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalidaTemporalInput): Promise<void> {
+  if (s.estado === 'finalizada') throw new Error('Una salida temporal finalizada ya no se puede editar.');
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { updated_at: now };
   if (input.solicitante !== undefined) {
@@ -234,18 +233,6 @@ export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalid
   if (s.estado !== 'pendiente' && input.enTransitoEn !== undefined) {
     if (!input.enTransitoEn) throw new Error('Indicá desde cuándo está en tránsito.');
     patch.en_transito_en = input.enTransitoEn;
-  }
-  if (s.estado === 'finalizada' && input.finalizadaEn !== undefined) {
-    if (!input.finalizadaEn) throw new Error('Indicá cuándo retornó al inventario.');
-    patch.finalizada_en = input.finalizadaEn;
-  }
-  if (s.estado === 'finalizada') {
-    const desde = (patch.en_transito_en as string | undefined) ?? s.en_transito_en;
-    const hasta = (patch.finalizada_en as string | undefined) ?? s.finalizada_en;
-    if (desde && hasta && new Date(hasta).getTime() < new Date(desde).getTime()) {
-      throw new Error('El retorno no puede ser anterior a la salida.');
-    }
-    patch.duracion_min = duracionEntre(desde, hasta);
   }
 
   let ajustes: AjusteMovimiento[] = [];
@@ -299,7 +286,7 @@ export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalid
       fecha: s.fecha ?? null, chofer_id: s.chofer_id ?? null, chofer_nombre: s.chofer_nombre ?? null, chofer_cedula: s.chofer_cedula ?? null,
       vehiculo_id: s.vehiculo_id ?? null, vehiculo_descripcion: s.vehiculo_descripcion ?? null, vehiculo_placa: s.vehiculo_placa ?? null,
       direccion_despacho: s.direccion_despacho ?? null, direccion_destino: s.direccion_destino ?? null,
-      en_transito_en: s.en_transito_en ?? null, finalizada_en: s.finalizada_en ?? null, duracion_min: s.duracion_min ?? null,
+      en_transito_en: s.en_transito_en ?? null,
       // El historial solo agrega (trigger): queda la edición y, a continuación, su reverso.
       historial: appendHistorial({ historial: patch.historial as EventoHistorial[] }, 'edicion_revertida', input.actor),
       updated_at: new Date().toISOString(),
