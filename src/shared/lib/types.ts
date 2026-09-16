@@ -1430,8 +1430,6 @@ export interface NominaRenglon {
   asignaciones: number;
   deduc_anticipos: number;
   deduc_prestamos: number;
-  deduc_ivss: number;
-  deduc_faov: number;
   deducciones: DeduccionRef[];
   neto_usd: number;
   estado: 'por_pagar' | 'pagada';
