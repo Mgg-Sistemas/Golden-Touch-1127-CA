@@ -3,8 +3,8 @@
    Sacar un material a MANTENIMIENTO y retornarlo al inventario.
    Flujo:  pendiente → (aprobar, firma Leydis/Jesús) en_transito
            → (finalizar) finalizada  (muestra el tiempo en tránsito).
-   Se EDITA en cualquier estado (si ya movió inventario, se ajusta la
-   diferencia); se ELIMINA solo mientras está 'pendiente'.
+   Se EDITA mientras está pendiente o en tránsito (si ya salió, se ajusta la
+   diferencia); una finalizada no se edita. Se ELIMINA solo mientras está 'pendiente'.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -25,7 +25,6 @@ import {
   type ItemSalidaTemporalInput,
 } from './salidasTemporales.repository';
 import { descargarSalidaTemporalPdf } from './salidaTemporalPdf';
-import { duracionEntre } from './salidaTemporalAjuste';
 import { norm } from '@/shared/lib/texto';
 
 type Vista = 'kanban' | 'lista';
@@ -213,7 +212,7 @@ export function SalidasTemporalesView({
                     <td className="muted" style={{ fontSize: '.78rem' }}>{date(s.fecha ?? s.created_at)}</td>
                     <td className="mono" style={{ fontSize: '.78rem' }}>{tiempoDe(s, now)}</td>
                     <td className="actions" style={{ whiteSpace: 'nowrap' }}>
-                      {canWrite && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, edit: s })}>✎</button>}
+                      {canWrite && s.estado !== 'finalizada' && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setForm({ open: true, edit: s })}>✎</button>}
                       <button className="btn btn-sm btn-ghost" onClick={() => void handlePdf(s)}>📄 PDF</button>
                       <button className="btn btn-sm btn-ghost" onClick={() => setTraza(s)}>🧾</button>
                     </td>
@@ -313,7 +312,7 @@ function SalidaTempCard({
       )}
 
       <div className="actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginTop: '.5rem' }}>
-        {canWrite && (
+        {canWrite && s.estado !== 'finalizada' && (
           <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => onModificar(s)}>✎ Editar</button>
         )}
         {s.estado === 'pendiente' && canWrite && (
@@ -462,7 +461,7 @@ function SalidaTemporalForm({
     existencias.forEach((e) => m.set(`${e.producto_id}|${e.almacen}`, e));
     return m;
   }, [existencias]);
-  // Lo que esta salida YA sacó del inventario (en tránsito o finalizada), por producto|almacén:
+  // Lo que esta salida YA sacó del inventario (en tránsito), por producto|almacén:
   // al editar, eso también está disponible para ella.
   const movioInventario = !!edit && edit.estado !== 'pendiente';
   const yaAfuera = useMemo(() => {
@@ -475,9 +474,8 @@ function SalidaTemporalForm({
     });
     return m;
   }, [edit]);
-  /** Máximo que puede llevar un renglón. En una finalizada lo que sale también retornó: no hay tope. */
-  const disponiblePara = (pk: string): number =>
-    edit?.estado === 'finalizada' ? Infinity : (Number(exMap.get(pk)?.stock) || 0) + (yaAfuera.get(pk) ?? 0);
+  /** Máximo que puede llevar un renglón: el stock más lo que ya salió con esta salida. */
+  const disponiblePara = (pk: string): number => (Number(exMap.get(pk)?.stock) || 0) + (yaAfuera.get(pk) ?? 0);
   const opcionesExistentes = useMemo(() => {
     const opts = existencias
       .filter((e) => (Number(e.stock) || 0) > 0 && activos.has(e.producto_id))
@@ -531,7 +529,6 @@ function SalidaTemporalForm({
     direccionDespacho: edit.direccion_despacho ?? '', direccionDestino: edit.direccion_destino ?? '',
   } : transporteVacio());
   const [enTransitoEn, setEnTransitoEn] = useState(() => aLocal(edit?.en_transito_en));
-  const [finalizadaEn, setFinalizadaEn] = useState(() => aLocal(edit?.finalizada_en));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -603,7 +600,7 @@ function SalidaTemporalForm({
         }
         if (cant <= 0) { setError(`Poné una cantidad mayor que 0 para «${r.producto_nombre}».`); return; }
         const disponible = disponiblePara(r.productoKey);
-        if (Number.isFinite(disponible) && cant > disponible) { setError(`No hay stock suficiente de ${r.producto_nombre} en ${invLabel(r.almacen)}. Disponible: ${num(disponible)}.`); return; }
+        if (cant > disponible) { setError(`No hay stock suficiente de ${r.producto_nombre} en ${invLabel(r.almacen)}. Disponible: ${num(disponible)}.`); return; }
         itemsInput.push({
           producto_id: r.producto_id,
           producto_nombre: r.producto_nombre,
@@ -618,10 +615,6 @@ function SalidaTemporalForm({
     }
     if (!itemsInput.length) { setError('Agregá al menos un material con cantidad.'); return; }
     if (movioInventario && !enTransitoEn) { setError('Indicá desde cuándo está en tránsito.'); return; }
-    if (edit?.estado === 'finalizada') {
-      if (!finalizadaEn) { setError('Indicá cuándo retornó al inventario.'); return; }
-      if (new Date(finalizadaEn).getTime() < new Date(enTransitoEn).getTime()) { setError('El retorno no puede ser anterior a la salida.'); return; }
-    }
 
     setSaving(true);
     try {
@@ -642,7 +635,6 @@ function SalidaTemporalForm({
           ...base,
           actorName,
           ...(movioInventario ? { enTransitoEn: aIso(enTransitoEn) } : {}),
-          ...(edit.estado === 'finalizada' ? { finalizadaEn: aIso(finalizadaEn) } : {}),
         });
         notify(`Salida temporal ${edit.codigo} actualizada${movioInventario ? ' · inventario ajustado a los cambios' : ''}`, 'success');
       } else {
@@ -674,7 +666,7 @@ function SalidaTemporalForm({
         <div className="card" style={{ padding: '.55rem .75rem', background: 'var(--bg-1)', marginBottom: '.75rem', borderColor: movioInventario ? 'var(--warning, #f59e0b)' : undefined }}>
           <span className="muted" style={{ fontSize: '.8rem' }}>
             {movioInventario ? (
-              <>Esta salida <strong>ya movió inventario</strong> ({edit?.estado === 'finalizada' ? 'salió y retornó' : 'el material está afuera'}). Si cambiás materiales o cantidades, el inventario se <strong>ajusta solo por la diferencia</strong> y queda en el kardex.</>
+              <>Esta salida <strong>ya movió inventario</strong> (el material está afuera). Si cambiás materiales o cantidades, el inventario se <strong>ajusta solo por la diferencia</strong> y queda en el kardex.</>
             ) : (
               <>El N° correlativo (<strong>ST-001…</strong>) se asigna solo al guardar. El material sale del inventario al <strong>aprobar</strong> y retorna al <strong>finalizar</strong>.</>
             )}
@@ -698,7 +690,7 @@ function SalidaTemporalForm({
         </label>
         {renglones.map((r, idx) => {
           const stock = r.productoKey ? disponiblePara(r.productoKey) : 0;
-          const excede = !r.esNuevo && !!r.producto_id && Number.isFinite(stock) && (Number(r.cantidad) || 0) > stock;
+          const excede = !r.esNuevo && !!r.producto_id && (Number(r.cantidad) || 0) > stock;
           return (
             <div key={r.key} className="card" style={{ margin: '0 0 .5rem', padding: '.6rem .7rem', background: 'var(--bg-1)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
@@ -718,9 +710,7 @@ function SalidaTemporalForm({
                     <SearchSelect value={r.productoKey} onChange={(v) => elegirExistente(r.key, v)}
                       placeholder={opcionesExistentes.length ? '🔍 Buscar material con stock…' : '— no hay materiales con stock —'}
                       options={opcionesExistentes.map((o) => ({ value: o.value, label: o.label }))} />
-                    {r.producto_id && (Number.isFinite(stock)
-                      ? <small className="muted">Disponible: <strong className="mono">{num(stock)} {r.unidad ?? ''}</strong> en {invLabel(r.almacen)}{yaAfuera.get(r.productoKey) ? ' (incluye lo que ya salió con esta salida)' : ''}</small>
-                      : <small className="muted">Ya retornó: cambiar la cantidad corrige la salida y el retorno, sin cambiar el stock.</small>)}
+                    {r.producto_id && <small className="muted">Disponible: <strong className="mono">{num(stock)} {r.unidad ?? ''}</strong> en {invLabel(r.almacen)}{yaAfuera.get(r.productoKey) ? ' (incluye lo que ya salió con esta salida)' : ''}</small>}
                   </div>
                   <div className="form-row" style={{ marginBottom: 0 }}>
                     <label>Cantidad{r.unidad ? ` (${r.unidad})` : ''}</label>
@@ -791,13 +781,6 @@ function SalidaTemporalForm({
               <label>En tránsito desde</label>
               <input className="input" type="datetime-local" value={enTransitoEn} onChange={(e) => setEnTransitoEn(e.target.value)} />
             </div>
-            {edit?.estado === 'finalizada' && (
-              <div className="form-row">
-                <label>Retornó al inventario</label>
-                <input className="input" type="datetime-local" value={finalizadaEn} min={enTransitoEn || undefined} onChange={(e) => setFinalizadaEn(e.target.value)} />
-                <small className="muted">El tiempo en tránsito se recalcula: {formatDuracion(duracionEntre(aIso(enTransitoEn), aIso(finalizadaEn)))}.</small>
-              </div>
-            )}
           </div>
         )}
 
