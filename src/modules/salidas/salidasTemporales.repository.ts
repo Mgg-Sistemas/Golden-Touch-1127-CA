@@ -3,7 +3,8 @@
    Sacar un material a MANTENIMIENTO y retornarlo al inventario.
    Flujo:  pendiente → (aprobar, firma Leydis/Jesús) en_transito
            → (finalizar) finalizada  (muestra el tiempo en tránsito).
-   Editable / eliminable SOLO mientras está 'pendiente'.
+   Editable en CUALQUIER estado (si ya movió inventario, se ajusta la diferencia);
+   eliminable SOLO mientras está 'pendiente'.
    Al pasar a en_transito el material SALE del inventario; al finalizar
    RETORNA. Reutiliza el kardex (movimientos) y el catálogo de choferes
    (responsable) del módulo de Salidas.
@@ -17,6 +18,7 @@ import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { createProducto, nextSku, listProductos } from '@/modules/inventario/inventario.repository';
 import { esCategoriaReal } from '@/modules/inventario/categoriaReal';
 import { firmaDeAprobador } from '@/modules/pedidos/aprobadoresOc';
+import { ajustesPorEdicion, duracionEntre, efectosInventario, faltantesDeStock, type AjusteMovimiento } from './salidaTemporalAjuste';
 
 const TABLE = 'salidas_temporales';
 
@@ -96,7 +98,19 @@ async function resolverItems(items: ItemSalidaTemporalInput[]): Promise<ItemSali
   const out: ItemSalidaTemporal[] = [];
   for (const it of limpios) {
     const cantidad = Number(it.cantidad) || 0;
-    if (it.producto_id && !it.es_nuevo) {
+    if (it.producto_id && it.es_nuevo) {
+      // Material nuevo YA dado de alta (al editar): se conserva su ficha, no se crea otra.
+      out.push({
+        producto_id: it.producto_id,
+        producto_nombre: it.producto_nombre ?? '',
+        producto_sku: it.producto_sku ?? null,
+        unidad: it.unidad ?? null,
+        cantidad,
+        almacen: it.almacen ?? null,
+        es_nuevo: true,
+        observacion: it.observacion?.trim() || null,
+      });
+    } else if (it.producto_id) {
       out.push({
         producto_id: it.producto_id,
         producto_nombre: it.producto_nombre ?? '',
@@ -185,16 +199,23 @@ export interface EditarSalidaTemporalInput {
   vehiculoPlaca?: string | null;
   direccionDespacho?: string | null;
   direccionDestino?: string | null;
+  /** Desde cuándo está en tránsito (solo si ya se aprobó). ISO. */
+  enTransitoEn?: string | null;
+  /** Cuándo retornó (solo si está finalizada). ISO. */
+  finalizadaEn?: string | null;
   actor: string;
+  actorName?: string | null;
 }
 
-/** Edita una salida temporal que AÚN está 'pendiente' (antes de aprobar). */
+/**
+ * Edita una salida temporal en CUALQUIER estado. Si ya movió inventario (en tránsito
+ * o finalizada) y cambian los materiales o las cantidades, registra solo la diferencia
+ * en el kardex. En tránsito/finalizada también se corrigen la hora de salida y la de
+ * retorno, y se recalcula el tiempo en tránsito.
+ */
 export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalidaTemporalInput): Promise<void> {
-  if (s.estado !== 'pendiente') throw new Error('Solo se puede modificar una salida temporal que está pendiente (sin aprobar).');
-  const patch: Record<string, unknown> = {
-    historial: appendHistorial(s, 'editada', input.actor),
-    updated_at: new Date().toISOString(),
-  };
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { updated_at: now };
   if (input.solicitante !== undefined) {
     if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
     patch.solicitante = input.solicitante.trim();
@@ -210,11 +231,81 @@ export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalid
   if (input.vehiculoPlaca !== undefined) patch.vehiculo_placa = input.vehiculoPlaca?.trim() || null;
   if (input.direccionDespacho !== undefined) patch.direccion_despacho = input.direccionDespacho?.trim() || null;
   if (input.direccionDestino !== undefined) patch.direccion_destino = input.direccionDestino?.trim() || null;
-  if (input.items !== undefined && input.items !== null) {
-    patch.items = await resolverItems(input.items);
+  if (s.estado !== 'pendiente' && input.enTransitoEn !== undefined) {
+    if (!input.enTransitoEn) throw new Error('Indicá desde cuándo está en tránsito.');
+    patch.en_transito_en = input.enTransitoEn;
   }
-  const { error } = await supabase.from(TABLE).update(patch).eq('id', s.id);
+  if (s.estado === 'finalizada' && input.finalizadaEn !== undefined) {
+    if (!input.finalizadaEn) throw new Error('Indicá cuándo retornó al inventario.');
+    patch.finalizada_en = input.finalizadaEn;
+  }
+  if (s.estado === 'finalizada') {
+    const desde = (patch.en_transito_en as string | undefined) ?? s.en_transito_en;
+    const hasta = (patch.finalizada_en as string | undefined) ?? s.finalizada_en;
+    if (desde && hasta && new Date(hasta).getTime() < new Date(desde).getTime()) {
+      throw new Error('El retorno no puede ser anterior a la salida.');
+    }
+    patch.duracion_min = duracionEntre(desde, hasta);
+  }
+
+  let ajustes: AjusteMovimiento[] = [];
+  if (input.items !== undefined && input.items !== null) {
+    const nuevos = await resolverItems(input.items);
+    patch.items = nuevos;
+    ajustes = ajustesPorEdicion(efectosInventario(s.items ?? [], s.estado), efectosInventario(nuevos, s.estado));
+    // Lo que el ajuste saca del inventario tiene que estar disponible.
+    for (const f of faltantesDeStock(ajustes)) {
+      const stock = Number((await getExistencia(f.producto_id, f.almacen))?.stock) || 0;
+      if (f.salida > stock) throw new Error(`Stock insuficiente de ${f.nombre || 'un material'} en ${f.almacen}. Hace falta ${f.salida} y hay ${stock}.`);
+    }
+  }
+  patch.historial = appendHistorial(s, 'editada', input.actor, ajustes.length ? { ajustes: ajustes.length } : {});
+
+  // Se guarda condicionado al estado y a la última edición que se vio: si otro
+  // usuario la aprobó, la finalizó o la editó entretanto, no se pisa su cambio
+  // ni se ajusta el inventario dos veces.
+  let q = supabase.from(TABLE).update(patch).eq('id', s.id).eq('estado', s.estado);
+  q = s.updated_at ? q.eq('updated_at', s.updated_at) : q.is('updated_at', null);
+  const { data: guardada, error } = await q.select('id');
   if (error) throw error;
+  if (!guardada?.length) throw new Error('Otro usuario cambió esta salida temporal. Cerrá y volvé a abrirla para editar la versión actual.');
+
+  const hechos: AjusteMovimiento[] = [];
+  const mover = (aj: AjusteMovimiento, delta: number, detalle: string) => registrarMovimiento({
+    producto_id: aj.producto_id,
+    tipo: delta > 0 ? 'entrada' : 'salida',
+    delta,
+    almacen: aj.almacen,
+    actor: input.actor,
+    actor_name: input.actorName ?? null,
+    ref_tipo: aj.tramo === 'salida' ? 'salida_temporal' : 'salida_temporal_retorno',
+    ref_id: s.id,
+    ref_codigo: s.codigo,
+    solicitante: (patch.solicitante as string | undefined) ?? s.solicitante,
+    detalle,
+  });
+  try {
+    for (const aj of ajustes) {
+      await mover(aj, aj.delta, `Ajuste por edición de la salida temporal ${s.codigo}`);
+      hechos.push(aj);
+    }
+  } catch (e) {
+    // Se deshace lo que alcanzó a moverse y se devuelve la salida a como estaba.
+    for (const aj of [...hechos].reverse()) {
+      await mover(aj, -aj.delta, `Reverso de ajuste fallido de la salida temporal ${s.codigo}`).catch(() => { /* best-effort */ });
+    }
+    await supabase.from(TABLE).update({
+      items: s.items, solicitante: s.solicitante, unidad_solicitante: s.unidad_solicitante ?? null, motivo: s.motivo ?? null,
+      fecha: s.fecha ?? null, chofer_id: s.chofer_id ?? null, chofer_nombre: s.chofer_nombre ?? null, chofer_cedula: s.chofer_cedula ?? null,
+      vehiculo_id: s.vehiculo_id ?? null, vehiculo_descripcion: s.vehiculo_descripcion ?? null, vehiculo_placa: s.vehiculo_placa ?? null,
+      direccion_despacho: s.direccion_despacho ?? null, direccion_destino: s.direccion_destino ?? null,
+      en_transito_en: s.en_transito_en ?? null, finalizada_en: s.finalizada_en ?? null, duracion_min: s.duracion_min ?? null,
+      // El historial solo agrega (trigger): queda la edición y, a continuación, su reverso.
+      historial: appendHistorial({ historial: patch.historial as EventoHistorial[] }, 'edicion_revertida', input.actor),
+      updated_at: new Date().toISOString(),
+    }).eq('id', s.id);
+    throw e;
+  }
 }
 
 /** Elimina una salida temporal que AÚN está 'pendiente' (antes de aprobar). */
