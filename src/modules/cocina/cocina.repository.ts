@@ -127,29 +127,29 @@ function diaServicio(at: string | null | undefined): string {
 }
 
 /**
- * Ordena los movimientos como se lee un calendario: por DÍA DEL SERVICIO y, dentro
- * del día, por comida (desayuno → almuerzo → cena).
+ * Ordena los movimientos DEL MÁS NUEVO AL MÁS VIEJO: primero el DÍA DEL SERVICIO más
+ * reciente y, dentro del día, la comida más tardía (cena → almuerzo → desayuno).
  *
  * Hace falta porque `at` guarda la fecha del servicio junto con la HORA EN QUE SE
  * TECLEÓ. Ordenar por `at` a secas mezcla el calendario con el orden de carga: si se
  * cargan el 29, después el 1 y después el 30, la lista salía en ese mismo desorden, y
  * dentro de un día la cena podía quedar encima del desayuno según cuál se tecleó
- * primero. Comparando primero el día y después la comida, el orden es siempre el real
- * del servicio, sin importar cuándo se cargó.
+ * primero. Comparando primero el día y después la comida, arriba queda siempre el
+ * servicio más reciente, sin importar cuándo se cargó.
  */
 export function ordenarPorServicio(movs: CocinaMovimiento[]): CocinaMovimiento[] {
   return [...movs].sort((a, b) => {
     const da = diaServicio(a.at), db = diaServicio(b.at);
-    if (da !== db) return da < db ? -1 : 1;
+    if (da !== db) return da < db ? 1 : -1;
     const ca = ORDEN_COMIDA[a.tipo_comida] ?? 9;
     const cb = ORDEN_COMIDA[b.tipo_comida] ?? 9;
-    if (ca !== cb) return ca - cb;
-    return String(a.at ?? '').localeCompare(String(b.at ?? ''));
+    if (ca !== cb) return cb - ca;
+    return String(b.at ?? '').localeCompare(String(a.at ?? ''));
   });
 }
 
 export async function listMovimientosCocina(filtros: CocinaFiltros = {}): Promise<CocinaMovimiento[]> {
-  let q = supabase.from(TABLE).select('*').order('at', { ascending: true });
+  let q = supabase.from(TABLE).select('*').order('at', { ascending: false });
   if (filtros.tipo) q = q.eq('tipo_comida', filtros.tipo);
   // GT-INT-07 · Los límites llevan el offset de Caracas (−04:00) explícito. Sin
   // él, `at` es timestamptz y Postgres interpretaba los literales como UTC: los
@@ -159,7 +159,8 @@ export async function listMovimientosCocina(filtros: CocinaFiltros = {}): Promis
   if (filtros.hasta) q = q.lte('at', `${filtros.hasta}T23:59:59.999-04:00`);
   const { data, error } = await q;
   if (error) throw error;
-  // El orden final lo pone el DÍA DEL SERVICIO, no el momento de la carga.
+  // El orden final lo pone el DÍA DEL SERVICIO (del más nuevo al más viejo), no el
+  // momento de la carga.
   return ordenarPorServicio((data ?? []) as CocinaMovimiento[]);
 }
 
