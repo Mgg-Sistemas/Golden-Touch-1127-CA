@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { gzipSync, constants as zlib } from 'node:zlib';
 
 // Identificador de versión del build = COMMIT desplegado. Se hornea en el cliente
 // (import.meta.env.VITE_APP_VERSION) y se emite en `version.json`. El cliente compara
@@ -44,6 +45,25 @@ const versionJsonPlugin = {
   },
 };
 
+// Precompresión: junto a cada JS/CSS/HTML/JSON/SVG del build deja su `.gz` al
+// máximo nivel. nginx con `gzip_static on` (deploy/nginx-rendimiento.conf) lo
+// entrega tal cual: el navegador baja ~3 veces menos y el servidor no comprime
+// en cada pedido. Sin esa línea en nginx los `.gz` se ignoran y no rompen nada.
+const precomprimirPlugin = {
+  name: 'gt-precomprimir-gzip',
+  generateBundle(_opts: unknown, bundle: Record<string, { type: string; code?: string; source?: string | Uint8Array }>) {
+    for (const [fileName, item] of Object.entries(bundle)) {
+      if (!/\.(js|css|html|json|svg)$/.test(fileName)) continue;
+      const contenido = item.type === 'chunk' ? item.code : item.source;
+      if (contenido == null) continue;
+      const buf = typeof contenido === 'string' ? Buffer.from(contenido) : Buffer.from(contenido);
+      if (buf.length < 1024) continue;
+      // @ts-expect-error this.emitFile existe en el contexto de Rollup
+      this.emitFile({ type: 'asset', fileName: `${fileName}.gz`, source: gzipSync(buf, { level: zlib.Z_BEST_COMPRESSION }) });
+    }
+  },
+};
+
 export default defineConfig(({ command }) => ({
   // Servir desde la raíz del dominio (Droplet/Nginx). Si algún despliegue necesitara
   // un subpath, se pasa VITE_BASE_PATH (ej. '/proyecto/') al hacer el build.
@@ -51,7 +71,7 @@ export default defineConfig(({ command }) => ({
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
   },
-  plugins: [react(), versionJsonPlugin],
+  plugins: [react(), versionJsonPlugin, precomprimirPlugin],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
