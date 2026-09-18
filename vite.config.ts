@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { gzipSync, constants as zlib } from 'node:zlib';
 
 // Identificador de versión del build = COMMIT desplegado. Se hornea en el cliente
@@ -49,17 +49,28 @@ const versionJsonPlugin = {
 // máximo nivel. nginx con `gzip_static on` (deploy/nginx-rendimiento.conf) lo
 // entrega tal cual: el navegador baja ~3 veces menos y el servidor no comprime
 // en cada pedido. Sin esa línea en nginx los `.gz` se ignoran y no rompen nada.
+//
+// SE COMPRIME EN `writeBundle`, NUNCA EN `generateBundle`. Motivo (incidente del
+// 17/09/2026, el sistema entero en pantalla negra): Vite reemplaza el marcador
+// `__VITE_PRELOAD__` —la lista de dependencias de cada `import()` dinámico— en SU
+// PROPIO `generateBundle`, que corre DESPUÉS del de los plugins del usuario.
+// Comprimiendo ahí, el `.gz` se llevaba el marcador SIN reemplazar mientras el
+// `.js` de al lado quedaba correcto. Como nginx sirve el `.gz` a todo navegador
+// (todos mandan `Accept-Encoding: gzip`), al abrir cualquier módulo saltaba
+// «__VITE_PRELOAD__ is not defined»; sin ErrorBoundary, React desmontaba el árbol
+// y quedaba el fondo oscuro: pantalla negra. `writeBundle` corre al final, con el
+// build ya escrito en disco, así que comprime exactamente lo que se publica.
 const precomprimirPlugin = {
   name: 'gt-precomprimir-gzip',
-  generateBundle(_opts: unknown, bundle: Record<string, { type: string; code?: string; source?: string | Uint8Array }>) {
-    for (const [fileName, item] of Object.entries(bundle)) {
+  writeBundle(opts: { dir?: string }, bundle: Record<string, unknown>) {
+    const dir = opts.dir ?? 'dist';
+    for (const fileName of Object.keys(bundle)) {
       if (!/\.(js|css|html|json|svg)$/.test(fileName)) continue;
-      const contenido = item.type === 'chunk' ? item.code : item.source;
-      if (contenido == null) continue;
-      const buf = typeof contenido === 'string' ? Buffer.from(contenido) : Buffer.from(contenido);
+      const ruta = path.resolve(dir, fileName);
+      let buf: Buffer;
+      try { buf = readFileSync(ruta); } catch { continue; } // emitido pero no escrito: se omite
       if (buf.length < 1024) continue;
-      // @ts-expect-error this.emitFile existe en el contexto de Rollup
-      this.emitFile({ type: 'asset', fileName: `${fileName}.gz`, source: gzipSync(buf, { level: zlib.Z_BEST_COMPRESSION }) });
+      writeFileSync(`${ruta}.gz`, gzipSync(buf, { level: zlib.Z_BEST_COMPRESSION }));
     }
   },
 };
