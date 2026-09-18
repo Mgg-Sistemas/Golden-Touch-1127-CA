@@ -3,13 +3,16 @@
 // usuario AUTENTICADO en el dispositivo actual. Dos acciones:
 //   { action: 'options' }                       -> opciones de registro + challenge
 //   { action: 'verify', response, deviceLabel } -> verifica y guarda la credencial
+// Exige sesión con cuenta activa (exigirSesion) y verificación de usuario
+// (huella/PIN/rostro), no solo presencia. El challenge se consume de forma
+// atómica: un challenge, un único intento.
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
 } from 'https://esm.sh/@simplewebauthn/server@13';
 import { isoBase64URL } from 'https://esm.sh/@simplewebauthn/server@13/helpers';
+import { exigirSesion } from '../_shared/auth.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -41,23 +44,16 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  const url = Deno.env.get('SUPABASE_URL');
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!url || !serviceKey || !anonKey) return json({ error: 'Supabase env vars faltantes' }, 500);
-
   const rp = resolverRp(req);
   if (!rp) return json({ error: 'Origen no permitido' }, 403);
 
-  // Caller autenticado (su JWT).
-  const authHeader = req.headers.get('Authorization') ?? '';
-  const callerClient = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } });
-  const { data: caller } = await callerClient.auth.getUser();
-  if (!caller?.user) return json({ error: 'No autenticado' }, 401);
-  const userId = caller.user.id;
-  const email = caller.user.email ?? '';
-
-  const admin = createClient(url, serviceKey);
+  // Caller autenticado Y con cuenta activa: una cuenta dada de baja conserva su
+  // JWT hasta que vence y no debe poder enrolar una huella nueva en ese lapso.
+  const s = await exigirSesion(req);
+  if (s instanceof Response) return s;
+  const userId = s.userId;
+  const email = s.email ?? '';
+  const admin = s.admin;
 
   let payload: { action?: string; response?: unknown; deviceLabel?: string };
   try { payload = await req.json(); } catch { return json({ error: 'Body JSON inválido' }, 400); }
@@ -76,30 +72,41 @@ serve(async (req) => {
       attestationType: 'none',
       excludeCredentials: (existentes ?? []).map((c) => ({
         id: c.credential_id as string,
-        transports: (c.transports as string[] | null) ?? undefined,
+        // deno-lint-ignore no-explicit-any
+        transports: ((c.transports as string[] | null) ?? undefined) as any,
       })),
-      authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+      authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
     });
     // Guardar el challenge (borrando los previos de registro de este usuario).
-    await admin.from('webauthn_challenges').delete().eq('user_id', userId).eq('kind', 'register');
+    const { error: delErr } = await admin.from('webauthn_challenges').delete().eq('user_id', userId).eq('kind', 'register');
+    if (delErr) console.error('webauthn-register: limpiar challenges', delErr);
     const expira = new Date(Date.now() + CHALLENGE_TTL_MIN * 60_000).toISOString();
     const { error: insErr } = await admin.from('webauthn_challenges')
       .insert({ user_id: userId, challenge: opts.challenge, kind: 'register', expires_at: expira });
-    if (insErr) return json({ error: insErr.message }, 500);
+    if (insErr) {
+      console.error('webauthn-register: guardar challenge', insErr);
+      return json({ error: 'No se pudo iniciar el registro' }, 500);
+    }
     return json(opts);
   }
 
   if (payload.action === 'verify') {
     if (!payload.response) return json({ error: 'Falta la respuesta del autenticador' }, 400);
-    const { data: chal } = await admin
+
+    // Consumo atómico (DELETE … RETURNING): un challenge, un solo intento.
+    const { data: consumidos, error: chalErr } = await admin
       .from('webauthn_challenges')
-      .select('id, challenge, expires_at')
+      .delete()
       .eq('user_id', userId).eq('kind', 'register')
-      .order('created_at', { ascending: false })
-      .limit(1).maybeSingle();
+      .select('id, challenge, expires_at, created_at');
+    if (chalErr) {
+      console.error('webauthn-register: consumir challenge', chalErr);
+      return json({ error: 'No se pudo verificar la huella' }, 500);
+    }
+    const chal = (consumidos ?? [])
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
     if (!chal) return json({ error: 'No hay un registro en curso. Reintentá.' }, 400);
     if (new Date(chal.expires_at as string).getTime() < Date.now()) {
-      await admin.from('webauthn_challenges').delete().eq('id', chal.id);
       return json({ error: 'El registro expiró. Reintentá.' }, 400);
     }
 
@@ -111,10 +118,11 @@ serve(async (req) => {
         expectedChallenge: chal.challenge as string,
         expectedOrigin: rp.origin,
         expectedRPID: rp.rpID,
-        requireUserVerification: false,
+        requireUserVerification: true,
       });
     } catch (e) {
-      return json({ error: e instanceof Error ? e.message : 'No se pudo verificar' }, 400);
+      console.warn('webauthn-register: verificación rechazada', e instanceof Error ? e.message : e);
+      return json({ error: 'No se pudo verificar la huella. Reintentá.' }, 400);
     }
     if (!verification.verified || !verification.registrationInfo) {
       return json({ error: 'La huella no pudo verificarse' }, 400);
@@ -132,9 +140,9 @@ serve(async (req) => {
     });
     if (upErr) {
       if ((upErr as { code?: string }).code === '23505') return json({ error: 'Esta huella ya está registrada en este dispositivo.' }, 409);
-      return json({ error: upErr.message }, 500);
+      console.error('webauthn-register: guardar credencial', upErr);
+      return json({ error: 'No se pudo guardar la huella' }, 500);
     }
-    await admin.from('webauthn_challenges').delete().eq('id', chal.id);
     return json({ ok: true });
   }
 

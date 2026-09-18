@@ -140,6 +140,7 @@ export async function enviarResumenCajaPorCorreo(r: ResumenCajaAcopio, destinos:
   const base64 = (await construirResumenDoc(r)).output('datauristring').split(',')[1] ?? '';
   const { data, error } = await supabase.functions.invoke<{ ok: true; destinatarios: string[] } | { error: string }>('enviar-reporte', {
     body: {
+      modulo: 'acopio',
       pdf_base64: base64,
       nombre_archivo: `${NOMBRE}-${r.fechaActualizacion}.pdf`,
       asunto: `Resumen de Caja · Centro de Acopio ${r.centro}`,

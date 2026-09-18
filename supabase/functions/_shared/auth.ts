@@ -80,21 +80,73 @@ export async function exigirSesion(req: Request): Promise<Sesion | Response> {
   };
 }
 
-/** Igual que `exigirSesion`, pero además exige rol admin. */
+type FilaPermisos = {
+  role: string | null;
+  estado: string | null;
+  must_change_password: boolean | null;
+};
+
+/** Relee la fila del usuario (rol, estado y si debe cambiar la clave). */
+async function leerFila(s: Sesion): Promise<FilaPermisos | null> {
+  const { data, error } = await s.admin
+    .from('usuarios')
+    .select('role, estado, must_change_password')
+    .eq('id', s.userId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as FilaPermisos;
+}
+
+/** Réplica de `public.is_admin()`: role='admin', estado='activo' (estricto) y
+ *  sin cambio de clave pendiente. */
+function esAdminFila(f: FilaPermisos | null): boolean {
+  return Boolean(f && f.role === 'admin' && f.estado === 'activo' && !(f.must_change_password ?? false));
+}
+
+/**
+ * ¿La sesión es de un administrador "pleno"? Mismas reglas que `is_admin()` de
+ * Postgres: rol admin, cuenta activa y sin cambio de clave pendiente. Un admin
+ * que todavía tiene la clave temporal NO cuenta como admin.
+ */
+export async function esAdminPleno(s: Sesion): Promise<boolean> {
+  return esAdminFila(await leerFila(s));
+}
+
+/** Igual que `exigirSesion`, pero además exige admin pleno (ver `esAdminPleno`). */
 export async function exigirAdmin(req: Request): Promise<Sesion | Response> {
   const s = await exigirSesion(req);
   if (s instanceof Response) return s;
-  if (s.role !== 'admin') return json({ error: 'Solo un administrador puede hacer esto' }, 403);
+  const f = await leerFila(s);
+  if (!f || f.role !== 'admin') return json({ error: 'Solo un administrador puede hacer esto' }, 403);
+  if (f.must_change_password) {
+    return json({ error: 'Cambiá tu contraseña temporal antes de hacer esto' }, 403);
+  }
+  if (!esAdminFila(f)) return json({ error: 'Solo un administrador puede hacer esto' }, 403);
   return s;
 }
 
 /**
- * Permiso por módulo, leído de roles_permisos (misma fuente que la función
- * `puede()` de Postgres, para que el front, la base y las funciones digan lo mismo).
+ * Permiso de escritura por módulo. Réplica exacta de `public.puede(modulo)`:
+ *
+ *   is_admin()
+ *   or (estado activo —null cuenta como activo—, sin cambio de clave pendiente,
+ *       y roles_permisos[role][modulo].escritura o .full = true)
+ *
+ * Se relee la fila en vez de confiar en `s.role`, igual que hace Postgres con auth.uid().
  */
 export async function puede(s: Sesion, modulo: string): Promise<boolean> {
-  if (s.role === 'admin') return true;
-  const { data } = await s.admin.from('roles_permisos').select('permisos').eq('role', s.role).maybeSingle();
-  const m = (data?.permisos ?? {})[modulo];
-  return Boolean(m?.escritura || m?.full);
+  const f = await leerFila(s);
+  if (!f) return false;
+  if (esAdminFila(f)) return true;
+  if ((f.estado ?? 'activo') !== 'activo') return false;
+  if (f.must_change_password ?? false) return false;
+  if (!f.role) return false;
+  const { data, error } = await s.admin.from('roles_permisos').select('permisos').eq('role', f.role).maybeSingle();
+  if (error || !data) return false;
+  const m = ((data.permisos ?? {}) as Record<string, unknown>)[modulo] as
+    | { escritura?: unknown; full?: unknown }
+    | undefined;
+  // Postgres hace (x ->> 'escritura')::boolean: solo true (o 'true') cuenta.
+  const verdadero = (v: unknown) => v === true || v === 'true';
+  return Boolean(m && (verdadero(m.escritura) || verdadero(m.full)));
 }

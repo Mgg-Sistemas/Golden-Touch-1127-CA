@@ -86,7 +86,7 @@ export async function refrescarTasa(): Promise<TasaHoy> {
   const { data, error } = await supabase.functions.invoke<
     { ok: true; usd: number; eur: number | null; fecha: string } | { error: string }
   >('tasa-bcv', { body: { force: true } });
-  if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa');
+  if (error) throw new Error(await mensajeDeFuncion(error, 'No se pudo actualizar la tasa'));
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
   bustTasasCache();
   return { usd: data.usd, eur: data.eur ?? null, fecha: data.fecha };
@@ -187,7 +187,7 @@ export async function refrescarBinanceP2P(): Promise<Binance3> {
   const { data, error } = await supabase.functions.invoke<
     { ok: true; promedio: number; buy: number | null; sell: number | null; at: string } | { error: string }
   >('tasa-binance-p2p', { body: {} });
-  if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa Binance');
+  if (error) throw new Error(await mensajeDeFuncion(error, 'No se pudo actualizar la tasa Binance'));
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
   bustTasasCache();
   return { buy: data.buy ?? null, sell: data.sell ?? null, promedio: data.promedio ?? null, at: data.at };
@@ -214,7 +214,7 @@ export async function refrescarCop(): Promise<number> {
   const { data, error } = await supabase.functions.invoke<
     { ok: true; cop_usd: number } | { error: string }
   >('tasa-cop', { body: {} });
-  if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa COP');
+  if (error) throw new Error(await mensajeDeFuncion(error, 'No se pudo actualizar la tasa COP'));
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
   bustTasasCache();
   return data.cop_usd;
@@ -310,10 +310,33 @@ export async function getCripto(): Promise<CriptoTasa[]> {
   return out;
 }
 
-/** Fuerza la actualización de metales (Edge Function tasa-metales). */
+/** Mensaje legible de un error de Edge Function: si la función respondió con
+ *  un JSON { error } o { motivo } (status no-2xx), se usa ese texto. */
+async function mensajeDeFuncion(error: unknown, porDefecto: string): Promise<string> {
+  let msg = (error as { message?: string } | null)?.message || porDefecto;
+  try {
+    const ctx = (error as { context?: { json?: () => Promise<{ error?: string; motivo?: string }> } } | null)?.context;
+    if (ctx?.json) {
+      const j = await ctx.json();
+      if (j?.error) msg = j.error;
+      else if (j?.motivo) msg = j.motivo;
+    }
+  } catch { /* sin cuerpo JSON */ }
+  return msg;
+}
+
+/** Fuerza la actualización de metales (Edge Function tasa-metales).
+ *  Lanza con el motivo real (key no configurada o rechazada, límite del plan,
+ *  la API no devolvió precios…) para que la vista lo muestre. */
 export async function refrescarMetales(): Promise<void> {
-  const { error } = await supabase.functions.invoke('tasa-metales', { body: {} });
-  if (error) throw new Error(error.message ?? 'No se pudo actualizar metales');
+  const { data, error } = await supabase.functions.invoke<
+    { ok: true; precios: Record<string, number>; faltantes?: string[] } | { ok: false; motivo?: string; error?: string }
+  >('tasa-metales', { body: {} });
+  if (error) throw new Error(await mensajeDeFuncion(error, 'No se pudo actualizar metales'));
+  if (!data || data.ok !== true) {
+    const d = data as { motivo?: string; error?: string } | null;
+    throw new Error(d?.motivo || d?.error || 'No se pudo actualizar metales');
+  }
 }
 
 /* ───────────── Metales (requiere fuente con API key vía Edge Function tasa-metales) ───────────── */

@@ -120,7 +120,7 @@ export async function descargarMovAcopioExcel(rows: MovAcopioRow[]): Promise<voi
 export async function enviarMovAcopioPorCorreo(rows: MovAcopioRow[], destinos: string[], meta: MovAcopioMeta = {}): Promise<{ destinatarios: string[] }> {
   const base64 = (await construirDoc(rows, meta)).output('datauristring').split(',')[1] ?? '';
   const { data, error } = await supabase.functions.invoke<{ ok: true; destinatarios: string[] } | { error: string }>('enviar-reporte', {
-    body: { pdf_base64: base64, nombre_archivo: `${NOMBRE}.pdf`, asunto: `Movimientos del Centro de Acopio${meta.filtro ? ` · ${meta.filtro}` : ''}`, mensaje: `Movimientos del centro de acopio (${rows.length} movimiento(s)).`, to_emails: destinos },
+    body: { modulo: 'acopio', pdf_base64: base64, nombre_archivo: `${NOMBRE}.pdf`, asunto: `Movimientos del Centro de Acopio${meta.filtro ? ` · ${meta.filtro}` : ''}`, mensaje: `Movimientos del centro de acopio (${rows.length} movimiento(s)).`, to_emails: destinos },
   });
   if (error) throw new Error(error.message ?? 'No se pudo enviar el correo');
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');

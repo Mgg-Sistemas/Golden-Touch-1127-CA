@@ -326,6 +326,7 @@ export async function enviarResumenInventarioCorreo(emails: string[], r: Resumen
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
     body: {
+      modulo: 'inventario',
       pdf_base64: base64,
       nombre_archivo: `resumen-inventario-${new Date().toISOString().slice(0, 10)}.pdf`,
       asunto: 'Resumen de inventario',

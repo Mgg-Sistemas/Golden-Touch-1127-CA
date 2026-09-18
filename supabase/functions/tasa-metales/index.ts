@@ -3,27 +3,27 @@
 // los guarda en `tasa_snapshot` (par METAL_*). Los precios vienen ya en USD por
 // la unidad indicada en metadata (TIN/ZINC/níquel/aluminio/plomo = tonelada,
 // cobre = libra, oro/plata = onza), sin inversión. Pensada para el cron 2×/día.
-// Sin key configurada devuelve ok:false (no rompe el cron).
 //
 // commoditypriceapi: GET /v2/rates/latest?apiKey=KEY&symbols=TIN,HG-SPOT
 //   → { success, rates:{ TIN:57408, ... }, metadata:{ TIN:{unit,quote} } }
 // El plan "lite" limita los símbolos por request → se piden en lotes de 2.
 //
-// Respuesta: { ok, precios?, at } | { ok:false, motivo }
+// Respuestas:
+//   200 { ok:true, precios, at, cached, faltantes? }
+//   200 { ok:false, motivo }   ← SOLO "sin API key": es a propósito, no rompe el cron
+//   502 { ok:false, error }    ← la API rechazó la key / límite / sin precios
+//   500 { ok:false, error }    ← no se pudo guardar
+// Throttle: un metal con snapshot de hace < 10 min no se vuelve a pedir ni a
+// guardar (salvo force de un admin); si todos están frescos no se llama a la API.
+//
 // Env: SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY
 //      METALES_API_KEY · METALES_API_URL (opcional)
+//      TASAS_CRON_SECRET · TASAS_EXIGIR_AUTH (ver _shared/tasas.ts)
 
-import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
-}
-function round2(n: number): number { return Math.round(n * 100) / 100; }
+import {
+  CORS, json, identificarLlamador, forceDeAdmin, fetchT, leerPayload,
+  ultimosSnapshots, esReciente, round2, positivo,
+} from '../_shared/tasas.ts';
 
 // PAR interno → símbolo en commoditypriceapi (el precio ya viene en USD por su unidad)
 const MAPA: Array<{ par: string; sym: string }> = [
@@ -47,41 +47,88 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase env vars faltantes' }, 500);
+  const llamador = await identificarLlamador(req);
+  if (llamador instanceof Response) return llamador;
+  const supabase = llamador.db;
 
   const apiKey = Deno.env.get('METALES_API_KEY');
   if (!apiKey) return json({ ok: false, motivo: 'METALES_API_KEY no configurada' });
 
-  const supabase = createClient(supabaseUrl, serviceKey);
+  const payload = await leerPayload<{ force?: boolean }>(req);
+  const forzar = forceDeAdmin(llamador, payload);
+
+  // Throttle por par.
+  let previos;
+  try {
+    previos = await ultimosSnapshots(supabase, MAPA.map((m) => m.par));
+  } catch (e) {
+    console.error('tasa-metales: leer snapshots', e);
+    return json({ ok: false, error: 'No se pudieron leer los últimos precios' }, 500);
+  }
+  const pendientes = forzar ? MAPA : MAPA.filter((m) => !esReciente(previos.get(m.par)));
+  if (!pendientes.length) {
+    const precios: Record<string, number> = {};
+    let at = '';
+    for (const m of MAPA) {
+      const s = previos.get(m.par);
+      if (s) { precios[m.par] = s.tasa; if (s.at > at) at = s.at; }
+    }
+    return json({ ok: true, precios, at, cached: true });
+  }
+
   const base = Deno.env.get('METALES_API_URL') ?? 'https://api.commoditypriceapi.com/v2/rates/latest';
 
   // Lotes de 2 símbolos (límite del plan lite). 8 metales → 4 requests.
   const rates: Record<string, number> = {};
-  for (const grupo of chunk(MAPA, 2)) {
+  const fallas: string[] = [];
+  let keyRechazada = false;
+  let limite = false;
+  for (const grupo of chunk(pendientes, 2)) {
     const symbols = grupo.map((g) => g.sym).join(',');
     try {
-      const resp = await fetch(`${base}?apiKey=${apiKey}&symbols=${encodeURIComponent(symbols)}`, { headers: { accept: 'application/json' } });
-      if (!resp.ok) continue;
-      const data = await resp.json() as { rates?: Record<string, number> };
-      Object.assign(rates, data.rates ?? {});
-    } catch { /* seguimos con los demás lotes */ }
+      const resp = await fetchT(
+        `${base}?apiKey=${encodeURIComponent(apiKey)}&symbols=${encodeURIComponent(symbols)}`,
+        { headers: { accept: 'application/json' } },
+      );
+      if (resp.status === 401 || resp.status === 403) keyRechazada = true;
+      if (resp.status === 429) limite = true;
+      if (!resp.ok) { fallas.push(`${symbols}: HTTP ${resp.status}`); continue; }
+      const data = await resp.json() as { success?: boolean; rates?: Record<string, number> };
+      if (data?.success === false) { fallas.push(`${symbols}: success=false`); continue; }
+      Object.assign(rates, data?.rates ?? {});
+    } catch (e) {
+      fallas.push(`${symbols}: ${e instanceof Error ? e.name : 'error'}`);
+    }
   }
+  if (fallas.length) console.warn('tasa-metales: lotes con falla', fallas);
 
   const nowIso = new Date().toISOString();
   const snaps: Array<{ par: string; tasa: number; fuente: string; at: string }> = [];
   const out: Record<string, number> = {};
-  for (const d of MAPA) {
-    const v = Number(rates[d.sym]);
-    if (Number.isFinite(v) && v > 0) {
+  const faltantes: string[] = [];
+  for (const d of pendientes) {
+    const v = positivo(rates[d.sym]);
+    if (v != null) {
       const r = round2(v);
       snaps.push({ par: d.par, tasa: r, fuente: 'commoditypriceapi', at: nowIso });
       out[d.par] = r;
+    } else {
+      faltantes.push(d.par);
     }
   }
-  if (!snaps.length) return json({ ok: false, motivo: 'La API no devolvió precios (revisá la key o el límite del plan)' });
-  await supabase.from('tasa_snapshot').insert(snaps);
+  if (!snaps.length) {
+    const error = keyRechazada
+      ? 'La API de metales rechazó la key (revisá METALES_API_KEY)'
+      : limite
+        ? 'La API de metales llegó al límite del plan; probá más tarde'
+        : 'La API de metales no devolvió precios';
+    return json({ ok: false, error }, 502);
+  }
+  const { error: insErr } = await supabase.from('tasa_snapshot').insert(snaps);
+  if (insErr) {
+    console.error('tasa-metales: guardar snapshots', insErr);
+    return json({ ok: false, error: 'No se pudieron guardar los precios de metales' }, 500);
+  }
 
-  return json({ ok: true, precios: out, at: nowIso });
+  return json({ ok: true, precios: out, at: nowIso, cached: false, ...(faltantes.length ? { faltantes } : {}) });
 });

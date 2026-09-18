@@ -1,102 +1,114 @@
-// MGG · Edge Function: enviar-reporte (Brevo Transactional Email API)
-// Envía un PDF genérico (reporte de movimientos / caja) por correo. Reusa el
-// mismo mecanismo que enviar-trazabilidad pero sin atarse a una orden.
+// Golden Touch · Edge Function: enviar-reporte (Brevo)
+// Envía un PDF genérico (reportes de Tesorería, Acopio, Cocina, Combustible,
+// Inventario, Maquinaria, Producción, Salidas) o el respaldo .sql.txt.
 //
-// Recibe { pdf_base64, nombre_archivo?, asunto?, mensaje?, to_email? }.
-// Si no se pasa `to_email`, envía a todos los usuarios admin/jefe.
+// Recibe { modulo, pdf_base64, nombre_archivo?, asunto?, mensaje?, to_email?, to_emails? }.
+//   · `modulo` dice de qué pantalla sale el reporte; el servidor exige puede(modulo)
+//     y que esté en la lista blanca MODULOS_REPORTE.
+//   · Sin destinatarios → admin/jefe activos (máx. 10).
+//   · El adjunto `.sql.txt` (respaldo) solo lo pueden mandar admin/analista.
 //
-// Secrets: BREVO_API_KEY · BREVO_FROM_EMAIL · BREVO_FROM_NAME
+// TRANSICIÓN (18/09/2026): mientras el front nuevo no esté publicado, si falta
+// `modulo` se acepta el envío solo si el usuario tiene puede() en al menos uno
+// de los módulos de la lista blanca. Cuando todo el front mande `modulo`, quitar
+// ese camino y rechazar la falta de `modulo` con 400.
+//
+// Toda la validación del correo vive en ../_shared/brevo.ts.
 
-import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
+import { CORS, exigirSesion, json, puede } from '../_shared/auth.ts';
+import {
+  destinatariosPorDefecto, enviarCorreo, ErrorCorreo, escapeHtml, leerJson, plantillaHtml,
+  respuestaDeError, validarDestinatarios,
+} from '../_shared/brevo.ts';
 
-import { exigirSesion } from '../_shared/auth.ts';
+const FUNCION = 'enviar-reporte';
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+/** Módulos desde los que el front manda reportes por esta función. */
+const MODULOS_REPORTE = [
+  'acopio', 'ajustes', 'cocina', 'combustible', 'inventario', 'maquinaria', 'produccion', 'salidas', 'tesoreria',
+] as const;
+type ModuloReporte = typeof MODULOS_REPORTE[number];
+
+const ETIQUETA: Record<ModuloReporte, string> = {
+  acopio: 'Centro de Costo PERAMANAL',
+  ajustes: 'Respaldo de datos',
+  cocina: 'Control de Alimentación (Cocina)',
+  combustible: 'Combustible',
+  inventario: 'Inventario',
+  maquinaria: 'Control de Maquinaria y Vehículos',
+  produccion: 'Producción',
+  salidas: 'Salidas / Traslados',
+  tesoreria: 'Tesorería',
 };
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
-}
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
+
+type Payload = {
+  modulo?: string;
+  pdf_base64?: string;
+  nombre_archivo?: string;
+  asunto?: string;
+  mensaje?: string;
+  to_email?: string;
+  to_emails?: string[];
+};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  // GT-EXT-03 · Sesión obligatoria. Sin esto la función es un relay de correo
-  // abierto: manda cualquier PDF a cualquier destinatario desde el dominio
-  // verificado de la empresa, con SPF y DKIM válidos.
   const sesion = await exigirSesion(req);
   if (sesion instanceof Response) return sesion;
 
-  let payload: { pdf_base64?: string; nombre_archivo?: string; asunto?: string; mensaje?: string; to_email?: string; to_emails?: string[] };
-  try { payload = await req.json(); } catch { return json({ error: 'Body JSON inválido' }, 400); }
-
-  const { pdf_base64, nombre_archivo, asunto, mensaje, to_email, to_emails } = payload;
-  if (!pdf_base64) return json({ error: 'pdf_base64 es requerido' }, 400);
-
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase env vars faltantes' }, 500);
-
-  const brevoKey = Deno.env.get('BREVO_API_KEY');
-  const fromEmail = Deno.env.get('BREVO_FROM_EMAIL');
-  const fromName = Deno.env.get('BREVO_FROM_NAME') ?? 'MGG Inventario';
-  if (!brevoKey || !fromEmail) return json({ error: 'Faltan secrets Brevo (BREVO_API_KEY y/o BREVO_FROM_EMAIL)' }, 500);
-
-  const supabase = createClient(supabaseUrl, serviceKey);
-
-  const rx = /\S+@\S+\.\S+/;
-  const lista = Array.isArray(to_emails) ? to_emails.filter((e) => typeof e === 'string' && rx.test(e)) : [];
-  let destinatarios: string[];
-  if (lista.length) {
-    destinatarios = [...new Set(lista.map((e) => e.trim().toLowerCase()))];
-  } else if (to_email && rx.test(to_email)) {
-    destinatarios = [to_email];
-  } else {
-    const { data: admins } = await supabase.from('usuarios').select('email').in('role', ['admin', 'jefe']);
-    destinatarios = (admins ?? []).map((a: { email: string }) => a.email).filter((e: string) => !!e && rx.test(e));
-  }
-  if (!destinatarios.length) return json({ error: 'No hay destinatarios (configurá un admin/jefe o pasá to_email).' }, 400);
-
-  const titulo = asunto || 'Reporte de Tesorería';
-  const html = `
-    <div style="font-family:Arial,sans-serif;max-width:600px;color:#1a1a1a">
-      <h2 style="border-bottom:3px solid #ff8a00;padding-bottom:8px;margin-top:0">${escapeHtml(titulo)}</h2>
-      <p>Hola,</p>
-      <p>Adjunto el reporte solicitado desde Tesorería.${mensaje ? ` ${escapeHtml(mensaje)}` : ''}</p>
-      <p style="color:#888;font-size:12px;margin-top:32px;border-top:1px solid #ddd;padding-top:12px">
-        Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios · Generado automáticamente
-      </p>
-    </div>`;
-
-  const body = {
-    sender: { email: fromEmail, name: fromName },
-    to: destinatarios.map((email) => ({ email })),
-    subject: titulo,
-    htmlContent: html,
-    attachment: [{ name: nombre_archivo || 'reporte.pdf', content: pdf_base64 }],
-  };
-
-  let resp: Response;
   try {
-    resp = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: { 'api-key': brevoKey, 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify(body),
+    const p = await leerJson<Payload>(req);
+
+    // ── Permiso por módulo ────────────────────────────────────────────────
+    let modulo: ModuloReporte | null = null;
+    if (p.modulo !== undefined && p.modulo !== null && p.modulo !== '') {
+      if (!(MODULOS_REPORTE as readonly string[]).includes(p.modulo)) throw new ErrorCorreo('Módulo inválido');
+      modulo = p.modulo as ModuloReporte;
+      if (!(await puede(sesion, modulo))) throw new ErrorCorreo('No tenés permiso para enviar reportes de este módulo', 403);
+    } else {
+      // Transición: front viejo sin `modulo`.
+      let alguno = false;
+      for (const m of MODULOS_REPORTE) {
+        if (await puede(sesion, m)) { alguno = true; break; }
+      }
+      if (!alguno) throw new ErrorCorreo('No tenés permiso para enviar reportes', 403);
+    }
+
+    if (!p.pdf_base64) throw new ErrorCorreo('El adjunto es requerido');
+
+    // El respaldo (.sql.txt) es el único adjunto de texto: solo admin/analista,
+    // y (cuando el front ya manda `modulo`) solo desde Ajustes.
+    const permitirTexto = (sesion.role === 'admin' || sesion.role === 'analista') && (modulo === null || modulo === 'ajustes');
+
+    // ── Destinatarios ─────────────────────────────────────────────────────
+    let destinatarios = validarDestinatarios(p.to_emails);
+    if (!destinatarios.length) destinatarios = validarDestinatarios(p.to_email);
+    if (!destinatarios.length) destinatarios = await destinatariosPorDefecto(sesion);
+    if (!destinatarios.length) throw new ErrorCorreo('No hay destinatarios: indicá un correo.');
+
+    const titulo = String(p.asunto ?? '').trim().slice(0, 140) || 'Reporte';
+    const mensaje = String(p.mensaje ?? '').trim().slice(0, 500);
+    const origen = modulo ? ETIQUETA[modulo] : 'el sistema';
+    const html = plantillaHtml(
+      titulo,
+      `<p>Hola,</p>
+      <p>Adjunto el reporte solicitado desde ${escapeHtml(origen)}.${mensaje ? ` ${escapeHtml(mensaje)}` : ''}</p>
+      <p style="font-size:12px;color:#666">Enviado por ${escapeHtml(sesion.email ?? 'un usuario del sistema')}.</p>`,
+    );
+
+    const r = await enviarCorreo({
+      sesion,
+      funcion: FUNCION,
+      to: destinatarios,
+      subject: titulo,
+      html,
+      adjunto: { nombre: p.nombre_archivo || 'reporte.pdf', base64: p.pdf_base64 },
+      permitirTexto,
     });
+    return json({ ok: true, destinatarios: r.destinatarios, id: r.id });
   } catch (e) {
-    return json({ error: 'No se pudo contactar a Brevo', detail: String(e) }, 502);
+    return respuestaDeError(FUNCION, e);
   }
-
-  const respText = await resp.text();
-  let respJson: { messageId?: string; message?: string; code?: string } | null = null;
-  try { respJson = respText ? JSON.parse(respText) : null; } catch { /* texto plano */ }
-  if (!resp.ok) return json({ error: respJson?.message ?? respText ?? `HTTP ${resp.status}`, status: resp.status }, 502);
-
-  return json({ ok: true, destinatarios, id: respJson?.messageId ?? null });
 });

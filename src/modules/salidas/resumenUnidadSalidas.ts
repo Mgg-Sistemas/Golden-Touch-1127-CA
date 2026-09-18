@@ -239,6 +239,7 @@ export async function enviarResumenUnidadCorreo(
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
     body: {
+      modulo: 'salidas',
       pdf_base64: base64,
       nombre_archivo: `gasto-material-${new Date().toISOString().slice(0, 10)}.pdf`,
       asunto: 'Gasto de material (salidas y traslados)',

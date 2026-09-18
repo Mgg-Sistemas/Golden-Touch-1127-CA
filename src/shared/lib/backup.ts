@@ -29,7 +29,7 @@ function ahoraVE(): string {
 function encabezadoRespaldo(actorEmail: string, automatico: boolean): string {
   return [
     '-- ============================================================',
-    '-- MGG · Respaldo de base de datos',
+    '-- GOLDEN TOUCH 1127 C.A. · Respaldo de base de datos',
     `-- Tipo:          ${automatico ? 'AUTOMÁTICO (cada 30 días)' : 'MANUAL'}`,
     `-- Generado por:  ${actorEmail || 'sistema'}`,
     `-- Fecha y hora:  ${ahoraVE()} (America/Caracas)`,
@@ -77,7 +77,7 @@ function descargarTexto(texto: string, nombre: string): void {
 export async function descargarRespaldoSql(actorEmail: string, automatico = false): Promise<void> {
   const sql = encabezadoRespaldo(actorEmail, automatico) + await generarRespaldoSql();
   const fecha = new Date().toISOString().slice(0, 10);
-  descargarTexto(sql, `mgg-respaldo${automatico ? '-auto' : ''}-${fecha}.sql`);
+  descargarTexto(sql, `gt-respaldo${automatico ? '-auto' : ''}-${fecha}.sql`);
   await registrarUltimoRespaldo(actorEmail, automatico);
 }
 
@@ -100,11 +100,12 @@ export async function enviarRespaldoPorCorreo(
   const fecha = new Date().toISOString().slice(0, 10);
   // Brevo no admite adjuntos `.sql`; se envía como `.sql.txt` (mismo contenido,
   // extensión aceptada). La descarga manual sí mantiene `.sql`.
-  const nombre = `mgg-respaldo${automatico ? '-auto' : ''}-${fecha}.sql.txt`;
+  const nombre = `gt-respaldo${automatico ? '-auto' : ''}-${fecha}.sql.txt`;
   const { data, error } = await supabase.functions.invoke<
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
     body: {
+      modulo: 'ajustes',
       pdf_base64: toBase64Utf8(sql),
       nombre_archivo: nombre,
       asunto: `Respaldo de base de datos · GOLDEN TOUCH 1127 C.A. · ${fecha}`,

@@ -10,6 +10,7 @@ export async function enviarConciliacionesPorCorreo(
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
     body: {
+      modulo: 'combustible',
       pdf_base64: base64,
       nombre_archivo: nombre,
       asunto: `Combustible · Conciliaciones${meta.filtro ? ` · ${meta.filtro}` : ''}`,

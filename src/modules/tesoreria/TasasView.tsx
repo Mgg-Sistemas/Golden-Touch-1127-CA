@@ -80,16 +80,21 @@ export function TasasView() {
     setBusy(true);
     try {
       // Refresco en vivo de todo: BCV, Binance, TRM, cripto (CoinGecko) y metales.
+      let errorMetales: string | null = null;
       const [, , , criptoLive] = await Promise.all([
         refrescarTasa().catch(() => null),
         refrescarBinanceP2P().catch(() => null),
         refrescarCop().catch(() => null),
         getCripto().catch(() => null),
-        refrescarMetales().catch(() => null),
+        refrescarMetales().catch((e: unknown) => {
+          errorMetales = e instanceof Error ? e.message : 'No se pudieron actualizar los metales';
+          return null;
+        }),
       ]);
       await cargar();
       if (criptoLive && criptoLive.some((x) => x.usd != null)) setCripto(criptoLive);
       toast('Tasas actualizadas', 'success');
+      if (errorMetales) toast(`Metales: ${errorMetales}`, 'error');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron actualizar las tasas', 'error');
     } finally { setBusy(false); }

@@ -24,6 +24,7 @@ export async function enviarReportePorCorreo(
     { ok: true; destinatarios: string[] } | { error: string }
   >(FUNCTION_SLUG, {
     body: {
+      modulo: 'tesoreria',
       pdf_base64: base64,
       nombre_archivo: nombre,
       asunto: meta.titulo + (meta.subtitulo ? ` · ${meta.subtitulo}` : ''),
@@ -53,6 +54,7 @@ export async function enviarCuentaPorPagarPorCorreo(
     { ok: true; destinatarios: string[] } | { error: string }
   >(FUNCTION_SLUG, {
     body: {
+      modulo: 'tesoreria',
       pdf_base64: base64,
       nombre_archivo: nombre,
       asunto: `Cuenta por pagar · ${tipoLabel}: ${cuenta.contraparte}`,
@@ -81,6 +83,7 @@ export async function enviarMovimientoDetallePorCorreo(
     { ok: true; destinatarios: string[] } | { error: string }
   >(FUNCTION_SLUG, {
     body: {
+      modulo: 'tesoreria',
       pdf_base64: base64,
       nombre_archivo: nombre,
       asunto: `Detalle de movimiento · ${ref}`,

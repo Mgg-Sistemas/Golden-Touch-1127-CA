@@ -11,6 +11,7 @@ export async function enviarMovimientosTanquePorCorreo(
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
     body: {
+      modulo: 'combustible',
       pdf_base64: base64,
       nombre_archivo: nombre,
       asunto: `Combustible · ${tanque.nombre}${meta.filtro ? ` · ${meta.filtro}` : ''}`,

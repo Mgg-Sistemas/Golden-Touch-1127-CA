@@ -19,6 +19,7 @@ export async function enviarCierreCocinaPorCorreo(
     { ok: true; destinatarios: string[] } | { error: string }
   >(FUNCTION_SLUG, {
     body: {
+      modulo: 'cocina',
       pdf_base64: base64,
       nombre_archivo: nombre,
       asunto: esDescartado(m) ? `Mercado descartado · Cocina · ${m.numero ?? ''}` : `Cierre de mercado · Cocina · ${m.numero ?? ''}`,

@@ -4,66 +4,60 @@
 // si ya existe la del día y no se fuerza, la devuelve sin volver a consultar.
 //
 // Body opcional: { force?: boolean }
+//   · force de un admin pleno: consulta siempre.
+//   · force de cualquier otro: solo consulta si lo guardado tiene ≥ 10 min
+//     (throttle en servidor); si no, devuelve lo guardado.
 // Respuesta: { ok: true, usd: number, eur: number|null, fecha: 'YYYY-MM-DD', cached: boolean }
+//
+// Quién puede llamarla: ver _shared/tasas.ts (usuario activo, cron de servicio
+// o —en transición— la anon con throttle).
 //
 // Env:
 //   SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY (estándar)
-//   BCV_API_URL (opcional; default pydolarve BCV)
+//   BCV_API_URL (opcional; un endpoint con ambas) · BCV_USD_URL · BCV_EUR_URL
+//   TASAS_CRON_SECRET · TASAS_EXIGIR_AUTH (ver _shared/tasas.ts)
 
-import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
+import {
+  CORS, json, identificarLlamador, forceDeAdmin, fetchT, leerPayload,
+  esReciente, fechaHoyVE, round2, positivo,
+} from '../_shared/tasas.ts';
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
-}
-
-/** Fecha de hoy (YYYY-MM-DD) en horario de Venezuela. */
-function fechaHoyVE(): string {
-  // en-CA da formato YYYY-MM-DD directamente.
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
-}
-
-function round2(n: number): number { return Math.round(n * 100) / 100; }
-
-/** Extrae un precio numérico de varias formas posibles del payload. */
+/** Extrae un precio numérico (> 0 y finito) de varias formas posibles del payload. */
 function precio(monitor: unknown): number | null {
   if (monitor == null) return null;
-  if (typeof monitor === 'number') return Number.isFinite(monitor) ? monitor : null;
   if (typeof monitor === 'object') {
     const m = monitor as Record<string, unknown>;
-    const cand = m.price ?? m.promedio ?? m.value ?? m.tasa;
-    const n = Number(cand);
-    return Number.isFinite(n) && n > 0 ? n : null;
+    return positivo(m.price ?? m.promedio ?? m.value ?? m.tasa);
   }
-  const n = Number(monitor);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return positivo(monitor);
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  let payload: { force?: boolean } = {};
-  try { payload = req.body ? await req.json() : {}; } catch { payload = {}; }
+  const llamador = await identificarLlamador(req);
+  if (llamador instanceof Response) return llamador;
+  const supabase = llamador.db;
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase env vars faltantes' }, 500);
-  const supabase = createClient(supabaseUrl, serviceKey);
+  const payload = await leerPayload<{ force?: boolean }>(req);
+  const forzarAdmin = forceDeAdmin(llamador, payload);
+  const pideForce = payload.force === true;
 
   const fecha = fechaHoyVE();
 
-  // 1) Cache: si ya tenemos la del día y no se fuerza, devolvemos lo guardado.
-  if (!payload.force) {
-    const { data: cfg } = await supabase.from('config').select('value').eq('key', 'tesoreria.tasa_hoy').maybeSingle();
+  // 1) Cache: la del día (sin force) o lo guardado hace < 10 min (force de no-admin).
+  if (!forzarAdmin) {
+    const { data: cfg, error: cfgErr } = await supabase
+      .from('config').select('value, updated_at').eq('key', 'tesoreria.tasa_hoy').maybeSingle();
+    if (cfgErr) console.error('tasa-bcv: leer config', cfgErr);
     const v = cfg?.value as { usd?: number; eur?: number; fecha?: string } | undefined;
-    if (v && v.fecha === fecha && typeof v.usd === 'number') {
-      return json({ ok: true, usd: v.usd, eur: v.eur ?? null, fecha, cached: true });
+    if (v && typeof v.usd === 'number') {
+      const delDia = v.fecha === fecha;
+      const reciente = esReciente(cfg?.updated_at ? { at: String(cfg.updated_at) } : null);
+      if ((!pideForce && delDia) || reciente) {
+        return json({ ok: true, usd: v.usd, eur: v.eur ?? null, fecha: v.fecha ?? fecha, cached: true });
+      }
     }
   }
 
@@ -77,27 +71,29 @@ Deno.serve(async (req) => {
   let eur: number | null = null;
   try {
     if (singleUrl) {
-      const resp = await fetch(singleUrl, { headers: { accept: 'application/json' } });
+      const resp = await fetchT(singleUrl, { headers: { accept: 'application/json' } });
       if (!resp.ok) return json({ error: `API BCV respondió HTTP ${resp.status}` }, 502);
       const data = await resp.json() as Record<string, unknown>;
-      const monitors = (data.monitors ?? data) as Record<string, unknown>;
-      usd = precio(monitors.usd) ?? precio(data.usd);
-      eur = precio(monitors.eur) ?? precio(data.eur);
+      const monitors = ((data?.monitors ?? data) ?? {}) as Record<string, unknown>;
+      usd = precio(monitors.usd) ?? precio(data?.usd);
+      eur = precio(monitors.eur) ?? precio(data?.eur);
     } else {
       const [ru, re] = await Promise.all([
-        fetch(usdUrl, { headers: { accept: 'application/json' } }),
-        fetch(eurUrl, { headers: { accept: 'application/json' } }).catch(() => null),
+        fetchT(usdUrl, { headers: { accept: 'application/json' } }),
+        fetchT(eurUrl, { headers: { accept: 'application/json' } }).catch(() => null),
       ]);
       if (!ru.ok) return json({ error: `API BCV (USD) respondió HTTP ${ru.status}` }, 502);
       usd = precio(await ru.json());
-      if (re && re.ok) eur = precio(await re.json());
+      if (re && re.ok) eur = precio(await re.json().catch(() => null));
     }
   } catch (e) {
-    return json({ error: 'No se pudo contactar la API del BCV', detail: String(e) }, 502);
+    console.error('tasa-bcv: consultar API', e);
+    return json({ error: 'No se pudo contactar la API del BCV' }, 502);
   }
-  if (usd == null) return json({ error: 'La API no devolvió la tasa USD del BCV' }, 502);
-  usd = round2(usd);
-  eur = eur != null ? round2(eur) : null;
+  // Validación final en TODAS las rutas: finito y > 0.
+  if (positivo(usd) == null) return json({ error: 'La API no devolvió la tasa USD del BCV' }, 502);
+  usd = round2(usd as number);
+  eur = positivo(eur) != null ? round2(eur as number) : null;
 
   // 3) Guardar en historial (upsert por fecha+moneda+fuente).
   const filas: Array<{ fecha: string; moneda: string; tasa: number; fuente: string }> = [
@@ -105,13 +101,20 @@ Deno.serve(async (req) => {
   ];
   if (eur != null) filas.push({ fecha, moneda: 'EUR', tasa: eur, fuente: 'bcv' });
   const { error: upErr } = await supabase.from('tasa_cambio').upsert(filas, { onConflict: 'fecha,moneda,fuente' });
-  if (upErr) return json({ error: 'No se pudo guardar el historial', detail: upErr.message }, 500);
+  if (upErr) {
+    console.error('tasa-bcv: guardar historial', upErr);
+    return json({ error: 'No se pudo guardar el historial' }, 500);
+  }
 
   // 4) Snapshot del día en config.
-  await supabase.from('config').upsert(
+  const { error: cfgUpErr } = await supabase.from('config').upsert(
     { key: 'tesoreria.tasa_hoy', value: { usd, eur, fecha }, updated_at: new Date().toISOString() },
     { onConflict: 'key' },
   );
+  if (cfgUpErr) {
+    console.error('tasa-bcv: guardar snapshot del día', cfgUpErr);
+    return json({ error: 'No se pudo guardar la tasa del día' }, 500);
+  }
 
   return json({ ok: true, usd, eur, fecha, cached: false });
 });

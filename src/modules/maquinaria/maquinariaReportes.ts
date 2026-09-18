@@ -52,6 +52,7 @@ export async function enviarEquiposPorCorreo(rows: MaquinariaEquipo[], destinos:
   const base64 = (await construirEquiposDoc(rows)).output('datauristring').split(',')[1] ?? '';
   const { data, error } = await supabase.functions.invoke<{ ok: true; destinatarios: string[] } | { error: string }>('enviar-reporte', {
     body: {
+      modulo: 'maquinaria',
       pdf_base64: base64,
       nombre_archivo: `${NOMBRE}-${new Date().toISOString().slice(0, 10)}.pdf`,
       asunto: 'Control de Maquinaria y Vehículos · Equipos',

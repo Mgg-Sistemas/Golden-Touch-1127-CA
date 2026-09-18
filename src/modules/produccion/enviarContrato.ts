@@ -11,6 +11,7 @@ export async function enviarContratosPorCorreo(
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
     body: {
+      modulo: 'produccion',
       pdf_base64: base64,
       nombre_archivo: nombre,
       asunto: `Datos de Reporte Producción${meta.filtro ? ` · ${meta.filtro}` : ''}`,
