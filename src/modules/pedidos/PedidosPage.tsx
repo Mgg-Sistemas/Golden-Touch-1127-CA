@@ -71,6 +71,7 @@ import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, updateProducto, getUnidades, nextSku, buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
 import { ProductoParecidoModal } from '@/modules/inventario/ProductoParecidoModal';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
+import { CategoriaProductoSelect, asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { OfertasComparativa } from './OfertasComparativa';
@@ -3368,7 +3369,6 @@ function CrearOrdenModal({
   // Ref al input de nombre: tras crear, lo limpiamos y re-enfocamos SIN cerrar el
   // formulario, para poder cargar varios productos nuevos seguidos.
   const nuevoNombreRef = useRef<HTMLInputElement>(null);
-  const nuevoCategoriaRef = useRef<HTMLInputElement>(null);
 
   // ── Aviso de producto parecido ────────────────────────────────────
   // El índice único solo frena el nombre IDÉNTICO, y los duplicados reales
@@ -3399,8 +3399,8 @@ function CrearOrdenModal({
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
     // En MERCADO los productos nuevos entran SIEMPRE como VÍVERES (para que queden
     // disponibles en Cocina); fuera de MERCADO, la categoría elegida.
-    const categoria = mercado ? 'VÍVERES' : (nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase();
-    if (!esCategoriaReal(categoria)) { toast(MENSAJE_CATEGORIA_OBLIGATORIA, 'error'); nuevoCategoriaRef.current?.focus(); return; }
+    const categoria = mercado ? 'VÍVERES' : nuevoCategoria.trim().toUpperCase();
+    if (!esCategoriaReal(categoria)) { toast(MENSAJE_CATEGORIA_OBLIGATORIA, 'error'); document.getElementById('op-nuevo-categoria')?.focus(); return; }
     setCreandoNuevo(true);
     try {
       const similares = await buscarProductosParecidos(nombre, categoria);
@@ -3423,7 +3423,8 @@ function CrearOrdenModal({
     try {
       // SKU correlativo por categoría: prefijo de 3 letras + Nº incremental (p. ej.
       // PROTEINA → PRO-001), con contador PERSISTENTE en la base (no reutiliza números
-      // ni colisiona entre usuarios).
+      // ni colisiona entre usuarios). Una categoría nueva entra antes al catálogo.
+      categoria = await asegurarCategoria(categoria);
       const sku = await nextSku(categoria);
       const creado = await createProducto({
         sku,
@@ -3941,7 +3942,7 @@ function CrearOrdenModal({
                 {mercado ? (
                   <input className="input" value="VÍVERES" disabled title="En MERCADO los productos nuevos entran como VÍVERES y quedan disponibles en Cocina" />
                 ) : (
-                  <input ref={nuevoCategoriaRef} className="input" name="op-nuevo-categoria" placeholder="Categoría * (no GENERAL)" defaultValue={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
+                  <CategoriaProductoSelect id="op-nuevo-categoria" value={nuevoCategoria} onChange={setNuevoCategoria} />
                 )}
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
@@ -4122,7 +4123,6 @@ function EditarOrdenModal({
   const [creandoNuevo, setCreandoNuevo] = useState(false);
   const [unidadesList, setUnidadesList] = useState<string[]>([]);
   const nuevoNombreRef = useRef<HTMLInputElement>(null);
-  const nuevoCategoriaRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     getUnidades().then((u) => { setUnidadesList(u); setNuevoUnidad((p) => (u.includes(p) ? p : (u[0] ?? 'und'))); }).catch(() => setUnidadesList(['und']));
   }, []);
@@ -4177,8 +4177,8 @@ function EditarOrdenModal({
     // re-render pesado del modal no pisa lo tecleado (el nombre "cortado a medias").
     const nombre = (nuevoNombreRef.current?.value ?? nuevoNombre).trim().toUpperCase();
     if (!nombre) { toast('Escribí el nombre del producto', 'error'); return; }
-    const categoria = (nuevoCategoriaRef.current?.value ?? nuevoCategoria).trim().toUpperCase();
-    if (!esCategoriaReal(categoria)) { toast(MENSAJE_CATEGORIA_OBLIGATORIA, 'error'); nuevoCategoriaRef.current?.focus(); return; }
+    const categoria = nuevoCategoria.trim().toUpperCase();
+    if (!esCategoriaReal(categoria)) { toast(MENSAJE_CATEGORIA_OBLIGATORIA, 'error'); document.getElementById('op-edit-nuevo-categoria')?.focus(); return; }
     setCreandoNuevo(true);
     try {
       const similares = await buscarProductosParecidos(nombre, categoria);
@@ -4194,7 +4194,9 @@ function EditarOrdenModal({
     setCreandoNuevo(true);
     try {
       // SKU correlativo por categoría (prefijo propio de cada categoría + Nº
-      // incremental, p. ej. PRO-001), con contador persistente en la base.
+      // incremental, p. ej. PRO-001), con contador persistente en la base. Una
+      // categoría nueva entra antes al catálogo.
+      categoria = await asegurarCategoria(categoria);
       const sku = await nextSku(categoria);
       const creado = await createProducto({
         sku, nombre,
@@ -4509,7 +4511,7 @@ function EditarOrdenModal({
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void crearProductoNuevo(); } }}
               />
               <div className="form-grid">
-                <input ref={nuevoCategoriaRef} className="input" name="op-edit-nuevo-categoria" placeholder="Categoría * (no GENERAL)" defaultValue={nuevoCategoria} onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
+                <CategoriaProductoSelect id="op-edit-nuevo-categoria" value={nuevoCategoria} onChange={setNuevoCategoria} />
                 <div className="form-row" style={{ margin: 0 }}>
                   <SearchSelect value={nuevoUnidad} onChange={setNuevoUnidad}
                     placeholder="🔍 Unidad…" options={unidadesList.map((u) => ({ value: u, label: u }))} />

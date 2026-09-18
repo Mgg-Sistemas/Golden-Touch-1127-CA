@@ -51,6 +51,7 @@ import {
 } from './cuentasPorPagar.repository';
 import { listProductos, createProducto, getUnidades, nextSku } from '@/modules/inventario/inventario.repository';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
+import { CategoriaProductoSelect, asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
 import type { Producto } from '@/shared/lib/types';
 import {
   listCuentasPorCobrar, listCargosCobrar, listCobrosCuenta, registrarCobro, crearOAcumularCuentaPorCobrar,
@@ -4932,7 +4933,8 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
       if (noRegistrado) {
         const nombre = nuevoNombre.trim().toUpperCase();
         // SKU correlativo por categoría (prefijo 3 letras + Nº incremental, p. ej. PRO-001).
-        const categoria = nuevoCategoria.trim().toUpperCase();
+        // Una categoría nueva entra antes al catálogo (y se usa como quedó escrita allí).
+        const categoria = await asegurarCategoria(nuevoCategoria, actor);
         const sku = await nextSku(categoria);
         const creado = await createProducto({
           sku, nombre, categoria,
@@ -4978,7 +4980,7 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
             <div className="form-row" style={{ margin: 0, flex: '1 1 160px' }}>
               <label>Categoría *</label>
-              <input className="input" value={nuevoCategoria} placeholder="Ej.: REPUESTOS (no GENERAL)" onChange={(e) => setNuevoCategoria(e.target.value.toUpperCase())} />
+              <CategoriaProductoSelect value={nuevoCategoria} onChange={setNuevoCategoria} />
             </div>
             <div className="form-row" style={{ margin: 0, flex: '1 1 120px' }}>
               <label>Unidad</label>
