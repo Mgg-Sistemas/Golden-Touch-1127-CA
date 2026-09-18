@@ -90,11 +90,29 @@ marcar_despliegue() {
   echo "$(date '+%F %T') · cambios: ${LOCAL:0:7} -> ${REMOTE:0:7}"
   # .env.local / node_modules / dist están en .gitignore → reset no los borra
   git reset --hard "origin/$BRANCH"
-  npm ci
+  # `npm ci` tarda ~3 min en el Droplet: se corre solo si cambió package.json o el
+  # lock (o si no hay node_modules). Si no cambiaron, node_modules ya es exactamente
+  # lo que pide package-lock.json y reinstalarlo solo alarga el despliegue.
+  if [ ! -d node_modules ] || ! git diff --quiet "$LOCAL" "$REMOTE" -- package.json package-lock.json; then
+    npm ci
+  else
+    echo "$(date '+%F %T') · npm ci omitido (package.json y package-lock.json sin cambios)"
+  fi
   # VITE_APP_VERSION fijada al commit EXACTO desplegado: así version.json = commit y el
   # aviso "el sistema se actualizó" solo aparece cuando main avanzó de verdad (nunca por
   # un rebuild del mismo código). Este script ya solo construye cuando hay commit nuevo.
-  VITE_BASE_PATH=/ VITE_APP_VERSION="$(git rev-parse --short HEAD)" npm run build
+  #
+  # SE CONSTRUYE EN dist.new Y SE CAMBIA DE UN GOLPE. Vite vacía la carpeta de salida al
+  # arrancar: construyendo directo en dist/, el sitio quedaba SIN index.html durante todo
+  # el build (~2 min; nginx: «open() .../dist/index.html failed», 18/09/2026 00:16 UTC),
+  # es decir, cada despliegue tumbaba el sistema un rato. Con el rename, lo publicado
+  # pasa de la versión vieja a la nueva en un instante y sin huecos.
+  rm -rf dist.new
+  VITE_BASE_PATH=/ VITE_APP_VERSION="$(git rev-parse --short HEAD)" npm run build -- --outDir dist.new
+  rm -rf dist.old
+  if [ -d dist ]; then mv dist dist.old; fi
+  mv dist.new dist
+  rm -rf dist.old
   systemctl reload nginx
   echo "$(date '+%F %T') · deploy OK en ${REMOTE:0:7}"
 } >> "$LOG" 2>&1

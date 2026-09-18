@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+dist.new/
+dist.old/
 build/
 *.tsbuildinfo
 
