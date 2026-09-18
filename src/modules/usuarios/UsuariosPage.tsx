@@ -43,6 +43,7 @@ type ModalKind =
   | { kind: 'actividad' }
   | { kind: 'reset-confirm'; usuario: Usuario }
   | { kind: 'desbloquear-confirm'; usuario: Usuario }
+  | { kind: 'clave-temporal'; titulo: string; email: string; clave: string }
   | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' };
 
 type RoleQuickModal = 'none' | 'crear' | 'gestionar';
@@ -316,8 +317,8 @@ export function UsuariosPage() {
             setDepartamentos(cs);
           }}
           onClose={() => setModal({ kind: 'none' })}
-          onCreated={async () => {
-            setModal({ kind: 'none' });
+          onCreated={async (email, clave) => {
+            setModal({ kind: 'clave-temporal', titulo: 'Usuario creado', email, clave });
             await refresh();
           }}
         />
@@ -408,14 +409,14 @@ export function UsuariosPage() {
       {modal.kind === 'reset-confirm' && (
         <ConfirmDialog
           title="Resetear clave"
-          message={`La clave de ${modal.usuario.email} se cambiará a "123456" y el usuario deberá cambiarla al ingresar. ¿Continuar?`}
+          message={`Se le asignará a ${modal.usuario.email} una clave temporal nueva (se muestra al terminar para que se la entregues) y deberá cambiarla al ingresar. ¿Continuar?`}
           confirmText="Resetear"
           onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
           onConfirm={async () => {
             try {
-              await resetearClave(modal.usuario.id);
-              notify(`Clave reseteada · ${modal.usuario.email} usará 123456 al ingresar`, 'success', { link: '#/app/usuarios' });
-              setModal({ kind: 'none' });
+              const clave = await resetearClave(modal.usuario.id);
+              notify(`Clave reseteada · ${modal.usuario.email} debe cambiarla al ingresar`, 'success', { link: '#/app/usuarios' });
+              setModal({ kind: 'clave-temporal', titulo: 'Clave reseteada', email: modal.usuario.email, clave });
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error al resetear', 'error');
@@ -424,17 +425,26 @@ export function UsuariosPage() {
         />
       )}
 
+      {modal.kind === 'clave-temporal' && (
+        <ClaveTemporalModal
+          titulo={modal.titulo}
+          email={modal.email}
+          clave={modal.clave}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+
       {modal.kind === 'desbloquear-confirm' && (
         <ConfirmDialog
           title="Desbloquear usuario"
-          message={`Se desbloqueará a ${modal.usuario.email} y su clave se reseteará a "123456". Al ingresar deberá cambiarla obligatoriamente. ¿Continuar?`}
+          message={`Se desbloqueará a ${modal.usuario.email} y se le asignará una clave temporal nueva (se muestra al terminar). Al ingresar deberá cambiarla obligatoriamente. ¿Continuar?`}
           confirmText="Desbloquear"
           onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
           onConfirm={async () => {
             try {
-              await desbloquearUsuario(modal.usuario.id);
-              notify(`Usuario desbloqueado · ${modal.usuario.email} entra con 123456 y debe cambiar la clave`, 'success', { link: '#/app/usuarios' });
-              setModal({ kind: 'none' });
+              const clave = await desbloquearUsuario(modal.usuario.id);
+              notify(`Usuario desbloqueado · ${modal.usuario.email} debe cambiar la clave al ingresar`, 'success', { link: '#/app/usuarios' });
+              setModal({ kind: 'clave-temporal', titulo: 'Usuario desbloqueado', email: modal.usuario.email, clave });
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'No se pudo desbloquear', 'error');
@@ -487,7 +497,7 @@ interface UsuarioFormModalProps {
   /** Persistir un departamento nuevo y refrescar el listado. */
   onDeptoAgregado: (nombre: string) => Promise<void>;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (email: string, claveTemporal: string) => void;
 }
 function UsuarioFormModal({
   roles,
@@ -534,7 +544,7 @@ function UsuarioFormModal({
     }
     setSubmitting(true);
     try {
-      await crearUsuario({
+      const { claveTemporal } = await crearUsuario({
         nombre,
         apellido,
         ci,
@@ -543,8 +553,8 @@ function UsuarioFormModal({
         telefono: telefono || undefined,
         departamento: departamento.trim() || undefined,
       });
-      notify(`Usuario creado: ${email} · clave inicial 123456`, 'success', { link: '#/app/usuarios' });
-      onCreated();
+      notify(`Usuario creado: ${email} · debe cambiar la clave temporal al ingresar`, 'success', { link: '#/app/usuarios' });
+      onCreated(email, claveTemporal);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al crear', 'error');
     } finally {
@@ -720,8 +730,8 @@ function UsuarioFormModal({
 
       <div className="card" style={{ marginTop: '1rem', background: 'var(--bg-2)' }}>
         <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>
-          🔑 El usuario se creará con la clave inicial <strong className="mono">123456</strong>.
-          En su primer inicio de sesión deberá cambiarla obligatoriamente.
+          🔑 El sistema le genera una <strong>clave temporal</strong> que vas a ver al crearlo, para
+          entregársela. En su primer inicio de sesión deberá cambiarla obligatoriamente.
         </p>
       </div>
       </div>
@@ -1128,6 +1138,47 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onT
         <div className="k">Registrado</div>
         <div className="v">{dateTime(usuario.created_at)}</div>
       </div>
+    </Modal>
+  );
+}
+
+/* Muestra UNA sola vez la clave temporal que generó el servidor (al crear, resetear
+   o desbloquear) para que el admin se la entregue al usuario. No se guarda en ningún
+   lado: si se cierra sin anotarla, hay que resetear de nuevo. */
+function ClaveTemporalModal({ titulo, email, clave, onClose }: {
+  titulo: string; email: string; clave: string; onClose: () => void;
+}) {
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(clave);
+      toast('Clave copiada', 'success');
+    } catch {
+      toast('No se pudo copiar: anotala a mano', 'error');
+    }
+  }
+  return (
+    <Modal
+      title={`🔑 ${titulo}`}
+      compact
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={copiar}>📋 Copiar clave</button>
+          <button className="btn btn-primary" onClick={onClose}>Listo, ya la anoté</button>
+        </>
+      }
+    >
+      <p style={{ marginTop: 0 }}>Clave temporal de <strong>{email}</strong>:</p>
+      <div
+        className="mono"
+        style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '.08em', textAlign: 'center', padding: '.75rem', border: '1px dashed var(--border)', borderRadius: 8, userSelect: 'all' }}
+      >
+        {clave}
+      </div>
+      <p className="muted" style={{ fontSize: '.85rem', marginBottom: 0 }}>
+        Entregásela a la persona. Al entrar por primera vez el sistema le pide cambiarla.
+        <strong> Se muestra solo esta vez</strong>: si la perdés, usá «Resetear clave» para generar otra.
+      </p>
     </Modal>
   );
 }

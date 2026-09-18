@@ -2,6 +2,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { Role, Usuario } from '@/shared/lib/types';
 import { listRoles, type CustomRole } from './roles.repository';
 import { addTaxonomia, deleteTaxonomia, listTaxonomia, renameTaxonomia } from '@/shared/lib/taxonomias';
+import { mensajeClaveEnEspanol } from './mensajesClave';
 
 const TABLE = 'usuarios';
 
@@ -133,20 +134,24 @@ async function mensajeErrorFuncion(error: unknown, fallback: string): Promise<st
   if (ctx && typeof (ctx as Response).json === 'function') {
     try {
       const body = await (ctx as Response).json();
-      if (body && typeof body.error === 'string' && body.error.trim()) return body.error;
+      if (body && typeof body.error === 'string' && body.error.trim()) return mensajeClaveEnEspanol(body.error);
     } catch { /* el cuerpo no era JSON */ }
   }
-  return error instanceof Error && error.message ? error.message : fallback;
+  return error instanceof Error && error.message ? mensajeClaveEnEspanol(error.message) : fallback;
 }
 
-/** Llama a la Edge Function crear-usuario (clave por defecto: 123456). */
-export async function crearUsuario(input: CrearUsuarioInput): Promise<{ id: string }> {
+/**
+ * Llama a la Edge Function crear-usuario. El usuario nace con una CLAVE TEMPORAL
+ * aleatoria (Supabase ya no acepta una fija conocida como «123456») que se devuelve
+ * para que el admin se la entregue; al entrar la primera vez debe cambiarla.
+ */
+export async function crearUsuario(input: CrearUsuarioInput): Promise<{ id: string; claveTemporal: string }> {
   const { data, error } = await supabase.functions.invoke<
-    { ok: true; id: string; email: string } | { error: string }
+    { ok: true; id: string; email: string; clave_temporal: string } | { error: string }
   >('crear-usuario', { body: input });
   if (error) throw new Error(await mensajeErrorFuncion(error, 'Error al crear usuario'));
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
-  return { id: data.id };
+  return { id: data.id, claveTemporal: data.clave_temporal };
 }
 
 export interface ActualizarUsuarioInput {
@@ -181,13 +186,14 @@ export async function cambiarEmailUsuario(userId: string, email: string): Promis
   return data.email;
 }
 
-/** Llama a la Edge Function resetear-clave. */
-export async function resetearClave(userId: string): Promise<void> {
+/** Llama a la Edge Function resetear-clave. Devuelve la CLAVE TEMPORAL nueva. */
+export async function resetearClave(userId: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke<
-    { ok: true } | { error: string }
+    { ok: true; clave_temporal: string } | { error: string }
   >('resetear-clave', { body: { user_id: userId } });
   if (error) throw new Error(await mensajeErrorFuncion(error, 'Error al resetear'));
   if (!data || 'error' in data) throw new Error((data && 'error' in data && data.error) || 'Respuesta inválida');
+  return data.clave_temporal;
 }
 
 export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'): Promise<void> {
@@ -199,13 +205,14 @@ export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'
  * Desbloquea un usuario que llegó al límite de 3 intentos de clave fallidos.
  * Solo un admin (validado en la RPC `admin_desbloquear_usuario`). Además de quitar el
  * bloqueo y reiniciar el contador, deja `must_change_password=true` y RESETEA la clave a
- * "123456" (edge function): el usuario entra con esa clave temporal y debe cambiarla.
+ * una clave temporal (edge function): el usuario entra con ella y debe cambiarla.
+ * Devuelve esa clave temporal para mostrársela al admin.
  */
-export async function desbloquearUsuario(id: string): Promise<void> {
+export async function desbloquearUsuario(id: string): Promise<string> {
   const { error } = await supabase.rpc('admin_desbloquear_usuario', { p_user_id: id });
   if (error) throw error;
-  // La clave se olvidó (por eso se bloqueó): se resetea a 123456 para que pueda reingresar.
-  await resetearClave(id);
+  // La clave se olvidó (por eso se bloqueó): se resetea a una temporal para que pueda reingresar.
+  return resetearClave(id);
 }
 
 /** Cambia la clave del usuario logueado y desactiva el flag must_change_password.
@@ -214,7 +221,7 @@ export async function desbloquearUsuario(id: string): Promise<void> {
  *  fila directamente — un UPDATE plano se rechazaba en silencio. */
 export async function cambiarMiClave(nuevaClave: string): Promise<void> {
   const { error: pwErr } = await supabase.auth.updateUser({ password: nuevaClave });
-  if (pwErr) throw pwErr;
+  if (pwErr) throw new Error(mensajeClaveEnEspanol(pwErr.message));
   const { data, error: rpcErr } = await supabase.rpc('clear_must_change_password');
   if (rpcErr) {
     throw new Error(`Clave actualizada pero no se pudo limpiar la bandera de cambio obligatorio: ${rpcErr.message}`);
