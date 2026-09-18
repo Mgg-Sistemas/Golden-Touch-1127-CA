@@ -313,7 +313,8 @@ export function PedidosPage() {
     } catch { /* best-effort */ }
   }, [ordenes, user?.id, user?.email]);
   useEffect(() => { void refreshNoLeidos(); }, [refreshNoLeidos]);
-  useRealtime(['orden_mensajes'], () => { void refreshNoLeidos(); });
+  // orden_chat_lecturas: si lo leyó en otra pestaña o equipo, el chip se apaga acá también.
+  useRealtime(['orden_mensajes', 'orden_chat_lecturas'], () => { void refreshNoLeidos(); });
 
   useEffect(() => {
     let cancelled = false;

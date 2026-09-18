@@ -232,7 +232,7 @@ export function TesoreriaPage() {
   }, [fCaja, fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
-  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos', 'compras_directas', 'servicios_directos'], () => { void reload(); });
+  useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos', 'compras_directas', 'servicios_directos', 'abonos_credito', 'proveedor_datos_pago'], () => { void reload(); });
 
   useEffect(() => {
     setLoading(true);
@@ -3670,7 +3670,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
     noLeidosPorOrden(rows.map((r) => r.orden.id), user.id, user.email).then(setNoLeidos).catch(() => setNoLeidos(new Map()));
   }, [rows, user?.id, user?.email]);
   useEffect(() => { recalcNoLeidos(); }, [recalcNoLeidos]);
-  useRealtime(['orden_mensajes'], () => { recalcNoLeidos(); });
+  // orden_chat_lecturas: si lo leyó en otra pestaña o equipo, el chip se apaga acá también.
+  useRealtime(['orden_mensajes', 'orden_chat_lecturas'], () => { recalcNoLeidos(); });
 
   // Filas seleccionadas, proveedor "bloqueado" (el de la primera marcada) y total.
   const seleccionadas = useMemo(() => rows.filter((r) => seleccion.has(r.orden.id)), [rows, seleccion]);
