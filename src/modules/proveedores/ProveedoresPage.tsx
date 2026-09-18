@@ -292,11 +292,7 @@ export function ProveedoresPage() {
                   </td>
                   <td className="mono">{p.telefono || '—'}</td>
                   <td>
-                    {(p.categorias ?? []).map((c) => (
-                      <span key={c} className="badge" style={{ marginRight: '.2rem' }}>
-                        {c}
-                      </span>
-                    ))}
+                    <Etiquetas items={p.categorias ?? []} max={3} />
                   </td>
                   <td>
                     <StatusBadge estado={p.estado} />
@@ -653,11 +649,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
           value={
             (proveedor.categorias ?? []).length === 0
               ? '—'
-              : (proveedor.categorias ?? []).map((c) => (
-                  <span key={c} className="badge" style={{ marginRight: '.2rem' }}>
-                    {c}
-                  </span>
-                ))
+              : <Etiquetas items={proveedor.categorias ?? []} />
           }
         />
         <DetailRow label="Estado" value={<StatusBadge estado={proveedor.estado} />} />
@@ -715,6 +707,19 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Rubros del proveedor como etiquetas cortas. Con max, el resto va en «+N» (con la lista al pasar el mouse). */
+function Etiquetas({ items, max }: { items: string[]; max?: number }) {
+  if (!items.length) return <span className="muted">—</span>;
+  const visibles = max ? items.slice(0, max) : items;
+  const resto = items.length - visibles.length;
+  return (
+    <span className="tags">
+      {visibles.map((c) => <span key={c} className="tag">{c}</span>)}
+      {resto > 0 && <span className="tag mas" title={items.slice(visibles.length).join(' · ')}>+{resto}</span>}
+    </span>
   );
 }
 

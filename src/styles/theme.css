@@ -228,6 +228,19 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .badge.info    { background: rgba(74,168,255,0.15); color: #7fc1ff; border-color: rgba(74,168,255,0.4); }
 .badge.primary { background: rgba(255,138,0,0.15); color: var(--primary-3); border-color: rgba(255,138,0,0.4); }
 
+/* Etiquetas cortas (p. ej. rubros de un proveedor): chips compactos que envuelven
+   sin estirar la fila. Máx. unas pocas visibles y el resto como «+N». */
+.tags { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; }
+.tag {
+  display: inline-flex; align-items: center;
+  padding: .12rem .5rem; border-radius: 6px;
+  font-size: .68rem; font-weight: 600; letter-spacing: .02em; line-height: 1.4;
+  white-space: nowrap;
+  background: rgba(255,138,0,0.10); color: var(--primary-3);
+  border: 1px solid rgba(255,138,0,0.28);
+}
+.tag.mas { background: var(--surface-3); color: var(--text-muted); border-color: var(--border-strong); cursor: help; }
+
 /* Setting row (fila de un switch en panel de ajustes) */
 .setting-row {
   display: flex; align-items: center; justify-content: space-between;
