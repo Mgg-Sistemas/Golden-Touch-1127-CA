@@ -1,7 +1,7 @@
 // Golden Touch · Edge Function: resetear-clave
-// Solo admin. Resetea la clave del usuario objetivo a una CLAVE TEMPORAL
-// aleatoria, marca must_change_password=true para forzar el cambio en el
-// próximo login y devuelve la clave al admin para que se la entregue.
+// Solo admin. Resetea la clave del usuario objetivo a la clave inicial
+// 'gt-2026', marca must_change_password=true para forzar el cambio en el
+// próximo login y devuelve la clave al admin.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -11,25 +11,17 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-// Clave TEMPORAL aleatoria (una distinta en cada alta/reseteo). Antes era '123456',
-// pero Supabase Auth rechaza las claves filtradas («Password is known to be weak
-// and easy to guess»), así que ya no se puede usar una clave fija conocida.
-// Sin letras ni números que se confundan al dictarla (0/O, 1/l/I).
-const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-function claveTemporal(): string {
-  let s = '';
-  while (s.length < 8) {
-    const [b] = crypto.getRandomValues(new Uint8Array(1));
-    // Rechazo del sobrante para que todos los caracteres salgan con igual probabilidad.
-    if (b < 256 - (256 % ALFABETO.length)) s += ALFABETO[b % ALFABETO.length];
-  }
-  return `Gt-${s.slice(0, 4)}-${s.slice(4)}`;
-}
+// Clave INICIAL fija (el usuario la cambia obligatoriamente en su primer inicio).
+// Antes era '123456', pero Supabase Auth rechaza las claves que aparecen en
+// filtraciones públicas («Password is known to be weak and easy to guess»);
+// 'gt2026' y 'gt123456' también están filtradas. 'gt-2026' no (verificado contra
+// Have I Been Pwned el 18/09/2026). Si se cambia, verificarla antes.
+const CLAVE_INICIAL = 'gt-2026';
 
 /** Traduce los rechazos de clave de Supabase Auth. */
 function mensajeClave(m: string): string {
   return /weak|easy to guess|pwned|leaked|compromised/i.test(m)
-    ? 'Supabase rechazó la clave temporal por insegura. Intentá de nuevo.'
+    ? 'Supabase rechazó la clave inicial por insegura: hay que cambiar CLAVE_INICIAL en la función.'
     : m;
 }
 
@@ -80,7 +72,7 @@ serve(async (req) => {
   if (!targetId) return json({ error: 'user_id requerido' }, 400);
 
   // 3) Resetear clave
-  const clave = claveTemporal();
+  const clave = CLAVE_INICIAL;
   const { error: pwErr } = await admin.auth.admin.updateUserById(targetId, {
     password: clave,
   });

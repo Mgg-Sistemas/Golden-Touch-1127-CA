@@ -409,7 +409,7 @@ export function UsuariosPage() {
       {modal.kind === 'reset-confirm' && (
         <ConfirmDialog
           title="Resetear clave"
-          message={`Se le asignará a ${modal.usuario.email} una clave temporal nueva (se muestra al terminar para que se la entregues) y deberá cambiarla al ingresar. ¿Continuar?`}
+          message={`Se le asignará a ${modal.usuario.email} la clave inicial "gt-2026" y deberá cambiarla al ingresar. ¿Continuar?`}
           confirmText="Resetear"
           onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
           onConfirm={async () => {
@@ -437,7 +437,7 @@ export function UsuariosPage() {
       {modal.kind === 'desbloquear-confirm' && (
         <ConfirmDialog
           title="Desbloquear usuario"
-          message={`Se desbloqueará a ${modal.usuario.email} y se le asignará una clave temporal nueva (se muestra al terminar). Al ingresar deberá cambiarla obligatoriamente. ¿Continuar?`}
+          message={`Se desbloqueará a ${modal.usuario.email} y su clave volverá a la inicial "gt-2026". Al ingresar deberá cambiarla obligatoriamente. ¿Continuar?`}
           confirmText="Desbloquear"
           onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
           onConfirm={async () => {
@@ -730,8 +730,8 @@ function UsuarioFormModal({
 
       <div className="card" style={{ marginTop: '1rem', background: 'var(--bg-2)' }}>
         <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>
-          🔑 El sistema le genera una <strong>clave temporal</strong> que vas a ver al crearlo, para
-          entregársela. En su primer inicio de sesión deberá cambiarla obligatoriamente.
+          🔑 El usuario se creará con la clave inicial <strong className="mono">gt-2026</strong>.
+          En su primer inicio de sesión deberá cambiarla obligatoriamente.
         </p>
       </div>
       </div>
@@ -1142,9 +1142,8 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onT
   );
 }
 
-/* Muestra UNA sola vez la clave temporal que generó el servidor (al crear, resetear
-   o desbloquear) para que el admin se la entregue al usuario. No se guarda en ningún
-   lado: si se cierra sin anotarla, hay que resetear de nuevo. */
+/* Muestra la clave inicial que devolvió el servidor (al crear, resetear o
+   desbloquear) para que el admin se la indique al usuario. */
 function ClaveTemporalModal({ titulo, email, clave, onClose }: {
   titulo: string; email: string; clave: string; onClose: () => void;
 }) {
@@ -1176,8 +1175,8 @@ function ClaveTemporalModal({ titulo, email, clave, onClose }: {
         {clave}
       </div>
       <p className="muted" style={{ fontSize: '.85rem', marginBottom: 0 }}>
-        Entregásela a la persona. Al entrar por primera vez el sistema le pide cambiarla.
-        <strong> Se muestra solo esta vez</strong>: si la perdés, usá «Resetear clave» para generar otra.
+        Indicásela a la persona. Al entrar por primera vez el sistema le pide cambiarla
+        obligatoriamente por una propia.
       </p>
     </Modal>
   );

@@ -141,9 +141,9 @@ async function mensajeErrorFuncion(error: unknown, fallback: string): Promise<st
 }
 
 /**
- * Llama a la Edge Function crear-usuario. El usuario nace con una CLAVE TEMPORAL
- * aleatoria (Supabase ya no acepta una fija conocida como «123456») que se devuelve
- * para que el admin se la entregue; al entrar la primera vez debe cambiarla.
+ * Llama a la Edge Function crear-usuario. El usuario nace con la clave inicial
+ * «gt-2026» (Supabase rechaza «123456» por filtrada), que la función devuelve; al
+ * entrar la primera vez debe cambiarla.
  */
 export async function crearUsuario(input: CrearUsuarioInput): Promise<{ id: string; claveTemporal: string }> {
   const { data, error } = await supabase.functions.invoke<
@@ -186,7 +186,7 @@ export async function cambiarEmailUsuario(userId: string, email: string): Promis
   return data.email;
 }
 
-/** Llama a la Edge Function resetear-clave. Devuelve la CLAVE TEMPORAL nueva. */
+/** Llama a la Edge Function resetear-clave (vuelve a «gt-2026»). Devuelve la clave. */
 export async function resetearClave(userId: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke<
     { ok: true; clave_temporal: string } | { error: string }
@@ -205,13 +205,13 @@ export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'
  * Desbloquea un usuario que llegó al límite de 3 intentos de clave fallidos.
  * Solo un admin (validado en la RPC `admin_desbloquear_usuario`). Además de quitar el
  * bloqueo y reiniciar el contador, deja `must_change_password=true` y RESETEA la clave a
- * una clave temporal (edge function): el usuario entra con ella y debe cambiarla.
- * Devuelve esa clave temporal para mostrársela al admin.
+ * la inicial «gt-2026» (edge function): el usuario entra con ella y debe cambiarla.
+ * Devuelve esa clave para mostrársela al admin.
  */
 export async function desbloquearUsuario(id: string): Promise<string> {
   const { error } = await supabase.rpc('admin_desbloquear_usuario', { p_user_id: id });
   if (error) throw error;
-  // La clave se olvidó (por eso se bloqueó): se resetea a una temporal para que pueda reingresar.
+  // La clave se olvidó (por eso se bloqueó): vuelve a la inicial para que pueda reingresar.
   return resetearClave(id);
 }
 
