@@ -35,7 +35,43 @@ const V_MOV_CAJA = 'ventas_movimientos_caja';
 /* ─────────────────────────── Tipos ─────────────────────────── */
 
 export type TipoVenta = 'venta' | 'permuta';
-export type EstadoVenta = 'borrador' | 'confirmada' | 'entregada' | 'anulada';
+/**
+ * borrador → por_autorizar → autorizada → confirmada → entregada (y `anulada` desde
+ * cualquiera). Antes de mover plata la venta pasa por LEYDIS RENGEL o JESUS LOZADA:
+ * lo hace cumplir la base (trigger `trg_ventas_guardia_y_historial`), no la pantalla.
+ */
+export type EstadoVenta = 'borrador' | 'por_autorizar' | 'autorizada' | 'confirmada' | 'entregada' | 'anulada';
+/** Con qué documento sale: nota de entrega o factura (con su nº y su nº de control). */
+export type DocumentoVenta = 'nota_entrega' | 'factura';
+/** Estados en los que todavía no se movió plata ni material: se pueden editar. */
+export const ESTADOS_EDITABLES: EstadoVenta[] = ['borrador', 'por_autorizar', 'autorizada'];
+
+export const DOCUMENTO_LABEL: Record<DocumentoVenta, string> = {
+  nota_entrega: 'Nota de entrega',
+  factura: 'Factura',
+};
+
+export const ESTADO_LABEL: Record<EstadoVenta, string> = {
+  borrador: 'Borrador',
+  por_autorizar: 'Por autorizar',
+  autorizada: 'Autorizada',
+  confirmada: 'Confirmada',
+  entregada: 'Entregada',
+  anulada: 'Anulada',
+};
+
+/** Un paso del rastro. Lo escribe la base; el cliente no puede reescribirlo. */
+export interface EventoVenta {
+  at: string;
+  evento: string;
+  de?: EstadoVenta | null;
+  a?: EstadoVenta | null;
+  actor?: string | null;
+  actor_name?: string | null;
+  motivo?: string | null;
+  total?: number | null;
+  total_antes?: number | null;
+}
 export type CondicionVenta = 'contado' | 'credito';
 
 /** Contraparte del padrón de Tesorería usada como cliente. */
@@ -72,7 +108,10 @@ export interface Venta {
   descuento: number;
   iva_pct: number;
   iva_monto: number;
-  /** `subtotal − descuento + iva_monto`. NUNCA es la base de la ganancia. */
+  /** 0 = no aplica. Se calcula sobre la base (subtotal − descuento), como en las OC. */
+  igtf_pct: number;
+  igtf_monto: number;
+  /** `subtotal − descuento + iva_monto + igtf_monto`. NUNCA es la base de la ganancia. */
   total: number;
   costo_total: number;
   /** Congelada al confirmar. No es `total − costo_total`: el total lleva IVA. */
@@ -94,6 +133,18 @@ export interface Venta {
   anulada_at: string | null;
   anulada_por: string | null;
   motivo_anulacion: string | null;
+  documento: DocumentoVenta;
+  numero_factura: string | null;
+  numero_control: string | null;
+  enviada_at: string | null;
+  enviada_por: string | null;
+  autorizada_at: string | null;
+  autorizada_por: string | null;
+  rechazada_at: string | null;
+  rechazada_por: string | null;
+  rechazo_motivo: string | null;
+  /** Trazabilidad: un evento por paso, del más viejo al más nuevo. */
+  historial: EventoVenta[];
   created_at: string;
   updated_at: string | null;
 }
@@ -199,6 +250,11 @@ export interface VentaInput {
   moneda?: string;
   tasaBs?: number | null;
   ivaPct?: number | null;
+  /** 0 o vacío = sin IGTF. */
+  igtfPct?: number | null;
+  documento?: DocumentoVenta;
+  numeroFactura?: string | null;
+  numeroControl?: string | null;
   descuento?: number | null;
   pagoLegs?: PagoLeg[] | null;
   nota?: string | null;
@@ -268,6 +324,8 @@ function normalizarVenta(row: Record<string, unknown>): Venta {
     descuento: num(row.descuento),
     iva_pct: num(row.iva_pct),
     iva_monto: num(row.iva_monto),
+    igtf_pct: num(row.igtf_pct),
+    igtf_monto: num(row.igtf_monto),
     total: num(row.total),
     costo_total: num(row.costo_total),
     ganancia_total: num(row.ganancia_total),
@@ -285,6 +343,17 @@ function normalizarVenta(row: Record<string, unknown>): Venta {
     anulada_at: (row.anulada_at as string) ?? null,
     anulada_por: (row.anulada_por as string) ?? null,
     motivo_anulacion: (row.motivo_anulacion as string) ?? null,
+    documento: row.documento === 'factura' ? 'factura' : 'nota_entrega',
+    numero_factura: (row.numero_factura as string) ?? null,
+    numero_control: (row.numero_control as string) ?? null,
+    enviada_at: (row.enviada_at as string) ?? null,
+    enviada_por: (row.enviada_por as string) ?? null,
+    autorizada_at: (row.autorizada_at as string) ?? null,
+    autorizada_por: (row.autorizada_por as string) ?? null,
+    rechazada_at: (row.rechazada_at as string) ?? null,
+    rechazada_por: (row.rechazada_por as string) ?? null,
+    rechazo_motivo: (row.rechazo_motivo as string) ?? null,
+    historial: Array.isArray(row.historial) ? (row.historial as EventoVenta[]) : [],
     created_at: String(row.created_at ?? ''),
     updated_at: (row.updated_at as string) ?? null,
   };
@@ -342,8 +411,9 @@ export function resumenDeVenta(
   recibidos: Array<{ cantidad: number; valor_unit: number }> = [],
   ivaPct = 16,
   descuento = 0,
+  igtfPct = 0,
 ): ResumenVenta {
-  const totales = calcularTotalesVenta(renglones, ivaPct, descuento);
+  const totales = calcularTotalesVenta(renglones, ivaPct, descuento, igtfPct);
   const valorRecibido = round2(
     recibidos.reduce((a, r) => a + num(r.cantidad) * num(r.valor_unit), 0),
   );
@@ -566,6 +636,12 @@ function columnasCabecera(input: VentaInput, resumen: ResumenVenta): Record<stri
     descuento: resumen.descuento,
     iva_pct: resumen.ivaPct,
     iva_monto: resumen.ivaMonto,
+    igtf_pct: resumen.igtfPct,
+    igtf_monto: resumen.igtfMonto,
+    documento: input.documento === 'factura' ? 'factura' : 'nota_entrega',
+    // El nº de factura y el de control solo tienen sentido en una factura.
+    numero_factura: input.documento === 'factura' ? txt(input.numeroFactura) : null,
+    numero_control: input.documento === 'factura' ? txt(input.numeroControl) : null,
     total: resumen.total,
     costo_total: resumen.costoTotal,
     ganancia_total: resumen.gananciaTotal,
@@ -652,7 +728,7 @@ async function insertarHijas(
 export async function crearBorrador(input: VentaInput): Promise<VentaCompleta> {
   const { renglones, recibidos } = validarInput(input);
   const resumen = resumenDeVenta(
-    aCalculo(renglones), recibidos, num(input.ivaPct ?? 16), num(input.descuento),
+    aCalculo(renglones), recibidos, num(input.ivaPct ?? 16), num(input.descuento), num(input.igtfPct),
   );
   const codigo = await nextCodigoVenta(input.tipo ?? 'venta');
 
@@ -678,30 +754,39 @@ export async function crearBorrador(input: VentaInput): Promise<VentaCompleta> {
 }
 
 /**
- * Reescribe un borrador entero (cabecera + hijas). Solo se puede editar un
- * borrador: desde `confirmada` en adelante ya hay plata o material movido, y
- * el camino es anular y rehacer.
+ * Reescribe la venta entera (cabecera + hijas). Se puede editar mientras no se
+ * haya movido plata ni material: `borrador`, `por_autorizar` y `autorizada`.
+ * Editar una venta ya enviada o autorizada la DEVUELVE A BORRADOR: lo que se
+ * autorizó fue otro documento, así que hay que volver a pedir la autorización
+ * (queda anotado en el historial). Desde `confirmada` en adelante el camino es
+ * anular y rehacer.
  */
 export async function actualizarBorrador(id: string, input: VentaInput): Promise<VentaCompleta> {
   const actual = await getVentaCabecera(id);
   if (!actual) throw new Error('No existe la venta que se quiere editar.');
-  if (actual.estado !== 'borrador') {
-    throw new Error(`La venta ${actual.codigo} ya está ${actual.estado}: para cambiarla hay que anularla y rehacerla.`);
+  if (!ESTADOS_EDITABLES.includes(actual.estado)) {
+    throw new Error(`La venta ${actual.codigo} ya está ${ESTADO_LABEL[actual.estado].toLowerCase()}: para cambiarla hay que anularla y rehacerla.`);
   }
   const conTipo: VentaInput = { ...input, tipo: input.tipo ?? actual.tipo };
   const { renglones, recibidos } = validarInput(conTipo);
   const resumen = resumenDeVenta(
     aCalculo(renglones), recibidos, num(input.ivaPct ?? actual.iva_pct), num(input.descuento),
+    num(input.igtfPct ?? actual.igtf_pct),
   );
 
   const { data, error } = await supabase.from(T_VENTAS)
-    .update({ ...columnasCabecera(conTipo, resumen), updated_at: new Date().toISOString() })
-    .eq('id', id).eq('estado', 'borrador')
+    .update({
+      ...columnasCabecera({ ...conTipo, documento: input.documento ?? actual.documento }, resumen),
+      // Si estaba enviada o autorizada, vuelve a borrador y la autorización se cae.
+      estado: 'borrador', autorizada_at: null, autorizada_por: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id).eq('estado', actual.estado)
     .select('*').maybeSingle();
   if (error) throw error;
   // El `eq('estado','borrador')` es el candado: si otro usuario la confirmó
   // mientras esta pantalla la editaba, no se pisa nada.
-  if (!data) throw new Error('La venta dejó de ser un borrador mientras se editaba: volvé a abrirla.');
+  if (!data) throw new Error('La venta cambió de estado mientras se editaba: volvé a abrirla.');
 
   const { error: dR } = await supabase.from(T_RENGLONES).delete().eq('venta_id', id);
   if (dR) throw dR;
@@ -732,7 +817,35 @@ export async function borrarBorrador(id: string): Promise<void> {
    Postgres, en una sola transacción, y desde acá solo se las llama. */
 
 /**
- * Borrador → CONFIRMADA. **Mueve el dinero, no el stock.** Congela el costo de
+ * Borrador → POR AUTORIZAR. No mueve nada: deja la venta esperando a LEYDIS
+ * RENGEL o JESUS LOZADA y les avisa por la campana.
+ */
+export async function enviarVentaAAutorizar(id: string, actor: string, actorName: string): Promise<Venta> {
+  const { data, error } = await supabase.rpc('enviar_venta_a_autorizar', {
+    p_venta_id: id, p_actor: actor, p_actor_name: actorName,
+  });
+  if (error) throw error;
+  return normalizarVenta(data as Record<string, unknown>);
+}
+
+/**
+ * Por autorizar → AUTORIZADA (o de vuelta a borrador si se RECHAZA, con motivo
+ * obligatorio). Solo los dos autorizadores: lo comprueba la base, no la pantalla.
+ */
+export async function resolverAutorizacionVenta(
+  id: string, aprobar: boolean, actor: string, actorName: string, motivo?: string | null,
+): Promise<Venta> {
+  const m = (motivo ?? '').trim();
+  if (!aprobar && !m) throw new Error('Hay que decir por qué se rechaza la venta.');
+  const { data, error } = await supabase.rpc('autorizar_venta', {
+    p_venta_id: id, p_aprobar: aprobar, p_motivo: m || null, p_actor: actor, p_actor_name: actorName,
+  });
+  if (error) throw error;
+  return normalizarVenta(data as Record<string, unknown>);
+}
+
+/**
+ * Autorizada → CONFIRMADA. **Mueve el dinero, no el stock.** Congela el costo de
  * cada renglón contra `existencias.costo_promedio`, recalcula los totales y
  * copia el cliente, y cobra: de contado por las patas de pago (una entrada de
  * caja por pata), a crédito cargándole la DIFERENCIA —no el total— a la cuenta

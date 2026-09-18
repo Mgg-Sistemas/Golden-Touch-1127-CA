@@ -32,7 +32,35 @@ describe('calcularTotalesVenta', () => {
 
   it('sin renglones da todo en cero', () => {
     const t = calcularTotalesVenta([], 16, 0);
-    expect(t).toEqual({ subtotal: 0, descuento: 0, ivaPct: 16, ivaMonto: 0, total: 0, costoTotal: 0, gananciaTotal: 0 });
+    expect(t).toEqual({ subtotal: 0, descuento: 0, ivaPct: 16, ivaMonto: 0, igtfPct: 0, igtfMonto: 0, total: 0, costoTotal: 0, gananciaTotal: 0 });
+  });
+
+  it('sin casilla de IGTF (0 %) el total no cambia', () => {
+    const t = calcularTotalesVenta(
+      [{ cantidad: 2, precio_unit: 50, costo_unit: 30 }], 16, 10);
+    expect(t.igtfPct).toBe(0);
+    expect(t.igtfMonto).toBe(0);
+    expect(t.total).toBe(104.4);
+  });
+
+  it('el IGTF sale de la base, no de base + IVA, y se suma al total', () => {
+    const t = calcularTotalesVenta(
+      [{ cantidad: 2, precio_unit: 50, costo_unit: 30 }], 16, 10, 3);
+    expect(t.ivaMonto).toBe(14.4);   // 90 x 0,16
+    expect(t.igtfMonto).toBe(2.7);   // 90 x 0,03 (no 104,4 x 0,03)
+    expect(t.total).toBe(107.1);     // 90 + 14,4 + 2,7
+  });
+
+  it('nota de entrega sin impuestos: total = base', () => {
+    const t = calcularTotalesVenta(
+      [{ cantidad: 2, precio_unit: 50, costo_unit: 30 }], 0, 10, 0);
+    expect(t.total).toBe(90);
+  });
+
+  it('el IGTF no es ganancia', () => {
+    const con = calcularTotalesVenta([{ cantidad: 2, precio_unit: 50, costo_unit: 30 }], 16, 0, 3);
+    const sin = calcularTotalesVenta([{ cantidad: 2, precio_unit: 50, costo_unit: 30 }], 0, 0, 0);
+    expect(con.gananciaTotal).toBe(sin.gananciaTotal);
   });
 
   it('redondea a dos decimales', () => {

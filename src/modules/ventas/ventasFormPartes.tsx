@@ -29,7 +29,7 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { Caja, CajaSaldo, CuentaCaja, Producto } from '@/shared/lib/types';
 import {
   crearCliente,
-  type Cliente, type ExistenciaProducto, type PagoLeg,
+  type Cliente, type DocumentoVenta, type ExistenciaProducto, type PagoLeg, type Venta,
 } from './ventas.repository';
 
 /* ─────────────────────────── Estado compartido ─────────────────────────── */
@@ -518,5 +518,102 @@ export function TablaPagoLegs({
         {legSinCaja && <span className="badge danger">hay una forma de pago sin caja elegida</span>}
       </div>
     </>
+  );
+}
+
+/* ─────────────────────────── Documento e impuestos ─────────────────────────── */
+
+/**
+ * Con qué documento sale la venta y qué impuestos lleva. Lo usan la venta y la
+ * permuta, así el criterio vive en un solo lugar:
+ *   · NOTA DE ENTREGA → sin impuestos. IVA e IGTF quedan en 0.
+ *   · FACTURA → nº de factura y nº de control, y una CASILLA para el IVA y otra
+ *     para el IGTF, cada una con su porcentaje (16 % y 3 % de entrada).
+ * Las dos pasan igual por la autorización previa.
+ */
+export interface DocumentoImpuestosUI {
+  documento: DocumentoVenta;
+  numeroFactura: string;
+  numeroControl: string;
+  conIva: boolean;
+  ivaPct: string;
+  conIgtf: boolean;
+  igtfPct: string;
+}
+
+export function documentoImpuestosInicial(venta?: Venta | null): DocumentoImpuestosUI {
+  if (!venta) {
+    return { documento: 'nota_entrega', numeroFactura: '', numeroControl: '', conIva: false, ivaPct: '16', conIgtf: false, igtfPct: '3' };
+  }
+  return {
+    documento: venta.documento,
+    numeroFactura: venta.numero_factura ?? '',
+    numeroControl: venta.numero_control ?? '',
+    conIva: venta.iva_pct > 0,
+    ivaPct: venta.iva_pct > 0 ? String(venta.iva_pct) : '16',
+    conIgtf: venta.igtf_pct > 0,
+    igtfPct: venta.igtf_pct > 0 ? String(venta.igtf_pct) : '3',
+  };
+}
+
+/** Los porcentajes que de verdad se aplican: en nota de entrega, o sin casilla, 0. */
+export function porcentajesAplicados(d: DocumentoImpuestosUI): { ivaPct: number; igtfPct: number } {
+  const factura = d.documento === 'factura';
+  return {
+    ivaPct: factura && d.conIva ? Math.max(0, Number(d.ivaPct) || 0) : 0,
+    igtfPct: factura && d.conIgtf ? Math.max(0, Number(d.igtfPct) || 0) : 0,
+  };
+}
+
+export function DocumentoImpuestos({
+  valor, onChange,
+}: { valor: DocumentoImpuestosUI; onChange: Dispatch<SetStateAction<DocumentoImpuestosUI>> }) {
+  const set = (patch: Partial<DocumentoImpuestosUI>) => onChange((d) => ({ ...d, ...patch }));
+  const factura = valor.documento === 'factura';
+  return (
+    <div className="card" style={{ margin: '.75rem 0' }}>
+      <div className="card-title" style={{ marginBottom: '.5rem' }}>Documento</div>
+      <div className="view-toggle" role="radiogroup" aria-label="Tipo de documento" style={{ marginBottom: '.6rem' }}>
+        <button type="button" className={!factura ? 'active' : ''} aria-pressed={!factura}
+          onClick={() => set({ documento: 'nota_entrega' })}>📋 Nota de entrega</button>
+        <button type="button" className={factura ? 'active' : ''} aria-pressed={factura}
+          onClick={() => set({ documento: 'factura', conIva: true })}>🧾 Factura</button>
+      </div>
+
+      {!factura ? (
+        <small className="muted">La nota de entrega no lleva IVA ni IGTF. Si hacen falta impuestos, elegí Factura.</small>
+      ) : (
+        <div className="form-grid">
+          <div className="form-row">
+            <label htmlFor="venta-nro-factura">Nº de factura</label>
+            <input id="venta-nro-factura" className="input mono" value={valor.numeroFactura}
+              onChange={(e) => set({ numeroFactura: e.target.value })} placeholder="00001234" />
+          </div>
+          <div className="form-row">
+            <label htmlFor="venta-nro-control">Nº de control</label>
+            <input id="venta-nro-control" className="input mono" value={valor.numeroControl}
+              onChange={(e) => set({ numeroControl: e.target.value })} placeholder="00-00001234" />
+          </div>
+          <div className="form-row">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={valor.conIva} onChange={(e) => set({ conIva: e.target.checked })} />
+              Aplicar IVA
+            </label>
+            <input className="input mono" inputMode="decimal" value={valor.ivaPct} disabled={!valor.conIva}
+              onChange={(e) => set({ ivaPct: dosDecimales(e.target.value) })} placeholder="16" aria-label="Porcentaje de IVA" />
+            <small className="muted">% sobre el subtotal menos el descuento.</small>
+          </div>
+          <div className="form-row">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={valor.conIgtf} onChange={(e) => set({ conIgtf: e.target.checked })} />
+              Aplicar IGTF
+            </label>
+            <input className="input mono" inputMode="decimal" value={valor.igtfPct} disabled={!valor.conIgtf}
+              onChange={(e) => set({ igtfPct: dosDecimales(e.target.value) })} placeholder="3" aria-label="Porcentaje de IGTF" />
+            <small className="muted">% sobre la misma base (pago en divisas).</small>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

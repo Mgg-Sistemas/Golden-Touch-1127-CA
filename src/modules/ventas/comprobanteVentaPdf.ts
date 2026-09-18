@@ -109,6 +109,8 @@ export function encabezado(doc: JsPdf, logo: string | null, titulo: string, codi
 
 const ESTADOS: Record<Venta['estado'], string> = {
   borrador: 'Borrador (todavía no confirmada)',
+  por_autorizar: 'Por autorizar (todavía no confirmada)',
+  autorizada: 'Autorizada (todavía no confirmada)',
   confirmada: 'Confirmada (pendiente de entrega)',
   entregada: 'Entregada',
   anulada: 'ANULADA',
@@ -120,12 +122,22 @@ export function fichaCliente(doc: JsPdf, autoTable: AutoTable, y: number, venta:
     ['Cliente', pdfSafe(venta.cliente_nombre) || '—'],
     ['RIF / C.I.', pdfSafe(venta.cliente_rif) || '—'],
     ['Fecha', dateTime(venta.created_at)],
+    ['Documento', venta.documento === 'factura' ? 'Factura' : 'Nota de entrega'],
+    ...(venta.documento === 'factura' && venta.numero_factura
+      ? ([['Nº de factura', pdfSafe(venta.numero_factura)]] as Array<[string, string]>)
+      : []),
+    ...(venta.documento === 'factura' && venta.numero_control
+      ? ([['Nº de control', pdfSafe(venta.numero_control)]] as Array<[string, string]>)
+      : []),
     ['Condición', venta.condicion === 'credito' ? 'Crédito' : 'Contado'],
     ['Estado', ESTADOS[venta.estado] ?? venta.estado],
     ...(venta.tasa_bs
       ? ([['Tasa del día', `Bs ${num(venta.tasa_bs)} / ${pdfSafe(venta.moneda)}`]] as Array<[string, string]>)
       : []),
     ['Atendió', pdfSafe(venta.actor_name) || pdfSafe(venta.actor) || '—'],
+    ...(venta.autorizada_por
+      ? ([['Autorizó', `${pdfSafe(venta.autorizada_por)}${venta.autorizada_at ? ` · ${dateTime(venta.autorizada_at)}` : ''}`]] as Array<[string, string]>)
+      : []),
     ...(venta.nota ? ([['Nota', pdfSafe(venta.nota)]] as Array<[string, string]>) : []),
     ...(venta.estado === 'anulada' && venta.motivo_anulacion
       ? ([['Motivo de la anulación', pdfSafe(venta.motivo_anulacion)]] as Array<[string, string]>)
@@ -140,6 +152,22 @@ export function fichaCliente(doc: JsPdf, autoTable: AutoTable, y: number, venta:
     margin: MARGIN,
   });
   return finalY(doc, y) + 14;
+}
+
+/** Título del documento según sea nota de entrega o factura. */
+export function tituloDocumento(venta: Venta, sufijo = ''): string {
+  return (venta.documento === 'factura' ? 'Factura' : 'Nota de entrega') + sufijo;
+}
+
+/**
+ * Las filas de impuestos, solo las que aplican: una nota de entrega no lleva
+ * ninguna, y una factura muestra el IVA y/o el IGTF según sus casillas.
+ */
+export function filasImpuestos(venta: Venta, mon: (n: number) => string): Array<[string, string]> {
+  const filas: Array<[string, string]> = [];
+  if (venta.iva_pct > 0) filas.push([`IVA ${num(venta.iva_pct)} %`, mon(venta.iva_monto)]);
+  if (venta.igtf_pct > 0) filas.push([`IGTF ${num(venta.igtf_pct)} %`, mon(venta.igtf_monto)]);
+  return filas;
 }
 
 /** Tabla de totales pegada al margen derecho. La última fila va resaltada. */
@@ -286,7 +314,7 @@ export async function descargarComprobanteVentaPdf(
   const mon = montoDe(venta);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
 
-  let y = encabezado(doc, logo, 'Comprobante de venta', venta.codigo);
+  let y = encabezado(doc, logo, tituloDocumento(venta), venta.codigo);
   y = fichaCliente(doc, autoTable, y, venta);
 
   // ─── Lo que se llevó el cliente ───────────────────────
@@ -322,13 +350,13 @@ export async function descargarComprobanteVentaPdf(
   });
   y = finalY(doc, y) + 14;
 
-  // ─── Totales, con el IVA discriminado ─────────────────
+  // ─── Totales, con los impuestos discriminados ─────────
   const filas: Array<[string, string]> = [
     ['Subtotal', mon(venta.subtotal)],
     ...(venta.descuento > 0
       ? ([['Descuento', `- ${mon(venta.descuento)}`]] as Array<[string, string]>)
       : []),
-    [`IVA ${num(venta.iva_pct)} %`, mon(venta.iva_monto)],
+    ...filasImpuestos(venta, mon),
     ['TOTAL', mon(venta.total)],
   ];
   y = hayEspacio(doc, y, 30 + filas.length * 20);

@@ -23,13 +23,12 @@
    divergan con el tiempo. Los números llegan ya cargados en `VentaCompleta`:
    acá no se consulta la base ni se rehace ninguna cuenta.
    ============================================================ */
-import { num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import {
   MARGIN, bloqueDePago, bloqueTotales, cantidadConMedida, encabezado, fichaCliente,
-  finalY, firmas, hayEspacio, montoDe, selloAnulada,
+  filasImpuestos, finalY, firmas, hayEspacio, montoDe, selloAnulada, tituloDocumento,
   type OpcionesComprobante,
 } from './comprobanteVentaPdf';
 import type { VentaCompleta } from './ventas.repository';
@@ -55,7 +54,7 @@ export async function descargarComprobantePermutaPdf(
   const PAGE_W = doc.internal.pageSize.getWidth();
   const ANCHO = (PAGE_W - MARGIN * 2 - GUTTER) / 2;
 
-  let y = encabezado(doc, logo, 'Comprobante de permuta', venta.codigo);
+  let y = encabezado(doc, logo, tituloDocumento(venta, ' · permuta'), venta.codigo);
   y = fichaCliente(doc, autoTable, y, venta);
 
   /* ─── Los dos bloques, enfrentados ─────────────────────
@@ -134,7 +133,7 @@ export async function descargarComprobantePermutaPdf(
     ...(venta.descuento > 0
       ? ([['Descuento', `- ${mon(venta.descuento)}`]] as Array<[string, string]>)
       : []),
-    [`IVA ${num(venta.iva_pct)} %`, mon(venta.iva_monto)],
+    ...filasImpuestos(venta, mon),
     ['Total entregado', mon(venta.total)],
     ['Material recibido', `- ${mon(venta.valor_recibido)}`],
     [venta.diferencia < 0 ? 'SALDO A FAVOR' : 'DIFERENCIA', mon(Math.abs(venta.diferencia))],

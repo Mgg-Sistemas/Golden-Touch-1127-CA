@@ -115,6 +115,8 @@ const PIZARRA: [number, number, number] = [30, 41, 59];
 
 const ESTADOS: Record<EstadoVenta, string> = {
   borrador: 'Borrador',
+  por_autorizar: 'Por autorizar',
+  autorizada: 'Autorizada',
   confirmada: 'Confirmada',
   entregada: 'Entregada',
   anulada: 'Anulada',
@@ -138,9 +140,13 @@ function pct(v: number | null): string {
   return v == null ? '—' : `${num(v)} %`;
 }
 
-/** La venta sin IVA de un documento: el total menos el impuesto. */
+/**
+ * La venta sin impuestos de un documento: el total menos el IVA y el IGTF.
+ * Ninguno de los dos es venta ni ganancia: si el IGTF quedara adentro, el
+ * margen de una factura con IGTF saldría más chico de lo que es.
+ */
 function baseSinIva(v: Venta): number {
-  return round2(v.total - v.iva_monto);
+  return round2(v.total - v.iva_monto - (v.igtf_monto || 0));
 }
 
 function textoRango(r: RangoReporte): string {
@@ -299,7 +305,7 @@ export async function descargarVentasDelPeriodoPdf(filtros: FiltroVentasPeriodo 
         v.codigo,
         date(v.created_at),
         pdfSafe(v.cliente_nombre ?? '') || '—',
-        v.tipo === 'permuta' ? 'Permuta' : 'Venta',
+        `${v.tipo === 'permuta' ? 'Permuta' : 'Venta'} · ${v.documento === 'factura' ? 'Factura' : 'N. entrega'}`,
         CONDICIONES[v.condicion] ?? v.condicion,
         ESTADOS[v.estado] ?? v.estado,
         montoMoneda(v.total, v.moneda),
@@ -376,7 +382,7 @@ export async function descargarVentasDelPeriodoPdf(filtros: FiltroVentasPeriodo 
   });
 
   notas(doc, finalY(doc) + 16, [
-    'El margen se calcula sobre la venta SIN IVA (total − IVA). El IVA no es venta ni ganancia: se retiene y se entrega.',
+    'El margen se calcula sobre la venta SIN impuestos (total − IVA − IGTF). Los impuestos no son venta ni ganancia: se retienen y se entregan.',
     'La ganancia es la que quedó congelada al confirmar cada venta, contra el costo promedio de ese día. No se recalcula con el costo de hoy.',
     ...(hayAnuladas
       ? ['Hay ventas anuladas en la lista: NO se suman en los totales, porque esa facturación no existió.']

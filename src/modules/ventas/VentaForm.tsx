@@ -40,12 +40,13 @@ import { listSaldos } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Caja, CajaSaldo, Producto } from '@/shared/lib/types';
 import { round2 } from './ventasCalculos';
 import {
-  ClienteSelector, MONEDAS_DOC, TablaPagoLegs, TablaRenglonesVenta,
-  calcularFilas, legsAPago, nuevaLeg, nuevaLinea, proximoId,
-  useClienteVenta, type LegUI, type LineaUI,
+  ClienteSelector, DocumentoImpuestos, MONEDAS_DOC, TablaPagoLegs, TablaRenglonesVenta,
+  calcularFilas, documentoImpuestosInicial, legsAPago, nuevaLeg, nuevaLinea, porcentajesAplicados, proximoId,
+  useClienteVenta, type DocumentoImpuestosUI, type LegUI, type LineaUI,
 } from './ventasFormPartes';
+import { AUTORIZADORES_VENTAS_TEXTO } from './ventasAutorizadores';
 import {
-  actualizarBorrador, confirmarVenta, crearBorrador,
+  actualizarBorrador, crearBorrador, enviarVentaAAutorizar,
   listClientes, listExistenciasVenta, resumenDeVenta, sumaPagoLegs,
   type CondicionVenta, type ExistenciaProducto,
   type PagoLeg, type RenglonInput, type VentaCompleta, type VentaInput,
@@ -78,7 +79,8 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
   const [condicion, setCondicion] = useState<CondicionVenta>(venta?.venta.condicion ?? 'contado');
   const [moneda, setMoneda] = useState(venta?.venta.moneda ?? 'USD');
   const [tasaBs, setTasaBs] = useState(venta?.venta.tasa_bs ? String(venta.venta.tasa_bs) : '');
-  const [ivaPct, setIvaPct] = useState(venta ? String(venta.venta.iva_pct) : '16');
+  // Documento (nota de entrega / factura) e impuestos con casilla: ver `DocumentoImpuestos`.
+  const [docImp, setDocImp] = useState<DocumentoImpuestosUI>(() => documentoImpuestosInicial(venta?.venta));
   const [descuento, setDescuento] = useState(venta?.venta.descuento ? String(venta.venta.descuento) : '');
   // La nota va NO controlada (defaultValue + ref): un re-render no puede comerse
   // lo que se está tecleando. Se lee del DOM al guardar.
@@ -137,12 +139,12 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
     [lineas, porId, existencias],
   );
 
-  const ivaPctNum = Math.max(0, Number(ivaPct) || 0);
+  const { ivaPct: ivaPctNum, igtfPct: igtfPctNum } = porcentajesAplicados(docImp);
   const descuentoNum = Math.max(0, Number(descuento) || 0);
   // LA cuenta del documento. Una sola llamada, un solo lugar.
   const resumen = useMemo(
-    () => resumenDeVenta(filas.map((f) => f.calculo), [], ivaPctNum, descuentoNum),
-    [filas, ivaPctNum, descuentoNum],
+    () => resumenDeVenta(filas.map((f) => f.calculo), [], ivaPctNum, descuentoNum, igtfPctNum),
+    [filas, ivaPctNum, descuentoNum, igtfPctNum],
   );
 
   /* ── Patas de pago: lo cargado contra lo que hay que cobrar ── */
@@ -199,6 +201,10 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
       condicion, moneda,
       tasaBs: Number(tasaBs) > 0 ? Number(tasaBs) : null,
       ivaPct: ivaPctNum,
+      igtfPct: igtfPctNum,
+      documento: docImp.documento,
+      numeroFactura: docImp.numeroFactura,
+      numeroControl: docImp.numeroControl,
       descuento: descuentoNum,
       pagoLegs: esContado ? legsCargadas : [],
       nota: notaRef.current?.value ?? '',
@@ -234,22 +240,24 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
     }
   }
 
-  /** Confirmar mueve plata: guarda primero y después llama a la RPC. */
+  /**
+   * Guarda y la manda a autorizar. NO mueve plata: eso pasa al CONFIRMAR, y solo
+   * se puede confirmar una venta que LEYDIS RENGEL o JESUS LOZADA autorizaron.
+   */
   async function handleConfirmar() {
     setPidiendoConfirmar(false);
     setError(null);
     setGuardando(true);
     try {
       const guardada = await guardarBorrador();
-      const confirmada = await confirmarVenta(guardada.venta.id, actor, actorName ?? actor);
+      const enviada = await enviarVentaAAutorizar(guardada.venta.id, actor, actorName ?? actor);
       notify(
-        `Venta ${confirmada.codigo} confirmada · ${montoMoneda(confirmada.total, confirmada.moneda)}`
-        + (confirmada.condicion === 'credito' ? ' · a crédito (cuenta del cliente)' : ' · cobrada'),
+        `Venta ${enviada.codigo} enviada a autorizar · ${montoMoneda(enviada.total, enviada.moneda)}`,
         'success', { link: '#/app/ventas' },
       );
-      onSaved({ ...guardada, venta: confirmada });
+      onSaved({ ...guardada, venta: enviada });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo confirmar la venta.');
+      setError(err instanceof Error ? err.message : 'No se pudo enviar la venta a autorizar.');
       setGuardando(false);
     }
   }
@@ -267,9 +275,9 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
       <button type="button" className="btn btn-primary" disabled={!puedeConfirmar}
         onClick={() => setPidiendoConfirmar(true)}
         title={patasCuadran
-          ? 'Guarda y confirma: mueve el dinero (caja o cuenta del cliente)'
+          ? `Guarda y la manda a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve plata ni material.`
           : 'Las patas de pago tienen que sumar exactamente lo que hay que cobrar'}>
-        ✔ Confirmar venta
+        📤 Guardar y enviar a autorizar
       </button>
     </>
   );
@@ -287,7 +295,10 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
         {/* ── Cliente ── */}
         <ClienteSelector {...cliente.selector} />
 
-        {/* ── Condición, moneda, IVA, descuento ── */}
+        {/* ── Nota de entrega o factura, con IVA / IGTF por casilla ── */}
+        <DocumentoImpuestos valor={docImp} onChange={setDocImp} />
+
+        {/* ── Condición, moneda, descuento ── */}
         <div className="form-grid">
           <div className="form-row">
             <label>Condición</label>
@@ -313,12 +324,6 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
               onChange={(e) => setTasaBs(dosDecimales(e.target.value))} placeholder="0,00" />
           </div>
           <div className="form-row">
-            <label>IVA %</label>
-            <input className="input mono" inputMode="decimal" value={ivaPct}
-              onChange={(e) => setIvaPct(dosDecimales(e.target.value))} placeholder="16" />
-            <small className="muted">Se aplica sobre el subtotal menos el descuento.</small>
-          </div>
-          <div className="form-row">
             <label>Descuento del documento</label>
             <input className="input mono" inputMode="decimal" value={descuento}
               onChange={(e) => setDescuento(dosDecimales(e.target.value))} placeholder="0,00" />
@@ -342,7 +347,8 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.2rem' }}>
             <div>Subtotal: <strong className="mono">{montoMoneda(resumen.subtotal, moneda)}</strong></div>
             <div>Descuento: <strong className="mono">− {montoMoneda(resumen.descuento, moneda)}</strong></div>
-            <div>IVA ({num(resumen.ivaPct)} %): <strong className="mono">{montoMoneda(resumen.ivaMonto, moneda)}</strong></div>
+            {resumen.ivaPct > 0 && <div>IVA ({num(resumen.ivaPct)} %): <strong className="mono">{montoMoneda(resumen.ivaMonto, moneda)}</strong></div>}
+            {resumen.igtfPct > 0 && <div>IGTF ({num(resumen.igtfPct)} %): <strong className="mono">{montoMoneda(resumen.igtfMonto, moneda)}</strong></div>}
             <div>Total a cobrar: <strong className="mono">{montoMoneda(resumen.total, moneda)}</strong></div>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.2rem', marginTop: '.4rem' }}>
@@ -397,19 +403,16 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
 
       {pidiendoConfirmar && (
         <ConfirmDialog
-          title="Confirmar venta"
+          title="Enviar a autorizar"
           message={
-            `Confirmar mueve el dinero: ${esContado
-              ? `entran ${montoMoneda(aCobrar, moneda)} a la(s) caja(s) elegida(s)`
-              : `se le cargan ${montoMoneda(aCobrar, moneda)} a la cuenta del cliente`}`
-            + `. El costo de cada renglón se congela ahora contra el costo promedio de existencias, y la ganancia queda fijada en `
-            + `${montoMoneda(resumen.gananciaTotal, moneda)}. El material NO sale del inventario todavía: eso pasa al entregar.`
+            `${docImp.documento === 'factura' ? 'Factura' : 'Nota de entrega'} por ${montoMoneda(resumen.total, moneda)}`
+            + ` (${esContado ? 'de contado' : 'a crédito'}). Se guarda y le llega un aviso a ${AUTORIZADORES_VENTAS_TEXTO}.`
+            + ' No se mueve plata ni material: después de la autorización se CONFIRMA (entra la plata) y se ENTREGA (sale el material).'
             + (productosSinCosto > 0
-              ? ` OJO: ${productosSinCosto === 1 ? 'hay 1 renglón' : `hay ${productosSinCosto} renglones`} con costo en 0, así que esa ganancia no es real.`
+              ? ` OJO: ${productosSinCosto === 1 ? 'hay 1 renglón' : `hay ${productosSinCosto} renglones`} con costo en 0, así que la ganancia no es real.`
               : '')
-            + ' Para deshacerla después hay que anularla.'
           }
-          confirmText="Sí, confirmar"
+          confirmText="Sí, enviar"
           onConfirm={handleConfirmar}
           onCancel={() => setPidiendoConfirmar(false)}
         />

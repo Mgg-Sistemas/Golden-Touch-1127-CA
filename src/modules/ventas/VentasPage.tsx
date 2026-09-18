@@ -6,7 +6,10 @@
    El tablero agrupa por ESTADO porque el estado es lo que manda qué se puede
    hacer con el documento, y en este módulo cada transición mueve algo real:
 
-     · borrador   → no movió nada. Se edita, se confirma o se borra de verdad.
+     · borrador      → no movió nada. Se edita, se envía a autorizar o se borra.
+     · por_autorizar → espera a LEYDIS RENGEL o JESUS LOZADA. Se edita o se cancela.
+     · autorizada    → ya la aprobaron. Se confirma (o, si se edita, vuelve a
+                       borrador y hay que pedir otra autorización).
      · confirmada → YA MOVIÓ PLATA (caja o cuenta por cobrar). Falta entregar.
      · entregada  → YA MOVIÓ MATERIAL (kardex). El documento está cumplido.
      · anulada    → se deshizo. Queda con su motivo, no se borra nunca.
@@ -17,8 +20,10 @@
       comprobante del cliente. Los PDF ya la excluyen: lo único que hay que
       cuidar desde acá es no pasarles datos de más.
 
-   2. ANULAR es solo del administrador. Para cuando se anula, la venta ya
-      movió plata o material: devolver eso no es un botón más de la fila.
+   2. ANULAR una venta confirmada o entregada es solo del administrador: ya
+      movió plata o material y devolver eso no es un botón más de la fila. Una
+      venta por autorizar o autorizada todavía no movió nada: la puede CANCELAR
+      (con motivo) quien tiene escritura en Ventas.
 
    3. El cobro de una cuenta por cobrar NO se escribe acá. Se llama a
       `registrarCobro` de Tesorería, que es el único camino por el que la
@@ -47,10 +52,12 @@ import {
 import type { Caja, CuentaCaja } from '@/shared/lib/types';
 import { round2 } from './ventasCalculos';
 import {
-  anularVenta, borrarBorrador, confirmarVenta, entregarVenta, getVenta,
-  listMovimientosCajaDeVenta, listRenglonesDeVentas, listVentas,
-  type EstadoVenta, type MovimientoCajaDeVenta, type Venta, type VentaCompleta,
+  anularVenta, borrarBorrador, confirmarVenta, entregarVenta, enviarVentaAAutorizar, getVenta,
+  listMovimientosCajaDeVenta, listRenglonesDeVentas, listVentas, resolverAutorizacionVenta,
+  DOCUMENTO_LABEL, ESTADOS_EDITABLES,
+  type EstadoVenta, type EventoVenta, type MovimientoCajaDeVenta, type Venta, type VentaCompleta,
 } from './ventas.repository';
+import { AUTORIZADORES_VENTAS_TEXTO, puedeAutorizarVentas } from './ventasAutorizadores';
 import { VentaForm } from './VentaForm';
 import { PermutaForm } from './PermutaForm';
 import { descargarComprobanteVentaPdf } from './comprobanteVentaPdf';
@@ -70,7 +77,9 @@ type Vista = 'ventas' | 'permutas' | 'cobrar' | 'reportes';
 
 /** Orden del tablero: el trabajo pendiente primero, lo cerrado al final. */
 const COLUMNAS: { estado: EstadoVenta; label: string; ayuda: string }[] = [
-  { estado: 'borrador', label: 'Borradores', ayuda: 'Todavía no movieron plata ni material.' },
+  { estado: 'por_autorizar', label: 'Por autorizar', ayuda: `Esperan a ${AUTORIZADORES_VENTAS_TEXTO}. No movieron nada.` },
+  { estado: 'autorizada', label: 'Autorizadas', ayuda: 'Aprobadas. Falta confirmar: ahí se mueve la plata.' },
+  { estado: 'borrador', label: 'Borradores', ayuda: 'Todavía no se enviaron a autorizar.' },
   { estado: 'confirmada', label: 'Confirmadas', ayuda: 'Ya se cobró (o quedó a crédito). Falta entregar el material.' },
   { estado: 'entregada', label: 'Entregadas', ayuda: 'Material entregado. El documento está cumplido.' },
   { estado: 'anulada', label: 'Anuladas', ayuda: 'Se deshicieron. Quedan con su motivo.' },
@@ -78,6 +87,8 @@ const COLUMNAS: { estado: EstadoVenta; label: string; ayuda: string }[] = [
 
 const ESTADO_BADGE: Record<EstadoVenta, { label: string; clase: string }> = {
   borrador: { label: 'Borrador', clase: 'badge' },
+  por_autorizar: { label: 'Por autorizar', clase: 'badge warning' },
+  autorizada: { label: 'Autorizada', clase: 'badge info' },
   confirmada: { label: 'Confirmada', clase: 'badge info' },
   entregada: { label: 'Entregada', clase: 'badge success' },
   anulada: { label: 'Anulada', clase: 'badge danger' },
@@ -87,6 +98,31 @@ function EstadoBadge({ estado }: { estado: EstadoVenta }) {
   const b = ESTADO_BADGE[estado];
   return <span className={b?.clase ?? 'badge'}>{b?.label ?? estado}</span>;
 }
+
+function DocumentoBadge({ venta }: { venta: Venta }) {
+  const factura = venta.documento === 'factura';
+  return (
+    <span className={factura ? 'badge info' : 'badge'} title={factura && venta.numero_factura ? `Factura Nº ${venta.numero_factura}` : undefined}>
+      {factura ? '🧾 Factura' : '📋 Nota de entrega'}
+    </span>
+  );
+}
+
+/** Todavía no movió plata ni material: se cancela sin reversar nada. */
+const SIN_MOVIMIENTO: EstadoVenta[] = ['por_autorizar', 'autorizada'];
+
+/** Texto de cada evento del historial, en el idioma de quien lo lee. */
+const EVENTO_LABEL: Record<string, { icono: string; texto: string }> = {
+  creada: { icono: '🆕', texto: 'Creada' },
+  editada: { icono: '✏️', texto: 'Editada' },
+  enviada_a_autorizar: { icono: '📤', texto: 'Enviada a autorizar' },
+  autorizada: { icono: '✅', texto: 'Autorizada' },
+  rechazada: { icono: '✖', texto: 'Rechazada' },
+  devuelta_a_borrador: { icono: '↩', texto: 'Vuelve a borrador' },
+  confirmada: { icono: '💵', texto: 'Confirmada (se movió la plata)' },
+  entregada: { icono: '📦', texto: 'Entregada (salió el material)' },
+  anulada: { icono: '⊘', texto: 'Anulada / cancelada' },
+};
 
 /** El texto que hace visible el signo de la ganancia sin leer el número. */
 function colorGanancia(n: number): string | undefined {
@@ -102,6 +138,9 @@ type ModalKind =
   | { kind: 'nueva'; tipo: 'venta' | 'permuta' }
   | { kind: 'editar'; datos: VentaCompleta }
   | { kind: 'detalle'; datos: VentaCompleta }
+  | { kind: 'enviar'; venta: Venta }
+  | { kind: 'autorizar'; venta: Venta }
+  | { kind: 'rechazar'; venta: Venta }
   | { kind: 'confirmar'; venta: Venta }
   | { kind: 'entregar'; venta: Venta }
   | { kind: 'anular'; venta: Venta }
@@ -115,8 +154,15 @@ export function VentasPage() {
 
   // Escribir el módulo: admin o quien tenga `escritura` sobre Ventas.
   const puedeEscribir = isAdmin || can('ventas', 'escritura');
-  // Anular NO: para entonces la venta ya movió plata o material.
-  const puedeAnular = isAdmin;
+  // Anular lo que ya movió plata o material: solo el administrador. Cancelar lo
+  // que todavía no movió nada (por autorizar / autorizada): quien escribe Ventas.
+  const puedeAnular = useCallback(
+    (v: Venta) => v.estado !== 'anulada' && v.estado !== 'borrador'
+      && (isAdmin || (puedeEscribir && SIN_MOVIMIENTO.includes(v.estado))),
+    [isAdmin, puedeEscribir],
+  );
+  // Autorizar o rechazar: LEYDIS RENGEL y JESUS LOZADA (la base lo vuelve a comprobar).
+  const puedeAutorizar = puedeAutorizarVentas(user?.email);
 
   const [vista, setVista] = useState<Vista>('ventas');
   const [ventas, setVentas] = useState<Venta[]>([]);
@@ -181,7 +227,9 @@ export function VentasPage() {
   }, [ventas, tipoVista, fEstado, texto]);
 
   const porEstado = useMemo(() => {
-    const mapa: Record<EstadoVenta, Venta[]> = { borrador: [], confirmada: [], entregada: [], anulada: [] };
+    const mapa: Record<EstadoVenta, Venta[]> = {
+      borrador: [], por_autorizar: [], autorizada: [], confirmada: [], entregada: [], anulada: [],
+    };
     for (const v of filtradas) mapa[v.estado]?.push(v);
     return mapa;
   }, [filtradas]);
@@ -205,7 +253,7 @@ export function VentasPage() {
       if (!datos) { toast('Esa venta ya no existe.', 'error'); await refresh(); return; }
       setModal({ kind: 'editar', datos });
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo abrir el borrador.', 'error');
+      toast(e instanceof Error ? e.message : 'No se pudo abrir la venta para editarla.', 'error');
     }
   }, [refresh]);
 
@@ -316,9 +364,13 @@ export function VentasPage() {
                   ventas={filas}
                   puedeEscribir={puedeEscribir}
                   puedeAnular={puedeAnular}
+                  puedeAutorizar={puedeAutorizar}
                   onDetalle={(v) => void abrirDetalle(v)}
                   onEditar={(v) => void abrirEditar(v)}
                   onComprobante={(v) => void abrirComprobante(v)}
+                  onEnviar={(v) => setModal({ kind: 'enviar', venta: v })}
+                  onAutorizar={(v) => setModal({ kind: 'autorizar', venta: v })}
+                  onRechazar={(v) => setModal({ kind: 'rechazar', venta: v })}
                   onConfirmar={(v) => setModal({ kind: 'confirmar', venta: v })}
                   onEntregar={(v) => setModal({ kind: 'entregar', venta: v })}
                   onAnular={(v) => setModal({ kind: 'anular', venta: v })}
@@ -354,9 +406,13 @@ export function VentasPage() {
           nombresDeCaja={nombresDeCaja}
           puedeEscribir={puedeEscribir}
           puedeAnular={puedeAnular}
+          puedeAutorizar={puedeAutorizar}
           onClose={cerrarForm}
           onEditar={(v) => void abrirEditar(v)}
           onComprobante={(v) => void abrirComprobante(v)}
+          onEnviar={(v) => setModal({ kind: 'enviar', venta: v })}
+          onAutorizar={(v) => setModal({ kind: 'autorizar', venta: v })}
+          onRechazar={(v) => setModal({ kind: 'rechazar', venta: v })}
           onConfirmar={(v) => setModal({ kind: 'confirmar', venta: v })}
           onEntregar={(v) => setModal({ kind: 'entregar', venta: v })}
           onAnular={(v) => setModal({ kind: 'anular', venta: v })}
@@ -364,9 +420,50 @@ export function VentasPage() {
       )}
 
       {/* ── Transiciones ── */}
+      {modal.kind === 'enviar' && (
+        <ConfirmDialog
+          title={`Enviar ${modal.venta.codigo} a autorizar`}
+          message={`${DOCUMENTO_LABEL[modal.venta.documento]} por ${montoMoneda(modal.venta.total, modal.venta.moneda)}${modal.venta.cliente_nombre ? ` a ${modal.venta.cliente_nombre}` : ''}. Le llega un aviso a ${AUTORIZADORES_VENTAS_TEXTO}. No se mueve plata ni material hasta que la autoricen y se confirme.`}
+          confirmText={trabajando ? 'Enviando…' : 'Sí, enviar'}
+          onCancel={cerrarForm}
+          onConfirm={() => void ejecutar(async () => {
+            const v = await enviarVentaAAutorizar(modal.venta.id, actor, actorName ?? actor);
+            return `${v.codigo} enviada a autorizar`;
+          })}
+        />
+      )}
+
+      {modal.kind === 'autorizar' && (
+        <ConfirmDialog
+          title={`Autorizar ${modal.venta.codigo}`}
+          message={`${DOCUMENTO_LABEL[modal.venta.documento]} por ${montoMoneda(modal.venta.total, modal.venta.moneda)}${modal.venta.cliente_nombre ? ` a ${modal.venta.cliente_nombre}` : ''}${modal.venta.condicion === 'credito' ? ' · A CRÉDITO' : ''}. Con tu autorización ya se puede confirmar; tu nombre queda en el historial.`}
+          confirmText={trabajando ? 'Autorizando…' : '✅ Sí, autorizar'}
+          onCancel={cerrarForm}
+          onConfirm={() => void ejecutar(async () => {
+            const v = await resolverAutorizacionVenta(modal.venta.id, true, actor, actorName ?? actor);
+            return `${v.codigo} autorizada`;
+          })}
+        />
+      )}
+
+      {modal.kind === 'rechazar' && (
+        <MotivoModal
+          titulo={`✖ Rechazar ${modal.venta.codigo}`}
+          explicacion="La venta vuelve a borrador para que la corrijan. El motivo le llega a quien la cargó y queda en el historial."
+          etiqueta="Motivo del rechazo"
+          boton="Rechazar la venta"
+          trabajando={trabajando}
+          onCancel={cerrarForm}
+          onAceptar={(motivo) => void ejecutar(async () => {
+            const v = await resolverAutorizacionVenta(modal.venta.id, false, actor, actorName ?? actor, motivo);
+            return `${v.codigo} rechazada: vuelve a borrador`;
+          })}
+        />
+      )}
+
       {modal.kind === 'confirmar' && (
         <ConfirmDialog
-          title={`Confirmar ${modal.venta.codigo}`}
+          title={`Confirmar ${modal.venta.codigo} (autorizada${modal.venta.autorizada_por ? ` por ${modal.venta.autorizada_por}` : ''})`}
           message={
             modal.venta.condicion === 'credito'
               ? `Se le va a cargar ${montoMoneda(modal.venta.diferencia, modal.venta.moneda)} a la cuenta corriente de ${modal.venta.cliente_nombre || 'el cliente'}. El material NO sale todavía: eso pasa al entregar.`
@@ -397,7 +494,7 @@ export function VentasPage() {
       {modal.kind === 'borrar' && (
         <ConfirmDialog
           title={`Borrar el borrador ${modal.venta.codigo}`}
-          message="Un borrador no movió plata ni material, así que se borra de verdad y no queda rastro. Una venta confirmada o entregada NO se borra: se anula."
+          message="Un borrador no movió plata ni material, así que se borra de verdad. Una venta ya enviada a autorizar se CANCELA (queda con su motivo) y una confirmada o entregada se ANULA."
           confirmText={trabajando ? 'Borrando…' : 'Sí, borrar'}
           danger
           onCancel={cerrarForm}
@@ -414,8 +511,9 @@ export function VentasPage() {
           trabajando={trabajando}
           onCancel={cerrarForm}
           onAnular={(motivo) => void ejecutar(async () => {
+            const cancelar = SIN_MOVIMIENTO.includes(modal.venta.estado);
             const v = await anularVenta(modal.venta.id, actor, actorName ?? actor, motivo);
-            return `${v.codigo} anulada`;
+            return cancelar ? `${v.codigo} cancelada` : `${v.codigo} anulada`;
           })}
         />
       )}
@@ -430,10 +528,14 @@ interface TableroProps {
   ayuda: string;
   ventas: Venta[];
   puedeEscribir: boolean;
-  puedeAnular: boolean;
+  puedeAnular: (v: Venta) => boolean;
+  puedeAutorizar: boolean;
   onDetalle: (v: Venta) => void;
   onEditar: (v: Venta) => void;
   onComprobante: (v: Venta) => void;
+  onEnviar: (v: Venta) => void;
+  onAutorizar: (v: Venta) => void;
+  onRechazar: (v: Venta) => void;
   onConfirmar: (v: Venta) => void;
   onEntregar: (v: Venta) => void;
   onAnular: (v: Venta) => void;
@@ -441,8 +543,8 @@ interface TableroProps {
 }
 
 function TableroEstado({
-  titulo, ayuda, ventas, puedeEscribir, puedeAnular,
-  onDetalle, onEditar, onComprobante, onConfirmar, onEntregar, onAnular, onBorrar,
+  titulo, ayuda, ventas, puedeEscribir, puedeAnular, puedeAutorizar,
+  onDetalle, onEditar, onComprobante, onEnviar, onAutorizar, onRechazar, onConfirmar, onEntregar, onAnular, onBorrar,
 }: TableroProps) {
   return (
     <div className="card" style={{ marginBottom: '1rem' }}>
@@ -457,6 +559,7 @@ function TableroEstado({
             <tr>
               <th>Código</th>
               <th>Cliente</th>
+              <th>Documento</th>
               <th>Fecha</th>
               <th style={{ textAlign: 'right' }}>Total</th>
               <th style={{ textAlign: 'right' }}>Ganancia</th>
@@ -474,6 +577,7 @@ function TableroEstado({
                   {v.condicion === 'credito' && <span className="badge warning" style={{ marginLeft: '.3rem' }}>Crédito</span>}
                 </td>
                 <td>{v.cliente_nombre || <span className="muted">—</span>}</td>
+                <td><DocumentoBadge venta={v} /></td>
                 <td className="muted">{date(v.created_at)}</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{montoMoneda(v.total, v.moneda)}</td>
                 <td className="mono" style={{ textAlign: 'right', color: colorGanancia(v.ganancia_total) }}>
@@ -481,12 +585,23 @@ function TableroEstado({
                 </td>
                 <td><EstadoBadge estado={v.estado} /></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {ESTADOS_EDITABLES.includes(v.estado) && puedeEscribir && (
+                    <button className="btn btn-sm btn-ghost" title={v.estado === 'borrador' ? 'Editar' : 'Editar: vuelve a borrador y hay que pedir otra autorización'} onClick={() => onEditar(v)}>✏️ Editar</button>
+                  )}
                   {v.estado === 'borrador' && puedeEscribir && (
                     <>
-                      <button className="btn btn-sm btn-ghost" title="Editar el borrador" onClick={() => onEditar(v)}>✏️ Editar</button>
-                      <button className="btn btn-sm btn-primary" title="Confirmar: mueve la plata" onClick={() => onConfirmar(v)}>✔ Confirmar</button>
+                      <button className="btn btn-sm btn-primary" title={`Enviar a ${AUTORIZADORES_VENTAS_TEXTO}`} onClick={() => onEnviar(v)}>📤 Enviar a autorizar</button>
                       <button className="btn btn-sm btn-danger" title="Borrar el borrador" onClick={() => onBorrar(v)}>🗑</button>
                     </>
+                  )}
+                  {v.estado === 'por_autorizar' && puedeAutorizar && (
+                    <>
+                      <button className="btn btn-sm btn-primary" title="Autorizar la venta" onClick={() => onAutorizar(v)}>✅ Autorizar</button>
+                      <button className="btn btn-sm btn-danger" title="Rechazar: vuelve a borrador con el motivo" onClick={() => onRechazar(v)}>✖ Rechazar</button>
+                    </>
+                  )}
+                  {v.estado === 'autorizada' && puedeEscribir && (
+                    <button className="btn btn-sm btn-primary" title="Confirmar: mueve la plata" onClick={() => onConfirmar(v)}>✔ Confirmar</button>
                   )}
                   {v.estado === 'confirmada' && puedeEscribir && (
                     <button className="btn btn-sm btn-primary" title="Entregar: mueve el material" onClick={() => onEntregar(v)}>📦 Entregar</button>
@@ -494,8 +609,10 @@ function TableroEstado({
                   {v.estado !== 'borrador' && (
                     <button className="btn btn-sm btn-ghost" title="Comprobante en PDF (vista previa)" onClick={() => onComprobante(v)}>📄</button>
                   )}
-                  {v.estado !== 'borrador' && v.estado !== 'anulada' && puedeAnular && (
-                    <button className="btn btn-sm btn-danger" title="Anular (solo administradores)" onClick={() => onAnular(v)}>⊘ Anular</button>
+                  {puedeAnular(v) && (
+                    SIN_MOVIMIENTO.includes(v.estado)
+                      ? <button className="btn btn-sm btn-danger" title="Cancelar: todavía no movió plata ni material" onClick={() => onAnular(v)}>⊘ Cancelar</button>
+                      : <button className="btn btn-sm btn-danger" title="Anular (solo administradores)" onClick={() => onAnular(v)}>⊘ Anular</button>
                   )}
                 </td>
               </tr>
@@ -513,18 +630,22 @@ interface DetalleProps {
   datos: VentaCompleta;
   nombresDeCaja: Record<string, string>;
   puedeEscribir: boolean;
-  puedeAnular: boolean;
+  puedeAnular: (v: Venta) => boolean;
+  puedeAutorizar: boolean;
   onClose: () => void;
   onEditar: (v: Venta) => void;
   onComprobante: (v: Venta) => void;
+  onEnviar: (v: Venta) => void;
+  onAutorizar: (v: Venta) => void;
+  onRechazar: (v: Venta) => void;
   onConfirmar: (v: Venta) => void;
   onEntregar: (v: Venta) => void;
   onAnular: (v: Venta) => void;
 }
 
 function DetalleVentaModal({
-  datos, nombresDeCaja, puedeEscribir, puedeAnular,
-  onClose, onEditar, onComprobante, onConfirmar, onEntregar, onAnular,
+  datos, nombresDeCaja, puedeEscribir, puedeAnular, puedeAutorizar,
+  onClose, onEditar, onComprobante, onEnviar, onAutorizar, onRechazar, onConfirmar, onEntregar, onAnular,
 }: DetalleProps) {
   const { venta, renglones, recibidos } = datos;
   const [movs, setMovs] = useState<MovimientoCajaDeVenta[]>([]);
@@ -555,17 +676,28 @@ function DetalleVentaModal({
           {venta.estado !== 'borrador' && (
             <button className="btn btn-ghost" onClick={() => onComprobante(venta)}>📄 Comprobante</button>
           )}
+          {ESTADOS_EDITABLES.includes(venta.estado) && puedeEscribir && (
+            <button className="btn btn-ghost" onClick={() => onEditar(venta)}>✏️ Editar</button>
+          )}
           {venta.estado === 'borrador' && puedeEscribir && (
+            <button className="btn btn-primary" onClick={() => onEnviar(venta)}>📤 Enviar a autorizar</button>
+          )}
+          {venta.estado === 'por_autorizar' && puedeAutorizar && (
             <>
-              <button className="btn btn-ghost" onClick={() => onEditar(venta)}>✏️ Editar</button>
-              <button className="btn btn-primary" onClick={() => onConfirmar(venta)}>✔ Confirmar</button>
+              <button className="btn btn-danger" onClick={() => onRechazar(venta)}>✖ Rechazar</button>
+              <button className="btn btn-primary" onClick={() => onAutorizar(venta)}>✅ Autorizar</button>
             </>
+          )}
+          {venta.estado === 'autorizada' && puedeEscribir && (
+            <button className="btn btn-primary" onClick={() => onConfirmar(venta)}>✔ Confirmar</button>
           )}
           {venta.estado === 'confirmada' && puedeEscribir && (
             <button className="btn btn-primary" onClick={() => onEntregar(venta)}>📦 Entregar</button>
           )}
-          {venta.estado !== 'borrador' && venta.estado !== 'anulada' && puedeAnular && (
-            <button className="btn btn-danger" onClick={() => onAnular(venta)}>⊘ Anular</button>
+          {puedeAnular(venta) && (
+            <button className="btn btn-danger" onClick={() => onAnular(venta)}>
+              {SIN_MOVIMIENTO.includes(venta.estado) ? '⊘ Cancelar' : '⊘ Anular'}
+            </button>
           )}
         </>
       }
@@ -573,6 +705,12 @@ function DetalleVentaModal({
       {/* ── Cabecera ── */}
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.7rem' }}>
         <EstadoBadge estado={venta.estado} />
+        <DocumentoBadge venta={venta} />
+        {venta.documento === 'factura' && (venta.numero_factura || venta.numero_control) && (
+          <span className="mono muted" style={{ fontSize: '.8rem' }}>
+            {venta.numero_factura ? `Nº ${venta.numero_factura}` : ''}{venta.numero_control ? ` · Control ${venta.numero_control}` : ''}
+          </span>
+        )}
         <span className={venta.condicion === 'credito' ? 'badge warning' : 'badge info'}>
           {venta.condicion === 'credito' ? 'A crédito' : 'De contado'}
         </span>
@@ -586,10 +724,12 @@ function DetalleVentaModal({
           {venta.cliente_rif && <div className="mono muted" style={{ fontSize: '.78rem' }}>{venta.cliente_rif}</div>}
         </div>
         <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
-          <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL (CON IVA)</div>
+          <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{montoMoneda(venta.total, venta.moneda)}</div>
           <div className="muted" style={{ fontSize: '.72rem' }}>
-            Base {montoMoneda(round2(venta.subtotal - venta.descuento), venta.moneda)} · IVA {venta.iva_pct}% {montoMoneda(venta.iva_monto, venta.moneda)}
+            Base {montoMoneda(round2(venta.subtotal - venta.descuento), venta.moneda)}
+            {venta.iva_pct > 0 ? ` · IVA ${venta.iva_pct}% ${montoMoneda(venta.iva_monto, venta.moneda)}` : ' · sin IVA'}
+            {venta.igtf_pct > 0 ? ` · IGTF ${venta.igtf_pct}% ${montoMoneda(venta.igtf_monto, venta.moneda)}` : ''}
           </div>
         </div>
         <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
@@ -609,6 +749,24 @@ function DetalleVentaModal({
           )}
         </div>
       </div>
+
+      {venta.estado === 'borrador' && venta.rechazo_motivo && (
+        <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.8rem' }}>
+          <strong>Rechazada</strong>{venta.rechazada_por ? ` por ${venta.rechazada_por}` : ''}{venta.rechazada_at ? ` el ${dateTime(venta.rechazada_at)}` : ''}.
+          <div className="muted" style={{ marginTop: '.25rem' }}>Motivo: {venta.rechazo_motivo}. Corregila y volvé a enviarla a autorizar.</div>
+        </div>
+      )}
+      {venta.estado === 'por_autorizar' && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.8rem' }}>
+          <strong>Esperando autorización</strong> de {AUTORIZADORES_VENTAS_TEXTO}
+          {venta.enviada_por ? ` · la envió ${venta.enviada_por}` : ''}{venta.enviada_at ? ` el ${dateTime(venta.enviada_at)}` : ''}.
+        </div>
+      )}
+      {venta.autorizada_por && venta.estado !== 'borrador' && (
+        <p className="muted" style={{ margin: '0 0 .8rem' }}>
+          ✅ Autorizada por <strong>{venta.autorizada_por}</strong>{venta.autorizada_at ? ` el ${dateTime(venta.autorizada_at)}` : ''}.
+        </p>
+      )}
 
       {venta.estado === 'anulada' && (
         <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.8rem' }}>
@@ -728,6 +886,88 @@ function DetalleVentaModal({
       {venta.nota && (
         <p className="muted" style={{ marginTop: '.8rem', marginBottom: 0 }}><strong>Nota:</strong> {venta.nota}</p>
       )}
+
+      <HistorialVenta historial={venta.historial} moneda={venta.moneda} />
+    </Modal>
+  );
+}
+
+/* ─────────────────────────── Trazabilidad ─────────────────────────── */
+
+/** El rastro que escribe la base (trigger), del paso más nuevo al más viejo. */
+function HistorialVenta({ historial, moneda }: { historial: EventoVenta[]; moneda: string }) {
+  const eventos = [...(historial ?? [])].reverse();
+  return (
+    <div style={{ marginTop: '1rem' }}>
+      <strong style={{ fontSize: '.84rem' }}>🕓 Trazabilidad</strong>
+      {!eventos.length ? (
+        <p className="muted" style={{ margin: '.3rem 0 0', fontSize: '.8rem' }}>Sin eventos registrados.</p>
+      ) : (
+        <div className="table-wrap" style={{ marginTop: '.3rem' }}>
+          <table className="table" style={{ fontSize: '.8rem' }}>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Paso</th>
+                <th>Quién</th>
+                <th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {eventos.map((e, i) => {
+                const l = EVENTO_LABEL[e.evento] ?? { icono: '•', texto: e.evento };
+                return (
+                  <tr key={`${e.at}-${i}`}>
+                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dateTime(e.at)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{l.icono} {l.texto}</td>
+                    <td>{e.actor_name || e.actor || '—'}</td>
+                    <td className="muted">
+                      {e.motivo ? <>Motivo: {e.motivo}</> : null}
+                      {e.total_antes != null && e.total != null && e.total_antes !== e.total
+                        ? <>{e.motivo ? ' · ' : ''}Total {montoMoneda(e.total_antes, moneda)} → {montoMoneda(e.total, moneda)}</>
+                        : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── Motivo (rechazo) ─────────────────────────── */
+
+function MotivoModal({
+  titulo, explicacion, etiqueta, boton, trabajando, onCancel, onAceptar,
+}: {
+  titulo: string; explicacion: string; etiqueta: string; boton: string;
+  trabajando: boolean; onCancel: () => void; onAceptar: (motivo: string) => void;
+}) {
+  const [motivo, setMotivo] = useState('');
+  const listo = motivo.trim().length >= 4;
+  return (
+    <Modal
+      title={titulo}
+      compact
+      onClose={onCancel}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onCancel} disabled={trabajando}>Cancelar</button>
+          <button className="btn btn-danger" disabled={!listo || trabajando} onClick={() => onAceptar(motivo.trim())}>
+            {trabajando ? 'Guardando…' : boton}
+          </button>
+        </>
+      }
+    >
+      <p style={{ marginTop: 0 }}>{explicacion}</p>
+      <div className="form-row">
+        <label>{etiqueta} <span className="muted">(obligatorio)</span></label>
+        <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
+        {!listo && motivo.length > 0 && <small className="muted">Escribí un motivo un poco más claro (al menos 4 caracteres).</small>}
+      </div>
     </Modal>
   );
 }
@@ -739,28 +979,32 @@ function AnularModal({
 }: { venta: Venta; trabajando: boolean; onCancel: () => void; onAnular: (motivo: string) => void }) {
   const [motivo, setMotivo] = useState('');
   const listo = motivo.trim().length >= 4;
+  const cancelar = SIN_MOVIMIENTO.includes(venta.estado);
   return (
     <Modal
-      title={`⊘ Anular ${venta.codigo}`}
+      title={`⊘ ${cancelar ? 'Cancelar' : 'Anular'} ${venta.codigo}`}
       compact
       onClose={onCancel}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onCancel} disabled={trabajando}>Cancelar</button>
           <button className="btn btn-danger" disabled={!listo || trabajando} onClick={() => onAnular(motivo.trim())}>
-            {trabajando ? 'Anulando…' : 'Anular la venta'}
+            {trabajando ? (cancelar ? 'Cancelando…' : 'Anulando…') : (cancelar ? 'Cancelar la venta' : 'Anular la venta')}
           </button>
         </>
       }
     >
       <p style={{ marginTop: 0 }}>
-        {venta.estado === 'entregada'
-          ? 'El material va a VOLVER al inventario y la plata cobrada se va a reversar en las cajas.'
-          : 'La plata cobrada se va a reversar en las cajas.'}
-        {venta.condicion === 'credito' && ' Si la venta quedó a crédito, se le resta a la cuenta corriente del cliente; si esa cuenta ya tiene cobros, la anulación se rechaza y primero hay que devolver esa plata.'}
+        {cancelar
+          ? 'Esta venta todavía no movió plata ni material: se cancela sin reversar nada. Queda en «Anuladas» con su motivo y su historial.'
+          : venta.estado === 'entregada'
+            ? 'El material va a VOLVER al inventario y la plata cobrada se va a reversar en las cajas.'
+            : 'La plata cobrada se va a reversar en las cajas.'}
+        {!cancelar && venta.condicion === 'credito' && ' Si la venta quedó a crédito, se le resta a la cuenta corriente del cliente; si esa cuenta ya tiene cobros, la anulación se rechaza y primero hay que devolver esa plata.'}
+        {!cancelar && venta.tipo === 'permuta' && venta.estado === 'entregada' && ' El material que entregó el cliente sale del inventario.'}
       </p>
       <div className="form-row">
-        <label>Motivo de la anulación <span className="muted">(obligatorio)</span></label>
+        <label>Motivo {cancelar ? 'de la cancelación' : 'de la anulación'} <span className="muted">(obligatorio)</span></label>
         <textarea
           className="input"
           rows={3}
