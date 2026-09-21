@@ -289,7 +289,10 @@ export async function cargarControl(desde: string, hasta: string): Promise<Contr
 
     const demandaEstimada = o?.demanda_anual == null;
     const demandaAnual = demandaEstimada
-      ? demandaAnualEstimada(tot.consumo, tot.diasConConsumo)
+      // Sobre los días del PERÍODO, no sobre los que tuvieron consumo: ver
+      // demandaAnualEstimada. Con productos que se sirven cada tanto, la
+      // diferencia entre una cosa y la otra es pedir de más por diez.
+      ? demandaAnualEstimada(tot.consumo, dias.length)
       : Number(o?.demanda_anual);
     const eoq = calcularEoq({ demandaAnual, costoOrden, costoAlmacenar, leadTimeDias });
 

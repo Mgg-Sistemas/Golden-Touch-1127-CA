@@ -38,11 +38,18 @@ describe('EOQ · reproduce la hoja de pollo', () => {
 });
 
 describe('demanda anual estimada', () => {
-  it('promedia sobre los días CON consumo, no sobre el calendario', () => {
-    // Los Pinos: 54 UND en 6 días con consumo = 9/día.
-    expect(demandaAnualEstimada(54, 6)).toBe(3285);
+  it('anualiza sobre los días del período y cae cerca de la demanda de la hoja', () => {
+    // Los Pinos: 54 UND en los 12 días de la hoja. A mano escribieron D = 1.700.
+    expect(demandaAnualEstimada(54, 12)).toBe(1642.5);
   });
-  it('sin días registrados es cero', () => {
+
+  it('NO anualiza sobre los días con consumo: eso multiplicaría el pedido', () => {
+    // El mismo consumo repartido en 1 solo día daría 19.710 al año: una montaña.
+    expect(demandaAnualEstimada(54, 1)).toBe(19710);
+    expect(demandaAnualEstimada(54, 12)).toBeLessThan(demandaAnualEstimada(54, 1));
+  });
+
+  it('sin días es cero', () => {
     expect(demandaAnualEstimada(54, 0)).toBe(0);
   });
 });

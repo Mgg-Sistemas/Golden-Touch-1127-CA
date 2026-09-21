@@ -463,7 +463,7 @@ function ParametrosProductoCard({ p, canWrite, actor, actorName, onGuardado }: {
         <div className="muted" style={{ fontSize: '.82rem' }}>
           Demanda anual (D): <strong>{num(p.demandaAnual)}</strong>{' '}
           {p.demandaEstimada
-            ? <em>estimada del consumo real ({num(p.totales.promedioDiario)}/día × 365)</em>
+            ? <em>estimada: lo consumido en el período llevado a un año</em>
             : <em>fijada a mano</em>}
           {' · '}${num(p.costoOrden)} por orden · ${num(p.costoAlmacenar)} unidad/año · entrega {p.leadTimeDias} días
         </div>

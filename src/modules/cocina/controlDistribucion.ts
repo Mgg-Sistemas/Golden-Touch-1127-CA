@@ -87,9 +87,15 @@ export function calcularEoq(p: ParametrosEoq): ResultadoEoq {
 }
 
 /**
- * Demanda anual estimada a partir del consumo observado. `dias` son los días con
- * consumo registrado, no los del calendario: promediar contra días sin datos
- * subestimaría la demanda y haría pedir de menos.
+ * Demanda anual estimada a partir del consumo observado. `dias` son los días del
+ * PERÍODO, no los que tuvieron consumo.
+ *
+ * Es la diferencia entre estimar y exagerar: un producto que se sirve una vez
+ * cada dos semanas tiene un solo día con consumo, y anualizar sobre ese día daría
+ * 365 veces esa ración — el sistema pediría una montaña. Anualizar sobre el
+ * calendario da lo que de verdad se come al año. Se confirma contra la hoja: Los
+ * Pinos consumió 54 UND en 12 días, que anualizado da 1.642, y la demanda que ahí
+ * escribieron a mano es 1.700.
  */
 export function demandaAnualEstimada(consumoTotal: number, dias: number): number {
   const d = Math.max(0, Math.trunc(n(dias)));
