@@ -37,6 +37,13 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [formOpen, setFormOpen] = useState(false);
   const [cargos, setCargos] = useState<string[]>([]);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
+  // Foto dentro del formulario. En un registro que YA existe se sube y se borra
+  // en el momento (es un archivo, no un campo del formulario). En uno nuevo
+  // todavía no hay a qué asociarla, así que queda pendiente y sube al guardar.
+  const [fotoPath, setFotoPath] = useState<string | null>(null);
+  const [fotoPreview, setFotoPreview] = useState<string | null>(null);
+  const [fotoPendiente, setFotoPendiente] = useState<File | null>(null);
+  const [fotoOcupada, setFotoOcupada] = useState(false);
   // Campos de texto NO controlados (DOM = fuente de verdad): inmunes a re-renders
   // que de otro modo "cortan" lo tecleado. Se leen del DOM al guardar.
   const formRef = useRef<HTMLFormElement>(null);
@@ -55,13 +62,72 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   useEffect(() => { cargarCatalogos(); }, [cargarCatalogos]);
   useRealtime(['personal'], () => { void recargar(); });
 
-  function abrirNuevo() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(true); }
+  function limpiarFoto() { setFotoPath(null); setFotoPreview(null); setFotoPendiente(null); setFotoOcupada(false); }
+
+  function abrirNuevo() { setEditId(null); setForm(VACIO); setError(null); limpiarFoto(); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
     setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', telefono_emergencia: p.telefono_emergencia ?? '' });
+    limpiarFoto();
+    setFotoPath(p.foto_path ?? null);
     setError(null); setFormOpen(true);
   }
-  function cerrarForm() { setEditId(null); setForm(VACIO); setError(null); setFormOpen(false); }
+  function cerrarForm() { setEditId(null); setForm(VACIO); setError(null); limpiarFoto(); setFormOpen(false); }
+
+  // La vista previa de la foto guardada se baja una sola vez al abrir el formulario.
+  useEffect(() => {
+    if (!formOpen || !fotoPath || fotoPreview) return;
+    let cancel = false;
+    fotoPersonalDataUrl(fotoPath)
+      .then((d) => { if (!cancel) setFotoPreview(d); })
+      .catch(() => { /* si no se puede bajar, se muestra el marco vacío */ });
+    return () => { cancel = true; };
+  }, [formOpen, fotoPath, fotoPreview]);
+
+  /** Lee el archivo elegido para mostrarlo al instante, sin esperar al servidor. */
+  function leerPreview(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function elegirFotoForm(file: File) {
+    setError(null);
+    if (!file.type.startsWith('image/')) { setError('La foto debe ser una imagen.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError('La foto no puede superar 5 MB.'); return; }
+    setFotoOcupada(true);
+    try {
+      const preview = await leerPreview(file);
+      if (editId) {
+        // Registro existente: sube ya. Así el carnet y la ficha quedan al día
+        // aunque después se cierre el formulario sin guardar el resto.
+        const nuevo = await subirFotoPersonal(editId, file, fotoPath);
+        setFotoPath(nuevo); setFotoPendiente(null); setFotoPreview(preview);
+        await recargar();
+      } else {
+        setFotoPendiente(file); setFotoPreview(preview);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo cargar la foto');
+    } finally { setFotoOcupada(false); }
+  }
+
+  async function quitarFotoForm() {
+    setError(null);
+    if (!editId || !fotoPath) { setFotoPendiente(null); setFotoPreview(null); return; }
+    if (!window.confirm('¿Quitar la foto de esta persona? Se borra del servidor.')) return;
+    setFotoOcupada(true);
+    try {
+      await borrarFotoPersonal(editId, fotoPath);
+      setFotoPath(null); setFotoPreview(null); setFotoPendiente(null);
+      await recargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo quitar la foto');
+    } finally { setFotoOcupada(false); }
+  }
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -81,8 +147,17 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
     if (!datos.nombre) { setError('Indicá el nombre.'); return; }
     setGuardando(true);
     try {
-      if (editId) await actualizarPersonal(editId, datos);
-      else await crearPersonal(datos, actor);
+      if (editId) {
+        await actualizarPersonal(editId, datos);
+      } else {
+        const creada = await crearPersonal(datos, actor);
+        // Recién ahora hay un id al que colgarle la foto. Si falla, el registro
+        // ya quedó guardado: se avisa y la foto se carga después.
+        if (fotoPendiente) {
+          try { await subirFotoPersonal(creada.id, fotoPendiente); }
+          catch { toast('Se guardó el registro, pero la foto no se pudo subir. Cargala con ✎ Editar.', 'error'); }
+        }
+      }
       // Si el cargo/departamento es nuevo, lo agregamos al catálogo compartido.
       const cargo = (datos.cargo ?? '').trim();
       const depto = (datos.departamento ?? '').trim();
@@ -159,6 +234,16 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
         >
           <form id="rrhh-personal-form" ref={formRef} onSubmit={guardar}>
             {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+            <FotoPersonaCard
+              preview={fotoPreview}
+              tieneFoto={!!fotoPath || !!fotoPendiente}
+              ocupada={fotoOcupada}
+              pendiente={!editId && !!fotoPendiente}
+              onElegir={elegirFotoForm}
+              onQuitar={quitarFotoForm}
+            />
+
             <div className="form-grid">
               <div className="form-row"><label>Nombre *</label><input className="input" name="p-nombre" autoFocus defaultValue={form.nombre} required /></div>
               <div className="form-row"><label>Apellido</label><input className="input" name="p-apellido" defaultValue={form.apellido ?? ''} /></div>
@@ -262,6 +347,57 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
         Incluir el salario mensual {Number(persona.sueldo_base) > 0 ? `(${money(persona.sueldo_base)} USD)` : '(sin sueldo cargado)'}
       </label>
     </Modal>
+  );
+}
+
+/* ───────── Foto de la persona dentro del formulario ─────────
+   Hasta ahora la foto solo se podía tocar desde el carnet (🪪), que es el lugar
+   donde se VE pero no donde se edita la ficha: quien entraba a ✎ Editar a
+   completar los datos no tenía cómo ponerle la cara a la persona. */
+function FotoPersonaCard({ preview, tieneFoto, ocupada, pendiente, onElegir, onQuitar }: {
+  preview: string | null;
+  tieneFoto: boolean;
+  ocupada: boolean;
+  /** La foto todavía no subió: sube al guardar el registro nuevo. */
+  pendiente: boolean;
+  onElegir: (file: File) => void;
+  onQuitar: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="card" style={{ marginBottom: '.7rem', display: 'flex', gap: '.9rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{
+        width: 84, height: 104, borderRadius: 8, overflow: 'hidden', flexShrink: 0,
+        border: '2px solid var(--brand, #ff8a00)', background: 'var(--bg-soft, rgba(127,127,127,.08))',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {preview
+          ? <img src={preview} alt="Foto de la persona" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <span className="muted" style={{ fontSize: '1.8rem' }}>👤</span>}
+      </div>
+      <div style={{ flex: '1 1 220px' }}>
+        <div style={{ fontWeight: 700, marginBottom: '.2rem' }}>Foto</div>
+        <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
+          Va en el frente del carnet. Imagen de hasta 5 MB; conviene vertical, tipo carnet.
+          {pendiente && <> <strong>Se sube al guardar el registro.</strong></>}
+        </div>
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) onElegir(file);
+            }} />
+          <button type="button" className="btn btn-sm btn-primary" disabled={ocupada} onClick={() => fileRef.current?.click()}>
+            {ocupada ? 'Cargando…' : tieneFoto ? '🖼 Cambiar foto' : '🖼 Cargar foto'}
+          </button>
+          {tieneFoto && (
+            <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+              disabled={ocupada} onClick={onQuitar}>🗑 Quitar</button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
