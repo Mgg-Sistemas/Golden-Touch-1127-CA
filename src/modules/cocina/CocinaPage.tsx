@@ -27,6 +27,7 @@ import { diferenciasPorViver, explicarDiferencia, guardarVista, vistaGuardada, t
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 import { MercadosHistoricoModal } from './MercadosHistoricoModal';
+import { ControlDistribucionModal } from './ControlDistribucionModal';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 /**
@@ -60,7 +61,7 @@ export function CocinaPage() {
   const [movs, setMovs] = useState<CocinaMovimiento[]>([]);
   const [viveres, setViveres] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta' | 'historico'>('none');
+  const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta' | 'historico' | 'control'>('none');
   const [editando, setEditando] = useState<CocinaMovimiento | null>(null);
   const [aEliminar, setAEliminar] = useState<CocinaMovimiento | null>(null);
   const [notaAlerta, setNotaAlerta] = useState('');
@@ -277,6 +278,7 @@ export function CocinaPage() {
           {/* El contador del ciclo, «Cerrar» y «Descartar» van en el panel del mercado, como
               en MGG: la cabecera queda para lo que se hace todos los días. */}
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
+          <button className="btn btn-ghost" onClick={() => setModal('control')} title="Control diario por producto con lote óptimo de compra (EOQ) y punto de reorden">📋 Control de distribución</button>
           <button className="btn btn-ghost" onClick={() => setModal('historico')} title="Ver los mercados ya cerrados: visualizar, editar y sacar reportes">🗂 Mercados cerrados</button>
           {canWrite && <button className="btn btn-warning" onClick={() => setModal('alerta')} title="Avisar a Compras que hay que montar el mercado">🔔 Alerta a Restablecer</button>}
           {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>➕ Añadir Movimiento</button>}
@@ -495,6 +497,7 @@ export function CocinaPage() {
       {modal === 'resumen' && (
         <ResumenModal viveres={viveres} onClose={() => setModal('none')} />
       )}
+      {modal === 'control' && <ControlDistribucionModal onClose={() => setModal('none')} />}
       {modal === 'historico' && (
         <MercadosHistoricoModal canWrite={canWrite} onClose={() => setModal('none')} />
       )}
