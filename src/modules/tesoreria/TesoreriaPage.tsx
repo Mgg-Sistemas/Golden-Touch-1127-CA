@@ -20,11 +20,12 @@ import type { Caja, MovimientoCaja, Orden } from '@/shared/lib/types';
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { TasasView } from './TasasView';
 import { DirectosPorPagarPanel } from './DirectosPorPagarPanel';
-import { listComprasDirectas, getCompraDirectaByCajaMovId, type CompraDirecta } from '@/modules/pedidos/compras.repository';
-import { listServiciosDirectos, getServicioDirectoByCajaMovId, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
+import { getCompraDirectaByCajaMovId, reconciliarComprasDirectasHuerfanas, type CompraDirecta } from '@/modules/pedidos/compras.repository';
+import { getServicioDirectoByCajaMovId, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { repartirPagoYReembolso } from './reembolsoPago';
+import { filtrarMovimientos } from './filtrosMovimientos';
 import { convertirRetencion } from './retencionPago';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, listConversiones, type ConversionCaja } from './cajaSaldos.repository';
 import {
@@ -64,7 +65,8 @@ import { descargarOrdenesPorPagarPdf } from './ordenesPorPagarPdf';
 import { descargarLibroMayorPdf } from './libroMayorPdf';
 import {
   listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMultiCajas, labelMetodoPago, pagoSinComprobante, MAX_COMPROBANTES_PAGO, type OrdenPorPagar,
-  listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg, type AbonoComision,
+  listOrdenesEnCredito, resumenPendientesPorPagar, contarCreditosPendientes, reconciliarPagosOcHuerfanos,
+  registrarAbonoMulti, listAbonos, type AbonoLeg, type AbonoComision,
   getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl,
 } from '@/modules/pedidos/pedidos.repository';
 import { EditarPreciosOcModal } from '@/modules/pedidos/EditarPreciosOcModal';
@@ -166,7 +168,10 @@ export function TesoreriaPage() {
   const [disp, setDisp] = useState<Disponibilidad | null>(null);
   const [cajas, setCajas] = useState<Caja[]>([]);
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
-  const [libro, setLibro] = useState<MovimientoCaja[]>([]);
+  // TODOS los movimientos vigentes (sin archivar en un cierre). Se traen UNA vez por
+  // recarga y los filtros del registro se aplican en memoria (ver `libro`): cambiar de
+  // billetera, moneda, tipo o fechas es instantáneo y no vuelve a consultar al servidor.
+  const [libroTodo, setLibroTodo] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'none' | 'gasto' | 'traslado' | 'pago' | 'cajas' | 'tasas' | 'porpagar' | 'creditos' | 'cobrar' | 'conversor' | 'calculadora' | 'grafico' | 'contrapartes' | 'retencion' | 'cierre' | 'categorias' | 'recibir_mgg'>('none');
   // Abrir un modal directo desde la URL (?ver=creditos), p. ej. al venir de la
@@ -200,7 +205,7 @@ export function TesoreriaPage() {
   const [resumenMovOpen, setResumenMovOpen] = useState(false);
 
   // Filtros del registro de movimientos
-  const [fCaja, setFCaja] = useState<string>('');   // billetera/caja (server-side, listLibroMayor)
+  const [fCaja, setFCaja] = useState<string>('');   // billetera/caja (se aplica en memoria, ver `libro`)
   const [fMoneda, setFMoneda] = useState<string>('');
   const [monedasReg, setMonedasReg] = useState<string[]>(['Bs', 'USD', 'USDT', 'COP']);
   useEffect(() => { listMonedas().then(setMonedasReg).catch(() => { /* base */ }); }, []);
@@ -211,27 +216,39 @@ export function TesoreriaPage() {
 
   const [transfers, setTransfers] = useState<TransferenciaInter[]>([]);
 
+  // Recarga de la pantalla. Corre al abrir y con CADA evento de tiempo real (son 16
+  // tablas), así que trae lo mínimo: para los contadores de los botones pide conteos,
+  // no las listas completas. Antes bajaba las órdenes por pagar, las compras y los
+  // servicios directos enteros —y el directorio de proveedores DOS veces— para mostrar
+  // dos números: ~180 kB y una veintena de pedidos cada vez.
+  //
+  // NO depende de los filtros del registro: esos se aplican en memoria sobre
+  // `libroTodo`, para que filtrar no vuelva a consultar ni vacíe la tabla.
   const reload = useCallback(async () => {
-    const [d, cs, sal, mov, pp, cr, cxp, cxc, tr, nc, cd, sd] = await Promise.all([
+    const [d, cs, sal, mov, pend, credOc, cxp, cxc, tr, nc] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
-      listLibroMayor({ cajaId: fCaja || undefined, moneda: fMoneda || undefined, tipo: fTipo || undefined, desde: fDesde || undefined, hasta: fHasta || undefined }),
-      listOrdenesPorPagar().catch(() => [] as OrdenPorPagar[]),
-      listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
+      listLibroMayor(),
+      resumenPendientesPorPagar().catch(() => ({ porPagar: 0, credito: 0 })),
+      contarCreditosPendientes().catch(() => 0),
       listCuentasPorPagar(true).catch(() => [] as CuentaPorPagar[]),
       listCuentasPorCobrar(true).catch(() => [] as CuentaPorCobrar[]),
       listTransferenciasInter().catch(() => [] as TransferenciaInter[]),
       countRenglonesPorPagar().catch(() => 0),
-      listComprasDirectas().catch(() => [] as CompraDirecta[]),
-      listServiciosDirectos().catch(() => [] as ServicioDirecto[]),
     ]);
-    const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
-    // Directos (compra/servicio) que el analista dejó "por pagar" — los paga Tesorería.
-    const directosPorPagar = cd.filter((c) => c.estado === 'por_pagar').length + sd.filter((s) => s.estado === 'por_pagar').length;
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setPorPagarCount(pp.length + directosPorPagar); setCreditosCount(crPendientes.length + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
-  }, [fCaja, fMoneda, fTipo, fDesde, fHasta]);
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibroTodo(mov); setPorPagarCount(pend.porPagar); setCreditosCount(credOc + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
+  }, []);
+
+  // Movimientos que se ven en el registro: los filtros se resuelven acá, sobre lo ya
+  // cargado. La comparación por día (`at` recortado a AAAA-MM-DD) da el mismo resultado
+  // que el filtro que antes hacía el servidor, porque la base trabaja en UTC igual que
+  // la fecha ISO que llega al navegador.
+  const libro = useMemo(
+    () => filtrarMovimientos(libroTodo, { caja: fCaja, moneda: fMoneda, tipo: fTipo, desde: fDesde, hasta: fHasta }),
+    [libroTodo, fCaja, fMoneda, fTipo, fDesde, fHasta],
+  );
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
   useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos', 'compras_directas', 'servicios_directos', 'abonos_credito', 'proveedor_datos_pago'], () => { void reload(); });
@@ -246,6 +263,23 @@ export function TesoreriaPage() {
         toast(msg, 'error');
       })
       .finally(() => setLoading(false));
+  }, [reload]);
+
+  // Red de seguridad de los pagos huérfanos: caja ya descontada pero la OC (o la compra
+  // directa) sin cerrar, que si no se repara sigue figurando como pendiente por pagar.
+  // Antes se ejecutaba DENTRO de la recarga y la frenaba —lee las órdenes y la caja, y a
+  // veces escribe—; ahora corre una sola vez al abrir, por fuera, y solo vuelve a pedir
+  // los datos si efectivamente reparó algo.
+  useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      const [oc, cd] = await Promise.all([
+        reconciliarPagosOcHuerfanos().catch(() => 0),
+        reconciliarComprasDirectasHuerfanas().catch(() => 0),
+      ]);
+      if (vivo && oc + cd > 0) void reload();
+    })();
+    return () => { vivo = false; };
   }, [reload]);
 
   const cerrarYRecargar = async () => { setModal('none'); await reload(); };

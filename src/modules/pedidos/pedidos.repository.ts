@@ -1465,6 +1465,23 @@ export async function resumenPendientesPorPagar(): Promise<{ porPagar: number; c
   };
 }
 
+/**
+ * Cuántas OC a crédito siguen debiendo plata (total − abonado > 0). Solo el CONTEO:
+ * trae dos columnas y no toca el directorio de proveedores.
+ *
+ * Existe para el badge de Tesorería, que antes usaba listOrdenesEnCredito() y por
+ * un número bajaba las órdenes enteras MÁS los 168 proveedores en cada recarga
+ * (y Tesorería recarga con cada evento de tiempo real).
+ */
+export async function contarCreditosPendientes(): Promise<number> {
+  const { data, error } = await supabase.from(TABLE)
+    .select('total, abonado_total').eq('estado', 'cuenta_abierta');
+  if (error) throw error;
+  return (data ?? [])
+    .filter((o) => (Number((o as Orden).total) || 0) - (Number((o as Orden).abonado_total) || 0) > 0.01)
+    .length;
+}
+
 /** Lista las OC a crédito con cuenta abierta (para la vista de crédito + abonos). */
 export async function listOrdenesEnCredito(): Promise<OrdenPorPagar[]> {
   const [{ data: os, error }, { data: provs }] = await Promise.all([
