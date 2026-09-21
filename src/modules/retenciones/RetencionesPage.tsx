@@ -14,10 +14,10 @@ import {
   urlRetencion, comprobantesDeOrden, labelRetencionModo,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
-import { RetencionesDirectasPanel } from './RetencionesDirectasPanel';
+import { LibroRetencionesPanel } from './LibroRetencionesPanel';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'directas';
+type Vista = 'pendientes' | 'hechas' | 'libro';
 
 export function RetencionesPage() {
   const { user } = useSession();
@@ -29,7 +29,7 @@ export function RetencionesPage() {
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
-  const [vista, setVista] = useState<Vista>('pendientes');
+  const [vista, setVista] = useState<Vista>('libro');
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,20 +84,23 @@ export function RetencionesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>🧾 Retenciones</h1>
-          <p className="muted" style={{ margin: '.25rem 0 0' }}>Retenciones fiscales de las OC con factura cargada.</p>
+          <p className="muted" style={{ margin: '.25rem 0 0' }}>
+            Libro fiscal (IVA, ISLR, municipal, estadal e IGTF) y comprobantes de las OC con factura.
+          </p>
         </div>
         <div className="view-toggle" role="tablist" aria-label="Vista de retenciones">
           <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>Por realizar{pendientes.length ? ` (${pendientes.length})` : ''}</button>
           <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
-          <button className={vista === 'directas' ? 'active' : ''} onClick={() => setVista('directas')} title="Retenciones registradas al pagar compras directas">Compras directas</button>
+          <button className={vista === 'libro' ? 'active' : ''} onClick={() => setVista('libro')} title="IVA, ISLR, municipal, estadal e IGTF: lo que nos retienen y lo que retenemos">📒 Libro fiscal</button>
         </div>
       </div>
 
-      {/* GT-INT-09 · Las retenciones de COMPRAS DIRECTAS viven en la tabla `retenciones`
-          y hasta ahora no se mostraban en ninguna pantalla. Son otro origen de dato, no
-          otro filtro del mismo, así que la pestaña trae su propio panel completo. */}
-      {vista === 'directas' ? (
-        <RetencionesDirectasPanel puedeCargar={puedeCargarDirectas} actor={actor} actorName={actorName} />
+      {/* El LIBRO FISCAL vive en la tabla `retenciones` y es el corazón del módulo:
+          IVA, ISLR, municipal, estadal e IGTF, con lo que nos retienen (anticipos a
+          favor) y lo poco que retenemos. Las otras dos vistas son el trámite de
+          adjuntar comprobantes a una OC, que es otra cosa. */}
+      {vista === 'libro' ? (
+        <LibroRetencionesPanel puedeCargar={puedeCargarDirectas} actor={actor} actorName={actorName} />
       ) : (
       <>
       {/* Tarjeta total pendientes (solo en la vista Por realizar) */}

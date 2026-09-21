@@ -297,6 +297,12 @@ export async function listLibroMayor(filtros: {
 
 /* ───────────── Retenciones e impuestos ───────────── */
 
+/**
+ * Retención que la empresa PRACTICA al pagar (hoy solo la compra directa la usa).
+ * Va al libro fiscal marcada como «practicada» y con su período y quincena, que
+ * es lo que después permite declararla; el correlativo del comprobante se lo
+ * pide a la base, único lugar donde dos usuarios no pueden sacar el mismo.
+ */
 export async function crearRetencion(input: {
   tipo: TipoRetencion; base: number; porcentaje: number; moneda: string;
   proveedorId?: string | null; ordenId?: string | null; compraDirectaId?: string | null;
@@ -308,13 +314,38 @@ export async function crearRetencion(input: {
   if (base <= 0) throw new Error('Indicá la base imponible.');
   if (porcentaje <= 0) throw new Error('Indicá el porcentaje de retención.');
   const monto = round2(base * (porcentaje / 100));
+  const fecha = (input.fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  const periodo = `${fecha.slice(0, 4)}${fecha.slice(5, 7)}`;
+
+  let numero: number | null = null;
+  let comprobante = input.comprobanteNro?.trim() || null;
+  if (!comprobante) {
+    const { data: n } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: input.tipo, p_periodo: periodo });
+    numero = Number(n) || null;
+    if (numero) comprobante = `${periodo}${String(numero).padStart(8, '0')}`;
+  }
+
+  // El nombre y el RIF se copian al registrar: si mañana se corrige la ficha del
+  // proveedor, el comprobante emitido hace seis meses sigue diciendo lo que decía.
+  let rif: string | null = null;
+  let razonSocial: string | null = null;
+  if (input.proveedorId) {
+    const { data: p } = await supabase.from('proveedores').select('rif, razon_social').eq('id', input.proveedorId).maybeSingle();
+    rif = (p?.rif as string | null) ?? null;
+    razonSocial = (p?.razon_social as string | null) ?? null;
+  }
 
   const { data, error } = await supabase.from('retenciones').insert({
+    rol: 'practicada', estado: 'registrada',
     tipo: input.tipo, base, porcentaje, monto, moneda: input.moneda || 'Bs',
+    numero, comprobante_nro: comprobante, comprobante_periodo: periodo,
+    quincena: Number(fecha.slice(8, 10)) <= 15 ? 1 : 2,
+    rif, razon_social: razonSocial,
+    base_bs: (input.moneda || 'Bs') === 'Bs' ? base : null,
+    monto_bs: (input.moneda || 'Bs') === 'Bs' ? monto : null,
     proveedor_id: input.proveedorId ?? null, orden_id: input.ordenId ?? null,
     compra_directa_id: input.compraDirectaId ?? null,
-    comprobante_nro: input.comprobanteNro?.trim() || null,
-    fecha: input.fecha || new Date().toISOString().slice(0, 10),
+    fecha,
     descripcion: input.descripcion?.trim() || null,
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
