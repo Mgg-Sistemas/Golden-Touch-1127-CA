@@ -11,7 +11,8 @@ import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
 import { MOTIVO_DESCARTE_MIN, motivoValido } from './mercadoDescarte';
 import { reconstruirSaldo, resolverInicio } from './mercadoInicio';
-import { sumarMermas, type MovimientoParaMerma } from './mercadoPanel';
+import { sumarConsumoCocina, sumarMermas, type MovimientoConsumo, type MovimientoParaMerma } from './mercadoPanel';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 
 const TABLE = 'cocina_mercados';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -174,11 +175,15 @@ export function diasDelCiclo(m: Mercado): { transcurridos: number; dia: number; 
   return { transcurridos, dia, faltan, vencido: dia > CICLO_DIAS };
 }
 
-/** Entradas de inventario (nuevo mercado) por víver dentro de la ventana [desde, hasta]. */
+/** Entradas de inventario (nuevo mercado) por víver dentro de la ventana [desde, hasta].
+ *
+ *  Se excluye lo de cocina para que los tres cajones de la ecuación —entradas, consumo y
+ *  mermas— no se pisen: lo de cocina lo netea `consumoDelCiclo` (un reverso de comida
+ *  resta consumo; si además contara como entrada, inflaría el disponible). */
 async function entradasPorViver(desde: string, hasta: string, viverIds: Set<string>): Promise<Map<string, number>> {
   const { data, error } = await supabase.from('movimientos')
     .select('producto_id, delta, tipo, at')
-    .eq('tipo', 'entrada').gte('at', desde).lte('at', hasta);
+    .eq('tipo', 'entrada').or(NO_COCINA).gte('at', desde).lte('at', hasta);
   if (error) throw error;
   const out = new Map<string, number>();
   for (const r of (data ?? []) as { producto_id: string; delta: number }[]) {
@@ -212,25 +217,34 @@ async function mermasPorViver(desde: string, hasta: string, viverIds: Set<string
 /**
  * Consumo de cocina dentro de la ventana [desde, hasta]: por víver (cantidad y valor) y los
  * platos servidos, que alimentan el costo por plato del panel (como en MGG).
+ *
+ * SE MIDE SOBRE EL KARDEX, no sobre la fecha de servicio de las comidas (21/09/2026). El
+ * porqué está en `sumarConsumoCocina`: mezclar los dos relojes hacía que una comida cargada
+ * con fecha retroactiva descontara stock dentro del ciclo pero no contara como consumo, y el
+ * panel denunciaba un faltante que no existía y que ya no se podía corregir.
+ *
+ * Los PLATOS siguen el mismo criterio: son los de las comidas cuyo descuento cayó en la
+ * ventana. Si el costo entra en este ciclo, los platos también; si no, el costo por plato
+ * saldría de dividir el gasto de unas comidas por los platos de otras.
  */
 async function consumoDelCiclo(desde: string, hasta: string): Promise<{
   porViver: Map<string, { cantidad: number; valor: number }>; platos: number;
 }> {
-  const { data, error } = await supabase.from('cocina_movimientos')
-    .select('items, platos, at').gte('at', desde).lte('at', hasta);
-  if (error) throw error;
-  const out = new Map<string, { cantidad: number; valor: number }>();
+  // Paginado: `movimientos` pasa las 1.000 filas y PostgREST corta sin avisar.
+  const movs = await todasLasFilas<MovimientoConsumo>((a, b) => supabase.from('movimientos')
+    .select('producto_id, delta, costo_promedio, precio_unitario, ref_id')
+    .eq('ref_tipo', 'cocina').gte('at', desde).lte('at', hasta)
+    .order('at').order('id').range(a, b));
+  const { porViver, comidaIds } = sumarConsumoCocina(movs);
+
   let platos = 0;
-  for (const m of (data ?? []) as { items: { producto_id: string; cantidad: number; precio: number }[]; platos: number | null }[]) {
-    platos += Math.max(0, Math.trunc(Number(m.platos) || 0));
-    for (const it of m.items ?? []) {
-      const acc = out.get(it.producto_id) ?? { cantidad: 0, valor: 0 };
-      acc.cantidad = round2(acc.cantidad + (Number(it.cantidad) || 0));
-      acc.valor = round2(acc.valor + (Number(it.cantidad) || 0) * (Number(it.precio) || 0));
-      out.set(it.producto_id, acc);
+  if (comidaIds.size) {
+    const { data } = await supabase.from('cocina_movimientos').select('platos').in('id', [...comidaIds]);
+    for (const m of (data ?? []) as { platos: number | null }[]) {
+      platos += Math.max(0, Math.trunc(Number(m.platos) || 0));
     }
   }
-  return { porViver: out, platos };
+  return { porViver, platos };
 }
 
 /**
@@ -474,11 +488,15 @@ export interface DetalleViverCiclo {
 }
 export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO?: string): Promise<DetalleViverCiclo> {
   const hasta = hastaISO ?? m.cierre_at ?? new Date().toISOString();
-  const [movs, cocina, salidas] = await Promise.all([
+  // Los consumos salen del KARDEX, igual que la cuenta del ciclo (ver consumoDelCiclo):
+  // así la lista que se ve acá explica exactamente el número de arriba. La comida solo
+  // aporta su código y el tipo; la fecha que se muestra es la del movimiento, que es
+  // cuando el víver salió de verdad del inventario.
+  const [movs, consumoMovs, salidas] = await Promise.all([
     supabase.from('movimientos').select('delta, at, ref_codigo, tipo')
-      .eq('tipo', 'entrada').eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
-    supabase.from('cocina_movimientos').select('codigo, tipo_comida, items, at')
-      .gte('at', m.inicio_at).lte('at', hasta).order('at'),
+      .eq('tipo', 'entrada').or(NO_COCINA).eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
+    supabase.from('movimientos').select('delta, at, costo_promedio, precio_unitario, ref_id, ref_codigo')
+      .eq('ref_tipo', 'cocina').eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
     supabase.from('movimientos').select('delta, at, tipo, detalle, actor_name, actor')
       .eq('producto_id', productoId).lt('delta', 0).or(NO_COCINA).gte('at', m.inicio_at).lte('at', hasta).order('at'),
   ]);
@@ -489,16 +507,29 @@ export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO
       fecha: r.at, cantidad: round2(Math.abs(Number(r.delta) || 0)), tipo: r.tipo,
       detalle: r.detalle?.trim() || null, actor: r.actor_name ?? r.actor ?? null,
     }));
-  const consumos: DetalleViverCiclo['consumos'] = [];
-  for (const c of (cocina.data ?? []) as { codigo: string | null; tipo_comida: string; items: { producto_id: string; cantidad: number; precio: number }[]; at: string }[]) {
-    for (const it of c.items ?? []) {
-      if (it.producto_id !== productoId) continue;
-      consumos.push({
-        fecha: c.at, cantidad: round2(Number(it.cantidad) || 0),
-        valor: round2((Number(it.cantidad) || 0) * (Number(it.precio) || 0)),
-        codigo: c.codigo, tipo_comida: c.tipo_comida,
-      });
+  type FilaConsumo = {
+    delta: number; at: string; costo_promedio: number | null; precio_unitario: number | null;
+    ref_id: string | null; ref_codigo: string | null;
+  };
+  const filas = (consumoMovs.data ?? []) as FilaConsumo[];
+  // Un solo viaje para los códigos y el tipo de comida de todos los movimientos.
+  const ids = [...new Set(filas.map((r) => r.ref_id).filter((x): x is string => !!x))];
+  const comidas = new Map<string, { codigo: string | null; tipo_comida: string | null }>();
+  if (ids.length) {
+    const { data } = await supabase.from('cocina_movimientos').select('id, codigo, tipo_comida').in('id', ids);
+    for (const c of (data ?? []) as { id: string; codigo: string | null; tipo_comida: string | null }[]) {
+      comidas.set(c.id, { codigo: c.codigo, tipo_comida: c.tipo_comida });
     }
   }
+  const consumos: DetalleViverCiclo['consumos'] = filas.map((r) => {
+    const cantidad = round2(-(Number(r.delta) || 0));
+    const precio = Number(r.costo_promedio) || Number(r.precio_unitario) || 0;
+    const comida = r.ref_id ? comidas.get(r.ref_id) : undefined;
+    return {
+      fecha: r.at, cantidad, valor: round2(cantidad * precio),
+      codigo: comida?.codigo ?? r.ref_codigo ?? null,
+      tipo_comida: comida?.tipo_comida ?? null,
+    };
+  });
   return { entradas, consumos, mermas };
 }

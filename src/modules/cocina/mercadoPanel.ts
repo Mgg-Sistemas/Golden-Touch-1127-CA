@@ -118,7 +118,7 @@ export function diferenciasPorViver(items: ResumenViver[]): DiferenciaViver[] {
  */
 export function explicarDiferencia(diferencia: number): string {
   return diferencia < 0
-    ? 'salió del inventario sin quedar en la cuenta del ciclo: por ejemplo, una comida registrada con fecha anterior al inicio del mercado.'
+    ? 'salió del inventario sin que el ciclo lo viera: un movimiento fechado fuera de la ventana del ciclo, o un cambio hecho directo sobre el stock sin pasar por el kardex.'
     : 'entró por un movimiento que no es una entrada: un ajuste, un traslado o una devolución.';
 }
 
@@ -201,4 +201,54 @@ export function filasDisponible(
     ? base.filter((d) => difPorProducto.has(d.producto_id))
     : opts.verQuietos ? [...base, ...quietosOk] : base;
   return { filas, quietosOcultables: quietosOk.length, difPorProducto };
+}
+
+/* ───────── El consumo del ciclo, medido con el reloj del inventario ───────── */
+
+/** Lo mínimo de un movimiento de kardex de cocina para sumar el consumo del ciclo. */
+export interface MovimientoConsumo {
+  producto_id: string;
+  /** Negativo sale (consumo). Un reverso o una edición a la baja viene positivo y RESTA. */
+  delta: number | string | null;
+  /** PMP con el que salió. Es lo que vale ese consumo. */
+  costo_promedio?: number | string | null;
+  precio_unitario?: number | string | null;
+  /** La comida que lo generó (`cocina_movimientos.id`). */
+  ref_id?: string | null;
+}
+
+/**
+ * Consumo del ciclo por víver, sumado sobre el KARDEX.
+ *
+ * POR QUÉ SOBRE EL KARDEX Y NO SOBRE LAS COMIDAS (21/09/2026). El ciclo cuenta las
+ * entradas y las mermas por la fecha del movimiento de inventario, pero el consumo lo
+ * contaba por la FECHA DE SERVICIO de la comida. Son dos relojes distintos en la misma
+ * ecuación, y en cuanto una comida se carga con fecha retroactiva los dos dejan de
+ * coincidir: el stock salió dentro del ciclo pero la comida quedó fuera, así que la
+ * cuenta del ciclo denunciaba un faltante que no existía —y ese faltante no se iba
+ * nunca, porque el ciclo anterior ya estaba cerrado y congelado—.
+ *
+ * Caso que lo destapó: POLLO BENEFICIADO SAN BLAS, 4 comidas del 13 y 14/09 cargadas el
+ * 19/09, con el ciclo abierto desde el 15/09. Midiendo por el kardex, «disponible −
+ * consumo − mermas» vuelve a dar exactamente lo que hay en el inventario.
+ *
+ * Devuelve además los ids de las comidas involucradas, para contar sus platos con el
+ * mismo criterio (si el costo cae en este ciclo, los platos también).
+ */
+export function sumarConsumoCocina(movs: MovimientoConsumo[]): {
+  porViver: Map<string, { cantidad: number; valor: number }>;
+  comidaIds: Set<string>;
+} {
+  const porViver = new Map<string, { cantidad: number; valor: number }>();
+  const comidaIds = new Set<string>();
+  for (const m of movs) {
+    const cantidad = -n(m.delta);                       // salida (delta<0) → consumo positivo
+    const precio = n(m.costo_promedio) || n(m.precio_unitario);
+    const acc = porViver.get(m.producto_id) ?? { cantidad: 0, valor: 0 };
+    acc.cantidad = r2(acc.cantidad + cantidad);
+    acc.valor = r2(acc.valor + cantidad * precio);
+    porViver.set(m.producto_id, acc);
+    if (m.ref_id) comidaIds.add(m.ref_id);
+  }
+  return { porViver, comidaIds };
 }

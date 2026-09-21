@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ResumenViver } from './cocinaMercado.repository';
 import {
   costoDelCiclo, diferenciasPorViver, ecuacionDelCiclo, explicarDiferencia, filasDisponible, leerVista,
-  separarMovidos, sumarMermas, vistaGuardada,
+  separarMovidos, sumarConsumoCocina, sumarMermas, vistaGuardada,
 } from './mercadoPanel';
 
 function fila(id: string, v: { saldo?: number; ent?: number; cons?: number; mer?: number; queda?: number } = {}): ResumenViver {
@@ -156,7 +156,14 @@ describe('filasDisponible', () => {
 describe('explicarDiferencia', () => {
   it('un faltante ya no culpa a las salidas manuales: esas ahora son mermas', () => {
     expect(explicarDiferencia(-3)).not.toContain('salida manual');
-    expect(explicarDiferencia(-3)).toContain('fecha anterior');
+  });
+
+  it('tampoco culpa a la comida con fecha vieja: eso se arregló el 21/09/2026', () => {
+    // El consumo se mide sobre el kardex, así que una comida retroactiva ya entra
+    // en el ciclo en el que descontó el stock. Sugerir esa causa mandaría a buscar
+    // un problema que no existe.
+    expect(explicarDiferencia(-3)).not.toContain('fecha anterior');
+    expect(explicarDiferencia(-3)).toContain('fuera de la ventana');
   });
 
   it('un sobrante apunta a lo que entró sin ser entrada', () => {
@@ -185,5 +192,51 @@ describe('sumarMermas', () => {
       { producto_id: 'filtro', delta: -2, ref_tipo: null },   // no es víver
     ], viveres);
     expect(m.size).toBe(0);
+  });
+});
+
+describe('consumo del ciclo medido sobre el kardex', () => {
+  it('suma las salidas y las valora con el PMP del movimiento', () => {
+    const { porViver } = sumarConsumoCocina([
+      { producto_id: 'pollo', delta: -2.5, costo_promedio: 6.16, ref_id: 'ck-162' },
+      { producto_id: 'pollo', delta: -2, costo_promedio: 6.16, ref_id: 'ck-153' },
+    ]);
+    expect(porViver.get('pollo')).toEqual({ cantidad: 4.5, valor: 27.72 });
+  });
+
+  it('un reverso (delta positivo) RESTA del consumo', () => {
+    const { porViver } = sumarConsumoCocina([
+      { producto_id: 'arroz', delta: -5, costo_promedio: 2 },
+      { producto_id: 'arroz', delta: 2, costo_promedio: 2 },
+    ]);
+    expect(porViver.get('arroz')).toEqual({ cantidad: 3, valor: 6 });
+  });
+
+  it('sin PMP cae al precio unitario', () => {
+    const { porViver } = sumarConsumoCocina([
+      { producto_id: 'sal', delta: -3, costo_promedio: null, precio_unitario: 1.5 },
+    ]);
+    expect(porViver.get('sal')?.valor).toBe(4.5);
+  });
+
+  it('junta las comidas sin repetirlas, y omite las que no dejaron enlace', () => {
+    const { comidaIds } = sumarConsumoCocina([
+      { producto_id: 'a', delta: -1, ref_id: 'ck-1' },
+      { producto_id: 'b', delta: -1, ref_id: 'ck-1' },
+      { producto_id: 'c', delta: -1, ref_id: 'ck-2' },
+      { producto_id: 'd', delta: -1, ref_id: null },
+    ]);
+    expect([...comidaIds].sort()).toEqual(['ck-1', 'ck-2']);
+  });
+
+  it('el caso del pollo: la cuenta del ciclo vuelve a dar lo que hay en el inventario', () => {
+    // Disponible 25 (0 al iniciar + 25 de entrada). Dos comidas descontaron 4,5 dentro
+    // del ciclo, aunque una se sirvió antes de que el ciclo empezara. En inventario: 20,5.
+    const { porViver } = sumarConsumoCocina([
+      { producto_id: 'pollo', delta: -2.5, costo_promedio: 6.16, ref_id: 'ck-162' },
+      { producto_id: 'pollo', delta: -2, costo_promedio: 6.16, ref_id: 'ck-153' },
+    ]);
+    const consumo = porViver.get('pollo')!.cantidad;
+    expect(25 - consumo - 0).toBe(20.5);
   });
 });
