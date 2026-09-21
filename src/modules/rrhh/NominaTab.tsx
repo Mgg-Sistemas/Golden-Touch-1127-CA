@@ -193,7 +193,7 @@ function CargarNominaModal({ actor, actorName, onClose, onSaved }: {
         <button className="btn btn-primary" onClick={guardar} disabled={saving}>{saving ? 'Cargando…' : `Cargar nómina · ${money(totalNeto)}`}</button>
       </>
     }>
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div><strong>Error:</strong> {error}</div></div>}
 
       <div className="card" style={{ padding: '.75rem', marginBottom: '.75rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.2rem', alignItems: 'flex-end' }}>
@@ -346,7 +346,7 @@ function LiquidacionModal({ actor, actorName, onClose, onSaved }: {
         <button className="btn btn-primary" onClick={guardar} disabled={saving}>{saving ? 'Cargando…' : `Cargar · ${money(neto)}`}</button>
       </>
     }>
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+      {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div><strong>Error:</strong> {error}</div></div>}
       <p className="muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
         Pago único (renuncia, despido, bono especial). Se carga como nómina de una persona y <strong>Tesorería lo paga</strong> igual que el resto.
       </p>

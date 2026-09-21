@@ -382,34 +382,8 @@ export function resumirLibro(filas: FilaLibro[]): ResumenLibro {
   return { porTipo, aFavorBs, porEnterarBs, igtfBs, sinComprobante };
 }
 
-/* ───────── 7) Validación del RIF ───────── */
-
-/** Normaliza un RIF a J123456789 (sin guiones, en mayúsculas). */
-export function normalizarRif(rif: string | null | undefined): string {
-  return String(rif ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
-/**
- * ¿El RIF tiene forma válida? Letra (J, G, V, E, P, C) y 9 dígitos, con el
- * último como dígito verificador. Un RIF mal escrito en un comprobante lo
- * invalida, así que conviene cazarlo al cargarlo y no al declarar.
- */
-export function rifValido(rif: string | null | undefined): boolean {
-  const v = normalizarRif(rif);
-  if (!/^[JGVEPC]\d{9}$/.test(v)) return false;
-  const pesos = [4, 3, 2, 7, 6, 5, 4, 3, 2];
-  const letras: Record<string, number> = { V: 1, E: 2, J: 3, P: 4, G: 5, C: 3 };
-  let suma = (letras[v[0]] ?? 0) * 4;
-  for (let i = 0; i < 8; i += 1) suma += Number(v[i + 1]) * pesos[i + 1];
-  const resto = suma % 11;
-  let dv = 11 - resto;
-  if (dv === 11 || dv === 10) dv = 0;
-  return dv === Number(v[9]);
-}
-
-/** El RIF con guiones, como se escribe en los documentos: J-50129993-5. */
-export function formatearRif(rif: string | null | undefined): string {
-  const v = normalizarRif(rif);
-  if (!/^[A-Z]\d{9}$/.test(v)) return String(rif ?? '');
-  return `${v[0]}-${v.slice(1, 9)}-${v[9]}`;
-}
+/* ───────── 7) Validación del RIF ─────────
+   Vive en la librería compartida: el RIF no es un asunto de retenciones, lo
+   usan también proveedores, ventas y la ficha del personal. Se reexporta para
+   no cambiar quién lo importa desde acá. */
+export { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';

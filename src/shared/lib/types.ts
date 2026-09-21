@@ -1360,6 +1360,11 @@ export interface Personal {
   nombre: string;
   apellido: string;
   cedula?: string | null;
+  /** RIF del trabajador (V-12345678-9). Es otro dato que la cédula. */
+  rif?: string | null;
+  /** PDF (o imagen) del RIF, en el bucket `personal-documentos`. */
+  rif_path?: string | null;
+  rif_nombre?: string | null;
   cargo?: string | null;
   departamento?: string | null;
   sueldo_base: number;          // sueldo MENSUAL (USD)

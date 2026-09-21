@@ -115,8 +115,9 @@ export function VacacionesTab({ canWrite, actor, actorName }: { canWrite: boolea
       </div>
 
       {hayConflictos && (
-        <div className="card" style={{ borderColor: 'var(--warning)', background: 'rgba(255,170,0,.06)', marginBottom: '.6rem', fontSize: '.85rem' }}>
-          ⚠ <strong>Cruce de vacaciones en un mismo departamento.</strong> Las barras marcadas en naranja se solapan con otra persona del mismo departamento.
+        <div className="aviso warning" style={{ marginBottom: '.6rem' }}>
+          <span className="aviso-icono">⚠</span>
+          <div><strong>Cruce de vacaciones en un mismo departamento.</strong> Las barras marcadas en naranja se solapan con otra persona del mismo departamento.</div>
         </div>
       )}
 
@@ -239,8 +240,9 @@ function VacacionDetalleModal({ evento, persona, enConflicto, canWrite, actor, a
       </>
     }>
       {enConflicto && (
-        <div className="card" style={{ borderColor: 'var(--warning)', background: 'rgba(255,170,0,.06)', marginBottom: '.6rem', fontSize: '.84rem' }}>
-          ⚠ Se solapa con otra persona del <strong>mismo departamento</strong>.
+        <div className="aviso warning" style={{ marginBottom: '.6rem' }}>
+          <span className="aviso-icono">⚠</span>
+          <div>Se solapa con otra persona del <strong>mismo departamento</strong>.</div>
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
@@ -319,7 +321,7 @@ function ProgramarVacacionModal({ personal, eventos, actor, actorName, onClose, 
       </>
     }>
       <form id="prog-vac" onSubmit={guardar}>
-        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+        {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div><strong>Error:</strong> {error}</div></div>}
         <div className="form-grid">
           <div className="form-row" style={{ gridColumn: '1 / -1' }}>
             <label>Trabajador</label>
@@ -331,7 +333,12 @@ function ProgramarVacacionModal({ personal, eventos, actor, actorName, onClose, 
           <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Nota (opcional)</label><input className="input" name="vac-nota" defaultValue={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Detalle" /></div>
         </div>
         {dias > 0 && <div className="muted" style={{ marginTop: '.4rem', fontSize: '.84rem' }}>{dias} día(s){persona && Number(persona.sueldo_base) > 0 ? ` · pago estimado ${money(montoVacacion(Number(persona.sueldo_base), dias))}` : ''}</div>}
-        {conflicto && <div className="card" style={{ borderColor: 'var(--warning)', background: 'rgba(255,170,0,.06)', marginTop: '.5rem', fontSize: '.84rem' }}>⚠ <strong>{conflicto}</strong> (mismo departamento) ya tiene vacaciones que se cruzan con esas fechas. Ajustá las fechas.</div>}
+        {conflicto && (
+          <div className="aviso warning sm" style={{ marginTop: '.5rem' }}>
+            <span className="aviso-icono">⚠</span>
+            <div><strong>{conflicto}</strong> (mismo departamento) ya tiene vacaciones que se cruzan con esas fechas. Ajustá las fechas.</div>
+          </div>
+        )}
       </form>
     </Modal>
   );

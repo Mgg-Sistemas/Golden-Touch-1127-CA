@@ -228,6 +228,34 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .badge.info    { background: rgba(74,168,255,0.15); color: #7fc1ff; border-color: rgba(74,168,255,0.4); }
 .badge.primary { background: rgba(255,138,0,0.15); color: var(--primary-3); border-color: rgba(255,138,0,0.4); }
 
+/* ───────── Avisos (banners) ─────────
+   Los avisos dentro de una pantalla se venían armando a mano, cada uno con su
+   borde, su fondo y su tamaño de letra: el mismo mensaje se veía distinto según
+   la pestaña, y un aviso importante podía quedar más apagado que uno menor.
+   Esta clase les da una sola forma: franja de color a la izquierda para que se
+   lea de un vistazo de qué tipo es, y el tono del fondo según la gravedad.
+
+   Uso: <div class="aviso warning">…</div> (info, success, warning, danger). */
+.aviso {
+  display: flex; gap: .55rem; align-items: flex-start;
+  padding: .7rem .9rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-muted);
+  border-radius: var(--r-md, .6rem);
+  background: var(--surface-2, rgba(127,127,127,.06));
+  color: var(--text);
+  font-size: .85rem; line-height: 1.45;
+}
+.aviso + .aviso { margin-top: .5rem; }
+.aviso strong { color: var(--text); }
+.aviso-icono { flex-shrink: 0; font-size: 1rem; line-height: 1.35; }
+.aviso.info    { border-left-color: #4aa8ff; background: rgba(74,168,255,.08); }
+.aviso.success { border-left-color: #29c081; background: rgba(41,192,129,.08); }
+.aviso.warning { border-left-color: #f5b133; background: rgba(245,177,51,.09); }
+.aviso.danger  { border-left-color: #ef4f5e; background: rgba(239,79,94,.09); }
+/* Compacto: para avisos al pie de un formulario, donde el espacio es poco. */
+.aviso.sm { padding: .5rem .7rem; font-size: .8rem; }
+
 /* Etiquetas cortas (p. ej. rubros de un proveedor): chips compactos que envuelven
    sin estirar la fila. Máx. unas pocas visibles y el resto como «+N». */
 .tags { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; }

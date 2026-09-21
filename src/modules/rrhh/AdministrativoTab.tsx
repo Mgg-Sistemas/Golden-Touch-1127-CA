@@ -121,7 +121,7 @@ export function AdministrativoTab({ canWrite, actor, actorName }: { canWrite: bo
     <div>
       {canWrite && (
         <form onSubmit={guardar} style={{ marginBottom: '1rem' }}>
-          {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+          {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div><strong>Error:</strong> {error}</div></div>}
           <div className="card" style={{ padding: '.85rem' }}>
             <div className="card-title" style={{ marginBottom: '.5rem' }}>Registrar (vacaciones · permisos · utilidades · notas)</div>
             <div className="form-grid" key={formKey}>
