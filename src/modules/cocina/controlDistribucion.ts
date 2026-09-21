@@ -122,10 +122,19 @@ export const ESTADO_STOCK_BADGE: Record<EstadoStock, string> = {
 /** El estado por el que se recorta el listado, o «todos» para no recortar nada. */
 export type FiltroEstado = EstadoStock | 'todos';
 
-const FILTRO_ESTADO_TEXTO: Record<EstadoStock, string> = {
+/**
+ * El recorte del listado. Además de los tres estados hay dos que salen de las
+ * tarjetas de arriba («Consumo» y «Merma»), porque tocarlas tiene que mostrar
+ * de qué víveres está hecho ese número.
+ */
+export type FiltroDistribucion = FiltroEstado | 'con-consumo' | 'con-merma';
+
+const FILTRO_TEXTO: Record<Exclude<FiltroDistribucion, 'todos'>, string> = {
   reordenar: 'Solo los víveres por REORDENAR',
   alerta: 'Solo los víveres EN ALERTA',
   normal: 'Solo los víveres en NORMAL',
+  'con-consumo': 'Solo los víveres CON CONSUMO en el período',
+  'con-merma': 'Solo los víveres CON MERMA en el período',
 };
 
 /** Deja únicamente los de ese estado. Con «todos» devuelve la lista tal cual. */
@@ -133,14 +142,32 @@ export function filtrarPorEstado<T extends { estado: EstadoStock }>(items: T[], 
   return estado === 'todos' ? items : items.filter((i) => i.estado === estado);
 }
 
+/** Lo mínimo para saber si un víver entra en el recorte. */
+export interface FiltrableDistribucion {
+  estado: EstadoStock;
+  totales: { consumo: number; merma: number };
+}
+
+/**
+ * Aplica el recorte elegido: por estado, o por tener consumo o merma en el
+ * período. Un víver «con merma» es cualquiera cuyo conteo físico no dio igual
+ * que el teórico, sobre o falte: las dos cosas hay que mirarlas.
+ */
+export function filtrarDistribucion<T extends FiltrableDistribucion>(items: T[], filtro: FiltroDistribucion): T[] {
+  if (filtro === 'todos') return items;
+  if (filtro === 'con-consumo') return items.filter((i) => Math.abs(n(i.totales?.consumo)) > 0.0001);
+  if (filtro === 'con-merma') return items.filter((i) => Math.abs(n(i.totales?.merma)) > 0.0001);
+  return items.filter((i) => i.estado === filtro);
+}
+
 /**
  * Qué recorte del mercado es este listado, para imprimirlo en el PDF. El papel
  * con el que se sale a comprar tiene que decir de qué es: «Solo los víveres por
  * REORDENAR» no es lo mismo que el mercado entero. Vacío si no hay recorte.
  */
-export function subtituloFiltro(estado: FiltroEstado, buscar = ''): string {
+export function subtituloFiltro(filtro: FiltroDistribucion, buscar = ''): string {
   const partes: string[] = [];
-  if (estado !== 'todos') partes.push(FILTRO_ESTADO_TEXTO[estado]);
+  if (filtro !== 'todos') partes.push(FILTRO_TEXTO[filtro]);
   const b = String(buscar ?? '').trim();
   if (b) partes.push(`búsqueda «${b}»`);
   return partes.join(' · ');

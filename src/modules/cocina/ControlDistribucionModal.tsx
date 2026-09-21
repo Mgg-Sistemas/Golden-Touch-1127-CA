@@ -23,8 +23,8 @@ import { norm } from '@/shared/lib/texto';
 import { mensajeError } from '@/shared/lib/errores';
 import { date as fmtDate } from '@/shared/lib/format';
 import {
-  ESTADO_STOCK_BADGE, ESTADO_STOCK_LABEL, diasEntre, filtrarPorEstado, subtituloFiltro,
-  type FiltroEstado,
+  ESTADO_STOCK_BADGE, ESTADO_STOCK_LABEL, diasEntre, filtrarDistribucion, subtituloFiltro,
+  type FiltroDistribucion,
 } from './controlDistribucion';
 import {
   cargarControl, guardarConteo, guardarParametroProducto, guardarParametrosGenerales,
@@ -57,7 +57,7 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
   const [control, setControl] = useState<Control | null>(null);
   const [loading, setLoading] = useState(true);
   const [buscar, setBuscar] = useState('');
-  const [fEstado, setFEstado] = useState<FiltroEstado>('todos');
+  const [fEstado, setFEstado] = useState<FiltroDistribucion>('todos');
   const [selId, setSelId] = useState<string | null>(null);
 
   const recargar = useCallback(async () => {
@@ -76,9 +76,9 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
   // Lo que mueve el control: las comidas, el kardex y los conteos de otros usuarios.
   useRealtime(['cocina_movimientos', 'movimientos', 'cocina_conteos', 'cocina_eoq'], () => { void recargar(); });
 
-  // Lo que se ve es lo que sale en el PDF: primero el estado, después la búsqueda.
+  // Lo que se ve es lo que sale en el PDF: primero el recorte, después la búsqueda.
   const productos = useMemo(() => {
-    const todos = filtrarPorEstado(ordenarPorUrgencia(control?.productos ?? []), fEstado);
+    const todos = filtrarDistribucion(ordenarPorUrgencia(control?.productos ?? []), fEstado);
     const q = norm(buscar.trim());
     if (!q) return todos;
     return todos.filter((p) => norm(`${p.nombre} ${p.sku}`).includes(q));
@@ -151,12 +151,14 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
         {!sel && (
           <label style={{ display: 'grid', gap: '.2rem' }}>
             <span className="muted" style={{ fontSize: '.78rem' }}>Estado</span>
-            <select className="input" value={fEstado} onChange={(e) => setFEstado(e.target.value as FiltroEstado)}
-              title="Dejar solo los productos en ese estado: la lista y el PDF salen con eso">
+            <select className="input" value={fEstado} onChange={(e) => setFEstado(e.target.value as FiltroDistribucion)}
+              title="Dejar solo esos productos: la lista y el PDF salen con eso">
               <option value="todos">Todos</option>
               <option value="reordenar">🚨 Reordenar</option>
               <option value="alerta">⚠️ En alerta</option>
               <option value="normal">✅ Normal</option>
+              <option value="con-consumo">Con consumo</option>
+              <option value="con-merma">Con merma</option>
             </select>
           </label>
         )}

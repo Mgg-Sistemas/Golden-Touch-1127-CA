@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calcularEoq, construirDias, demandaAnualEstimada, diasEntre, estadoStock, filtrarPorEstado,
-  subtituloFiltro, totalizarControl, type EstadoStock,
+  calcularEoq, construirDias, demandaAnualEstimada, diasEntre, estadoStock, filtrarDistribucion,
+  filtrarPorEstado, subtituloFiltro, totalizarControl, type EstadoStock,
 } from './controlDistribucion';
 
 /* Los tres juegos de parámetros de la hoja «Control de consumo de pollo», con los
@@ -205,5 +205,45 @@ describe('subtítulo del PDF', () => {
   it('suma la búsqueda', () => {
     expect(subtituloFiltro('reordenar', ' pollo ')).toBe('Solo los víveres por REORDENAR · búsqueda «pollo»');
     expect(subtituloFiltro('todos', 'pollo')).toBe('búsqueda «pollo»');
+  });
+});
+
+describe('recorte desde las tarjetas', () => {
+  const viv = (nombre: string, estado: EstadoStock, consumo: number, merma: number) =>
+    ({ nombre, estado, totales: { consumo, merma } });
+  const lista = [
+    viv('ATUN', 'reordenar', 5, -2),
+    viv('HUEVO', 'normal', 0, 0),
+    viv('CAFE', 'alerta', 3, 0),
+    viv('PASTA', 'reordenar', 0, 1.5),
+  ];
+
+  it('«todos» no recorta', () => {
+    expect(filtrarDistribucion(lista, 'todos')).toEqual(lista);
+  });
+
+  it('la tarjeta de Consumo deja los que consumieron', () => {
+    expect(filtrarDistribucion(lista, 'con-consumo').map((p) => p.nombre)).toEqual(['ATUN', 'CAFE']);
+  });
+
+  it('la tarjeta de Merma deja los descuadrados, sobre o falte', () => {
+    expect(filtrarDistribucion(lista, 'con-merma').map((p) => p.nombre)).toEqual(['ATUN', 'PASTA']);
+  });
+
+  it('las tarjetas de estado siguen funcionando igual', () => {
+    expect(filtrarDistribucion(lista, 'reordenar').map((p) => p.nombre)).toEqual(['ATUN', 'PASTA']);
+    expect(filtrarDistribucion(lista, 'normal').map((p) => p.nombre)).toEqual(['HUEVO']);
+  });
+
+  it('un consumo o una merma de cero no cuentan', () => {
+    expect(filtrarDistribucion([viv('X', 'normal', 0, 0)], 'con-consumo')).toEqual([]);
+    expect(filtrarDistribucion([viv('X', 'normal', 0, 0)], 'con-merma')).toEqual([]);
+  });
+});
+
+describe('el subtítulo de los recortes nuevos', () => {
+  it('nombra el consumo y la merma', () => {
+    expect(subtituloFiltro('con-consumo')).toBe('Solo los víveres CON CONSUMO en el período');
+    expect(subtituloFiltro('con-merma')).toBe('Solo los víveres CON MERMA en el período');
   });
 });

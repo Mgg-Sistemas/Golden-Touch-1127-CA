@@ -13,7 +13,7 @@
    (un producto servido un solo día del ciclo daría 365 raciones al año). GT lo
    anualiza sobre los días del período; ver `demandaAnualEstimada`.
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -21,7 +21,8 @@ import { norm } from '@/shared/lib/texto';
 import { mensajeError } from '@/shared/lib/errores';
 import { date as fmtDate } from '@/shared/lib/format';
 import {
-  ESTADO_STOCK_BADGE, ESTADO_STOCK_LABEL, filtrarPorEstado, subtituloFiltro, type FiltroEstado,
+  ESTADO_STOCK_BADGE, ESTADO_STOCK_LABEL, filtrarDistribucion, subtituloFiltro,
+  type FiltroDistribucion,
 } from './controlDistribucion';
 import {
   cargarControl, ordenarPorUrgencia, type Control, type ControlProducto,
@@ -44,7 +45,7 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
   const [control, setControl] = useState<Control | null>(null);
   const [loading, setLoading] = useState(true);
   const [buscar, setBuscar] = useState('');
-  const [fEstado, setFEstado] = useState<FiltroEstado>('todos');
+  const [fEstado, setFEstado] = useState<FiltroDistribucion>('todos');
   const [abierto, setAbierto] = useState<string | null>(null);
 
   const recargar = useCallback(async () => {
@@ -62,10 +63,10 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
 
   useRealtime(['cocina_movimientos', 'movimientos', 'cocina_conteos', 'cocina_eoq'], () => { void recargar(); });
 
-  // Lo que se ve es exactamente lo que sale en el PDF: primero el estado, después
+  // Lo que se ve es exactamente lo que sale en el PDF: primero el recorte, después
   // la búsqueda. El orden sigue siendo el de urgencia dentro de lo que quede.
   const productos = useMemo(() => {
-    const todos = filtrarPorEstado(ordenarPorUrgencia(control?.productos ?? []), fEstado);
+    const todos = filtrarDistribucion(ordenarPorUrgencia(control?.productos ?? []), fEstado);
     const q = norm(buscar.trim());
     if (!q) return todos;
     return todos.filter((p) => norm(`${p.nombre} ${p.sku}`).includes(q));
@@ -110,25 +111,34 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
         </div>
       </div>
 
+      {/* Las tarjetas son el filtro: tocar una deja abajo los víveres que la componen,
+          y volver a tocarla muestra el mercado entero. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '.5rem', marginBottom: '.7rem' }}>
-        <Tira titulo="Víveres" valor={String(totales.viveres)} />
-        <Tira titulo="🚨 Reordenar" valor={String(totales.reordenar)} tono={totales.reordenar ? 'danger' : undefined} />
-        <Tira titulo="⚠️ En alerta" valor={String(totales.alerta)} tono={totales.alerta ? 'warning' : undefined} />
-        <Tira titulo="Consumo" valor={num(totales.consumo)} />
-        <Tira titulo="Merma" valor={num(totales.mermas)} tono={totales.mermas < 0 ? 'danger' : undefined} />
+        <Tira titulo="Víveres" valor={String(totales.viveres)} filtro="todos" activo={fEstado} onFiltrar={setFEstado}
+          ayuda="Ver el mercado entero" />
+        <Tira titulo="🚨 Reordenar" valor={String(totales.reordenar)} tono={totales.reordenar ? 'danger' : undefined}
+          filtro="reordenar" activo={fEstado} onFiltrar={setFEstado} ayuda="Ver solo los víveres por reordenar" />
+        <Tira titulo="⚠️ En alerta" valor={String(totales.alerta)} tono={totales.alerta ? 'warning' : undefined}
+          filtro="alerta" activo={fEstado} onFiltrar={setFEstado} ayuda="Ver solo los víveres en alerta" />
+        <Tira titulo="Consumo" valor={num(totales.consumo)}
+          filtro="con-consumo" activo={fEstado} onFiltrar={setFEstado} ayuda="Ver de qué víveres sale ese consumo" />
+        <Tira titulo="Merma" valor={num(totales.mermas)} tono={totales.mermas < 0 ? 'danger' : undefined}
+          filtro="con-merma" activo={fEstado} onFiltrar={setFEstado} ayuda="Ver qué víveres tienen merma" />
         <Tira titulo="🍽 Comensales" valor={String(totales.comensales)} />
       </div>
 
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.5rem', flexWrap: 'wrap' }}>
         <input className="input" style={{ maxWidth: 260 }} placeholder="Buscar víver por nombre o código"
           value={buscar} onChange={(e) => setBuscar(e.target.value)} />
-        <select className="input" style={{ maxWidth: 200 }} value={fEstado}
-          onChange={(e) => setFEstado(e.target.value as FiltroEstado)}
-          title="Dejar solo los víveres en ese estado: la lista y el PDF salen con eso">
-          <option value="todos">Todos los estados</option>
+        <select className="input" style={{ maxWidth: 210 }} value={fEstado}
+          onChange={(e) => setFEstado(e.target.value as FiltroDistribucion)}
+          title="Dejar solo esos víveres: la lista y el PDF salen con eso">
+          <option value="todos">Todo el mercado</option>
           <option value="reordenar">🚨 Reordenar</option>
           <option value="alerta">⚠️ En alerta</option>
           <option value="normal">✅ Normal</option>
+          <option value="con-consumo">Con consumo</option>
+          <option value="con-merma">Con merma</option>
         </select>
         <span className="muted" style={{ fontSize: '.78rem' }}>
           Del {fmtDate(desde)} al {fmtDate(hasta)}
@@ -140,7 +150,7 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
       {!loading && !productos.length && (
         <EmptyState message={fEstado === 'todos'
           ? 'No hay víveres con movimiento en este ciclo'
-          : 'Ningún víver en ese estado'} />
+          : 'Ningún víver entra en ese recorte'} />
       )}
 
       {!loading && !!productos.length && (
@@ -180,13 +190,43 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
   );
 }
 
-function Tira({ titulo, valor, tono }: { titulo: string; valor: string; tono?: 'danger' | 'warning' }) {
+/**
+ * Una tarjeta del resumen. Con `filtro` se vuelve un botón: al tocarla, la lista
+ * de abajo se queda con los víveres que forman ese número, y al tocarla de nuevo
+ * (o al tocar «Víveres») se vuelve al mercado entero.
+ */
+function Tira({ titulo, valor, tono, filtro, activo, onFiltrar, ayuda }: {
+  titulo: string;
+  valor: string;
+  tono?: 'danger' | 'warning';
+  filtro?: FiltroDistribucion;
+  activo?: FiltroDistribucion;
+  onFiltrar?: (f: FiltroDistribucion) => void;
+  ayuda?: string;
+}) {
   const color = tono === 'danger' ? 'var(--danger)' : tono === 'warning' ? 'var(--warning, #b8860b)' : undefined;
-  return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: '.5rem', padding: '.4rem .6rem' }}>
+  const clicable = !!filtro && !!onFiltrar;
+  const marcada = clicable && activo === filtro;
+  const cuerpo = (
+    <>
       <div className="muted" style={{ fontSize: '.72rem' }}>{titulo}</div>
       <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color }}>{valor}</div>
-    </div>
+    </>
+  );
+  const marco: CSSProperties = {
+    border: `1px solid ${marcada ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
+    borderRadius: '.5rem',
+    padding: '.4rem .6rem',
+    textAlign: 'left',
+    width: '100%',
+    background: marcada ? 'color-mix(in srgb, var(--brand, #ff8a00) 12%, transparent)' : 'transparent',
+  };
+  if (!clicable) return <div style={marco}>{cuerpo}</div>;
+  return (
+    <button type="button" style={{ ...marco, cursor: 'pointer' }} aria-pressed={marcada} title={ayuda}
+      onClick={() => onFiltrar(marcada && filtro !== 'todos' ? 'todos' : filtro)}>
+      {cuerpo}
+    </button>
   );
 }
 
