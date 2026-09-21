@@ -142,6 +142,8 @@ export interface CompraDirecta {
   moneda?: string | null;
   /** Tasa Bs/$ con la que el analista convirtió la moneda del documento (conversor). Referencia para Tesorería. */
   tasa_conversion?: number | null;
+  /** Tasa (Bs por $) con la que TESORERÍA pagó. Puede no ser la del montaje. */
+  tasa_pago?: number | null;
   /** Monto de IVA — suma al total (en la moneda de la compra, Bs o $). */
   iva?: number | null;
   /** % de IVA con el que se calculó `iva` (16 por defecto; el monto puede ajustarse a mano). */
@@ -884,6 +886,8 @@ export interface PagarCompraInput {
   retencionMonto?: number;
   retencionMontoBs?: number;
   retencionTasa?: number;
+  /** Tasa (Bs por $) con la que Tesorería convierte el pago. Queda escrita en la ficha. */
+  tasaPago?: number;
   /** Lo pagado de más: sale en egresos aparte, desde estas cuentas. */
   reembolsoLegs?: PagoLeg[];
   reembolsoUsd?: number;
@@ -1013,6 +1017,8 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
       caja_id: input.cajaId, caja_mov_id: movCajaId, pago_legs: legs.length ? legs : null,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
       comision_bancaria: comision,
+      // La tasa REAL del pago (Tesorería la puede ajustar): no pisa la del montaje.
+      tasa_pago: (Number(input.tasaPago) || 0) > 0 ? Math.round(Number(input.tasaPago) * 100) / 100 : null,
       recepcion_pendiente: sigueSinRecibir,
       pagada_at: new Date().toISOString(), pagada_por: input.actor, pagada_por_name: input.actorName ?? null,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),

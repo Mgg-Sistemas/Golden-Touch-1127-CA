@@ -20,6 +20,7 @@ import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.reposit
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
+import { convertirConTasa, errorTasaPago, requiereTasa, textoTasaPago } from './tasaPago';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { RetencionPagoCard, useRetencionPago } from '@/modules/tesoreria/RetencionPagoCard';
 import { repartirPagoYReembolso } from '@/modules/tesoreria/reembolsoPago';
@@ -303,6 +304,7 @@ function ServicioDetalleModal({ servicio, actor, onClose, onPdf, onReabrir, onEd
       {fila('Creado', dateTime(servicio.created_at))}
       {servicio.estado === 'finalizada' && fila('Pagado', servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—')}
       {fila('Moneda', servicio.moneda === 'Bs' ? 'Bs' : '$ (USD)')}
+      {(Number(servicio.tasa_pago) || 0) > 0 && fila('Tasa de pago (Tesorería)', <span className="mono">{textoTasaPago(servicio.tasa_pago, servicio.tasa_conversion)}</span>)}
       {(Number(servicio.tasa_conversion) || 0) > 0 && servicio.gasto != null && fila('Convertido a la tasa', <span>{num(servicio.tasa_conversion)} Bs/$ · equivale a <strong className="mono">{montoMoneda(servicio.moneda === 'Bs' ? Number(servicio.gasto) / Number(servicio.tasa_conversion) : Number(servicio.gasto) * Number(servicio.tasa_conversion), servicio.moneda === 'Bs' ? 'USD' : 'Bs')}</strong></span>)}
       {fila('Monto total', servicio.gasto != null ? montoMoneda(servicio.gasto, servicio.moneda) : '—')}
       {(Number(servicio.anticipo_monto) || 0) > 0 && fila('Pago anticipado',
@@ -873,6 +875,10 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   // era en Bs, exigía "cubrir" 8.000 USD con 8.000 Bs = 10,84 USD y nunca dejaba pagar).
   const totalUsd = monedaServicio === 'Bs' ? (tasa > 0 ? round2(aPagar / tasa) : 0) : aPagar;
   const totalBs = monedaServicio === 'Bs' ? aPagar : (tasa > 0 ? round2(aPagar * tasa) : 0);
+  // ¿El pago CRUZA de moneda? (servicio en $ desde una billetera en Bs, o al revés). Solo
+  // entonces la tasa convierte algo, y solo entonces se guarda como «tasa de pago».
+  const monedasPago = saldosCaja.length ? saldosCaja.map((s) => s.moneda) : [moneda];
+  const cruzaMoneda = monedasPago.some((m) => requiereTasa(monedaServicio, m));
   // Inverso de legUsd: cuánto representa, en la moneda de la cuenta, un monto en USD.
   function desdeUsd(monedaLeg: string, usd: number): number {
     if (!usd || usd <= 0) return 0;
@@ -930,9 +936,16 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
         legs = rep.pago; reembolsoLegs = rep.reembolso; reembolsoUsd = rep.reembolsoUsd;
       }
     } else if (saldosCaja.length === 1) {
+      // Billetera única: si está en OTRA moneda que la factura, sale el EQUIVALENTE a la
+      // tasa de pago (ajustable arriba). Antes salía el monto crudo, como si 8.000 Bs y
+      // 8.000 $ fueran lo mismo.
       const s = saldosCaja[0];
-      if (aPagar > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}).`); return; }
-      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: aPagar, cajaId: s.caja_id }];
+      const errT = errorTasaPago(monedaServicio, s.moneda, tasa);
+      if (errT) { setError(errT); return; }
+      const montoLeg = convertirConTasa(aPagar, monedaServicio, s.moneda, tasa);
+      if (montoLeg <= 0) { setError('No se pudo convertir el total a la moneda de la billetera.'); return; }
+      if (montoLeg > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}). Requiere ${montoCaja(montoLeg, s.moneda)}.`); return; }
+      legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: montoLeg, cajaId: s.caja_id }];
     }
     setSaving(true);
     try {
@@ -941,6 +954,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
         retencionMonto: ret.activa ? ret.monto : 0,
         retencionMontoBs: ret.activa ? ret.conv.enBs : 0,
         retencionTasa: ret.activa ? Number(ret.tasaStr) || 0 : 0,
+        tasaPago: cruzaMoneda ? Number(tasa) || 0 : 0,
         reembolsoLegs, reembolsoUsd,
       });
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(round2(sumUsdMulti - reembolsoUsd), 'USD')}` : montoCaja(aPagar, moneda);
@@ -1148,11 +1162,19 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
               <div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs (BCV)</div>
               <strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda === 'Bs' ? montoCaja(totalBs, 'Bs') : '—'}</strong>
             </div>
-            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 150, margin: 0 }}>
-              <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs por $)</label>
+            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 170, margin: 0 }}>
+              <label style={{ fontSize: '.72rem' }}>Tasa de pago (Bs por $)</label>
               <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
                 onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" />
             </div>
+            <small className="muted" style={{ flexBasis: '100%', fontSize: '.72rem' }}>
+              Arranca en la <strong>BCV de hoy</strong> y se puede <strong>ajustar</strong>: es la tasa con la que
+              sale el dinero de la caja.
+              {(Number(servicio.tasa_conversion) || 0) > 0 && <> La factura se montó a <strong className="mono">{num(servicio.tasa_conversion)}</strong> Bs/$.</>}
+              {cruzaMoneda
+                ? <> Este pago <strong>cruza de moneda</strong>, así que la tasa queda guardada en la ficha.</>
+                : <> Este pago no cruza de moneda: la tasa solo sirve de referencia.</>}
+            </small>
           </div>
         )}
 

@@ -24,9 +24,16 @@ const num = (v: number, dec = 2) =>
  */
 const estadoCorto = (e: keyof typeof ESTADO_STOCK_LABEL) => pdfSafe(ESTADO_STOCK_LABEL[e].split(' (')[0]);
 
+/**
+ * @param opciones.productos  El listado tal como se ve en pantalla, ya filtrado
+ *   y ordenado: el PDF sale con eso y nada más. Sin él sale el mercado entero.
+ * @param opciones.subtitulo  Qué recorte es, impreso bajo las fechas.
+ * @param opciones.sufijoArchivo  Se agrega al nombre del archivo.
+ */
 export async function descargarControlDistribucionPdf(
   control: Control,
   producto: ControlProducto | null,
+  opciones?: { productos?: ControlProducto[]; subtitulo?: string; sufijoArchivo?: string },
 ): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
@@ -51,8 +58,14 @@ export async function descargarControlDistribucionPdf(
     `GOLDEN TOUCH 1127 C.A. · Generado ${fmt.dateTime(new Date().toISOString())}`,
     W / 2, y + 48, { align: 'center' },
   );
+  const subtitulo = producto ? '' : pdfSafe(String(opciones?.subtitulo ?? '').trim());
+  if (subtitulo) {
+    doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text(subtitulo, W / 2, y + 62, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+  }
   doc.setTextColor(0, 0, 0);
-  y += 64;
+  y += subtitulo ? 78 : 64;
 
   const finalY = () => {
     // @ts-expect-error lastAutoTable lo agrega el plugin
@@ -60,7 +73,7 @@ export async function descargarControlDistribucionPdf(
   };
 
   if (!producto) {
-    const productos = control.productos;
+    const productos = opciones?.productos ?? control.productos;
     const reordenar = productos.filter((p) => p.estado === 'reordenar').length;
     const alerta = productos.filter((p) => p.estado === 'alerta').length;
     const comensales = [...control.comensalesPorDia.values()].reduce((a, b) => a + b, 0);
@@ -104,7 +117,8 @@ export async function descargarControlDistribucionPdf(
       pdfSafe('REORDEN = con ese stock hay que volver a pedir (demanda diaria x días de entrega). LOTE EOQ = cuántas unidades conviene pedir de una vez. Un guion = todavía sin consumo registrado en el período.'),
       MARGIN, finalY() + 14, { maxWidth: W - MARGIN * 2 },
     );
-    previewPdf(doc, `control-distribucion-${control.hasta}.pdf`);
+    const sufijo = String(opciones?.sufijoArchivo ?? '').trim();
+    previewPdf(doc, `control-distribucion${sufijo ? `-${sufijo}` : ''}-${control.hasta}.pdf`);
     return;
   }
 

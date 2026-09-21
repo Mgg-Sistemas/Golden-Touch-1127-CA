@@ -11,6 +11,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa, saldosDeCaja } from '@/modules/tesoreria/cajaSaldos.repository';
 import { CATEGORIA_REEMBOLSO, errorRetencionPago, montoLegadoARevertir, netoAPagar, patasConMonto } from './pagoDirecto';
+import { convertirConTasa, errorTasaPago } from './tasaPago';
 import { columnasPagoExterno, type PagoExternoInput } from '@/modules/pedidos/compras.repository';
 import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { CuentaCaja, DetalleServicioItem } from '@/shared/lib/types';
@@ -101,6 +102,8 @@ export interface ServicioDirecto {
   moneda?: string | null;
   /** Tasa Bs/$ con la que se convirtió la moneda del documento (conversor). Referencia para Tesorería. */
   tasa_conversion?: number | null;
+  /** Tasa (Bs por $) con la que TESORERÍA pagó. Puede no ser la del montaje. */
+  tasa_pago?: number | null;
   caja_id: string | null;
   caja_mov_id: string | null;
   /** Desglose multimoneda del pago (para revertir exacto al reabrir). Null si fue caja simple. */
@@ -495,6 +498,8 @@ export interface PagarServicioInput {
   retencionMonto?: number;
   retencionMontoBs?: number;
   retencionTasa?: number;
+  /** Tasa (Bs por $) con la que Tesorería convierte el pago. Queda escrita en la ficha. */
+  tasaPago?: number;
   /** Lo pagado de más: sale en egresos aparte, desde estas cuentas. */
   reembolsoLegs?: PagoLeg[];
   reembolsoUsd?: number;
@@ -569,6 +574,8 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<{
       estado: 'finalizada', gasto: total, items,
       caja_id: input.cajaId, caja_mov_id: movCajaId, pago_legs: legs.length ? legs : null,
       gasto_categoria: input.gastoCategoria ?? null, gasto_subcategoria: input.gastoSubcategoria ?? null,
+      // La tasa REAL del pago (Tesorería la puede ajustar): no pisa la del montaje.
+      tasa_pago: (Number(input.tasaPago) || 0) > 0 ? Math.round(Number(input.tasaPago) * 100) / 100 : null,
       pagada_at: new Date().toISOString(), pagada_por: input.actor, pagada_por_name: input.actorName ?? null,
       finalizada_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
@@ -615,6 +622,10 @@ export interface AbonoServicio {
   comprobante_nombre: string | null;
   /** Cuenta/billetera de caja_saldos de la que salió (para revertir exacto al reabrir). */
   cuenta: string | null;
+  /** Si el dinero salió en OTRA moneda que la del servicio: cuál, cuánto y a qué tasa. */
+  moneda_pago: string | null;
+  monto_pagado: number | null;
+  tasa_pago: number | null;
   at: string;
 }
 
@@ -639,6 +650,10 @@ export interface RegistrarAbonoServicioInput {
   cajaId: string;
   /** Monto del abono (en la moneda del servicio). */
   monto: number;
+  /** Moneda de la billetera de la que sale el dinero. Por defecto, la del servicio. */
+  monedaPago?: string | null;
+  /** Tasa (Bs por $) para convertir el abono a esa billetera. Obligatoria si cruza Bs↔$. */
+  tasaPago?: number;
   gastoCategoria?: string | null;
   gastoSubcategoria?: string | null;
   nota?: string | null;
@@ -667,11 +682,19 @@ export async function registrarAbonoServicio(input: RegistrarAbonoServicioInput)
 
   // 1) Egreso de la caja en la MONEDA del servicio, del SALDO REAL multimoneda
   //    (caja_saldos), no del saldo legado. Valida fondos en el servidor.
+  //    El abono se ACUMULA en la moneda del servicio, pero puede salir de una billetera
+  //    en otra moneda: entonces Tesorería fija la tasa y egresa el equivalente.
   const monedaServ = servicio.moneda ?? 'USD';
+  const monedaPago = String(input.monedaPago ?? monedaServ) || monedaServ;
+  const tasaPago = Number(input.tasaPago) || 0;
+  const errTasa = errorTasaPago(monedaServ, monedaPago, tasaPago);
+  if (errTasa) throw new Error(errTasa);
+  const montoPagado = convertirConTasa(monto, monedaServ, monedaPago, tasaPago);
+  if (montoPagado <= 0) throw new Error('No se pudo convertir el abono a la moneda de la billetera.');
   const concepto = `Abono servicio directo · ${servicio.codigo ?? servicio.descripcion}${servicio.equipo_nombre ? ` · ${servicio.equipo_nombre}` : ''}`;
-  const cuentaAbono = await elegirCuentaAbono(input.cajaId, monedaServ, monto);
+  const cuentaAbono = await elegirCuentaAbono(input.cajaId, monedaPago, montoPagado);
   const movCaja = await egresarDivisa({
-    cajaId: input.cajaId, cuenta: cuentaAbono, moneda: monedaServ, monto, concepto, categoria: 'servicio_directo',
+    cajaId: input.cajaId, cuenta: cuentaAbono, moneda: monedaPago, monto: montoPagado, concepto, categoria: 'servicio_directo',
     gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
     actor: input.actor, actorName: input.actorName ?? null,
   });
@@ -687,6 +710,10 @@ export async function registrarAbonoServicio(input: RegistrarAbonoServicioInput)
   // 3) Registrar el abono.
   const { error: abErr } = await supabase.from('servicio_directo_abonos').insert({
     servicio_id: servicio.id, monto, moneda: monedaServ, cuenta: cuentaAbono,
+    // Con qué salió de la caja, si no fue en la moneda del servicio.
+    moneda_pago: monedaPago !== monedaServ ? monedaPago : null,
+    monto_pagado: monedaPago !== monedaServ ? montoPagado : null,
+    tasa_pago: tasaPago > 0 && monedaPago !== monedaServ ? Math.round(tasaPago * 100) / 100 : null,
     caja_id: input.cajaId, caja_mov_id: movCaja.id, saldo_restante: saldoRestante,
     actor: input.actor, actor_name: input.actorName ?? null, nota: input.nota?.trim() || null,
     comprobante_path: comprobantePath, comprobante_nombre: comprobanteNombre,
@@ -739,16 +766,22 @@ export async function reabrirServicioDirecto(servicio: ServicioDirecto, actor: s
     const abonos = await listAbonosServicio(servicio.id);
     for (const ab of abonos) {
       if (!ab.caja_id || Number(ab.monto) <= 0) continue;
+      // Se devuelve EXACTAMENTE lo que salió: si el abono se pagó desde una billetera
+      // en otra moneda (con la tasa de Tesorería), vuelve ese monto a esa billetera,
+      // no el del servicio; si no, la caja queda descuadrada.
+      const monedaVuelta = ab.moneda_pago ?? ab.moneda ?? (servicio.moneda ?? 'USD');
+      const montoVuelta = Number(ab.monto_pagado ?? ab.monto) || 0;
+      if (montoVuelta <= 0) continue;
       if (ab.cuenta) {
         // Abono nuevo: salió del saldo multimoneda (caja_saldos) → se devuelve ahí mismo.
         await revertirEgresoDivisa({
-          cajaId: ab.caja_id, cuenta: ab.cuenta as CuentaCaja, moneda: ab.moneda ?? (servicio.moneda ?? 'USD'),
-          monto: Number(ab.monto), concepto, actor, actorName: actorName ?? null,
+          cajaId: ab.caja_id, cuenta: ab.cuenta as CuentaCaja, moneda: monedaVuelta,
+          monto: montoVuelta, concepto, actor, actorName: actorName ?? null,
         });
       } else {
         // Abono viejo (saldo legado): se devuelve por el mismo camino legado.
         await ingresarDineroCaja({
-          cajaId: ab.caja_id, monto: Number(ab.monto), concepto, categoria: 'reverso',
+          cajaId: ab.caja_id, monto: montoVuelta, concepto, categoria: 'reverso',
           actor, actorName: actorName ?? null,
         });
       }

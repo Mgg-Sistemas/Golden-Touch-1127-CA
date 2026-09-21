@@ -20,7 +20,9 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { norm } from '@/shared/lib/texto';
 import { mensajeError } from '@/shared/lib/errores';
 import { date as fmtDate } from '@/shared/lib/format';
-import { ESTADO_STOCK_BADGE, ESTADO_STOCK_LABEL } from './controlDistribucion';
+import {
+  ESTADO_STOCK_BADGE, ESTADO_STOCK_LABEL, filtrarPorEstado, subtituloFiltro, type FiltroEstado,
+} from './controlDistribucion';
 import {
   cargarControl, ordenarPorUrgencia, type Control, type ControlProducto,
 } from './controlDistribucion.repository';
@@ -42,6 +44,7 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
   const [control, setControl] = useState<Control | null>(null);
   const [loading, setLoading] = useState(true);
   const [buscar, setBuscar] = useState('');
+  const [fEstado, setFEstado] = useState<FiltroEstado>('todos');
   const [abierto, setAbierto] = useState<string | null>(null);
 
   const recargar = useCallback(async () => {
@@ -59,12 +62,14 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
 
   useRealtime(['cocina_movimientos', 'movimientos', 'cocina_conteos', 'cocina_eoq'], () => { void recargar(); });
 
+  // Lo que se ve es exactamente lo que sale en el PDF: primero el estado, después
+  // la búsqueda. El orden sigue siendo el de urgencia dentro de lo que quede.
   const productos = useMemo(() => {
-    const todos = ordenarPorUrgencia(control?.productos ?? []);
+    const todos = filtrarPorEstado(ordenarPorUrgencia(control?.productos ?? []), fEstado);
     const q = norm(buscar.trim());
     if (!q) return todos;
     return todos.filter((p) => norm(`${p.nombre} ${p.sku}`).includes(q));
-  }, [control, buscar]);
+  }, [control, buscar, fEstado]);
 
   const totales = useMemo(() => {
     const ps = control?.productos ?? [];
@@ -93,9 +98,15 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
           <button className="btn btn-sm btn-ghost" disabled={!control || !productos.length}
             onClick={() => {
               if (!control) return;
-              descargarControlDistribucionPdf(control, null)
-                .catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'));
-            }}>↓ PDF</button>
+              descargarControlDistribucionPdf(control, null, {
+                productos,
+                subtitulo: subtituloFiltro(fEstado, buscar),
+                sufijoArchivo: fEstado === 'todos' ? '' : fEstado,
+              }).catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'));
+            }}
+            title={fEstado === 'todos' && !buscar.trim()
+              ? 'El mercado entero, lo que hay que comprar primero arriba'
+              : `Solo los ${productos.length} víveres que se están viendo`}>↓ PDF</button>
         </div>
       </div>
 
@@ -111,13 +122,26 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.5rem', flexWrap: 'wrap' }}>
         <input className="input" style={{ maxWidth: 260 }} placeholder="Buscar víver por nombre o código"
           value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+        <select className="input" style={{ maxWidth: 200 }} value={fEstado}
+          onChange={(e) => setFEstado(e.target.value as FiltroEstado)}
+          title="Dejar solo los víveres en ese estado: la lista y el PDF salen con eso">
+          <option value="todos">Todos los estados</option>
+          <option value="reordenar">🚨 Reordenar</option>
+          <option value="alerta">⚠️ En alerta</option>
+          <option value="normal">✅ Normal</option>
+        </select>
         <span className="muted" style={{ fontSize: '.78rem' }}>
           Del {fmtDate(desde)} al {fmtDate(hasta)}
+          {fEstado !== 'todos' && ` · ${productos.length} de ${totales.viveres}`}
         </span>
       </div>
 
       {loading && <p className="muted">Cargando…</p>}
-      {!loading && !productos.length && <EmptyState message="No hay víveres con movimiento en este ciclo" />}
+      {!loading && !productos.length && (
+        <EmptyState message={fEstado === 'todos'
+          ? 'No hay víveres con movimiento en este ciclo'
+          : 'Ningún víver en ese estado'} />
+      )}
 
       {!loading && !!productos.length && (
         <div className="table-wrap">

@@ -22,7 +22,10 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { norm } from '@/shared/lib/texto';
 import { mensajeError } from '@/shared/lib/errores';
 import { date as fmtDate } from '@/shared/lib/format';
-import { ESTADO_STOCK_BADGE, ESTADO_STOCK_LABEL, diasEntre } from './controlDistribucion';
+import {
+  ESTADO_STOCK_BADGE, ESTADO_STOCK_LABEL, diasEntre, filtrarPorEstado, subtituloFiltro,
+  type FiltroEstado,
+} from './controlDistribucion';
 import {
   cargarControl, guardarConteo, guardarParametroProducto, guardarParametrosGenerales,
   ordenarPorUrgencia, type Control, type ControlProducto, type ParametrosGenerales,
@@ -54,6 +57,7 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
   const [control, setControl] = useState<Control | null>(null);
   const [loading, setLoading] = useState(true);
   const [buscar, setBuscar] = useState('');
+  const [fEstado, setFEstado] = useState<FiltroEstado>('todos');
   const [selId, setSelId] = useState<string | null>(null);
 
   const recargar = useCallback(async () => {
@@ -72,12 +76,13 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
   // Lo que mueve el control: las comidas, el kardex y los conteos de otros usuarios.
   useRealtime(['cocina_movimientos', 'movimientos', 'cocina_conteos', 'cocina_eoq'], () => { void recargar(); });
 
+  // Lo que se ve es lo que sale en el PDF: primero el estado, después la búsqueda.
   const productos = useMemo(() => {
-    const todos = ordenarPorUrgencia(control?.productos ?? []);
+    const todos = filtrarPorEstado(ordenarPorUrgencia(control?.productos ?? []), fEstado);
     const q = norm(buscar.trim());
     if (!q) return todos;
     return todos.filter((p) => norm(`${p.nombre} ${p.sku}`).includes(q));
-  }, [control, buscar]);
+  }, [control, buscar, fEstado]);
 
   const sel = useMemo(
     () => control?.productos.find((p) => p.producto_id === selId) ?? null,
@@ -107,9 +112,15 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
             disabled={!control || !productos.length}
             onClick={() => {
               if (!control) return;
-              descargarControlDistribucionPdf(control, sel ?? null)
-                .catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'));
+              descargarControlDistribucionPdf(control, sel ?? null, {
+                productos,
+                subtitulo: subtituloFiltro(fEstado, buscar),
+                sufijoArchivo: fEstado === 'todos' ? '' : fEstado,
+              }).catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'));
             }}
+            title={sel || (fEstado === 'todos' && !buscar.trim())
+              ? undefined
+              : `Solo los ${productos.length} productos que se están viendo`}
           >↓ PDF</button>
           <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
         </>
@@ -135,6 +146,18 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
           <label style={{ display: 'grid', gap: '.2rem', flex: '1 1 220px' }}>
             <span className="muted" style={{ fontSize: '.78rem' }}>Buscar producto</span>
             <input className="input" placeholder="Nombre o código" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+          </label>
+        )}
+        {!sel && (
+          <label style={{ display: 'grid', gap: '.2rem' }}>
+            <span className="muted" style={{ fontSize: '.78rem' }}>Estado</span>
+            <select className="input" value={fEstado} onChange={(e) => setFEstado(e.target.value as FiltroEstado)}
+              title="Dejar solo los productos en ese estado: la lista y el PDF salen con eso">
+              <option value="todos">Todos</option>
+              <option value="reordenar">🚨 Reordenar</option>
+              <option value="alerta">⚠️ En alerta</option>
+              <option value="normal">✅ Normal</option>
+            </select>
           </label>
         )}
         <span className="muted" style={{ fontSize: '.8rem', paddingBottom: '.55rem' }}>

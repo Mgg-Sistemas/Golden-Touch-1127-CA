@@ -119,6 +119,33 @@ export const ESTADO_STOCK_BADGE: Record<EstadoStock, string> = {
   reordenar: 'badge danger',
 };
 
+/** El estado por el que se recorta el listado, o «todos» para no recortar nada. */
+export type FiltroEstado = EstadoStock | 'todos';
+
+const FILTRO_ESTADO_TEXTO: Record<EstadoStock, string> = {
+  reordenar: 'Solo los víveres por REORDENAR',
+  alerta: 'Solo los víveres EN ALERTA',
+  normal: 'Solo los víveres en NORMAL',
+};
+
+/** Deja únicamente los de ese estado. Con «todos» devuelve la lista tal cual. */
+export function filtrarPorEstado<T extends { estado: EstadoStock }>(items: T[], estado: FiltroEstado): T[] {
+  return estado === 'todos' ? items : items.filter((i) => i.estado === estado);
+}
+
+/**
+ * Qué recorte del mercado es este listado, para imprimirlo en el PDF. El papel
+ * con el que se sale a comprar tiene que decir de qué es: «Solo los víveres por
+ * REORDENAR» no es lo mismo que el mercado entero. Vacío si no hay recorte.
+ */
+export function subtituloFiltro(estado: FiltroEstado, buscar = ''): string {
+  const partes: string[] = [];
+  if (estado !== 'todos') partes.push(FILTRO_ESTADO_TEXTO[estado]);
+  const b = String(buscar ?? '').trim();
+  if (b) partes.push(`búsqueda «${b}»`);
+  return partes.join(' · ');
+}
+
 /**
  * Semáforo del stock contra el punto de reorden, igual que la hoja: en el punto
  * de reorden o por debajo hay que pedir; hasta una vez y media ese punto, avisa.

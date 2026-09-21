@@ -14,6 +14,8 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { notify } from '@/shared/lib/notify';
 import type { Caja, CajaSaldo } from '@/shared/lib/types';
 import { listSaldos } from '@/modules/tesoreria/cajaSaldos.repository';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { convertirConTasa, errorTasaPago, requiereTasa } from '@/modules/pedidos/tasaPago';
 import { listComprasDirectas, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import {
   listServiciosDirectos, registrarAbonoServicio, listAbonosServicio,
@@ -171,6 +173,10 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
   const [abonos, setAbonos] = useState<AbonoServicio[]>([]);
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [cajaId, setCajaId] = useState('');
+  // De qué billetera sale el dinero y a qué tasa. El abono se ACUMULA en la moneda del
+  // servicio; si la billetera está en otra, Tesorería ajusta la tasa y sale el equivalente.
+  const [monedaPago, setMonedaPago] = useState<string>(moneda);
+  const [tasa, setTasa] = useState<number>(0);
   const [monto, setMonto] = useState(String(saldo > 0 ? saldo : ''));
   const [nota, setNota] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -179,36 +185,60 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
 
   useEffect(() => { listAbonosServicio(servicio.id).then(setAbonos).catch(() => setAbonos([])); }, [servicio.id]);
   useEffect(() => { listSaldos().then(setSaldos).catch(() => setSaldos([])); }, []);
+  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
 
-  // Saldo REAL de una caja en la moneda del servicio (suma sus billeteras en esa moneda,
-  // de caja_saldos). Si la caja aún no tiene saldos multimoneda, usa el saldo legado.
-  const saldoCajaEnMoneda = (cId: string): number => {
-    const rows = saldos.filter((s) => s.caja_id === cId && s.moneda === moneda);
+  // Saldo REAL de una caja en una moneda (suma sus billeteras de caja_saldos). Si la caja
+  // aún no tiene saldos multimoneda, usa el saldo legado para la moneda del servicio.
+  const saldoCajaEnMoneda = (cId: string, m: string): number => {
+    const rows = saldos.filter((s) => s.caja_id === cId && s.moneda === m);
     if (rows.length) return Math.round(rows.reduce((a, r) => a + (Number(r.saldo) || 0), 0) * 100) / 100;
     const c = cajas.find((x) => x.id === cId);
-    return Number(c?.saldo) || 0;
+    return m === moneda ? Number(c?.saldo) || 0 : 0;
   };
-  // Solo cajas con saldo en la moneda del servicio (de ahí puede salir el abono).
-  const cajasConSaldo = cajas.filter((c) => saldoCajaEnMoneda(c.id) > 0);
-  // Al cargar los saldos, elegí por defecto la primera caja con fondos en la moneda.
+  // Cajas con saldo en CUALQUIER moneda: el abono puede salir de una billetera en otra
+  // moneda, convertido a la tasa que fije Tesorería.
+  const monedasDeCaja = (cId: string): string[] => {
+    const ms = [...new Set(saldos.filter((s) => s.caja_id === cId && Number(s.saldo) > 0).map((s) => s.moneda))];
+    if (ms.length) return ms;
+    return (Number(cajas.find((x) => x.id === cId)?.saldo) || 0) > 0 ? [moneda] : [];
+  };
+  const cajasConSaldo = cajas.filter((c) => monedasDeCaja(c.id).length > 0);
+  // Al cargar los saldos, elegí por defecto la primera caja con fondos.
   useEffect(() => {
     if (!cajaId && cajasConSaldo.length) setCajaId(cajasConSaldo[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saldos]);
-  const dispCaja = cajaId ? saldoCajaEnMoneda(cajaId) : 0;
+  // Monedas disponibles en la caja elegida; si la del servicio está, se prefiere.
+  const monedasCaja = cajaId ? monedasDeCaja(cajaId) : [];
+  useEffect(() => {
+    if (!monedasCaja.length || monedasCaja.includes(monedaPago)) return;
+    setMonedaPago(monedasCaja.includes(moneda) ? moneda : monedasCaja[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cajaId, saldos]);
+  const dispCaja = cajaId ? saldoCajaEnMoneda(cajaId, monedaPago) : 0;
 
   const montoNum = Math.round((Number(monto) || 0) * 100) / 100;
+  // Lo que realmente sale de la billetera (en su moneda).
+  const cruzaMoneda = requiereTasa(moneda, monedaPago);
+  const montoPagado = convertirConTasa(montoNum, moneda, monedaPago, tasa);
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
     if (montoNum <= 0) { setError('Indicá el monto del abono.'); return; }
     if (montoNum > saldo + 0.01) { setError(`El abono supera el saldo pendiente (${montoMoneda(saldo, moneda)}).`); return; }
-    if (montoNum > dispCaja + 0.01) { setError(`La caja no tiene suficiente ${moneda}. Disponible: ${montoMoneda(dispCaja, moneda)}.`); return; }
+    const errT = errorTasaPago(moneda, monedaPago, tasa);
+    if (errT) { setError(errT); return; }
+    if (montoPagado <= 0) { setError('No se pudo convertir el abono a la moneda de la billetera.'); return; }
+    if (montoPagado > dispCaja + 0.01) { setError(`La caja no tiene suficiente ${monedaPago}. Disponible: ${montoMoneda(dispCaja, monedaPago)}. Requiere ${montoMoneda(montoPagado, monedaPago)}.`); return; }
     if (file && file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) { setError('El comprobante debe ser PDF o imagen.'); return; }
     setSaving(true);
     try {
-      await registrarAbonoServicio({ servicio, cajaId, monto: montoNum, nota: nota || null, file, actor, actorName });
+      await registrarAbonoServicio({
+        servicio, cajaId, monto: montoNum,
+        monedaPago, tasaPago: cruzaMoneda ? tasa : 0,
+        nota: nota || null, file, actor, actorName,
+      });
       const saldado = montoNum >= saldo - 0.01;
       notify(
         saldado
@@ -224,7 +254,7 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
     <>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
       <button type="submit" form="sd-abono-form" className="btn btn-primary" disabled={saving}>
-        {saving ? 'Registrando…' : `Registrar abono · ${montoMoneda(montoNum, moneda)}`}
+        {saving ? 'Registrando…' : `Registrar abono · ${montoMoneda(montoNum, moneda)}${cruzaMoneda && montoPagado > 0 ? ` · sale ${montoMoneda(montoPagado, monedaPago)}` : ''}`}
       </button>
     </>
   );
@@ -263,10 +293,38 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
           <div className="form-row">
             <label>Caja (de dónde sale el dinero)</label>
             <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajasConSaldo.length} style={{ maxWidth: 340 }}
-              placeholder={cajasConSaldo.length ? '🔍 Buscar caja…' : `— sin cajas con saldo en ${moneda} —`}
-              options={cajasConSaldo.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoMoneda(saldoCajaEnMoneda(c.id), moneda)}` }))} />
-            {cajaId && <small className="muted">Disponible en la caja: <strong className="mono">{montoMoneda(dispCaja, moneda)}</strong> ({moneda})</small>}
+              placeholder={cajasConSaldo.length ? '🔍 Buscar caja…' : '— sin cajas con saldo —'}
+              options={cajasConSaldo.map((c) => ({
+                value: c.id,
+                label: `${c.nombre} · ${monedasDeCaja(c.id).map((m) => montoMoneda(saldoCajaEnMoneda(c.id, m), m)).join(' · ')}`,
+              }))} />
+            {cajaId && <small className="muted">Disponible en la billetera: <strong className="mono">{montoMoneda(dispCaja, monedaPago)}</strong> ({monedaPago})</small>}
           </div>
+
+          {cajaId && monedasCaja.length > 0 && (
+            <div className="form-row" style={{ maxWidth: 420 }}>
+              <label>Se paga con</label>
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <select className="select" style={{ maxWidth: 140 }} value={monedaPago} onChange={(e) => setMonedaPago(e.target.value)}>
+                  {monedasCaja.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+                {cruzaMoneda && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
+                    <span className="muted" style={{ fontSize: '.78rem' }}>Tasa de pago (Bs/$)</span>
+                    <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
+                      onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" style={{ width: 120, textAlign: 'right' }} />
+                  </label>
+                )}
+              </div>
+              <small className="muted">
+                {cruzaMoneda
+                  ? <>El abono se anota en <strong>{moneda}</strong> y de la caja salen{' '}
+                      <strong className="mono">{montoPagado > 0 ? montoMoneda(montoPagado, monedaPago) : '—'}</strong>.{' '}
+                      La tasa arranca en la BCV de hoy y se puede <strong>ajustar</strong>.</>
+                  : <>La billetera está en la misma moneda del servicio: sale el monto tal cual.</>}
+              </small>
+            </div>
+          )}
           <div className="form-row" style={{ maxWidth: 220 }}>
             <label>Monto del abono ({moneda})</label>
             <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0,00" />

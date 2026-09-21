@@ -18,6 +18,7 @@ import { list as listProveedores, insert as crearProveedor } from '@/modules/pro
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
+import { requiereTasa, textoTasaPago } from './tasaPago';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { RetencionPagoCard, useRetencionPago } from '@/modules/tesoreria/RetencionPagoCard';
 import { repartirPagoYReembolso } from '@/modules/tesoreria/reembolsoPago';
@@ -407,6 +408,7 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
       {compra.estado === 'finalizada' && (compra.pagada_por_name || compra.pagada_por) && fila('Pagó (Tesorería)', compra.pagada_por_name || compra.pagada_por)}
       {compra.estado === 'finalizada' && compra.gasto_categoria && fila('Categoría de gasto', `${compra.gasto_categoria}${compra.gasto_subcategoria ? ` · ${compra.gasto_subcategoria}` : ''}`)}
       {fila('Moneda', compra.moneda === 'Bs' ? 'Bs' : '$ (USD)')}
+      {(Number(compra.tasa_pago) || 0) > 0 && fila('Tasa de pago (Tesorería)', <span className="mono">{textoTasaPago(compra.tasa_pago, compra.tasa_conversion)}</span>)}
       {(Number(compra.tasa_conversion) || 0) > 0 && total != null && fila('Convertido a la tasa', <span>{num(compra.tasa_conversion)} Bs/$ · equivale a <strong className="mono">{montoCD(compra.moneda === 'Bs' ? total / Number(compra.tasa_conversion) : total * Number(compra.tasa_conversion), compra.moneda === 'Bs' ? 'USD' : 'Bs')}</strong></span>)}
       {(Number(compra.descuento) || 0) > 0 && fila('Descuento', <span>{Number(compra.descuento).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {compra.moneda === 'Bs' ? 'Bs' : '$'}{(Number(compra.descuento_pct) || 0) > 0 ? ` (${Number(compra.descuento_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)` : ''} <span className="muted" style={{ fontSize: '.75rem' }}>(restado del total)</span></span>)}
       {(Number(compra.iva) || 0) > 0 && fila(`IVA${(Number(compra.iva_pct) || 0) > 0 ? ` (${Number(compra.iva_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%)` : ''}`, <span>{montoCD(Number(compra.iva), compra.moneda)} <span className="muted" style={{ fontSize: '.75rem' }}>(incluido en el total)</span></span>)}
@@ -954,6 +956,10 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   const excedenteUsd = excedeTotalMulti ? round2(sumUsdMulti - totalUsdObjetivo) : 0;
   const cuentaLabel = (c: string) => c === 'general' ? '' : c === 'juridica' ? ' · Jurídica' : ' · Personal';
 
+  // ¿El pago CRUZA de moneda? (compra en $ desde una billetera en Bs, o al revés). Solo
+  // entonces la tasa hace algo, y solo entonces se guarda como «tasa de pago» de la ficha.
+  const monedasPago = saldosCaja.length ? saldosCaja.map((s) => s.moneda) : [moneda];
+  const cruzaMoneda = monedasPago.some((m) => requiereTasa(monedaCompra, m));
   // Equivalentes del total de la COMPRA (en su moneda) a USD y a Bs con la tasa editable.
   const totalUsd = totalUsdObjetivo;
   const totalBs = convertir(aPagar, monedaCompra, 'Bs');
@@ -1014,6 +1020,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
         retencionMonto: ret.activa ? ret.monto : 0,
         retencionMontoBs: ret.activa ? ret.conv.enBs : 0,
         retencionTasa: ret.activa ? Number(ret.tasaStr) || 0 : 0,
+        tasaPago: cruzaMoneda ? Number(tasa) || 0 : 0,
         reembolsoLegs, reembolsoUsd,
       });
       const resumenPago = esMultimoneda ? `multipago ${montoCaja(round2(sumUsdMulti - reembolsoUsd), 'USD')}` : montoCaja(aPagar, monedaCompra);
@@ -1189,11 +1196,19 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
               <div className="muted" style={{ fontSize: '.72rem' }}>Equivale en Bs (BCV)</div>
               <strong className="mono" style={{ fontSize: '1.05rem' }}>{tasa > 0 || moneda === 'Bs' ? montoCaja(totalBs, 'Bs') : '—'}</strong>
             </div>
-            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 150, margin: 0 }}>
-              <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs por $)</label>
+            <div className="form-row" style={{ marginLeft: 'auto', minWidth: 170, margin: 0 }}>
+              <label style={{ fontSize: '.72rem' }}>Tasa de pago (Bs por $)</label>
               <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
                 onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" />
             </div>
+            <small className="muted" style={{ flexBasis: '100%', fontSize: '.72rem' }}>
+              Arranca en la <strong>BCV de hoy</strong> y se puede <strong>ajustar</strong>: es la tasa con la que
+              sale el dinero de la caja.
+              {(Number(compra.tasa_conversion) || 0) > 0 && <> La factura se montó a <strong className="mono">{num(compra.tasa_conversion)}</strong> Bs/$.</>}
+              {cruzaMoneda
+                ? <> Este pago <strong>cruza de moneda</strong>, así que la tasa queda guardada en la ficha.</>
+                : <> Este pago no cruza de moneda: la tasa solo sirve de referencia.</>}
+            </small>
           </div>
         )}
 

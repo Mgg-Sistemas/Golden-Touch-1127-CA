@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calcularEoq, construirDias, demandaAnualEstimada, diasEntre, estadoStock, totalizarControl,
+  calcularEoq, construirDias, demandaAnualEstimada, diasEntre, estadoStock, filtrarPorEstado,
+  subtituloFiltro, totalizarControl, type EstadoStock,
 } from './controlDistribucion';
 
 /* Los tres juegos de parámetros de la hoja «Control de consumo de pollo», con los
@@ -165,5 +166,44 @@ describe('rango de días', () => {
   });
   it('respeta el tope', () => {
     expect(diasEntre('2026-01-01', '2026-12-31', 10)).toHaveLength(10);
+  });
+});
+
+describe('recorte por estado', () => {
+  const lista: Array<{ nombre: string; estado: EstadoStock }> = [
+    { nombre: 'ATUN', estado: 'reordenar' },
+    { nombre: 'HUEVO', estado: 'normal' },
+    { nombre: 'CAFE', estado: 'alerta' },
+    { nombre: 'PASTA', estado: 'reordenar' },
+  ];
+
+  it('«todos» devuelve la lista tal cual', () => {
+    expect(filtrarPorEstado(lista, 'todos')).toEqual(lista);
+  });
+
+  it('deja solo los del estado pedido, en el mismo orden', () => {
+    expect(filtrarPorEstado(lista, 'reordenar').map((p) => p.nombre)).toEqual(['ATUN', 'PASTA']);
+    expect(filtrarPorEstado(lista, 'alerta').map((p) => p.nombre)).toEqual(['CAFE']);
+  });
+
+  it('un estado sin nadie devuelve vacío', () => {
+    expect(filtrarPorEstado([{ nombre: 'X', estado: 'normal' as EstadoStock }], 'reordenar')).toEqual([]);
+  });
+});
+
+describe('subtítulo del PDF', () => {
+  it('sin recorte no dice nada', () => {
+    expect(subtituloFiltro('todos')).toBe('');
+    expect(subtituloFiltro('todos', '   ')).toBe('');
+  });
+
+  it('nombra el estado', () => {
+    expect(subtituloFiltro('reordenar')).toBe('Solo los víveres por REORDENAR');
+    expect(subtituloFiltro('alerta')).toBe('Solo los víveres EN ALERTA');
+  });
+
+  it('suma la búsqueda', () => {
+    expect(subtituloFiltro('reordenar', ' pollo ')).toBe('Solo los víveres por REORDENAR · búsqueda «pollo»');
+    expect(subtituloFiltro('todos', 'pollo')).toBe('búsqueda «pollo»');
   });
 });
