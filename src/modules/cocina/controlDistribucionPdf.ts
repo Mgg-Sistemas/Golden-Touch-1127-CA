@@ -8,14 +8,21 @@
      tarjetas y la tabla día por día.
    ============================================================ */
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { ESTADO_STOCK_LABEL } from './controlDistribucion';
 import type { Control, ControlProducto } from './controlDistribucion.repository';
 
 const num = (v: number, dec = 2) =>
   Number(v ?? 0).toLocaleString('es-VE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
-/** El estado sin el paréntesis explicativo: en una celda de tabla no entra. */
-const estadoCorto = (e: keyof typeof ESTADO_STOCK_LABEL) => ESTADO_STOCK_LABEL[e].split(' (')[0];
+/**
+ * El estado sin el paréntesis explicativo (en una celda de tabla no entra) y sin el emoji.
+ *
+ * Lo de quitar el emoji viene de MGG (21/09/2026): la helvetica de jsPDF solo escribe
+ * Windows-1252, y un glifo que no existe ahí no solo sale como basura — jsPDF pierde el
+ * ancho del carácter y abre el renglón entero letra por letra.
+ */
+const estadoCorto = (e: keyof typeof ESTADO_STOCK_LABEL) => pdfSafe(ESTADO_STOCK_LABEL[e].split(' (')[0]);
 
 export async function descargarControlDistribucionPdf(
   control: Control,
@@ -34,7 +41,7 @@ export async function descargarControlDistribucionPdf(
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
-  const titulo = producto ? `CONTROL DE DISTRIBUCIÓN · ${producto.nombre}` : 'CONTROL DE DISTRIBUCIÓN DEL MERCADO';
+  const titulo = pdfSafe(producto ? `CONTROL DE DISTRIBUCIÓN · ${producto.nombre}` : 'CONTROL DE DISTRIBUCIÓN DEL MERCADO');
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(titulo, W / 2, y + 18, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
@@ -74,7 +81,7 @@ export async function descargarControlDistribucionPdf(
       startY: y + 22,
       head: [['PRODUCTO', 'UNID.', 'STOCK', 'CONSUMO', 'PROM./DÍA', 'RATIO', 'MERMA', 'REORDEN', 'LOTE EOQ', 'ESTADO']],
       body: productos.map((p) => [
-        p.nombre, p.unidad ?? '—', num(p.stockActual), num(p.totales.consumo), num(p.totales.promedioDiario),
+        pdfSafe(p.nombre), p.unidad ?? '—', num(p.stockActual), num(p.totales.consumo), num(p.totales.promedioDiario),
         num(p.totales.ratioPromedio, 3), num(p.totales.merma),
         p.puntoReorden ? String(p.puntoReorden) : '—',
         p.lote ? String(p.lote) : '—',
@@ -94,7 +101,7 @@ export async function descargarControlDistribucionPdf(
 
     doc.setFontSize(7); doc.setTextColor(110, 110, 110);
     doc.text(
-      'REORDEN = con ese stock hay que volver a pedir (demanda diaria × días de entrega). LOTE EOQ = cuántas unidades conviene pedir de una vez. Un guion = todavía sin consumo registrado en el período.',
+      pdfSafe('REORDEN = con ese stock hay que volver a pedir (demanda diaria x días de entrega). LOTE EOQ = cuántas unidades conviene pedir de una vez. Un guion = todavía sin consumo registrado en el período.'),
       MARGIN, finalY() + 14, { maxWidth: W - MARGIN * 2 },
     );
     previewPdf(doc, `control-distribucion-${control.hasta}.pdf`);
@@ -158,7 +165,7 @@ export async function descargarControlDistribucionPdf(
 
   doc.setFontSize(7); doc.setTextColor(110, 110, 110);
   doc.text(
-    'CONSUMO = lo servido en comidas registradas. OTRAS SALIDAS = lo que bajó el inventario sin ser una comida. MERMA = conteo físico − inventario teórico (solo los días contados); el día siguiente abre con lo contado.',
+    pdfSafe('CONSUMO = lo servido en comidas registradas. OTRAS SALIDAS = lo que bajó el inventario sin ser una comida. MERMA = conteo físico menos inventario teórico (solo los días contados); el día siguiente abre con lo contado.'),
     MARGIN, finalY() + 14, { maxWidth: W - MARGIN * 2 },
   );
 

@@ -28,6 +28,8 @@ import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 import { MercadosHistoricoModal } from './MercadosHistoricoModal';
 import { ControlDistribucionModal } from './ControlDistribucionModal';
+import { DistribucionPanel } from './DistribucionPanel';
+import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 /**
@@ -205,9 +207,11 @@ export function CocinaPage() {
     setSoloDif(activar);
     if (activar && vista === 'movimientos') elegirVista('disponible');
   }
-  const verDisponible = !!mercado && vista !== 'movimientos';
+  const verDistribucion = !!mercado && vista === 'distribucion';
+  const verDisponible = !!mercado && vista !== 'movimientos' && !verDistribucion;
   // Sin mercado no hay tabla de víveres ni selector: las comidas quedan siempre a la vista.
-  const verMovimientos = vista !== 'disponible' || (!mercado && (mercadoLeido || !!errorMercado));
+  const verMovimientos = !verDistribucion
+    && (vista !== 'disponible' || (!mercado && (mercadoLeido || !!errorMercado)));
 
   // Detalle de un víver del ciclo (lo que quedó + la nueva entrada + los consumos).
   async function abrirDetalleViver(item: ResumenViver) {
@@ -350,6 +354,11 @@ export function CocinaPage() {
       {/* ── CAPA 2 · Qué se quiere mirar ── */}
       {mercado && <SelectorVista vista={vista} onElegir={elegirVista} />}
 
+      {/* ── CAPA 3 · Distribución (EOQ) · vista traída de MGG ── */}
+      {verDistribucion && mercado && (
+        <DistribucionPanel inicioCiclo={mercado.inicio_at} onAbrirDetalle={() => setModal('control')} />
+      )}
+
       {/* Cerrar y descartar, al lado del panel como en MGG. Cerrar se resalta pasado el día
           21; antes queda punteado. DESCARTAR es lo contrario de cerrar: no abre el siguiente
           ni le pasa saldo. Va en tono discreto: es la salida de excepción, no la habitual. */}
@@ -487,11 +496,11 @@ export function CocinaPage() {
       {mercado && <LeyendaCocina />}
 
       {modal === 'add' && (
-        <AddMovimientoModal viveres={viveres} actor={actor} actorName={actorName}
+        <AddMovimientoModal viveres={viveres} actor={actor} actorName={actorName} mercado={mercado}
           onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await cargar(); }} />
       )}
       {editando && (
-        <AddMovimientoModal viveres={viveres} actor={actor} actorName={actorName} editar={editando}
+        <AddMovimientoModal viveres={viveres} actor={actor} actorName={actorName} editar={editando} mercado={mercado}
           onClose={() => setEditando(null)} onSaved={async () => { setEditando(null); await cargar(); }} />
       )}
       {modal === 'resumen' && (
@@ -742,8 +751,11 @@ function KpiCard({ titulo, valor, nota, destacado }: { titulo: string; valor: st
 }
 
 /* ───────────── Añadir / editar movimiento (consumo de víveres) ───────────── */
-function AddMovimientoModal({ viveres, actor, actorName, editar, onClose, onSaved }: {
-  viveres: Producto[]; actor: string; actorName: string | null; editar?: CocinaMovimiento | null; onClose: () => void; onSaved: () => void;
+function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClose, onSaved }: {
+  viveres: Producto[]; actor: string; actorName: string | null; editar?: CocinaMovimiento | null;
+  /** El mercado abierto, para avisar si la fecha de la comida cae fuera de su ciclo. */
+  mercado?: Mercado | null;
+  onClose: () => void; onSaved: () => void;
 }) {
   const esEdicion = !!editar;
   // Cantidades ya consumidas por este movimiento (al editar): liberan stock para la nueva cantidad.
@@ -765,6 +777,10 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, onClose, onSave
   const [nota, setNota] = useState(editar?.nota ?? '');
   // Fecha del servicio (por defecto hoy): permite cargar comidas de un día desfasado.
   const [fecha, setFecha] = useState(() => (editar?.at ? new Date(editar.at).toLocaleDateString('en-CA') : new Date().toLocaleDateString('en-CA')));
+  const avisoFecha = useMemo(
+    () => avisoFueraDelCiclo(fueraDelCiclo(fecha, mercado ?? null), mercado ?? null),
+    [fecha, mercado],
+  );
   // Selección tipo CHECK: producto_id → cantidad (texto). Marcar el check lo agrega
   // con cantidad 1; desmarcar lo quita. Se pueden elegir varios de un vistazo.
   const [sel, setSel] = useState<Record<string, string>>(() => {
@@ -891,6 +907,14 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, onClose, onSave
           <div className="form-row">
             <label>Fecha del servicio <span className="muted">(para comidas de un día desfasado)</span></label>
             <input className="input" type="date" value={fecha} max={new Date().toLocaleDateString('en-CA')} onChange={(e) => setFecha(e.target.value)} required />
+            {/* Aviso traído de MGG (21/09/2026): cargar una comida atrasada es válido, pero
+                si esos víveres ya pasaron por un CONTEO REAL salen dos veces del inventario.
+                Avisa, no bloquea. */}
+            {avisoFecha && (
+              <div className="hint" style={{ marginTop: '.3rem', color: 'var(--warning, #b8860b)', fontSize: '.78rem', maxWidth: 520 }}>
+                ⚠️ {avisoFecha}
+              </div>
+            )}
           </div>
           <div className="form-row">
             <label>¿Cuántos platos se realizaron?</label>

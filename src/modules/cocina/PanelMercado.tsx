@@ -133,7 +133,12 @@ function Costo({ rotulo, valor, color, fuerte, nota }: { rotulo: string; valor: 
 
 /* ───────── CAPA 2 · Qué se quiere mirar ───────── */
 
-const VISTAS: [VistaMercado, string][] = [['disponible', 'Disponible'], ['movimientos', 'Movimientos'], ['ambos', 'Ambos']];
+const VISTAS: [VistaMercado, string][] = [
+  ['disponible', 'Disponible'], ['movimientos', 'Movimientos'], ['ambos', 'Ambos'],
+  // Traído de MGG (21/09/2026): el control de distribución vive acá, no en una
+  // pantalla aparte, porque mira el mismo ciclo que las otras tres vistas.
+  ['distribucion', '📊 Distribución'],
+];
 
 export function SelectorVista({ vista, onElegir }: { vista: VistaMercado; onElegir: (v: VistaMercado) => void }) {
   return (

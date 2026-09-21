@@ -26,12 +26,13 @@ const n = (v: unknown) => Number(v) || 0;
 /* ───────── Qué se mira ───────── */
 
 /** Qué bloque se está mirando. Se recuerda en el navegador. */
-export type VistaMercado = 'disponible' | 'movimientos' | 'ambos';
+export type VistaMercado = 'disponible' | 'movimientos' | 'ambos' | 'distribucion';
 export const VISTA_KEY = 'gt.cocina.mercado.vista';
 
 /** La vista guardada, o «Disponible» si no hay una válida (el mismo arranque que MGG). */
 export function leerVista(guardada: string | null | undefined): VistaMercado {
-  return guardada === 'movimientos' || guardada === 'ambos' ? guardada : 'disponible';
+  return guardada === 'movimientos' || guardada === 'ambos' || guardada === 'distribucion'
+    ? guardada : 'disponible';
 }
 
 export function vistaGuardada(): VistaMercado {
