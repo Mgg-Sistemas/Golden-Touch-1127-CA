@@ -12,7 +12,18 @@
    también: comparar el día recortado (AAAA-MM-DD) equivale al
    `at >= desdeT00:00:00` / `at <= hastaT23:59:59` que hacía Postgres.
    ============================================================ */
-import type { MovimientoCaja } from '@/shared/lib/types';
+/**
+ * Lo único que mira el filtro. Se declara acá en vez de recortarlo de
+ * `MovimientoCaja`: el tipo compartido declara `moneda` como 'USD' | 'Bs',
+ * pero la caja multimoneda guarda también USDT y COP, así que filtrar por
+ * ese tipo dejaría afuera monedas que existen de verdad.
+ */
+export interface MovimientoFiltrable {
+  caja_id: string;
+  moneda: string;
+  tipo: string;
+  at: string | null;
+}
 
 export interface FiltrosMovimientos {
   /** Id de la billetera/caja. */
@@ -31,7 +42,7 @@ export function hayFiltros(f: FiltrosMovimientos): boolean {
 }
 
 /** Aplica los filtros del registro sobre los movimientos ya cargados. */
-export function filtrarMovimientos<T extends Pick<MovimientoCaja, 'caja_id' | 'moneda' | 'tipo' | 'at'>>(
+export function filtrarMovimientos<T extends MovimientoFiltrable>(
   movimientos: T[],
   f: FiltrosMovimientos,
 ): T[] {

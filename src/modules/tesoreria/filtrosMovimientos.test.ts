@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { filtrarMovimientos, hayFiltros } from './filtrosMovimientos';
+import { filtrarMovimientos, hayFiltros, type MovimientoFiltrable } from './filtrosMovimientos';
 
-type Mov = { caja_id: string; moneda: string; tipo: string; at: string };
+type Mov = MovimientoFiltrable;
 
 const movs: Mov[] = [
   { caja_id: 'c1', moneda: 'Bs', tipo: 'salida', at: '2026-09-01T10:00:00+00:00' },
