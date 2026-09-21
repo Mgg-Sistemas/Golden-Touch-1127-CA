@@ -13,7 +13,7 @@
    (un producto servido un solo día del ciclo daría 365 raciones al año). GT lo
    anualiza sobre los días del período; ver `demandaAnualEstimada`.
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -204,26 +204,18 @@ function Tira({ titulo, valor, tono, filtro, activo, onFiltrar, ayuda }: {
   onFiltrar?: (f: FiltroDistribucion) => void;
   ayuda?: string;
 }) {
-  const color = tono === 'danger' ? 'var(--danger)' : tono === 'warning' ? 'var(--warning, #b8860b)' : undefined;
   const clicable = !!filtro && !!onFiltrar;
   const marcada = clicable && activo === filtro;
+  const clase = `tira${tono ? ` ${tono}` : ''}${marcada ? ' marcada' : ''}`;
   const cuerpo = (
     <>
-      <div className="muted" style={{ fontSize: '.72rem' }}>{titulo}</div>
-      <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color }}>{valor}</div>
+      <div className="tira-titulo">{titulo}</div>
+      <div className="tira-valor mono">{valor}</div>
     </>
   );
-  const marco: CSSProperties = {
-    border: `1px solid ${marcada ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
-    borderRadius: '.5rem',
-    padding: '.4rem .6rem',
-    textAlign: 'left',
-    width: '100%',
-    background: marcada ? 'color-mix(in srgb, var(--brand, #ff8a00) 12%, transparent)' : 'transparent',
-  };
-  if (!clicable) return <div style={marco}>{cuerpo}</div>;
+  if (!clicable) return <div className={clase}>{cuerpo}</div>;
   return (
-    <button type="button" style={{ ...marco, cursor: 'pointer' }} aria-pressed={marcada} title={ayuda}
+    <button type="button" className={clase} aria-pressed={marcada} title={ayuda}
       onClick={() => onFiltrar(marcada && filtro !== 'todos' ? 'todos' : filtro)}>
       {cuerpo}
     </button>

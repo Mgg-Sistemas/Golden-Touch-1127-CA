@@ -256,6 +256,45 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 /* Compacto: para avisos al pie de un formulario, donde el espacio es poco. */
 .aviso.sm { padding: .5rem .7rem; font-size: .8rem; }
 
+/* ───────── Tarjetas del resumen (las que filtran la lista) ─────────
+   Se venían dibujando sin fondo: sobre el panel oscuro quedaban seis
+   recuadros negros que apenas se despegaban, y la seleccionada se teñía
+   de naranja al 12% sobre ese negro, que da un marrón sucio.
+   Ahora la tarjeta tiene superficie propia —se ve como algo que se toca—,
+   una franja de color a la izquierda que dice qué mide, y la seleccionada
+   se marca aclarando el fondo y encendiendo el borde, sin teñir nada. */
+.tira {
+  position: relative; overflow: hidden;
+  display: block; width: 100%; text-align: left;
+  padding: .45rem .7rem .5rem .85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+  transition: background .15s ease, border-color .15s ease, transform .08s ease;
+}
+/* La franja: gris cuando el dato está tranquilo, de color cuando no. */
+.tira::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--border-strong);
+}
+.tira.danger::before  { background: var(--danger); }
+.tira.warning::before { background: var(--warning); }
+.tira.marcada::before { background: var(--primary); }
+
+.tira-titulo { font-size: .72rem; color: var(--text-muted); line-height: 1.3; }
+.tira-valor  { font-size: 1.1rem; font-weight: 700; line-height: 1.25; }
+.tira.danger  .tira-valor { color: var(--danger); }
+.tira.warning .tira-valor { color: var(--warning); }
+
+button.tira { cursor: pointer; font: inherit; }
+button.tira:hover { background: var(--surface-3); border-color: var(--border-strong); }
+button.tira:active { transform: translateY(1px); }
+button.tira:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.tira.marcada { background: var(--surface-3); border-color: var(--primary); }
+.tira.marcada .tira-titulo { color: var(--primary-3); }
+
 /* Etiquetas cortas (p. ej. rubros de un proveedor): chips compactos que envuelven
    sin estirar la fila. Máx. unas pocas visibles y el resto como «+N». */
 .tags { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; }
