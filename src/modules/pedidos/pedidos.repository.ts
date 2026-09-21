@@ -1,5 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
+import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -1533,6 +1534,38 @@ function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, s
  * fila; la otra recibe 0 filas y NO debe cobrar. Se llama ANTES de mover plata, así el
  * doble clic ya no genera doble egreso. Devuelve true si esta llamada ganó la reserva.
  */
+/**
+ * El pago YA se hizo (la plata salió de la caja y la OC quedó pagada) pero el
+ * último paso —guardar en la OC los datos del pago— falló. NO es un pago fallido:
+ * decirle "No se pudo pagar" al usuario lo lleva a pagar dos veces. El egreso
+ * queda igual enlazado a la orden por el disparador `trg_enlazar_pago_oc` de la
+ * base (supabase/2026-09-21-pago-oc-enlace-automatico.sql); lo único que puede
+ * faltar es el comprobante, que se vuelve a subir desde el detalle de la OC.
+ */
+export class PagoRegistradoSinDatos extends Error {
+  constructor(public readonly ordenId: string, public readonly causa: unknown) {
+    super(MENSAJE_PAGO_REGISTRADO_SIN_DATOS);
+    this.name = NOMBRE_PAGO_REGISTRADO_SIN_DATOS;
+  }
+}
+
+/**
+ * Escribe los datos del pago en la OC con reintentos. Es el paso que, al fallar,
+ * dejaba el pago "a medias": la plata afuera, la OC pagada y la pantalla diciendo
+ * que no se pudo pagar (pasó 23 veces entre el 27/07 y el 21/08/2026).
+ */
+async function guardarDatosDelPago(ordenId: string, patch: Record<string, unknown>): Promise<Orden | null> {
+  let ultimo: unknown = null;
+  for (let intento = 1; intento <= 3; intento++) {
+    const { data, error } = await supabase.from(TABLE).update(patch).eq('id', ordenId).select('*').single();
+    if (!error) return data as Orden;
+    ultimo = error;
+    if (intento < 3) await new Promise((r) => setTimeout(r, 400 * intento));
+  }
+  console.error('No se pudieron guardar los datos del pago en la OC', ordenId, ultimo);
+  return null;
+}
+
 async function reservarCierrePagoOrden(o: Orden, actorEmail: string): Promise<boolean> {
   const { data, error } = await supabase
     .from(TABLE)
@@ -1643,17 +1676,20 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   if (monto <= 0) throw new Error('Indicá el monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
-  // 0) RESERVA ATÓMICA del cierre ANTES de mover plata. Si un doble clic o un reintento
-  //    (tras un fallo previo) llega acá con la OC ya cerrada, no cobramos de nuevo.
-  if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
-    throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
-
-  // 1) Egreso(s). Si falla (p. ej. saldo insuficiente), liberamos la reserva para que la
-  //    OC no quede «pagada» sin dinero movido.
+  // 0) TODO lo que puede rechazar el pago se valida ANTES de reservar: una
+  //    validación que falle después dejaría la OC «pagada» sin dinero movido.
   const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
   const retencion = centavos(input.retencionMonto);
   validarRetencion(o, retencion);
   const reembolso = centavos(input.reembolsoMonto);
+
+  // 1) RESERVA ATÓMICA del cierre ANTES de mover plata. Si un doble clic o un reintento
+  //    (tras un fallo previo) llega acá con la OC ya cerrada, no cobramos de nuevo.
+  if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
+    throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
+
+  // 2) Egreso(s). Si falla (p. ej. saldo insuficiente), liberamos la reserva para que la
+  //    OC no quede «pagada» sin dinero movido.
   const reembolsoMovIds: string[] = [];
   let mov: { id: string };
   let comisionMovId: string | null = null;
@@ -1714,9 +1750,9 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     // Si la OC es por Factura, al pagar se marca automáticamente en Retenciones.
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
   };
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
-  if (error) throw error;
-  return anotarRetencionYReembolso(o, data as Orden, retencion, centavos(input.reembolsoUsd), reembolsoMovIds,
+  const guardada = await guardarDatosDelPago(o.id, patch);
+  if (!guardada) throw new PagoRegistradoSinDatos(o.id, null);
+  return anotarRetencionYReembolso(o, guardada, retencion, centavos(input.reembolsoUsd), reembolsoMovIds,
     centavos(input.retencionMontoBs), Number(input.retencionTasa) || 0);
 }
 
@@ -1795,9 +1831,9 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
   };
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
-  if (error) throw error;
-  return data as Orden;
+  const guardada = await guardarDatosDelPago(o.id, patch);
+  if (!guardada) throw new PagoRegistradoSinDatos(o.id, null);
+  return guardada;
 }
 
 /** Egreso "legado" de una OC: descuenta el saldo visible de la caja (cajas.saldo)
@@ -1879,14 +1915,16 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
   if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
-  // Reserva atómica ANTES de mover plata: bloquea el doble cobro por doble clic/reintento.
-  if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
-    throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
-
+  // Lo que puede rechazar el pago se valida ANTES de reservar (si no, la OC
+  // quedaría «pagada» sin que salga un peso).
   const comision = input.comision && (Number(input.comision.monto) || 0) > 0 ? input.comision : null;
   const retencion = centavos(input.retencionMonto);
   validarRetencion(o, retencion);
   const retTxt = textoRetencion(o, retencion, input.retencionMontoBs, input.retencionTasa);
+
+  // Reserva atómica ANTES de mover plata: bloquea el doble cobro por doble clic/reintento.
+  if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
+    throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
   const reembolsoLegs = (input.reembolsoLegs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
   const reembolsoMovIds: string[] = [];
   const movIds: string[] = [];
@@ -1967,9 +2005,9 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
   };
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
-  if (error) throw error;
-  return anotarRetencionYReembolso(o, data as Orden, retencion, centavos(input.reembolsoUsd), reembolsoMovIds,
+  const guardada = await guardarDatosDelPago(o.id, patch);
+  if (!guardada) throw new PagoRegistradoSinDatos(o.id, null);
+  return anotarRetencionYReembolso(o, guardada, retencion, centavos(input.reembolsoUsd), reembolsoMovIds,
     centavos(input.retencionMontoBs), Number(input.retencionTasa) || 0);
 }
 

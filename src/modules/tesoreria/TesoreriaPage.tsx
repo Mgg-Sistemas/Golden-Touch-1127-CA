@@ -5,6 +5,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
+import { esPagoRegistradoSinDatos, MENSAJE_PAGO_REGISTRADO_SIN_DATOS } from '@/modules/pedidos/pagoOcAvisos';
 import { dateTime, date as fmtDate, dosDecimales, redondearArriba5 } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
@@ -3882,6 +3883,11 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
       notify(`${pagadas} OC de ${provNombre} pagadas · ${monto(totalEnMoneda, moneda)}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
     } catch (err) {
+      if (esPagoRegistradoSinDatos(err)) {
+        toast(mensajeError(err, MENSAJE_PAGO_REGISTRADO_SIN_DATOS), 'warning');
+        onPaid();
+        return;
+      }
       setError(err instanceof Error ? err.message : 'No se pudo completar el pago por lote.');
       setSaving(false); setProgreso(null);
     }
@@ -5691,7 +5697,17 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       avisarComprobantesFaltantes(comprobantes, pagada);
       notify(`OC ${etiquetaOc} pagada · ${monto(pagoSimple, moneda)}${excedenteEnMoneda > 0 ? ` · reembolso ${monto(excedenteEnMoneda, moneda)}` : ''}`, 'success', { link: '#/app/tesoreria' });
       onPaid();
-    } catch (err) { setError(mensajeError(err, 'No se pudo pagar.')); setSaving(false); }
+    } catch (err) {
+      // El pago YA se hizo y solo falló guardar sus datos: tratarlo como error
+      // llevaba a pagar dos veces. Se avisa, se cierra y se recarga como pagada.
+      if (esPagoRegistradoSinDatos(err)) {
+        notify(`OC ${etiquetaOc} pagada · faltó guardar el comprobante: volvé a subirlo desde el detalle`, 'warning', { link: '#/app/tesoreria' });
+        toast(mensajeError(err, MENSAJE_PAGO_REGISTRADO_SIN_DATOS), 'warning');
+        onPaid();
+        return;
+      }
+      setError(mensajeError(err, 'No se pudo pagar.')); setSaving(false);
+    }
   }
 
   const footer = (
