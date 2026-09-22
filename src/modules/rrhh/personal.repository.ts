@@ -140,42 +140,9 @@ export async function getFotoPersonalUrl(path: string): Promise<string> {
   return data.signedUrl;
 }
 
-/* ───────── Documento del RIF (PDF o imagen) ───────── */
-const DOCS_BUCKET = 'personal-documentos';
-const MAX_DOC_BYTES = 10 * 1024 * 1024;
-
-/** Sube (o reemplaza) el PDF del RIF y lo enlaza a la persona. Devuelve el path. */
-export async function subirRifPersonal(
-  id: string, file: File, anterior?: string | null,
-): Promise<{ path: string; nombre: string }> {
-  const esPdf = file.type === 'application/pdf';
-  if (!esPdf && !file.type.startsWith('image/')) throw new Error('El RIF debe ser un PDF o una imagen.');
-  if (file.size > MAX_DOC_BYTES) throw new Error('El archivo no puede superar 10 MB.');
-  const safe = file.name.replace(/[^\w.-]+/g, '_');
-  const path = `${id}/rif-${Date.now()}-${safe}`;
-  const { error } = await supabase.storage.from(DOCS_BUCKET).upload(path, file, { contentType: file.type, upsert: false });
-  if (error) throw error;
-  const { error: updErr } = await supabase.from(TABLE).update({ rif_path: path, rif_nombre: file.name }).eq('id', id);
-  if (updErr) throw updErr;
-  // El anterior se borra DESPUÉS de que el nuevo quedó enlazado: si se borrara
-  // antes y fallara la subida, la persona se queda sin ninguno.
-  if (anterior) await supabase.storage.from(DOCS_BUCKET).remove([anterior]).catch(() => {});
-  return { path, nombre: file.name };
-}
-
-/** Quita el documento del RIF (borra el archivo y limpia la ficha). */
-export async function borrarRifPersonal(id: string, path: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).update({ rif_path: null, rif_nombre: null }).eq('id', id);
-  if (error) throw error;
-  if (path) await supabase.storage.from(DOCS_BUCKET).remove([path]).catch(() => {});
-}
-
-/** URL firmada (10 min) para ver el documento del RIF. */
-export async function urlRifPersonal(path: string): Promise<string> {
-  const { data, error } = await supabase.storage.from(DOCS_BUCKET).createSignedUrl(path, 600);
-  if (error || !data) throw error ?? new Error('No se pudo generar el enlace del RIF');
-  return data.signedUrl;
-}
+/* Los ARCHIVOS del trabajador (RIF, cédula, CV) viven en su propio
+   repositorio: documentos.repository.ts. Acá quedó solo la foto, que es
+   parte de la ficha (va en el carnet) y no documentación. */
 
 /** Descarga la foto y la convierte a data URL (para dibujarla en el carnet sin CORS). */
 export async function fotoPersonalDataUrl(path: string): Promise<string> {

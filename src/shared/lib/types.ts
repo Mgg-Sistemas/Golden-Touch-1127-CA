@@ -1360,11 +1360,9 @@ export interface Personal {
   nombre: string;
   apellido: string;
   cedula?: string | null;
-  /** RIF del trabajador (V-12345678-9). Es otro dato que la cédula. */
+  /** RIF del trabajador (V-12345678-9). Es otro dato que la cédula.
+   *  El ARCHIVO del RIF no está acá: va en `personal_documentos`. */
   rif?: string | null;
-  /** PDF (o imagen) del RIF, en el bucket `personal-documentos`. */
-  rif_path?: string | null;
-  rif_nombre?: string | null;
   cargo?: string | null;
   departamento?: string | null;
   sueldo_base: number;          // sueldo MENSUAL (USD)
@@ -1378,6 +1376,28 @@ export interface Personal {
   /** Foto de la persona (bucket `personal-fotos`) para el carnet. */
   foto_path?: string | null;
   datos_pago?: Record<string, unknown> | null;
+  created_at: string;
+  created_by?: string | null;
+}
+
+/** Los documentos que se le guardan a un trabajador. */
+export type TipoDocumento = 'rif' | 'ci' | 'cv';
+
+/**
+ * Un documento del trabajador (PDF o imagen) en el almacén privado
+ * `personal-documentos`. Hay uno por tipo y por persona: cargar otro
+ * reemplaza al anterior.
+ */
+export interface PersonalDocumento {
+  id: string;
+  personal_id: string;
+  tipo: TipoDocumento;
+  /** Ruta dentro del bucket; no es una URL (el almacén es privado). */
+  path: string;
+  /** El nombre con el que llegó el archivo, para mostrarlo y descargarlo. */
+  nombre: string;
+  mime?: string | null;
+  tamano?: number | null;
   created_at: string;
   created_by?: string | null;
 }

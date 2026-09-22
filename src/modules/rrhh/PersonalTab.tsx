@@ -9,9 +9,10 @@ import { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal, type PersonalInput,
   subirFotoPersonal, borrarFotoPersonal, fotoPersonalDataUrl,
-  subirRifPersonal, borrarRifPersonal, urlRifPersonal,
 } from './personal.repository';
-import { previewArchivo } from '@/shared/lib/reportePreview';
+import { DocumentacionPersona, type DocsPendientes } from './DocumentacionPersona';
+import { listDocumentosDeTodos, subirDocumentoPersonal, TIPOS_DOCUMENTO } from './documentos.repository';
+import type { PersonalDocumento, TipoDocumento } from '@/shared/lib/types';
 import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import { generarCarnetPersonalDataUrl, generarCarnetReversoDataUrl, nombreArchivoCarnet } from './carnetPersonal';
@@ -71,16 +72,15 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   // ANTES de guardar, no después del rechazo de la base.
   const [cedula, setCedula] = useState('');
   const [rif, setRif] = useState('');
-  // El PDF del RIF: mismo criterio que la foto. En un registro que ya existe se
-  // sube en el momento; en uno nuevo espera a que haya id al que colgarlo.
-  const [rifPath, setRifPath] = useState<string | null>(null);
-  const [rifNombre, setRifNombre] = useState<string | null>(null);
-  const [rifPendiente, setRifPendiente] = useState<File | null>(null);
-  const [rifOcupado, setRifOcupado] = useState(false);
+  // Documentación (RIF, cédula, CV). En un registro nuevo todavía no hay id al
+  // que colgar los archivos, así que quedan acá y suben con el alta.
+  const [docsPendientes, setDocsPendientes] = useState<DocsPendientes>({});
+  // Qué papeles tiene cada persona, para marcarlo en la lista sin abrir nada.
+  const [docsTodos, setDocsTodos] = useState<PersonalDocumento[]>([]);
+  const [docsPersona, setDocsPersona] = useState<Personal | null>(null);
   // Campos de texto NO controlados (DOM = fuente de verdad): inmunes a re-renders
   // que de otro modo "cortan" lo tecleado. Se leen del DOM al guardar.
   const formRef = useRef<HTMLFormElement>(null);
-  const rifFileRef = useRef<HTMLInputElement>(null);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -93,11 +93,26 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
     listDepartamentos().then(setDepartamentos).catch(() => { /* catálogo opcional */ });
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
+  const cargarDocs = useCallback(() => {
+    // Si falla (permisos, red), la lista se muestra igual: la marca de papeles
+    // es información de más, no un requisito para ver al personal.
+    listDocumentosDeTodos().then(setDocsTodos).catch(() => setDocsTodos([]));
+  }, []);
+  useEffect(() => { cargarDocs(); }, [cargarDocs]);
+
   useEffect(() => { cargarCatalogos(); }, [cargarCatalogos]);
   useRealtime(['personal'], () => { void recargar(); });
+  useRealtime(['personal_documentos'], () => { cargarDocs(); });
+
+  /** Cuántos de los tres documentos tiene cargados cada persona. */
+  const docsPorPersona = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of docsTodos) m.set(d.personal_id, (m.get(d.personal_id) ?? 0) + 1);
+    return m;
+  }, [docsTodos]);
 
   function limpiarFoto() { setFotoPath(null); setFotoPreview(null); setFotoPendiente(null); setFotoOcupada(false); }
-  function limpiarRifDoc() { setRifPath(null); setRifNombre(null); setRifPendiente(null); setRifOcupado(false); }
+  function limpiarDocs() { setDocsPendientes({}); }
 
   /** ¿Otra persona ya tiene esa cédula? Se mira sobre la lista ya cargada. */
   const cedulaRepetida = useMemo(() => {
@@ -108,58 +123,26 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
 
   const rifMalEscrito = !!rif.trim() && !rifValido(rif);
 
-  function abrirNuevo() { setEditId(null); setForm(VACIO); setCedula(''); setRif(''); setError(null); limpiarFoto(); limpiarRifDoc(); setFormOpen(true); }
+  function abrirNuevo() { setEditId(null); setForm(VACIO); setCedula(''); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
     setForm({ nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '', cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0, fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', contacto_emergencia: p.contacto_emergencia ?? '', telefono_emergencia: p.telefono_emergencia ?? '' });
     setCedula(p.cedula ?? '');
     setRif(p.rif ?? '');
     limpiarFoto();
-    limpiarRifDoc();
+    limpiarDocs();
     setFotoPath(p.foto_path ?? null);
-    setRifPath(p.rif_path ?? null);
-    setRifNombre(p.rif_nombre ?? null);
     setError(null); setFormOpen(true);
   }
-  function cerrarForm() { setEditId(null); setForm(VACIO); setCedula(''); setRif(''); setError(null); limpiarFoto(); limpiarRifDoc(); setFormOpen(false); }
+  function cerrarForm() { setEditId(null); setForm(VACIO); setCedula(''); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(false); }
 
-  async function elegirRifDoc(file: File) {
-    setError(null);
-    if (file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
-      setError('El RIF debe ser un PDF o una imagen.'); return;
-    }
-    if (file.size > 10 * 1024 * 1024) { setError('El archivo del RIF no puede superar 10 MB.'); return; }
-    setRifOcupado(true);
-    try {
-      if (editId) {
-        const { path, nombre } = await subirRifPersonal(editId, file, rifPath);
-        setRifPath(path); setRifNombre(nombre); setRifPendiente(null);
-        await recargar();
-      } else {
-        setRifPendiente(file); setRifNombre(file.name);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo subir el RIF');
-    } finally { setRifOcupado(false); }
-  }
-
-  async function quitarRifDoc() {
-    setError(null);
-    if (!editId || !rifPath) { setRifPendiente(null); setRifNombre(null); return; }
-    if (!window.confirm('¿Quitar el archivo del RIF? Se borra del servidor.')) return;
-    setRifOcupado(true);
-    try {
-      await borrarRifPersonal(editId, rifPath);
-      limpiarRifDoc();
-      await recargar();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo quitar el RIF');
-    } finally { setRifOcupado(false); }
-  }
-
-  async function verRifDoc(path: string, nombre?: string | null) {
-    try { previewArchivo(await urlRifPersonal(path), nombre || 'RIF'); }
-    catch { toast('No se pudo abrir el RIF', 'error'); }
+  /** Un archivo elegido en el ALTA: espera a que la persona exista. */
+  function elegirDocPendiente(tipo: TipoDocumento, file: File | null) {
+    setDocsPendientes((d) => {
+      const copia = { ...d };
+      if (file) copia[tipo] = file; else delete copia[tipo];
+      return copia;
+    });
   }
 
   // La vista previa de la foto guardada se baja una sola vez al abrir el formulario.
@@ -250,10 +233,15 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
           try { await subirFotoPersonal(creada.id, fotoPendiente); }
           catch { toast('Se guardó el registro, pero la foto no se pudo subir. Cargala con ✎ Editar.', 'error'); }
         }
-        if (rifPendiente) {
-          try { await subirRifPersonal(creada.id, rifPendiente); }
-          catch { toast('Se guardó el registro, pero el RIF no se pudo subir. Cargalo con ✎ Editar.', 'error'); }
+        // Los documentos elegidos antes de que existiera el registro. Si alguno
+        // falla, el registro YA quedó guardado: se avisa cuál y se carga después.
+        for (const { tipo, label } of TIPOS_DOCUMENTO) {
+          const file = docsPendientes[tipo];
+          if (!file) continue;
+          try { await subirDocumentoPersonal(creada.id, tipo, file); }
+          catch { toast(`Se guardó el registro, pero el ${label} no se pudo subir. Cargalo con 📎.`, 'error'); }
         }
+        cargarDocs();
       }
       // Si el cargo/departamento es nuevo, lo agregamos al catálogo compartido.
       const cargo = (datos.cargo ?? '').trim();
@@ -302,10 +290,11 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 <td className="mono" style={{ textAlign: 'right' }}>{Number(p.sueldo_base) > 0 ? money(p.sueldo_base) : '—'}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: p.activo ? 'var(--success)' : 'var(--muted)' }}>{p.activo ? 'Activo' : 'Inactivo'}</span></td>
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                  {p.rif_path && (
-                    <button className="btn btn-sm btn-ghost" title={`Ver el RIF (${p.rif_nombre || 'archivo'})`}
-                      onClick={() => void verRifDoc(p.rif_path as string, p.rif_nombre)}>📎</button>
-                  )}
+                  <button className="btn btn-sm btn-ghost" onClick={() => setDocsPersona(p)}
+                    title="Documentación: RIF, cédula y CV"
+                    style={(docsPorPersona.get(p.id) ?? 0) === TIPOS_DOCUMENTO.length ? { color: 'var(--success)' } : undefined}>
+                    📎 {docsPorPersona.get(p.id) ?? 0}/{TIPOS_DOCUMENTO.length}
+                  </button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setSueldoPersona(p)}
                     title="Historial de sueldo: de cuánto a cuánto, cuándo y por qué">💵</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
@@ -375,35 +364,6 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                   ? <small style={{ color: 'var(--warning)' }}>Ese RIF no pasa el dígito verificador: revisalo. Igual se guarda.</small>
                   : <small className="muted">Es otro dato que la cédula. Va en la constancia y en la nómina.</small>}
               </div>
-              <div className="form-row">
-                <label>Archivo del RIF (PDF o imagen)</label>
-                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <input ref={rifFileRef} type="file" accept="application/pdf,image/*" style={{ display: 'none' }}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = '';
-                      if (file) void elegirRifDoc(file);
-                    }} />
-                  <button type="button" className="btn btn-sm btn-ghost" disabled={rifOcupado}
-                    onClick={() => rifFileRef.current?.click()}>
-                    {rifOcupado ? 'Subiendo…' : (rifPath || rifPendiente) ? '📎 Cambiar archivo' : '📎 Cargar RIF'}
-                  </button>
-                  {rifPath && (
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => void verRifDoc(rifPath, rifNombre)}>
-                      👁 Ver
-                    </button>
-                  )}
-                  {(rifPath || rifPendiente) && (
-                    <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
-                      disabled={rifOcupado} onClick={() => void quitarRifDoc()}>🗑 Quitar</button>
-                  )}
-                </div>
-                <small className="muted">
-                  {rifNombre
-                    ? <>📄 {rifNombre}{rifPendiente && !editId ? ' · se sube al guardar el registro' : ''}</>
-                    : 'Queda guardado en la ficha y se abre desde la lista con 📎. Hasta 10 MB.'}
-                </small>
-              </div>
               <ComboConAgregar
                 label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
                 onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
@@ -444,11 +404,29 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
               <div className="form-row"><label>Teléfono de emergencia</label><input className="input" name="p-telefono-emergencia" defaultValue={form.telefono_emergencia ?? ''} placeholder="0414-7654321" inputMode="tel" /></div>
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.35rem' }}>📇 El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (botón 🪪 en la lista).</small>
+
+            <div className="divider" />
+            <div className="card-title" style={{ marginBottom: '.5rem' }}>📎 Documentación</div>
+            <DocumentacionPersona
+              personalId={editId}
+              canWrite={canWrite}
+              pendientes={docsPendientes}
+              onPendiente={elegirDocPendiente}
+              onCambio={cargarDocs}
+              compacto
+            />
             <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina. Cada cambio posterior <strong>lleva motivo</strong> y queda en el <strong>historial de sueldo</strong> (botón 💵 en la lista).</small>
           </form>
         </Modal>
       )}
 
+      {docsPersona && (
+        <Modal title={`Documentación · ${docsPersona.nombre} ${docsPersona.apellido ?? ''}`.trim()} size="md"
+          onClose={() => setDocsPersona(null)}
+          footer={<button className="btn btn-ghost" onClick={() => setDocsPersona(null)}>Cerrar</button>}>
+          <DocumentacionPersona personalId={docsPersona.id} canWrite={canWrite} onCambio={cargarDocs} />
+        </Modal>
+      )}
       {sueldoPersona && (
         <HistorialSueldoModal
           persona={sueldoPersona}
