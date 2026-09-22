@@ -256,6 +256,16 @@ input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 /* Compacto: para avisos al pie de un formulario, donde el espacio es poco. */
 .aviso.sm { padding: .5rem .7rem; font-size: .8rem; }
 
+/* Un botón que se lee como enlace: para el nombre de una fila que abre su
+   ficha. Es un <button> de verdad (no un <a> falso), así el teclado y los
+   lectores de pantalla lo tratan por lo que hace. */
+.btn-link {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--text);
+  cursor: pointer; text-align: left; border-bottom: 1px dashed transparent;
+}
+.btn-link:hover { color: var(--primary-2); border-bottom-color: var(--primary-2); }
+.btn-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
 /* ───────── Tarjetas del resumen (las que filtran la lista) ─────────
    Dos cosas las hacían ver negras. Primero se dibujaban SIN FONDO, así que
    sobre el panel oscuro eran seis recuadros pegados al fondo; y al darles

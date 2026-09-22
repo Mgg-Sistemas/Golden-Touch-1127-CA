@@ -4,13 +4,13 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import type { Personal, AnticipoPrestamo } from '@/shared/lib/types';
+import type { EmpresaRrhh, Personal, AnticipoPrestamo } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
 import { listAnticipos, crearAnticipo, eliminarAnticipo, type AnticipoInput } from './anticipos.repository';
 
 const VACIO: AnticipoInput = { personal_id: '', tipo: 'anticipo', monto_total: 0, cuota_sugerida: null, motivo: '' };
 
-export function AnticiposTab({ canWrite, actor, actorName }: { canWrite: boolean; actor: string; actorName: string | null }) {
+export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa: EmpresaRrhh; canWrite: boolean; actor: string; actorName: string | null }) {
   const [personal, setPersonal] = useState<Personal[]>([]);
   const [lista, setLista] = useState<AnticipoPrestamo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,12 +23,12 @@ export function AnticiposTab({ canWrite, actor, actorName }: { canWrite: boolean
   const recargar = useCallback(async () => {
     setLoading(true);
     const [ps, as] = await Promise.all([
-      listPersonal(false).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
+      listPersonal(false, empresa).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
       listAnticipos().catch(() => [] as AnticipoPrestamo[]),
     ]);
     setPersonal(ps); setLista(as);
     setLoading(false);
-  }, []);
+  }, [empresa]);
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['anticipos_prestamos', 'personal'], () => { void recargar(); });
 

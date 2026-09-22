@@ -10,14 +10,19 @@
    llevara, cualquier edición de un teléfono volvería a escribir el sueldo.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Personal } from '@/shared/lib/types';
+import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 
 const TABLE = 'personal';
 
-/** Lista el personal, ordenado por departamento y nombre. */
-export async function listPersonal(soloActivos = false): Promise<Personal[]> {
+/**
+ * Lista el personal, ordenado por departamento y nombre.
+ * `empresa` separa las dos nóminas (GT y MTO), que son independientes: sin
+ * filtrar se mezclarían dos plantillas que no tienen nada que ver.
+ */
+export async function listPersonal(soloActivos = false, empresa?: EmpresaRrhh): Promise<Personal[]> {
   let q = supabase.from(TABLE).select('*').order('departamento', { ascending: true, nullsFirst: false }).order('nombre', { ascending: true });
   if (soloActivos) q = q.eq('activo', true);
+  if (empresa) q = q.eq('empresa', empresa);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as Personal[];
@@ -35,6 +40,14 @@ export interface PersonalInput {
   telefono?: string | null;
   contacto_emergencia?: string | null;
   telefono_emergencia?: string | null;
+  /** A qué nómina entra. Solo se define al dar de alta. */
+  empresa?: EmpresaRrhh;
+  fecha_nacimiento?: string | null;
+  genero?: 'M' | 'F' | 'O' | null;
+  estado_civil?: 'soltero' | 'casado' | 'divorciado' | 'viudo' | 'concubinato' | null;
+  grupo_sanguineo?: string | null;
+  nacionalidad?: string | null;
+  direccion?: string | null;
 }
 
 function payload(input: PersonalInput) {
@@ -57,6 +70,12 @@ function baseSinSueldo(input: PersonalInput) {
     telefono: input.telefono?.trim() || null,
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
     telefono_emergencia: input.telefono_emergencia?.trim() || null,
+    fecha_nacimiento: input.fecha_nacimiento || null,
+    genero: input.genero || null,
+    estado_civil: input.estado_civil || null,
+    grupo_sanguineo: input.grupo_sanguineo?.trim() || null,
+    nacionalidad: input.nacionalidad?.trim() || null,
+    direccion: input.direccion?.trim() || null,
   };
 }
 
@@ -81,7 +100,11 @@ function errorDuplicado(error: { code?: string; message?: string } | null): Erro
 
 export async function crearPersonal(input: PersonalInput, actorEmail?: string): Promise<Personal> {
   if (!input.nombre.trim()) throw new Error('Indicá el nombre.');
-  const { data, error } = await supabase.from(TABLE).insert({ ...payload(input), created_by: actorEmail ?? null }).select('*').single();
+  // La empresa se fija en el alta y no se toca después: mover a alguien de
+  // nómina es una baja y un alta, no un campo que se edita.
+  const { data, error } = await supabase.from(TABLE)
+    .insert({ ...payload(input), empresa: input.empresa ?? 'GT', created_by: actorEmail ?? null })
+    .select('*').single();
   if (error) throw errorDuplicado(error) ?? error;
   return data as Personal;
 }

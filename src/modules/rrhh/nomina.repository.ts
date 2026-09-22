@@ -13,7 +13,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { round2 } from '../tesoreria/tasas.repository';
-import type { Caja, NominaPeriodo, NominaRenglon, DeduccionRef, Personal, CuentaCaja } from '@/shared/lib/types';
+import type { Caja, EmpresaRrhh, NominaPeriodo, NominaRenglon, DeduccionRef, Personal, CuentaCaja } from '@/shared/lib/types';
 
 const BUCKET = 'nomina-comprobantes';
 const LIBRO = 'movimientos_caja';
@@ -60,11 +60,14 @@ export function calcularRenglon(input: RenglonCalcInput): RenglonCalc {
 
 /* ───────────── Carga de la nómina ───────────── */
 
-async function nextCodigoNomina(): Promise<string> {
+/** El correlativo es POR EMPRESA, y MTO lleva su marca para no confundir papeles. */
+async function nextCodigoNomina(empresa: EmpresaRrhh): Promise<string> {
   const year = new Date().getFullYear();
-  const { count, error } = await supabase.from('nomina_periodos').select('id', { count: 'exact', head: true });
+  const { count, error } = await supabase.from('nomina_periodos')
+    .select('id', { count: 'exact', head: true }).eq('empresa', empresa);
   if (error) throw error;
-  return `NOM-${year}-${String((count ?? 0) + 1).padStart(4, '0')}`;
+  const n = String((count ?? 0) + 1).padStart(4, '0');
+  return empresa === 'MTO' ? `NOM-MTO-${year}-${n}` : `NOM-${year}-${n}`;
 }
 
 export interface RenglonInput {
@@ -79,6 +82,7 @@ export interface RenglonInput {
 }
 
 export interface CargarNominaInput {
+  empresa?: EmpresaRrhh;         // 'GT' | 'MTO'
   tipo?: string;                 // 'quincena'
   periodo_desde?: string | null;
   periodo_hasta?: string | null;
@@ -97,10 +101,12 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
 
   const calculados = renglones.map((r) => ({ r, c: calcularRenglon(r) }));
   const total = round2(calculados.reduce((a, x) => a + x.c.neto_usd, 0));
-  const codigo = await nextCodigoNomina();
+  const empresa: EmpresaRrhh = input.empresa ?? 'GT';
+  const codigo = await nextCodigoNomina(empresa);
 
   const { data: per, error: pErr } = await supabase.from('nomina_periodos').insert({
     codigo,
+    empresa,
     tipo: input.tipo || 'quincena',
     periodo_desde: input.periodo_desde || null,
     periodo_hasta: input.periodo_hasta || null,
@@ -145,8 +151,10 @@ export interface NominaPeriodoResumen extends NominaPeriodo {
   pendientes: number;
 }
 
-export async function listNominas(): Promise<NominaPeriodoResumen[]> {
-  const { data: pers, error } = await supabase.from('nomina_periodos').select('*').order('created_at', { ascending: false });
+export async function listNominas(empresa?: EmpresaRrhh): Promise<NominaPeriodoResumen[]> {
+  let q = supabase.from('nomina_periodos').select('*').order('created_at', { ascending: false });
+  if (empresa) q = q.eq('empresa', empresa);
+  const { data: pers, error } = await q;
   if (error) throw error;
   const periodos = (pers ?? []) as NominaPeriodo[];
   if (!periodos.length) return [];
@@ -170,7 +178,9 @@ export async function listRenglones(periodoId: string): Promise<NominaRenglon[]>
 export async function listRenglonesPorPagar(): Promise<NominaRenglon[]> {
   const { data, error } = await supabase
     .from('nomina_renglones')
-    .select('*, periodo:nomina_periodos!nomina_renglones_periodo_id_fkey(codigo, tipo, periodo_desde, periodo_hasta, tasa_bcv)')
+    // Tesorería paga las DOS nóminas, así que no se filtra por empresa: se
+    // trae el dato para que la cola diga de cuál es cada renglón.
+    .select('*, periodo:nomina_periodos!nomina_renglones_periodo_id_fkey(codigo, empresa, tipo, periodo_desde, periodo_hasta, tasa_bcv)')
     .eq('estado', 'por_pagar')
     .order('created_at', { ascending: true });
   if (error) throw error;
@@ -181,7 +191,7 @@ export async function listRenglonesPorPagar(): Promise<NominaRenglon[]> {
 export async function getRenglonById(id: string): Promise<NominaRenglon | null> {
   const { data, error } = await supabase
     .from('nomina_renglones')
-    .select('*, periodo:nomina_periodos!nomina_renglones_periodo_id_fkey(codigo, tipo, periodo_desde, periodo_hasta, tasa_bcv)')
+    .select('*, periodo:nomina_periodos!nomina_renglones_periodo_id_fkey(codigo, empresa, tipo, periodo_desde, periodo_hasta, tasa_bcv)')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
@@ -381,10 +391,12 @@ export async function procesarVacacion(input: {
   if (sueldo <= 0) throw new Error('El trabajador no tiene sueldo base cargado.');
   const c = calcularRenglon({ sueldo_base_mensual: sueldo, dias_trabajados: dias });
 
-  const codigo = await nextCodigoNomina();
+  // La vacación entra en la nómina de SU empresa, no siempre en la de GT.
+  const empresa = input.persona.empresa ?? 'GT';
+  const codigo = await nextCodigoNomina(empresa);
   const notas = `Vacaciones ${input.persona.nombre} ${input.persona.apellido}`.trim() + (input.desde ? ` (${input.desde}${input.hasta ? ` → ${input.hasta}` : ''})` : '');
   const { data: per, error: pErr } = await supabase.from('nomina_periodos').insert({
-    codigo, tipo: 'vacaciones', periodo_desde: input.desde || null, periodo_hasta: input.hasta || null,
+    codigo, empresa, tipo: 'vacaciones', periodo_desde: input.desde || null, periodo_hasta: input.hasta || null,
     dias_base: dias, estado: 'cargada', total_usd: c.neto_usd, notas,
     creada_por: input.actorEmail, actor_name: input.actorName ?? null,
   }).select('id').single();

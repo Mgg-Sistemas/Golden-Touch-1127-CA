@@ -6,7 +6,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { money, date as fmtDate } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import type { Personal, RrhhEvento } from '@/shared/lib/types';
+import type { EmpresaRrhh, Personal, RrhhEvento } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
 import { listEventos, crearEvento, eliminarEvento, marcarVacacionProcesada } from './eventos.repository';
 import { procesarVacacion, montoVacacion } from './nomina.repository';
@@ -30,7 +30,7 @@ function solapan(aDesde: string, aHasta: string, bDesde: string, bHasta: string)
   return a1 <= b2 && b1 <= a2;
 }
 
-export function VacacionesTab({ canWrite, actor, actorName }: { canWrite: boolean; actor: string; actorName: string | null }) {
+export function VacacionesTab({ empresa, canWrite, actor, actorName }: { empresa: EmpresaRrhh; canWrite: boolean; actor: string; actorName: string | null }) {
   const now = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [personal, setPersonal] = useState<Personal[]>([]);
@@ -43,12 +43,12 @@ export function VacacionesTab({ canWrite, actor, actorName }: { canWrite: boolea
     setLoading(true);
     // Cada carga con su propio catch: un fallo en eventos no deja sin personal al selector.
     const [ps, ev] = await Promise.all([
-      listPersonal(false).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
+      listPersonal(false, empresa).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
       listEventos(undefined, 'vacacion').catch(() => [] as RrhhEvento[]),
     ]);
     setPersonal(ps); setEventos(ev);
     setLoading(false);
-  }, []);
+  }, [empresa]);
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['rrhh_eventos', 'personal'], () => { void recargar(); });
 

@@ -1354,9 +1354,16 @@ export interface AbonoCredito {
   at: string;
 }
 
+/** Las dos nóminas. Son independientes: cada una con su gente y sus períodos. */
+export type EmpresaRrhh = 'GT' | 'MTO';
+
 /** Personal de nómina (no necesariamente usuario del sistema). */
 export interface Personal {
   id: string;
+  /** A qué nómina pertenece. Una persona está en una sola. */
+  empresa: EmpresaRrhh;
+  /** Correlativo POR EMPRESA, lo asigna la base al dar de alta. */
+  ficha_nro?: number | null;
   nombre: string;
   apellido: string;
   cedula?: string | null;
@@ -1368,6 +1375,13 @@ export interface Personal {
   sueldo_base: number;          // sueldo MENSUAL (USD)
   activo: boolean;
   fecha_ingreso?: string | null;
+  /** De acá sale la EDAD: no se guarda, se calcula (un número guardado envejece mal). */
+  fecha_nacimiento?: string | null;
+  genero?: 'M' | 'F' | 'O' | null;
+  estado_civil?: 'soltero' | 'casado' | 'divorciado' | 'viudo' | 'concubinato' | null;
+  grupo_sanguineo?: string | null;
+  nacionalidad?: string | null;
+  direccion?: string | null;
   /** Contacto de la persona (para el carnet y el QR). */
   telefono?: string | null;
   /** Contacto de emergencia: nombre y teléfono (para el carnet y el QR). */
@@ -1376,6 +1390,22 @@ export interface Personal {
   /** Foto de la persona (bucket `personal-fotos`) para el carnet. */
   foto_path?: string | null;
   datos_pago?: Record<string, unknown> | null;
+  created_at: string;
+  created_by?: string | null;
+}
+
+/** Un integrante de la carga familiar del trabajador. */
+export interface PersonalFamiliar {
+  id: string;
+  personal_id: string;
+  nombre: string;
+  parentesco: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro';
+  fecha_nacimiento?: string | null;
+  cedula?: string | null;
+  genero?: 'M' | 'F' | 'O' | null;
+  estudia: boolean;
+  discapacidad: boolean;
+  observacion?: string | null;
   created_at: string;
   created_by?: string | null;
 }
@@ -1439,6 +1469,8 @@ export interface AnticipoPrestamo {
 export interface NominaPeriodo {
   id: string;
   codigo: string;
+  /** De qué nómina es el período: GT o MTO (son independientes). */
+  empresa: EmpresaRrhh;
   tipo: string;
   periodo_desde?: string | null;
   periodo_hasta?: string | null;
