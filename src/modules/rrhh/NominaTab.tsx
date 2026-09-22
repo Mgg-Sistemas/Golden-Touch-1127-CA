@@ -105,6 +105,9 @@ interface FilaUI {
   persona: Personal;
   incluido: boolean;
   dias: string;
+  /** ¿Se le escribieron los días A MANO? Entonces el «días base» no los pisa:
+   *  quien entró a mitad de quincena tiene 7 días a propósito. */
+  diasTocado: boolean;
   deduc: Record<string, string>;   // anticipoId -> monto a descontar
 }
 
@@ -131,7 +134,10 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
       setFilas(ps.map((p) => ({
         persona: p,
         incluido: true,
-        dias: String(15),
+        // Los días del encabezado, NO un 15 fijo: si se cambió el «días base»
+        // mientras cargaba el personal, las filas tienen que nacer con ese.
+        dias: String(diasBase),
+        diasTocado: false,
         deduc: as.filter((a) => a.personal_id === p.id).reduce<Record<string, string>>((acc, a) => {
           const sug = a.cuota_sugerida != null ? Math.min(Number(a.cuota_sugerida), Number(a.saldo)) : 0;
           acc[a.id] = sug > 0 ? String(round2(sug)) : '';
@@ -141,10 +147,13 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
     }).catch(() => {});
   }, [empresa]);
 
-  // Al cambiar los días base, sincroniza las filas que aún no se tocaron individualmente.
+  // Al cambiar los días base, sincroniza SOLO las filas que no se tocaron a
+  // mano. Antes las pisaba todas —el comentario decía una cosa y el código
+  // hacía otra—, así que corregir el encabezado borraba los días ajustados
+  // persona por persona y se pagaba un bruto que nadie eligió.
   function aplicarDiasBase(n: number) {
     setDiasBase(n);
-    setFilas((fs) => fs.map((f) => ({ ...f, dias: String(n) })));
+    setFilas((fs) => fs.map((f) => (f.diasTocado ? f : { ...f, dias: String(n) })));
   }
 
   const anticiposDe = (pid: string) => anticipos.filter((a) => a.personal_id === pid);
@@ -208,7 +217,10 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           </div>
           <div className="form-row" style={{ minWidth: 130 }}>
             <label style={{ fontSize: '.72rem' }}>Días base (quincena)</label>
-            <input className="input mono" name="cn-dias-base" type="number" min={1} max={31} defaultValue={diasBase} onChange={(e) => aplicarDiasBase(Number(e.target.value) || 0)} />
+            {/* Controlado y sin `|| 0`: al borrar el campo para reescribirlo, el
+                valor intermedio vacío ponía CERO días en toda la nómina. */}
+            <input className="input mono" name="cn-dias-base" type="number" min={1} max={31} value={diasBase}
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 1 && n <= 31) aplicarDiasBase(n); }} />
           </div>
           <div className="form-row" style={{ minWidth: 170 }}>
             <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
@@ -247,7 +259,8 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
                   <td className="mono" style={{ textAlign: 'right' }}>{money(f.persona.sueldo_base)}</td>
                   <td style={{ textAlign: 'center' }}>
                     <input className="input mono" type="number" min={0} max={31} value={f.dias} disabled={!f.incluido}
-                      onChange={(e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, dias: e.target.value } : x))}
+                      onChange={(e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, dias: e.target.value, diasTocado: true } : x))}
+                      title={f.diasTocado ? 'Ajustado a mano: el «días base» ya no lo pisa' : undefined}
                       style={{ width: 56, textAlign: 'center' }} />
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(salario_bruto)}</td>

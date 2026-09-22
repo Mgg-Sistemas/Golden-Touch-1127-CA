@@ -17,6 +17,13 @@ async function columna(tabla: 'usuarios' | 'personal', col: 'departamento' | 'ca
   return ((data ?? []) as Array<Record<string, string | null>>).map((r) => r[col] ?? '').filter(Boolean);
 }
 
+/** Una columna de texto del personal, para sumar al catálogo lo ya cargado. */
+async function columnaTexto(col: string): Promise<string[]> {
+  const { data } = await supabase.from('personal').select(col);
+  return ((data ?? []) as unknown as Array<Record<string, string | null>>)
+    .map((r) => (r[col] ?? '').trim().toUpperCase()).filter(Boolean);
+}
+
 /** Departamentos: taxonomía de Usuarios + valores reales en usuarios y personal. */
 export async function listDepartamentos(): Promise<string[]> {
   const [tax, us, pe] = await Promise.all([
@@ -49,5 +56,24 @@ export async function listCargos(): Promise<string[]> {
 export async function addCargo(nombre: string, actorEmail?: string): Promise<string | null> {
   const v = await addTaxonomia('usuario.cargo', nombre, actorEmail);
   invalidateTaxonomia('usuario.cargo');
+  return v;
+}
+
+/** Nacionalidades: catálogo compartido + las que ya tenga cargadas el personal.
+ *  Se escribía a mano en cada ficha, así que «VENEZOLANO», «Venezolano» y
+ *  «venezolano» convivían y no se podía filtrar por nacionalidad. */
+export async function listNacionalidades(): Promise<string[]> {
+  const [tax, pe] = await Promise.all([
+    listTaxonomia('personal.nacionalidad').catch(() => [] as string[]),
+    columnaTexto('nacionalidad').catch(() => [] as string[]),
+  ]);
+  const set = new Set<string>();
+  [...tax, ...pe].forEach((v) => set.add(v));
+  return ordenar(set);
+}
+
+export async function addNacionalidad(nombre: string, actorEmail?: string): Promise<string | null> {
+  const v = await addTaxonomia('personal.nacionalidad', nombre, actorEmail);
+  invalidateTaxonomia('personal.nacionalidad');
   return v;
 }

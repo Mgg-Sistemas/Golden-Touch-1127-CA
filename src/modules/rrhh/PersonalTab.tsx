@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type CSSProperties } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { FechaInput } from '@/shared/ui/FechaInput';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date, dateTime } from '@/shared/lib/format';
@@ -17,12 +18,16 @@ import { CargaFamiliarPersona } from './CargaFamiliarPersona';
 import { FichaTecnicaPersonal } from './FichaTecnicaPersonal';
 import { agregarFamiliar, listFamiliaresDeTodos, type FamiliarInput } from './familiares.repository';
 import {
-  CRITERIOS_GRUPO, ESTADOS_CIVILES, FILTROS_VACIOS, GENEROS, GRUPOS_SANGUINEOS,
+  CRITERIOS_GRUPO, ESTADOS_CIVILES, FILTROS_VACIOS, GENEROS, GRUPOS_SANGUINEOS, PARENTESCOS,
+  labelParentesco,
   agruparPersonal, antiguedad, edad, filtrarPersonal, hayFiltros, labelEmpresa,
   opcionesDe, resumenPersonal, type CriterioGrupo, type FiltrosPersonal,
 } from './fichaPersonal';
 import { listHistoricoPersona } from './nomina.repository';
-import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
+import {
+  listCargos, listDepartamentos, listNacionalidades, addCargo, addDepartamento, addNacionalidad,
+} from './catalogos';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { generarCarnetPersonalDataUrl, generarCarnetReversoDataUrl, nombreArchivoCarnet } from './carnetPersonal';
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
@@ -32,7 +37,7 @@ const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
   fecha_ingreso: '', telefono: '', contacto_emergencia: '', telefono_emergencia: '',
   fecha_nacimiento: '', genero: null, estado_civil: null, grupo_sanguineo: null,
-  nacionalidad: '', direccion: '',
+  nacionalidad: '', direccion: '', contacto_emergencia_parentesco: null,
 };
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
@@ -73,6 +78,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const [formOpen, setFormOpen] = useState(false);
   const [cargos, setCargos] = useState<string[]>([]);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
+  const [nacionalidades, setNacionalidades] = useState<string[]>([]);
+  // El contacto de emergencia se elige de la carga familiar; si es alguien de
+  // afuera, este interruptor pasa a un campo libre.
+  const [contactoLibre, setContactoLibre] = useState(false);
   // Foto dentro del formulario. En un registro que YA existe se sube y se borra
   // en el momento (es un archivo, no un campo del formulario). En uno nuevo
   // todavía no hay a qué asociarla, así que queda pendiente y sube al guardar.
@@ -111,6 +120,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   }, [empresa]);
   const cargarCatalogos = useCallback(() => {
     listCargos().then(setCargos).catch(() => { /* catálogo opcional */ });
+    listNacionalidades().then(setNacionalidades).catch(() => { /* catálogo opcional */ });
     listDepartamentos().then(setDepartamentos).catch(() => { /* catálogo opcional */ });
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
@@ -163,6 +173,29 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
 
   const rifMalEscrito = !!rif.trim() && !rifValido(rif);
 
+  // A quién se puede elegir como contacto de emergencia: la carga familiar de
+  // esta persona (la ya guardada y, en el alta, la que todavía no se guardó).
+  const familiaDeEste = useMemo(() => [
+    ...(editId ? familiares.get(editId) ?? [] : []).map((x) => ({ nombre: x.nombre, parentesco: x.parentesco })),
+    ...famPendientes.map((x) => ({ nombre: x.nombre, parentesco: x.parentesco })),
+  ], [editId, familiares, famPendientes]);
+
+  const opcionesContacto = useMemo(() => {
+    const opts = familiaDeEste
+      .filter((x) => x.nombre.trim())
+      .map((x) => ({ value: x.nombre, label: `${x.nombre} · ${labelParentesco(x.parentesco)}` }));
+    // El contacto guardado que NO está en la carga familiar (alguien de afuera)
+    // igual tiene que aparecer elegido, o se perdería al abrir la ficha.
+    const actual = (form.contacto_emergencia ?? '').trim();
+    if (actual && !opts.some((o) => o.value === actual)) {
+      opts.unshift({ value: actual, label: `${actual} · fuera de la carga familiar` });
+    }
+    return opts;
+  }, [familiaDeEste, form.contacto_emergencia]);
+
+  const parentescoDe = (nombre: string) =>
+    familiaDeEste.find((x) => x.nombre === nombre)?.parentesco ?? null;
+
   function abrirNuevo() { setEditId(null); setForm(VACIO); setCedula(''); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
@@ -174,6 +207,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       fecha_nacimiento: p.fecha_nacimiento ?? '', genero: p.genero ?? null,
       estado_civil: p.estado_civil ?? null, grupo_sanguineo: p.grupo_sanguineo ?? null,
       nacionalidad: p.nacionalidad ?? '', direccion: p.direccion ?? '',
+      contacto_emergencia_parentesco: p.contacto_emergencia_parentesco ?? null,
     });
     setCedula(p.cedula ?? '');
     setRif(p.rif ?? '');
@@ -252,7 +286,15 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     e.preventDefault(); setError(null);
     // Campos de texto: se leen del DOM (no controlados). Cargo/Departamento/Fecha vienen del estado.
     const root = formRef.current;
-    const val = (name: string) => (root?.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? '';
+    // Si el input NO está en el DOM, esto devolvía '' y el campo terminaba
+    // borrado en la base sin que nadie se enterara. Ahora se rompe acá, que es
+    // donde se puede ver, en vez de romper el dato del trabajador.
+    const faltantes: string[] = [];
+    const val = (name: string) => {
+      const el = root?.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
+      if (!el) { faltantes.push(name); return ''; }
+      return el.value;
+    };
     const datos: PersonalInput = {
       ...form,
       nombre: val('p-nombre').trim(),
@@ -260,12 +302,19 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       cedula: sanitizarCedula(cedula),
       rif: rif.trim() ? sanitizarRif(rif) : null,
       sueldo_base: Number(val('p-sueldo')) || 0,
-      nacionalidad: val('p-nacionalidad').trim().toUpperCase() || null,
+      // Nacionalidad y contacto ya no son inputs sueltos (lista agregable y
+      // lista buscable): su valor vive en el estado, no en el DOM.
+      nacionalidad: (form.nacionalidad ?? '').trim().toUpperCase() || null,
       direccion: val('p-direccion').trim().toUpperCase() || null,
       telefono: val('p-telefono').trim(),
-      contacto_emergencia: val('p-contacto-emergencia').trim(),
+      contacto_emergencia: (form.contacto_emergencia ?? '').trim(),
       telefono_emergencia: val('p-telefono-emergencia').trim(),
     };
+    if (faltantes.length) {
+      // No se guarda nada: es preferible un error raro a un borrado silencioso.
+      setError(`No se pudo leer ${faltantes.join(', ')} del formulario. No se guardó nada; avisá al equipo del sistema.`);
+      return;
+    }
     if (!datos.nombre) { setError('Indicá el nombre.'); return; }
     if (cedulaRepetida) {
       setError(`${cedulaRepetida.nombre} ${cedulaRepetida.apellido ?? ''} ya está registrada con esa cédula.`.trim());
@@ -302,6 +351,8 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       // Si el cargo/departamento es nuevo, lo agregamos al catálogo compartido.
       const cargo = (datos.cargo ?? '').trim();
       const depto = (datos.departamento ?? '').trim();
+      const nac = (datos.nacionalidad ?? '').trim();
+      if (nac && !nacionalidades.includes(nac)) await addNacionalidad(nac, actor).catch(() => {});
       if (cargo && !cargos.includes(cargo)) await addCargo(cargo, actor).catch(() => {});
       if (depto && !departamentos.includes(depto)) await addDepartamento(depto, actor).catch(() => {});
       cargarCatalogos();
@@ -486,8 +537,15 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 {g.gente.map((p) => (
               <tr key={p.id} style={{ opacity: p.activo ? 1 : 0.55 }}>
                 <td>
-                  <button className="btn-link" title="Ver la ficha técnica"
-                    onClick={() => setFichaPersona(p)}>{p.nombre} {p.apellido}</button>
+                  {/* El nombre abre la ficha para EDITARLA, que es a lo que se
+                      entra el 90% de las veces. A quien solo tiene lectura no se
+                      le abre un formulario que no va a poder guardar: se le
+                      muestra la ficha técnica, que es la misma información. */}
+                  <button className="btn-link"
+                    title={canWrite ? 'Editar esta ficha' : 'Ver la ficha técnica'}
+                    onClick={() => (canWrite ? editar(p) : setFichaPersona(p))}>
+                    {p.nombre} {p.apellido}
+                  </button>
                   {p.cedula ? <span className="muted"> · {p.cedula}</span> : null}
                   <div className="muted mono" style={{ fontSize: '.72rem' }}>
                     {p.ficha_nro ? `Ficha ${String(p.ficha_nro).padStart(4, '0')}` : ''}
@@ -614,15 +672,20 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                     : 'Es el sueldo de alta: abre el historial de esta persona.'}
                 </small>
               </div>
-              <div className="form-row"><label>Fecha de ingreso</label><input className="input" type="date" value={form.fecha_ingreso ?? ''} onChange={(e) => setForm((f) => ({ ...f, fecha_ingreso: e.target.value }))} /></div>
+              <div className="form-row">
+                <label>Fecha de ingreso</label>
+                <FechaInput value={form.fecha_ingreso ?? ''}
+                  onChange={(iso) => setForm((f) => ({ ...f, fecha_ingreso: iso }))} />
+              </div>
               <div className="form-row">
                 <label>Fecha de nacimiento</label>
-                <input className="input" type="date" value={form.fecha_nacimiento ?? ''}
-                  onChange={(e) => setForm((f) => ({ ...f, fecha_nacimiento: e.target.value }))} />
+                {/* Nadie nació mañana: el calendario no deja pasar de hoy. */}
+                <FechaInput value={form.fecha_nacimiento ?? ''} max={new Date().toISOString().slice(0, 10)}
+                  onChange={(iso) => setForm((f) => ({ ...f, fecha_nacimiento: iso }))} />
                 <small className="muted">
                   {form.fecha_nacimiento && edad(form.fecha_nacimiento) !== null
                     ? `${edad(form.fecha_nacimiento)} años. La edad se calcula: no se guarda un número que envejece.`
-                    : 'De acá sale la edad en la ficha y en los filtros.'}
+                    : 'Se escribe DD/MM/AAAA o se elige con 📅. De acá sale la edad en la ficha y en los filtros.'}
                 </small>
               </div>
               <div className="form-row">
@@ -650,12 +713,57 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 </select>
                 <small className="muted">Va en la ficha y sirve en una emergencia.</small>
               </div>
-              <div className="form-row">
-                <label>Nacionalidad</label>
-                <input className="input" name="p-nacionalidad" defaultValue={form.nacionalidad ?? ''} placeholder="VENEZOLANO" />
-              </div>
+              <ComboConAgregar
+                label="Nacionalidad" valor={form.nacionalidad ?? ''} opciones={nacionalidades}
+                onChange={(v) => setForm((f) => ({ ...f, nacionalidad: v.toUpperCase() }))}
+                hint="Elegí de la lista o agregá una nueva: queda guardada para la próxima." />
               <div className="form-row"><label>Teléfono</label><input className="input" name="p-telefono" defaultValue={form.telefono ?? ''} placeholder="0412-1234567" inputMode="tel" /></div>
-              <div className="form-row"><label>Contacto de emergencia (nombre)</label><input className="input" name="p-contacto-emergencia" defaultValue={form.contacto_emergencia ?? ''} placeholder="Ej. María Pérez (madre)" /></div>
+              <div className="form-row">
+                <label>Contacto de emergencia (nombre)</label>
+                {/* La lista sale de la CARGA FAMILIAR de esta misma persona: a
+                    quien se llama en una emergencia casi siempre ya está ahí.
+                    Para alguien de afuera se pasa a escribirlo a mano. */}
+                {contactoLibre || !opcionesContacto.length ? (
+                  <input className="input" value={form.contacto_emergencia ?? ''}
+                    onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia: e.target.value.toUpperCase() }))}
+                    placeholder="Ej. MARÍA PÉREZ" />
+                ) : (
+                  <SearchSelect
+                    options={opcionesContacto}
+                    value={form.contacto_emergencia ?? ''}
+                    onChange={(v) => setForm((f) => ({
+                      ...f,
+                      contacto_emergencia: v,
+                      // Si vino de la carga familiar, el parentesco viene con él.
+                      contacto_emergencia_parentesco: parentescoDe(v) ?? f.contacto_emergencia_parentesco ?? null,
+                    }))}
+                    placeholder="Buscar en la carga familiar…"
+                    emptyText="No está en la carga familiar" />
+                )}
+                {!!opcionesContacto.length && (
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.3rem' }}
+                    onClick={() => setContactoLibre((v) => !v)}>
+                    {contactoLibre ? '↩ Elegir de la carga familiar' : '✎ Es alguien de afuera'}
+                  </button>
+                )}
+                <small className="muted">
+                  {opcionesContacto.length
+                    ? 'Se busca en la carga familiar de esta persona.'
+                    : 'Cargá la carga familiar más abajo y aparecen acá para elegir.'}
+                </small>
+              </div>
+              <div className="form-row">
+                <label>Parentesco del contacto</label>
+                <select className="input" value={form.contacto_emergencia_parentesco ?? ''}
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    contacto_emergencia_parentesco: (e.target.value || null) as PersonalInput['contacto_emergencia_parentesco'],
+                  }))}>
+                  <option value="">Sin indicar</option>
+                  {PARENTESCOS.map((p) => <option key={p.valor} value={p.valor}>{p.label}</option>)}
+                </select>
+                <small className="muted">Se completa solo al elegir a alguien de la carga familiar.</small>
+              </div>
               <div className="form-row"><label>Teléfono de emergencia</label><input className="input" name="p-telefono-emergencia" defaultValue={form.telefono_emergencia ?? ''} placeholder="0414-7654321" inputMode="tel" /></div>
               <div className="form-row" style={{ gridColumn: '1 / -1' }}>
                 <label>Dirección</label>
@@ -1006,8 +1114,12 @@ function ComboConAgregar({ label, valor, opciones, onChange, hint }: {
       <label>{label}</label>
       {agregando ? (
         <div style={{ display: 'flex', gap: '.3rem' }}>
+          {/* También confirma al salir del campo: quien escribe el cargo nuevo
+              y va directo a «Guardar cambios» sin tocar ✓ perdía lo tecleado y
+              se guardaba el valor anterior, con aviso de éxito. */}
           <input className="input" autoFocus name="combo-nuevo" ref={nuevoRef} defaultValue="" autoComplete="off"
             placeholder={`Nuevo ${label.toLowerCase()}…`}
+            onBlur={confirmar}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmar(); } if (e.key === 'Escape') setAgregando(false); }} />
           <button type="button" className="btn btn-sm btn-primary" onClick={confirmar} title="Agregar">✓</button>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAgregando(false)} title="Cancelar">✕</button>

@@ -7,8 +7,10 @@
    ============================================================ */
 import { useCallback, useEffect, useState } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { FechaInput } from '@/shared/ui/FechaInput';
 import type { PersonalFamiliar } from '@/shared/lib/types';
-import { PARENTESCOS, edad, labelParentesco } from './fichaPersonal';
+import { isoAVe } from '@/shared/lib/fechaVE';
+import { GENEROS, PARENTESCOS, edad, labelParentesco } from './fichaPersonal';
 import {
   agregarFamiliar, borrarFamiliar, listFamiliares, type FamiliarInput,
 } from './familiares.repository';
@@ -119,15 +121,23 @@ export function CargaFamiliarPersona({
             </div>
             <div className="form-row">
               <label>Fecha de nacimiento</label>
-              <input className="input" type="date" value={form.fecha_nacimiento ?? ''}
-                onChange={(e) => setForm((f) => ({ ...f, fecha_nacimiento: e.target.value }))} />
-              <small className="muted">De acá sale la edad; no se guarda un número que envejece.</small>
+              <FechaInput value={form.fecha_nacimiento ?? ''} max={new Date().toISOString().slice(0, 10)}
+                onChange={(iso) => setForm((f) => ({ ...f, fecha_nacimiento: iso }))} />
+              <small className="muted">DD/MM/AAAA o con 📅. De acá sale la edad; no se guarda un número que envejece.</small>
             </div>
             <div className="form-row">
               <label>Cédula (si tiene)</label>
               <input className="input" value={form.cedula ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, cedula: e.target.value.toUpperCase() }))}
                 placeholder="V-12345678" />
+            </div>
+            <div className="form-row">
+              <label>Género</label>
+              <select className="input" value={form.genero ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, genero: (e.target.value || null) as FamiliarInput['genero'] }))}>
+                <option value="">Sin indicar</option>
+                {GENEROS.map((g) => <option key={g.valor} value={g.valor}>{g.label}</option>)}
+              </select>
             </div>
             <div className="form-row">
               <label>Observación</label>
@@ -149,6 +159,15 @@ export function CargaFamiliarPersona({
               </div>
             </div>
           </div>
+          {/* Lo tecleado acá NO es parte de la ficha hasta que se toca
+              «Agregar». Sin este aviso se perdía en silencio: se completaba el
+              familiar, se guardaba la persona y nunca había llegado a existir. */}
+          {form.nombre.trim() && (
+            <div className="aviso warning sm" style={{ marginTop: '.5rem' }}>
+              <span className="aviso-icono">⚠</span>
+              <div><strong>{form.nombre.trim()}</strong> todavía no está agregado. Tocá <strong>Agregar</strong> o se pierde.</div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem' }}>
             <button type="button" className="btn btn-sm btn-primary" disabled={ocupado} onClick={() => void agregar()}>
               {ocupado ? 'Guardando…' : 'Agregar'}
@@ -175,7 +194,7 @@ export function CargaFamiliarPersona({
                 <tr key={f.id}>
                   <td>{f.nombre}{f.cedula ? <span className="muted"> · {f.cedula}</span> : null}</td>
                   <td>{labelParentesco(f.parentesco)}</td>
-                  <td className="mono">{f.fecha_nacimiento ?? '—'}</td>
+                  <td className="mono">{isoAVe(f.fecha_nacimiento) || '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{edad(f.fecha_nacimiento) ?? '—'}</td>
                   <td className="muted" style={{ fontSize: '.76rem' }}>
                     {[f.estudia ? 'estudia' : '', f.discapacidad ? 'discapacidad' : '', f.observacion]
@@ -193,7 +212,7 @@ export function CargaFamiliarPersona({
                 <tr key={`p-${i}`} style={{ opacity: .75 }}>
                   <td>{f.nombre}{f.cedula ? <span className="muted"> · {f.cedula}</span> : null}</td>
                   <td>{labelParentesco(f.parentesco)}</td>
-                  <td className="mono">{f.fecha_nacimiento || '—'}</td>
+                  <td className="mono">{isoAVe(f.fecha_nacimiento) || '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{edad(f.fecha_nacimiento) ?? '—'}</td>
                   <td className="muted" style={{ fontSize: '.76rem' }}>se guarda con el registro</td>
                   {canWrite && (

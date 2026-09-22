@@ -106,12 +106,16 @@ export function AdministrativoTab({ empresa, canWrite, actor, actorName }: { emp
   }
   const hayFiltroFecha = !!(fDesde || fHasta);
 
-  // Al cambiar una fecha, recalcula automáticamente los días del rango (inclusive).
+  // Al cambiar una fecha, recalcula automáticamente los días del rango
+  // (inclusive) — pero SOLO en los tipos que llevan días. En una utilidad o en
+  // una nota el campo Días ni se muestra, y llenarlo igual dejaba un número
+  // guardado que el usuario nunca vio.
   function cambiarFecha(campo: 'fecha_desde' | 'fecha_hasta', valor: string) {
     setForm((f) => {
       const next = { ...f, [campo]: valor };
+      const usaDias = TIPOS.find((t) => t.key === next.tipo)?.conDias;
       const d = diasInclusive(next.fecha_desde, next.fecha_hasta);
-      if (d > 0) next.dias = d;
+      if (usaDias && d > 0) next.dias = d;
       return next;
     });
   }
@@ -132,7 +136,20 @@ export function AdministrativoTab({ empresa, canWrite, actor, actorName }: { emp
               </div>
               <div className="form-row">
                 <label>Tipo</label>
-                <select className="select" value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value as RrhhEvento['tipo'] }))}>
+                {/* Al cambiar el tipo se LIMPIA lo que ese tipo no usa. Si no,
+                    el dato se queda en el estado aunque su campo desaparezca de
+                    pantalla: una nota terminaba guardada con un monto que nadie
+                    veía, y salía después en la tabla y en las sumas. */}
+                <select className="select" value={form.tipo} onChange={(e) => {
+                  const tipo = e.target.value as RrhhEvento['tipo'];
+                  const cfg = TIPOS.find((t) => t.key === tipo);
+                  setForm((f) => ({
+                    ...f,
+                    tipo,
+                    dias: cfg?.conDias ? f.dias : null,
+                    monto: cfg?.conMonto ? f.monto : null,
+                  }));
+                }}>
                   {TIPOS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
                 </select>
               </div>

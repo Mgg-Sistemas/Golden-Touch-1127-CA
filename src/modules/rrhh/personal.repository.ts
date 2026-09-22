@@ -39,6 +39,7 @@ export interface PersonalInput {
   fecha_ingreso?: string | null;
   telefono?: string | null;
   contacto_emergencia?: string | null;
+  contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;
   telefono_emergencia?: string | null;
   /** A qué nómina entra. Solo se define al dar de alta. */
   empresa?: EmpresaRrhh;
@@ -57,9 +58,23 @@ function payload(input: PersonalInput) {
   };
 }
 
-/** Todo lo de la ficha MENOS el sueldo (ver la nota de arriba). */
-function baseSinSueldo(input: PersonalInput) {
-  return {
+/**
+ * Todo lo de la ficha MENOS el sueldo (ver la nota de arriba).
+ *
+ * `soloDefinidos` es la diferencia entre un ALTA y una EDICIÓN. En el alta se
+ * escribe la fila completa. En una edición NO: el update se arma solo con los
+ * campos que vienen en `patch`, así lo que el formulario no recolectó queda
+ * COMO ESTABA en vez de quedar en null.
+ *
+ * Esto último no es un detalle: mientras el update pisaba la fila entera,
+ * cualquier campo que la pantalla no lograra juntar —porque su input no estaba
+ * montado, porque se agregó una columna antes que su campo, porque alguien lo
+ * envolvió en una condición— se borraba en la base sin ningún error y con el
+ * aviso de «Personal actualizado» en verde. Un dato que desaparece en silencio
+ * es peor que un guardado que falla.
+ */
+function baseSinSueldo(input: PersonalInput, soloDefinidos = false) {
+  const todo = {
     nombre: input.nombre.trim(),
     apellido: (input.apellido ?? '').trim(),
     cedula: input.cedula?.trim() || null,
@@ -69,6 +84,7 @@ function baseSinSueldo(input: PersonalInput) {
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
+    contacto_emergencia_parentesco: input.contacto_emergencia_parentesco || null,
     telefono_emergencia: input.telefono_emergencia?.trim() || null,
     fecha_nacimiento: input.fecha_nacimiento || null,
     genero: input.genero || null,
@@ -77,6 +93,15 @@ function baseSinSueldo(input: PersonalInput) {
     nacionalidad: input.nacionalidad?.trim() || null,
     direccion: input.direccion?.trim() || null,
   };
+  if (!soloDefinidos) return todo;
+  // Las claves de `todo` y las de PersonalInput son las mismas, así que se
+  // puede preguntar por cada una si el formulario la mandó.
+  const dado = input as unknown as Record<string, unknown>;
+  const row: Record<string, unknown> = {};
+  for (const [clave, valor] of Object.entries(todo)) {
+    if (dado[clave] !== undefined) row[clave] = valor;
+  }
+  return row;
 }
 
 /**
@@ -112,7 +137,8 @@ export async function crearPersonal(input: PersonalInput, actorEmail?: string): 
 export async function actualizarPersonal(id: string, patch: PersonalInput): Promise<Personal> {
   if (!patch.nombre.trim()) throw new Error('Indicá el nombre.');
   // Sin el sueldo, a propósito: ese cambio va por cambiarSueldo(), con motivo.
-  const { data, error } = await supabase.from(TABLE).update(baseSinSueldo(patch)).eq('id', id).select('*').single();
+  // Y solo con los campos que vinieron: un campo ausente NO se borra.
+  const { data, error } = await supabase.from(TABLE).update(baseSinSueldo(patch, true)).eq('id', id).select('*').single();
   if (error) throw errorDuplicado(error) ?? error;
   return data as Personal;
 }

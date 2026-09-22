@@ -1384,8 +1384,9 @@ export interface Personal {
   direccion?: string | null;
   /** Contacto de la persona (para el carnet y el QR). */
   telefono?: string | null;
-  /** Contacto de emergencia: nombre y teléfono (para el carnet y el QR). */
+  /** Contacto de emergencia: nombre, parentesco y teléfono (van al carnet y al QR). */
   contacto_emergencia?: string | null;
+  contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;
   telefono_emergencia?: string | null;
   /** Foto de la persona (bucket `personal-fotos`) para el carnet. */
   foto_path?: string | null;
