@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { FechaInput } from '@/shared/ui/FechaInput';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -127,6 +128,12 @@ export function CocinaPage() {
         listViveres().catch(() => [] as Producto[]),
       ]);
       setMovs(m); setViveres(v); setErrorCarga(null);
+      // La tabla ya tiene lo suyo: se suelta ACÁ y no al final. Antes el mismo
+      // `loading` tapaba también la lectura del mercado y su resumen, que es lo
+      // lento, así que quedaba un rato largo con las tarjetas llenas de números
+      // y la tabla diciendo «Cargando…» — la misma pantalla contando dos cosas
+      // distintas. El panel del mercado tiene su propio `mercadoLeido`.
+      setLoading(false);
       // Ciclo de mercado: lee el mercado abierto y calcula su resumen (saldo inicial +
       // entradas = disponible; consumo; lo que queda).
       //
@@ -408,11 +415,11 @@ export function CocinaPage() {
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-row" style={{ margin: 0 }}>
             <label style={{ fontSize: '.72rem' }}>Desde</label>
-            <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} />
+            <FechaInput value={fDesde} onChange={setFDesde} />
           </div>
           <div className="form-row" style={{ margin: 0 }}>
             <label style={{ fontSize: '.72rem' }}>Hasta</label>
-            <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} />
+            <FechaInput value={fHasta} onChange={setFHasta} />
           </div>
           <div className="form-row" style={{ margin: 0 }}>
             <label style={{ fontSize: '.72rem' }}>Tipo de comida</label>
@@ -906,7 +913,7 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
         <div className="form-grid">
           <div className="form-row">
             <label>Fecha del servicio <span className="muted">(para comidas de un día desfasado)</span></label>
-            <input className="input" type="date" value={fecha} max={new Date().toLocaleDateString('en-CA')} onChange={(e) => setFecha(e.target.value)} required />
+            <FechaInput value={fecha} onChange={setFecha} max={new Date().toLocaleDateString('en-CA')} />
             {/* Aviso traído de MGG (21/09/2026): cargar una comida atrasada es válido, pero
                 si esos víveres ya pasaron por un CONTEO REAL salen dos veces del inventario.
                 Avisa, no bloquea. */}
@@ -1027,8 +1034,8 @@ function ResumenModal({ viveres, onClose }: { viveres: Producto[]; onClose: () =
         ))}
         {rango === 'rango' && (
           <>
-            <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
-            <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+            <FechaInput value={desde} onChange={setDesde} style={{ width: 150 }} />
+            <FechaInput value={hasta} onChange={setHasta} style={{ width: 150 }} />
           </>
         )}
       </div>
