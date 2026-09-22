@@ -1382,6 +1382,24 @@ export interface Personal {
   created_by?: string | null;
 }
 
+/**
+ * Un renglón del histórico de sueldo: de cuánto a cuánto, cuándo y POR QUÉ.
+ * Se escribe una vez y no se edita (la base no tiene política de UPDATE).
+ */
+export interface PersonalSueldo {
+  id: string;
+  personal_id: string;
+  /** Lo que ganaba antes. Nulo en el primer renglón (el sueldo de alta). */
+  sueldo_anterior?: number | null;
+  sueldo_nuevo: number;
+  motivo: string;
+  nota?: string | null;
+  /** Desde cuándo rige el sueldo nuevo (puede ser anterior a la carga). */
+  fecha: string;
+  created_at: string;
+  created_by?: string | null;
+}
+
 /** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar. */
 export interface AnticipoPrestamo {
   id: string;

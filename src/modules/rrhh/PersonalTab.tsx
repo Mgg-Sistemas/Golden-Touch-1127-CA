@@ -16,6 +16,8 @@ import { listHistoricoPersona } from './nomina.repository';
 import { listCargos, listDepartamentos, addCargo, addDepartamento } from './catalogos';
 import { generarCarnetPersonalDataUrl, generarCarnetReversoDataUrl, nombreArchivoCarnet } from './carnetPersonal';
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
+import { HistorialSueldoModal } from './HistorialSueldoModal';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', telefono: '', contacto_emergencia: '', telefono_emergencia: '' };
 
@@ -42,6 +44,8 @@ const claveCedula = (v: string | null | undefined) =>
   String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: string }) {
+  // Solo un admin puede borrar un renglón del historial de sueldo.
+  const { isAdmin } = usePermissions();
   const [lista, setLista] = useState<Personal[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
@@ -49,6 +53,7 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
+  const [sueldoPersona, setSueldoPersona] = useState<Personal | null>(null);
   const [carnetPersona, setCarnetPersona] = useState<Personal | null>(null);
   const [constanciaPersona, setConstanciaPersona] = useState<Personal | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -301,6 +306,8 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                     <button className="btn btn-sm btn-ghost" title={`Ver el RIF (${p.rif_nombre || 'archivo'})`}
                       onClick={() => void verRifDoc(p.rif_path as string, p.rif_nombre)}>📎</button>
                   )}
+                  <button className="btn btn-sm btn-ghost" onClick={() => setSueldoPersona(p)}
+                    title="Historial de sueldo: de cuánto a cuánto, cuándo y por qué">💵</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setCarnetPersona(p)} title="Generar carnet con QR">🪪</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
@@ -405,18 +412,52 @@ export function PersonalTab({ canWrite, actor }: { canWrite: boolean; actor: str
                 label="Departamento" valor={form.departamento ?? ''} opciones={departamentos}
                 onChange={(v) => setForm((f) => ({ ...f, departamento: v }))}
                 hint="Toma los de Usuarios; podés agregar uno nuevo." />
-              <div className="form-row"><label>Sueldo base mensual (USD)</label><input className="input mono" name="p-sueldo" type="number" min={0} step="any" defaultValue={form.sueldo_base ?? 0} placeholder="0,00" /></div>
+              <div className="form-row">
+                <label>Sueldo base mensual (USD)</label>
+                {editId ? (
+                  /* En un registro que ya existe el sueldo NO se toca acá: cambiarlo
+                     lleva motivo y queda en el historial, y eso vive en 💵. Si fuera
+                     editable, el campo mentiría: lo que se escriba no se guarda. */
+                  <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input className="input mono" name="p-sueldo" readOnly tabIndex={-1}
+                      value={Number(form.sueldo_base) || 0} style={{ maxWidth: 140, opacity: .75 }} />
+                    {canWrite && (
+                      <button type="button" className="btn btn-sm btn-ghost"
+                        onClick={() => { const p = lista.find((x) => x.id === editId); if (p) { cerrarForm(); setSueldoPersona(p); } }}>
+                        💵 Cambiar sueldo
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <input className="input mono" name="p-sueldo" type="number" min={0} step="any"
+                    defaultValue={form.sueldo_base ?? 0} placeholder="0,00" />
+                )}
+                <small className="muted">
+                  {editId
+                    ? 'Se cambia desde 💵, con motivo, y queda en el historial.'
+                    : 'Es el sueldo de alta: abre el historial de esta persona.'}
+                </small>
+              </div>
               <div className="form-row"><label>Fecha de ingreso</label><input className="input" type="date" value={form.fecha_ingreso ?? ''} onChange={(e) => setForm((f) => ({ ...f, fecha_ingreso: e.target.value }))} /></div>
               <div className="form-row"><label>Teléfono</label><input className="input" name="p-telefono" defaultValue={form.telefono ?? ''} placeholder="0412-1234567" inputMode="tel" /></div>
               <div className="form-row"><label>Contacto de emergencia (nombre)</label><input className="input" name="p-contacto-emergencia" defaultValue={form.contacto_emergencia ?? ''} placeholder="Ej. María Pérez (madre)" /></div>
               <div className="form-row"><label>Teléfono de emergencia</label><input className="input" name="p-telefono-emergencia" defaultValue={form.telefono_emergencia ?? ''} placeholder="0414-7654321" inputMode="tel" /></div>
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.35rem' }}>📇 El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (botón 🪪 en la lista).</small>
-            <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina.</small>
+            <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>El sueldo base es <strong>mensual</strong>; la quincena = 15 días (mitad). Queda guardado para precargar la nómina. Cada cambio posterior <strong>lleva motivo</strong> y queda en el <strong>historial de sueldo</strong> (botón 💵 en la lista).</small>
           </form>
         </Modal>
       )}
 
+      {sueldoPersona && (
+        <HistorialSueldoModal
+          persona={sueldoPersona}
+          canWrite={canWrite}
+          isAdmin={isAdmin}
+          onClose={() => setSueldoPersona(null)}
+          onCambio={() => { void recargar(); }}
+        />
+      )}
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {carnetPersona && <CarnetModal persona={carnetPersona} canWrite={canWrite} onClose={() => setCarnetPersona(null)} onFotoCambio={() => void recargar()} />}
       {constanciaPersona && <ConstanciaModal persona={constanciaPersona} onClose={() => setConstanciaPersona(null)} />}

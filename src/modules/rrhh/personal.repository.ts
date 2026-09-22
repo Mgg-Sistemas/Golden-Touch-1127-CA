@@ -2,6 +2,12 @@
    Golden Touch · RRHH · Personal (ficha)
    "Usuarios" son los del login; "Personal" engloba a TODO el personal
    a pagar (tengan o no usuario). El sueldo base es MENSUAL (USD).
+
+   OJO CON EL SUELDO: al dar de alta se carga acá, pero de ahí en adelante
+   NO se toca desde esta pantalla. Cambiarlo va por `cambiarSueldo` (ver
+   sueldos.repository.ts), que pide el motivo y deja el renglón en el
+   histórico. Por eso el payload de actualización no lleva sueldo_base: si lo
+   llevara, cualquier edición de un teléfono volvería a escribir el sueldo.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Personal } from '@/shared/lib/types';
@@ -33,13 +39,20 @@ export interface PersonalInput {
 
 function payload(input: PersonalInput) {
   return {
+    ...baseSinSueldo(input),
+    sueldo_base: Math.round((Number(input.sueldo_base) || 0) * 100) / 100,
+  };
+}
+
+/** Todo lo de la ficha MENOS el sueldo (ver la nota de arriba). */
+function baseSinSueldo(input: PersonalInput) {
+  return {
     nombre: input.nombre.trim(),
     apellido: (input.apellido ?? '').trim(),
     cedula: input.cedula?.trim() || null,
     rif: input.rif?.trim() || null,
     cargo: input.cargo?.trim() || null,
     departamento: input.departamento?.trim() || null,
-    sueldo_base: Math.round((Number(input.sueldo_base) || 0) * 100) / 100,
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
@@ -75,15 +88,10 @@ export async function crearPersonal(input: PersonalInput, actorEmail?: string): 
 
 export async function actualizarPersonal(id: string, patch: PersonalInput): Promise<Personal> {
   if (!patch.nombre.trim()) throw new Error('Indicá el nombre.');
-  const { data, error } = await supabase.from(TABLE).update(payload(patch)).eq('id', id).select('*').single();
+  // Sin el sueldo, a propósito: ese cambio va por cambiarSueldo(), con motivo.
+  const { data, error } = await supabase.from(TABLE).update(baseSinSueldo(patch)).eq('id', id).select('*').single();
   if (error) throw errorDuplicado(error) ?? error;
   return data as Personal;
-}
-
-/** Solo el sueldo base (para "guardar sueldos" desde la carga de nómina). */
-export async function guardarSueldoBase(id: string, sueldoBase: number): Promise<void> {
-  const { error } = await supabase.from(TABLE).update({ sueldo_base: Math.round((Number(sueldoBase) || 0) * 100) / 100 }).eq('id', id);
-  if (error) throw error;
 }
 
 /** Activa o desactiva (no borra: conserva el histórico de pagos). */
