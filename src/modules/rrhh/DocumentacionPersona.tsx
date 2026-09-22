@@ -14,6 +14,7 @@
    ============================================================ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import type { PersonalDocumento, TipoDocumento } from '@/shared/lib/types';
 import {
@@ -65,6 +66,7 @@ export function DocumentacionPersona({
   }, [personalId]);
 
   useEffect(() => { void recargar(); }, [recargar]);
+  useRealtime(['personal_documentos'], () => { void recargar(); });
 
   async function elegir(tipo: TipoDocumento, file: File) {
     setError(null);

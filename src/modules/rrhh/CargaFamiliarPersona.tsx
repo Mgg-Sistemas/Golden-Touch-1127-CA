@@ -6,6 +6,7 @@
    todavía no hay a qué colgarlos, así que quedan pendientes y viajan con el alta.
    ============================================================ */
 import { useCallback, useEffect, useState } from 'react';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import type { PersonalFamiliar } from '@/shared/lib/types';
 import { PARENTESCOS, edad, labelParentesco } from './fichaPersonal';
 import {
@@ -41,6 +42,7 @@ export function CargaFamiliarPersona({
   }, [personalId]);
 
   useEffect(() => { void recargar(); }, [recargar]);
+  useRealtime(['personal_familiares'], () => { void recargar(); });
 
   async function agregar() {
     setError(null);
