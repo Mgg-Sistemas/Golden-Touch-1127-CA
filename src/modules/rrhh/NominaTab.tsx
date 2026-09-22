@@ -6,6 +6,7 @@ import {
   SIN_PAGAR, agruparRecibosPorFecha, alternarGrupo, alternarRenglon,
   grupoAMedias, grupoCompleto, renglonesAImprimir,
 } from './recibosLote';
+import { DIAS_QUINCENA, SUELDO_PCT_DEFECTO, avisosQuincena } from './nominaCalculo';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -336,7 +337,9 @@ function ImprimirRecibosModal({ periodo, empresa, onClose }: {
 interface FilaUI {
   persona: Personal;
   incluido: boolean;
+  /** Días TRABAJADOS. Con los de descanso cubren la quincena (11 + 4 = 15). */
   dias: string;
+  diasDescanso: string;
   /** ¿Se le escribieron los días A MANO? Entonces el «días base» no los pisa:
    *  quien entró a mitad de quincena tiene 7 días a propósito. */
   diasTocado: boolean;
@@ -355,7 +358,13 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   // no le dice nada a quien la busca tres semanas después.
   const quincena = ahora.getDate() <= 15 ? '1ra' : '2da';
   const [nombre, setNombre] = useState(`${quincena} quincena de ${mesLabel}`);
-  const [diasBase, setDiasBase] = useState(15);
+  // La quincena normal son 11 días trabajados + 4 de descanso, como en la
+  // planilla que se viene usando. Los dos van al recibo como renglones aparte.
+  const [diasBase, setDiasBase] = useState(11);
+  const [descansoBase, setDescansoBase] = useState(4);
+  // Del total acordado, este porcentaje se declara como sueldo en el recibo;
+  // el resto se paga como bono, en divisas, y no entra al recibo.
+  const [sueldoPct, setSueldoPct] = useState(SUELDO_PCT_DEFECTO);
   const [tasa, setTasa] = useState(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
   const [notas, setNotas] = useState('');
@@ -374,6 +383,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
         // Los días del encabezado, NO un 15 fijo: si se cambió el «días base»
         // mientras cargaba el personal, las filas tienen que nacer con ese.
         dias: String(diasBase),
+        diasDescanso: String(descansoBase),
         diasTocado: false,
         deduc: as.filter((a) => a.personal_id === p.id).reduce<Record<string, string>>((acc, a) => {
           const sug = a.cuota_sugerida != null ? Math.min(Number(a.cuota_sugerida), Number(a.saldo)) : 0;
@@ -393,18 +403,36 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
     setFilas((fs) => fs.map((f) => (f.diasTocado ? f : { ...f, dias: String(n) })));
   }
 
+  function aplicarDescansoBase(n: number) {
+    setDescansoBase(n);
+    setFilas((fs) => fs.map((f) => (f.diasTocado ? f : { ...f, diasDescanso: String(n) })));
+  }
+
   const anticiposDe = (pid: string) => anticipos.filter((a) => a.personal_id === pid);
 
   function calcFila(f: FilaUI) {
     const deducciones: DeduccionRef[] = anticiposDe(f.persona.id)
       .map((a) => ({ id: a.id, tipo: a.tipo, monto: round2(Math.min(Number(f.deduc[a.id]) || 0, Number(a.saldo))) }))
       .filter((d) => d.monto > 0);
-    const c = calcularRenglon({ sueldo_base_mensual: Number(f.persona.sueldo_base) || 0, dias_trabajados: Number(f.dias) || 0, deducciones });
+    const c = calcularRenglon({
+      sueldo_base_mensual: Number(f.persona.sueldo_base) || 0,
+      dias_trabajados: Number(f.dias) || 0,
+      dias_descanso: Number(f.diasDescanso) || 0,
+      sueldo_pct: sueldoPct,
+      tasa_bs: tasa,
+      deducciones,
+    });
     return { deducciones, ...c };
   }
 
   const incluidas = filas.filter((f) => f.incluido);
   const totalNeto = useMemo(() => round2(incluidas.reduce((a, f) => a + calcFila(f).neto_usd, 0)), [filas, anticipos]);
+  // Avisos, no bloqueos: la quincena se puede cargar igual. Pero sin tasa de
+  // cierre el recibo sale en cero bolívares, y eso conviene ver ANTES.
+  const avisos = avisosQuincena({
+    totalMesUsd: 0, tasaBs: tasa, diasTrabajados: diasBase, diasDescanso: descansoBase,
+  });
+  const totalSueldoBs = round2(incluidas.reduce((a, f) => a + calcFila(f).sueldo_quincena_bs, 0));
 
   async function guardar() {
     setError(null);
@@ -420,12 +448,16 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           departamento: f.persona.departamento ?? null,
           sueldo_base_mensual: Number(f.persona.sueldo_base) || 0,
           dias_trabajados: Number(f.dias) || 0,
+          dias_descanso: Number(f.diasDescanso) || 0,
+          sueldo_pct: sueldoPct,
+          tasa_bs: tasa,
           deducciones,
         };
       });
       const per = await cargarNomina({
         empresa,
         nombre,
+        sueldo_pct: sueldoPct,
         periodo_desde: hoyIso, periodo_hasta: hoyIso, dias_base: diasBase,
         tasa_bcv: tasa || null, notas: notas || null, renglones, actorEmail: actor, actorName,
       });
@@ -438,10 +470,18 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
     <Modal title="Marcar nómina" size="xl" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        {/* Las dos cifras juntas, porque son dos cosas distintas: lo que se
+            paga en divisas y lo que van a declarar los recibos en bolívares. */}
+        <span className="muted mono" style={{ fontSize: '.8rem', marginRight: 'auto' }}>
+          Recibos: {bs(totalSueldoBs)} · quincena de {diasBase + descansoBase} de {DIAS_QUINCENA} días
+        </span>
         <button className="btn btn-primary" onClick={guardar} disabled={saving}>{saving ? 'Cargando…' : `Cargar nómina · ${money(totalNeto)}`}</button>
       </>
     }>
       {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div><strong>Error:</strong> {error}</div></div>}
+      {avisos.map((a) => (
+        <div key={a} className="aviso warning sm" style={{ marginBottom: '.4rem' }}><span className="aviso-icono">⚠</span><div>{a}</div></div>
+      ))}
 
       <div className="card" style={{ padding: '.75rem', marginBottom: '.75rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.2rem', alignItems: 'flex-end' }}>
@@ -458,16 +498,26 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <input className="input" name="cn-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)}
               placeholder="2da quincena de septiembre de 2026" maxLength={120} />
           </div>
-          <div className="form-row" style={{ minWidth: 130 }}>
-            <label style={{ fontSize: '.72rem' }}>Días base (quincena)</label>
+          <div className="form-row" style={{ minWidth: 115 }}>
+            <label style={{ fontSize: '.72rem' }}>Días trabajados</label>
             {/* Controlado y sin `|| 0`: al borrar el campo para reescribirlo, el
                 valor intermedio vacío ponía CERO días en toda la nómina. */}
-            <input className="input mono" name="cn-dias-base" type="number" min={1} max={31} value={diasBase}
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 1 && n <= 31) aplicarDiasBase(n); }} />
+            <input className="input mono" name="cn-dias-base" type="number" min={0} max={31} value={diasBase}
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0 && n <= 31) aplicarDiasBase(n); }} />
+          </div>
+          <div className="form-row" style={{ minWidth: 115 }}>
+            <label style={{ fontSize: '.72rem' }}>Días de descanso</label>
+            <input className="input mono" name="cn-dias-descanso" type="number" min={0} max={31} value={descansoBase}
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0 && n <= 31) aplicarDescansoBase(n); }} />
+          </div>
+          <div className="form-row" style={{ minWidth: 120 }}>
+            <label style={{ fontSize: '.72rem' }}>% Sueldo (resto: bono)</label>
+            <input className="input mono" name="cn-sueldo-pct" type="number" min={0} max={100} value={sueldoPct}
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0 && n <= 100) setSueldoPct(n); }} />
           </div>
           <div className="form-row" style={{ minWidth: 170 }}>
-            <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
-            <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="tasa del día" />
+            <label style={{ fontSize: '.72rem' }}>Tasa de cierre (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
+            <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="tasa del cierre" />
           </div>
           <div className="form-row" style={{ flex: 1, minWidth: 180 }}>
             <label style={{ fontSize: '.72rem' }}>Notas (opcional)</label>

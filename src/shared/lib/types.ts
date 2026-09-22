@@ -1480,6 +1480,9 @@ export interface NominaPeriodo {
   periodo_desde?: string | null;
   periodo_hasta?: string | null;
   dias_base: number;
+  /** Qué parte del total acordado se declara como sueldo (el resto es bono). */
+  sueldo_pct?: number | null;
+  /** Tasa Bs/$ de CIERRE de la quincena: con esta se arma el recibo en bolívares. */
   tasa_bcv?: number | null;
   estado: 'cargada' | 'en_pago' | 'pagada';
   total_usd: number;
@@ -1504,8 +1507,20 @@ export interface NominaRenglon {
   nombre: string;
   cargo?: string | null;
   departamento?: string | null;
+  /** Total acordado POR MES, en dólares. */
   sueldo_base_mensual: number;
   dias_trabajados: number;
+  /** Días de descanso: van como renglón aparte del recibo, igual que en la planilla. */
+  dias_descanso?: number | null;
+  sueldo_pct?: number | null;
+  /** Tasa con la que se convirtió ESTE renglón. Se congela al cargar. */
+  tasa_bs?: number | null;
+  /** La parte sueldo y la parte bono de la quincena, en dólares. */
+  sueldo_quincena_usd?: number | null;
+  bono_quincena_usd?: number | null;
+  /** El monto del recibo, en bolívares a la tasa de cierre. */
+  sueldo_quincena_bs?: number | null;
+  /** Lo que recibe por la quincena en dólares: sueldo + bono. */
   salario_bruto: number;
   asignaciones: number;
   deduc_anticipos: number;
@@ -1525,7 +1540,7 @@ export interface NominaRenglon {
   comprobante_nombre?: string | null;
   created_at: string;
   /** Solo en consultas con join: el período al que pertenece. */
-  periodo?: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv'> | null;
+  periodo?: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv' | 'nombre' | 'sueldo_pct'> | null;
 }
 
 /** Evento administrativo de RRHH (Fase 3): vacaciones, permisos, utilidades, notas. */

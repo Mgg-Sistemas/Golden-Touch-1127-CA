@@ -1,7 +1,17 @@
 /* ============================================================
-   Golden Touch · RRHH · Comprobante de pago de personal (recibo)
-   PDF tipo factura/recibo, una página por trabajador, con el
-   desglose del pago y las líneas de firma (trabajador y RRHH).
+   Golden Touch · RRHH · Recibo de pago de personal
+
+   Una página por trabajador, con la misma estructura que el recibo que se
+   viene firmando (la planilla del Drive): ITEM · CONCEPTO · DEVENGADO ·
+   DEDUCCIÓN · SALDO, los días trabajados y los de descanso como renglones
+   aparte, y el texto de conformidad al pie.
+
+   El recibo declara el SUELDO en BOLÍVARES, a la tasa de CIERRE de la
+   quincena. Al lado de cada monto va su equivalente en dólares a esa misma
+   tasa, y abajo, aparte, lo que se paga en divisas: la parte sueldo más el
+   BONO, que no entra en el recibo pero sí es plata que la persona recibe.
+   Un papel que muestre solo una de las dos monedas obliga a sacar la cuenta
+   a mano, y ahí es donde aparecen los reclamos.
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { date as fmtDate } from '@/shared/lib/format';
@@ -24,9 +34,12 @@ function labelMotivo(tipo?: string | null): string {
 }
 
 export interface ReciboMeta {
-  periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv'>;
+  periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv' | 'nombre'>;
   cedulas?: Record<string, string | null | undefined>;   // personal_id -> cédula
 }
+
+/** Dos decimales: así se paga y así se imprime. */
+const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 
 async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
@@ -72,6 +85,12 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     y += 18;
 
     // Datos del trabajador.
+    // La tasa del renglón manda sobre la del período: es la que se congeló al
+    // cargar la quincena, y es con la que se firmó el recibo.
+    const tasa = Number(r.tasa_bs) || Number(r.tasa_pago) || Number(meta.periodo.tasa_bcv) || 0;
+    const tasaTexto = tasa > 0
+      ? `Bs ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / $`
+      : '— (sin tasa)';
     const cedula = meta.cedulas?.[r.personal_id ?? ''] || '';
     const periodoStr = meta.periodo.periodo_desde
       ? `${fmtDate(meta.periodo.periodo_desde)}${meta.periodo.periodo_hasta ? ' — ' + fmtDate(meta.periodo.periodo_hasta) : ''}`
@@ -82,7 +101,8 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['Trabajador', r.nombre, 'Cédula', cedula || '—'],
         ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
         ['Período', periodoStr, 'Fecha de pago', r.pagada_en ? fmtDate(r.pagada_en) : '—'],
-        ['Estado', r.estado === 'pagada' ? 'Pagado' : 'Por pagar', 'Días', String(r.dias_trabajados ?? '')],
+        ['Estado', r.estado === 'pagada' ? 'Pagado' : 'Por pagar', 'Días', `${r.dias_trabajados ?? 0} trab. + ${r.dias_descanso ?? 0} desc.`],
+        ['Tasa de cierre', tasaTexto, 'Total acordado / mes', usd(r.sueldo_base_mensual)],
       ],
       margin: MARGIN,
       theme: 'grid',
@@ -92,36 +112,113 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
     y = (doc.lastAutoTable?.finalY ?? y) + 16;
 
-    // Desglose de conceptos.
-    const tasa = Number(r.tasa_pago) || Number(meta.periodo.tasa_bcv) || 0;
-    const filas: Array<[string, string]> = [
-      ['Sueldo base mensual', usd(r.sueldo_base_mensual)],
-      ['Días trabajados', String(r.dias_trabajados ?? '')],
-      ['Salario bruto', usd(r.salario_bruto)],
-    ];
-    if (Number(r.asignaciones) > 0) filas.push(['Asignaciones / bonos', usd(r.asignaciones)]);
-    if (Number(r.deduc_anticipos) > 0) filas.push(['(−) Anticipos', '- ' + usd(r.deduc_anticipos)]);
-    if (Number(r.deduc_prestamos) > 0) filas.push(['(−) Préstamos', '- ' + usd(r.deduc_prestamos)]);
+    // ── El desglose, como en la planilla: devengado, deducción y saldo ──
+    const enUsd = (bs: number) => (tasa > 0 ? r2(bs / tasa) : 0);
+
+    const diasT = Number(r.dias_trabajados) || 0;
+    const diasD = Number(r.dias_descanso) || 0;
+    const sueldoBs = Number(r.sueldo_quincena_bs) || 0;
+    const diarioBs = diasT + diasD > 0 ? sueldoBs / (diasT + diasD) : 0;
+    const trabajadosBs = r2(diarioBs * diasT);
+    // El descanso es el RESTO y no otro producto: así los dos renglones suman
+    // exactamente el sueldo, sin un céntimo de diferencia por redondeo.
+    const descansoBs = r2(sueldoBs - trabajadosBs);
+
+    const bonosBs = r2((Number(r.asignaciones) || 0) * tasa);
+    const prestamosBs = r2((Number(r.deduc_prestamos) || 0) * tasa);
+    const anticiposBs = r2((Number(r.deduc_anticipos) || 0) * tasa);
+
+    const devengadoBs = r2(trabajadosBs + descansoBs + bonosBs);
+    const deduccionBs = r2(prestamosBs + anticiposBs);
+    const netoBs = r2(devengadoBs - deduccionBs);
+
+    /** Un renglón del desglose: monto en Bs y, al lado, en $ a la misma tasa. */
+    const linea = (item: number, concepto: string, bs: number, columna: 'devengado' | 'deduccion'): string[] => {
+      const dev = columna === 'devengado' ? bsStr(bs) : '';
+      const devU = columna === 'devengado' ? usd(enUsd(bs)) : '';
+      const ded = columna === 'deduccion' ? bsStr(bs) : '';
+      const dedU = columna === 'deduccion' ? usd(enUsd(bs)) : '';
+      return [String(item), concepto, dev, devU, ded, dedU];
+    };
 
     autoTable(doc, {
       startY: y,
-      head: [['Concepto', 'Monto']],
-      body: filas,
+      head: [['#', 'CONCEPTO', 'DEVENGADO Bs', 'en $', 'DEDUCCIÓN Bs', 'en $']],
+      body: [
+        linea(1, `Días trabajados (${diasT})`, trabajadosBs, 'devengado'),
+        linea(2, `Días de descanso (${diasD})`, descansoBs, 'devengado'),
+        linea(3, 'Bonos', bonosBs, 'devengado'),
+        linea(4, 'Viáticos', 0, 'devengado'),
+        linea(5, 'Seguro Social Obligatorio', 0, 'deduccion'),
+        linea(6, 'Rég. Prestacional de Empleo', 0, 'deduccion'),
+        linea(7, 'Rég. Prest. de Vivienda y Hábitat', 0, 'deduccion'),
+        linea(8, 'Sindicato', 0, 'deduccion'),
+        linea(9, 'Préstamos', prestamosBs, 'deduccion'),
+        linea(10, 'Anticipos', anticiposBs, 'deduccion'),
+        linea(11, 'Otros', 0, 'deduccion'),
+      ],
       foot: [
-        ['NETO A PAGAR (USD)', usd(r.neto_usd)],
-        ...(tasa > 0 ? [['Equivalente en Bs (BCV ' + tasa.toLocaleString('es-VE', { maximumFractionDigits: 2 }) + ')', bsStr(Number(r.neto_usd) * tasa)]] as Array<[string, string]> : []),
+        ['', 'TOTALES', bsStr(devengadoBs), usd(enUsd(devengadoBs)), bsStr(deduccionBs), usd(enUsd(deduccionBs))],
+        ['', 'NETO DEL RECIBO', bsStr(netoBs), usd(enUsd(netoBs)), '', ''],
       ],
       margin: MARGIN,
-      styles: { fontSize: 9.5, cellPadding: 5 },
-      headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 4 },
+      headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-      columnStyles: { 1: { halign: 'right', cellWidth: 160 } },
+      columnStyles: {
+        0: { cellWidth: 18, halign: 'center' },
+        2: { halign: 'right', cellWidth: 78 },
+        3: { halign: 'right', cellWidth: 62, textColor: 110 },
+        4: { halign: 'right', cellWidth: 78 },
+        5: { halign: 'right', cellWidth: 62, textColor: 110 },
+      },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 8;
+    y = (doc.lastAutoTable?.finalY ?? y) + 12;
+
+    // ── Lo que se paga en divisas ──
+    // El recibo de arriba declara el sueldo. El BONO no va ahí, pero es plata
+    // que la persona cobra: si no aparece en ningún lado, el papel dice menos
+    // de lo que se entrega y nadie puede cuadrar lo que recibió.
+    const sueldoUsd = Number(r.sueldo_quincena_usd) || 0;
+    const bonoUsd = Number(r.bono_quincena_usd) || 0;
+    if (sueldoUsd > 0 || bonoUsd > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [['PAGO DE LA QUINCENA EN DIVISAS', 'Monto $', 'en Bs']],
+        body: [
+          ['Sueldo de la quincena', usd(sueldoUsd), bsStr(r2(sueldoUsd * tasa))],
+          ['Bono de la quincena', usd(bonoUsd), bsStr(r2(bonoUsd * tasa))],
+          ...(Number(r.asignaciones) > 0 ? [['Asignaciones', usd(r.asignaciones), bsStr(bonosBs)]] : []),
+          ...(Number(r.deduc_anticipos) > 0 ? [['(−) Anticipos', '- ' + usd(r.deduc_anticipos), '- ' + bsStr(anticiposBs)]] : []),
+          ...(Number(r.deduc_prestamos) > 0 ? [['(−) Préstamos', '- ' + usd(r.deduc_prestamos), '- ' + bsStr(prestamosBs)]] : []),
+        ],
+        foot: [['NETO A PAGAR', usd(r.neto_usd), bsStr(r2((Number(r.neto_usd) || 0) * tasa))]],
+        margin: MARGIN,
+        theme: 'grid',
+        styles: { fontSize: 8.5, cellPadding: 4 },
+        headStyles: { fillColor: [60, 60, 60], textColor: 255, fontStyle: 'bold' },
+        footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
+        columnStyles: { 1: { halign: 'right', cellWidth: 92 }, 2: { halign: 'right', cellWidth: 92 } },
+      });
+      // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+      y = (doc.lastAutoTable?.finalY ?? y) + 10;
+    }
+
+    // Texto de conformidad, el mismo que se viene firmando.
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    const conformidad = doc.splitTextToSize(
+      `Certifico haber recibido la cantidad de ${bsStr(netoBs)} que comprende la totalidad de mi salario `
+      + 'al período que se indica en el mismo, y firmo en señal de conformidad.',
+      PAGE_W - MARGIN * 2,
+    );
+    doc.text(conformidad, MARGIN, y + 10);
+    y += 10 + conformidad.length * 11;
+
     if (r.seriales_billetes && r.seriales_billetes.length) {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-      doc.text(`Seriales de billetes: ${r.seriales_billetes.join(', ')}`, MARGIN, y + 10);
+      doc.setFontSize(8);
+      doc.text(`Seriales de billetes: ${r.seriales_billetes.join(', ')}`, MARGIN, y + 8);
     }
 
     // Firmas (al pie de la página) — se firman A MANO al imprimir.

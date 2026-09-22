@@ -4,15 +4,22 @@
    del día) y Tesorería paga renglón por renglón (egreso real de caja,
    con seriales/comprobante como en el pago de OC).
 
-   Cálculo por persona:
-     salario_diario = sueldo_base_mensual / 30
-     salario_bruto  = salario_diario × dias_trabajados   (15 por defecto)
-     neto_usd       = salario_bruto + asignaciones(bonos) − (anticipos + préstamos)
+   Cálculo por persona (el detalle vive en `nominaCalculo.ts`, con pruebas
+   contra la planilla real):
+     Del TOTAL MENSUAL acordado en $, un porcentaje se declara SUELDO y el
+     resto BONO. La quincena es la mitad de cada uno, y los días entran como
+     proporción (11 trabajados + 4 de descanso = quincena completa).
+       salario_bruto      = sueldo quincenal $ + bono quincenal $
+       sueldo_quincena_bs = la parte SUELDO en bolívares, a la tasa de cierre
+       neto_usd           = salario_bruto + asignaciones − (anticipos + préstamos)
+   El RECIBO que firma el trabajador declara solo `sueldo_quincena_bs`; el bono
+   se paga aparte en divisas.
    No se descuenta seguro social (IVSS/FAOV): las columnas deduc_ivss/deduc_faov
    de la base quedan en 0 por defecto y el sistema no las usa.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { round2 } from '../tesoreria/tasas.repository';
+import { DIAS_QUINCENA, calcularQuincena, pctValido } from './nominaCalculo';
 import type { Caja, EmpresaRrhh, NominaPeriodo, NominaRenglon, DeduccionRef, Personal, CuentaCaja } from '@/shared/lib/types';
 
 const BUCKET = 'nomina-comprobantes';
@@ -33,29 +40,67 @@ export function labelMotivoNomina(tipo?: string | null): string {
 /* ───────────── Cálculo (también lo usa la UI para la vista previa) ───────────── */
 
 export interface RenglonCalcInput {
+  /** Total acordado POR MES, en dólares. */
   sueldo_base_mensual: number;
   dias_trabajados: number;
+  /** Días de descanso de la quincena (con 11 + 4 se cubre la quincena entera). */
+  dias_descanso?: number;
+  /** Qué parte del total se declara como sueldo; el resto es bono. */
+  sueldo_pct?: number;
+  /** Tasa Bs/$ del cierre de la quincena. */
+  tasa_bs?: number;
   asignaciones?: number;
   deducciones?: DeduccionRef[];
 }
 
 export interface RenglonCalc {
+  /** Lo que recibe por la quincena en dólares: sueldo + bono. */
   salario_bruto: number;
+  /** La parte sueldo y la parte bono, en dólares, ya con los días aplicados. */
+  sueldo_quincena_usd: number;
+  bono_quincena_usd: number;
+  /** El monto del RECIBO, en bolívares a la tasa de cierre. */
+  sueldo_quincena_bs: number;
   deduc_anticipos: number;
   deduc_prestamos: number;
   asignaciones: number;
   neto_usd: number;
 }
 
+/**
+ * Arma un renglón como se lleva la nómina de verdad (ver `nominaCalculo.ts`):
+ * del total mensual acordado, un porcentaje es sueldo y el resto bono; la
+ * quincena es la mitad; y el recibo declara solo el sueldo, en bolívares.
+ *
+ * Los días entran como PROPORCIÓN de la quincena: 11 trabajados + 4 de
+ * descanso son la quincena completa (el caso normal, y el de la planilla).
+ * Menos días bajan el dólar y el bolívar por igual — si bajara solo uno, el
+ * recibo y el pago dejarían de contar la misma historia.
+ */
 export function calcularRenglon(input: RenglonCalcInput): RenglonCalc {
-  const diario = (Number(input.sueldo_base_mensual) || 0) / 30;
-  const salario_bruto = round2(diario * (Number(input.dias_trabajados) || 0));
+  const q = calcularQuincena({
+    totalMesUsd: Number(input.sueldo_base_mensual) || 0,
+    sueldoPct: input.sueldo_pct,
+    tasaBs: input.tasa_bs,
+    diasTrabajados: input.dias_trabajados,
+    diasDescanso: input.dias_descanso ?? 0,
+  });
+  const dias = Math.max(0, Number(input.dias_trabajados) || 0) + Math.max(0, Number(input.dias_descanso) || 0);
+  const factor = dias / DIAS_QUINCENA;
+  const sueldo_quincena_usd = round2(q.sueldoQuincenaUsd * factor);
+  const bono_quincena_usd = round2(q.bonoQuincenaUsd * factor);
+  const salario_bruto = round2(sueldo_quincena_usd + bono_quincena_usd);
+  // El devengado ya trae los días adentro (diario × trabajados + diario × descanso).
+  const sueldo_quincena_bs = q.devengadoBs;
   const deducs = input.deducciones ?? [];
   const deduc_anticipos = round2(deducs.filter((d) => d.tipo === 'anticipo').reduce((a, d) => a + (Number(d.monto) || 0), 0));
   const deduc_prestamos = round2(deducs.filter((d) => d.tipo === 'prestamo').reduce((a, d) => a + (Number(d.monto) || 0), 0));
   const asignaciones = round2(Number(input.asignaciones) || 0);
   const neto_usd = round2(salario_bruto + asignaciones - deduc_anticipos - deduc_prestamos);
-  return { salario_bruto, deduc_anticipos, deduc_prestamos, asignaciones, neto_usd };
+  return {
+    salario_bruto, sueldo_quincena_usd, bono_quincena_usd, sueldo_quincena_bs,
+    deduc_anticipos, deduc_prestamos, asignaciones, neto_usd,
+  };
 }
 
 /* ───────────── Carga de la nómina ───────────── */
@@ -75,8 +120,12 @@ export interface RenglonInput {
   nombre: string;
   cargo?: string | null;
   departamento?: string | null;
+  /** Total acordado POR MES, en dólares. */
   sueldo_base_mensual: number;
   dias_trabajados: number;
+  dias_descanso?: number;
+  sueldo_pct?: number;
+  tasa_bs?: number;
   asignaciones?: number;
   deducciones?: DeduccionRef[];
 }
@@ -84,6 +133,7 @@ export interface RenglonInput {
 export interface CargarNominaInput {
   empresa?: EmpresaRrhh;         // 'GT' | 'MTO'
   nombre?: string | null;        // «2da quincena de septiembre 2026»
+  sueldo_pct?: number;           // qué parte del total va como sueldo (resto: bono)
   tipo?: string;                 // 'quincena'
   periodo_desde?: string | null;
   periodo_hasta?: string | null;
@@ -113,6 +163,7 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
     periodo_desde: input.periodo_desde || null,
     periodo_hasta: input.periodo_hasta || null,
     dias_base: input.dias_base ?? 15,
+    sueldo_pct: pctValido(input.sueldo_pct),
     tasa_bcv: input.tasa_bcv ?? null,
     estado: 'cargada',
     total_usd: total,
@@ -131,6 +182,12 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
     departamento: r.departamento ?? null,
     sueldo_base_mensual: round2(Number(r.sueldo_base_mensual) || 0),
     dias_trabajados: Number(r.dias_trabajados) || 0,
+    dias_descanso: Number(r.dias_descanso) || 0,
+    sueldo_pct: pctValido(r.sueldo_pct ?? input.sueldo_pct),
+    tasa_bs: r.tasa_bs ?? input.tasa_bcv ?? null,
+    sueldo_quincena_usd: c.sueldo_quincena_usd,
+    bono_quincena_usd: c.bono_quincena_usd,
+    sueldo_quincena_bs: c.sueldo_quincena_bs,
     salario_bruto: c.salario_bruto,
     asignaciones: c.asignaciones,
     deduc_anticipos: c.deduc_anticipos,
