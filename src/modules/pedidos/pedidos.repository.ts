@@ -947,7 +947,10 @@ export async function aprobarOcsEnLote(
       oc_aprobada_en: nowIso,
       // Si se indicó destino, lo guardamos; si no, conservamos el que ya tuviera la orden.
       ...(destino ? { almacen_destino: destino } : {}),
-      historial: appendHistorial(o, `confirmada_${nuevoEstado}`, actorEmail, { oc_codigo: o.oc_codigo, almacen_destino: destino, condicion: o.condiciones_pago }),
+      // El evento es el estado al que va (`confirmada_metodo`, `confirmada_por_recibir`,
+      // `confirmada_cuenta_abierta`). Antes se le anteponía otro "confirmada_" y salía
+      // "confirmada_confirmada_metodo", que la línea de tiempo no sabía traducir.
+      historial: appendHistorial(o, nuevoEstado, actorEmail, { oc_codigo: o.oc_codigo, almacen_destino: destino, condicion: o.condiciones_pago }),
     };
     const { error } = await supabase.from(TABLE).update(patch).eq('id', o.id);
     if (error) throw error;
