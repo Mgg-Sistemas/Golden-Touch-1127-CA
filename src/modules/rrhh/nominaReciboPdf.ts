@@ -178,38 +178,65 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     y = (doc.lastAutoTable?.finalY ?? y) + 12;
 
     // ── Lo que se paga en divisas ──
-    // El recibo de arriba declara el sueldo. El BONO no va ahí, pero es plata
-    // que la persona cobra: si no aparece en ningún lado, el papel dice menos
-    // de lo que se entrega y nadie puede cuadrar lo que recibió.
-    const sueldoUsd = Number(r.sueldo_quincena_usd) || 0;
+    // ── BONO ──
+    // La tabla de arriba es la parte que se paga en bolívares (el porcentaje
+    // que se declara como sueldo). El resto del total acordado se entrega como
+    // BONO, en dólares. Va acá, en el MISMO recibo: si el bono quedara fuera,
+    // el papel diría bastante menos de lo que la persona realmente cobra.
     const bonoUsd = Number(r.bono_quincena_usd) || 0;
-    if (sueldoUsd > 0 || bonoUsd > 0) {
-      autoTable(doc, {
-        startY: y,
-        head: [['PAGO DE LA QUINCENA EN DIVISAS', 'Monto $', 'en Bs']],
-        body: [
-          ['Sueldo de la quincena', usd(sueldoUsd), bsStr(r2(sueldoUsd * tasa))],
-          ['Bono de la quincena', usd(bonoUsd), bsStr(r2(bonoUsd * tasa))],
-          ...(Number(r.asignaciones) > 0 ? [['Asignaciones', usd(r.asignaciones), bsStr(bonosBs)]] : []),
-          ...(Number(r.deduc_anticipos) > 0 ? [['(−) Anticipos', '- ' + usd(r.deduc_anticipos), '- ' + bsStr(anticiposBs)]] : []),
-          ...(Number(r.deduc_prestamos) > 0 ? [['(−) Préstamos', '- ' + usd(r.deduc_prestamos), '- ' + bsStr(prestamosBs)]] : []),
-        ],
-        foot: [['NETO A PAGAR', usd(r.neto_usd), bsStr(r2((Number(r.neto_usd) || 0) * tasa))]],
-        margin: MARGIN,
-        theme: 'grid',
-        styles: { fontSize: 8.5, cellPadding: 4 },
-        headStyles: { fillColor: [60, 60, 60], textColor: 255, fontStyle: 'bold' },
-        footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-        columnStyles: { 1: { halign: 'right', cellWidth: 92 }, 2: { halign: 'right', cellWidth: 92 } },
-      });
-      // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-      y = (doc.lastAutoTable?.finalY ?? y) + 10;
-    }
+    const pctSueldo = Number(r.sueldo_pct);
+    const pctBono = Number.isFinite(pctSueldo) ? Math.round(100 - pctSueldo) : null;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['BONO', 'Monto $']],
+      body: [
+        [pctBono != null
+          ? `Bono de la quincena (${pctBono} % del total acordado)`
+          : 'Bono de la quincena', usd(bonoUsd)],
+        ...(Number(r.asignaciones) > 0 ? [['Asignaciones adicionales', usd(r.asignaciones)]] : []),
+      ],
+      margin: MARGIN,
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 4 },
+      headStyles: { fillColor: [60, 60, 60], textColor: 255, fontStyle: 'bold' },
+      columnStyles: { 1: { halign: 'right', cellWidth: 110 } },
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+
+    // ── El total del recibo, en dólares ──
+    // Las dos partes se suman acá: lo cobrado en bolívares (llevado a dólares
+    // con la MISMA tasa que dice el recibo) más el bono, que ya está en
+    // dólares. Es la cifra que la persona quiere ver: cuánto cobró en total.
+    const netoEnUsd = enUsd(netoBs);
+    const totalRecibidoUsd = r2(netoEnUsd + bonoUsd + (Number(r.asignaciones) || 0));
+
+    autoTable(doc, {
+      startY: y,
+      head: [['TOTAL DEL RECIBO', 'Bs', 'Equivalente $']],
+      body: [
+        [`Pagado en bolívares${pctSueldo ? ` (sueldo, ${Math.round(pctSueldo)} %)` : ''}`, bsStr(netoBs), usd(netoEnUsd)],
+        ['Tasa aplicada (BCV del día)', tasaTexto, ''],
+        ['Bono en divisas', '', usd(bonoUsd + (Number(r.asignaciones) || 0))],
+      ],
+      foot: [['TOTAL RECIBIDO', '', usd(totalRecibidoUsd)]],
+      margin: MARGIN,
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 4.5 },
+      headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
+      footStyles: { fillColor: [235, 235, 235], textColor: 20, fontStyle: 'bold', fontSize: 10 },
+      columnStyles: { 1: { halign: 'right', cellWidth: 104 }, 2: { halign: 'right', cellWidth: 104 } },
+    });
+    // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
+    y = (doc.lastAutoTable?.finalY ?? y) + 10;
 
     // Texto de conformidad, el mismo que se viene firmando.
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
     const conformidad = doc.splitTextToSize(
-      `Certifico haber recibido la cantidad de ${bsStr(netoBs)} que comprende la totalidad de mi salario `
+      `Certifico haber recibido la cantidad de ${bsStr(netoBs)}`
+      + (bonoUsd + (Number(r.asignaciones) || 0) > 0 ? ` y ${usd(bonoUsd + (Number(r.asignaciones) || 0))} en concepto de bono` : '')
+      + `, equivalente a ${usd(totalRecibidoUsd)}, que comprende la totalidad de mi salario `
       + 'al período que se indica en el mismo, y firmo en señal de conformidad.',
       PAGE_W - MARGIN * 2,
     );

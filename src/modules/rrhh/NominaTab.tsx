@@ -515,9 +515,16 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <input className="input mono" name="cn-sueldo-pct" type="number" min={0} max={100} value={sueldoPct}
               onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0 && n <= 100) setSueldoPct(n); }} />
           </div>
-          <div className="form-row" style={{ minWidth: 170 }}>
-            <label style={{ fontSize: '.72rem' }}>Tasa de cierre (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
-            <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="tasa del cierre" />
+          {/* Viene puesta la del BCV del día y se puede cambiar a mano. Sea la
+              del BCV o una escrita, es UNA SOLA para toda la nómina: si cada
+              renglón llevara la suya, dos personas del mismo día cobrarían a
+              tasas distintas y los recibos no se podrían comparar. */}
+          <div className="form-row" style={{ minWidth: 190 }}>
+            <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
+            <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="tasa del día" />
+            <small className="muted" style={{ fontSize: '.68rem' }}>
+              {tasaFecha ? 'Es la del BCV; podés ajustarla.' : 'No se pudo traer la del BCV: escribila.'} Se aplica a todos.
+            </small>
           </div>
           <div className="form-row" style={{ flex: 1, minWidth: 180 }}>
             <label style={{ fontSize: '.72rem' }}>Notas (opcional)</label>
