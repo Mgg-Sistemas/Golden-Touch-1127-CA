@@ -1470,6 +1470,10 @@ export interface AnticipoPrestamo {
 export interface NominaPeriodo {
   id: string;
   codigo: string;
+  /** Nombre con el que se busca la nómina en la lista («2da quincena de
+   *  septiembre 2026»). El codigo sigue siendo el identificador; esto es
+   *  para encontrarla, porque nadie recuerda el correlativo. */
+  nombre?: string | null;
   /** De qué nómina es el período: GT o MTO (son independientes). */
   empresa: EmpresaRrhh;
   tipo: string;

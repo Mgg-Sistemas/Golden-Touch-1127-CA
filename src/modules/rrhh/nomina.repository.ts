@@ -83,6 +83,7 @@ export interface RenglonInput {
 
 export interface CargarNominaInput {
   empresa?: EmpresaRrhh;         // 'GT' | 'MTO'
+  nombre?: string | null;        // «2da quincena de septiembre 2026»
   tipo?: string;                 // 'quincena'
   periodo_desde?: string | null;
   periodo_hasta?: string | null;
@@ -107,6 +108,7 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
   const { data: per, error: pErr } = await supabase.from('nomina_periodos').insert({
     codigo,
     empresa,
+    nombre: input.nombre?.trim() || null,
     tipo: input.tipo || 'quincena',
     periodo_desde: input.periodo_desde || null,
     periodo_hasta: input.periodo_hasta || null,
