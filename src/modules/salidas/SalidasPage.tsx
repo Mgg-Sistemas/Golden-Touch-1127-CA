@@ -39,10 +39,14 @@ import {
   descargarResumenUnidadPdf, descargarResumenUnidadExcel, enviarResumenUnidadCorreo,
   type SalidaResumenRow, type GrupoUnidad, type GrupoProducto,
 } from './resumenUnidadSalidas';
+import {
+  TOPE_COLUMNA, ETIQUETA_ACCION, accionDe, actoresDeAccion, filtrarHistorico, recortarColumna,
+} from './historicoSolicitudes';
+import { FechaInput } from '@/shared/ui/FechaInput';
 
 type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
-type Vista = 'kanban' | 'lista';
+type Vista = 'kanban' | 'lista' | 'historico';
 type Modal =
   | { kind: 'none' }
   | { kind: 'salida-material' }
@@ -95,6 +99,9 @@ export function SalidasPage() {
   // El dinero se maneja directo desde Tesorería; Salidas solo opera material.
   const tipo: Tipo = 'material';
   const [vista, setVista] = useState<Vista>('kanban');
+  // Estado que el histórico trae preseleccionado: sale del «+ N más» de cada
+  // columna del tablero, para que el clic caiga donde el usuario venía mirando.
+  const [histEstado, setHistEstado] = useState<EstadoSolicitudSalida | ''>('');
   // Filtros de las solicitudes: por USUARIO (actor) y por SOLICITANTE (texto).
   const [fUsuario, setFUsuario] = useState('');
   const [fSolic, setFSolic] = useState('');
@@ -231,10 +238,11 @@ export function SalidasPage() {
         />
       ) : (
       <>
-      {/* Vista: Kanban (trámite) / Lista (historial de movimientos ejecutados) */}
-      <div className="view-toggle" role="tablist" aria-label="Kanban o lista" style={{ marginBottom: '1rem' }}>
+      {/* Vista: tablero (trámite) / histórico de solicitudes / historial de movimientos ejecutados */}
+      <div className="view-toggle" role="tablist" aria-label="Tablero, histórico o historial" style={{ marginBottom: '1rem' }}>
         <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
-        <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Historial</button>
+        <button className={vista === 'historico' ? 'active' : ''} onClick={() => { setHistEstado(''); setVista('historico'); }}>🗄 Histórico de solicitudes</button>
+        <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Historial de movimientos</button>
       </div>
 
       {loading ? (
@@ -261,8 +269,20 @@ export function SalidasPage() {
               <span className="muted" style={{ marginLeft: 'auto', fontSize: '.8rem' }}>{solsFiltradas.length} solicitud(es)</span>
             </div>
           </div>
-          <SolicitudesKanban sols={solsFiltradas} nombreDe={nombreDe} onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })} />
+          <SolicitudesKanban
+            sols={solsFiltradas} nombreDe={nombreDe}
+            onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })}
+            onVerHistorico={(estado) => { setHistEstado(estado); setVista('historico'); }}
+          />
         </>
+      ) : vista === 'historico' ? (
+        <HistoricoSolicitudes
+          sols={solsVista}
+          estado={histEstado}
+          onEstado={setHistEstado}
+          nombreDe={nombreDe}
+          onVer={(sol) => setModal({ kind: 'detalle-solicitud', sol })}
+        />
       ) : (
         <Historial
           scope={scope} tipo={tipo}
@@ -567,10 +587,10 @@ function Historial({
           style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>}
       </div>
       <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
-        Desde <input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
+        Desde <FechaInput value={desde} onChange={setDesde} max={hasta || undefined} style={{ width: 150 }} />
       </label>
       <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
-        Hasta <input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
+        Hasta <FechaInput value={hasta} onChange={setHasta} min={desde || undefined} style={{ width: 150 }} />
       </label>
       {(q || desde || hasta) && <button className="btn btn-sm btn-ghost" onClick={() => { setQ(''); setDesde(''); setHasta(''); }}>✕ Limpiar</button>}
     </div>
@@ -686,8 +706,12 @@ function resumenSolicitud(s: SolicitudSalida): string {
   return `${monto} ${s.moneda ?? ''} → ${s.destino ?? '—'}`;
 }
 
-function SolicitudesKanban({ sols, onVer, nombreDe }: {
-  sols: SolicitudSalida[]; onVer: (s: SolicitudSalida) => void; nombreDe: (email?: string | null) => string;
+function SolicitudesKanban({ sols, onVer, onVerHistorico, nombreDe }: {
+  sols: SolicitudSalida[];
+  onVer: (s: SolicitudSalida) => void;
+  /** Salta al histórico ya filtrado por esa columna (el «+ N más»). */
+  onVerHistorico: (estado: EstadoSolicitudSalida) => void;
+  nombreDe: (email?: string | null) => string;
 }) {
   // Nombre completo de quien solicitó: se resuelve del usuario (email → "Nombre Apellido");
   // si no se encuentra, cae al texto guardado en la solicitud.
@@ -704,12 +728,16 @@ function SolicitudesKanban({ sols, onVer, nombreDe }: {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.75rem' }}>
       {SOL_COLS.map((col) => {
-        const items = sols.filter((s) => s.estado === col.key);
+        const todas = sols.filter((s) => s.estado === col.key);
+        // La columna muestra las ÚLTIMAS 10 (la lista ya viene de la más nueva a
+        // la más vieja). Lo anterior no se pierde: vive en el histórico, que es
+        // donde se puede filtrar y ver quién hizo cada cosa.
+        const { visibles: items, ocultas } = recortarColumna(todas, TOPE_COLUMNA);
         return (
           <div key={col.key} className="card" style={{ margin: 0, padding: '.6rem', background: 'var(--bg-1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem' }}>
               <strong style={{ fontSize: '.82rem' }}>{col.label}</strong>
-              <span className={`badge ${SOL_ESTADO_CLASS[col.key]}`}>{items.length}</span>
+              <span className={`badge ${SOL_ESTADO_CLASS[col.key]}`}>{todas.length}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', maxHeight: '62vh', overflowY: 'auto', paddingRight: items.length > 3 ? '.2rem' : 0 }}>
               {items.map((s) => (
@@ -728,10 +756,115 @@ function SolicitudesKanban({ sols, onVer, nombreDe }: {
               ))}
               {!items.length && <div className="muted" style={{ fontSize: '.74rem', padding: '.25rem' }}>—</div>}
             </div>
+            {ocultas > 0 && (
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => onVerHistorico(col.key)}
+                style={{ width: '100%', marginTop: '.45rem', fontSize: '.74rem' }}>
+                🗄 {ocultas} más en el histórico
+              </button>
+            )}
           </div>
         );
       })}
     </div>
+  );
+}
+
+/* ───────────── Histórico de solicitudes (todo lo que el tablero ya no muestra) ─────────────
+   El tablero es para lo que está en trámite: cada columna muestra las últimas
+   TOPE_COLUMNA y nada más. Acá está TODO, con filtros de verdad —incluido por QUIÉN
+   HIZO LA ACCIÓN, que es lo que las tarjetas nunca dijeron: la tarjeta muestra
+   al solicitante, no a quien aprobó, ejecutó o canceló. */
+
+function HistoricoSolicitudes({ sols, estado, onEstado, nombreDe, onVer }: {
+  sols: SolicitudSalida[];
+  estado: EstadoSolicitudSalida | '';
+  onEstado: (e: EstadoSolicitudSalida | '') => void;
+  nombreDe: (email?: string | null) => string;
+  onVer: (s: SolicitudSalida) => void;
+}) {
+  const [texto, setTexto] = useState('');
+  const [actor, setActor] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+
+  const actores = useMemo(() => actoresDeAccion(sols, nombreDe), [sols, nombreDe]);
+  const rows = useMemo(
+    () => filtrarHistorico(sols, { texto, estado, actor, desde, hasta }),
+    [sols, texto, estado, actor, desde, hasta],
+  );
+  const hayFiltro = !!(texto || estado || actor || desde || hasta);
+  const limpiar = () => { setTexto(''); onEstado(''); setActor(''); setDesde(''); setHasta(''); };
+
+  return (
+    <>
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="form-row" style={{ margin: 0, flex: '1 1 240px' }}>
+            <label style={{ fontSize: '.72rem' }}>Buscar</label>
+            <input className="input" type="search" value={texto} onChange={(e) => setTexto(e.target.value)}
+              placeholder="🔍 Código, material, solicitante, destino, motivo…" />
+          </div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ fontSize: '.72rem' }}>Estado</label>
+            <select className="select" value={estado} onChange={(e) => onEstado(e.target.value as EstadoSolicitudSalida | '')}>
+              <option value="">Todos los estados</option>
+              {SOL_COLS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            </select>
+          </div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ fontSize: '.72rem' }}>Quién hizo la acción</label>
+            <select className="select" value={actor} onChange={(e) => setActor(e.target.value)}>
+              <option value="">Cualquiera</option>
+              {actores.map((a) => <option key={a.email} value={a.email}>{a.nombre}</option>)}
+            </select>
+          </div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ fontSize: '.72rem' }}>Desde</label>
+            <FechaInput value={desde} onChange={setDesde} max={hasta || undefined} style={{ width: 150 }} />
+          </div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ fontSize: '.72rem' }}>Hasta</label>
+            <FechaInput value={hasta} onChange={setHasta} min={desde || undefined} style={{ width: 150 }} />
+          </div>
+          {hayFiltro && <button className="btn btn-ghost" onClick={limpiar}>✕ Limpiar</button>}
+          <span className="muted" style={{ marginLeft: 'auto', fontSize: '.8rem' }}>
+            {rows.length} de {sols.length} solicitud(es)
+          </span>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.85rem' }}>
+          <thead>
+            <tr>
+              <th>Código</th><th>Estado</th><th>Material</th><th>Detalle</th>
+              <th>Solicitante</th><th>Acción</th><th>Quién la hizo</th><th>Cuándo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!rows.length ? (
+              <tr><td colSpan={8}>
+                <EmptyState icon="🗄" message={hayFiltro ? 'Ninguna solicitud coincide con el filtro.' : 'Todavía no hay solicitudes.'} />
+              </td></tr>
+            ) : rows.map((s) => {
+              const acc = accionDe(s);
+              return (
+                <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => onVer(s)} title="Ver la solicitud">
+                  <td className="mono" style={{ fontSize: '.78rem', color: 'var(--primary-3)' }}>{s.codigo}</td>
+                  <td><span className={`badge ${SOL_ESTADO_CLASS[s.estado]}`}>{SOL_COLS.find((c) => c.key === s.estado)?.label}</span></td>
+                  <td><strong>{s.tipo === 'material' ? (s.producto_nombre ?? 'Material') : 'Dinero'}</strong></td>
+                  <td className="muted" style={{ fontSize: '.78rem' }}>{resumenSolicitud(s)}</td>
+                  <td>{(s.solicitante ?? '').trim() || nombreDe(s.actor)}</td>
+                  <td>{ETIQUETA_ACCION[acc.evento] ?? acc.evento}{acc.motivo && <div className="muted" style={{ fontSize: '.72rem' }}>{acc.motivo}</div>}</td>
+                  <td style={{ color: 'var(--success)', fontWeight: 600 }}>{acc.actor ? nombreDe(acc.actor) : '—'}</td>
+                  <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(acc.at)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
