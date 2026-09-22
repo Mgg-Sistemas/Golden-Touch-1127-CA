@@ -7,8 +7,9 @@
    lugar donde se cambia, justamente para que no haya cambio sin motivo.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { money, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -36,6 +37,7 @@ export function HistorialSueldoModal({
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [porBorrar, setPorBorrar] = useState<PersonalSueldo | null>(null);
 
   // Campos del cambio
   const [monto, setMonto] = useState('');
@@ -96,10 +98,7 @@ export function HistorialSueldoModal({
   }
 
   async function borrar(r: PersonalSueldo) {
-    if (!window.confirm(
-      `¿Borrar este renglón del historial?\n\n${date(r.fecha)} · ${money(r.sueldo_nuevo)} · ${r.motivo}\n\n`
-      + 'No cambia el sueldo que la persona tiene hoy: solo saca el renglón del historial.',
-    )) return;
+    setPorBorrar(null);
     try {
       await borrarRenglonSueldo(r.id);
       await recargar();
@@ -110,6 +109,7 @@ export function HistorialSueldoModal({
   }
 
   const nombre = `${persona.nombre} ${persona.apellido ?? ''}`.trim();
+  const variacionPorBorrar = porBorrar ? variacionSueldo(porBorrar.sueldo_anterior, porBorrar.sueldo_nuevo) : null;
 
   return (
     <Modal
@@ -246,7 +246,7 @@ export function HistorialSueldoModal({
                       <td style={{ textAlign: 'center' }}>
                         <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
                           title="Borrar este renglón (no cambia el sueldo de hoy)"
-                          onClick={() => void borrar(r)}>🗑</button>
+                          onClick={() => setPorBorrar(r)}>🗑</button>
                       </td>
                     )}
                   </tr>
@@ -262,6 +262,41 @@ export function HistorialSueldoModal({
         Un renglón <strong>⚠ sin motivo registrado</strong> significa que el sueldo se movió por fuera de esta pantalla;
         la base lo anota igual para que el cambio no desaparezca del historial.
       </small>
+
+      {porBorrar && (
+        <ConfirmDialog
+          title="Borrar renglón del historial"
+          danger
+          confirmText="Sí, borrar"
+          message={<><strong>No cambia el sueldo que la persona tiene hoy</strong> ({actual > 0 ? money(actual) : 'sin sueldo cargado'}):
+            solo saca este renglón del historial. Los renglones no se editan ni se recuperan; si hacía falta, hay que volver a cargarlo.</>}
+          preview={
+            <VistaPrevia titulo="Se va a borrar">
+              <Dato label="Desde"><span className="mono">{date(porBorrar.fecha)}</span></Dato>
+              <Dato label="Sueldo">
+                {porBorrar.sueldo_anterior != null
+                  ? <span className="mono">{money(porBorrar.sueldo_anterior)} → <strong>{money(porBorrar.sueldo_nuevo)}</strong></span>
+                  : <span className="mono"><strong>{money(porBorrar.sueldo_nuevo)}</strong> · primer sueldo registrado</span>}
+              </Dato>
+              <Dato label="Variación">
+                {porBorrar.sueldo_anterior != null && variacionPorBorrar
+                  ? <span className="mono" style={{ color: variacionPorBorrar.sentido === 'sube' ? 'var(--success)' : 'var(--warning)' }}>
+                    {etiquetaVariacion(variacionPorBorrar)}
+                  </span>
+                  : undefined}
+              </Dato>
+              <Dato label="Motivo">
+                {porBorrar.motivo === MOTIVO_SIN_REGISTRAR ? '⚠ Sin motivo registrado' : porBorrar.motivo}
+              </Dato>
+              <Dato label="Nota">{porBorrar.nota || undefined}</Dato>
+              <Dato label="Cargado">{dateTime(porBorrar.created_at)}</Dato>
+              <Dato label="Lo registró">{porBorrar.created_by || undefined}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void borrar(porBorrar); }}
+          onCancel={() => setPorBorrar(null)}
+        />
+      )}
     </Modal>
   );
 }

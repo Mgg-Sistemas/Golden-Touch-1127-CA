@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type CSSProperties } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { FechaInput } from '@/shared/ui/FechaInput';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -10,6 +11,7 @@ import { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal, type PersonalInput,
   subirFotoPersonal, borrarFotoPersonal, fotoPersonalDataUrl,
+  resumenBorradoPersonal, type ResumenBorradoPersonal,
 } from './personal.repository';
 import { DocumentacionPersona, type DocsPendientes } from './DocumentacionPersona';
 import { listDocumentosDeTodos, subirDocumentoPersonal, TIPOS_DOCUMENTO } from './documentos.repository';
@@ -62,6 +64,24 @@ function sanitizarRif(v: string): string {
 const claveCedula = (v: string | null | undefined) =>
   String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+/**
+ * Pone en palabras lo que se va en cascada al borrar a una persona, y deja
+ * afuera lo que está en cero: un renglón «0 documentos» no informa nada y tapa
+ * a los tres que sí hay que leer antes de apretar el botón.
+ */
+function detalleCascada(r: ResumenBorradoPersonal): string[] {
+  const linea = (n: number, uno: string, varios: string) => (n > 0 ? `${n} ${n === 1 ? uno : varios}` : null);
+  return [
+    linea(r.documentos, 'documento', 'documentos'),
+    linea(r.familiares, 'familiar de la carga familiar', 'familiares de la carga familiar'),
+    linea(r.sueldos, 'renglón del historial de sueldo', 'renglones del historial de sueldo'),
+    linea(r.anticipos, 'anticipo/préstamo', 'anticipos/préstamos'),
+    linea(r.eventos,
+      'registro administrativo (vacaciones, permisos, utilidades, notas)',
+      'registros administrativos (vacaciones, permisos, utilidades, notas)'),
+  ].filter((x): x is string => x !== null);
+}
+
 export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh; canWrite: boolean; actor: string }) {
   // Solo un admin puede borrar un renglón del historial de sueldo.
   const { isAdmin } = usePermissions();
@@ -89,6 +109,15 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const [fotoPreview, setFotoPreview] = useState<string | null>(null);
   const [fotoPendiente, setFotoPendiente] = useState<File | null>(null);
   const [fotoOcupada, setFotoOcupada] = useState(false);
+  // Quitar la foto del formulario borra el archivo del servidor: se pregunta antes.
+  const [confirmarQuitarFoto, setConfirmarQuitarFoto] = useState(false);
+  // A quién se está por eliminar, y el conteo de lo que se va en cascada con esa
+  // persona. `estadoResumen` separa «todavía no llegó» de «no se pudo contar»:
+  // son dos avisos distintos, y decir 0 cuando no se sabe sería mentir.
+  const [porBorrar, setPorBorrar] = useState<Personal | null>(null);
+  const [resumenBorrado, setResumenBorrado] = useState<ResumenBorradoPersonal | null>(null);
+  const [estadoResumen, setEstadoResumen] = useState<'cargando' | 'listo' | 'error'>('cargando');
+  const [fotoPorBorrar, setFotoPorBorrar] = useState<string | null>(null);
   // Cédula y RIF sí son controlados (a diferencia del resto de los textos):
   // hacen falta en el render para avisar de un duplicado o de un RIF mal escrito
   // ANTES de guardar, no después del rechazo de la base.
@@ -268,10 +297,17 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     } finally { setFotoOcupada(false); }
   }
 
-  async function quitarFotoForm() {
+  /** El botón 🗑 de la foto. Si la foto todavía no subió, no hay nada que confirmar. */
+  function pedirQuitarFoto() {
     setError(null);
     if (!editId || !fotoPath) { setFotoPendiente(null); setFotoPreview(null); return; }
-    if (!window.confirm('¿Quitar la foto de esta persona? Se borra del servidor.')) return;
+    setConfirmarQuitarFoto(true);
+  }
+
+  async function quitarFotoForm() {
+    setConfirmarQuitarFoto(false);
+    setError(null);
+    if (!editId || !fotoPath) { setFotoPendiente(null); setFotoPreview(null); return; }
     setFotoOcupada(true);
     try {
       await borrarFotoPersonal(editId, fotoPath);
@@ -368,10 +404,42 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
   }
   async function borrar(p: Personal) {
-    if (!window.confirm(`¿Eliminar a ${p.nombre} ${p.apellido} de la nómina? (no afecta los pagos ya hechos)`)) return;
+    setPorBorrar(null);
     try { await eliminarPersonal(p.id); await recargar(); toast('Eliminado', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
+
+  // Lo que hay que tipear para habilitar el borrado: el apellido, y si no lo
+  // tiene cargado, el nombre completo. Nunca vacío: una caja vacía habilitaría
+  // el botón sola y el paso dejaría de frenar nada.
+  const textoParaBorrar = porBorrar
+    ? (porBorrar.apellido ?? '').trim() || `${porBorrar.nombre} ${porBorrar.apellido ?? ''}`.trim()
+    : '';
+  const cascada = resumenBorrado ? detalleCascada(resumenBorrado) : [];
+
+  // El conteo de lo que se borra en cascada se pide recién al abrir la
+  // confirmación: es una consulta por persona, no tiene por qué correr para
+  // toda la lista solo por si acaso.
+  useEffect(() => {
+    if (!porBorrar) return;
+    let cancel = false;
+    setResumenBorrado(null);
+    setEstadoResumen('cargando');
+    setFotoPorBorrar(null);
+    resumenBorradoPersonal(porBorrar.id).then((r) => {
+      if (cancel) return;
+      if (r) { setResumenBorrado(r); setEstadoResumen('listo'); }
+      else setEstadoResumen('error');
+    });
+    // La foto es de ayuda para reconocer a la persona; si no se puede bajar, el
+    // recuadro se muestra igual con los datos.
+    if (porBorrar.foto_path) {
+      fotoPersonalDataUrl(porBorrar.foto_path)
+        .then((d) => { if (!cancel) setFotoPorBorrar(d); })
+        .catch(() => { /* sin foto en la vista previa */ });
+    }
+    return () => { cancel = true; };
+  }, [porBorrar]);
 
   return (
     <div>
@@ -575,7 +643,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => toggleActivo(p)} title={p.activo ? 'Desactivar' : 'Activar'}>{p.activo ? '⏸' : '▶'}</button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => borrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
                   </>}
                 </td>
               </tr>
@@ -609,7 +677,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
               ocupada={fotoOcupada}
               pendiente={!editId && !!fotoPendiente}
               onElegir={elegirFotoForm}
-              onQuitar={quitarFotoForm}
+              onQuitar={pedirQuitarFoto}
             />
 
             <div className="form-grid">
@@ -685,7 +753,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 <small className="muted">
                   {form.fecha_nacimiento && edad(form.fecha_nacimiento) !== null
                     ? `${edad(form.fecha_nacimiento)} años. La edad se calcula: no se guarda un número que envejece.`
-                    : 'Se escribe DD/MM/AAAA o se elige con 📅. De acá sale la edad en la ficha y en los filtros.'}
+                    : 'Se escribe DD-MM-AAAA o se elige con 📅. De acá sale la edad en la ficha y en los filtros.'}
                 </small>
               </div>
               <div className="form-row">
@@ -824,6 +892,80 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {carnetPersona && <CarnetModal persona={carnetPersona} canWrite={canWrite} onClose={() => setCarnetPersona(null)} onFotoCambio={() => void recargar()} />}
       {constanciaPersona && <ConstanciaModal persona={constanciaPersona} onClose={() => setConstanciaPersona(null)} />}
+
+      {confirmarQuitarFoto && (
+        <ConfirmDialog
+          title="Quitar la foto"
+          danger
+          confirmText="Sí, quitar la foto"
+          message={<>La foto se <strong>borra del servidor</strong>. Si después hace falta para el carnet o la ficha, hay que volver a subirla.</>}
+          preview={
+            <VistaPrevia
+              titulo="Se va a borrar esta foto"
+              foto={fotoPreview ? <img className="confirm-preview-foto" src={fotoPreview} alt="Foto que se va a borrar" /> : undefined}
+            >
+              <Dato label="Persona">{`${form.nombre} ${form.apellido ?? ''}`.trim() || undefined}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void quitarFotoForm(); }}
+          onCancel={() => setConfirmarQuitarFoto(false)}
+        />
+      )}
+
+      {porBorrar && (
+        <ConfirmDialog
+          title="Eliminar a esta persona"
+          danger
+          confirmText="Eliminar definitivamente"
+          requireText={textoParaBorrar}
+          message={<>
+            Esto <strong>no se puede deshacer</strong>: la ficha se borra de la base junto con todo lo que cuelga de ella.
+            Si lo que querés es que deje de aparecer en la nómina, <strong>desactivala</strong> (botón ⏸) en vez de borrarla.
+          </>}
+          preview={
+            <VistaPrevia
+              titulo="Se va a eliminar"
+              foto={fotoPorBorrar ? <img className="confirm-preview-foto" src={fotoPorBorrar} alt={`Foto de ${porBorrar.nombre}`} /> : undefined}
+              pie={
+                <div className="aviso danger" style={{ marginTop: '.6rem' }}>
+                  <span className="aviso-icono">⚠</span>
+                  <div>
+                    {estadoResumen === 'cargando' && <>Calculando…</>}
+                    {estadoResumen === 'error' && (
+                      <>No se pudo contar el detalle. De todos modos, junto con la persona se borran <strong>sus documentos, su carga familiar, su historial de sueldo, sus anticipos y sus registros administrativos</strong>.</>
+                    )}
+                    {estadoResumen === 'listo' && (cascada.length > 0 ? (
+                      <>
+                        <strong>Se borra también:</strong>
+                        <ul style={{ margin: '.25rem 0 0', paddingLeft: '1.1rem' }}>
+                          {cascada.map((t) => <li key={t}>{t}</li>)}
+                        </ul>
+                      </>
+                    ) : (
+                      <>No tiene documentos, carga familiar, historial de sueldo, anticipos ni registros administrativos: se borra solo la ficha.</>
+                    ))}
+                    {/* Lo único que NO se va: es la garantía que el usuario ya conocía, así que se dice siempre. */}
+                    <div style={{ marginTop: '.4rem' }}>
+                      Los <strong>renglones de nómina no se borran</strong>
+                      {resumenBorrado && resumenBorrado.renglones_nomina > 0 ? ` (${resumenBorrado.renglones_nomina})` : ''}:
+                      {' '}los pagos ya hechos quedan, solo dejan de estar ligados a la persona.
+                    </div>
+                  </div>
+                </div>
+              }
+            >
+              <Dato label="Nombre">{`${porBorrar.nombre} ${porBorrar.apellido ?? ''}`.trim() || undefined}</Dato>
+              <Dato label="Cédula">{porBorrar.cedula || undefined}</Dato>
+              <Dato label="Cargo">{porBorrar.cargo || undefined}</Dato>
+              <Dato label="Departamento">{porBorrar.departamento || undefined}</Dato>
+              <Dato label="Fecha de ingreso">{porBorrar.fecha_ingreso ? date(porBorrar.fecha_ingreso) : undefined}</Dato>
+              <Dato label="Sueldo base">{Number(porBorrar.sueldo_base) > 0 ? <strong className="mono">{money(porBorrar.sueldo_base)}</strong> : undefined}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void borrar(porBorrar); }}
+          onCancel={() => setPorBorrar(null)}
+        />
+      )}
     </div>
   );
 }
@@ -993,17 +1135,22 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
   const [reverso, setReverso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [subiendo, setSubiendo] = useState(false);
+  // La foto cruda (no el carnet ya armado): es la que se muestra al confirmar
+  // que se la borra, para que se vea cuál es la que se pierde.
+  const [fotoData, setFotoData] = useState<string | null>(null);
+  const [confirmarQuitar, setConfirmarQuitar] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Regenera frente (con la foto actual) y reverso cada vez que cambia la foto.
   useEffect(() => {
     let cancel = false;
-    setFrente(null); setReverso(null); setError(null);
+    setFrente(null); setReverso(null); setError(null); setFotoData(null);
     (async () => {
       try {
-        const fotoData = fotoPath ? await fotoPersonalDataUrl(fotoPath).catch(() => null) : null;
+        const foto = fotoPath ? await fotoPersonalDataUrl(fotoPath).catch(() => null) : null;
+        if (!cancel) setFotoData(foto);
         const [f, r] = await Promise.all([
-          generarCarnetPersonalDataUrl({ ...persona, foto_path: fotoPath }, fotoData),
+          generarCarnetPersonalDataUrl({ ...persona, foto_path: fotoPath }, foto),
           generarCarnetReversoDataUrl(),
         ]);
         if (!cancel) { setFrente(f); setReverso(r); }
@@ -1036,8 +1183,8 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
   }
 
   async function quitarFoto() {
+    setConfirmarQuitar(false);
     if (!fotoPath) return;
-    if (!window.confirm('¿Quitar la foto de esta persona?')) return;
     setSubiendo(true); setError(null);
     try {
       await borrarFotoPersonal(persona.id, fotoPath);
@@ -1064,7 +1211,7 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
           <button className="btn btn-sm btn-primary" disabled={subiendo} onClick={() => fileRef.current?.click()}>
             {subiendo ? 'Subiendo…' : fotoPath ? '🖼 Cambiar foto' : '🖼 Añadir foto'}
           </button>
-          {fotoPath && <button className="btn btn-sm btn-danger" disabled={subiendo} onClick={quitarFoto}>🗑 Quitar foto</button>}
+          {fotoPath && <button className="btn btn-sm btn-danger" disabled={subiendo} onClick={() => setConfirmarQuitar(true)}>🗑 Quitar foto</button>}
           <span className="muted" style={{ fontSize: '.76rem' }}>La foto va en el frente del carnet. Máx. 5 MB.</span>
         </div>
       )}
@@ -1090,6 +1237,25 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
         54 × 86 mm · 300 DPI (638 × 1016 px) · imágenes PNG listas para imprimir.
         {!persona.telefono && !persona.contacto_emergencia && ' Cargá el teléfono y el contacto de emergencia (✎ Editar) para que el QR los incluya.'}
       </p>
+
+      {confirmarQuitar && (
+        <ConfirmDialog
+          title="Quitar la foto"
+          danger
+          confirmText="Sí, quitar la foto"
+          message={<>La foto se <strong>borra del servidor</strong> y el carnet pasa a generarse sin ella. Si después hace falta, hay que volver a subirla.</>}
+          preview={
+            <VistaPrevia
+              titulo="Se va a borrar esta foto"
+              foto={fotoData ? <img className="confirm-preview-foto" src={fotoData} alt="Foto que se va a borrar" /> : undefined}
+            >
+              <Dato label="Persona">{`${persona.nombre} ${persona.apellido ?? ''}`.trim() || undefined}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void quitarFoto(); }}
+          onCancel={() => setConfirmarQuitar(false)}
+        />
+      )}
     </Modal>
   );
 }

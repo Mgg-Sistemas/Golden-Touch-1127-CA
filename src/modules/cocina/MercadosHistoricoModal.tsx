@@ -16,7 +16,7 @@ import { EcuacionMercado, TablaDisponible } from './PanelMercado';
 const dmy = (iso?: string | null): string => {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
 };
 
 /**

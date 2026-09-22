@@ -53,10 +53,10 @@ function bucketStart(d: Date, bucket: BucketKind): Date {
 }
 
 function bucketLabel(start: Date, bucket: BucketKind): string {
-  if (bucket === 'day') return start.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit' });
+  if (bucket === 'day') return start.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit' }).replace(/\//g, '-');
   if (bucket === 'week') {
     const end = new Date(start); end.setDate(end.getDate() + 6);
-    return `${start.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit' })}`;
+    return `${start.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit' }).replace(/\//g, '-')}`;
   }
   return start.toLocaleDateString('es-VE', { month: 'short', year: '2-digit' });
 }

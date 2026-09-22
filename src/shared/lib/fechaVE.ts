@@ -1,10 +1,10 @@
 /* ============================================================
-   Golden Touch · Fechas en formato venezolano (DD/MM/AAAA)
+   Golden Touch · Fechas en formato venezolano (DD-MM-AAAA)
 
    El selector nativo del navegador escribe la fecha en el formato del
    IDIOMA DEL SISTEMA: en una máquina en inglés, 21 de octubre sale como
-   10/21/1973, que acá se lee como «21 de mes 10» — o directamente no se
-   puede escribir a mano. Estas funciones dejan tipear en DD/MM/AAAA y
+   10-21-1973, que acá se lee como «21 de mes 10» — o directamente no se
+   puede escribir a mano. Estas funciones dejan tipear en DD-MM-AAAA y
    traducen a lo que guarda la base (AAAA-MM-DD), sin tocar el calendario,
    que se sigue pudiendo abrir.
 
@@ -28,17 +28,18 @@ export function fechaIsoValida(iso: string | null | undefined): boolean {
   return d >= 1 && d <= diasDelMes(m, a);
 }
 
-/** `AAAA-MM-DD` → `DD/MM/AAAA`. Vacío si no hay fecha. */
+/** `AAAA-MM-DD` → `DD-MM-AAAA`. Vacío si no hay fecha. */
 export function isoAVe(iso: string | null | undefined): string {
   const s = String(iso ?? '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
-  return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
+  return `${s.slice(8, 10)}-${s.slice(5, 7)}-${s.slice(0, 4)}`;
 }
 
 /**
- * `DD/MM/AAAA` → `AAAA-MM-DD`, o `null` si todavía no es una fecha completa
- * y válida. Acepta separadores sueltos (21-10-1973, 21.10.1973) y un solo
- * dígito en día o mes (1/3/1990), que es como la gente escribe de apuro.
+ * `DD-MM-AAAA` → `AAAA-MM-DD`, o `null` si todavía no es una fecha completa
+ * y válida. Acepta cualquier separador (21/10/1973, 21.10.1973) —así lo ya
+ * escrito con barras y lo pegado de otro lado siguen entrando— y un solo
+ * dígito en día o mes (1-3-1990), que es como la gente escribe de apuro.
  */
 export function veAIso(texto: string | null | undefined): string | null {
   const t = String(texto ?? '').trim();
@@ -49,15 +50,15 @@ export function veAIso(texto: string | null | undefined): string | null {
 }
 
 /**
- * Da forma a lo que se está tecleando: deja solo dígitos y va poniendo las
- * barras sola. No valida todavía —mientras se escribe, «2» es un día que
+ * Da forma a lo que se está tecleando: deja solo dígitos y va poniendo los
+ * guiones solos. No valida todavía —mientras se escribe, «2» es un día que
  * puede terminar en 21— solo acomoda.
  */
 export function formatearMientrasEscribe(texto: string): string {
   const d = String(texto ?? '').replace(/\D/g, '').slice(0, 8);
   if (d.length <= 2) return d;
-  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
-  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
+  if (d.length <= 4) return `${d.slice(0, 2)}-${d.slice(2)}`;
+  return `${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4)}`;
 }
 
 /**
@@ -70,5 +71,5 @@ export function errorFechaVe(texto: string | null | undefined): string | null {
   if (!t) return null;
   if (veAIso(t)) return null;
   if (/^\d{1,2}[/\-. ]\d{1,2}[/\-. ]\d{4}$/.test(t)) return 'Esa fecha no existe. Revisá el día y el mes.';
-  return 'Escribila como DD/MM/AAAA (por ejemplo 21/10/1973).';
+  return 'Escribila como DD-MM-AAAA (por ejemplo 21-10-1973).';
 }

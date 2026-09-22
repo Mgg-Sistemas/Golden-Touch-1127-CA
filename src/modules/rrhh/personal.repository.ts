@@ -149,6 +149,48 @@ export async function setPersonalActivo(id: string, activo: boolean): Promise<vo
   if (error) throw error;
 }
 
+/** Cuántas filas se van a ir en cascada junto con la persona. */
+export interface ResumenBorradoPersonal {
+  documentos: number;
+  familiares: number;
+  /** Renglones del historial de sueldo. */
+  sueldos: number;
+  /** Vacaciones, permisos, utilidades y notas (rrhh_eventos). */
+  eventos: number;
+  anticipos: number;
+  /** Estos NO se borran: quedan, pero sin quedar ligados a la persona (SET NULL). */
+  renglones_nomina: number;
+}
+
+/**
+ * Qué se lleva por delante borrar a una persona.
+ *
+ * La fila de `personal` cuelga de un ON DELETE CASCADE: al borrarla se van con
+ * ella sus documentos, su carga familiar, su historial de sueldo, sus anticipos
+ * y sus registros administrativos. Eso no se puede deshacer, así que el usuario
+ * tiene que verlo ANTES, con las cantidades reales, no enterarse después.
+ *
+ * Devuelve null si el conteo falla (permisos, red, función ausente): perder el
+ * detalle no puede tumbar la pantalla —la confirmación avisa igual, en general—
+ * porque el aviso vale más que el número exacto.
+ */
+export async function resumenBorradoPersonal(id: string): Promise<ResumenBorradoPersonal | null> {
+  const { data, error } = await supabase.rpc('personal_resumen_borrado', { p_id: id });
+  if (error) return null;
+  // La función devuelve TABLE(...), así que llega como arreglo de una fila.
+  const fila = (Array.isArray(data) ? data[0] : data) as Partial<ResumenBorradoPersonal> | null | undefined;
+  if (!fila) return null;
+  const n = (v: unknown) => Number(v) || 0;
+  return {
+    documentos: n(fila.documentos),
+    familiares: n(fila.familiares),
+    sueldos: n(fila.sueldos),
+    eventos: n(fila.eventos),
+    anticipos: n(fila.anticipos),
+    renglones_nomina: n(fila.renglones_nomina),
+  };
+}
+
 /** Elimina definitivamente una persona del personal. */
 export async function eliminarPersonal(id: string): Promise<void> {
   const { data, error } = await supabase.from(TABLE).delete().eq('id', id).select('id');

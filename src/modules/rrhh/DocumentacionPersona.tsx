@@ -14,6 +14,9 @@
    ============================================================ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
+import { ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
+import { date } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import type { PersonalDocumento, TipoDocumento } from '@/shared/lib/types';
@@ -30,6 +33,13 @@ const peso = (b: number | null | undefined) => {
   if (!n) return '';
   return n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 };
+
+const labelDocumento = (tipo: TipoDocumento) => TIPOS_DOCUMENTO.find((t) => t.tipo === tipo)?.label ?? tipo;
+
+/** Si se puede mirar como imagen. El `mime` es lo que informó el navegador al
+ *  subir; cuando falta, la extensión del nombre alcanza para decidirlo. */
+const esImagen = (doc: PersonalDocumento) =>
+  (doc.mime ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(doc.nombre ?? '');
 
 /** Abre un documento en la vista previa del sistema (enlace firmado, 10 min). */
 async function verDocumento(doc: PersonalDocumento): Promise<void> {
@@ -53,6 +63,8 @@ export function DocumentacionPersona({
   const [cargando, setCargando] = useState(!!personalId);
   const [ocupado, setOcupado] = useState<TipoDocumento | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [porQuitar, setPorQuitar] = useState<PersonalDocumento | null>(null);
+  const [miniatura, setMiniatura] = useState<string | null>(null);
   const inputs = useRef<Partial<Record<TipoDocumento, HTMLInputElement | null>>>({});
 
   const recargar = useCallback(async () => {
@@ -67,6 +79,20 @@ export function DocumentacionPersona({
 
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['personal_documentos'], () => { void recargar(); });
+
+  // El enlace firmado se pide recién al abrir la confirmación: dura diez
+  // minutos y no tiene sentido gastar uno por cada documento que nadie va a
+  // borrar. Si no se puede firmar, se confirma sin miniatura antes que trabar
+  // el borrado por no poder mostrar una foto.
+  useEffect(() => {
+    if (!porQuitar || !esImagen(porQuitar)) { setMiniatura(null); return; }
+    let vigente = true;
+    setMiniatura(null);
+    urlDocumentoPersonal(porQuitar.path)
+      .then((url) => { if (vigente) setMiniatura(url); })
+      .catch(() => { if (vigente) setMiniatura(null); });
+    return () => { vigente = false; };
+  }, [porQuitar]);
 
   async function elegir(tipo: TipoDocumento, file: File) {
     setError(null);
@@ -85,12 +111,19 @@ export function DocumentacionPersona({
     } finally { setOcupado(null); }
   }
 
-  async function quitar(tipo: TipoDocumento) {
+  // Sacar un pendiente no borra nada —todavía no subió a ningún lado—, así que
+  // no se pregunta; el que ya está en el servidor sí pasa por la confirmación.
+  function pedirQuitar(tipo: TipoDocumento) {
     setError(null);
     const doc = docs.find((d) => d.tipo === tipo);
     if (!doc) { onPendiente?.(tipo, null); return; }
-    if (!window.confirm(`¿Quitar el ${TIPOS_DOCUMENTO.find((t) => t.tipo === tipo)?.label}? Se borra del servidor.`)) return;
-    setOcupado(tipo);
+    setPorQuitar(doc);
+  }
+
+  async function quitar(doc: PersonalDocumento) {
+    setPorQuitar(null);
+    setError(null);
+    setOcupado(doc.tipo);
     try {
       await borrarDocumentoPersonal(doc);
       await recargar();
@@ -104,6 +137,17 @@ export function DocumentacionPersona({
     try { await verDocumento(doc); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el documento', 'error'); }
   }
+
+  // La miniatura de la confirmación: la imagen de verdad cuando el enlace se
+  // pudo firmar, el ícono cuando el documento es un PDF, y nada cuando era una
+  // imagen que no cargó (se borra igual, solo que a ciegas).
+  const fotoPorQuitar = !porQuitar
+    ? undefined
+    : miniatura
+      ? <img className="confirm-preview-foto" src={miniatura} alt={porQuitar.nombre} onError={() => setMiniatura(null)} />
+      : esImagen(porQuitar)
+        ? undefined
+        : <div className="confirm-preview-foto" style={{ display: 'grid', placeItems: 'center', fontSize: '2rem' }}>📄</div>;
 
   return (
     <div>
@@ -160,7 +204,7 @@ export function DocumentacionPersona({
                 )}
                 {canWrite && hay && (
                   <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
-                    disabled={trabajando} onClick={() => void quitar(tipo)}>🗑</button>
+                    disabled={trabajando} onClick={() => pedirQuitar(tipo)}>🗑</button>
                 )}
               </div>
             </div>
@@ -173,6 +217,26 @@ export function DocumentacionPersona({
         almacén <strong>privado</strong>: los ve quien puede leer RRHH y los carga o borra quien tiene escritura.
         {!personalId && ' Como la persona todavía no existe, los archivos se suben al guardar el registro.'}
       </small>
+
+      {porQuitar && (
+        <ConfirmDialog
+          title={`Quitar ${labelDocumento(porQuitar.tipo)}`}
+          danger
+          confirmText="Sí, borrar"
+          message={<>El archivo <strong>se borra del servidor</strong> y no se puede recuperar.
+            Si más adelante hace falta, hay que volver a cargarlo.</>}
+          preview={
+            <VistaPrevia titulo="Se va a borrar" foto={fotoPorQuitar}>
+              <Dato label="Documento">{labelDocumento(porQuitar.tipo)}</Dato>
+              <Dato label="Archivo">{porQuitar.nombre}</Dato>
+              <Dato label="Peso">{peso(porQuitar.tamano) || undefined}</Dato>
+              <Dato label="Cargado">{date(porQuitar.created_at) || undefined}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void quitar(porQuitar); }}
+          onCancel={() => setPorQuitar(null)}
+        />
+      )}
     </div>
   );
 }

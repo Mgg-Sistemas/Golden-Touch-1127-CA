@@ -42,30 +42,38 @@ export function dosDecimales(valor: string): string {
 
 const TZ = 'America/Caracas';
 
+/**
+ * Arma la fecha como DD-MM-AAAA a partir de sus partes ya calculadas en la zona
+ * horaria que corresponda. Se construye a mano y no con `toLocaleDateString`
+ * porque ese método devuelve lo que el navegador crea que es el formato local:
+ * en una máquina en inglés salía "Mar 12, 2024", y en español "12 mar 2024".
+ * Acá la fecha se escribe siempre igual, se use la máquina que se use.
+ */
+function partesFecha(d: Date, tz: string, conHora: boolean): string | null {
+  if (isNaN(d.getTime())) return null;
+  const f = new Intl.DateTimeFormat('es-VE', {
+    timeZone: tz,
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    ...(conHora ? { hour: '2-digit', minute: '2-digit', hour12: false } as const : {}),
+  });
+  const p: Record<string, string> = {};
+  for (const parte of f.formatToParts(d)) p[parte.type] = parte.value;
+  const fecha = `${p.day}-${p.month}-${p.year}`;
+  return conHora ? `${fecha} ${p.hour}:${p.minute}` : fecha;
+}
+
 export function date(iso: string | null | undefined): string {
   if (!iso) return '—';
   // Una fecha SIN hora (YYYY-MM-DD) representa un día calendario: no debe correrse
   // por zona horaria (si no, 2026-04-15 se mostraría como 14 en Venezuela). Para
   // esos casos se interpreta en UTC y así coincide con el día real (el del Excel).
   const soloFecha = typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
-  return new Date(iso).toLocaleDateString('es-VE', {
-    timeZone: soloFecha ? 'UTC' : TZ,
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return partesFecha(new Date(iso), soloFecha ? 'UTC' : TZ, false) ?? '—';
 }
 
 export function dateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-VE', {
-    timeZone: TZ,
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return partesFecha(new Date(iso), TZ, true) ?? '—';
 }
 
 export function relTime(iso: string | null | undefined): string {

@@ -47,8 +47,8 @@ function hoyISO(): string {
     timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date());
 }
-/** YYYY-MM-DD → DD/MM/YYYY (para etiquetas legibles). */
-function dmy(iso: string): string { const p = iso.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; }
+/** YYYY-MM-DD → DD-MM-AAAA (para etiquetas legibles). */
+function dmy(iso: string): string { const p = iso.split('-'); return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : iso; }
 function inicioSemana(iso: string): string {
   const d = new Date(`${iso}T00:00:00`); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); return d.toISOString().slice(0, 10);
 }

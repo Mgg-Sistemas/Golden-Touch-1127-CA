@@ -8,9 +8,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { FechaInput } from '@/shared/ui/FechaInput';
+import { ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import type { PersonalFamiliar } from '@/shared/lib/types';
 import { isoAVe } from '@/shared/lib/fechaVE';
-import { GENEROS, PARENTESCOS, edad, labelParentesco } from './fichaPersonal';
+import { GENEROS, PARENTESCOS, edad, labelGenero, labelParentesco } from './fichaPersonal';
 import {
   agregarFamiliar, borrarFamiliar, listFamiliares, type FamiliarInput,
 } from './familiares.repository';
@@ -36,6 +38,7 @@ export function CargaFamiliarPersona({
   const [abierto, setAbierto] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [porQuitar, setPorQuitar] = useState<PersonalFamiliar | null>(null);
 
   const recargar = useCallback(async () => {
     if (!personalId) { setLista([]); return; }
@@ -66,7 +69,7 @@ export function CargaFamiliarPersona({
   }
 
   async function quitar(f: PersonalFamiliar) {
-    if (!window.confirm(`¿Quitar a ${f.nombre} de la carga familiar?`)) return;
+    setPorQuitar(null);
     setOcupado(true);
     try {
       await borrarFamiliar(f.id);
@@ -123,7 +126,7 @@ export function CargaFamiliarPersona({
               <label>Fecha de nacimiento</label>
               <FechaInput value={form.fecha_nacimiento ?? ''} max={new Date().toISOString().slice(0, 10)}
                 onChange={(iso) => setForm((f) => ({ ...f, fecha_nacimiento: iso }))} />
-              <small className="muted">DD/MM/AAAA o con 📅. De acá sale la edad; no se guarda un número que envejece.</small>
+              <small className="muted">DD-MM-AAAA o con 📅. De acá sale la edad; no se guarda un número que envejece.</small>
             </div>
             <div className="form-row">
               <label>Cédula (si tiene)</label>
@@ -203,7 +206,7 @@ export function CargaFamiliarPersona({
                   {canWrite && (
                     <td style={{ textAlign: 'center' }}>
                       <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
-                        disabled={ocupado} onClick={() => void quitar(f)}>🗑</button>
+                        disabled={ocupado} onClick={() => setPorQuitar(f)}>🗑</button>
                     </td>
                   )}
                 </tr>
@@ -226,6 +229,28 @@ export function CargaFamiliarPersona({
             </tbody>
           </table>
         </div>
+      )}
+
+      {porQuitar && (
+        <ConfirmDialog
+          title="Quitar de la carga familiar"
+          danger
+          confirmText="Sí, quitar"
+          message={<>Se quita a <strong>{porQuitar.nombre}</strong> de la carga familiar de esta persona.
+            Si estaba elegido como <strong>contacto de emergencia</strong>, va a haber que elegir otro.</>}
+          preview={
+            <VistaPrevia titulo="Se va a quitar">
+              <Dato label="Nombre">{porQuitar.nombre}</Dato>
+              <Dato label="Parentesco">{labelParentesco(porQuitar.parentesco)}</Dato>
+              <Dato label="Cédula">{porQuitar.cedula || undefined}</Dato>
+              <Dato label="Nacimiento">{isoAVe(porQuitar.fecha_nacimiento) || undefined}</Dato>
+              <Dato label="Edad">{edad(porQuitar.fecha_nacimiento) ?? undefined}</Dato>
+              <Dato label="Género">{porQuitar.genero ? labelGenero(porQuitar.genero) : undefined}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void quitar(porQuitar); }}
+          onCancel={() => setPorQuitar(null)}
+        />
       )}
     </div>
   );

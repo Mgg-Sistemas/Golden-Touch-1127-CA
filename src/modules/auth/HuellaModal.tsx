@@ -40,7 +40,7 @@ export function HuellaModal({ onClose }: { onClose: () => void }) {
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
-  const fecha = (s: string | null) => (s ? new Date(s).toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }) : '—');
+  const fecha = (s: string | null) => (s ? new Date(s).toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }).replace(/\//g, '-') : '—');
 
   return (
     <Modal title="🔒 Entrar con huella" size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>

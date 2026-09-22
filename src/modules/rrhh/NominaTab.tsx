@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -24,6 +25,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
   const [cargarOpen, setCargarOpen] = useState(false);
   const [liqOpen, setLiqOpen] = useState(false);
   const [verPeriodo, setVerPeriodo] = useState<NominaPeriodoResumen | null>(null);
+  const [porBorrar, setPorBorrar] = useState<NominaPeriodoResumen | null>(null);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -35,7 +37,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
   useRealtime(['nomina_periodos', 'nomina_renglones'], () => { void recargar(); });
 
   async function borrar(p: NominaPeriodoResumen) {
-    if (!window.confirm(`¿Eliminar la nómina ${p.codigo}? Solo se puede si no tiene pagos.`)) return;
+    setPorBorrar(null);
     try { await eliminarNomina(p.id); await recargar(); toast('Nómina eliminada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
@@ -85,7 +87,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => setVerPeriodo(p)} title="Ver detalle">👁</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => pdfNomina(p)} title="Recibo de pago (PDF con fecha y líneas de firma: la persona y la Jefa de RRHH; se firman a mano al imprimir)">📄 Recibos</button>
-                  {canWrite && p.pagados === 0 && <button className="btn btn-sm btn-ghost" onClick={() => borrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>}
+                  {canWrite && p.pagados === 0 && <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>}
                 </td>
               </tr>
             ))}
@@ -96,6 +98,31 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
       {cargarOpen && <CargarNominaModal empresa={empresa} actor={actor} actorName={actorName} onClose={() => setCargarOpen(false)} onSaved={async () => { setCargarOpen(false); await recargar(); }} />}
       {liqOpen && <LiquidacionModal empresa={empresa} actor={actor} actorName={actorName} onClose={() => setLiqOpen(false)} onSaved={async () => { setLiqOpen(false); await recargar(); }} />}
       {verPeriodo && <NominaDetalleModal periodo={verPeriodo} onClose={() => setVerPeriodo(null)} />}
+
+      {porBorrar && (
+        <ConfirmDialog
+          title="Eliminar nómina"
+          danger
+          confirmText="Sí, eliminar"
+          message={<>Se borra el período completo con <strong>sus {porBorrar.total_renglones} renglón(es)</strong>. Solo se puede porque todavía <strong>no tiene ningún pago hecho</strong>.</>}
+          preview={
+            <VistaPrevia titulo="Se va a eliminar">
+              <Dato label="Nómina"><strong className="mono">{porBorrar.codigo}</strong></Dato>
+              <Dato label="Período">{porBorrar.periodo_desde
+                ? (porBorrar.periodo_hasta && porBorrar.periodo_hasta !== porBorrar.periodo_desde
+                  ? `${date(porBorrar.periodo_desde)} → ${date(porBorrar.periodo_hasta)}`
+                  : date(porBorrar.periodo_desde))
+                : undefined}</Dato>
+              <Dato label="Trabajadores"><span className="mono">{porBorrar.total_renglones}</span></Dato>
+              <Dato label="Pagados"><span className="mono">{porBorrar.pagados} de {porBorrar.total_renglones}</span></Dato>
+              <Dato label="Total"><strong className="mono">{money(porBorrar.total_usd)}</strong></Dato>
+              <Dato label="Cargada">{dateTime(porBorrar.created_at)}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void borrar(porBorrar); }}
+          onCancel={() => setPorBorrar(null)}
+        />
+      )}
     </div>
   );
 }

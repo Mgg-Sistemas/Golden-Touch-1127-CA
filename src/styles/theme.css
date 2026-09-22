@@ -633,3 +633,130 @@ body.hints-off .hint { display: none !important; }
   }
   .reporte-print .muted { color: #444 !important; }
 }
+
+/* ───────── Vista previa dentro de una confirmación ─────────
+   Un "¿Eliminar este registro?" del navegador no dice QUÉ registro, y sale
+   con la tipografía y los botones de Chrome, que no son los del sistema.
+   Estas clases arman el recuadro que va debajo del mensaje y muestra lo que
+   está en juego: la foto, los datos de la fila, lo que se borra en cascada.
+   Sube un escalón (--surface-3) sobre el cuerpo del modal para despegarse. */
+.confirm-preview {
+  margin-top: .85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.confirm-preview-titulo {
+  padding: .4rem .75rem;
+  font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-strong);
+}
+.confirm-preview-cuerpo {
+  padding: .65rem .75rem;
+  display: flex; gap: .8rem; align-items: flex-start; flex-wrap: wrap;
+}
+/* Etiqueta y valor en dos columnas. `auto 1fr` deja la etiqueta tan angosta
+   como su texto y todo el resto para el dato, que es lo que se quiere leer. */
+.confirm-datos {
+  margin: 0; flex: 1; min-width: 0;
+  display: grid; grid-template-columns: auto 1fr; gap: .25rem .7rem;
+  font-size: .82rem; line-height: 1.4;
+}
+.confirm-datos dt { color: var(--text-muted); }
+.confirm-datos dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.confirm-datos dd strong { color: var(--text); }
+/* La miniatura: foto de la persona o el documento que se va a quitar. */
+.confirm-preview-foto {
+  width: 84px; height: 84px; object-fit: cover; flex-shrink: 0;
+  border-radius: 8px; border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+}
+
+/* ───────── Encabezado de RRHH · título + switch de nómina ─────────
+   RRHH son DOS nóminas distintas (GT y MTO) que no se mezclan: la misma
+   pantalla muestra una plantilla u otra según el switch. Con el encabezado
+   sobrio de antes eso no se veía, y era fácil estar mirando MTO creyendo
+   que era GT.
+   Ahora el título canta cuál está abierta —el nombre de la nómina va en
+   naranja, el resto en texto normal— y el switch pasa a ser un grupo de
+   pastillas a la derecha: contenedor oscuro, la activa rellena de naranja
+   con texto oscuro (el naranja de marca es claro: texto blanco encima no
+   contrasta). Cada pastilla lleva entre paréntesis cuánta gente ACTIVA tiene
+   esa nómina, para decidir sin entrar. La línea naranja de abajo separa el
+   encabezado del resto del módulo. */
+.rrhh-cabecera { margin-bottom: 1rem; }
+
+.rrhh-cabecera-fila {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem 1rem;
+  /* En teléfono el switch no cabe al lado del título: baja solo. */
+  flex-wrap: wrap;
+  padding-bottom: .6rem;
+  /* La línea naranja: es el borde de la fila, así cruza todo el ancho
+     disponible sin agregar un div vacío ni desbordar el contenedor. */
+  border-bottom: 3px solid var(--primary);
+}
+
+.rrhh-titulo {
+  margin: 0; min-width: 0;
+  font-size: 1.85rem; font-weight: 700; line-height: 1.2;
+  color: var(--text);
+  /* Nombres largos parten en vez de estirar la fila y provocar scroll. */
+  overflow-wrap: anywhere;
+}
+.rrhh-titulo-nomina { color: var(--primary); }
+
+/* El contenedor de las dos pastillas: fondo hundido para que la activa,
+   que va rellena, se lea como un botón encendido dentro de una ranura. */
+.rrhh-nominas {
+  display: flex; align-items: center; gap: .25rem;
+  flex-wrap: wrap;
+  padding: .25rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.rrhh-nomina-btn {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .4rem .9rem;
+  border: 0; border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit; font-weight: 600; white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+/* La inactiva solo se aclara al pasar el mouse: no se tiñe, para que el
+   naranja siga significando «esta es la nómina abierta». */
+.rrhh-nomina-btn:hover { background: var(--surface-3); color: var(--text); }
+.rrhh-nomina-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.rrhh-nomina-btn.activa {
+  background: var(--primary);
+  color: var(--bg-0);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+.rrhh-nomina-btn.activa:hover { background: var(--primary-2); color: var(--bg-0); }
+
+/* El conteo acompaña, no compite: más chico y atenuado. Sobre la pastilla
+   activa hereda el texto oscuro y solo baja la opacidad, porque el gris
+   apagado sobre naranja no se leería. */
+.rrhh-nomina-cuenta { font-size: .8em; font-weight: 600; color: var(--text-dim); }
+.rrhh-nomina-btn:hover .rrhh-nomina-cuenta { color: var(--text-muted); }
+.rrhh-nomina-btn.activa .rrhh-nomina-cuenta { color: inherit; opacity: .7; }
+
+.rrhh-cabecera-nota { margin: .5rem 0 0; }
+
+/* Teléfono: el título baja de tamaño y la fila se apila (título arriba,
+   switch abajo) alineada a la izquierda, sin scroll horizontal. */
+@media (max-width: 640px) {
+  .rrhh-cabecera-fila { align-items: flex-start; }
+  .rrhh-titulo { font-size: 1.4rem; }
+  .rrhh-nomina-btn { padding: .35rem .7rem; font-size: .85rem; }
+}

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { money, date } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -19,6 +21,7 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
   const [error, setError] = useState<string | null>(null);
   const [verSaldadas, setVerSaldadas] = useState(false);
   const [formKey, setFormKey] = useState(0);
+  const [porBorrar, setPorBorrar] = useState<AnticipoPrestamo | null>(null);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -53,7 +56,7 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
   }
 
   async function borrar(a: AnticipoPrestamo) {
-    if (!window.confirm('¿Eliminar este registro?')) return;
+    setPorBorrar(null);
     try { await eliminarAnticipo(a.id); await recargar(); toast('Eliminado', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
@@ -113,12 +116,36 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
                 <td className="mono" style={{ textAlign: 'right', color: Number(a.saldo) > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(a.saldo)}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: a.estado === 'activo' ? 'var(--warning)' : 'var(--success)' }}>{a.estado === 'activo' ? 'Activo' : 'Saldado'}</span></td>
                 <td className="muted">{date(a.created_at)}</td>
-                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => borrar(a)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
+                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(a)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {porBorrar && (
+        <ConfirmDialog
+          title={porBorrar.tipo === 'anticipo' ? 'Eliminar anticipo' : 'Eliminar préstamo'}
+          danger
+          confirmText="Sí, eliminar"
+          message={Number(porBorrar.saldo) < Number(porBorrar.monto_total)
+            ? <>Este registro <strong>ya tiene descuentos aplicados en nómina</strong>. Al eliminarlo, lo que falta por descontar deja de restarse en los próximos pagos.</>
+            : <>Se elimina el registro. Lo que falta por descontar deja de restarse en los próximos pagos de nómina.</>}
+          preview={
+            <VistaPrevia titulo="Se va a eliminar">
+              <Dato label="Trabajador">{nombre(porBorrar.personal_id)}</Dato>
+              <Dato label="Tipo">{porBorrar.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'}</Dato>
+              <Dato label="Motivo">{porBorrar.motivo || undefined}</Dato>
+              <Dato label="Monto total"><span className="mono">{money(porBorrar.monto_total)}</span></Dato>
+              <Dato label="Ya descontado"><span className="mono">{money(Number(porBorrar.monto_total) - Number(porBorrar.saldo))}</span></Dato>
+              <Dato label="Saldo pendiente"><strong className="mono">{money(porBorrar.saldo)}</strong></Dato>
+              <Dato label="Registrado">{date(porBorrar.created_at)}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void borrar(porBorrar); }}
+          onCancel={() => setPorBorrar(null)}
+        />
+      )}
     </div>
   );
 }

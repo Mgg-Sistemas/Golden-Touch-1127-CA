@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -209,6 +210,7 @@ function VacacionDetalleModal({ evento, persona, enConflicto, canWrite, actor, a
   onClose: () => void; onChanged: () => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false);
   const dias = Number(evento.dias) || (evento.fecha_desde && evento.fecha_hasta ? diasInclusive(evento.fecha_desde, evento.fecha_hasta) : 0);
   const sueldo = Number(persona?.sueldo_base) || 0;
   const monto = montoVacacion(sueldo, dias);
@@ -226,7 +228,7 @@ function VacacionDetalleModal({ evento, persona, enConflicto, canWrite, actor, a
   }
 
   async function borrar() {
-    if (!window.confirm('¿Eliminar esta vacación?')) return;
+    setConfirmarBorrado(false);
     try { await eliminarEvento(evento.id); onChanged(); toast('Eliminada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
@@ -234,7 +236,7 @@ function VacacionDetalleModal({ evento, persona, enConflicto, canWrite, actor, a
   return (
     <Modal title="Detalle de vacaciones" size="md" onClose={onClose} footer={
       <>
-        {canWrite && !evento.procesada && <button className="btn btn-ghost" onClick={borrar} style={{ color: 'var(--danger)' }}>🗑 Eliminar</button>}
+        {canWrite && !evento.procesada && <button className="btn btn-ghost" onClick={() => setConfirmarBorrado(true)} style={{ color: 'var(--danger)' }}>🗑 Eliminar</button>}
         {canWrite && !evento.procesada && <button className="btn btn-primary" onClick={procesar} disabled={saving || sueldo <= 0}>{saving ? 'Procesando…' : '💸 Procesar Vacación'}</button>}
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
@@ -267,6 +269,28 @@ function VacacionDetalleModal({ evento, persona, enConflicto, canWrite, actor, a
         <div className="muted" style={{ marginTop: '.6rem', fontSize: '.84rem' }}>✓ Ya procesada — está en la cola de pago de Tesorería (o ya pagada).</div>
       ) : (
         <div className="muted" style={{ marginTop: '.6rem', fontSize: '.84rem' }}>Al <strong>Procesar Vacación</strong> se genera un renglón en Tesorería (motivo <strong>Vacaciones</strong>) para pagarlo.</div>
+      )}
+
+      {confirmarBorrado && (
+        <ConfirmDialog
+          title="Eliminar vacación"
+          danger
+          confirmText="Sí, eliminar"
+          message={<>Se borra del calendario y del historial de la persona. Todavía <strong>no se procesó</strong>, así que no hay nada que revertir en Tesorería.</>}
+          preview={
+            <VistaPrevia titulo="Se va a eliminar">
+              <Dato label="Trabajador">{persona ? `${persona.nombre} ${persona.apellido}` : undefined}</Dato>
+              <Dato label="Departamento">{persona?.departamento || undefined}</Dato>
+              <Dato label="Desde">{fmtDate(evento.fecha_desde)}</Dato>
+              <Dato label="Hasta">{fmtDate(evento.fecha_hasta)}</Dato>
+              <Dato label="Días"><span className="mono">{dias}</span></Dato>
+              <Dato label="Monto que se iba a pagar">{sueldo > 0 ? <strong className="mono">{money(monto)}</strong> : undefined}</Dato>
+              <Dato label="Nota">{evento.descripcion || undefined}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void borrar(); }}
+          onCancel={() => setConfirmarBorrado(false)}
+        />
       )}
     </Modal>
   );

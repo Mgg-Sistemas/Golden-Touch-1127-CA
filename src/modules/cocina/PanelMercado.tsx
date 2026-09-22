@@ -23,8 +23,8 @@ import {
 
 /** Un cero en una tabla larga es ruido: se muestra un punto tenue. */
 function cifra(v: number): string { return v === 0 ? '·' : num(v); }
-/** Día de un instante en Caracas, como DD/MM/AAAA. */
-function dmy(instante: string): string { const [y, m, d] = diaCaracas(instante).split('-'); return `${d}/${m}/${y}`; }
+/** Día de un instante en Caracas, como DD-MM-AAAA. */
+function dmy(instante: string): string { const [y, m, d] = diaCaracas(instante).split('-'); return `${d}-${m}-${y}`; }
 
 /* ───────── CAPA 1 · La ecuación del ciclo ───────── */
 

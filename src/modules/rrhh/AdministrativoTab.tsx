@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { money, date } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -38,6 +40,7 @@ export function AdministrativoTab({ empresa, canWrite, actor, actorName }: { emp
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filtroTipo, setFiltroTipo] = useState<string>('');
+  const [porBorrar, setPorBorrar] = useState<RrhhEvento | null>(null);
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
 
@@ -73,7 +76,7 @@ export function AdministrativoTab({ empresa, canWrite, actor, actorName }: { emp
     finally { setGuardando(false); }
   }
   async function borrar(ev: RrhhEvento) {
-    if (!window.confirm('¿Eliminar este registro?')) return;
+    setPorBorrar(null);
     try { await eliminarEvento(ev.id); await recargar(); toast('Eliminado', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
@@ -207,12 +210,37 @@ export function AdministrativoTab({ empresa, canWrite, actor, actorName }: { emp
                 <td className="mono" style={{ textAlign: 'right' }}>{e.dias != null ? e.dias : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{e.monto != null ? money(e.monto) : '—'}</td>
                 <td className="muted">{e.descripcion || '—'}</td>
-                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => borrar(e)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
+                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(e)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {porBorrar && (
+        <ConfirmDialog
+          title={`Eliminar ${labelTipo(porBorrar.tipo).toLowerCase()}`}
+          danger
+          confirmText="Sí, eliminar"
+          message={<>Se borra este registro del historial de la persona. {porBorrar.tipo === 'utilidad'
+            ? <>El monto <strong>deja de contar en los reportes</strong>.</>
+            : <>No toca la nómina ya pagada.</>}</>}
+          preview={
+            <VistaPrevia titulo="Se va a eliminar">
+              <Dato label="Trabajador">{nombre(porBorrar.personal_id)}</Dato>
+              <Dato label="Tipo">{labelTipo(porBorrar.tipo)}</Dato>
+              <Dato label="Período">{porBorrar.fecha_desde
+                ? `${date(porBorrar.fecha_desde)}${porBorrar.fecha_hasta ? ` → ${date(porBorrar.fecha_hasta)}` : ''}`
+                : undefined}</Dato>
+              <Dato label="Días">{porBorrar.dias != null ? <span className="mono">{porBorrar.dias}</span> : undefined}</Dato>
+              <Dato label="Monto">{porBorrar.monto != null ? <strong className="mono">{money(porBorrar.monto)}</strong> : undefined}</Dato>
+              <Dato label="Descripción">{porBorrar.descripcion || undefined}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void borrar(porBorrar); }}
+          onCancel={() => setPorBorrar(null)}
+        />
+      )}
     </div>
   );
 }

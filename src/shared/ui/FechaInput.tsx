@@ -1,13 +1,13 @@
 /* ============================================================
    Golden Touch · Campo de fecha en formato venezolano
 
-   Se escribe a mano en DD/MM/AAAA —con las barras puestas solas— y el
+   Se escribe a mano en DD-MM-AAAA —con los guiones puestos solos— y el
    botón 📅 abre el calendario del navegador. Las dos formas terminan en
    el mismo dato: `AAAA-MM-DD`, que es lo que guarda la base.
 
    Por qué no alcanza con el `<input type="date">` pelado: muestra y pide
    la fecha en el formato del IDIOMA DEL SISTEMA. En una máquina en inglés,
-   el 21 de octubre se escribe 10/21/1973, y quien carga fichas todo el día
+   el 21 de octubre se escribe 10-21-1973, y quien carga fichas todo el día
    termina metiendo el mes en el día sin darse cuenta.
    ============================================================ */
 import { useEffect, useRef, useState } from 'react';
@@ -16,7 +16,7 @@ import { errorFechaVe, formatearMientrasEscribe, isoAVe, veAIso } from '@/shared
 export function FechaInput({
   value, onChange, name, id, placeholder, disabled, autoFocus, className, style, max, min,
 }: {
-  /** La fecha guardada, `AAAA-MM-DD`, o cadena vacía. */
+  /** La fecha guardada, `AAAA-MM-DD`, o cadena vacía. Se muestra DD-MM-AAAA. */
   value: string | null | undefined;
   /** Devuelve `AAAA-MM-DD`, o cadena vacía cuando el campo queda en blanco. */
   onChange: (iso: string) => void;
@@ -79,7 +79,7 @@ export function FechaInput({
           value={texto}
           onChange={(e) => escribir(e.target.value)}
           onBlur={() => setTocado(true)}
-          placeholder={placeholder ?? 'DD/MM/AAAA'}
+          placeholder={placeholder ?? 'DD-MM-AAAA'}
           inputMode="numeric"
           maxLength={10}
           disabled={disabled}
