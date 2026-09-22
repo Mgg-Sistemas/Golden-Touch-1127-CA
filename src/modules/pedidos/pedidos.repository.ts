@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
+import { baseNetaDesdeTotal, impuestosDeOrden, recomponerImpuestos } from './impuestosOrden';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -383,19 +384,26 @@ export async function actualizarOrdenEditable(
     upd.oc_aprobada_en = null;
   }
   if (patch.items) upd.items = patch.items;
-  // Si se editó el costo de los productos, recalculamos el total de la OC (y el
-  // total en divisa cuando aplica) para que precio·cantidad cuadre en TODA la OC:
-  // tarjeta, PDF, Tesorería y costo de inventario al recibir.
-  // OJO: `patch.total` llega como BASE − descuento (SIN impuestos). Re-sumamos el
-  // IVA/IGTF ya calculado en la orden para NO borrar los impuestos del total a pagar
-  // (fuente única = la oferta). Sin esto, al editar precios el total perdía el IVA/IGTF.
+  // Si se editó el costo o la cantidad de los productos, recalculamos el total de
+  // la OC (y el total en divisa cuando aplica) para que precio·cantidad cuadre en
+  // TODA la OC: tarjeta, PDF, Tesorería y costo de inventario al recibir.
+  // `patch.total` llega como BASE − descuento (SIN impuestos).
+  //
+  // Los impuestos se RECOMPONEN sobre la base nueva con el % de la oferta. Antes
+  // se re-sumaba el MONTO viejo tal cual, y eso arrastraba el IVA de la base
+  // anterior: SP-2026-0194 se armó con 1 unidad a $110 (IVA $17,60) y al
+  // corregirla a 14 unidades quedó con base $1.540 y el IVA todavía en $17,60,
+  // total $1.557,60 en vez de $1.786,40. La oferta tenía el número bien; la
+  // orden se le había despegado.
   if (patch.total !== undefined) {
+    const impPrev = impuestosDeOrden(o);
+    const basePrev = baseNetaDesdeTotal(o.total, impPrev);
     const baseNeta = Math.round((Number(patch.total) || 0) * 100) / 100;
-    const impuestos = (o.iva_aplicado ? Number(o.iva_monto) || 0 : 0)
-      + (o.igtf_aplicado ? Number(o.igtf_monto) || 0 : 0);
-    const nuevoTotal = Math.round((baseNeta + impuestos) * 100) / 100;
-    upd.total = nuevoTotal;
-    if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = nuevoTotal;
+    const imp = recomponerImpuestos(basePrev, baseNeta, impPrev);
+    upd.total = imp.total;
+    if (o.iva_aplicado) upd.iva_monto = imp.ivaMonto;
+    if (o.igtf_aplicado) upd.igtf_monto = imp.igtfMonto;
+    if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = imp.total;
   }
   if (patch.motivo !== undefined) upd.motivo = patch.motivo;
   if (patch.finalidad !== undefined) upd.finalidad = patch.finalidad;
@@ -462,9 +470,6 @@ export async function editarPreciosOrdenPorPagar(
   const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
   const basePrev = Math.max(0, r2((Number(o.total) || 0) - ivaPrev - igtfPrev));
   const baseNueva = Math.max(0, r2(basePrev + (enDivisa ? deltaUsd : deltaBs)));
-  // Si hay porcentaje, manda el porcentaje. Si el monto se había puesto a mano
-  // (sin %), se escala en la misma proporción que la base, que es lo más fiel.
-  const escala = basePrev > 0 ? baseNueva / basePrev : 0;
   const ivaPct = Math.max(0, Number(o.iva_pct) || 0);
   const igtfPct = Math.max(0, Number(o.igtf_pct) || 0);
   // Con `impuestos` manda lo que se escribió en la pantalla; sin él, se conserva
@@ -473,12 +478,18 @@ export async function editarPreciosOrdenPorPagar(
   const igtfAp = impuestos ? !!impuestos.conIgtf : !!o.igtf_aplicado;
   const ivaPctFinal = impuestos ? Math.max(0, Math.min(100, r2(impuestos.ivaPct))) : ivaPct;
   const igtfPctFinal = impuestos ? Math.max(0, Math.min(100, r2(impuestos.igtfPct))) : igtfPct;
+  // El recálculo vive en un solo lugar (impuestosOrden.ts), así los dos caminos
+  // que mueven la base —editar la orden y editar los precios— dan lo mismo.
+  const recompuesto = recomponerImpuestos(basePrev, baseNueva, {
+    ivaAplicado: ivaAp, ivaPct: ivaPctFinal, ivaMonto: ivaPrev,
+    igtfAplicado: igtfAp, igtfPct: igtfPctFinal, igtfMonto: igtfPrev,
+  });
   const ivaNuevo = !ivaAp ? 0
     : impuestos ? Math.max(0, r2(impuestos.ivaMonto))
-    : (ivaPct > 0 ? r2((baseNueva * ivaPct) / 100) : r2(ivaPrev * escala));
+    : recompuesto.ivaMonto;
   const igtfNuevo = !igtfAp ? 0
     : impuestos ? Math.max(0, r2(impuestos.igtfMonto))
-    : (igtfPct > 0 ? r2((baseNueva * igtfPct) / 100) : r2(igtfPrev * escala));
+    : recompuesto.igtfMonto;
   // El `total` que paga Tesorería está en divisa cuando el pago es en divisa; si no, en Bs.
   const totalNuevo = Math.max(0, r2(baseNueva + ivaNuevo + igtfNuevo));
   const upd: Record<string, unknown> = {

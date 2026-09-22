@@ -62,6 +62,7 @@ import {
 } from './pedidos.repository';
 import { descargarOrdenesPorPagarPdf } from '@/modules/tesoreria/ordenesPorPagarPdf';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl } from './ofertas.repository';
+import { baseNetaDesdeTotal, impuestosDeOrden, recomponerImpuestos } from './impuestosOrden';
 import { esRecargaAgua } from './servicios.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
@@ -4057,9 +4058,14 @@ function EditarOrdenModal({
   // `totalEditado` = base − descuento (SIN impuestos): esto es lo que se envía al backend,
   // que re-suma el IVA/IGTF de la orden. Para MOSTRAR el total real sumamos los impuestos.
   const totalEditado = Math.max(0, Math.round((subtotalEditado - descuentoObtNum) * 100) / 100);
-  const impuestosOrden = Math.round(((orden.iva_aplicado ? Number(orden.iva_monto) || 0 : 0)
-    + (orden.igtf_aplicado ? Number(orden.igtf_monto) || 0 : 0)) * 100) / 100;
-  const totalConImpuestos = Math.round((totalEditado + impuestosOrden) * 100) / 100;
+  // Los impuestos se recalculan sobre la base editada, con el MISMO cálculo que
+  // usa el backend al guardar. Antes acá se mostraba el monto guardado tal cual:
+  // al cambiar una cantidad, la pantalla prometía un total y se guardaba otro.
+  const impPreviosOrden = impuestosDeOrden(orden);
+  const baseOrdenPrev = baseNetaDesdeTotal(orden.total, impPreviosOrden);
+  const impRecalculados = recomponerImpuestos(baseOrdenPrev, totalEditado, impPreviosOrden);
+  const impuestosOrden = impRecalculados.impuestos;
+  const totalConImpuestos = impRecalculados.total;
   // Datos de cabecera editables de la OP: solicitante, unidad, clasificación, urgencia y notas.
   const [solicitante, setSolicitante] = useState(orden.solicitante ?? '');
   const [ciSolicitante, setCiSolicitante] = useState(orden.ci_solicitante ?? '');
