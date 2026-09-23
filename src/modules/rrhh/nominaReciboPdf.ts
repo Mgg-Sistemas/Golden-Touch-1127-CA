@@ -110,7 +110,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 12;
+    y = (doc.lastAutoTable?.finalY ?? y) + 10;
 
     // ── El desglose, como en la planilla: devengado, deducción y saldo ──
     const enUsd = (bs: number) => (tasa > 0 ? r2(bs / tasa) : 0);
@@ -163,7 +163,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       ],
       margin: MARGIN,
       theme: 'grid',
-      styles: { fontSize: 8.5, cellPadding: 3 },
+      styles: { fontSize: 8.5, cellPadding: 2.5 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       columnStyles: {
@@ -175,7 +175,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 12;
+    y = (doc.lastAutoTable?.finalY ?? y) + 10;
 
     // ── Lo que se paga en divisas ──
     // ── BONO ──
@@ -203,7 +203,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       columnStyles: { 1: { halign: 'right', cellWidth: 110 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+    y = (doc.lastAutoTable?.finalY ?? y) + 8;
 
     // ── El total del recibo, en dólares ──
     // Las dos partes se suman acá: lo cobrado en bolívares (llevado a dólares
@@ -229,7 +229,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       columnStyles: { 1: { halign: 'right', cellWidth: 104 }, 2: { halign: 'right', cellWidth: 104 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+    y = (doc.lastAutoTable?.finalY ?? y) + 8;
 
     // Texto de conformidad, el mismo que se viene firmando.
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
@@ -251,17 +251,20 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       y += 8 + seriales.length * 10;
     }
 
-    // Firmas — se firman A MANO al imprimir. Van al pie de la hoja, pero SIEMPRE
-    // por debajo de lo escrito: estaban clavadas a 54 pt del margen inferior y,
-    // cuando el detalle llegaba hasta ahí, «Firma de la persona» se montaba encima
-    // del texto de conformidad. Ahora esos 54 pt son el lugar DESEADO, no una
-    // posición fija: si el contenido pasa de largo la firma baja con él, y se
-    // aprovecha hasta el último punto de la hoja antes de pasarla a otra página
-    // —una firma sola, lejos de los montos, no sirve para nada—.
-    const TOPE_FIRMAS = PAGE_H - MARGIN - 30;   // más abajo el nombre se sale de la hoja
-    let fy = Math.min(Math.max(y + 30, PAGE_H - MARGIN - 54), TOPE_FIRMAS);
-    // `fy - 12` es el «Recibí conforme», la primera línea del bloque: si ni
-    // apretándolo contra el borde queda por debajo del texto, recién ahí hoja nueva.
+    // Firmas — se firman A MANO al imprimir. Estaban clavadas a 54 pt del margen
+    // inferior, sin mirar hasta dónde llegaba el texto: cuando el detalle creció,
+    // «Firma de la persona» quedó encima del texto de conformidad.
+    //
+    // Ahora el bloque se CENTRA en lo que sobra de la hoja: el mismo aire entre el
+    // texto y la firma que entre la firma y el borde. Un recibo se firma a mano, y
+    // una raya con el renglón de arriba pegado no deja lugar para la firma.
+    const ALTO_FIRMAS = 38;                 // del «Recibí conforme» al nombre
+    const PISO = PAGE_H - MARGIN - 4;       // hasta donde puede llegar el nombre
+    const aire = Math.max(16, (PISO - y - ALTO_FIRMAS) / 2);
+    let fy = y + aire + 12;                 // +12: el «Recibí conforme» va en fy − 12
+    if (fy + 26 > PISO) fy = PISO - 26;     // por largo que venga, no se sale de la hoja
+    // Si ni apretado contra el borde queda por debajo del texto, recién ahí hoja
+    // nueva: una firma sola, lejos de los montos, no sirve para nada.
     if (fy - 12 < y + 4) { doc.addPage(); fy = MARGIN + 50; }
     const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
     // "Recibí conforme" sobre la firma del trabajador.
