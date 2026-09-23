@@ -55,8 +55,8 @@ describe('avisoSiNoEntraEnCorreo', () => {
 
   it('pasado el tope avisa, con el tamaño real', () => {
     const aviso = avisoSiNoEntraEnCorreo(20 * 1024 * 1024);
-    expect(aviso).toMatch(/26\.7 MB/);
-    expect(aviso).toMatch(/9\.0 MB/);
+    expect(aviso).toMatch(/20\.0 MB/);
+    expect(aviso).toMatch(/8\.0 MB/);
   });
 
   it('pasado el tope dice qué hacer, no solo que falló', () => {
@@ -67,6 +67,10 @@ describe('avisoSiNoEntraEnCorreo', () => {
 
   it('el volcado real de 15 MB SIN comprimir no habría entrado', () => {
     expect(avisoSiNoEntraEnCorreo(15_457_166)).not.toBeNull();
+  });
+
+  it('el ZIP real medido el 23/09/2026 (1,7 MB) entra holgado', () => {
+    expect(avisoSiNoEntraEnCorreo(1_764_000)).toBeNull();
   });
 
   it('el mismo volcado comprimido ~10 veces sí entra', () => {

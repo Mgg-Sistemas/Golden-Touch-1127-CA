@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mensajeError } from './errores';
+import { mensajeError, motivoDeEdgeFunction } from './errores';
 
 describe('mensajeError · lo que ya hacía', () => {
   it('un Error devuelve su mensaje', () => {
@@ -62,5 +62,42 @@ describe('mensajeError · lo que NO se traduce', () => {
   it('un error desconocido pasa tal cual, para poder buscarlo', () => {
     const m = mensajeError({ code: '23505', message: 'duplicate key value violates unique constraint' }, 'Falló');
     expect(m).toBe('duplicate key value violates unique constraint');
+  });
+});
+
+describe('motivoDeEdgeFunction · el «non-2xx» deja de tapar la causa', () => {
+  // Así es como llega: supabase-js pone siempre el mismo mensaje inútil y
+  // guarda la respuesta real en `context`.
+  const comoLlega = (cuerpo: unknown) => ({
+    message: 'Edge Function returned a non-2xx status code',
+    context: { json: async () => cuerpo },
+  });
+
+  it('saca el motivo del cuerpo de la respuesta', async () => {
+    const m = await motivoDeEdgeFunction(comoLlega({ error: 'Tipo de adjunto no permitido' }), 'Falló');
+    expect(m).toBe('Tipo de adjunto no permitido');
+  });
+
+  it('el motivo real pisa al «non-2xx»', async () => {
+    const m = await motivoDeEdgeFunction(comoLlega({ error: 'Alcanzaste el límite de correos por hora.' }), 'Falló');
+    expect(m).not.toMatch(/non-2xx/);
+  });
+
+  it('si el cuerpo no trae motivo, queda el mensaje del error', async () => {
+    const m = await motivoDeEdgeFunction(comoLlega({ ok: true }), 'Falló');
+    expect(m).toBe('Edge Function returned a non-2xx status code');
+  });
+
+  it('si el cuerpo no es JSON no rompe', async () => {
+    const roto = {
+      message: 'Edge Function returned a non-2xx status code',
+      context: { json: async () => { throw new SyntaxError('no es JSON'); } },
+    };
+    await expect(motivoDeEdgeFunction(roto, 'Falló')).resolves.toBe('Edge Function returned a non-2xx status code');
+  });
+
+  it('un error sin `context` se comporta como siempre', async () => {
+    await expect(motivoDeEdgeFunction(new Error('Se cayó la red'), 'Falló')).resolves.toBe('Se cayó la red');
+    await expect(motivoDeEdgeFunction(null, 'No se pudo enviar')).resolves.toBe('No se pudo enviar');
   });
 });

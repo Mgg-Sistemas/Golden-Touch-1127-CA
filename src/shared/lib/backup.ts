@@ -8,6 +8,7 @@
 import { strToU8, zipSync } from 'fflate';
 import { supabase } from '@/shared/lib/supabase';
 import { avisoSiNoEntraEnCorreo, nombreSqlRespaldo, nombreZipRespaldo } from '@/shared/lib/respaldoAdjunto';
+import { motivoDeEdgeFunction } from '@/shared/lib/errores';
 
 const CONFIG_KEY = 'backup.ultimo';
 const DIAS = 30;
@@ -138,7 +139,7 @@ export async function enviarRespaldoPorCorreo(
       to_emails: toEmails,
     },
   });
-  if (error) throw new Error(error.message ?? 'No se pudo enviar el respaldo por correo.');
+  if (error) throw new Error(await motivoDeEdgeFunction(error, 'No se pudo enviar el respaldo por correo.'));
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida del envío.');
   await registrarUltimoRespaldo(actorEmail, automatico);
   return { destinatarios: data.destinatarios ?? toEmails };

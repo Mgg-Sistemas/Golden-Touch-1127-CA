@@ -19,10 +19,14 @@
    ============================================================ */
 
 /**
- * Tope del adjunto ya en base64. Brevo corta en 10 MB por correo; se deja
- * un margen para el resto del mensaje (asunto, cuerpo, encabezados).
+ * Tope del adjunto, medido sobre el archivo (no sobre su base64).
+ *
+ * Es el mismo número que `MAX_ADJUNTO_BYTES` en
+ * `supabase/functions/_shared/brevo.ts`: quien corta de verdad es el servidor,
+ * así que el aviso de acá tiene que usar su misma vara. Si allá cambia, acá
+ * también.
  */
-export const TOPE_ADJUNTO_BYTES = 9 * 1024 * 1024;
+export const TOPE_ADJUNTO_BYTES = 8 * 1024 * 1024;
 
 /** Cuánto ocupa en base64 algo de `bytes` bytes: crece un tercio, redondeando de a 4. */
 export function tamanoEnBase64(bytes: number): number {
@@ -52,9 +56,8 @@ export function nombreZipRespaldo(fecha: string, automatico: boolean): string {
  * se indica la salida (la descarga manual, que no tiene este límite).
  */
 export function avisoSiNoEntraEnCorreo(bytesZip: number): string | null {
-  const b64 = tamanoEnBase64(bytesZip);
-  if (b64 <= TOPE_ADJUNTO_BYTES) return null;
-  return `El respaldo comprimido pesa ${enMegas(b64)} y el correo admite hasta `
+  if (bytesZip <= TOPE_ADJUNTO_BYTES) return null;
+  return `El respaldo comprimido pesa ${enMegas(bytesZip)} y el correo admite hasta `
     + `${enMegas(TOPE_ADJUNTO_BYTES)}, así que no se puede enviar por esa vía. `
     + 'Usá «Descargar» en esta misma ventana: baja el archivo completo sin límite de tamaño. '
     + 'Avisá que pasó esto, porque significa que la base creció y hay que darle otra salida al respaldo automático.';

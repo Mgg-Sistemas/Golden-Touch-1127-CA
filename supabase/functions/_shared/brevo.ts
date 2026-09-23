@@ -33,6 +33,9 @@ const RX_CORREO = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
 /** Nombre de adjunto permitido: solo las extensiones que hoy usa el front. */
 const RX_NOMBRE_PDF = /^[\w.\- ]{1,120}\.pdf$/;
 const RX_NOMBRE_TEXTO = /^[\w.\- ]{1,120}\.sql\.txt$/;
+// El respaldo de la base viaja comprimido: sin comprimir son ~15 MB y el envío
+// moría con un 413. Brevo filtra por extensión y acepta .zip (no .gz).
+const RX_NOMBRE_ZIP = /^[\w.\- ]{1,120}\.zip$/;
 const RX_BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 export function escapeHtml(s: unknown): string {
@@ -93,11 +96,12 @@ export function normalizarNombreAdjunto(nombre: string, permitirTexto: boolean):
     .trim();
   if (RX_NOMBRE_PDF.test(limpio)) return limpio;
   if (permitirTexto && RX_NOMBRE_TEXTO.test(limpio)) return limpio;
+  if (permitirTexto && RX_NOMBRE_ZIP.test(limpio)) return limpio;
   throw new ErrorCorreo('Tipo de adjunto no permitido');
 }
 
 /** Decodifica y valida el base64 del adjunto (formato, tamaño y firma PDF). */
-function validarContenido(base64: string, esPdf: boolean): void {
+function validarContenido(base64: string, esPdf: boolean, esZip = false): void {
   const b64 = String(base64 ?? '').replace(/\s+/g, '');
   if (!b64 || b64.length % 4 !== 0 || !RX_BASE64.test(b64)) throw new ErrorCorreo('Adjunto inválido');
   const bytes = (b64.length / 4) * 3 - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
@@ -109,6 +113,9 @@ function validarContenido(base64: string, esPdf: boolean): void {
     throw new ErrorCorreo('Adjunto inválido');
   }
   if (esPdf && !cabecera.startsWith('%PDF')) throw new ErrorCorreo('El adjunto no es un PDF válido');
+  // 'PK' + 0x03 0x04 es la firma de un ZIP. Mismo criterio que con el PDF: que
+  // el nombre no alcance por sí solo para colar cualquier contenido.
+  if (esZip && !cabecera.startsWith('PK\u0003\u0004')) throw new ErrorCorreo('El adjunto no es un ZIP válido');
 }
 
 /** Plantilla común del cuerpo: título + contenido + pie de Golden Touch. */
@@ -166,7 +173,7 @@ export type OpcionesCorreo = {
   subject: string;
   html: string;
   adjunto?: Adjunto;
-  /** Habilita adjuntos `.sql.txt` (solo el respaldo de la base). */
+  /** Habilita adjuntos `.sql.txt` y `.zip` (solo el respaldo de la base). */
   permitirTexto?: boolean;
 };
 
@@ -186,7 +193,7 @@ export async function enviarCorreo(o: OpcionesCorreo): Promise<ResultadoCorreo> 
   if (o.adjunto) {
     const nombre = normalizarNombreAdjunto(o.adjunto.nombre, Boolean(o.permitirTexto));
     const content = String(o.adjunto.base64 ?? '').replace(/\s+/g, '');
-    validarContenido(content, nombre.endsWith('.pdf'));
+    validarContenido(content, nombre.endsWith('.pdf'), nombre.endsWith('.zip'));
     attachment = [{ name: nombre, content }];
   }
 

@@ -44,6 +44,31 @@ function traducirPostgres(codigo: string, mensaje: string): string | null {
   return null;
 }
 
+/**
+ * Motivo real de una Edge Function que falló.
+ *
+ * `supabase.functions.invoke` devuelve siempre el mismo texto —«Edge Function
+ * returned a non-2xx status code»— que no dice absolutamente nada: ni qué pasó
+ * ni qué hacer. El motivo de verdad viaja en el CUERPO de la respuesta, que la
+ * librería deja en `error.context`. Nuestras funciones responden
+ * `{ error: 'texto en español' }`, así que se lee de ahí.
+ *
+ * El 23/09/2026 esto escondió un «Tipo de adjunto no permitido»: el respaldo se
+ * empezó a mandar comprimido y el servidor rechazaba el `.zip`, pero en pantalla
+ * solo salía el «non-2xx» y no había forma de saberlo sin mirar los registros.
+ */
+export async function motivoDeEdgeFunction(err: unknown, fallback: string): Promise<string> {
+  const ctx = (err as { context?: unknown } | null)?.context;
+  if (ctx && typeof (ctx as Response).json === 'function') {
+    try {
+      const cuerpo = await (ctx as Response).json() as { error?: unknown } | null;
+      const motivo = typeof cuerpo?.error === 'string' ? cuerpo.error.trim() : '';
+      if (motivo) return motivo;
+    } catch { /* si el cuerpo no es JSON, queda el mensaje de siempre */ }
+  }
+  return mensajeError(err, fallback);
+}
+
 /** Texto legible de cualquier error: `Error`, error de Supabase/PostgREST o string. */
 export function mensajeError(err: unknown, fallback: string): string {
   if (typeof err === 'string' && err.trim()) {
