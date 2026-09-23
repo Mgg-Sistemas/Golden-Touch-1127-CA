@@ -6,7 +6,10 @@ import {
   SIN_PAGAR, agruparRecibosPorFecha, alternarGrupo, alternarRenglon,
   grupoAMedias, grupoCompleto, renglonesAImprimir,
 } from './recibosLote';
-import { DIAS_QUINCENA, SUELDO_PCT_DEFECTO, avisosQuincena } from './nominaCalculo';
+import {
+  DIAS_QUINCENA, SUELDO_PCT_DEFECTO, avisosQuincena, diasDelPeriodo, quincenaDe,
+} from './nominaCalculo';
+import { FechaInput } from '@/shared/ui/FechaInput';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -358,6 +361,15 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   // no le dice nada a quien la busca tres semanas después.
   const quincena = ahora.getDate() <= 15 ? '1ra' : '2da';
   const [nombre, setNombre] = useState(`${quincena} quincena de ${mesLabel}`);
+  // PERÍODO que cubre la nómina. Antes se guardaba la fecha de hoy en los dos
+  // extremos y el recibo decía «23-09-2026 — 23-09-2026»: un lapso de un día
+  // para un pago de quince, y quien firmaba no sabía qué quincena cobraba.
+  // Ahora se propone la quincena de calendario (1–15 o 16–fin de mes) y se
+  // puede corregir: a veces se carga en los primeros días del mes siguiente.
+  const quincenaHoy = quincenaDe(hoyIso);
+  const [periodoDesde, setPeriodoDesde] = useState(quincenaHoy.desde);
+  const [periodoHasta, setPeriodoHasta] = useState(quincenaHoy.hasta);
+  const diasPeriodo = diasDelPeriodo(periodoDesde, periodoHasta);
   // La quincena normal son 11 días trabajados + 4 de descanso, como en la
   // planilla que se viene usando. Los dos van al recibo como renglones aparte.
   const [diasBase, setDiasBase] = useState(11);
@@ -437,6 +449,8 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   async function guardar() {
     setError(null);
     if (!incluidas.length) { setError('Incluí al menos un trabajador.'); return; }
+    if (!periodoDesde || !periodoHasta) { setError('Indicá el período que cubre la nómina (desde y hasta).'); return; }
+    if (diasPeriodo <= 0) { setError('El «hasta» del período es anterior al «desde».'); return; }
     setSaving(true);
     try {
       const renglones: RenglonInput[] = incluidas.map((f) => {
@@ -458,7 +472,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
         empresa,
         nombre,
         sueldo_pct: sueldoPct,
-        periodo_desde: hoyIso, periodo_hasta: hoyIso, dias_base: diasBase,
+        periodo_desde: periodoDesde, periodo_hasta: periodoHasta, dias_base: diasBase,
         tasa_bcv: tasa || null, notas: notas || null, renglones, actorEmail: actor, actorName,
       });
       notify(`${per.nombre || 'Nómina'} (${per.codigo}) cargada · ${renglones.length} persona(s) · ${money(per.total_usd)}`, 'success', { link: '#/app/tesoreria' });
@@ -490,8 +504,21 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <strong style={{ textTransform: 'capitalize' }}>{mesLabel}</strong>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: '.72rem' }}>Fecha</div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>Cargada el</div>
             <strong className="mono">{date(hoyIso)}</strong>
+          </div>
+          <div className="form-row" style={{ minWidth: 150 }}>
+            <label style={{ fontSize: '.72rem' }}>Período desde</label>
+            <FechaInput value={periodoDesde} onChange={setPeriodoDesde} max={periodoHasta || undefined} />
+          </div>
+          <div className="form-row" style={{ minWidth: 150 }}>
+            <label style={{ fontSize: '.72rem' }}>
+              Período hasta{' '}
+              <span className="muted" style={{ textTransform: 'none' }}>
+                {diasPeriodo > 0 ? `(${diasPeriodo} días)` : '(revisá las fechas)'}
+              </span>
+            </label>
+            <FechaInput value={periodoHasta} onChange={setPeriodoHasta} min={periodoDesde || undefined} />
           </div>
           <div className="form-row" style={{ flex: 1, minWidth: 230 }}>
             <label style={{ fontSize: '.72rem' }}>Nombre de la nómina</label>

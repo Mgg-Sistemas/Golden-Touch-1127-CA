@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DIAS_QUINCENA, SUELDO_PCT_DEFECTO, aBs, aUsd, avisosQuincena, calcularQuincena, pctValido,
+  DIAS_QUINCENA, SUELDO_PCT_DEFECTO, aBs, aUsd, avisosQuincena, calcularQuincena,
+  diasDelPeriodo, pctValido, quincenaDe,
 } from './nominaCalculo';
 
 /* Los números de estas pruebas salen de la planilla real del Drive
@@ -125,5 +126,42 @@ describe('avisosQuincena', () => {
 
   it('una quincena normal no tiene nada que avisar', () => {
     expect(avisosQuincena({ totalMesUsd: 800, tasaBs: 842.2, diasTrabajados: 11, diasDescanso: 4 })).toEqual([]);
+  });
+});
+
+describe('quincenaDe', () => {
+  it('del 1 al 15 es la primera quincena', () => {
+    expect(quincenaDe('2026-09-01')).toEqual({ desde: '2026-09-01', hasta: '2026-09-15' });
+    expect(quincenaDe('2026-09-15')).toEqual({ desde: '2026-09-01', hasta: '2026-09-15' });
+  });
+  it('del 16 en adelante es la segunda, hasta fin de mes', () => {
+    expect(quincenaDe('2026-09-16')).toEqual({ desde: '2026-09-16', hasta: '2026-09-30' });
+    // El caso de la captura: se cargó el 23 y el recibo decía 23-09 — 23-09.
+    expect(quincenaDe('2026-09-23')).toEqual({ desde: '2026-09-16', hasta: '2026-09-30' });
+  });
+  it('los meses de 31 y febrero cierran donde cierra el mes', () => {
+    expect(quincenaDe('2026-10-20').hasta).toBe('2026-10-31');
+    expect(quincenaDe('2026-02-20').hasta).toBe('2026-02-28');
+    expect(quincenaDe('2024-02-20').hasta).toBe('2024-02-29');   // bisiesto
+  });
+  it('una fecha rota no inventa un período', () => {
+    expect(quincenaDe('')).toEqual({ desde: '', hasta: '' });
+  });
+});
+
+describe('diasDelPeriodo', () => {
+  it('cuenta los dos extremos', () => {
+    expect(diasDelPeriodo('2026-09-01', '2026-09-15')).toBe(15);
+    expect(diasDelPeriodo('2026-09-16', '2026-09-30')).toBe(15);
+  });
+  it('un mes de 31 da 16 días de almanaque en la segunda quincena', () => {
+    expect(diasDelPeriodo('2026-10-16', '2026-10-31')).toBe(16);
+  });
+  it('febrero da 13', () => {
+    expect(diasDelPeriodo('2026-02-16', '2026-02-28')).toBe(13);
+  });
+  it('el mismo día es 1, y al revés es 0', () => {
+    expect(diasDelPeriodo('2026-09-23', '2026-09-23')).toBe(1);
+    expect(diasDelPeriodo('2026-09-30', '2026-09-16')).toBe(0);
   });
 });
