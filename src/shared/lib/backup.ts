@@ -5,14 +5,22 @@
    La generación corre en la función SQL `dump_database_sql()`
    (SECURITY DEFINER) que valida el rol del solicitante por dentro.
    ============================================================ */
+import { strToU8, zipSync } from 'fflate';
 import { supabase } from '@/shared/lib/supabase';
+import { avisoSiNoEntraEnCorreo, nombreSqlRespaldo, nombreZipRespaldo } from '@/shared/lib/respaldoAdjunto';
 
 const CONFIG_KEY = 'backup.ultimo';
 const DIAS = 30;
 const MS_30D = DIAS * 24 * 60 * 60 * 1000;
 
-/** Correos destino del respaldo (automático y opción "Enviar por correo"). */
-export const BACKUP_EMAILS = ['mineralgroupsistemas@gmail.com', 'sistemas@mineralgroupguayana.com'];
+/**
+ * Correos destino del respaldo (automático y opción "Enviar por correo").
+ *
+ * Acá viaja la base ENTERA de Golden Touch, así que la lista se cambia solo
+ * a pedido expreso. El 23/09/2026 se sacó `sistemas@mineralgroupguayana.com`
+ * y entró `sistemamgg1@gmail.com`.
+ */
+export const BACKUP_EMAILS = ['sistemamgg1@gmail.com', 'mineralgroupsistemas@gmail.com'];
 /** Compat: texto para mostrar a quién se envía (lista separada por coma). */
 export const BACKUP_EMAIL = BACKUP_EMAILS.join(', ');
 
@@ -81,9 +89,17 @@ export async function descargarRespaldoSql(actorEmail: string, automatico = fals
   await registrarUltimoRespaldo(actorEmail, automatico);
 }
 
-/** Base64 seguro para UTF-8 (btoa solo maneja latin1). */
-function toBase64Utf8(s: string): string {
-  return btoa(unescape(encodeURIComponent(s)));
+/**
+ * Base64 de bytes crudos. Se va de a pedazos porque `String.fromCharCode(...)`
+ * con un arreglo de millones de elementos revienta la pila del navegador.
+ */
+function bytesABase64(bytes: Uint8Array): string {
+  const PEDAZO = 0x8000;
+  let texto = '';
+  for (let i = 0; i < bytes.length; i += PEDAZO) {
+    texto += String.fromCharCode(...bytes.subarray(i, i + PEDAZO));
+  }
+  return btoa(texto);
 }
 
 /**
@@ -98,15 +114,24 @@ export async function enviarRespaldoPorCorreo(
   const cuando = ahoraVE();
   const sql = encabezadoRespaldo(actorEmail, automatico) + await generarRespaldoSql();
   const fecha = new Date().toISOString().slice(0, 10);
-  // Brevo no admite adjuntos `.sql`; se envía como `.sql.txt` (mismo contenido,
-  // extensión aceptada). La descarga manual sí mantiene `.sql`.
-  const nombre = `gt-respaldo${automatico ? '-auto' : ''}-${fecha}.sql.txt`;
+
+  // El volcado sin comprimir son ~15 MB, que en base64 pasan a ~20 y el envío
+  // moría con un 413 antes de llegar a nuestro código. Se comprime en ZIP
+  // (Brevo filtra por extensión y acepta `.zip`) y baja alrededor de diez veces.
+  const nombre = nombreZipRespaldo(fecha, automatico);
+  const zip = zipSync({ [nombreSqlRespaldo(fecha, automatico)]: strToU8(sql) }, { level: 9 });
+
+  // Si algún día ni comprimido entra, se corta acá con un mensaje que dice el
+  // tamaño y la salida, en vez de volver a fallar con un 413 indescifrable.
+  const aviso = avisoSiNoEntraEnCorreo(zip.length);
+  if (aviso) throw new Error(aviso);
+
   const { data, error } = await supabase.functions.invoke<
     { ok: true; destinatarios: string[] } | { error: string }
   >('enviar-reporte', {
     body: {
       modulo: 'ajustes',
-      pdf_base64: toBase64Utf8(sql),
+      pdf_base64: bytesABase64(zip),
       nombre_archivo: nombre,
       asunto: `Respaldo de base de datos · GOLDEN TOUCH 1127 C.A. · ${fecha}`,
       mensaje: `${automatico ? 'Respaldo automático (cada 30 días)' : 'Respaldo manual'} · Generado por ${actorEmail || 'sistema'} · ${cuando} (America/Caracas).`,
