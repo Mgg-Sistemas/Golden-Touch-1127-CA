@@ -12,6 +12,7 @@ import { HintsToggle } from '@/shared/ui/HintsToggle';
 import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
 import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, BACKUP_EMAIL } from '@/shared/lib/backup';
+import { mensajeError } from '@/shared/lib/errores';
 import { Modal } from '@/shared/ui/Modal';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
@@ -242,7 +243,10 @@ export function AppShell() {
       toast('Respaldo de datos descargado (.sql)', 'success');
       setRespaldoOpen(false);
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo generar el respaldo', 'error');
+      // `mensajeError` y no `e.message`: el respaldo envuelve el error de Postgres
+      // en un Error, así que acá llegaba el texto crudo en inglés («canceling
+      // statement due to statement timeout») y salía tal cual en el aviso.
+      toast(mensajeError(e, 'No se pudo generar el respaldo'), 'error');
     } finally {
       setDescargandoBackup(false);
     }
@@ -255,7 +259,7 @@ export function AppShell() {
       toast(`Respaldo enviado por correo a ${destinatarios.join(', ')}`, 'success');
       setRespaldoOpen(false);
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo enviar el respaldo', 'error');
+      toast(mensajeError(e, 'No se pudo enviar el respaldo'), 'error');
     } finally {
       setDescargandoBackup(false);
     }
@@ -270,7 +274,19 @@ export function AppShell() {
     backupAutoCorrido.current = true;
     chequearRespaldoAutomatico(role, user?.email ?? 'sistema')
       .then((corrio) => { if (corrio) toast(`Respaldo automático (cada 30 días) enviado por correo a ${BACKUP_EMAIL}`, 'info'); })
-      .catch(() => { /* silencioso: el respaldo manual sigue disponible */ });
+      // Antes esto se tragaba el error «porque el respaldo manual sigue
+      // disponible». El problema es que nadie se enteraba: el sistema daba por
+      // hecho que se respaldaba cada 30 días y podía llevar meses sin hacerlo.
+      // Un respaldo que falla callado es peor que no tener respaldo automático,
+      // porque encima da tranquilidad. Ahora avisa, y como la fecha SOLO se
+      // registra cuando sale bien, lo reintenta en el próximo ingreso.
+      .catch((e) => {
+        toast(
+          `El respaldo automático no se pudo hacer · ${mensajeError(e, 'error desconocido')} · `
+          + 'Se reintenta al volver a entrar; mientras tanto podés hacerlo a mano desde Respaldo de datos.',
+          'error',
+        );
+      });
   }, [role, user?.email]);
 
   return (
