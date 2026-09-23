@@ -8,6 +8,11 @@ import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.rep
 import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { rotuloMarcaModelo, descripcionConMarcaModelo } from '@/shared/lib/marcaModelo';
+import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
+import {
+  calcularDespiece, erroresDespiece, resumenDespiece,
+  type CorteListo, type DespiecePorItem, type TrazaDespiece,
+} from './despieceRes';
 import type {
   AbonoCredito,
   AdjuntoOferta,
@@ -2124,6 +2129,123 @@ export function ordenAfectaInventario(o: Pick<Orden, 'tipo' | 'afecta_inventario
   return o.afecta_inventario !== false;
 }
 
+/* ───────────── Despiece de la RES EN CANAL ─────────────
+   Una res en canal no se guarda como «res»: al recibirla se despieza y lo que
+   queda en el almacén son los cortes. El rastro en el kardex es una cadena de
+   tres pasos, y los tres tienen que estar para que la cuenta cierre:
+
+     1. ENTRADA de la canal por lo que se compró (ya la hace la recepción).
+     2. SALIDA de esa misma canal, con motivo «despiece»: la res deja de existir.
+     3. ENTRADA de cada corte, con el costo del kilo de canal repartido entre
+        los kilos de corte (ver `despieceRes.ts`: la merma no se stockea, pero
+        su costo lo absorben los cortes).
+
+   Sin el paso 2 el inventario tendría la res Y sus cortes, es decir el doble de
+   carne que la que entró por la puerta. */
+
+/** Producto del corte: el que ya existe con ese nombre o uno nuevo, recién creado. */
+async function productoDelCorte(
+  corte: CorteListo,
+  modelo: { categoria: string; unidad: string; almacen: string },
+): Promise<{ id: string; creado: boolean }> {
+  if (corte.productoId) return { id: corte.productoId, creado: false };
+  // `ilike` sin comodines = igualdad sin distinguir mayúsculas: si «CARNE MOLIDA»
+  // ya está cargada, se le suma stock en vez de crear un duplicado.
+  const { data, error } = await supabase.from('productos').select('id').ilike('nombre', corte.nombre).limit(1);
+  if (error) throw error;
+  const existente = (data ?? [])[0] as { id: string } | undefined;
+  if (existente) return { id: existente.id, creado: false };
+  const nuevo = await createProducto({
+    sku: await nextSku(modelo.categoria),
+    nombre: corte.nombre,
+    categoria: modelo.categoria,
+    unidad: modelo.unidad,
+    stock: 0, stock_min: 0, precio: 0,
+    almacen: modelo.almacen,
+    estado: 'activo',
+  });
+  return { id: nuevo.id, creado: true };
+}
+
+/** Despieza una res ya recibida: la saca del inventario y mete sus cortes. */
+async function despiezarResRecibida(input: {
+  orden: Orden;
+  item: ItemOrden;
+  kgRecibidos: number;
+  despiece: DespiecePorItem;
+  almacen: string;
+  actorEmail: string;
+  actorName: string | null;
+}): Promise<TrazaDespiece> {
+  const { orden, item, kgRecibidos, despiece, almacen, actorEmail, actorName } = input;
+  const calc = calcularDespiece({
+    kgCanal: kgRecibidos, precioCanal: Number(item.precio) || 0,
+    cortes: despiece.cortes, merma: despiece.merma,
+  });
+  const resumen = resumenDespiece(calc, despiece.cortes);
+
+  // Categoría y medida de los cortes: las de la propia res. Así la carne no
+  // termina en una categoría distinta a la del resto de los víveres.
+  const { data: prodCanal, error: pcErr } = await supabase
+    .from('productos').select('categoria, unidad, almacen, no_inventariable').eq('id', item.productoId!).maybeSingle();
+  if (pcErr) throw pcErr;
+  const modelo = {
+    categoria: (prodCanal?.categoria as string) || 'Víveres',
+    unidad: (prodCanal?.unidad as string) || 'KG',
+    almacen: almacen || (prodCanal?.almacen as string) || 'General',
+  };
+
+  // 2. La res sale del inventario: se convirtió en cortes. Se salta si la res
+  // está marcada «no inventariable»: nunca entró stock, así que sacarlo dejaría
+  // el producto en negativo. Los cortes sí entran igual.
+  if (!prodCanal?.no_inventariable) await registrarMovimiento({
+    producto_id: item.productoId!,
+    tipo: 'salida',
+    delta: -calc.kgCanal,
+    almacen: modelo.almacen,
+    actor: actorEmail,
+    actor_name: actorName,
+    ref_tipo: 'despiece',
+    ref_id: orden.id,
+    ref_codigo: orden.oc_codigo ?? orden.codigo,
+    detalle: `Despiece · ${resumen}`,
+  });
+
+  // 3. Entra cada corte, con el costo de la canal repartido entre los kilos de corte.
+  const cortes: TrazaDespiece['cortes'] = [];
+  for (const c of despiece.cortes) {
+    if (c.kg <= 0) continue;
+    const { id, creado } = await productoDelCorte(c, modelo);
+    await registrarMovimiento({
+      producto_id: id,
+      tipo: 'entrada',
+      delta: c.kg,
+      almacen: modelo.almacen,
+      actor: actorEmail,
+      actor_name: actorName,
+      ref_tipo: 'despiece',
+      ref_id: orden.id,
+      ref_codigo: orden.oc_codigo ?? orden.codigo,
+      proveedor_id: orden.proveedor_id,
+      detalle: `Despiece de ${item.nombre} (${calc.kgCanal} kg) → ${c.nombre} ${c.kg} kg @ $${calc.costoPorKgCorte.toFixed(4)}/kg`,
+      precio_unitario: calc.costoPorKgCorte,
+    });
+    cortes.push({ nombre: c.nombre, kg: c.kg, producto_id: id, creado });
+  }
+
+  return {
+    sku: item.sku,
+    producto: item.nombre,
+    kg_canal: calc.kgCanal,
+    merma: calc.merma,
+    rendimiento_pct: calc.rendimientoPct,
+    costo_kg_corte: calc.costoPorKgCorte,
+    resumen,
+    cortes,
+  };
+}
+
+
 /**
  * Recepción PARCIAL: confirma cuánto entró realmente por ítem (≤ lo pedido).
  * Solo lo recibido entra al inventario (entrada con delta = cantidad_recibida y
@@ -2138,6 +2260,8 @@ export async function recibirOrdenParcial(
   actorEmail: string,
   actorName: string | null,
   almacenDestino?: string | null,
+  /** Despiece de las reses en canal que traiga la orden (ver `despieceRes.ts`). */
+  despieces?: DespiecePorItem[],
 ): Promise<Orden> {
   // 'cuenta_abierta' = crédito: la mercancía puede llegar ANTES de terminar de pagar.
   if (!['por_recibir', 'cuenta_abierta', 'pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
@@ -2152,6 +2276,20 @@ export async function recibirOrdenParcial(
   }
   if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0))
     throw new Error('Indicá al menos una cantidad recibida.');
+
+  // El despiece se revisa ANTES de mover un solo kilo: si los cortes no cuadran
+  // con la canal, la recepción no empieza. Al revés quedaría la res adentro del
+  // inventario, la orden sin recibir y nadie sabiendo en qué punto se cortó.
+  const despiecePorSku = new Map((despieces ?? []).map((d) => [d.sku, d]));
+  for (const [sku, d] of despiecePorSku) {
+    const it = o.items.find((x) => x.sku === sku);
+    if (!it) throw new Error(`El despiece apunta a un ítem que no está en la orden (${sku}).`);
+    const problemas = erroresDespiece({
+      kgCanal: recMap.get(sku) ?? 0, precioCanal: Number(it.precio) || 0,
+      cortes: d.cortes, merma: d.merma,
+    });
+    if (problemas.length) throw new Error(`${it.nombre}: ${problemas[0]}`);
+  }
 
   // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
   // Se OMITE en los dos casos que NO deben tocar stock (ver `ordenAfectaInventario`):
@@ -2233,6 +2371,20 @@ export async function recibirOrdenParcial(
     if (exErr) throw exErr;
   }));
 
+  // Las reses en canal se despiezan acá: la res sale y entran sus cortes.
+  const trazasDespiece: TrazaDespiece[] = [];
+  if (afectaInventario) {
+    for (const it of o.items) {
+      const d = despiecePorSku.get(it.sku);
+      const rec = recMap.get(it.sku) ?? 0;
+      if (!d || !it.productoId || rec <= 0) continue;
+      trazasDespiece.push(await despiezarResRecibida({
+        orden: o, item: it, kgRecibidos: rec, despiece: d,
+        almacen: destinoFinal || 'General', actorEmail, actorName,
+      }));
+    }
+  }
+
   const itemsRec = o.items.map((it) => ({ ...it, cantidad_recibida: recMap.get(it.sku) ?? 0 }));
   const recibidoTotal = Math.round(itemsRec.reduce((a, it) => a + (it.cantidad_recibida ?? 0) * Number(it.precio), 0) * 100) / 100;
   const huboDiferencia = itemsRec.some((it) => (it.cantidad_recibida ?? 0) < Number(it.cantidad));
@@ -2241,6 +2393,14 @@ export async function recibirOrdenParcial(
   const esCredito = o.condiciones_pago === 'credito';
   const saldadoCredito = (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
   const estadoRecepcion: EstadoOrden = esCredito && !saldadoCredito ? 'cuenta_abierta' : 'recibida';
+  // La traza de la compra cuenta primero la recepción y después, una por una,
+  // en qué se convirtió cada res: es la única forma de explicar más adelante por
+  // qué se compró «RES EN CANAL» y en el inventario hay «CARNE MOLIDA».
+  let historial = appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal });
+  for (const t of trazasDespiece) {
+    historial = appendHistorial({ ...o, historial }, 'res_despiezada', actorEmail, { motivo: t.resumen, despiece: t });
+  }
+
   const patch = {
     estado: estadoRecepcion,
     items: itemsRec,
@@ -2249,7 +2409,7 @@ export async function recibirOrdenParcial(
     nota_recepcion: huboDiferencia ? (nota?.trim() || 'Recepción parcial: llegó menos de lo solicitado.') : (nota?.trim() || null),
     recibida_por: actorEmail,
     recibida_en: new Date().toISOString(),
-    historial: appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal }),
+    historial,
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;

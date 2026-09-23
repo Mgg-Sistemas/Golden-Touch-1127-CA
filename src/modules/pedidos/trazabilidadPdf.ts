@@ -10,6 +10,7 @@ import type {
 } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
+import type { TrazaDespiece } from './despieceRes';
 
 interface TrazabilidadData {
   orden: Orden;
@@ -375,6 +376,45 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 180 }, 1: { cellWidth: 'auto' } },
     margin: MARGIN,
   });
+
+  // ─── 6. Despiece de la res en canal ────────────────────
+  // Se compró «RES EN CANAL» y en el inventario hay carne mechada, molida y para
+  // bistec. Sin esta tabla la traza no explica en qué se convirtió la res ni a
+  // dónde se fue la merma, que es justo lo que se va a preguntar dentro de un mes.
+  const despiezos = (orden.historial ?? [])
+    .filter((h) => h.evento === 'res_despiezada')
+    .map((h) => (h as { despiece?: TrazaDespiece }).despiece)
+    .filter((d): d is TrazaDespiece => !!d);
+  if (despiezos.length) {
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('6. Despiece de la res en canal', MARGIN, y);
+    y += 6;
+    doc.setFont('helvetica', 'normal');
+    for (const d of despiezos) {
+      autoTable(doc, {
+        startY: y,
+        head: [[pdfSafe(`${d.producto} — ${num(d.kg_canal)} kg`), 'Kg', 'Costo / kg', 'Valor']],
+        body: [
+          ...d.cortes.map((c) => [
+            pdfSafe(c.nombre) + (c.creado ? ' (producto nuevo)' : ''),
+            num(c.kg),
+            money(d.costo_kg_corte),
+            money(Math.round(c.kg * d.costo_kg_corte * 100) / 100),
+          ]),
+          ['MERMA (hueso, grasa, recorte — no entra al inventario)', num(d.merma), '—', '—'],
+        ],
+        foot: [[`Rendimiento ${num(d.rendimiento_pct)} %`, num(d.kg_canal), '', '']],
+        theme: 'grid',
+        headStyles: { fillColor: [230, 230, 230], textColor: 20 },
+        styles: { fontSize: 9, cellPadding: 4 },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+        margin: MARGIN,
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    }
+  }
 
   // ─── Footer ────────────────────────────────────────────
   const pageH = doc.internal.pageSize.getHeight();

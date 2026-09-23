@@ -4,6 +4,11 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { DespieceResBloque } from './DespieceResBloque';
+import {
+  cortesListos, despieceInicial, erroresDespiece, esResEnCanal,
+  type DespiecePorItem, type EstadoDespiece,
+} from './despieceRes';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { previewArchivo } from '@/shared/lib/reportePreview';
@@ -190,6 +195,7 @@ function eventLabel(ev: string): string {
       credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
       recibida: 'Recepción confirmada',
+      res_despiezada: 'Res en canal despiezada',
       finalizada: 'Pedido finalizado',
     } as Record<string, string>
   )[ev] ?? ev;
@@ -226,6 +232,7 @@ function eventClass(ev: string): string {
       credito_saldado: 'ok',
       pagada: 'ok',
       recibida: 'ok',
+      res_despiezada: 'info',
       finalizada: 'ok',
     } as Record<string, string>
   )[ev] ?? '';
@@ -993,8 +1000,9 @@ export function PedidosPage() {
       {modal.kind === 'receive' && (
         <RecepcionParcialModal
           orden={modal.orden}
+          productos={productos}
           onClose={() => setModal({ kind: 'none' })}
-          onConfirm={async (recepciones, nota, almacenDestino) => {
+          onConfirm={async (recepciones, nota, almacenDestino, despieces) => {
             try {
               await recibirOrdenParcial(
                 modal.orden,
@@ -1003,6 +1011,7 @@ export function PedidosPage() {
                 usuario?.email ?? user?.email ?? 'sistema',
                 usuario?.nombre ?? null,
                 almacenDestino,
+                despieces,
               );
               const esContra = modal.orden.condiciones_pago === 'contra_entrega';
               notify(
@@ -1811,16 +1820,29 @@ function MetodoPagoModal({
    ───────────────────────────────────────────── */
 function RecepcionParcialModal({
   orden,
+  productos,
   onClose,
   onConfirm,
 }: {
   orden: Orden;
+  productos: Producto[];
   onClose: () => void;
-  onConfirm: (recepciones: { sku: string; cantidad_recibida: number }[], nota: string | null, almacenDestino: string) => Promise<void> | void;
+  onConfirm: (
+    recepciones: { sku: string; cantidad_recibida: number }[],
+    nota: string | null,
+    almacenDestino: string,
+    despieces: DespiecePorItem[],
+  ) => Promise<void> | void;
 }) {
   const [recs, setRecs] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
     orden.items.forEach((it) => { m[it.sku] = String(it.cantidad); });
+    return m;
+  });
+  // Despiece por ítem de res en canal (solo los que lo son). Ver `despieceRes.ts`.
+  const [despieces, setDespieces] = useState<Record<string, EstadoDespiece>>(() => {
+    const m: Record<string, EstadoDespiece> = {};
+    orden.items.forEach((it) => { if (esResEnCanal(it.nombre)) m[it.sku] = despieceInicial(); });
     return m;
   });
   const [nota, setNota] = useState('');
@@ -1838,13 +1860,36 @@ function RecepcionParcialModal({
   const recibidoTotal = orden.items.reduce((a, it) => a + (Number(recs[it.sku]) || 0) * Number(it.precio), 0);
   const hayDiferencia = orden.items.some((it) => (Number(recs[it.sku]) || 0) < Number(it.cantidad));
 
+  // Reses en canal que hay que despiezar en ESTA recepción: las que llegaron con
+  // kilos y van a entrar al inventario. Una orden marcada «no ingresa al
+  // inventario» no despieza nada: no hay stock que transformar.
+  const mueveStock = orden.tipo !== 'servicio' && orden.afecta_inventario !== false;
+  const reses = mueveStock
+    ? orden.items.filter((it) => esResEnCanal(it.nombre) && !!it.productoId && (Number(recs[it.sku]) || 0) > 0)
+    : [];
+  const despiecesListos: DespiecePorItem[] = reses.map((it) => ({
+    sku: it.sku,
+    cortes: cortesListos(despieces[it.sku]?.cortes ?? []),
+    merma: Number(despieces[it.sku]?.merma) || 0,
+  }));
+
   async function handleConfirm() {
     setError(null);
     const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
+    // El despiece se revisa acá también (no solo en el servidor) para que el aviso
+    // salga al lado de la tabla de cortes y no como un error suelto al final.
+    for (const it of reses) {
+      const d = despiecesListos.find((x) => x.sku === it.sku)!;
+      const problemas = erroresDespiece({
+        kgCanal: Number(recs[it.sku]) || 0, precioCanal: Number(it.precio) || 0,
+        cortes: d.cortes, merma: d.merma,
+      });
+      if (problemas.length) { setError(`${it.nombre}: ${problemas[0]}`); return; }
+    }
     setSaving(true);
-    try { await onConfirm(recepciones, nota.trim() || null, almacen); }
+    try { await onConfirm(recepciones, nota.trim() || null, almacen, despiecesListos); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo confirmar'); setSaving(false); }
   }
 
@@ -1900,6 +1945,17 @@ function RecepcionParcialModal({
           </tfoot>
         </table>
       </div>
+
+      {reses.map((it) => (
+        <DespieceResBloque
+          key={it.sku}
+          item={it}
+          kgRecibidos={Number(recs[it.sku]) || 0}
+          productos={productos}
+          valor={despieces[it.sku] ?? despieceInicial()}
+          onChange={(v) => setDespieces((d) => ({ ...d, [it.sku]: v }))}
+        />
+      ))}
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
         <label>Destino</label>
