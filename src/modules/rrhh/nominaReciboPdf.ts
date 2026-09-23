@@ -106,11 +106,11 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       ],
       margin: MARGIN,
       theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 5 },
+      styles: { fontSize: 9, cellPadding: 4 },
       columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 16;
+    y = (doc.lastAutoTable?.finalY ?? y) + 12;
 
     // ── El desglose, como en la planilla: devengado, deducción y saldo ──
     const enUsd = (bs: number) => (tasa > 0 ? r2(bs / tasa) : 0);
@@ -163,7 +163,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       ],
       margin: MARGIN,
       theme: 'grid',
-      styles: { fontSize: 8.5, cellPadding: 4 },
+      styles: { fontSize: 8.5, cellPadding: 3 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       columnStyles: {
@@ -223,7 +223,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       foot: [['TOTAL RECIBIDO', '', usd(totalRecibidoUsd)]],
       margin: MARGIN,
       theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 4.5 },
+      styles: { fontSize: 9, cellPadding: 3.5 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [235, 235, 235], textColor: 20, fontStyle: 'bold', fontSize: 10 },
       columnStyles: { 1: { halign: 'right', cellWidth: 104 }, 2: { halign: 'right', cellWidth: 104 } },
@@ -245,11 +245,24 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     if (r.seriales_billetes && r.seriales_billetes.length) {
       doc.setFontSize(8);
-      doc.text(`Seriales de billetes: ${r.seriales_billetes.join(', ')}`, MARGIN, y + 8);
+      const seriales = doc.splitTextToSize(`Seriales de billetes: ${r.seriales_billetes.join(', ')}`, PAGE_W - MARGIN * 2);
+      doc.text(seriales, MARGIN, y + 8);
+      // Esta línea no corría la `y`: con seriales cargados, la firma se apoyaba encima.
+      y += 8 + seriales.length * 10;
     }
 
-    // Firmas (al pie de la página) — se firman A MANO al imprimir.
-    const fy = PAGE_H - MARGIN - 54;
+    // Firmas — se firman A MANO al imprimir. Van al pie de la hoja, pero SIEMPRE
+    // por debajo de lo escrito: estaban clavadas a 54 pt del margen inferior y,
+    // cuando el detalle llegaba hasta ahí, «Firma de la persona» se montaba encima
+    // del texto de conformidad. Ahora esos 54 pt son el lugar DESEADO, no una
+    // posición fija: si el contenido pasa de largo la firma baja con él, y se
+    // aprovecha hasta el último punto de la hoja antes de pasarla a otra página
+    // —una firma sola, lejos de los montos, no sirve para nada—.
+    const TOPE_FIRMAS = PAGE_H - MARGIN - 30;   // más abajo el nombre se sale de la hoja
+    let fy = Math.min(Math.max(y + 30, PAGE_H - MARGIN - 54), TOPE_FIRMAS);
+    // `fy - 12` es el «Recibí conforme», la primera línea del bloque: si ni
+    // apretándolo contra el borde queda por debajo del texto, recién ahí hoja nueva.
+    if (fy - 12 < y + 4) { doc.addPage(); fy = MARGIN + 50; }
     const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
     // "Recibí conforme" sobre la firma del trabajador.
     doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
