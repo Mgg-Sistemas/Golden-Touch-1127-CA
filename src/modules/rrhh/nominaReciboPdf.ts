@@ -106,7 +106,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       ],
       margin: MARGIN,
       theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 4 },
+      styles: { fontSize: 9, cellPadding: 3.5 },
       columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
@@ -223,7 +223,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       foot: [['TOTAL RECIBIDO', '', usd(totalRecibidoUsd)]],
       margin: MARGIN,
       theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 3.5 },
+      styles: { fontSize: 9, cellPadding: 3 },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [235, 235, 235], textColor: 20, fontStyle: 'bold', fontSize: 10 },
       columnStyles: { 1: { halign: 'right', cellWidth: 104 }, 2: { halign: 'right', cellWidth: 104 } },
@@ -251,35 +251,45 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       y += 8 + seriales.length * 10;
     }
 
-    // Firmas — se firman A MANO al imprimir. Estaban clavadas a 54 pt del margen
-    // inferior, sin mirar hasta dónde llegaba el texto: cuando el detalle creció,
-    // «Firma de la persona» quedó encima del texto de conformidad.
+    // Firmas — se firman A MANO al imprimir, y ESO es lo que manda el diseño.
     //
-    // Ahora el bloque se CENTRA en lo que sobra de la hoja: el mismo aire entre el
-    // texto y la firma que entre la firma y el borde. Un recibo se firma a mano, y
-    // una raya con el renglón de arriba pegado no deja lugar para la firma.
-    const ALTO_FIRMAS = 38;                 // del «Recibí conforme» al nombre
-    const PISO = PAGE_H - MARGIN - 4;       // hasta donde puede llegar el nombre
-    const aire = Math.max(16, (PISO - y - ALTO_FIRMAS) / 2);
-    let fy = y + aire + 12;                 // +12: el «Recibí conforme» va en fy − 12
-    if (fy + 26 > PISO) fy = PISO - 26;     // por largo que venga, no se sale de la hoja
-    // Si ni apretado contra el borde queda por debajo del texto, recién ahí hoja
-    // nueva: una firma sola, lejos de los montos, no sirve para nada.
-    if (fy - 12 < y + 4) { doc.addPage(); fy = MARGIN + 50; }
+    // La firma se escribe ARRIBA de la raya, así que lo que hay que reservar es el
+    // hueco EN BLANCO entre el renglón anterior y la raya. Ese hueco eran 12 pt
+    // —cuatro milímetros— porque «Recibí conforme» iba pegado a la raya: no había
+    // dónde firmar. Y antes de eso el bloque estaba clavado a una altura fija del
+    // borde, así que directamente se montaba sobre el texto de conformidad.
+    //
+    // Ahora: «Recibí conforme» queda pegado al texto (es su epígrafe), la raya baja
+    // TODO lo que la hoja permite, y el blanco que queda entre medio es el lugar
+    // para firmar.
+    const HUECO_FIRMA_MIN = 46;             // 1,6 cm: menos que esto no es un renglón de firma
+    const BAJO_LA_RAYA = 24;                // rótulo + nombre debajo de la raya
+    const PISO = PAGE_H - MARGIN - 20;      // hasta donde puede bajar el nombre
+    const recibiY = y + 12;                 // el epígrafe, justo debajo del texto
+    let fy = PISO - BAJO_LA_RAYA;           // la raya, lo más abajo posible
+    // Si el recibo vino tan largo que no queda ni el hueco mínimo para firmar, se
+    // pasa a una hoja nueva: una raya sin lugar donde firmar no sirve de nada.
+    if (fy - recibiY < HUECO_FIRMA_MIN) {
+      doc.addPage();
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
+      doc.text('Recibí conforme el pago aquí detallado.', MARGIN, MARGIN + 12);
+      doc.setTextColor(0);
+      fy = MARGIN + 12 + HUECO_FIRMA_MIN;
+    } else {
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
+      doc.text('Recibí conforme el pago aquí detallado.', MARGIN, recibiY);
+      doc.setTextColor(0);
+    }
     const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
-    // "Recibí conforme" sobre la firma del trabajador.
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
-    doc.text('Recibí conforme el pago aquí detallado.', MARGIN, fy - 12);
-    doc.setTextColor(0);
     doc.setDrawColor(120); doc.setLineWidth(0.7);
     doc.line(MARGIN, fy, MARGIN + colW, fy);
     doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('Firma de la persona', MARGIN + colW / 2, fy + 14, { align: 'center' });
-    doc.text('Firma de la Jefa de RRHH', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
+    doc.text('Firma de la persona', MARGIN + colW / 2, fy + 13, { align: 'center' });
+    doc.text('Firma de la Jefa de RRHH', MARGIN + colW + 40 + colW / 2, fy + 13, { align: 'center' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90);
-    doc.text(`${r.nombre}${cedula ? ' · C.I. ' + cedula : ''}`, MARGIN + colW / 2, fy + 26, { align: 'center' });
-    doc.text('Jefatura de Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + 26, { align: 'center' });
+    doc.text(`${r.nombre}${cedula ? ' · C.I. ' + cedula : ''}`, MARGIN + colW / 2, fy + BAJO_LA_RAYA, { align: 'center' });
+    doc.text('Jefatura de Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + BAJO_LA_RAYA, { align: 'center' });
     doc.setTextColor(0);
   });
 
