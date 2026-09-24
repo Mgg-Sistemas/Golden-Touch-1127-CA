@@ -37,6 +37,7 @@ import {
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
 import { errorFicha, etiquetaFicha, fichaEditable, FICHA_MIN } from './fichaNro';
+import { descargarHojaIngresoPdf } from './hojaIngresoPdf';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 const VACIO: PersonalInput = {
@@ -464,7 +465,15 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
             {' '}· {filtrando ? `${visibles.length} de ${lista.length}` : `${lista.length}`} persona(s)
           </span>
         </div>
-        {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>+ Ingresar Registro de Personal</button>}
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          {/* La planilla en blanco: se imprime y se le da a quien ingresa para
+              que la complete a mano. No lleva datos de nadie. */}
+          <button className="btn btn-ghost" onClick={() => { void descargarHojaIngresoPdf(); }}
+            title="Planilla en blanco para que la complete quien ingresa">
+            📋 Hoja de ingreso (PDF)
+          </button>
+          {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>+ Ingresar Registro de Personal</button>}
+        </div>
       </div>
 
       {/* Las tarjetas cuentan sobre lo que se está VIENDO: si hay un filtro puesto,
