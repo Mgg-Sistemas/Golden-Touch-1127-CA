@@ -22,6 +22,7 @@ import {
   antiguedad, edad, labelEmpresa, labelEstadoCivil, labelGenero, labelParentesco,
 } from './fichaPersonal';
 import { descargarFichaTecnicaPdf } from './fichaTecnicaPdf';
+import { etiquetaFicha } from './fichaNro';
 
 /** Un dato de la ficha: etiqueta a la izquierda, valor a la derecha. */
 function Dato({ label, children }: { label: string; children: ReactNode }) {
@@ -122,7 +123,7 @@ export function FichaTecnicaPersonal({
         <div style={{ flex: '1 1 240px', minWidth: 0 }}>
           <h3 style={{ margin: 0, fontSize: '1.15rem' }}>{nombre}</h3>
           <div className="muted" style={{ fontSize: '.84rem', marginTop: '.2rem' }}>
-            {persona.ficha_nro ? `Ficha ${String(persona.ficha_nro).padStart(4, '0')}` : 'Sin número de ficha'}
+            {etiquetaFicha(persona.ficha_nro) || 'Sin número de ficha'}
             {persona.cargo ? ` · ${persona.cargo}` : ''}
             {persona.departamento ? ` · ${persona.departamento}` : ''}
           </div>

@@ -11,6 +11,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
+import { errorFicha, normalizarFicha } from './fichaNro';
 
 const TABLE = 'personal';
 
@@ -43,6 +44,9 @@ export interface PersonalInput {
   telefono_emergencia?: string | null;
   /** A qué nómina entra. Solo se define al dar de alta. */
   empresa?: EmpresaRrhh;
+  /** Número de ficha. Igual que la empresa: solo se define al dar de alta.
+   *  Vacío = que lo asigne la base. */
+  ficha_nro?: string | null;
   fecha_nacimiento?: string | null;
   genero?: 'M' | 'F' | 'O' | null;
   estado_civil?: 'soltero' | 'casado' | 'divorciado' | 'viudo' | 'concubinato' | null;
@@ -55,6 +59,9 @@ function payload(input: PersonalInput) {
   return {
     ...baseSinSueldo(input),
     sueldo_base: Math.round((Number(input.sueldo_base) || 0) * 100) / 100,
+    // Solo acá, que es el ALTA. A propósito NO está en `baseSinSueldo`, que es
+    // lo que arma la EDICIÓN: la ficha no se cambia, y la base lo rechaza igual.
+    ficha_nro: normalizarFicha(input.ficha_nro),
   };
 }
 
@@ -125,6 +132,8 @@ function errorDuplicado(error: { code?: string; message?: string } | null): Erro
 
 export async function crearPersonal(input: PersonalInput, actorEmail?: string): Promise<Personal> {
   if (!input.nombre.trim()) throw new Error('Indicá el nombre.');
+  const malaFicha = errorFicha(input.ficha_nro);
+  if (malaFicha) throw new Error(malaFicha);
   // La empresa se fija en el alta y no se toca después: mover a alguien de
   // nómina es una baja y un alta, no un campo que se edita.
   const { data, error } = await supabase.from(TABLE)

@@ -12,6 +12,7 @@ import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { formatearRif } from '@/shared/lib/rif';
 import type { Personal, PersonalFamiliar } from '@/shared/lib/types';
 import { fotoPersonalDataUrl } from './personal.repository';
+import { etiquetaFicha } from './fichaNro';
 import {
   antiguedad, edad, labelEmpresa, labelEstadoCivil, labelGenero, labelParentesco,
 } from './fichaPersonal';
@@ -70,7 +71,7 @@ export async function descargarFichaTecnicaPdf(
   const anti = antiguedad(persona.fecha_ingreso);
   const anios = edad(persona.fecha_nacimiento);
   doc.text(pdfSafe([
-    persona.ficha_nro ? `Ficha ${String(persona.ficha_nro).padStart(4, '0')}` : 'Sin ficha',
+    etiquetaFicha(persona.ficha_nro) || 'Sin ficha',
     persona.cargo || null,
     persona.departamento || null,
   ].filter(Boolean).join('  ·  ')), xTexto, y + 30, { maxWidth: W - xTexto - MARGIN });

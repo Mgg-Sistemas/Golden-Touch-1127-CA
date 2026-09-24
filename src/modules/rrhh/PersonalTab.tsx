@@ -36,6 +36,7 @@ import {
 } from './carnetPersonal';
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
+import { errorFicha, etiquetaFicha, fichaEditable, FICHA_MIN } from './fichaNro';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 const VACIO: PersonalInput = {
@@ -43,6 +44,7 @@ const VACIO: PersonalInput = {
   fecha_ingreso: '', telefono: '', contacto_emergencia: '', telefono_emergencia: '',
   fecha_nacimiento: '', genero: null, estado_civil: null, grupo_sanguineo: null,
   nacionalidad: '', direccion: '', contacto_emergencia_parentesco: null,
+  ficha_nro: '',
 };
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
@@ -125,6 +127,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   // hacen falta en el render para avisar de un duplicado o de un RIF mal escrito
   // ANTES de guardar, no después del rechazo de la base.
   const [cedula, setCedula] = useState('');
+  // La ficha es un input controlado aparte porque su habilitación depende de si
+  // la persona YA tiene una: puesta, no se cambia.
+  const [ficha, setFicha] = useState('');
+  const [fichaActual, setFichaActual] = useState<string | null>(null);
   const [rif, setRif] = useState('');
   // Documentación (RIF, cédula, CV). En un registro nuevo todavía no hay id al
   // que colgar los archivos, así que quedan acá y suben con el alta.
@@ -228,7 +234,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const parentescoDe = (nombre: string) =>
     familiaDeEste.find((x) => x.nombre === nombre)?.parentesco ?? null;
 
-  function abrirNuevo() { setEditId(null); setForm(VACIO); setCedula(''); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(true); }
+  function abrirNuevo() { setEditId(null); setForm(VACIO); setCedula(''); setFicha(''); setFichaActual(null); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
     setForm({
@@ -242,13 +248,15 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       contacto_emergencia_parentesco: p.contacto_emergencia_parentesco ?? null,
     });
     setCedula(p.cedula ?? '');
+    setFicha(p.ficha_nro ?? '');
+    setFichaActual(p.ficha_nro ?? null);
     setRif(p.rif ?? '');
     limpiarFoto();
     limpiarDocs();
     setFotoPath(p.foto_path ?? null);
     setError(null); setFormOpen(true);
   }
-  function cerrarForm() { setEditId(null); setForm(VACIO); setCedula(''); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(false); }
+  function cerrarForm() { setEditId(null); setForm(VACIO); setCedula(''); setFicha(''); setFichaActual(null); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(false); }
 
   /** Un archivo elegido en el ALTA: espera a que la persona exista. */
   function elegirDocPendiente(tipo: TipoDocumento, file: File | null) {
@@ -339,6 +347,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       nombre: val('p-nombre').trim(),
       apellido: val('p-apellido').trim(),
       cedula: sanitizarCedula(cedula),
+      ficha_nro: ficha,
       rif: rif.trim() ? sanitizarRif(rif) : null,
       sueldo_base: Number(val('p-sueldo')) || 0,
       // Nacionalidad y contacto ya no son inputs sueltos (lista agregable y
@@ -355,6 +364,8 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       return;
     }
     if (!datos.nombre) { setError('Indicá el nombre.'); return; }
+    const malaFicha = errorFicha(ficha);
+    if (malaFicha) { setError(malaFicha); return; }
     if (cedulaRepetida) {
       setError(`${cedulaRepetida.nombre} ${cedulaRepetida.apellido ?? ''} ya está registrada con esa cédula.`.trim());
       return;
@@ -619,7 +630,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                   </button>
                   {p.cedula ? <span className="muted"> · {p.cedula}</span> : null}
                   <div className="muted mono" style={{ fontSize: '.72rem' }}>
-                    {p.ficha_nro ? `Ficha ${String(p.ficha_nro).padStart(4, '0')}` : ''}
+                    {etiquetaFicha(p.ficha_nro)}
                     {p.rif ? `${p.ficha_nro ? ' · ' : ''}RIF ${formatearRif(p.rif)}` : ''}
                   </div>
                 </td>
@@ -686,6 +697,30 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
             <div className="form-grid">
               <div className="form-row"><label>Nombre *</label><input className="input" name="p-nombre" autoFocus defaultValue={form.nombre} required /></div>
               <div className="form-row"><label>Apellido</label><input className="input" name="p-apellido" defaultValue={form.apellido ?? ''} /></div>
+              <div className="form-row">
+                <label>N° de ficha</label>
+                <input className="input" name="p-ficha" value={ficha}
+                  onChange={(e) => setFicha(e.target.value)}
+                  disabled={!fichaEditable(!editId, fichaActual)}
+                  maxLength={12}
+                  placeholder={editId ? '' : 'se asigna solo si lo dejás vacío'}
+                  style={errorFicha(ficha) ? { borderColor: 'var(--danger)' } : undefined} />
+                {!fichaEditable(!editId, fichaActual)
+                  ? (
+                    <small className="muted">
+                      La ficha <strong>no se cambia</strong>: con ella se identifica a la persona en
+                      planillas, recibos y carnets ya impresos.
+                    </small>
+                  )
+                  : errorFicha(ficha)
+                    ? <small style={{ color: 'var(--danger)' }}>{errorFicha(ficha)}</small>
+                    : (
+                      <small className="muted">
+                        Mínimo {FICHA_MIN} caracteres (ej. 001). Si lo dejás vacío, el sistema le asigna
+                        el siguiente. <strong>Después no se puede cambiar.</strong>
+                      </small>
+                    )}
+              </div>
               <div className="form-row">
                 <label>Cédula</label>
                 <input className="input" name="p-cedula" value={cedula}

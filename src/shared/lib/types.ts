@@ -1362,8 +1362,13 @@ export interface Personal {
   id: string;
   /** A qué nómina pertenece. Una persona está en una sola. */
   empresa: EmpresaRrhh;
-  /** Correlativo POR EMPRESA, lo asigna la base al dar de alta. */
-  ficha_nro?: number | null;
+  /**
+   * Número de ficha. TEXTO, no número: así «001» se guarda «001» y no como 1,
+   * y además entra un código como «GT-07». Mínimo 3 caracteres.
+   * Se escribe al dar de alta; si se deja vacío lo asigna la base
+   * (correlativo por empresa). Una vez puesto NO se puede cambiar.
+   */
+  ficha_nro?: string | null;
   nombre: string;
   apellido: string;
   cedula?: string | null;
