@@ -57,6 +57,46 @@ export function errorFicha(v?: string | null): string | null {
   return null;
 }
 
+/**
+ * Compara dos fichas para ORDENAR la lista de personal.
+ *
+ * No alcanza con comparar el texto: así «10» queda antes que «2», porque
+ * «1» es menor que «2» letra por letra. Se parte en tramos de números y de
+ * letras, y los números se comparan COMO NÚMEROS. Con eso, 2 < 10 < GT-07, y
+ * «001» y «1» quedan juntos (que son la misma ficha escrita distinto).
+ *
+ * Quien no tiene ficha va AL FINAL: es lo que falta cargar, no el número cero.
+ */
+const TRAMOS = /\d+|\D+/g;
+
+export function compararFicha(a?: string | null, b?: string | null): number {
+  const x = normalizarFicha(a);
+  const y = normalizarFicha(b);
+  if (x === null || y === null) return x === y ? 0 : (x === null ? 1 : -1);
+
+  const tx = x.match(TRAMOS) ?? [];
+  const ty = y.match(TRAMOS) ?? [];
+  const hasta = Math.min(tx.length, ty.length);
+  for (let i = 0; i < hasta; i++) {
+    const p = tx[i];
+    const q = ty[i];
+    const pNum = /^\d/.test(p);
+    const qNum = /^\d/.test(q);
+    if (pNum !== qNum) return pNum ? -1 : 1;  // los números antes que las letras
+    if (pNum) {
+      const d = Number(p) - Number(q);
+      if (d !== 0) return d;
+      // Mismo número escrito distinto («001» y «1»): el más corto primero,
+      // para que el orden sea siempre el mismo y no dependa del azar.
+      if (p.length !== q.length) return p.length - q.length;
+    } else {
+      const d = p.localeCompare(q, 'es');
+      if (d !== 0) return d;
+    }
+  }
+  return tx.length - ty.length;
+}
+
 /** Texto para mostrar: «Ficha 001» o vacío si no tiene. */
 export function etiquetaFicha(v?: string | null): string {
   const f = normalizarFicha(v);

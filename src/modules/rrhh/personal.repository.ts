@@ -11,24 +11,38 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
-import { errorFicha, normalizarFicha } from './fichaNro';
+import { compararFicha, errorFicha, normalizarFicha } from './fichaNro';
 import { errorCorreo, normalizarCorreo } from './correoPersonal';
 import { esNeutro, normalizarEncuadre, type Encuadre } from './encuadreFoto';
 
 const TABLE = 'personal';
 
 /**
- * Lista el personal, ordenado por departamento y nombre.
+ * Lista el personal ORDENADO POR NÚMERO DE FICHA, que es como se lo nombra
+ * en planillas y recibos: se busca «la 007», no «Pérez».
+ *
+ * El orden se arma acá y no en el SELECT a propósito: la ficha es TEXTO (para
+ * que «001» se guarde «001»), y ordenar texto en la base pone «10» antes que
+ * «2». `compararFicha` compara los tramos de números como números. Quien
+ * todavía no tiene ficha queda al final, y entre iguales manda el nombre.
+ *
  * `empresa` separa las dos nóminas (GT y MTO), que son independientes: sin
  * filtrar se mezclarían dos plantillas que no tienen nada que ver.
  */
 export async function listPersonal(soloActivos = false, empresa?: EmpresaRrhh): Promise<Personal[]> {
-  let q = supabase.from(TABLE).select('*').order('departamento', { ascending: true, nullsFirst: false }).order('nombre', { ascending: true });
+  let q = supabase.from(TABLE).select('*').order('nombre', { ascending: true });
   if (soloActivos) q = q.eq('activo', true);
   if (empresa) q = q.eq('empresa', empresa);
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []) as Personal[];
+  return ordenarPorFicha((data ?? []) as Personal[]);
+}
+
+/** Ordena una lista de personal por número de ficha (sin ficha, al final). */
+export function ordenarPorFicha(lista: Personal[]): Personal[] {
+  const nombreDe = (p: Personal) => `${p.nombre} ${p.apellido ?? ''}`.trim();
+  return [...lista].sort((a, b) =>
+    compararFicha(a.ficha_nro, b.ficha_nro) || nombreDe(a).localeCompare(nombreDe(b), 'es'));
 }
 
 export interface PersonalInput {

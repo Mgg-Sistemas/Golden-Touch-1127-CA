@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { FICHA_MAX, FICHA_MIN, errorFicha, etiquetaFicha, fichaEditable, normalizarFicha } from './fichaNro';
+import {
+  FICHA_MAX, FICHA_MIN, compararFicha, errorFicha, etiquetaFicha, fichaEditable, normalizarFicha,
+} from './fichaNro';
 
 describe('normalizarFicha', () => {
   it('saca los espacios de los bordes', () => {
@@ -93,5 +95,41 @@ describe('fichaEditable · se escribe una vez y queda quieta', () => {
     expect(fichaEditable(false, null)).toBe(true);
     expect(fichaEditable(false, '')).toBe(true);
     expect(fichaEditable(false, '   ')).toBe(true);
+  });
+});
+
+describe('compararFicha · el orden de la lista de personal', () => {
+  const ordenar = (fichas: (string | null)[]) => [...fichas].sort(compararFicha);
+
+  it('los números van como números: la 10 después de la 2, no antes', () => {
+    expect(ordenar(['10', '2', '1'])).toEqual(['1', '2', '10']);
+  });
+
+  it('con ceros adelante ordena igual', () => {
+    expect(ordenar(['010', '002', '001'])).toEqual(['001', '002', '010']);
+  });
+
+  it('la misma ficha escrita distinto queda junta', () => {
+    expect(ordenar(['7', '005', '007', '5'])).toEqual(['5', '005', '7', '007']);
+  });
+
+  it('las fichas con letras se ordenan por su parte numérica', () => {
+    expect(ordenar(['GT-10', 'GT-2', 'GT-1'])).toEqual(['GT-1', 'GT-2', 'GT-10']);
+  });
+
+  it('los números sueltos van antes que los códigos con letra', () => {
+    expect(ordenar(['GT-01', '999'])).toEqual(['999', 'GT-01']);
+  });
+
+  it('quien no tiene ficha queda al final', () => {
+    expect(ordenar(['003', null, '001', '', '002'])).toEqual(['001', '002', '003', null, '']);
+  });
+
+  it('dos sin ficha empatan', () => {
+    expect(compararFicha(null, '')).toBe(0);
+  });
+
+  it('los espacios y las minúsculas no cambian el orden', () => {
+    expect(compararFicha(' gt-1 ', 'GT-1')).toBe(0);
   });
 });
