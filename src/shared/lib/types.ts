@@ -1395,6 +1395,13 @@ export interface Personal {
   telefono_emergencia?: string | null;
   /** Foto de la persona (bucket `personal-fotos`) para el carnet. */
   foto_path?: string | null;
+  /**
+   * Encuadre de la foto: cuánto se acerca y qué punto queda centrado.
+   * `null` = cubrir y centrar, que es como se dibujaba antes de poder
+   * ajustarla. El archivo original nunca se recorta: esto se aplica al
+   * dibujar, así que se puede reencuadrar cuantas veces haga falta.
+   */
+  foto_encuadre?: { zoom: number; x: number; y: number } | null;
   datos_pago?: Record<string, unknown> | null;
   created_at: string;
   created_by?: string | null;

@@ -12,6 +12,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { errorFicha, normalizarFicha } from './fichaNro';
+import { esNeutro, normalizarEncuadre, type Encuadre } from './encuadreFoto';
 
 const TABLE = 'personal';
 
@@ -220,7 +221,10 @@ export async function subirFotoPersonal(id: string, file: File, fotoAnterior?: s
   const path = `${id}/${Date.now()}.${ext}`;
   const { error } = await supabase.storage.from(FOTOS_BUCKET).upload(path, file, { contentType: file.type, upsert: false });
   if (error) throw error;
-  const { error: updErr } = await supabase.from(TABLE).update({ foto_path: path }).eq('id', id);
+  // El encuadre vuelve a cero: el de la foto anterior no tiene nada que ver con
+  // esta, y dejarlo puesto mostraría un recorte al azar de la cara de alguien.
+  const { error: updErr } = await supabase.from(TABLE)
+    .update({ foto_path: path, foto_encuadre: null }).eq('id', id);
   if (updErr) throw updErr;
   if (fotoAnterior) await supabase.storage.from(FOTOS_BUCKET).remove([fotoAnterior]).catch(() => {});
   return path;
@@ -228,9 +232,22 @@ export async function subirFotoPersonal(id: string, file: File, fotoAnterior?: s
 
 /** Quita la foto de una persona (borra el archivo y limpia `foto_path`). */
 export async function borrarFotoPersonal(id: string, fotoPath: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).update({ foto_path: null }).eq('id', id);
+  const { error } = await supabase.from(TABLE)
+    .update({ foto_path: null, foto_encuadre: null }).eq('id', id);
   if (error) throw error;
   if (fotoPath) await supabase.storage.from(FOTOS_BUCKET).remove([fotoPath]).catch(() => {});
+}
+
+/**
+ * Guarda cómo queda encuadrada la foto (zoom y centro). El archivo no se toca.
+ *
+ * Un encuadre neutro se guarda como `null` en vez de {zoom:1,x:.5,y:.5}: son
+ * lo mismo al dibujar, y `null` deja claro que a esa foto nadie la ajustó.
+ */
+export async function guardarEncuadreFoto(id: string, encuadre: Encuadre | null): Promise<void> {
+  const valor = !encuadre || esNeutro(encuadre) ? null : normalizarEncuadre(encuadre);
+  const { error } = await supabase.from(TABLE).update({ foto_encuadre: valor }).eq('id', id);
+  if (error) throw error;
 }
 
 /** URL firmada (5 min) para ver/descargar la foto de una persona. */

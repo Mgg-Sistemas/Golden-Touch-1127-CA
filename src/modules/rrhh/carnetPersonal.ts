@@ -6,6 +6,8 @@
    ============================================================ */
 import QRCode from 'qrcode';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { recorteDeEncuadre, type Encuadre } from './encuadreFoto';
+import { EMPRESA_EMAIL, EMPRESA_WHATSAPP } from '@/shared/lib/empresa';
 import type { Personal } from '@/shared/lib/types';
 
 // 54 mm × (300 / 25.4) = 637.8 → 638 px  ·  86 mm × (300 / 25.4) = 1015.7 → 1016 px
@@ -109,13 +111,19 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-/** Dibuja una imagen recortada para CUBRIR el rectángulo (object-fit: cover). */
-function dibujarCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number) {
-  const ir = img.width / img.height;
-  const r = w / h;
-  let sx = 0, sy = 0, sw = img.width, sh = img.height;
-  if (ir > r) { sw = img.height * r; sx = (img.width - sw) / 2; }
-  else { sh = img.width / r; sy = (img.height - sh) / 2; }
+/**
+ * Dibuja una imagen recortada para CUBRIR el rectángulo (object-fit: cover),
+ * respetando el encuadre que se le haya puesto a la foto.
+ *
+ * Sin encuadre el resultado es exactamente el de antes —cubrir y centrar—, así
+ * que las fotos que nadie ajustó se siguen viendo igual.
+ */
+function dibujarCover(
+  ctx: CanvasRenderingContext2D, img: HTMLImageElement,
+  x: number, y: number, w: number, h: number, encuadre?: Partial<Encuadre> | null,
+) {
+  const { sx, sy, sw, sh } = recorteDeEncuadre(img.width, img.height, w, h, encuadre);
+  if (sw <= 0 || sh <= 0) return;
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
@@ -263,7 +271,7 @@ export async function generarCarnetPersonalDataUrl(
   if (fotoDataUrl) {
     try {
       const foto = await cargarImg(fotoDataUrl);
-      dibujarCover(ctx, foto, fx, fy, fw, fh);
+      dibujarCover(ctx, foto, fx, fy, fw, fh, p.foto_encuadre);
     } catch { /* si falla, queda el placeholder */ }
   } else {
     // Silueta placeholder (cabeza + hombros).
@@ -379,8 +387,8 @@ function textoJustificado(ctx: CanvasRenderingContext2D, texto: string, x: numbe
 /** Texto legal fijo del reverso del carnet. */
 const REVERSO_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
 const REVERSO_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianza de minerales estratégicos de la Corporación Venezolana de Minería.';
-const REVERSO_EMAIL = 'mineralgroupguayanaca@gmail.com';
-const REVERSO_WHATSAPP = 'WhatsApp +58 424-9349731';
+const REVERSO_EMAIL = EMPRESA_EMAIL;
+const REVERSO_WHATSAPP = `WhatsApp ${EMPRESA_WHATSAPP}`;
 
 /** Ruta del asset con la imagen institucional del reverso (Corporación Venezolana de Minería). */
 const REVERSO_IMG_URL = `${import.meta.env.BASE_URL}cvm.jpg`;

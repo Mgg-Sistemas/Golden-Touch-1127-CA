@@ -10,7 +10,7 @@
      transferencia bancaria». Se quitó a pedido.
 
    · ADAPTADA A VENEZUELA. El modelo venía con vocabulario de otro país
-     («Cédula / DNI / RUT», «Ciudad / Comuna»). Acá dice «Cédula de
+     («Cédula / DNI / RUT», «Ciudad / Comuna», «RUT / Identificación»). Acá dice «Cédula de
      Identidad» y «Ciudad / Municipio», y el estado civil usa las mismas
      opciones que el sistema (soltero, casado, divorciado, viudo,
      concubinato), para que lo que se escribe a mano entre después sin
@@ -20,7 +20,7 @@
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
-import { EMPRESA_RIF } from './constanciaTrabajoPdf';
+import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
 
 /** Alto de un renglón de campo: lo que queda para escribir a mano arriba de la raya. */
 const ALTO_CAMPO = 27;
@@ -94,7 +94,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   doc.setTextColor(90, 90, 90);
   doc.text(`RIF: ${EMPRESA_RIF}`, tx, y + 31);
   doc.setFont('helvetica', 'normal');
-  doc.text('mineralgroupguayanaca@gmail.com  ·  WhatsApp +58 424-9349731', tx, y + 44);
+  doc.text(EMPRESA_CONTACTO, tx, y + 44);
   doc.setTextColor(20, 20, 20);
   y += 56;
 
@@ -127,14 +127,30 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   doc.setTextColor(105, 105, 105);
   doc.text('FECHA DE NACIMIENTO', MARGIN, y);
   doc.setTextColor(20, 20, 20);
+
+  // Las rayitas y, debajo, qué va en cada una. Las tres palabras se centran
+  // MIDIENDO cada tramo: separadas con espacios quedaban corridas respecto de
+  // la raya que nombran.
   doc.setFontSize(10);
-  doc.text('____ / ____ / ________', MARGIN, y + ALTO_CAMPO - 11);
+  const HUECO_DIA = '____';
+  const HUECO_ANIO = '________';
+  const SEP = ' / ';
+  doc.text(`${HUECO_DIA}${SEP}${HUECO_DIA}${SEP}${HUECO_ANIO}`, MARGIN, y + 16);
+  const wDia = doc.getTextWidth(HUECO_DIA);
+  const wAnio = doc.getTextWidth(HUECO_ANIO);
+  const wSep = doc.getTextWidth(SEP);
+
   doc.setFontSize(6.5);
   doc.setTextColor(140, 140, 140);
-  doc.text('día      mes         año', MARGIN + 4, y + ALTO_CAMPO - 2);
+  doc.text('día', MARGIN + wDia / 2, y + 25, { align: 'center' });
+  doc.text('mes', MARGIN + wDia + wSep + wDia / 2, y + 25, { align: 'center' });
+  doc.text('año', MARGIN + (wDia + wSep) * 2 + wAnio / 2, y + 25, { align: 'center' });
   doc.setTextColor(20, 20, 20);
+
   campo(doc, COL2_X, y, COL, 'Cédula de identidad');
-  y += ALTO_CAMPO + 4;
+  // Este renglón es MÁS ALTO que los demás: lleva los rótulos «día/mes/año»
+  // debajo de la raya. Sin este aire extra se pisaban con NACIONALIDAD.
+  y += ALTO_CAMPO + 12;
 
   campo(doc, MARGIN, y, COL, 'Nacionalidad');
   campo(doc, COL2_X, y, COL, 'Tipo de sangre / RH');
@@ -182,7 +198,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
     { titulo: 'Nombre completo del dependiente', ancho: ANCHO * 0.40 },
     { titulo: 'Parentesco', ancho: ANCHO * 0.18 },
     { titulo: 'Fecha de nacimiento', ancho: ANCHO * 0.22 },
-    { titulo: 'Cédula / ID', ancho: ANCHO * 0.20 },
+    { titulo: 'Cédula', ancho: ANCHO * 0.20 },
   ];
   const FILAS = 4;
 

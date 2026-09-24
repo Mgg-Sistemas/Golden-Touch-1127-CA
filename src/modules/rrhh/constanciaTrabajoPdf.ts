@@ -10,12 +10,13 @@ import { money } from '@/shared/lib/format';
 import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
+import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
 
 export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
-/** RIF fiscal de la empresa, para el membrete de documentos formales.
- *  Único lugar donde se define: si cambia, se edita acá. */
-export const EMPRESA_RIF = 'J-50129993-5';
+/** Se re-exporta para no romper a quien ya lo importaba desde acá.
+ *  El valor vive en `@/shared/lib/empresa`, junto al correo y el WhatsApp. */
+export { EMPRESA_RIF };
 
 export interface ConstanciaTrabajoInput {
   persona: Personal;
@@ -72,7 +73,7 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   doc.setFont('helvetica', 'bold');
   doc.text(`RIF: ${EMPRESA_RIF}`, tx, y + 50);
   doc.setFont('helvetica', 'normal');
-  doc.text('mineralgroupguayanaca@gmail.com  ·  WhatsApp +58 424-9349731', tx, y + 64);
+  doc.text(EMPRESA_CONTACTO, tx, y + 64);
   doc.setTextColor(20, 20, 20);
   y += 88;
 

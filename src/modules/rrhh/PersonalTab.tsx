@@ -10,7 +10,7 @@ import type { Personal, NominaRenglon } from '@/shared/lib/types';
 import { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal, type PersonalInput,
-  subirFotoPersonal, borrarFotoPersonal, fotoPersonalDataUrl,
+  subirFotoPersonal, borrarFotoPersonal, fotoPersonalDataUrl, guardarEncuadreFoto,
   resumenBorradoPersonal, type ResumenBorradoPersonal,
 } from './personal.repository';
 import { DocumentacionPersona, type DocsPendientes } from './DocumentacionPersona';
@@ -38,6 +38,8 @@ import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './consta
 import { HistorialSueldoModal } from './HistorialSueldoModal';
 import { errorFicha, etiquetaFicha, fichaEditable, FICHA_MIN } from './fichaNro';
 import { descargarHojaIngresoPdf } from './hojaIngresoPdf';
+import { AjustarFoto } from './AjustarFoto';
+import type { Encuadre } from './encuadreFoto';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 const VACIO: PersonalInput = {
@@ -112,6 +114,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   // en el momento (es un archivo, no un campo del formulario). En uno nuevo
   // todavía no hay a qué asociarla, así que queda pendiente y sube al guardar.
   const [fotoPath, setFotoPath] = useState<string | null>(null);
+  /** Encuadre guardado de la persona que se está editando. */
+  const [fotoEncuadre, setFotoEncuadre] = useState<Encuadre | null>(null);
+  /** Abre el ajustador de la foto. */
+  const [ajustando, setAjustando] = useState(false);
   const [fotoPreview, setFotoPreview] = useState<string | null>(null);
   const [fotoPendiente, setFotoPendiente] = useState<File | null>(null);
   const [fotoOcupada, setFotoOcupada] = useState(false);
@@ -188,7 +194,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     return m;
   }, [docsTodos]);
 
-  function limpiarFoto() { setFotoPath(null); setFotoPreview(null); setFotoPendiente(null); setFotoOcupada(false); }
+  function limpiarFoto() {
+    setFotoPath(null); setFotoPreview(null); setFotoPendiente(null); setFotoOcupada(false);
+    setFotoEncuadre(null); setAjustando(false);
+  }
   function limpiarDocs() { setDocsPendientes({}); setFamPendientes([]); }
 
   // Lo que se ve: primero el recorte de los filtros, después la agrupación.
@@ -235,6 +244,20 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const parentescoDe = (nombre: string) =>
     familiaDeEste.find((x) => x.nombre === nombre)?.parentesco ?? null;
 
+  async function guardarAjuste(e: Encuadre) {
+    if (!editId) return;
+    setFotoOcupada(true);
+    setError(null);
+    try {
+      await guardarEncuadreFoto(editId, e);
+      setFotoEncuadre(e);
+      setAjustando(false);
+      await recargar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar el encuadre de la foto');
+    } finally { setFotoOcupada(false); }
+  }
+
   function abrirNuevo() { setEditId(null); setForm(VACIO); setCedula(''); setFicha(''); setFichaActual(null); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(true); }
   function editar(p: Personal) {
     setEditId(p.id);
@@ -255,6 +278,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     limpiarFoto();
     limpiarDocs();
     setFotoPath(p.foto_path ?? null);
+    setFotoEncuadre(p.foto_encuadre ?? null);
     setError(null); setFormOpen(true);
   }
   function cerrarForm() { setEditId(null); setForm(VACIO); setCedula(''); setFicha(''); setFichaActual(null); setRif(''); setError(null); limpiarFoto(); limpiarDocs(); setFormOpen(false); }
@@ -299,6 +323,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
         // Registro existente: sube ya. Así el carnet y la ficha quedan al día
         // aunque después se cierre el formulario sin guardar el resto.
         const nuevo = await subirFotoPersonal(editId, file, fotoPath);
+        setFotoEncuadre(null); // el encuadre viejo no tiene nada que ver con esta foto
         setFotoPath(nuevo); setFotoPendiente(null); setFotoPreview(preview);
         await recargar();
       } else {
@@ -701,7 +726,18 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
               pendiente={!editId && !!fotoPendiente}
               onElegir={elegirFotoForm}
               onQuitar={pedirQuitarFoto}
+              onAjustar={editId && fotoPath && fotoPreview ? () => setAjustando(true) : undefined}
             />
+
+            {ajustando && fotoPreview && (
+              <AjustarFoto
+                fotoDataUrl={fotoPreview}
+                encuadreInicial={fotoEncuadre}
+                guardando={fotoOcupada}
+                onGuardar={(e) => { void guardarAjuste(e); }}
+                onCerrar={() => setAjustando(false)}
+              />
+            )}
 
             <div className="form-grid">
               <div className="form-row"><label>Nombre *</label><input className="input" name="p-nombre" autoFocus defaultValue={form.nombre} required /></div>
@@ -1126,7 +1162,7 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
    Hasta ahora la foto solo se podía tocar desde el carnet (🪪), que es el lugar
    donde se VE pero no donde se edita la ficha: quien entraba a ✎ Editar a
    completar los datos no tenía cómo ponerle la cara a la persona. */
-function FotoPersonaCard({ preview, tieneFoto, ocupada, pendiente, onElegir, onQuitar }: {
+function FotoPersonaCard({ preview, tieneFoto, ocupada, pendiente, onElegir, onQuitar, onAjustar }: {
   preview: string | null;
   tieneFoto: boolean;
   ocupada: boolean;
@@ -1134,6 +1170,9 @@ function FotoPersonaCard({ preview, tieneFoto, ocupada, pendiente, onElegir, onQ
   pendiente: boolean;
   onElegir: (file: File) => void;
   onQuitar: () => void;
+  /** Abre el ajustador. Sin definir (alta, o sin foto) el botón no aparece:
+   *  el encuadre se guarda contra la persona y en un alta todavía no existe. */
+  onAjustar?: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   return (
@@ -1163,6 +1202,10 @@ function FotoPersonaCard({ preview, tieneFoto, ocupada, pendiente, onElegir, onQ
           <button type="button" className="btn btn-sm btn-primary" disabled={ocupada} onClick={() => fileRef.current?.click()}>
             {ocupada ? 'Cargando…' : tieneFoto ? '🖼 Cambiar foto' : '🖼 Cargar foto'}
           </button>
+          {onAjustar && (
+            <button type="button" className="btn btn-sm btn-ghost" disabled={ocupada} onClick={onAjustar}
+              title="Elegir qué parte de la foto se ve en el carnet">🔍 Ajustar</button>
+          )}
           {tieneFoto && (
             <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
               disabled={ocupada} onClick={onQuitar}>🗑 Quitar</button>
