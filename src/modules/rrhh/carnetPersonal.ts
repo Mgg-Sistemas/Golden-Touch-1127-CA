@@ -12,18 +12,82 @@ import type { Personal } from '@/shared/lib/types';
 export const CARNET_W = 638;
 export const CARNET_H = 1016;
 
-// Paleta del sistema (theme.css).
+// El naranja de la marca no depende del tema: la banda de arriba y el pie son
+// los mismos en las dos versiones, que es lo que hace que se reconozca el carnet.
 const COL = {
-  bg0: '#1c1f24',
-  bg1: '#12151a',
-  bg2: '#262a31',
   primary: '#ff8a00',
   primary2: '#ffa733',
-  gold: '#ffd54a',
-  text: '#e7ecf3',
-  muted: '#9aa6b5',
-  panel: '#ffffff',
   qrDark: '#161a20',
+};
+
+/** Las dos versiones del carnet: fondo negro o fondo blanco. */
+export type TemaCarnet = 'oscuro' | 'claro';
+
+export const TEMAS_CARNET: { valor: TemaCarnet; etiqueta: string; sufijo: string }[] = [
+  { valor: 'oscuro', etiqueta: 'Fondo negro', sufijo: 'negro' },
+  { valor: 'claro', etiqueta: 'Fondo blanco', sufijo: 'blanco' },
+];
+
+export interface PaletaCarnet {
+  /** Fondo de la tarjeta (degradado de fondo0 a fondo1). */
+  fondo0: string;
+  fondo1: string;
+  /** Borde interior de la tarjeta. */
+  borde: string;
+  /** Relleno del marco de la foto y color de la silueta cuando no hay foto. */
+  marcoFoto: string;
+  silueta: string;
+  /** Nombre y apellido. */
+  texto: string;
+  /** Cargo, departamento y leyendas. */
+  tenue: string;
+  /** La cédula, que va resaltada. */
+  cedula: string;
+  /** Panel del QR. Siempre claro (un QR oscuro sobre oscuro no se lee), con
+   *  borde propio cuando el fondo del carnet también es claro. */
+  panelQr: string;
+  bordePanelQr: string | null;
+  /** El correo del reverso, que va en el verde del logo de la CVM. */
+  emailReverso: string;
+}
+
+/**
+ * Cada tema define TODOS los colores que no son el naranja de la marca.
+ *
+ * Los del tema claro no son los del oscuro aclarados: se eligieron para que se
+ * lean sobre blanco. El caso más claro es la cédula, que en el oscuro va en
+ * dorado (#ffd54a) y sobre blanco sería ilegible; en el claro va en ámbar
+ * quemado, que conserva el tono cálido de la marca y sí contrasta.
+ * `carnetPersonal.test.ts` verifica los contrastes.
+ */
+export const PALETA_CARNET: Record<TemaCarnet, PaletaCarnet> = {
+  oscuro: {
+    fondo0: '#1c1f24',
+    fondo1: '#12151a',
+    borde: 'rgba(255,138,0,0.35)',
+    marcoFoto: '#262a31',
+    silueta: 'rgba(154,166,181,0.45)',
+    texto: '#e7ecf3',
+    tenue: '#9aa6b5',
+    cedula: '#ffd54a',
+    panelQr: '#ffffff',
+    bordePanelQr: null,
+    emailReverso: '#b5c94e',
+  },
+  claro: {
+    fondo0: '#ffffff',
+    fondo1: '#ffffff',
+    borde: 'rgba(255,138,0,0.55)',
+    marcoFoto: '#eef1f5',
+    silueta: 'rgba(90,102,117,0.40)',
+    texto: '#151a21',
+    tenue: '#5c6673',
+    cedula: '#9a5b00',
+    panelQr: '#ffffff',
+    // Sobre blanco el panel del QR no se distingue del fondo: necesita borde.
+    bordePanelQr: '#d7dce3',
+    emailReverso: '#6b7a1b',
+  },
 };
 
 function cargarImg(src: string): Promise<HTMLImageElement> {
@@ -88,7 +152,12 @@ function fuenteQueQuepa(ctx: CanvasRenderingContext2D, texto: string, base: numb
  * (54×86 mm a 300 DPI). Incluye logo, foto (si hay), nombre/apellido, cédula y QR.
  * @param fotoDataUrl foto de la persona ya resuelta como data URL (opcional).
  */
-export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: string | null): Promise<string> {
+export async function generarCarnetPersonalDataUrl(
+  p: Personal,
+  fotoDataUrl?: string | null,
+  tema: TemaCarnet = 'oscuro',
+): Promise<string> {
+  const pal = PALETA_CARNET[tema];
   const canvas = document.createElement('canvas');
   canvas.width = CARNET_W;
   canvas.height = CARNET_H;
@@ -96,15 +165,15 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   if (!ctx) throw new Error('No se pudo crear el lienzo del carnet.');
   ctx.textBaseline = 'middle';
 
-  // Fondo (degradado oscuro del sistema).
+  // Fondo de la tarjeta, según el tema.
   const bg = ctx.createLinearGradient(0, 0, 0, CARNET_H);
-  bg.addColorStop(0, COL.bg0);
-  bg.addColorStop(1, COL.bg1);
+  bg.addColorStop(0, pal.fondo0);
+  bg.addColorStop(1, pal.fondo1);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, CARNET_W, CARNET_H);
 
   // Borde interior sutil.
-  ctx.strokeStyle = 'rgba(255,138,0,0.35)';
+  ctx.strokeStyle = pal.borde;
   ctx.lineWidth = 4;
   roundRect(ctx, 10, 10, CARNET_W - 20, CARNET_H - 20, 26);
   ctx.stroke();
@@ -145,7 +214,7 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   const fy = 156;
   ctx.save();
   roundRect(ctx, fx, fy, fw, fh, 18);
-  ctx.fillStyle = COL.bg2;
+  ctx.fillStyle = pal.marcoFoto;
   ctx.fill();
   ctx.clip();
   if (fotoDataUrl) {
@@ -155,7 +224,7 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
     } catch { /* si falla, queda el placeholder */ }
   } else {
     // Silueta placeholder (cabeza + hombros).
-    ctx.fillStyle = 'rgba(154,166,181,0.45)';
+    ctx.fillStyle = pal.silueta;
     const pcx = fx + fw / 2;
     ctx.beginPath(); ctx.arc(pcx, fy + fh * 0.4, 56, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(pcx, fy + fh * 1.02, 100, Math.PI, 0); ctx.fill();
@@ -170,17 +239,17 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   // Nombre y apellido (grande, blanco) + cédula (dorado) + cargo/depto (tenue).
   const nombre = `${p.nombre} ${p.apellido ?? ''}`.trim().toUpperCase();
   ctx.textAlign = 'center';
-  ctx.fillStyle = COL.text;
+  ctx.fillStyle = pal.texto;
   fuenteQueQuepa(ctx, nombre, 42, 24, '700', CARNET_W - 80);
   ctx.fillText(nombre, cx, fy + fh + 52);
 
   if (p.cedula) {
-    ctx.fillStyle = COL.gold;
+    ctx.fillStyle = pal.cedula;
     ctx.font = "700 32px 'Consolas', 'Courier New', monospace";
     ctx.fillText(p.cedula, cx, fy + fh + 96);
   }
   if (p.cargo || p.departamento) {
-    ctx.fillStyle = COL.muted;
+    ctx.fillStyle = pal.tenue;
     const sub = [p.cargo, p.departamento].filter(Boolean).join(' · ');
     fuenteQueQuepa(ctx, sub, 22, 15, '500', CARNET_W - 90);
     ctx.fillText(sub, cx, fy + fh + 132);
@@ -190,9 +259,14 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   const panelW = 316;
   const panelX = (CARNET_W - panelW) / 2;
   const panelY = 646;
-  ctx.fillStyle = COL.panel;
+  ctx.fillStyle = pal.panelQr;
   roundRect(ctx, panelX, panelY, panelW, panelW, 20);
   ctx.fill();
+  if (pal.bordePanelQr) {
+    ctx.strokeStyle = pal.bordePanelQr;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 
   const qrDataUrl = await QRCode.toDataURL(textoQrPersona(p), {
     errorCorrectionLevel: 'M',
@@ -205,7 +279,7 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   ctx.drawImage(qrImg, cx - qrSize / 2, panelY + (panelW - qrSize) / 2, qrSize, qrSize);
 
   // Leyenda bajo el QR.
-  ctx.fillStyle = COL.muted;
+  ctx.fillStyle = pal.tenue;
   ctx.font = "500 20px 'Segoe UI', Arial, sans-serif";
   ctx.fillText('Escaneá el código para ver los datos de contacto', cx, panelY + panelW + 30);
 
@@ -271,7 +345,11 @@ const REVERSO_IMG_URL = `${import.meta.env.BASE_URL}cvm.jpg`;
  * la credencial y datos de contacto. La imagen se toma de `public/carnet-reverso.png`
  * (si no existe, se dibuja un marcador).
  */
-export async function generarCarnetReversoDataUrl(imagenInstitucionalDataUrl?: string | null): Promise<string> {
+export async function generarCarnetReversoDataUrl(
+  imagenInstitucionalDataUrl?: string | null,
+  tema: TemaCarnet = 'oscuro',
+): Promise<string> {
+  const pal = PALETA_CARNET[tema];
   const canvas = document.createElement('canvas');
   canvas.width = CARNET_W;
   canvas.height = CARNET_H;
@@ -279,13 +357,16 @@ export async function generarCarnetReversoDataUrl(imagenInstitucionalDataUrl?: s
   if (!ctx) throw new Error('No se pudo crear el lienzo del carnet.');
   ctx.textBaseline = 'middle';
 
-  // Fondo BLANCO.
-  const cardText = '#1f2530';
-  const cardEmail = '#7a8b1f'; // verde oliva del logo CVM
-  ctx.fillStyle = '#ffffff';
+  // Fondo según el tema.
+  const cardText = pal.texto;
+  const cardEmail = pal.emailReverso; // verde del logo CVM, ajustado al fondo
+  const bg = ctx.createLinearGradient(0, 0, 0, CARNET_H);
+  bg.addColorStop(0, pal.fondo0);
+  bg.addColorStop(1, pal.fondo1);
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, CARNET_W, CARNET_H);
 
-  ctx.strokeStyle = 'rgba(255,138,0,0.55)';
+  ctx.strokeStyle = pal.borde;
   ctx.lineWidth = 4;
   roundRect(ctx, 10, 10, CARNET_W - 20, CARNET_H - 20, 26);
   ctx.stroke();
@@ -324,7 +405,7 @@ export async function generarCarnetReversoDataUrl(imagenInstitucionalDataUrl?: s
   } catch { /* sin imagen: marcador */ }
   ctx.restore();
   if (!imgOk) {
-    ctx.fillStyle = COL.muted;
+    ctx.fillStyle = pal.tenue;
     ctx.font = "500 18px 'Segoe UI', Arial, sans-serif";
     ctx.fillText('Imagen institucional', cx, cyImg);
   }
@@ -335,7 +416,7 @@ export async function generarCarnetReversoDataUrl(imagenInstitucionalDataUrl?: s
   ctx.lineWidth = 5;
   ctx.stroke();
 
-  // Texto legal JUSTIFICADO (oscuro sobre blanco).
+  // Texto legal JUSTIFICADO, en el color que contrasta con el fondo del tema.
   const margin = 46;
   const maxW = CARNET_W - margin * 2;
   let y = cyImg + rImg + 46;
@@ -371,8 +452,19 @@ export async function generarCarnetReversoDataUrl(imagenInstitucionalDataUrl?: s
   return canvas.toDataURL('image/png');
 }
 
-/** Nombre de archivo sugerido para el carnet. */
-export function nombreArchivoCarnet(p: Personal, cara: 'frente' | 'reverso' = 'frente'): string {
+/**
+ * Nombre de archivo sugerido para el carnet.
+ *
+ * Lleva la versión en el nombre a propósito: si no, bajar el frente negro y
+ * después el blanco deja dos archivos con el mismo nombre y el segundo queda
+ * como «(1)», sin forma de saber cuál es cuál al momento de mandarlos a imprimir.
+ */
+export function nombreArchivoCarnet(
+  p: Personal,
+  cara: 'frente' | 'reverso' = 'frente',
+  tema: TemaCarnet = 'oscuro',
+): string {
   const base = `${p.nombre}_${p.apellido ?? ''}`.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  return `carnet_${base || 'personal'}_${cara}.png`;
+  const sufijo = TEMAS_CARNET.find((t) => t.valor === tema)?.sufijo ?? tema;
+  return `carnet_${base || 'personal'}_${cara}_${sufijo}.png`;
 }

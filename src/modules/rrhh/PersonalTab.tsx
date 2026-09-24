@@ -30,7 +30,10 @@ import {
   listCargos, listDepartamentos, listNacionalidades, addCargo, addDepartamento, addNacionalidad,
 } from './catalogos';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { generarCarnetPersonalDataUrl, generarCarnetReversoDataUrl, nombreArchivoCarnet } from './carnetPersonal';
+import {
+  generarCarnetPersonalDataUrl, generarCarnetReversoDataUrl, nombreArchivoCarnet,
+  TEMAS_CARNET, type TemaCarnet,
+} from './carnetPersonal';
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -1131,6 +1134,9 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
   persona: Personal; canWrite: boolean; onClose: () => void; onFotoCambio: () => void;
 }) {
   const [fotoPath, setFotoPath] = useState<string | null>(persona.foto_path ?? null);
+  // Las dos versiones del carnet. Arranca en negro porque es la que se venía
+  // usando; la blanca gasta muchísima menos tinta al imprimir.
+  const [tema, setTema] = useState<TemaCarnet>('oscuro');
   const [frente, setFrente] = useState<string | null>(null);
   const [reverso, setReverso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1150,8 +1156,8 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
         const foto = fotoPath ? await fotoPersonalDataUrl(fotoPath).catch(() => null) : null;
         if (!cancel) setFotoData(foto);
         const [f, r] = await Promise.all([
-          generarCarnetPersonalDataUrl({ ...persona, foto_path: fotoPath }, foto),
-          generarCarnetReversoDataUrl(),
+          generarCarnetPersonalDataUrl({ ...persona, foto_path: fotoPath }, foto, tema),
+          generarCarnetReversoDataUrl(null, tema),
         ]);
         if (!cancel) { setFrente(f); setReverso(r); }
       } catch (e) {
@@ -1159,13 +1165,13 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
       }
     })();
     return () => { cancel = true; };
-  }, [persona, fotoPath]);
+  }, [persona, fotoPath, tema]);
 
   function descargar(dataUrl: string | null, cara: 'frente' | 'reverso') {
     if (!dataUrl) return;
     const a = document.createElement('a');
     a.href = dataUrl;
-    a.download = nombreArchivoCarnet(persona, cara);
+    a.download = nombreArchivoCarnet(persona, cara, tema);
     document.body.appendChild(a); a.click(); a.remove();
   }
 
@@ -1194,7 +1200,12 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
     finally { setSubiendo(false); }
   }
 
-  const imgStyle: CSSProperties = { width: 240, maxWidth: '100%', height: 'auto', borderRadius: 12, boxShadow: 'var(--shadow-md)' };
+  // El borde no es decorativo: sin él, el carnet blanco sobre un modal claro
+  // (o el negro sobre uno oscuro) se funde con el fondo y no se ve dónde termina.
+  const imgStyle: CSSProperties = {
+    width: 240, maxWidth: '100%', height: 'auto', borderRadius: 12,
+    boxShadow: 'var(--shadow-md)', border: '1px solid var(--border)',
+  };
 
   return (
     <Modal
@@ -1216,6 +1227,19 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
         </div>
       )}
 
+      <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '.8rem' }}>
+        <span className="muted" style={{ fontSize: '.76rem', fontWeight: 700 }}>VERSIÓN</span>
+        {TEMAS_CARNET.map((t) => (
+          <button
+            key={t.valor}
+            className={`btn btn-sm ${tema === t.valor ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setTema(t.valor)}
+          >
+            {t.valor === 'oscuro' ? '⬛' : '⬜'} {t.etiqueta}
+          </button>
+        ))}
+      </div>
+
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
           <div className="muted" style={{ fontSize: '.75rem', marginBottom: '.3rem', fontWeight: 700 }}>FRENTE</div>
@@ -1235,6 +1259,7 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
 
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.8rem', textAlign: 'center' }}>
         54 × 86 mm · 300 DPI (638 × 1016 px) · imágenes PNG listas para imprimir.
+        {' '}Cada versión baja con su nombre («…_frente_negro.png», «…_frente_blanco.png»), así que se pueden guardar las dos sin que una pise a la otra.
         {!persona.telefono && !persona.contacto_emergencia && ' Cargá el teléfono y el contacto de emergencia (✎ Editar) para que el QR los incluya.'}
       </p>
 
