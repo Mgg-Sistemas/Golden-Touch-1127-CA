@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { PALETA_CARNET, TEMAS_CARNET, nombreArchivoCarnet, textoQrPersona, type TemaCarnet } from './carnetPersonal';
+import {
+  PALETA_CARNET, TEMAS_CARNET, nombreArchivoCarnet, nombreParaCarnet, primeraParte,
+  textoQrPersona, type TemaCarnet,
+} from './carnetPersonal';
 import type { Personal } from '@/shared/lib/types';
 
 /* ============================================================
@@ -132,5 +135,75 @@ describe('textoQrPersona · el QR no depende del tema', () => {
     const p = { nombre: 'ANA', apellido: 'PÉREZ', cedula: 'V-12345678', cargo: 'ASISTENTE' } as Personal;
     expect(textoQrPersona(p)).toContain('GOLDEN TOUCH 1127 C.A.');
     expect(textoQrPersona(p)).toContain('Cédula: V-12345678');
+  });
+});
+
+describe('nombreParaCarnet · primer nombre y primer apellido', () => {
+  const persona = (nombre: string, apellido: string) => ({ nombre, apellido });
+
+  it('de un nombre y apellido compuestos toma el primero de cada uno', () => {
+    expect(nombreParaCarnet(persona('JESÚS EDUARDO', 'PÉREZ GÓMEZ'))).toBe('JESÚS PÉREZ');
+  });
+
+  it('un nombre simple queda igual', () => {
+    expect(nombreParaCarnet(persona('ANA', 'SILVA'))).toBe('ANA SILVA');
+  });
+
+  it('pasa a mayúsculas, como se imprime', () => {
+    expect(nombreParaCarnet(persona('ana maría', 'silva rojas'))).toBe('ANA SILVA');
+  });
+
+  it('aguanta espacios de más', () => {
+    expect(nombreParaCarnet(persona('  JOSÉ   LUIS  ', '  RÍOS  PAZ '))).toBe('JOSÉ RÍOS');
+  });
+
+  it('sin apellido no deja un espacio colgando', () => {
+    expect(nombreParaCarnet(persona('CARLOS', ''))).toBe('CARLOS');
+    expect(nombreParaCarnet({ nombre: 'CARLOS', apellido: null })).toBe('CARLOS');
+  });
+
+  it('sin nada devuelve vacío, no «undefined»', () => {
+    expect(nombreParaCarnet({ nombre: null, apellido: null })).toBe('');
+  });
+});
+
+describe('primeraParte · los apellidos con partícula no se cortan mal', () => {
+  it('«DE LA CRUZ MARTÍNEZ» es «DE LA CRUZ», no «DE»', () => {
+    expect(primeraParte('DE LA CRUZ MARTÍNEZ')).toBe('DE LA CRUZ');
+  });
+
+  it('«DEL VALLE ROJAS» es «DEL VALLE»', () => {
+    expect(primeraParte('DEL VALLE ROJAS')).toBe('DEL VALLE');
+  });
+
+  it('«DOS SANTOS SILVA» es «DOS SANTOS»', () => {
+    expect(primeraParte('DOS SANTOS SILVA')).toBe('DOS SANTOS');
+  });
+
+  it('«SAN MIGUEL TORRES» es «SAN MIGUEL»', () => {
+    expect(primeraParte('SAN MIGUEL TORRES')).toBe('SAN MIGUEL');
+  });
+
+  it('un apellido común no arrastra nada de más', () => {
+    expect(primeraParte('PÉREZ GÓMEZ')).toBe('PÉREZ');
+  });
+
+  it('el carnet de alguien con partícula sale completo', () => {
+    expect(nombreParaCarnet({ nombre: 'MARÍA JOSÉ', apellido: 'DE LA CRUZ MARTÍNEZ' }))
+      .toBe('MARÍA DE LA CRUZ');
+  });
+
+  it('vacío no rompe', () => {
+    expect(primeraParte('')).toBe('');
+    expect(primeraParte(null)).toBe('');
+    expect(primeraParte('   ')).toBe('');
+  });
+});
+
+describe('el QR conserva el nombre COMPLETO', () => {
+  it('lo que se acorta es lo impreso, no la identidad', () => {
+    const p = { nombre: 'JESÚS EDUARDO', apellido: 'PÉREZ GÓMEZ', cedula: 'V-12345678' } as Personal;
+    expect(textoQrPersona(p)).toContain('JESÚS EDUARDO PÉREZ GÓMEZ');
+    expect(nombreParaCarnet(p)).toBe('JESÚS PÉREZ');
   });
 });

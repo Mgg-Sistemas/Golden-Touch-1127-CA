@@ -119,6 +119,49 @@ function dibujarCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: n
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
+/**
+ * Partículas que son parte del apellido, no un apellido.
+ *
+ * Sin esto, «DE LA CRUZ MARTÍNEZ» daría «DE» como apellido, y el carnet saldría
+ * impreso con el apellido de nadie.
+ */
+const PARTICULAS = new Set([
+  'DE', 'DEL', 'LA', 'LAS', 'LO', 'LOS', 'Y', 'DA', 'DAS', 'DO', 'DOS',
+  'SAN', 'SANTA', 'VAN', 'VON', 'MC', 'MAC', 'SAINT', 'ST',
+]);
+
+/**
+ * El primer nombre (o el primer apellido) de un texto que puede traer varios.
+ *
+ * Arrastra las partículas iniciales: «DE LA CRUZ MARTÍNEZ» devuelve
+ * «DE LA CRUZ», no «DE».
+ */
+export function primeraParte(texto?: string | null): string {
+  const palabras = String(texto ?? '').trim().toUpperCase().split(/\s+/).filter(Boolean);
+  if (!palabras.length) return '';
+  const tomadas: string[] = [];
+  for (const palabra of palabras) {
+    tomadas.push(palabra);
+    if (!PARTICULAS.has(palabra)) break; // la primera que no es partícula cierra
+  }
+  return tomadas.join(' ');
+}
+
+/**
+ * Nombre que va IMPRESO en el carnet: primer nombre y primer apellido.
+ *
+ * En la base el nombre se guarda completo —hace falta así en la constancia de
+ * trabajo, que es un documento legal—, pero en el carnet no entra: un
+ * «JESÚS EDUARDO PÉREZ GÓMEZ» obliga a achicar la letra hasta que deja de
+ * leerse a un metro, que es justo para lo que sirve un carnet.
+ *
+ * El QR NO usa esto: adentro va la identidad completa, que es lo que necesita
+ * ver quien lo escanea.
+ */
+export function nombreParaCarnet(p: { nombre?: string | null; apellido?: string | null }): string {
+  return [primeraParte(p.nombre), primeraParte(p.apellido)].filter(Boolean).join(' ');
+}
+
 /** Texto que va DENTRO del QR: datos de la persona en texto legible al escanear. */
 export function textoQrPersona(p: Personal): string {
   const nombre = `${p.nombre} ${p.apellido ?? ''}`.trim();
@@ -237,7 +280,9 @@ export async function generarCarnetPersonalDataUrl(
   ctx.stroke();
 
   // Nombre y apellido (grande, blanco) + cédula (dorado) + cargo/depto (tenue).
-  const nombre = `${p.nombre} ${p.apellido ?? ''}`.trim().toUpperCase();
+  // Primer nombre y primer apellido: el completo no entra sin achicar la letra
+  // hasta que deja de leerse. En el QR sí va el nombre entero.
+  const nombre = nombreParaCarnet(p);
   ctx.textAlign = 'center';
   ctx.fillStyle = pal.texto;
   fuenteQueQuepa(ctx, nombre, 42, 24, '700', CARNET_W - 80);
