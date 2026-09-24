@@ -151,6 +151,7 @@ export function FichaTecnicaPersonal({
 
       <Seccion titulo="Contacto">
         <Dato label="Teléfono">{oVacio(persona.telefono)}</Dato>
+        <Dato label="Correo">{oVacio(persona.correo)}</Dato>
         <Dato label="En una emergencia, llamar a">
           {persona.contacto_emergencia?.trim()
             ? `${persona.contacto_emergencia}${persona.telefono_emergencia ? ` · ${persona.telefono_emergencia}` : ''}`

@@ -1389,6 +1389,9 @@ export interface Personal {
   direccion?: string | null;
   /** Contacto de la persona (para el carnet y el QR). */
   telefono?: string | null;
+  /** Correo del TRABAJADOR (el de la empresa vive en shared/lib/empresa.ts).
+   *  Se guarda en minúsculas y sin espacios; vacío se guarda como null. */
+  correo?: string | null;
   /** Contacto de emergencia: nombre, parentesco y teléfono (van al carnet y al QR). */
   contacto_emergencia?: string | null;
   contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;

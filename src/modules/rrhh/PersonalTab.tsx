@@ -37,6 +37,7 @@ import {
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
 import { errorFicha, etiquetaFicha, fichaEditable, FICHA_MIN } from './fichaNro';
+import { errorCorreo } from './correoPersonal';
 import { descargarHojaIngresoPdf } from './hojaIngresoPdf';
 import { AjustarFoto } from './AjustarFoto';
 import type { Encuadre } from './encuadreFoto';
@@ -44,7 +45,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
-  fecha_ingreso: '', telefono: '', contacto_emergencia: '', telefono_emergencia: '',
+  fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', telefono_emergencia: '',
   fecha_nacimiento: '', genero: null, estado_civil: null, grupo_sanguineo: null,
   nacionalidad: '', direccion: '', contacto_emergencia_parentesco: null,
   ficha_nro: '',
@@ -264,7 +265,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     setForm({
       nombre: p.nombre, apellido: p.apellido, cedula: p.cedula ?? '', rif: p.rif ?? '',
       cargo: p.cargo ?? '', departamento: p.departamento ?? '', sueldo_base: Number(p.sueldo_base) || 0,
-      fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '',
+      fecha_ingreso: p.fecha_ingreso ?? '', telefono: p.telefono ?? '', correo: p.correo ?? '',
       contacto_emergencia: p.contacto_emergencia ?? '', telefono_emergencia: p.telefono_emergencia ?? '',
       fecha_nacimiento: p.fecha_nacimiento ?? '', genero: p.genero ?? null,
       estado_civil: p.estado_civil ?? null, grupo_sanguineo: p.grupo_sanguineo ?? null,
@@ -381,6 +382,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       nacionalidad: (form.nacionalidad ?? '').trim().toUpperCase() || null,
       direccion: val('p-direccion').trim().toUpperCase() || null,
       telefono: val('p-telefono').trim(),
+      correo: val('p-correo').trim(),
       contacto_emergencia: (form.contacto_emergencia ?? '').trim(),
       telefono_emergencia: val('p-telefono-emergencia').trim(),
     };
@@ -392,6 +394,8 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     if (!datos.nombre) { setError('Indicá el nombre.'); return; }
     const malaFicha = errorFicha(ficha);
     if (malaFicha) { setError(malaFicha); return; }
+    const malCorreo = errorCorreo(datos.correo);
+    if (malCorreo) { setError(malCorreo); return; }
     if (cedulaRepetida) {
       setError(`${cedulaRepetida.nombre} ${cedulaRepetida.apellido ?? ''} ya está registrada con esa cédula.`.trim());
       return;
@@ -869,6 +873,15 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 onChange={(v) => setForm((f) => ({ ...f, nacionalidad: v.toUpperCase() }))}
                 hint="Elegí de la lista o agregá una nueva: queda guardada para la próxima." />
               <div className="form-row"><label>Teléfono</label><input className="input" name="p-telefono" defaultValue={form.telefono ?? ''} placeholder="0412-1234567" inputMode="tel" /></div>
+              <div className="form-row">
+                <label>Correo electrónico</label>
+                {/* Sin autocorrección: los teclados del teléfono ponen mayúscula
+                    a la primera letra y eso arruina una dirección. */}
+                <input className="input" name="p-correo" type="email" defaultValue={form.correo ?? ''}
+                  placeholder="nombre@gmail.com" inputMode="email"
+                  autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+                <small className="muted">Es el correo del trabajador. Queda en la ficha; no es obligatorio.</small>
+              </div>
               <div className="form-row">
                 <label>Contacto de emergencia (nombre)</label>
                 {/* La lista sale de la CARGA FAMILIAR de esta misma persona: a

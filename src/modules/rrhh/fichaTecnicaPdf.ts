@@ -112,6 +112,7 @@ export async function descargarFichaTecnicaPdf(
 
   bloque('CONTACTO', [
     ['Telefono', texto(persona.telefono)],
+    ['Correo', texto(persona.correo)],
     ['En una emergencia, llamar a', persona.contacto_emergencia?.trim()
       ? `${persona.contacto_emergencia}${persona.telefono_emergencia ? ` · ${persona.telefono_emergencia}` : ''}`
       : '—'],

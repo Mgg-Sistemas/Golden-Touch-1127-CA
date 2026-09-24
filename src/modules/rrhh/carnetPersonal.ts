@@ -180,6 +180,7 @@ export function textoQrPersona(p: Personal): string {
     p.cargo ? `Cargo: ${p.cargo}` : '',
     p.departamento ? `Departamento: ${p.departamento}` : '',
     p.telefono ? `Teléfono: ${p.telefono}` : '',
+    p.correo ? `Correo: ${p.correo}` : '',
     (p.contacto_emergencia || p.telefono_emergencia)
       ? `Emergencia: ${[p.contacto_emergencia, p.telefono_emergencia].filter(Boolean).join(' · ')}`
       : '',

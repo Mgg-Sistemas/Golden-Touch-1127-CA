@@ -12,6 +12,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { errorFicha, normalizarFicha } from './fichaNro';
+import { errorCorreo, normalizarCorreo } from './correoPersonal';
 import { esNeutro, normalizarEncuadre, type Encuadre } from './encuadreFoto';
 
 const TABLE = 'personal';
@@ -40,6 +41,7 @@ export interface PersonalInput {
   sueldo_base?: number;
   fecha_ingreso?: string | null;
   telefono?: string | null;
+  correo?: string | null;
   contacto_emergencia?: string | null;
   contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;
   telefono_emergencia?: string | null;
@@ -91,6 +93,7 @@ function baseSinSueldo(input: PersonalInput, soloDefinidos = false) {
     departamento: input.departamento?.trim() || null,
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
+    correo: normalizarCorreo(input.correo),
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
     contacto_emergencia_parentesco: input.contacto_emergencia_parentesco || null,
     telefono_emergencia: input.telefono_emergencia?.trim() || null,
@@ -135,6 +138,8 @@ export async function crearPersonal(input: PersonalInput, actorEmail?: string): 
   if (!input.nombre.trim()) throw new Error('Indicá el nombre.');
   const malaFicha = errorFicha(input.ficha_nro);
   if (malaFicha) throw new Error(malaFicha);
+  const malCorreo = errorCorreo(input.correo);
+  if (malCorreo) throw new Error(malCorreo);
   // La empresa se fija en el alta y no se toca después: mover a alguien de
   // nómina es una baja y un alta, no un campo que se edita.
   const { data, error } = await supabase.from(TABLE)
@@ -146,6 +151,8 @@ export async function crearPersonal(input: PersonalInput, actorEmail?: string): 
 
 export async function actualizarPersonal(id: string, patch: PersonalInput): Promise<Personal> {
   if (!patch.nombre.trim()) throw new Error('Indicá el nombre.');
+  const malCorreo = errorCorreo(patch.correo);
+  if (malCorreo) throw new Error(malCorreo);
   // Sin el sueldo, a propósito: ese cambio va por cambiarSueldo(), con motivo.
   // Y solo con los campos que vinieron: un campo ausente NO se borra.
   const { data, error } = await supabase.from(TABLE).update(baseSinSueldo(patch, true)).eq('id', id).select('*').single();
