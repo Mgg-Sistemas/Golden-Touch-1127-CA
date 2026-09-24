@@ -30,6 +30,7 @@ import {
   retencionPorAlicuota, rifValido, ROL_AYUDA, ROL_LABEL, SUJETO_LABEL, TIPO_RETENCION_LABEL,
   MOTIVO_IVA_100,
   type ConceptoIslr, type MotivoIva100, type RolRetencion, type SujetoRetenido, type TipoRetencion,
+  puedeRetenerLaEmpresa, motivoNoPuedeRetener,
 } from './calculosRetenciones';
 import {
   anularRetencion, getParametrosFiscales, guardarParametrosFiscales, listConceptosIslr, listLibro,
@@ -429,9 +430,17 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
   const montoBs = enBolivares(calculo.monto, moneda, tasa);
   const rifMal = !!rif.trim() && !rifValido(rif);
 
+  // Golden Touch no está designada contribuyente especial, así que no puede
+  // retener IVA ni percibir IGTF. Solo aplica al lado «practicada»: que le
+  // retengan a ella se registra siempre, porque es plata a favor.
+  const bloqueoAgente = rol === 'practicada'
+    ? motivoNoPuedeRetener(tipo, params.contribuyente_especial)
+    : null;
+
   async function guardar(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (bloqueoAgente) { setError(bloqueoAgente); return; }
     if (!razon.trim()) { setError(rol === 'sufrida' ? 'Indicá quién te retuvo.' : 'Indicá a quién le retuviste.'); return; }
     if (rol === 'sufrida' && !comprobante.trim()) {
       setError('Transcribí el N° del comprobante que te entregaron: sin él no se puede respaldar el anticipo.');
@@ -509,8 +518,16 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
           <div className="form-row">
             <label>Impuesto *</label>
             <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoRetencion)}>
-              {TIPOS.map((t) => <option key={t} value={t}>{TIPO_RETENCION_LABEL[t]}</option>)}
+              {TIPOS.map((t) => (
+                <option key={t} value={t}
+                  disabled={rol === 'practicada' && !puedeRetenerLaEmpresa(t, params.contribuyente_especial)}>
+                  {TIPO_RETENCION_LABEL[t]}
+                </option>
+              ))}
             </select>
+            {bloqueoAgente && (
+              <small style={{ color: 'var(--danger)', display: 'block', marginTop: 4 }}>{bloqueoAgente}</small>
+            )}
           </div>
         </div>
 

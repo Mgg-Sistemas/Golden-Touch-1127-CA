@@ -387,3 +387,48 @@ export function resumirLibro(filas: FilaLibro[]): ResumenLibro {
    usan también proveedores, ventas y la ficha del personal. Se reexporta para
    no cambiar quién lo importa desde acá. */
 export { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';
+
+/* ───────── Qué puede retener la empresa ───────── */
+
+/**
+ * Impuestos que la empresa NO puede retener si el SENIAT no la designó
+ * contribuyente especial.
+ *
+ * · IVA · La Providencia SNAT/2015/0049 nombra agentes de retención de IVA a
+ *   los contribuyentes especiales. Quien no lo es, no retiene IVA: retenerlo
+ *   sería quedarse con plata del proveedor que después nadie puede acreditar.
+ * · IGTF · La Ley del IGTF pone la percepción en cabeza de los contribuyentes
+ *   especiales. Golden Touch lo SUFRE cuando paga en divisas a un especial —y
+ *   ahí es un costo—, pero no lo percibe.
+ *
+ * ISLR, MUNICIPAL y ESTADAL no están acá a propósito: el ISLR (Decreto 1808) lo
+ * retiene cualquier persona jurídica que pague un concepto sujeto, y el
+ * municipal/estadal sale de la ordenanza, no de la condición de especial.
+ */
+export const TIPOS_SOLO_CONTRIBUYENTE_ESPECIAL: readonly TipoRetencion[] = ['IVA', 'IGTF'];
+
+/** ¿Puede la empresa practicar una retención de este impuesto? */
+export function puedeRetenerLaEmpresa(tipo: TipoRetencion, esContribuyenteEspecial: boolean): boolean {
+  if (esContribuyenteEspecial) return true;
+  return !TIPOS_SOLO_CONTRIBUYENTE_ESPECIAL.includes(tipo);
+}
+
+/**
+ * Por qué no puede, en palabras, o `null` si sí puede. Se explica en vez de
+ * solo bloquear: quien carga el libro tiene que entender que no es un error del
+ * sistema sino una condición de la empresa, y dónde se cambia si algún día el
+ * SENIAT la designa.
+ */
+export function motivoNoPuedeRetener(
+  tipo: TipoRetencion,
+  esContribuyenteEspecial: boolean,
+): string | null {
+  if (puedeRetenerLaEmpresa(tipo, esContribuyenteEspecial)) return null;
+  const norma = tipo === 'IVA'
+    ? 'la Providencia SNAT/2015/0049 designa agentes de retención de IVA a los contribuyentes especiales'
+    : 'la Ley del IGTF pone la percepción en cabeza de los contribuyentes especiales';
+  return `${TIPO_RETENCION_LABEL[tipo]}: la empresa no puede retener este impuesto porque `
+    + `no está designada contribuyente especial, y ${norma}. `
+    + 'Si lo que pasó es que te lo retuvieron a vos, cambiá «¿Quién retuvo?» a «Nos la practicaron». '
+    + 'Si el SENIAT designó a la empresa, marcá la casilla en Parámetros fiscales.';
+}

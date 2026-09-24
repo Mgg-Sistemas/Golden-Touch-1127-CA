@@ -4,6 +4,7 @@ import {
   ivaDeFactura, limiteEntregaComprobante, minimoPersonaNatural, numeroComprobante, periodoFiscal,
   porcentajeIslr, quincena, retencionIva, retencionPorAlicuota, rifValido, sustraendoIslr,
   resumirLibro,
+  puedeRetenerLaEmpresa, motivoNoPuedeRetener, TIPOS_SOLO_CONTRIBUYENTE_ESPECIAL,
   type ConceptoIslr, type FilaLibro,
 } from './calculosRetenciones';
 
@@ -228,5 +229,62 @@ describe('resumen del libro', () => {
   it('una fila en dólares sin equivalente en Bs no ensucia el total', () => {
     const r = resumirLibro([fila({ tipo: 'IVA', monto: 50, moneda: 'USD', monto_bs: null, comprobante_nro: 'C1' })]);
     expect(r.aFavorBs).toBe(0);
+  });
+});
+
+describe('quién puede retener · Golden Touch no es contribuyente especial', () => {
+  const NO_ESPECIAL = false;
+  const ESPECIAL = true;
+
+  it('sin ser especial, la empresa NO puede retener IVA', () => {
+    expect(puedeRetenerLaEmpresa('IVA', NO_ESPECIAL)).toBe(false);
+  });
+
+  it('sin ser especial, la empresa NO puede percibir IGTF', () => {
+    expect(puedeRetenerLaEmpresa('IGTF', NO_ESPECIAL)).toBe(false);
+  });
+
+  it('el ISLR sí se retiene igual: sale del Decreto 1808, no de ser especial', () => {
+    expect(puedeRetenerLaEmpresa('ISLR', NO_ESPECIAL)).toBe(true);
+  });
+
+  it('municipal y estadal salen de la ordenanza, tampoco dependen de ser especial', () => {
+    expect(puedeRetenerLaEmpresa('MUNICIPAL', NO_ESPECIAL)).toBe(true);
+    expect(puedeRetenerLaEmpresa('ESTADAL', NO_ESPECIAL)).toBe(true);
+  });
+
+  it('si el SENIAT la designa, se habilita todo', () => {
+    for (const t of ['IVA', 'ISLR', 'MUNICIPAL', 'ESTADAL', 'IGTF'] as const) {
+      expect(puedeRetenerLaEmpresa(t, ESPECIAL)).toBe(true);
+    }
+  });
+
+  it('esto NO limita lo que le retienen a la empresa: solo el lado «practicada»', () => {
+    // `puedeRetenerLaEmpresa` responde por el rol «practicada». El libro tiene
+    // que poder registrar SIEMPRE un IVA que un cliente le retuvo a Golden
+    // Touch: ese comprobante es un anticipo a favor y perderlo es pagar dos veces.
+    expect(TIPOS_SOLO_CONTRIBUYENTE_ESPECIAL).toContain('IVA');
+    expect(TIPOS_SOLO_CONTRIBUYENTE_ESPECIAL).toContain('IGTF');
+    expect(TIPOS_SOLO_CONTRIBUYENTE_ESPECIAL).toHaveLength(2);
+  });
+});
+
+describe('motivoNoPuedeRetener · explica en vez de solo bloquear', () => {
+  it('cuando sí puede, no dice nada', () => {
+    expect(motivoNoPuedeRetener('ISLR', false)).toBeNull();
+    expect(motivoNoPuedeRetener('IVA', true)).toBeNull();
+  });
+
+  it('nombra la norma que lo impide', () => {
+    expect(motivoNoPuedeRetener('IVA', false)).toMatch(/SNAT\/2015\/0049/);
+    expect(motivoNoPuedeRetener('IGTF', false)).toMatch(/Ley del IGTF/);
+  });
+
+  it('dice qué hacer si en realidad se la practicaron a la empresa', () => {
+    expect(motivoNoPuedeRetener('IVA', false)).toMatch(/Nos la practicaron/);
+  });
+
+  it('dice dónde se cambia si el SENIAT la designa', () => {
+    expect(motivoNoPuedeRetener('IVA', false)).toMatch(/Parámetros fiscales/);
   });
 });
