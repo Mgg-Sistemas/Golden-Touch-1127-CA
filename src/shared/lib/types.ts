@@ -1417,12 +1417,19 @@ export interface PersonalFamiliar {
 }
 
 /** Los documentos que se le guardan a un trabajador. */
-export type TipoDocumento = 'rif' | 'ci' | 'cv';
+/**
+ * Tipo de documento. Los tres primeros son los que el sistema pide siempre y
+ * de los que hay UNO por persona: cargar otro reemplaza al anterior.
+ * `otro` es el documento libre —título, certificado médico, referencia
+ * laboral— del que puede haber VARIOS, cada uno con el nombre que se le dé.
+ */
+export type TipoDocumento = 'rif' | 'ci' | 'cv' | 'otro';
 
 /**
  * Un documento del trabajador (PDF o imagen) en el almacén privado
- * `personal-documentos`. Hay uno por tipo y por persona: cargar otro
- * reemplaza al anterior.
+ * `personal-documentos`. De los tres fijos hay uno por tipo y por persona
+ * —cargar otro reemplaza al anterior—; de los libres (`otro`) puede haber
+ * varios.
  */
 export interface PersonalDocumento {
   id: string;
