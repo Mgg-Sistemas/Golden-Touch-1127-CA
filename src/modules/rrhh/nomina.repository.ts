@@ -399,13 +399,22 @@ export async function pagarRenglon(input: PagarRenglonInput): Promise<void> {
   }).eq('id', r.id);
   if (rErr) throw rErr;
 
-  // 4) Descuenta los saldos de anticipos/préstamos deducidos en este renglón.
+  // 4) Cada deducción queda registrada como ABONO del anticipo/préstamo (origen
+  // nómina, casado con el renglón). El saldo lo rehace la base a partir de los
+  // abonos; si la deducción supera lo que faltaba, se abona solo lo que faltaba.
   for (const d of r.deducciones ?? []) {
     if (d.id && Number(d.monto) > 0) {
       const { data: ant } = await supabase.from('anticipos_prestamos').select('saldo').eq('id', d.id).maybeSingle();
       if (ant) {
-        const nuevo = Math.max(0, round2((Number(ant.saldo) || 0) - (Number(d.monto) || 0)));
-        await supabase.from('anticipos_prestamos').update({ saldo: nuevo, estado: nuevo <= 0 ? 'saldado' : 'activo' }).eq('id', d.id);
+        const abono = Math.min(round2(Number(d.monto) || 0), round2(Number(ant.saldo) || 0));
+        if (abono > 0) {
+          await supabase.from('anticipos_pagos').insert({
+            anticipo_id: d.id, monto: abono, origen: 'nomina', renglon_id: r.id,
+            fecha: new Date().toISOString().slice(0, 10),
+            nota: `Descuento en nómina ${r.periodo?.codigo ?? ''}`.trim(),
+            created_by: input.actorEmail, actor_name: input.actorName ?? null,
+          });
+        }
       }
     }
   }
