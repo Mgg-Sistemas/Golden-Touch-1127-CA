@@ -2,30 +2,46 @@
    Golden Touch · RRHH · Hoja de ingreso y registro de personal (PDF)
 
    Planilla EN BLANCO que se le entrega a quien ingresa para que la complete
-   a mano, y que después alimenta la ficha del sistema.
+   a mano, y que después alimenta la ficha del sistema. Son DOS hojas:
 
-   Se armó sobre el modelo que trajo el usuario, con dos diferencias:
+   · HOJA 1: los datos de la persona (personales, condiciones de salud, carga
+     familiar y contacto de emergencia), con la declaración y la firma.
+   · HOJA 2: DOCUMENTOS A CONSIGNAR POR OFICINA. La lista de papeles que hay
+     que entregar, por segmentos, que la oficina va tildando a medida que los
+     recibe. La lista vive en `documentosAConsignar.ts`.
+
+   Se armó sobre el modelo que trajo el usuario, con estas diferencias:
 
    · SIN DATOS BANCARIOS. El modelo traía una sección «4. Datos de
-     transferencia bancaria». Se quitó a pedido.
+     transferencia bancaria». Se quitó a pedido, y por eso la hoja de
+     documentos tampoco pide nada de banco.
 
    · ADAPTADA A VENEZUELA. El modelo venía con vocabulario de otro país
-     («Cédula / DNI / RUT», «Ciudad / Comuna», «RUT / Identificación»). Acá dice «Cédula de
-     Identidad» y «Ciudad / Municipio», y el estado civil usa las mismas
+     («Cédula / DNI / RUT», «Ciudad / Comuna»). Acá dice «Cédula de
+     Identidad» y «Ciudad / Municipio», el estado civil usa las mismas
      opciones que el sistema (soltero, casado, divorciado, viudo,
-     concubinato), para que lo que se escribe a mano entre después sin
-     traducir nada.
+     concubinato) y se pide el RIF, para que lo que se escribe a mano entre
+     después sin traducir nada.
 
-   Todo el texto es fijo: no lleva datos de nadie, es la planilla vacía.
+   Todo el texto es fijo: no lleva datos de nadie, son las planillas vacías.
+
+   POR QUÉ LAS MEDIDAS SON TAN JUSTAS. La hoja 1 entra en UNA carta y tiene
+   que seguir entrando: cada renglón mide `ALTO_CAMPO`, y lo que sobra al pie
+   es el hueco para firmar. Si se agrega un campo hay que medir de nuevo —lo
+   que no entra se va a una hoja suelta con la firma sola, que es peor que no
+   agregarlo.
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
+import { SEGMENTOS_DOCUMENTOS } from './documentosAConsignar';
 
 /** Alto de un renglón de campo: lo que queda para escribir a mano arriba de la raya. */
-const ALTO_CAMPO = 27;
+const ALTO_CAMPO = 25;
 /** Alto de un renglón de la tabla de carga familiar. */
-const ALTO_FILA = 21;
+const ALTO_FILA = 19;
+/** Alto de un renglón de la lista de documentos (hoja 2). */
+const ALTO_DOC = 13.5;
 
 type Doc = import('jspdf').jsPDF;
 
@@ -46,13 +62,13 @@ function campo(doc: Doc, x: number, y: number, ancho: number, etiqueta: string):
 }
 
 /** Una casilla [ ] con su texto al lado. Devuelve dónde termina, para encadenar. */
-function casilla(doc: Doc, x: number, y: number, texto: string): number {
+function casilla(doc: Doc, x: number, y: number, texto: string, tamano = 9): number {
   const lado = 8.5;
   doc.setDrawColor(110, 110, 110);
   doc.setLineWidth(0.7);
   doc.rect(x, y - lado + 1, lado, lado);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(tamano);
   doc.setTextColor(20, 20, 20);
   doc.text(texto, x + lado + 5, y);
   return x + lado + 9 + doc.getTextWidth(texto);
@@ -66,7 +82,22 @@ function seccion(doc: Doc, x: number, y: number, texto: string): number {
   doc.setFontSize(10);
   doc.setTextColor(20, 20, 20);
   doc.text(texto.toUpperCase(), x + 9, y);
-  return y + 18;
+  return y + 16;
+}
+
+/** Rótulo gris chico (el mismo de las etiquetas de campo), suelto. */
+function rotulo(doc: Doc, x: number, y: number, texto: string): void {
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(105, 105, 105);
+  doc.text(texto.toUpperCase(), x, y);
+  doc.setTextColor(20, 20, 20);
+}
+
+/** Un «[ ] Sí  [ ] No» a partir de `x`. Devuelve dónde termina. */
+function siNo(doc: Doc, x: number, y: number): number {
+  const fin = casilla(doc, x, y, 'Sí');
+  return casilla(doc, fin + 10, y, 'No');
 }
 
 export async function descargarHojaIngresoPdf(): Promise<void> {
@@ -78,39 +109,52 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 42.5; // 1,5 cm: la planilla necesita ancho para escribir
+  const MARGIN = 38; // 1,34 cm: la planilla necesita ancho para escribir
   const ANCHO = PAGE_W - MARGIN * 2;
   const COL = (ANCHO - 18) / 2; // dos columnas con aire en el medio
   const COL2_X = MARGIN + COL + 18;
-  let y = MARGIN;
+  // Tres columnas, para el renglón de nacimiento / cédula / RIF.
+  const TER = (ANCHO - 32) / 3;
+  const TER2_X = MARGIN + TER + 16;
+  const TER3_X = TER2_X + TER + 16;
 
-  // ─── Membrete ───
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 58 : MARGIN;
-  doc.setTextColor(20, 20, 20);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 17);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-  doc.setTextColor(90, 90, 90);
-  doc.text(`RIF: ${EMPRESA_RIF}`, tx, y + 31);
-  doc.setFont('helvetica', 'normal');
-  doc.text(EMPRESA_CONTACTO, tx, y + 44);
-  doc.setTextColor(20, 20, 20);
-  y += 56;
+  /** El membrete, igual en las dos hojas. Devuelve dónde sigue el contenido. */
+  function membrete(y0: number): number {
+    let y = y0;
+    if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
+    const tx = logo ? MARGIN + 56 : MARGIN;
+    doc.setTextColor(20, 20, 20);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 16);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.setTextColor(90, 90, 90);
+    doc.text(`RIF: ${EMPRESA_RIF}`, tx, y + 30);
+    doc.setFont('helvetica', 'normal');
+    doc.text(EMPRESA_CONTACTO, tx, y + 42);
+    doc.setTextColor(20, 20, 20);
+    y += 52;
+    doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
+    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+    return y + 18;
+  }
 
-  doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
-  doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 20;
+  /** El título de la hoja, centrado, con su aclaración debajo. */
+  function titulo(y0: number, texto: string, aclaracion: string): number {
+    let y = y0;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    doc.text(texto, PAGE_W / 2, y, { align: 'center' });
+    y += 14;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    doc.setTextColor(105, 105, 105);
+    doc.text(aclaracion, PAGE_W / 2, y, { align: 'center' });
+    doc.setTextColor(20, 20, 20);
+    return y + 17;
+  }
 
-  // ─── Título ───
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text('HOJA DE INGRESO Y REGISTRO DE PERSONAL', PAGE_W / 2, y, { align: 'center' });
-  y += 15;
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-  doc.setTextColor(105, 105, 105);
-  doc.text('Por favor, llene todos los campos de forma clara y con letra de molde.', PAGE_W / 2, y, { align: 'center' });
-  doc.setTextColor(20, 20, 20);
-  y += 18;
+  /* ════════════════ HOJA 1 · Los datos de la persona ════════════════ */
+  let y = membrete(MARGIN);
+  y = titulo(y, 'HOJA DE INGRESO Y REGISTRO DE PERSONAL',
+    'Por favor, llene todos los campos de forma clara y con letra de molde.');
 
   // ─── 1. Datos personales ───
   y = seccion(doc, MARGIN, y, '1. Datos personales');
@@ -123,14 +167,12 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   y += ALTO_CAMPO;
 
   // La fecha va con su propio formato, para que no la escriban de cinco maneras.
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-  doc.setTextColor(105, 105, 105);
-  doc.text('FECHA DE NACIMIENTO', MARGIN, y);
-  doc.setTextColor(20, 20, 20);
+  rotulo(doc, MARGIN, y, 'Fecha de nacimiento');
 
   // Las rayitas y, debajo, qué va en cada una. Las tres palabras se centran
   // MIDIENDO cada tramo: separadas con espacios quedaban corridas respecto de
   // la raya que nombran.
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   const HUECO_DIA = '____';
   const HUECO_ANIO = '________';
@@ -147,7 +189,10 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   doc.text('año', MARGIN + (wDia + wSep) * 2 + wAnio / 2, y + 25, { align: 'center' });
   doc.setTextColor(20, 20, 20);
 
-  campo(doc, COL2_X, y, COL, 'Cédula de identidad');
+  // La cédula y el RIF son DOS datos distintos: el RIF es el fiscal y es el
+  // que va en los recibos, así que se pide acá y no se deduce de la cédula.
+  campo(doc, TER2_X, y, TER, 'Cédula de identidad');
+  campo(doc, TER3_X, y, TER, 'RIF (J/V-00000000-0)');
   // Este renglón es MÁS ALTO que los demás: lleva los rótulos «día/mes/año»
   // debajo de la raya. Sin este aire extra se pisaban con NACIONALIDAD.
   y += ALTO_CAMPO + 12;
@@ -157,25 +202,19 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   y += ALTO_CAMPO;
 
   // Estado civil y género: casillas, no rayas.
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-  doc.setTextColor(105, 105, 105);
-  doc.text('ESTADO CIVIL', MARGIN, y);
-  doc.setTextColor(20, 20, 20);
+  rotulo(doc, MARGIN, y, 'Estado civil');
   let cx = MARGIN;
   for (const opcion of ['Soltero(a)', 'Casado(a)', 'Divorciado(a)', 'Viudo(a)', 'Concubinato']) {
-    cx = casilla(doc, cx, y + 15, opcion) + 8;
+    cx = casilla(doc, cx, y + 14, opcion) + 8;
   }
-  y += ALTO_CAMPO + 3;
+  y += ALTO_CAMPO;
 
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-  doc.setTextColor(105, 105, 105);
-  doc.text('GÉNERO', MARGIN, y);
-  doc.setTextColor(20, 20, 20);
+  rotulo(doc, MARGIN, y, 'Género');
   cx = MARGIN;
   for (const opcion of ['Masculino', 'Femenino', 'Otro']) {
-    cx = casilla(doc, cx, y + 15, opcion) + 10;
+    cx = casilla(doc, cx, y + 14, opcion) + 10;
   }
-  y += ALTO_CAMPO + 3;
+  y += ALTO_CAMPO;
 
   campo(doc, MARGIN, y, ANCHO, 'Dirección de habitación');
   y += ALTO_CAMPO;
@@ -189,10 +228,25 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   y += ALTO_CAMPO;
 
   campo(doc, MARGIN, y, ANCHO, 'Correo electrónico');
-  y += ALTO_CAMPO + 4;
+  y += ALTO_CAMPO;
 
-  // ─── 2. Carga familiar ───
-  y = seccion(doc, MARGIN, y, '2. Carga familiar y dependientes directos');
+  // ─── 2. Condiciones de salud ───
+  // Cada pregunta lleva su respuesta y su detalle en el MISMO renglón: un «sí»
+  // sin decir a qué no sirve de nada, y separarlos en dos renglones no entraba.
+  y = seccion(doc, MARGIN, y, '2. Condiciones de salud');
+
+  rotulo(doc, MARGIN, y, '¿Padece alguna alergia?');
+  siNo(doc, MARGIN, y + 14);
+  campo(doc, COL2_X, y, COL, '¿A qué? (medicamentos, alimentos, picaduras)');
+  y += ALTO_CAMPO;
+
+  rotulo(doc, MARGIN, y, '¿Padece alguna enfermedad?');
+  siNo(doc, MARGIN, y + 14);
+  campo(doc, COL2_X, y, COL, '¿Cuál? (indique tratamiento o medicación)');
+  y += ALTO_CAMPO;
+
+  // ─── 3. Carga familiar ───
+  y = seccion(doc, MARGIN, y, '3. Carga familiar y dependientes directos');
 
   const COLS = [
     { titulo: 'Nombre completo del dependiente', ancho: ANCHO * 0.40 },
@@ -204,7 +258,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
 
   // Encabezado de la tabla.
   doc.setFillColor(243, 244, 246);
-  doc.rect(MARGIN, y - 10, ANCHO, 17, 'F');
+  doc.rect(MARGIN, y - 10, ANCHO, 16, 'F');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
   doc.setTextColor(60, 60, 60);
   let colX = MARGIN;
@@ -214,7 +268,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   }
   doc.setTextColor(20, 20, 20);
   const tablaY = y - 10;
-  y += 7;
+  y += 6;
 
   // Las filas vacías.
   doc.setDrawColor(170, 170, 170);
@@ -230,10 +284,10 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
     if (c < COLS.length) colX += COLS[c].ancho;
   }
   doc.line(MARGIN, tablaY, MARGIN + ANCHO, tablaY);
-  y = tablaFin + 16;
+  y = tablaFin + 14;
 
-  // ─── 3. Contacto de emergencia ───
-  y = seccion(doc, MARGIN, y, '3. Contacto en caso de emergencia');
+  // ─── 4. Contacto de emergencia ───
+  y = seccion(doc, MARGIN, y, '4. Contacto en caso de emergencia');
 
   campo(doc, MARGIN, y, COL, 'Nombre completo');
   campo(doc, COL2_X, y, COL, 'Parentesco');
@@ -241,7 +295,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
 
   campo(doc, MARGIN, y, COL, 'Teléfono móvil');
   campo(doc, COL2_X, y, COL, 'Teléfono fijo / trabajo');
-  y += ALTO_CAMPO + 8;
+  y += ALTO_CAMPO + 6;
 
   // ─── Declaración y firma ───
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
@@ -258,11 +312,11 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   // ARRIBA de la raya, así que ese hueco es lo que hay que reservar.
   const PISO = PAGE_H - MARGIN;
   const firmaY = PISO - 16;
-  const HUECO_MIN = 40;
+  const HUECO_MIN = 36;
   if (firmaY - finDeclaracion < HUECO_MIN) {
     // No debería pasar con el contenido fijo de esta planilla; si alguien agrega
-    // campos y deja de entrar, es preferible una segunda hoja a una firma
-    // pisando el texto.
+    // campos y deja de entrar, es preferible una hoja más a una firma pisando
+    // el texto.
     doc.addPage();
   }
 
@@ -275,6 +329,127 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   doc.setTextColor(90, 90, 90);
   doc.text('Firma del trabajador', MARGIN, firmaY + 12);
   doc.text('Fecha de entrega', PAGE_W - MARGIN - firmaW * 0.7, firmaY + 12);
+  doc.setTextColor(20, 20, 20);
+
+  /* ════════════════ HOJA 2 · Documentos a consignar ════════════════ */
+  doc.addPage();
+  y = membrete(MARGIN);
+  y = titulo(y, 'DOCUMENTOS A CONSIGNAR POR OFICINA',
+    'Marque cada documento recibido. Lo que dice «si aplica» se exige solo a quien le corresponda.');
+
+  // A DOS COLUMNAS, porque en una sola la lista completa no entra en la hoja.
+  // Cada segmento entra COMPLETO en una columna o pasa entero a la siguiente:
+  // una lista de requisitos partida al medio se lee como si faltaran renglones.
+  const PIE_DOCS = 118;            // lo que se reserva abajo para «uso de la oficina»
+  const TOPE = PAGE_H - MARGIN - PIE_DOCS;
+  const ANCHO_COL = (ANCHO - 20) / 2;
+  const X_COL = [MARGIN, MARGIN + ANCHO_COL + 20];
+  const ANCHO_TEXTO = ANCHO_COL - 16;
+  const yInicial = y;
+  let col = 0;
+  let yc = y;
+
+  /** Cómo se parte un renglón largo, y cuánto mide por eso. */
+  const trozosDe = (nombre: string): string[] => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    return doc.splitTextToSize(nombre, ANCHO_TEXTO) as string[];
+  };
+  const altoDe = (nombre: string) => ALTO_DOC + (trozosDe(nombre).length - 1) * 9;
+
+  /** Pasa a la columna de al lado; si ya no hay, sigue en una hoja nueva. */
+  const siguienteColumna = () => {
+    col += 1;
+    if (col >= X_COL.length) {
+      doc.addPage();
+      col = 0;
+      yc = membrete(MARGIN);
+    } else {
+      yc = yInicial;
+    }
+  };
+
+  // Los bloques de la hoja: los segmentos de la lista y, al final, renglones
+  // en blanco. La oficina siempre termina pidiendo algo puntual; sin ese lugar
+  // se escribe en el margen.
+  const RENGLON_LIBRE = 17;
+  const BLOQUES = [
+    ...SEGMENTOS_DOCUMENTOS.map((s) => ({ titulo: s.titulo, documentos: s.documentos, libres: 0 })),
+    { titulo: 'Otros documentos (indique)', documentos: [] as string[], libres: 3 },
+  ];
+  const AIRE = 6;
+  const altoBloque = (b: typeof BLOQUES[number]) =>
+    15 + b.documentos.reduce((n, d) => n + altoDe(d), 0) + b.libres * RENGLON_LIBRE;
+
+  // DÓNDE SE CORTA. Llenando la primera columna hasta el tope, la segunda
+  // quedaba con un solo segmento y media hoja en blanco. Se busca el corte que
+  // deja las dos columnas más parejas, sin que la primera se pase del tope.
+  const altos = BLOQUES.map(altoBloque);
+  const suma = (desde: number, hasta: number) => altos.slice(desde, hasta)
+    .reduce((n, h) => n + h, 0) + Math.max(0, hasta - desde - 1) * AIRE;
+  const altoUtil = TOPE - yInicial;
+  let corte = BLOQUES.length;
+  let mejor = Infinity;
+  for (let k = 1; k <= BLOQUES.length; k++) {
+    const izq = suma(0, k);
+    const der = suma(k, BLOQUES.length);
+    if (izq > altoUtil || der > altoUtil) continue;
+    const desparejo = Math.abs(izq - der);
+    if (desparejo < mejor) { mejor = desparejo; corte = k; }
+  }
+
+  BLOQUES.forEach((bloque, i) => {
+    if (i === corte) siguienteColumna();
+    // Red de seguridad: si algún día la lista crece y no entra, el bloque pasa
+    // entero a la columna siguiente en vez de partirse al medio.
+    else if (yc + altoBloque(bloque) > TOPE) siguienteColumna();
+
+    doc.setFillColor(255, 138, 0);
+    doc.rect(X_COL[col], yc - 8, 2.5, 11, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    doc.setTextColor(20, 20, 20);
+    doc.text(bloque.titulo.toUpperCase(), X_COL[col] + 8, yc);
+    yc += 15;
+
+    for (const nombre of bloque.documentos) {
+      // Los renglones largos se parten: el primero al lado de la casilla y el
+      // resto alineado con el texto, no con la casilla.
+      const trozos = trozosDe(nombre);
+      casilla(doc, X_COL[col], yc, trozos[0], 8);
+      for (let j = 1; j < trozos.length; j++) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+        doc.text(trozos[j], X_COL[col] + 14, yc + j * 9);
+      }
+      yc += ALTO_DOC + (trozos.length - 1) * 9;
+    }
+
+    for (let j = 0; j < bloque.libres; j++) {
+      const lado = 8.5;
+      doc.setDrawColor(110, 110, 110); doc.setLineWidth(0.7);
+      doc.rect(X_COL[col], yc - lado + 1, lado, lado);
+      doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.5);
+      doc.line(X_COL[col] + 14, yc + 1, X_COL[col] + ANCHO_COL, yc + 1);
+      yc += RENGLON_LIBRE;
+    }
+    yc += AIRE;
+  });
+
+  // ─── Uso de la oficina ───
+  // Anclado al pie de la hoja de documentos, no a continuación de la lista:
+  // así queda siempre en el mismo lugar y no baila según cuántos renglones haya.
+  const yPie = PAGE_H - MARGIN - PIE_DOCS + 14;
+  doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.6);
+  doc.line(MARGIN, yPie - 14, PAGE_W - MARGIN, yPie - 14);
+  let yp = seccion(doc, MARGIN, yPie + 4, 'Uso de la oficina');
+
+  campo(doc, MARGIN, yp, COL, 'Recibido por (nombre y apellido)');
+  campo(doc, COL2_X, yp, COL, 'Cargo');
+  yp += ALTO_CAMPO;
+
+  campo(doc, MARGIN, yp, COL, 'Fecha de recepción');
+  campo(doc, COL2_X, yp, COL, 'Firma y sello');
+  yp += ALTO_CAMPO;
+
+  campo(doc, MARGIN, yp, ANCHO, 'Observaciones / documentos pendientes');
 
   previewPdf(doc, 'hoja-ingreso-personal.pdf');
 }

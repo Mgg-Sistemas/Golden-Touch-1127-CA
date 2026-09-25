@@ -46,10 +46,24 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
   fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', telefono_emergencia: '',
+  tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '',
   fecha_nacimiento: '', genero: null, estado_civil: null, grupo_sanguineo: null,
   nacionalidad: '', direccion: '', contacto_emergencia_parentesco: null,
   ficha_nro: '',
 };
+
+/**
+ * Las tres respuestas posibles de una condición de salud en un `<select>`.
+ * Un desplegable maneja cadenas, y acá hay que distinguir «no» de «sin
+ * indicar»: con un checkbox, los dos serían lo mismo.
+ */
+const OPCIONES_SI_NO = [
+  { valor: '', label: 'Sin indicar' },
+  { valor: 'si', label: 'Sí' },
+  { valor: 'no', label: 'No' },
+];
+const siNoValor = (v?: boolean | null) => (v === true ? 'si' : v === false ? 'no' : '');
+const siNoDesde = (v: string): boolean | null => (v === 'si' ? true : v === 'no' ? false : null);
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
 function sanitizarCedula(v: string): string {
@@ -271,6 +285,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       estado_civil: p.estado_civil ?? null, grupo_sanguineo: p.grupo_sanguineo ?? null,
       nacionalidad: p.nacionalidad ?? '', direccion: p.direccion ?? '',
       contacto_emergencia_parentesco: p.contacto_emergencia_parentesco ?? null,
+      tiene_alergias: p.tiene_alergias ?? null,
+      alergias_detalle: p.alergias_detalle ?? '',
+      tiene_enfermedad: p.tiene_enfermedad ?? null,
+      enfermedad_detalle: p.enfermedad_detalle ?? '',
     });
     setCedula(p.cedula ?? '');
     setFicha(p.ficha_nro ?? '');
@@ -867,6 +885,42 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                   {GRUPOS_SANGUINEOS.map((g) => <option key={g} value={g}>{g}</option>)}
                 </select>
                 <small className="muted">Va en la ficha y sirve en una emergencia.</small>
+              </div>
+              {/* Condiciones de salud. Las tres opciones son a propósito: «sin
+                  indicar» no es «no». El detalle se habilita solo con el «sí»,
+                  y al pasar a «no» se vacía, para que no quede guardado un
+                  «alérgico a la penicilina» debajo de un «no tiene alergias». */}
+              <div className="form-row">
+                <label>¿Padece alguna alergia?</label>
+                <select className="input" value={siNoValor(form.tiene_alergias)}
+                  onChange={(e) => setForm((f) => {
+                    const tiene = siNoDesde(e.target.value);
+                    return { ...f, tiene_alergias: tiene, alergias_detalle: tiene === true ? f.alergias_detalle : '' };
+                  })}>
+                  {OPCIONES_SI_NO.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                </select>
+                <input className="input" style={{ marginTop: '.3rem' }}
+                  value={form.alergias_detalle ?? ''}
+                  disabled={form.tiene_alergias !== true}
+                  placeholder="¿A qué? Medicamentos, alimentos, picaduras…"
+                  onChange={(e) => setForm((f) => ({ ...f, alergias_detalle: e.target.value }))} />
+                <small className="muted">Sale en la ficha técnica y en el QR del carnet.</small>
+              </div>
+              <div className="form-row">
+                <label>¿Padece alguna enfermedad?</label>
+                <select className="input" value={siNoValor(form.tiene_enfermedad)}
+                  onChange={(e) => setForm((f) => {
+                    const tiene = siNoDesde(e.target.value);
+                    return { ...f, tiene_enfermedad: tiene, enfermedad_detalle: tiene === true ? f.enfermedad_detalle : '' };
+                  })}>
+                  {OPCIONES_SI_NO.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                </select>
+                <input className="input" style={{ marginTop: '.3rem' }}
+                  value={form.enfermedad_detalle ?? ''}
+                  disabled={form.tiene_enfermedad !== true}
+                  placeholder="¿Cuál? Indicá tratamiento o medicación"
+                  onChange={(e) => setForm((f) => ({ ...f, enfermedad_detalle: e.target.value }))} />
+                <small className="muted">Sale en la ficha técnica y en el QR del carnet.</small>
               </div>
               <ComboConAgregar
                 label="Nacionalidad" valor={form.nacionalidad ?? ''} opciones={nacionalidades}

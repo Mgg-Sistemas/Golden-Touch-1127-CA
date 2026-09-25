@@ -13,6 +13,7 @@ import { formatearRif } from '@/shared/lib/rif';
 import type { Personal, PersonalFamiliar } from '@/shared/lib/types';
 import { fotoPersonalDataUrl } from './personal.repository';
 import { etiquetaFicha } from './fichaNro';
+import { textoCondicion } from './saludPersonal';
 import {
   antiguedad, edad, labelEmpresa, labelEstadoCivil, labelGenero, labelParentesco,
 } from './fichaPersonal';
@@ -117,6 +118,11 @@ export async function descargarFichaTecnicaPdf(
       ? `${persona.contacto_emergencia}${persona.telefono_emergencia ? ` · ${persona.telefono_emergencia}` : ''}`
       : '—'],
     ['Direccion', texto(persona.direccion)],
+  ]);
+
+  bloque('CONDICIONES DE SALUD', [
+    ['Alergias', textoCondicion(persona.tiene_alergias, persona.alergias_detalle)],
+    ['Enfermedad', textoCondicion(persona.tiene_enfermedad, persona.enfermedad_detalle)],
   ]);
 
   bloque('DATOS LABORALES', [
