@@ -6,6 +6,9 @@ import type { Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { DestinoSelect } from './DestinoSelect';
+import { toast } from '@/shared/ui/Toast';
+import { SelectorAdjuntos } from './AdjuntosSalida';
+import { subirAdjuntosSalida } from './adjuntosSalida.repository';
 
 export function SalidaDineroForm({
   cajas, almacenesList, actor, actorName, onClose, onSaved,
@@ -26,6 +29,7 @@ export function SalidaDineroForm({
   const [monto, setMonto] = useState('0');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
 
   const caja = activas.find((c) => c.id === cajaId) ?? null;
   const saldo = Number(caja?.saldo) || 0;
@@ -40,11 +44,18 @@ export function SalidaDineroForm({
     if (!destino.trim()) { setError('Indicá a quién va dirigido el dinero.'); return; }
     setSaving(true);
     try {
-      await crearSolicitudSalida({
+      const creada = await crearSolicitudSalida({
         scope: 'salida', tipo: 'dinero',
         cajaId, monto: montoNum, moneda: caja?.moneda ?? null, destino: destino.trim(),
         motivo: motivo.trim() || null, solicitante: actorName || actor, actor, actorName,
       });
+      // Los adjuntos se suben recién ahora: la carpeta del almacén lleva el id de la
+      // solicitud, que no existe hasta este momento. Si alguno falla, la solicitud ya
+      // está creada y se avisa; se puede volver a subir desde Editar.
+      if (adjuntos.length) {
+        const r = await subirAdjuntosSalida('salida', creada.id, adjuntos, actor);
+        for (const f of r.fallos) toast(`Solicitud creada, pero un adjunto no se pudo subir: ${f}`, 'error');
+      }
       notify(`Solicitud de salida de dinero creada: ${money(montoNum)} ${caja?.moneda} → ${destino} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
@@ -100,6 +111,8 @@ export function SalidaDineroForm({
           <label>Motivo</label>
           <input className="input" name="f-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo de la salida de dinero…" />
         </div>
+
+        <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos} />
       </form>
     </Modal>
   );
