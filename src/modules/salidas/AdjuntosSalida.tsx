@@ -22,9 +22,7 @@ import {
   MAX_ADJUNTOS_SALIDA, cuposLibres, enMegas, errorArchivoAdjunto, errorCupo, esImagenAdjunto,
   type ModuloAdjuntoSalida,
 } from './adjuntosSalidaReglas';
-import {
-  listAdjuntosSalida, agregarAdjuntoSalida, eliminarAdjuntoSalida, urlAdjuntoSalida, type AdjuntoSalida,
-} from './adjuntosSalida.repository';
+import { adjuntosSalidasRepo, type AdjuntoSalida, type RepoAdjuntos } from './adjuntosSalida.repository';
 
 const ACEPTA = 'application/pdf,image/*';
 
@@ -33,8 +31,12 @@ function Icono({ contentType, nombre }: { contentType?: string | null; nombre?: 
 }
 
 /** Lista viva de adjuntos de una solicitud existente. */
-export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titulo = '📎 Fotos y documentos' }: {
+export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titulo = '📎 Fotos y documentos', repo = adjuntosSalidasRepo, grande = false }: {
   modulo: ModuloAdjuntoSalida; refId: string; actor?: string | null; soloLectura?: boolean; titulo?: string;
+  /** Otro bucket + tabla con la misma forma (p. ej. los movimientos de tanque). */
+  repo?: RepoAdjuntos;
+  /** Botones y letra grandes, para el teléfono. */
+  grande?: boolean;
 }) {
   const [lista, setLista] = useState<AdjuntoSalida[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -43,16 +45,16 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
   const inputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
-    try { setLista(await listAdjuntosSalida(modulo, refId)); }
+    try { setLista(await repo.list(modulo, refId)); }
     catch { /* sin permiso de lectura o sin red: se queda como estaba */ }
     finally { setCargando(false); }
-  }, [modulo, refId]);
+  }, [modulo, refId, repo]);
 
   useEffect(() => { void reload(); }, [reload]);
-  useRealtime(['salidas_adjuntos'], () => { void reload(); });
+  useRealtime([repo.tabla], () => { void reload(); });
 
   async function abrir(a: AdjuntoSalida) {
-    try { previewArchivo(await urlAdjuntoSalida(a.path), a.nombre); }
+    try { previewArchivo(await repo.url(a.path), a.nombre); }
     catch { toast('No se pudo abrir el adjunto', 'error'); }
   }
 
@@ -64,7 +66,7 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
     const fallos: string[] = [];
     let subidos = 0;
     for (const f of archivos) {
-      try { await agregarAdjuntoSalida(modulo, refId, f, actor); subidos++; }
+      try { await repo.agregar(modulo, refId, f, actor); subidos++; }
       catch (e) { fallos.push(e instanceof Error ? e.message : `«${f.name}» no se pudo subir.`); }
     }
     if (subidos) toast(subidos > 1 ? `${subidos} archivos cargados` : 'Archivo cargado', 'success');
@@ -76,7 +78,7 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
 
   async function confirmarBorrar() {
     const a = borrar; if (!a) return;
-    try { await eliminarAdjuntoSalida(a); toast('Adjunto eliminado', 'success'); setBorrar(null); await reload(); }
+    try { await repo.eliminar(a); toast('Adjunto eliminado', 'success'); setBorrar(null); await reload(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
@@ -92,10 +94,10 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
           <>
             <input ref={inputRef} type="file" accept={ACEPTA} multiple style={{ display: 'none' }}
               onChange={(e) => onPick(Array.from(e.target.files ?? []))} />
-            <button type="button" className="btn btn-sm btn-primary" disabled={subiendo || libres === 0}
+            <button type="button" className={grande ? 'btn btn-primary btn-grande' : 'btn btn-sm btn-primary'} disabled={subiendo || libres === 0}
               title={libres === 0 ? `Ya tiene ${MAX_ADJUNTOS_SALIDA}: borrá uno para subir otro` : `Podés subir ${libres} más`}
               onClick={() => inputRef.current?.click()}>
-              {subiendo ? 'Subiendo…' : '＋ Agregar foto o PDF'}
+              {subiendo ? 'Subiendo…' : '📷 Agregar foto o PDF'}
             </button>
           </>
         )}
@@ -139,8 +141,10 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
  * Selector para el ALTA: junta hasta 4 archivos en memoria. El formulario los
  * sube al crear la solicitud (`subirAdjuntosSalida`).
  */
-export function SelectorAdjuntos({ archivos, onChange, titulo = '📎 Fotos y documentos' }: {
+export function SelectorAdjuntos({ archivos, onChange, titulo = '📎 Fotos y documentos', grande = false }: {
   archivos: File[]; onChange: (files: File[]) => void; titulo?: string;
+  /** Botón y letra grandes, para el teléfono. */
+  grande?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -167,10 +171,10 @@ export function SelectorAdjuntos({ archivos, onChange, titulo = '📎 Fotos y do
         </strong>
         <input ref={inputRef} type="file" accept={ACEPTA} multiple style={{ display: 'none' }}
           onChange={(e) => elegir(Array.from(e.target.files ?? []))} />
-        <button type="button" className="btn btn-sm btn-ghost" disabled={libres === 0}
+        <button type="button" className={grande ? 'btn btn-primary btn-grande' : 'btn btn-sm btn-ghost'} disabled={libres === 0}
           title={libres === 0 ? `Ya elegiste ${MAX_ADJUNTOS_SALIDA}` : `Podés elegir ${libres} más`}
           onClick={() => inputRef.current?.click()}>
-          ＋ Agregar foto o PDF
+          {grande ? '📷 Tomar foto o elegir archivo' : '＋ Agregar foto o PDF'}
         </button>
       </div>
       {!archivos.length ? (
