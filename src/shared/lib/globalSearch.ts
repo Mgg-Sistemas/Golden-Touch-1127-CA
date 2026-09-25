@@ -60,6 +60,7 @@ export async function buscarGlobal(qRaw: string): Promise<ResultadoBusqueda[]> {
       .ilike('codigo', like).limit(6),
     // Usuarios: por RLS, un admin ve a todos; el resto solo su propia ficha.
     supabase.from('usuarios').select('id, nombre, email, role')
+      .is('archivado_en', null) // los archivados no se sugieren
       .or(`nombre_busq.ilike.${likeSinAcentos},email.ilike.${like}`).limit(6),
   ]);
 

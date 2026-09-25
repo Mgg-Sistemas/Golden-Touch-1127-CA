@@ -18,6 +18,8 @@ import {
   resetearClave,
   desbloquearUsuario,
   setEstadoUsuario,
+  archivarUsuario,
+  restaurarUsuario,
   getDepartamentos,
   addDepartamento,
   renombrarDepartamento,
@@ -32,6 +34,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { ResumenActividadModal } from './ResumenActividadModal';
 import { norm } from '@/shared/lib/texto';
+import { estadoVisible, estaArchivado, filtrarPorEstado, puedeArchivar, type FiltroEstadoUsuario } from './usuariosArchivo';
 
 type View = 'creacion' | 'roles';
 
@@ -44,7 +47,9 @@ type ModalKind =
   | { kind: 'reset-confirm'; usuario: Usuario }
   | { kind: 'desbloquear-confirm'; usuario: Usuario }
   | { kind: 'clave-temporal'; titulo: string; email: string; clave: string }
-  | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' };
+  | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' }
+  | { kind: 'archivar-confirm'; usuario: Usuario }
+  | { kind: 'restaurar-confirm'; usuario: Usuario };
 
 type RoleQuickModal = 'none' | 'crear' | 'gestionar';
 
@@ -68,7 +73,7 @@ export function UsuariosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [filterRol, setFilterRol] = useState<string>('');
-  const [filterEstado, setFilterEstado] = useState<'activo' | 'inactivo' | ''>('');
+  const [filterEstado, setFilterEstado] = useState<FiltroEstadoUsuario>('');
   const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
   const [view, setView] = useState<View>('creacion');
   const [roleQuickModal, setRoleQuickModal] = useState<RoleQuickModal>('none');
@@ -107,16 +112,17 @@ export function UsuariosPage() {
   // En vivo (multiusuario): altas/cambios de usuarios, roles o departamentos se reflejan solos.
   useRealtime(['usuarios', 'custom_roles', 'taxonomias'], () => { void refresh(); });
 
-  const activos = useMemo(() => usuarios.filter((u) => u.estado === 'activo').length, [usuarios]);
-  const inactivos = useMemo(() => usuarios.filter((u) => u.estado === 'inactivo').length, [usuarios]);
+  const activos = useMemo(() => usuarios.filter((u) => estadoVisible(u) === 'activo').length, [usuarios]);
+  const inactivos = useMemo(() => usuarios.filter((u) => estadoVisible(u) === 'inactivo').length, [usuarios]);
+  const archivados = useMemo(() => usuarios.filter(estaArchivado).length, [usuarios]);
 
   const filtered = useMemo(() => {
     const q = norm(filterText);
     const nombreCompleto = (u: Usuario) => `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email || '';
-    return usuarios
+    // Por defecto los archivados NO se listan; solo con el filtro «Archivados».
+    return filtrarPorEstado(usuarios, filterEstado)
       .filter((u) => {
         if (filterRol && u.role !== filterRol) return false;
-        if (filterEstado && u.estado !== filterEstado) return false;
         if (q) {
           const hay = [u.nombre, u.apellido, u.email, u.ci, u.role]
             .map((v) => norm(String(v ?? '')))
@@ -137,7 +143,7 @@ export function UsuariosPage() {
         </h1>
         <p className="muted" style={{ textAlign: 'center' }}>
           {view === 'creacion'
-            ? 'Gestión de usuarios del sistema. Crea cuentas con clave por defecto, edita datos, resetea claves olvidadas y habilita/deshabilita accesos.'
+            ? 'Gestión de usuarios del sistema. Crea cuentas con clave por defecto, edita datos, resetea claves olvidadas y habilita/deshabilita accesos. Los deshabilitados se pueden archivar para que salgan de la lista.'
             : 'Configurá la matriz de permisos por rol y por módulo del sistema.'}
         </p>
 
@@ -186,6 +192,12 @@ export function UsuariosPage() {
           <div className="delta down">No pueden ingresar</div>
           <div className="icon">⛔</div>
         </div>
+        <div className="kpi">
+          <div className="label">Usuarios archivados</div>
+          <div className="value">{archivados}</div>
+          <div className="delta">Fuera de la lista · se pueden restaurar</div>
+          <div className="icon">🗄</div>
+        </div>
       </div>
 
       <div className="filterbar" style={{ marginTop: '1rem' }}>
@@ -210,11 +222,12 @@ export function UsuariosPage() {
           className="select"
           style={{ maxWidth: 180 }}
           value={filterEstado}
-          onChange={(e) => setFilterEstado(e.target.value as 'activo' | 'inactivo' | '')}
+          onChange={(e) => setFilterEstado(e.target.value as FiltroEstadoUsuario)}
         >
-          <option value="">Todos los estados</option>
+          <option value="">Activos y deshabilitados</option>
           <option value="activo">Activos</option>
           <option value="inactivo">Deshabilitados</option>
+          <option value="archivado">Archivados</option>
         </select>
         <button
           className="btn btn-ghost"
@@ -273,7 +286,7 @@ export function UsuariosPage() {
                   <td className="mono">{u.ci ?? '—'}</td>
                   <td>{u.email}</td>
                   <td>{labelRol(u.role)}</td>
-                  <td><StatusBadge estado={u.estado} /></td>
+                  <td><StatusBadge estado={estadoVisible(u)} /></td>
                   <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(u.created_at)}</td>
                   <td className="actions">
                     {canWrite && (
@@ -399,6 +412,46 @@ export function UsuariosPage() {
             })
           }
           onEdit={() => setModal({ kind: 'edit', usuario: modal.usuario })}
+          onArchivar={() => setModal({ kind: 'archivar-confirm', usuario: modal.usuario })}
+          onRestaurar={() => setModal({ kind: 'restaurar-confirm', usuario: modal.usuario })}
+        />
+      )}
+
+      {modal.kind === 'archivar-confirm' && (
+        <ConfirmDialog
+          title="Archivar usuario"
+          message={`${modal.usuario.email} saldrá de la lista de usuarios. No se borra nada: sus órdenes, salidas e historial siguen mostrando su nombre, y se puede restaurar cuando haga falta. ¿Continuar?`}
+          confirmText="Archivar"
+          onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
+          onConfirm={async () => {
+            try {
+              await archivarUsuario(modal.usuario.id);
+              toast('Usuario archivado', 'success');
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'No se pudo archivar', 'error');
+            }
+          }}
+        />
+      )}
+
+      {modal.kind === 'restaurar-confirm' && (
+        <ConfirmDialog
+          title="Restaurar usuario"
+          message={`${modal.usuario.email} volverá a la lista como DESHABILITADO. Si debe volver a ingresar, habilitalo después desde su ficha. ¿Continuar?`}
+          confirmText="Restaurar"
+          onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
+          onConfirm={async () => {
+            try {
+              await restaurarUsuario(modal.usuario.id);
+              toast('Usuario restaurado (deshabilitado)', 'success');
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'No se pudo restaurar', 'error');
+            }
+          }}
         />
       )}
 
@@ -1061,9 +1114,12 @@ interface UsuarioDetailModalProps {
   onDesbloquear: () => void;
   onToggleEstado: () => void;
   onEdit: () => void;
+  onArchivar: () => void;
+  onRestaurar: () => void;
 }
-function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onToggleEstado, onEdit }: UsuarioDetailModalProps) {
+function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onToggleEstado, onEdit, onArchivar, onRestaurar }: UsuarioDetailModalProps) {
   const isActive = usuario.estado === 'activo';
+  const archivado = estaArchivado(usuario);
   return (
     <Modal
       title={`Usuario · ${[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}`}
@@ -1081,12 +1137,26 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onT
               🔓 Desbloquear
             </button>
           )}
-          <button
-            className={isActive ? 'btn btn-danger' : 'btn btn-success'}
-            onClick={onToggleEstado}
-          >
-            {isActive ? 'Deshabilitar usuario' : 'Habilitar usuario'}
-          </button>
+          {archivado ? (
+            // Archivado: primero se restaura (vuelve como deshabilitado); habilitar es otro paso.
+            <button className="btn btn-success" onClick={onRestaurar} title="Vuelve a la lista como deshabilitado">
+              ↩ Restaurar
+            </button>
+          ) : (
+            <>
+              {puedeArchivar(usuario) && (
+                <button className="btn btn-ghost" onClick={onArchivar} title="Sale de la lista. No se borra nada.">
+                  🗄 Archivar
+                </button>
+              )}
+              <button
+                className={isActive ? 'btn btn-danger' : 'btn btn-success'}
+                onClick={onToggleEstado}
+              >
+                {isActive ? 'Deshabilitar usuario' : 'Habilitar usuario'}
+              </button>
+            </>
+          )}
         </>
       }
     >
@@ -1116,7 +1186,12 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onT
       </div>
       <div className="detail-row">
         <div className="k">Estado</div>
-        <div className="v"><StatusBadge estado={usuario.estado} /></div>
+        <div className="v">
+          <StatusBadge estado={estadoVisible(usuario)} />
+          {archivado && usuario.archivado_en && (
+            <span className="muted" style={{ marginLeft: '.5rem', fontSize: '.8rem' }}>desde {dateTime(usuario.archivado_en)}</span>
+          )}
+        </div>
       </div>
       <div className="detail-row">
         <div className="k">Acceso</div>

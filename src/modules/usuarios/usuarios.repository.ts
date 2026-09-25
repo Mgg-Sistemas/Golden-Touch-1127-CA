@@ -202,6 +202,27 @@ export async function setEstadoUsuario(id: string, estado: 'activo' | 'inactivo'
 }
 
 /**
+ * Archiva un usuario: deja de aparecer en la lista principal de Usuarios. No se borra
+ * nada (sus órdenes, salidas e historial siguen mostrando su nombre). La base exige que
+ * esté `inactivo` (restricción `usuarios_archivado_solo_inactivo`) y que quien archiva
+ * sea administrador (trigger de guardia), igual que para deshabilitar.
+ */
+export async function archivarUsuario(id: string): Promise<void> {
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ archivado_en: new Date().toISOString() })
+    .eq('id', id)
+    .eq('estado', 'inactivo');
+  if (error) throw error;
+}
+
+/** Restaura un archivado: vuelve a la lista como DESHABILITADO. Habilitarlo es un paso aparte. */
+export async function restaurarUsuario(id: string): Promise<void> {
+  const { error } = await supabase.from(TABLE).update({ archivado_en: null }).eq('id', id);
+  if (error) throw error;
+}
+
+/**
  * Desbloquea un usuario que llegó al límite de 3 intentos de clave fallidos.
  * Solo un admin (validado en la RPC `admin_desbloquear_usuario`). Además de quitar el
  * bloqueo y reiniciar el contador, deja `must_change_password=true` y RESETEA la clave a

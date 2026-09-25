@@ -36,6 +36,8 @@ export interface Usuario {
   bloqueado?: boolean;
   bloqueado_en?: string | null;
   intentos_fallidos?: number;
+  /** Archivado: sigue `inactivo` (la base lo exige) pero no aparece en la lista principal. */
+  archivado_en?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
