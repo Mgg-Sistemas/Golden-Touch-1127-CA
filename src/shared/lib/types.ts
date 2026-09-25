@@ -1394,6 +1394,17 @@ export interface Personal {
   /** Correo del TRABAJADOR (el de la empresa vive en shared/lib/empresa.ts).
    *  Se guarda en minúsculas y sin espacios; vacío se guarda como null. */
   correo?: string | null;
+  /**
+   * Condiciones de salud, de la hoja de ingreso. Los booleanos admiten NULO a
+   * propósito: son TRES estados (sí / no / no se preguntó), y mostrar «no
+   * tiene alergias» por una ficha que nadie completó es peor que no mostrar
+   * nada. El detalle solo existe si la respuesta es «sí»: la base lo borra
+   * sola si pasa a «no» (ver saludPersonal.ts).
+   */
+  tiene_alergias?: boolean | null;
+  alergias_detalle?: string | null;
+  tiene_enfermedad?: boolean | null;
+  enfermedad_detalle?: string | null;
   /** Contacto de emergencia: nombre, parentesco y teléfono (van al carnet y al QR). */
   contacto_emergencia?: string | null;
   contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;

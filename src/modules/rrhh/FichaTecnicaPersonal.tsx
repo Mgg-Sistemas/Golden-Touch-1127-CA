@@ -23,6 +23,7 @@ import {
 } from './fichaPersonal';
 import { descargarFichaTecnicaPdf } from './fichaTecnicaPdf';
 import { etiquetaFicha } from './fichaNro';
+import { textoCondicion } from './saludPersonal';
 
 /** Un dato de la ficha: etiqueta a la izquierda, valor a la derecha. */
 function Dato({ label, children }: { label: string; children: ReactNode }) {
@@ -158,6 +159,13 @@ export function FichaTecnicaPersonal({
             : vacio}
         </Dato>
         <Dato label="Dirección">{oVacio(persona.direccion)}</Dato>
+      </Seccion>
+
+      {/* Salud aparte del contacto: es lo que se busca primero en una
+          emergencia, y perdido entre el teléfono y la dirección no se ve. */}
+      <Seccion titulo="Condiciones de salud">
+        <Dato label="Alergias">{textoCondicion(persona.tiene_alergias, persona.alergias_detalle)}</Dato>
+        <Dato label="Enfermedad">{textoCondicion(persona.tiene_enfermedad, persona.enfermedad_detalle)}</Dato>
       </Seccion>
 
       <Seccion titulo="Datos laborales">

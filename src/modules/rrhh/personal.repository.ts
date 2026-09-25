@@ -13,6 +13,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { compararFicha, errorFicha, normalizarFicha } from './fichaNro';
 import { errorCorreo, normalizarCorreo } from './correoPersonal';
+import { normalizarCondicion } from './saludPersonal';
 import { esNeutro, normalizarEncuadre, type Encuadre } from './encuadreFoto';
 
 const TABLE = 'personal';
@@ -56,6 +57,10 @@ export interface PersonalInput {
   fecha_ingreso?: string | null;
   telefono?: string | null;
   correo?: string | null;
+  tiene_alergias?: boolean | null;
+  alergias_detalle?: string | null;
+  tiene_enfermedad?: boolean | null;
+  enfermedad_detalle?: string | null;
   contacto_emergencia?: string | null;
   contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;
   telefono_emergencia?: string | null;
@@ -108,6 +113,12 @@ function baseSinSueldo(input: PersonalInput, soloDefinidos = false) {
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
     correo: normalizarCorreo(input.correo),
+    // El detalle va colgado del «sí»: si la respuesta es «no» o nadie la
+    // contestó, se guarda en null. La base hace lo mismo por su cuenta.
+    tiene_alergias: normalizarCondicion(input.tiene_alergias, input.alergias_detalle).tiene,
+    alergias_detalle: normalizarCondicion(input.tiene_alergias, input.alergias_detalle).detalle,
+    tiene_enfermedad: normalizarCondicion(input.tiene_enfermedad, input.enfermedad_detalle).tiene,
+    enfermedad_detalle: normalizarCondicion(input.tiene_enfermedad, input.enfermedad_detalle).detalle,
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
     contacto_emergencia_parentesco: input.contacto_emergencia_parentesco || null,
     telefono_emergencia: input.telefono_emergencia?.trim() || null,
