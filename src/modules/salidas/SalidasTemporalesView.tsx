@@ -19,6 +19,8 @@ import { getCategorias, getUnidades } from '@/modules/inventario/inventario.repo
 import { esCategoriaReal } from '@/modules/inventario/categoriaReal';
 import { puedeAprobarOc } from '@/modules/pedidos/aprobadoresOc';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
+import { AdjuntosSalida, SelectorAdjuntos } from './AdjuntosSalida';
+import { subirAdjuntosSalida } from './adjuntosSalida.repository';
 import {
   listSalidasTemporales, crearSalidaTemporal, editarSalidaTemporal, eliminarSalidaTemporal,
   aprobarSalidaTemporal, finalizarSalidaTemporal, formatDuracion,
@@ -359,6 +361,8 @@ function TrazabilidadModal({ s, onClose }: { s: SalidaTemporal; onClose: () => v
         {s.estado === 'finalizada' && <div className="muted" style={{ fontSize: '.8rem' }}>Tiempo en tránsito/mantenimiento: <strong>{formatDuracion(s.duracion_min)}</strong></div>}
       </div>
 
+      <AdjuntosSalida modulo="salida_temporal" refId={s.id} soloLectura />
+
       <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.2rem 0 .4rem' }}>
         Materiales
       </label>
@@ -531,6 +535,8 @@ function SalidaTemporalForm({
   const [enTransitoEn, setEnTransitoEn] = useState(() => aLocal(edit?.en_transito_en));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Solo para el alta: al editar, los adjuntos ya viven en la solicitud.
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
 
   /** Cambiar entre «del inventario» y «nuevo» empieza el renglón de cero (conserva cantidad y observación). */
   function cambiarOrigen(r: Renglon, esNuevo: boolean) {
@@ -639,6 +645,10 @@ function SalidaTemporalForm({
         notify(`Salida temporal ${edit.codigo} actualizada${movioInventario ? ' · inventario ajustado a los cambios' : ''}`, 'success');
       } else {
         const nueva = await crearSalidaTemporal({ ...base, actorName });
+        if (adjuntos.length) {
+          const r = await subirAdjuntosSalida('salida_temporal', nueva.id, adjuntos, actor);
+          for (const f of r.fallos) toast(`Salida creada, pero un adjunto no se pudo subir: ${f}`, 'error');
+        }
         notify(`Salida temporal creada: ${nueva.codigo} · queda pendiente de aprobación`, 'success');
       }
       onSaved();
@@ -786,6 +796,10 @@ function SalidaTemporalForm({
 
         {/* Responsable + vehículo + direcciones */}
         <TransporteFields value={transporte} onChange={setTransporte} actor={actor} />
+
+        {edit
+          ? <AdjuntosSalida modulo="salida_temporal" refId={edit.id} actor={actor} />
+          : <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos} />}
       </form>
     </Modal>
   );

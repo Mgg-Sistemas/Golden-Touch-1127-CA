@@ -12,6 +12,8 @@ import {
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
+import { SelectorAdjuntos } from './AdjuntosSalida';
+import { subirAdjuntosSalida } from './adjuntosSalida.repository';
 
 // Con un único inventario ("General"), el traslado interno almacén→almacén ya no
 // existe. Este formulario queda SOLO para el envío de CASITERITA al otro sistema
@@ -66,6 +68,7 @@ export function TrasladoMaterialForm({
   const [transporte, setTransporte] = useState<TransporteSeleccion>(transporteVacio);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
 
   // Unidad solicitante: mismo catálogo de OP (en vivo).
   const [unidadSolicitante, setUnidadSolicitante] = useState('');
@@ -132,7 +135,7 @@ export function TrasladoMaterialForm({
         ? `${num(lineasCalc[0].cantNum)} ${lineasCalc[0].producto?.unidad ?? ''} de ${lineasCalc[0].producto?.nombre ?? ''}`
         : `${lineasCalc.length} materiales`;
       // CASITERITA → otro sistema: pasa DIRECTO (sin aprobación), deja el registro acá.
-      await crearTrasladoCasiteritaExterno({
+      const creada = await crearTrasladoCasiteritaExterno({
         lineas: lineasCalc
           .filter((x) => x.producto && x.cantNum > 0)
           .map((x) => ({ producto: x.producto!, cantidad: x.cantNum, precioUnit: x.precio })),
@@ -146,6 +149,13 @@ export function TrasladoMaterialForm({
         direccionDestino: transporte.direccionDestino || null,
         solicitante: actorName || actor, actor, actorName,
       });
+      // Los adjuntos se suben recién ahora: la carpeta del almacén lleva el id de la
+      // solicitud, que no existe hasta este momento. Si alguno falla, la solicitud ya
+      // está creada y se avisa; se puede volver a subir desde Editar.
+      if (adjuntos.length) {
+        const r = await subirAdjuntosSalida('traslado', creada.id, adjuntos, actor);
+        for (const f of r.fallos) toast(`Solicitud creada, pero un adjunto no se pudo subir: ${f}`, 'error');
+      }
       notify(`Casiterita enviada al otro sistema: ${resumen} · directo · registro creado`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
@@ -257,6 +267,8 @@ export function TrasladoMaterialForm({
 
         {/* Transporte y direcciones (formato de salida en tránsito) */}
         <TransporteFields value={transporte} onChange={setTransporte} actor={actor} />
+
+        <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos} />
 
         <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: '.6rem 0 0', display: 'flex', justifyContent: 'space-between' }}>
           <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es) · Inventario General → {DESTINO_EXTERNO_CASITERITA_LABEL}</span>

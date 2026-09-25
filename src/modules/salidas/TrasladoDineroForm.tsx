@@ -5,6 +5,9 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import type { Caja } from '@/shared/lib/types';
 import { crearSolicitudSalida } from './salidas.repository';
+import { toast } from '@/shared/ui/Toast';
+import { SelectorAdjuntos } from './AdjuntosSalida';
+import { subirAdjuntosSalida } from './adjuntosSalida.repository';
 
 export function TrasladoDineroForm({
   cajas, actor, actorName, onClose, onSaved,
@@ -29,6 +32,7 @@ export function TrasladoDineroForm({
   const [motivo, setMotivo] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
 
   // Si cambió el origen y el destino ya no aplica, reseteamos.
   const destinoValido = destinos.some((c) => c.id === destinoId) ? destinoId : (destinos[0]?.id ?? '');
@@ -44,13 +48,20 @@ export function TrasladoDineroForm({
     setSaving(true);
     try {
       const dest = activas.find((c) => c.id === destinoValido);
-      await crearSolicitudSalida({
+      const creada = await crearSolicitudSalida({
         scope: 'traslado', tipo: 'dinero',
         cajaId: origenId, cajaDestinoId: destinoValido, monto: montoNum, moneda: origen?.moneda ?? null,
         destino: dest?.nombre ?? null, motivo: motivo.trim() || null,
         notaEntrega: null,
         solicitante: actorName || actor, actor, actorName,
       });
+      // Los adjuntos se suben recién ahora: la carpeta del almacén lleva el id de la
+      // solicitud, que no existe hasta este momento. Si alguno falla, la solicitud ya
+      // está creada y se avisa; se puede volver a subir desde Editar.
+      if (adjuntos.length) {
+        const r = await subirAdjuntosSalida('traslado', creada.id, adjuntos, actor);
+        for (const f of r.fallos) toast(`Solicitud creada, pero un adjunto no se pudo subir: ${f}`, 'error');
+      }
       notify(`Solicitud de traslado de dinero creada: ${money(montoNum)} ${origen?.moneda} · ${origen?.nombre} → ${dest?.nombre} · queda Por aprobar`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
@@ -101,6 +112,8 @@ export function TrasladoDineroForm({
             <input className="input" name="traslado-motivo" defaultValue={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo del traslado…" />
           </div>
         </div>
+
+        <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos} />
       </form>
     </Modal>
   );

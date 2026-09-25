@@ -11,6 +11,8 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
+import { SelectorAdjuntos } from './AdjuntosSalida';
+import { subirAdjuntosSalida } from './adjuntosSalida.repository';
 
 // `key` = `${producto_id}|${almacen}` (identifica una existencia concreta).
 // `precio` = costo unitario EDITABLE (si se deja vacío usa el PMP/costo del inventario).
@@ -66,6 +68,7 @@ export function SalidaMaterialForm({
   const [consumoInterno, setConsumoInterno] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
 
   // Unidad solicitante: MISMO catálogo de OP (Pedidos). En vivo: si se agrega en
   // OP o acá, se refleja al instante en ambos lados.
@@ -192,7 +195,7 @@ export function SalidaMaterialForm({
     if (motivo.trim().length < MOTIVO_SALIDA_MINIMO) { setError(MSG_MOTIVO_SALIDA); return; }
     setSaving(true);
     try {
-      await crearSolicitudSalida({
+      const creada = await crearSolicitudSalida({
         scope: 'salida', tipo: 'material',
         items, destino: consumoInterno ? 'CONSUMO INTERNO' : (transporte.direccionDestino.trim() || null),
         motivo: motivo.trim() || null,
@@ -206,6 +209,13 @@ export function SalidaMaterialForm({
         consumoInterno,
         solicitante: actorName || actor, actor, actorName,
       });
+      // Los adjuntos se suben recién ahora: la carpeta del almacén lleva el id de la
+      // solicitud, que no existe hasta este momento. Si alguno falla, la solicitud ya
+      // está creada y se avisa; se puede volver a subir desde Editar.
+      if (adjuntos.length) {
+        const r = await subirAdjuntosSalida('salida', creada.id, adjuntos, actor);
+        for (const f of r.fallos) toast(`Solicitud creada, pero un adjunto no se pudo subir: ${f}`, 'error');
+      }
       // Vincular con inventario: si se editó el costo de algún material, se actualiza
       // el costo del producto (productos.precio) para que el inventario quede alineado.
       const cambios = lineasCalc.filter((x) => x.precioCambiado && x.pid);
@@ -364,6 +374,8 @@ export function SalidaMaterialForm({
 
         {/* Transporte y direcciones (formato de salida en tránsito) */}
         {!consumoInterno && <TransporteFields value={transporte} onChange={setTransporte} actor={actor} />}
+
+        <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos} />
 
         <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: '.6rem 0 0', display: 'flex', justifyContent: 'space-between' }}>
           <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es)</span>

@@ -30,6 +30,7 @@ import { TrasladoDineroForm } from './TrasladoDineroForm';
 import { ConciliarMineralModal } from './ConciliarMineralModal';
 import { GestionarCajasModal } from './GestionarCajasModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
+import { AdjuntosSalida } from './AdjuntosSalida';
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { norm } from '@/shared/lib/texto';
@@ -1175,6 +1176,9 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
         </>
       )}
 
+      {/* Las fotos y documentos se cambian acá, mientras la solicitud sigue por aprobar. */}
+      <AdjuntosSalida modulo={sol.scope === 'traslado' ? 'traslado' : 'salida'} refId={sol.id} actor={actor} />
+
       <div className="actions" style={{ marginTop: '.75rem', justifyContent: 'flex-end' }}>
         <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void guardar()}>
           {saving ? 'Guardando…' : '💾 Guardar cambios'}
@@ -1371,6 +1375,8 @@ function SolicitudDetalleModal({
           {sol.ejecutada_en && <tr><td className="muted">Ejecutada por</td><td>{nombreDe(sol.ejecutada_por)} · {dateTime(sol.ejecutada_en)}</td></tr>}
         </tbody>
       </table>
+
+      <AdjuntosSalida modulo={sol.scope === 'traslado' ? 'traslado' : 'salida'} refId={sol.id} actor={actor} soloLectura />
 
       {puedeEjecutar && !puedeAprobar && sol.estado === 'por_aprobar' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
