@@ -40,8 +40,9 @@ import { SEGMENTOS_DOCUMENTOS } from './documentosAConsignar';
 const ALTO_CAMPO = 25;
 /** Alto de un renglón de la tabla de carga familiar. */
 const ALTO_FILA = 19;
-/** Alto de un renglón de la lista de documentos (hoja 2). */
-const ALTO_DOC = 13.5;
+/** Tamaño de letra y alto de renglón de la lista de documentos (hoja 2): letra 12, que se lee en papel. */
+const TAM_DOC = 12;
+const ALTO_DOC = 19;
 
 type Doc = import('jspdf').jsPDF;
 
@@ -63,7 +64,7 @@ function campo(doc: Doc, x: number, y: number, ancho: number, etiqueta: string):
 
 /** Una casilla [ ] con su texto al lado. Devuelve dónde termina, para encadenar. */
 function casilla(doc: Doc, x: number, y: number, texto: string, tamano = 9): number {
-  const lado = 8.5;
+  const lado = tamano >= 12 ? 11 : 8.5;
   doc.setDrawColor(110, 110, 110);
   doc.setLineWidth(0.7);
   doc.rect(x, y - lado + 1, lado, lado);
@@ -337,102 +338,75 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   y = titulo(y, 'DOCUMENTOS A CONSIGNAR POR OFICINA',
     'Marque cada documento recibido. Lo que dice «si aplica» se exige solo a quien le corresponda.');
 
-  // A DOS COLUMNAS, porque en una sola la lista completa no entra en la hoja.
-  // Cada segmento entra COMPLETO en una columna o pasa entero a la siguiente:
-  // una lista de requisitos partida al medio se lee como si faltaran renglones.
+  // A UNA COLUMNA y en letra 12, que es lo que se lee cómodo en papel. Con eso
+  // la lista no entra en una hoja: sigue en la siguiente, con el membrete, y
+  // el recuadro de la oficina va al pie de la ÚLTIMA. Un segmento entra
+  // completo en la hoja o pasa entero a la siguiente: una lista de requisitos
+  // partida al medio se lee como si faltaran renglones.
   const PIE_DOCS = 118;            // lo que se reserva abajo para «uso de la oficina»
   const TOPE = PAGE_H - MARGIN - PIE_DOCS;
-  const ANCHO_COL = (ANCHO - 20) / 2;
-  const X_COL = [MARGIN, MARGIN + ANCHO_COL + 20];
-  const ANCHO_TEXTO = ANCHO_COL - 16;
-  const yInicial = y;
-  let col = 0;
+  const SANGRIA = 20;              // de la casilla al texto
+  const ANCHO_TEXTO = ANCHO - SANGRIA;
   let yc = y;
 
   /** Cómo se parte un renglón largo, y cuánto mide por eso. */
   const trozosDe = (nombre: string): string[] => {
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(TAM_DOC);
     return doc.splitTextToSize(nombre, ANCHO_TEXTO) as string[];
   };
-  const altoDe = (nombre: string) => ALTO_DOC + (trozosDe(nombre).length - 1) * 9;
+  const altoDe = (nombre: string) => ALTO_DOC + (trozosDe(nombre).length - 1) * (TAM_DOC + 2);
 
-  /** Pasa a la columna de al lado; si ya no hay, sigue en una hoja nueva. */
-  const siguienteColumna = () => {
-    col += 1;
-    if (col >= X_COL.length) {
-      doc.addPage();
-      col = 0;
-      yc = membrete(MARGIN);
-    } else {
-      yc = yInicial;
-    }
+  /** Sigue en una hoja nueva, con el membrete. */
+  const siguienteHoja = () => {
+    doc.addPage();
+    yc = membrete(MARGIN);
   };
 
   // Los bloques de la hoja: los segmentos de la lista y, al final, renglones
   // en blanco. La oficina siempre termina pidiendo algo puntual; sin ese lugar
   // se escribe en el margen.
-  const RENGLON_LIBRE = 17;
+  const RENGLON_LIBRE = 22;
+  const ALTO_TITULO = 20;
   const BLOQUES = [
     ...SEGMENTOS_DOCUMENTOS.map((s) => ({ titulo: s.titulo, documentos: s.documentos, libres: 0 })),
     { titulo: 'Otros documentos (indique)', documentos: [] as string[], libres: 3 },
   ];
-  const AIRE = 6;
+  const AIRE = 8;
   const altoBloque = (b: typeof BLOQUES[number]) =>
-    15 + b.documentos.reduce((n, d) => n + altoDe(d), 0) + b.libres * RENGLON_LIBRE;
+    ALTO_TITULO + b.documentos.reduce((n, d) => n + altoDe(d), 0) + b.libres * RENGLON_LIBRE;
 
-  // DÓNDE SE CORTA. Llenando la primera columna hasta el tope, la segunda
-  // quedaba con un solo segmento y media hoja en blanco. Se busca el corte que
-  // deja las dos columnas más parejas, sin que la primera se pase del tope.
-  const altos = BLOQUES.map(altoBloque);
-  const suma = (desde: number, hasta: number) => altos.slice(desde, hasta)
-    .reduce((n, h) => n + h, 0) + Math.max(0, hasta - desde - 1) * AIRE;
-  const altoUtil = TOPE - yInicial;
-  let corte = BLOQUES.length;
-  let mejor = Infinity;
-  for (let k = 1; k <= BLOQUES.length; k++) {
-    const izq = suma(0, k);
-    const der = suma(k, BLOQUES.length);
-    if (izq > altoUtil || der > altoUtil) continue;
-    const desparejo = Math.abs(izq - der);
-    if (desparejo < mejor) { mejor = desparejo; corte = k; }
-  }
-
-  BLOQUES.forEach((bloque, i) => {
-    if (i === corte) siguienteColumna();
-    // Red de seguridad: si algún día la lista crece y no entra, el bloque pasa
-    // entero a la columna siguiente en vez de partirse al medio.
-    else if (yc + altoBloque(bloque) > TOPE) siguienteColumna();
+  for (const bloque of BLOQUES) {
+    if (yc + altoBloque(bloque) > TOPE) siguienteHoja();
 
     doc.setFillColor(255, 138, 0);
-    doc.rect(X_COL[col], yc - 8, 2.5, 11, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    doc.rect(MARGIN, yc - 10, 3, 13, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(TAM_DOC);
     doc.setTextColor(20, 20, 20);
-    doc.text(bloque.titulo.toUpperCase(), X_COL[col] + 8, yc);
-    yc += 15;
+    doc.text(bloque.titulo.toUpperCase(), MARGIN + 9, yc);
+    yc += ALTO_TITULO;
 
     for (const nombre of bloque.documentos) {
       // Los renglones largos se parten: el primero al lado de la casilla y el
       // resto alineado con el texto, no con la casilla.
       const trozos = trozosDe(nombre);
-      casilla(doc, X_COL[col], yc, trozos[0], 8);
+      casilla(doc, MARGIN, yc, trozos[0], TAM_DOC);
       for (let j = 1; j < trozos.length; j++) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-        doc.text(trozos[j], X_COL[col] + 14, yc + j * 9);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(TAM_DOC);
+        doc.text(trozos[j], MARGIN + SANGRIA, yc + j * (TAM_DOC + 2));
       }
-      yc += ALTO_DOC + (trozos.length - 1) * 9;
+      yc += ALTO_DOC + (trozos.length - 1) * (TAM_DOC + 2);
     }
 
     for (let j = 0; j < bloque.libres; j++) {
-      const lado = 8.5;
+      const lado = 11;
       doc.setDrawColor(110, 110, 110); doc.setLineWidth(0.7);
-      doc.rect(X_COL[col], yc - lado + 1, lado, lado);
+      doc.rect(MARGIN, yc - lado + 1, lado, lado);
       doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.5);
-      doc.line(X_COL[col] + 14, yc + 1, X_COL[col] + ANCHO_COL, yc + 1);
+      doc.line(MARGIN + SANGRIA, yc + 1, MARGIN + ANCHO, yc + 1);
       yc += RENGLON_LIBRE;
     }
     yc += AIRE;
-  });
-
+  }
   // ─── Uso de la oficina ───
   // Anclado al pie de la hoja de documentos, no a continuación de la lista:
   // así queda siempre en el mismo lugar y no baila según cuántos renglones haya.

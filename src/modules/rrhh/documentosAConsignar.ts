@@ -47,7 +47,6 @@ export const SEGMENTOS_DOCUMENTOS: readonly SegmentoDocumentos[] = [
       'Certificados de cursos, talleres y capacitaciones',
       'Currículum vitae actualizado',
       'Constancias de trabajo de empleos anteriores',
-      'Dos (2) referencias laborales con teléfono de contacto',
       'Dos (2) referencias personales con teléfono de contacto',
       'Copia del colegio o gremio profesional (si aplica)',
     ],
