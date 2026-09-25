@@ -1486,19 +1486,38 @@ export interface PersonalSueldo {
   created_by?: string | null;
 }
 
-/** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar. */
+/** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar.
+ *  El saldo lo mantiene la base: monto_total − Σ abonos (anticipos_pagos). */
 export interface AnticipoPrestamo {
   id: string;
   personal_id: string;
   tipo: 'anticipo' | 'prestamo';
+  /** Día en que se dio el préstamo (YYYY-MM-DD). Puede ser anterior a la carga. */
+  fecha: string;
   monto_total: number;
   saldo: number;
   cuota_sugerida?: number | null;
   estado: 'activo' | 'saldado';
   motivo?: string | null;
+  /** Cargado en modo histórico: existía antes del sistema, con lo ya abonado. */
+  historico?: boolean;
   creado_por?: string | null;
   actor_name?: string | null;
   created_at: string;
+}
+
+/** Un abono a un anticipo/préstamo: por nómina, a mano o traído del histórico. */
+export interface AnticipoPago {
+  id: string;
+  anticipo_id: string;
+  fecha: string;
+  monto: number;
+  origen: 'nomina' | 'manual' | 'historico';
+  renglon_id?: string | null;
+  nota?: string | null;
+  created_at: string;
+  created_by?: string | null;
+  actor_name?: string | null;
 }
 
 /** Período de nómina (una por quincena), cargado desde RRHH. */
