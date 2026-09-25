@@ -4,6 +4,8 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { AdjuntosSalida } from '@/modules/salidas/AdjuntosSalida';
+import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -443,7 +445,7 @@ export function TanquesView() {
       )}
       {detalle && (
         <DetalleMovimientoModal mov={detalle} tanque={tanques.find((t) => t.id === detalle.tanque_id) ?? sel}
-          catalogos={catalogos} canWrite={canWrite}
+          catalogos={catalogos} canWrite={canWrite} actor={actor}
           onClose={() => setDetalle(null)}
           onSaved={async () => { setDetalle(null); await recargarTodo(); }} />
       )}
@@ -1064,9 +1066,9 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
 
 /* ───────────── Modal: ver / editar detalle de un movimiento ───────────── */
 
-function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onSaved }: {
+function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClose, onSaved }: {
   mov: MovimientoTanque; tanque: TanqueCombustible | null | undefined; catalogos: CatalogoCombustible[];
-  canWrite: boolean; onClose: () => void; onSaved: () => void;
+  canWrite: boolean; actor: string; onClose: () => void; onSaved: () => void;
 }) {
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
   const s = (v: number | null | undefined) => (v == null ? '' : String(v));
@@ -1130,6 +1132,10 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
 
       <Fila k="Tanque" v={tanque?.nombre ?? '—'} />
       <Fila k="Saldo del tanque (L · $)" v={`${num(mov.saldo_litros)} L · ${money(mov.saldo_usd)}`} />
+      {(mov.created_by || mov.actor_name) && <Fila k="Registrado por" v={mov.actor_name || mov.created_by || '—'} />}
+
+      {/* Las fotos que sacó el surtidor desde el teléfono (o las que se agreguen acá). */}
+      <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} />
 
       {/* Datos editables (TODO). Al cambiar tipo/litros/tasa se recalcula el saldo del tanque. */}
       <div className="card-title" style={{ marginTop: '1rem' }}>✎ Datos editables</div>

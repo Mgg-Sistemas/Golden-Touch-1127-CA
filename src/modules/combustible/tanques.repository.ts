@@ -540,13 +540,13 @@ export async function registrarUso(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
-  await insertarMovimiento({
+  const mov = await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'uso',
@@ -556,6 +556,7 @@ export async function registrarUso(input: {
     actor_name: input.actorName ?? null,
   });
   await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
+  return mov;
 }
 
 /** MERMA: pérdida del tanque (evaporación, fuga, descuadre). Descuenta litros
@@ -621,7 +622,7 @@ export async function registrarTraslado(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   if (input.tanqueDestinoId && input.tanqueDestinoId === input.tanqueId) throw new Error('El destino debe ser un tanque distinto.');
@@ -658,6 +659,7 @@ export async function registrarTraslado(input: {
       .update({ mov_vinculado_id: movEntrada.id }).eq('id', movTraslado.id);
     if (vinErr) throw vinErr;
   }
+  return movTraslado;
 }
 
 /** TRASLADO INTER-SISTEMA → MGG (TANQUE MGG). Resta del tanque origen de ESTE

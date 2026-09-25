@@ -17,6 +17,7 @@ const InventarioPage = lazy(() => import('./modules/inventario/InventarioPage').
 const ProduccionPage = lazy(() => import('./modules/produccion/ProduccionPage').then((m) => ({ default: m.ProduccionPage })));
 const SalidasPage = lazy(() => import('./modules/salidas/SalidasPage').then((m) => ({ default: m.SalidasPage })));
 const CombustiblePage = lazy(() => import('./modules/combustible/CombustiblePage').then((m) => ({ default: m.CombustiblePage })));
+const SurtidorMovilView = lazy(() => import('./modules/combustible/SurtidorMovilView').then((m) => ({ default: m.SurtidorMovilView })));
 const AcopioPage = lazy(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.AcopioPage })));
 const CocinaPage = lazy(() => import('./modules/cocina/CocinaPage').then((m) => ({ default: m.CocinaPage })));
 const RrhhPage = lazy(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
@@ -84,6 +85,7 @@ export function App() {
           <Route path="produccion" element={<RequireModule module="produccion"><Suspense fallback={<PageLoader />}><ProduccionPage /></Suspense></RequireModule>} />
           <Route path="salidas" element={<RequireModule module="salidas"><Suspense fallback={<PageLoader />}><SalidasPage /></Suspense></RequireModule>} />
           <Route path="combustible" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><CombustiblePage /></Suspense></RequireModule>} />
+          <Route path="combustible/surtidor" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><SurtidorMovilView /></Suspense></RequireModule>} />
           <Route path="acopio" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><AcopioPage /></Suspense></RequireModule>} />
           <Route path="cocina" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaPage /></Suspense></RequireModule>} />
           <Route path="rrhh" element={<RequireModule module="rrhh"><Suspense fallback={<PageLoader />}><RrhhPage /></Suspense></RequireModule>} />

@@ -20,7 +20,7 @@ export const MAX_ADJUNTOS_SALIDA = 4;
 export const TOPE_ADJUNTO_BYTES = 10 * 1024 * 1024;
 
 /** A qué tipo de solicitud pertenece el adjunto. */
-export type ModuloAdjuntoSalida = 'salida' | 'traslado' | 'salida_temporal';
+export type ModuloAdjuntoSalida = 'salida' | 'traslado' | 'salida_temporal' | 'tanque_mov';
 
 /** Lo mínimo de un archivo que hace falta para decidir si sirve. */
 export interface ArchivoCandidato {
