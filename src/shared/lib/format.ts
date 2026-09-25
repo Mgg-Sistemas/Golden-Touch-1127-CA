@@ -109,6 +109,7 @@ const STATUS_MAP: Record<string, { className: string; label: string }> = {
   anulada:             { className: 'danger',  label: 'Anulada' },
   activo:              { className: 'success', label: 'Activo' },
   inactivo:            { className: 'danger',  label: 'Inactivo' },
+  archivado:           { className: '',        label: 'Archivado' },
 };
 
 export function statusBadge(estado: string | null | undefined) {
