@@ -29,11 +29,13 @@ function buildOverlay(filename: string): OverlayUI {
     'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.85);display:flex;flex-direction:column;';
 
   const bar = document.createElement('div');
+  // flex-wrap: en un teléfono los botones no caben en una fila y «Cerrar» quedaba
+  // fuera de la pantalla; ahora pasan a la fila de abajo.
   bar.style.cssText =
-    'display:flex;gap:.5rem;align-items:center;padding:.6rem .9rem;background:#1c2128;border-bottom:1px solid #30363d;';
+    'display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.6rem .9rem;background:#1c2128;border-bottom:1px solid #30363d;';
 
   const title = document.createElement('div');
-  title.style.cssText = 'margin-right:auto;color:#e6edf3;font:600 .95rem system-ui;display:flex;gap:.5rem;align-items:center;';
+  title.style.cssText = 'margin-right:auto;color:#e6edf3;font:600 .95rem system-ui;display:flex;gap:.5rem;align-items:center;min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
   title.textContent = `Vista previa · ${filename}`;
 
   const btnDl = document.createElement('button');
@@ -53,7 +55,7 @@ function buildOverlay(filename: string): OverlayUI {
   btnClose.type = 'button';
   btnClose.textContent = '✕ Cerrar';
   btnClose.style.cssText =
-    'background:transparent;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.5rem .9rem;font:600 .9rem system-ui;cursor:pointer;';
+    'background:transparent;color:#e6edf3;border:1px solid #ff8a00;border-radius:6px;padding:.5rem .9rem;font:600 .9rem system-ui;cursor:pointer;flex:0 0 auto;';
 
   const body = document.createElement('div');
   body.style.cssText = 'flex:1;overflow:auto;background:#0d1117;';

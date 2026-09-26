@@ -63,12 +63,7 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
     const sinCupo = errorCupo(lista.length, archivos.length);
     if (sinCupo) { toast(sinCupo, 'error'); if (inputRef.current) inputRef.current.value = ''; return; }
     setSubiendo(true);
-    const fallos: string[] = [];
-    let subidos = 0;
-    for (const f of archivos) {
-      try { await repo.agregar(modulo, refId, f, actor); subidos++; }
-      catch (e) { fallos.push(e instanceof Error ? e.message : `«${f.name}» no se pudo subir.`); }
-    }
+    const { subidos, fallos } = await repo.subir(modulo, refId, archivos, actor);
     if (subidos) toast(subidos > 1 ? `${subidos} archivos cargados` : 'Archivo cargado', 'success');
     for (const f of fallos) toast(f, 'error');
     if (inputRef.current) inputRef.current.value = '';

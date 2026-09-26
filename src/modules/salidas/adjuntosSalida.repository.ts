@@ -13,6 +13,7 @@
    suben después, porque la carpeta lleva el id.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import {
   errorArchivoAdjunto, errorCupo, nombreSeguroAdjunto, type ModuloAdjuntoSalida,
 } from './adjuntosSalidaReglas';
@@ -31,6 +32,16 @@ export interface AdjuntoSalida {
   created_by: string | null;
 }
 
+/** Más de esto y la subida se da por perdida: el usuario la reintenta desde el detalle. */
+export const TOPE_SUBIDA_MS = 90_000;
+
+function conTope<T>(p: Promise<T>, ms: number, nombre: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`«${nombre}» tardó más de ${Math.round(ms / 1000)} s en subir. Revisá la señal y volvé a intentar desde el detalle.`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 export interface RepoAdjuntos {
   /** Nombre de la tabla, para el realtime del componente. */
   tabla: string;
@@ -41,6 +52,12 @@ export interface RepoAdjuntos {
   url(path: string): Promise<string>;
   /** Cuántos adjuntos tiene cada registro (para el 📎 n de una lista). */
   contar(modulo: ModuloAdjuntoSalida, refIds: string[]): Promise<Map<string, number>>;
+  /** Borra archivos y filas de un registro; se llama antes de borrar el registro. */
+  borrarTodos(modulo: ModuloAdjuntoSalida, refId: string): Promise<void>;
+  /** Todos los adjuntos de varios registros (para un reporte con fotos). */
+  listarDe(modulo: ModuloAdjuntoSalida, refIds: string[]): Promise<AdjuntoSalida[]>;
+  /** URLs firmadas de varios archivos de una vez: path → url. */
+  urls(paths: string[]): Promise<Map<string, string>>;
 }
 
 export function crearRepoAdjuntos(bucket: string, tabla: string): RepoAdjuntos {
@@ -53,7 +70,10 @@ export function crearRepoAdjuntos(bucket: string, tabla: string): RepoAdjuntos {
   }
 
   /** Sube UN archivo y lo registra. Comprueba tipo, peso y cupo antes de tocar el almacén. */
-  async function agregar(modulo: ModuloAdjuntoSalida, refId: string, file: File, actor?: string | null): Promise<AdjuntoSalida> {
+  async function agregar(modulo: ModuloAdjuntoSalida, refId: string, original: File, actor?: string | null): Promise<AdjuntoSalida> {
+    // Una foto de celular pesa 3–8 MB y con la señal de la mina tardaba un minuto:
+    // se achica a 1600 px en JPEG (≈300 KB) antes de subir. Si no se puede, va la original.
+    const file = await comprimirImagen(original);
     const malo = errorArchivoAdjunto(file);
     if (malo) throw new Error(malo);
     const actuales = await list(modulo, refId);
@@ -78,15 +98,29 @@ export function crearRepoAdjuntos(bucket: string, tabla: string): RepoAdjuntos {
     return data as AdjuntoSalida;
   }
 
-  /** Sube varios, de a uno; no corta en el primer error. */
+  /** Sube varios A LA VEZ (no de a uno) y con tope de tiempo; no corta en el primer error. */
   async function subir(modulo: ModuloAdjuntoSalida, refId: string, files: File[], actor?: string | null) {
+    const resultados = await Promise.allSettled(files.map((f) => conTope(agregar(modulo, refId, f, actor), TOPE_SUBIDA_MS, f.name)));
     let subidos = 0;
     const fallos: string[] = [];
-    for (const f of files) {
-      try { await agregar(modulo, refId, f, actor); subidos++; }
-      catch (e) { fallos.push(e instanceof Error ? e.message : `«${f.name}» no se pudo subir.`); }
-    }
+    resultados.forEach((r, i) => {
+      if (r.status === 'fulfilled') subidos++;
+      else fallos.push(r.reason instanceof Error ? r.reason.message : `«${files[i].name}» no se pudo subir.`);
+    });
     return { subidos, fallos };
+  }
+
+  /**
+   * Borra TODOS los adjuntos de un registro: primero los archivos del almacén (Storage
+   * API; Supabase no deja borrarlos desde SQL) y después las filas. Se llama ANTES de
+   * borrar el registro. Si un archivo no se pudo borrar, queda huérfano en un bucket
+   * privado: no se ve ni estorba, y no frena la baja del registro.
+   */
+  async function borrarTodos(modulo: ModuloAdjuntoSalida, refId: string): Promise<void> {
+    const lista = await list(modulo, refId).catch(() => [] as AdjuntoSalida[]);
+    if (!lista.length) return;
+    await supabase.storage.from(bucket).remove(lista.map((a) => a.path)).catch(() => {});
+    await supabase.from(tabla).delete().eq('modulo', modulo).eq('ref_id', refId);
   }
 
   /** Borra el registro y después el archivo. Si el archivo no se pudo borrar, el registro ya no está. */
@@ -112,7 +146,25 @@ export function crearRepoAdjuntos(bucket: string, tabla: string): RepoAdjuntos {
     return m;
   }
 
-  return { tabla, list, agregar, subir, eliminar, url, contar };
+  /** Todos los adjuntos de varios registros (para un reporte con fotos). */
+  async function listarDe(modulo: ModuloAdjuntoSalida, refIds: string[]): Promise<AdjuntoSalida[]> {
+    if (!refIds.length) return [];
+    const { data, error } = await supabase.from(tabla).select('*').eq('modulo', modulo).in('ref_id', refIds).order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as AdjuntoSalida[];
+  }
+
+  /** URLs firmadas (10 min) de varios archivos de una vez: path → url. */
+  async function urls(paths: string[]): Promise<Map<string, string>> {
+    const m = new Map<string, string>();
+    if (!paths.length) return m;
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrls(paths, 60 * 10);
+    if (error) throw error;
+    for (const r of data ?? []) if (r.path && r.signedUrl) m.set(r.path, r.signedUrl);
+    return m;
+  }
+
+  return { tabla, list, agregar, subir, eliminar, url, contar, borrarTodos, listarDe, urls };
 }
 
 /* ───────────── Salidas (bucket y tabla originales) ───────────── */

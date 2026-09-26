@@ -2,16 +2,18 @@
    Golden Touch · Combustible · Surtidor (vista de teléfono)
 
    La pantalla del que está al lado del tanque con el celular: elige el
-   tanque, toca «Surtir a un equipo» o «Pasar a otro tanque», pone los
-   litros, a qué equipo/camión va, quién autorizó, le saca fotos y guarda.
-   Abajo ve los últimos movimientos del tanque y puede abrir cada uno para
-   ver o agregar fotos.
+   tanque, toca «Surtir a un equipo», «Pasar a otro tanque», «Entrada» o
+   «Merma», pone los litros, a qué equipo/camión va, quién autorizó, le
+   saca fotos y guarda. Abajo ve los últimos movimientos del tanque y
+   puede abrir cada uno para ver o agregar fotos, o borrarlo (con
+   confirmación). El 📊 Reporte muestra un rango de fechas por tipo, con
+   las fotos de cada movimiento.
 
    Escribe en las MISMAS tablas que el módulo de PC (registrarUso /
-   registrarTraslado, con PMP y contadores encadenados), así que lo que se
-   carga acá aparece al instante en la PC, y lo que corrigen en la PC se ve
-   acá (realtime). Corregir litros, equipo u hora es tarea de la PC: el rol
-   COMBUSTIBLE solo registra, y la base se lo hace cumplir.
+   registrarTraslado / registrarEntrada / registrarMerma /
+   eliminarMovimientoTanque, con PMP y contadores encadenados), así que
+   lo que se hace acá aparece al instante en la PC y viceversa (realtime).
+   Corregir litros, equipo u hora es tarea de la PC.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
@@ -22,17 +24,21 @@ import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { num, date, dateTime } from '@/shared/lib/format';
+import { num, date, dateTime, money } from '@/shared/lib/format';
 import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCatalogoCombustible, TipoMovTanque } from '@/shared/lib/types';
 import {
-  listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado,
-  ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
+  listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada, registrarMerma,
+  eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
 } from './tanques.repository';
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
+import { SurtidorReporteMovil } from './SurtidorReporteMovil';
 
 /** Clave del rol que trabaja solo desde esta pantalla. */
 export const ROL_SURTIDOR = 'combustible';
+
+/** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
+export const ULTIMOS_EN_TELEFONO = 10;
 
 const ICONO: Record<TipoMovTanque, string> = { entrada: '⬇', uso: '⛽', traslado: '🔁', retorno: '↩', merma: '🔻' };
 const NOMBRE_TIPO: Record<TipoMovTanque, string> = { entrada: 'Entrada', uso: 'Surtido', traslado: 'Traslado', retorno: 'Retorno', merma: 'Merma' };
@@ -40,10 +46,12 @@ const NOMBRE_TIPO: Record<TipoMovTanque, string> = { entrada: 'Entrada', uso: 'S
 const hoyVE = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const horaVE = () => new Intl.DateTimeFormat('en-US', { timeZone: 'America/Caracas', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(new Date());
 
-type TipoSurtidor = 'uso' | 'traslado';
+/** Lo que se puede registrar desde el teléfono (el retorno queda para la PC). */
+type TipoSurtidor = 'uso' | 'traslado' | 'entrada' | 'merma';
 
-/** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
-export const ULTIMOS_EN_TELEFONO = 10;
+const TITULO: Record<TipoSurtidor, string> = {
+  uso: 'Surtir a un equipo', traslado: 'Pasar a otro tanque', entrada: 'Entrada de combustible', merma: 'Merma del tanque',
+};
 
 export function SurtidorMovilView() {
   const { user } = useSession();
@@ -62,6 +70,7 @@ export function SurtidorMovilView() {
   const [paso, setPaso] = useState<'inicio' | 'form'>('inicio');
   const [tipo, setTipo] = useState<TipoSurtidor>('uso');
   const [detalle, setDetalle] = useState<MovimientoTanque | null>(null);
+  const [reporte, setReporte] = useState(false);
 
   const reloadBase = useCallback(async () => {
     const [ts, cat] = await Promise.all([listTanques(), listCatalogos()]);
@@ -95,7 +104,9 @@ export function SurtidorMovilView() {
   });
 
   const sel = useMemo(() => tanques.find((t) => t.id === selId) ?? null, [tanques, selId]);
-  const detalleVivo = detalle ? movs.find((m) => m.id === detalle.id) ?? detalle : null;
+  // Si el movimiento abierto lo borró otro (o se borró acá), el detalle se cierra solo.
+  const detalleVivo = detalle ? movs.find((m) => m.id === detalle.id) ?? null : null;
+  useEffect(() => { if (detalle && !loading && movs.length && !movs.some((m) => m.id === detalle.id)) setDetalle(null); }, [detalle, movs, loading]);
 
   function abrirForm(t: TipoSurtidor) { setTipo(t); setPaso('form'); }
 
@@ -106,7 +117,11 @@ export function SurtidorMovilView() {
           <h1>⛽ Surtidor</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
         </div>
-        {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost">🖥 Módulo completo</Link>}
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-ghost" onClick={() => setReporte(true)} disabled={!tanques.length}
+            title="Movimientos por rango de fechas, agrupados por tipo, con sus fotos">📊 Reporte</button>
+          {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost">🖥 Módulo completo</Link>}
+        </div>
       </header>
 
       {loading && <p className="muted">Cargando…</p>}
@@ -138,7 +153,17 @@ export function SurtidorMovilView() {
           <button type="button" className="surt-btn" onClick={() => abrirForm('traslado')}>
             <span className="icono" aria-hidden>🔁</span>
             <span>Pasar a otro tanque</span>
-            <small>Traslado de {sel.nombre} a otro tanque (p. ej. el camión de lubricación)</small>
+            <small>Traslado a otro tanque</small>
+          </button>
+          <button type="button" className="surt-btn entrada" onClick={() => abrirForm('entrada')}>
+            <span className="icono" aria-hidden>⬇</span>
+            <span>Entrada</span>
+            <small>Llega combustible al tanque</small>
+          </button>
+          <button type="button" className="surt-btn merma" onClick={() => abrirForm('merma')}>
+            <span className="icono" aria-hidden>🔻</span>
+            <span>Merma</span>
+            <small>Pérdida o faltante del tanque</small>
           </button>
         </div>
       )}
@@ -181,19 +206,24 @@ export function SurtidorMovilView() {
 
       {detalleVivo && (
         <DetalleMovil mov={detalleVivo} tanque={tanques.find((t) => t.id === detalleVivo.tanque_id) ?? null} tanques={tanques}
-          canWrite={canWrite} esSurtidor={esSurtidor} actor={actor} onClose={() => setDetalle(null)} />
+          canWrite={canWrite} esSurtidor={esSurtidor} actor={actor} onClose={() => setDetalle(null)}
+          onBorrado={async () => { setDetalle(null); await reloadBase().catch(() => {}); await reloadMovs(selId).catch(() => {}); }} />
       )}
+
+      {reporte && <SurtidorReporteMovil tanques={tanques} tanqueInicial={selId} onClose={() => setReporte(false)} />}
     </div>
   );
 }
 
-/* ───────────── Formulario: surtido o traslado ───────────── */
+/* ───────────── Formulario: surtido, traslado, entrada o merma ───────────── */
 function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName, onCancel, onSaved }: {
   tipo: TipoSurtidor; tanque: TanqueCombustible; tanques: TanqueCombustible[]; catalogos: CatalogoCombustible[];
   actor: string; actorName: string | null; onCancel: () => void; onSaved: () => Promise<void>;
 }) {
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
+  const sale = tipo !== 'entrada';
   const [litros, setLitros] = useState('');
+  const [costo, setCosto] = useState(tanque.tasa_usd_litro ? String(tanque.tasa_usd_litro) : '');
   const [equipo, setEquipo] = useState('');
   const [autorizado, setAutorizado] = useState('');
   const [destinoId, setDestinoId] = useState('');
@@ -209,7 +239,16 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   const [masDatos, setMasDatos] = useState(false);
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [etapa, setEtapa] = useState<'movimiento' | 'fotos'>('movimiento');
+  // Con mala señal, subir fotos puede tardar: pasados unos segundos se avisa que el
+  // movimiento ya está guardado, para que nadie lo vuelva a cargar.
+  const [demorado, setDemorado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!guardando) { setDemorado(false); return; }
+    const t = setTimeout(() => setDemorado(true), 12_000);
+    return () => clearTimeout(t);
+  }, [guardando]);
 
   // Igual que en la PC: el horómetro inicial es del equipo y el contador inicial es del
   // tanque; se traen del último final para que la cadena no se corte.
@@ -223,16 +262,19 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   }, [tanque.id]);
 
   const litrosNum = Number(String(litros).replace(',', '.')) || 0;
+  const costoNum = Number(String(costo).replace(',', '.')) || 0;
   const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!(litrosNum > 0)) { setError('Indicá los litros surtidos.'); return; }
+    if (!(litrosNum > 0)) { setError(tipo === 'entrada' ? 'Indicá los litros que entraron.' : tipo === 'merma' ? 'Indicá los litros de la merma.' : 'Indicá los litros surtidos.'); return; }
     if (tipo === 'uso' && !equipo) { setError('Indicá a qué equipo o camión va el combustible.'); return; }
     if (tipo === 'traslado' && !destinoId) { setError('Indicá a qué tanque pasa el combustible.'); return; }
-    if (litrosNum > (Number(tanque.saldo_litros) || 0)) { setError(`El tanque tiene ${num(tanque.saldo_litros)} L: no alcanza para ${num(litrosNum)} L.`); return; }
-    setGuardando(true);
+    if (tipo === 'merma' && !observacion.trim()) { setError('Indicá el motivo de la merma (faltante, derrame, evaporación…).'); return; }
+    if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indicá el costo por litro.'); return; }
+    if (sale && litrosNum > (Number(tanque.saldo_litros) || 0)) { setError(`El tanque tiene ${num(tanque.saldo_litros)} L: no alcanza para ${num(litrosNum)} L.`); return; }
+    setGuardando(true); setEtapa('movimiento');
     try {
       const campos = {
         fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
@@ -240,39 +282,54 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         kilometraje: km === '' ? null : Number(km),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
       };
-      const mov = tipo === 'uso'
-        ? await registrarUso({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })
-        : await registrarTraslado({ tanqueId: tanque.id, litros: litrosNum, tanqueDestinoId: destinoId, campos, actor, actorName });
+      let movId: string;
+      if (tipo === 'uso') movId = (await registrarUso({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
+      else if (tipo === 'traslado') movId = (await registrarTraslado({ tanqueId: tanque.id, litros: litrosNum, tanqueDestinoId: destinoId, campos, actor, actorName })).id;
+      else if (tipo === 'entrada') movId = (await registrarEntrada({ tanqueId: tanque.id, litros: litrosNum, costoLitro: costoNum, campos, actor, actorName })).id;
+      else movId = (await registrarMerma({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
       // Las fotos se suben recién ahora: la carpeta lleva el id del movimiento.
       if (adjuntos.length) {
-        const r = await adjuntosCombustible.subir(MODULO_ADJUNTO_TANQUE, mov.id, adjuntos, actor);
+        setEtapa('fotos');
+        const r = await adjuntosCombustible.subir(MODULO_ADJUNTO_TANQUE, movId, adjuntos, actor);
         for (const f of r.fallos) toast(`Movimiento guardado, pero una foto no se pudo subir: ${f}`, 'error');
       }
-      toast(tipo === 'uso' ? 'Surtido registrado' : 'Traslado registrado', 'success');
+      toast(`${TITULO[tipo]}: registrado`, 'success');
       await onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); }
     finally { setGuardando(false); }
   }
 
   const destinos = tanques.filter((t) => t.id !== tanque.id);
+  const subtitulo = tipo === 'entrada'
+    ? `Entra a ${tanque.nombre} · hoy tiene ${num(tanque.saldo_litros)} L a ${money(tanque.tasa_usd_litro)}/L`
+    : `Desde ${tanque.nombre} · ${num(tanque.saldo_litros)} L disponibles`;
 
   return (
     <form className="surt-form card" onSubmit={guardar}>
       <div className="surt-form-titulo">
-        <span className="icono" aria-hidden>{tipo === 'uso' ? '⛽' : '🔁'}</span>
+        <span className="icono" aria-hidden>{ICONO[tipo]}</span>
         <div>
-          <strong>{tipo === 'uso' ? 'Surtir a un equipo' : 'Pasar a otro tanque'}</strong>
-          <div className="muted" style={{ fontSize: '.85rem' }}>Desde {tanque.nombre} · {num(tanque.saldo_litros)} L disponibles</div>
+          <strong>{TITULO[tipo]}</strong>
+          <div className="muted" style={{ fontSize: '.85rem' }}>{subtitulo}</div>
         </div>
       </div>
 
       {error && <div className="aviso danger"><span className="aviso-icono">⛔</span><div>{error}</div></div>}
 
       <div className="surt-campo">
-        <label htmlFor="surt-litros">Litros</label>
+        <label htmlFor="surt-litros">{tipo === 'merma' ? 'Litros perdidos' : 'Litros'}</label>
         <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
           value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
       </div>
+
+      {tipo === 'entrada' && (
+        <div className="surt-campo">
+          <label htmlFor="surt-costo">Costo por litro (USD)</label>
+          <input id="surt-costo" className="input surt-input" type="number" inputMode="decimal" step="0.0001" min={0}
+            value={costo} onChange={(e) => setCosto(e.target.value)} placeholder="0,00" />
+          <small className="muted">Recalcula la tasa promedio del tanque. Viene precargado con la tasa de hoy.</small>
+        </div>
+      )}
 
       {tipo === 'traslado' && (
         <div className="surt-campo">
@@ -284,13 +341,25 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         </div>
       )}
 
-      <div className="surt-campo">
-        <label htmlFor="surt-equipo">{tipo === 'uso' ? '¿A qué equipo o camión va?' : 'Equipo / camión que lo lleva (opcional)'}</label>
-        <div className="surt-buscable">
-          <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribí parte del nombre o la placa…"
-            options={opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))} />
+      {tipo === 'merma' && (
+        <div className="surt-campo">
+          <label htmlFor="surt-motivo">Motivo de la merma</label>
+          <input id="surt-motivo" className="input surt-input" value={observacion} onChange={(e) => setObservacion(e.target.value)}
+            placeholder="Faltante en conteo, derrame, evaporación…" required />
         </div>
-      </div>
+      )}
+
+      {tipo !== 'merma' && (
+        <div className="surt-campo">
+          <label htmlFor="surt-equipo">
+            {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}
+          </label>
+          <div className="surt-buscable">
+            <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribí parte del nombre o la placa…"
+              options={opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))} />
+          </div>
+        </div>
+      )}
 
       <div className="surt-campo">
         <label htmlFor="surt-autorizado">Autorizado por</label>
@@ -300,45 +369,52 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         </div>
       </div>
 
-      <div className="surt-campo">
-        <label htmlFor="surt-cf">Contador del surtidor al terminar</label>
-        <input id="surt-cf" className="input surt-input" type="number" inputMode="decimal" step="any" value={cf} onChange={(e) => setCf(e.target.value)}
-          placeholder={ciAuto ? `arrancó en ${ci}` : 'lectura final del contador'} />
-        {litrosContador != null && (
-          <small className={Math.abs(litrosContador - litrosNum) > 1 ? 'surt-alerta' : 'muted'}>
-            Según el contador salieron {num(litrosContador)} L{Math.abs(litrosContador - litrosNum) > 1 && litrosNum > 0 ? ' · no coincide con los litros' : ''}
-          </small>
-        )}
-      </div>
+      {(tipo === 'uso' || tipo === 'traslado') && (
+        <div className="surt-campo">
+          <label htmlFor="surt-cf">Contador del surtidor al terminar</label>
+          <input id="surt-cf" className="input surt-input" type="number" inputMode="decimal" step="any" value={cf} onChange={(e) => setCf(e.target.value)}
+            placeholder={ciAuto ? `arrancó en ${ci}` : 'lectura final del contador'} />
+          {litrosContador != null && (
+            <small className={Math.abs(litrosContador - litrosNum) > 1 ? 'surt-alerta' : 'muted'}>
+              Según el contador salieron {num(litrosContador)} L{Math.abs(litrosContador - litrosNum) > 1 && litrosNum > 0 ? ' · no coincide con los litros' : ''}
+            </small>
+          )}
+        </div>
+      )}
 
-      <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos} titulo="📷 Fotos (contador, equipo, vale)" grande />
+      <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos}
+        titulo={tipo === 'entrada' ? '📷 Fotos (guía, cisterna, medida)' : tipo === 'merma' ? '📷 Fotos (regla, conteo)' : '📷 Fotos (contador, equipo, vale)'} grande />
 
       <button type="button" className="surt-mas" onClick={() => setMasDatos((v) => !v)}>
-        {masDatos ? '▾ Menos datos' : '▸ Más datos (horómetro, kilometraje, destino, hora, observación)'}
+        {masDatos ? '▾ Menos datos' : `▸ Más datos (${tipo === 'uso' || tipo === 'traslado' ? 'horómetro, kilometraje, ' : ''}destino, hora${tipo === 'merma' ? '' : ', observación'})`}
       </button>
       {masDatos && (
         <>
-          <div className="surt-grid2">
-            <div className="surt-campo">
-              <label htmlFor="surt-hi">Horómetro inicial</label>
-              <input id="surt-hi" className="input surt-input" type="number" inputMode="decimal" step="any" value={hi} readOnly={hiAuto}
-                onChange={(e) => setHi(e.target.value)} placeholder="último del equipo" />
-            </div>
-            <div className="surt-campo">
-              <label htmlFor="surt-hf">Horómetro final</label>
-              <input id="surt-hf" className="input surt-input" type="number" inputMode="decimal" step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
-            </div>
-          </div>
-          <div className="surt-grid2">
-            <div className="surt-campo">
-              <label htmlFor="surt-km">Kilometraje</label>
-              <input id="surt-km" className="input surt-input" type="number" inputMode="decimal" step="any" value={km} onChange={(e) => setKm(e.target.value)} placeholder="odómetro" />
-            </div>
-            <div className="surt-campo">
-              <label htmlFor="surt-ci">Contador inicial</label>
-              <input id="surt-ci" className="input surt-input" type="number" inputMode="decimal" step="any" value={ci} readOnly={ciAuto} onChange={(e) => setCi(e.target.value)} />
-            </div>
-          </div>
+          {(tipo === 'uso' || tipo === 'traslado') && (
+            <>
+              <div className="surt-grid2">
+                <div className="surt-campo">
+                  <label htmlFor="surt-hi">Horómetro inicial</label>
+                  <input id="surt-hi" className="input surt-input" type="number" inputMode="decimal" step="any" value={hi} readOnly={hiAuto}
+                    onChange={(e) => setHi(e.target.value)} placeholder="último del equipo" />
+                </div>
+                <div className="surt-campo">
+                  <label htmlFor="surt-hf">Horómetro final</label>
+                  <input id="surt-hf" className="input surt-input" type="number" inputMode="decimal" step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
+                </div>
+              </div>
+              <div className="surt-grid2">
+                <div className="surt-campo">
+                  <label htmlFor="surt-km">Kilometraje</label>
+                  <input id="surt-km" className="input surt-input" type="number" inputMode="decimal" step="any" value={km} onChange={(e) => setKm(e.target.value)} placeholder="odómetro" />
+                </div>
+                <div className="surt-campo">
+                  <label htmlFor="surt-ci">Contador inicial</label>
+                  <input id="surt-ci" className="input surt-input" type="number" inputMode="decimal" step="any" value={ci} readOnly={ciAuto} onChange={(e) => setCi(e.target.value)} />
+                </div>
+              </div>
+            </>
+          )}
           <div className="surt-campo">
             <label htmlFor="surt-ubic">Destino / mina</label>
             <div className="surt-buscable">
@@ -356,35 +432,69 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
               <input id="surt-hora" className="input surt-input" value={hora} onChange={(e) => setHora(e.target.value)} placeholder="8:02:00 AM" />
             </div>
           </div>
-          <div className="surt-campo">
-            <label htmlFor="surt-obs">Observación</label>
-            <input id="surt-obs" className="input surt-input" value={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" />
-          </div>
+          {tipo !== 'merma' && (
+            <div className="surt-campo">
+              <label htmlFor="surt-obs">Observación</label>
+              <input id="surt-obs" className="input surt-input" value={observacion} onChange={(e) => setObservacion(e.target.value)}
+                placeholder={tipo === 'entrada' ? 'Compra PDVSA, guía N°…' : 'SUMINISTRO COMBUSTIBLE…'} />
+            </div>
+          )}
         </>
       )}
 
+      {guardando && demorado && (
+        <div className="aviso warning">
+          <span className="aviso-icono">⏳</span>
+          <div>
+            {etapa === 'fotos'
+              ? <><strong>El movimiento ya quedó guardado</strong>; se están subiendo las fotos con poca señal. No lo vuelvas a cargar. Podés esperar o volver a la lista: las fotos siguen subiendo solas.</>
+              : <>Está tardando más de lo normal por la señal. No lo vuelvas a cargar hasta revisar la lista.</>}
+            <div style={{ marginTop: '.5rem' }}>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={onCancel}>Ver la lista</button>
+            </div>
+          </div>
+        </div>
+      )}
       <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando}>
-        {guardando ? 'Guardando…' : tipo === 'uso' ? '✔ Registrar surtido' : '✔ Registrar traslado'}
+        {guardando
+          ? (etapa === 'fotos' ? `Subiendo ${adjuntos.length === 1 ? 'la foto' : `${adjuntos.length} fotos`}…` : 'Guardando…')
+          : `✔ Registrar ${tipo === 'uso' ? 'surtido' : tipo === 'traslado' ? 'traslado' : tipo === 'entrada' ? 'entrada' : 'merma'}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>Cancelar</button>
     </form>
   );
 }
 
-/* ───────────── Detalle de un movimiento (fotos) ───────────── */
-function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClose }: {
+/* ───────────── Detalle de un movimiento (fotos y borrado) ───────────── */
+function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClose, onBorrado }: {
   mov: MovimientoTanque; tanque: TanqueCombustible | null; tanques: TanqueCombustible[];
-  canWrite: boolean; esSurtidor: boolean; actor: string; onClose: () => void;
+  canWrite: boolean; esSurtidor: boolean; actor: string; onClose: () => void; onBorrado: () => Promise<void>;
 }) {
+  const [confirmando, setConfirmando] = useState(false);
+  const [borrando, setBorrando] = useState(false);
   const destino = mov.tanque_destino_id ? tanques.find((t) => t.id === mov.tanque_destino_id)?.nombre : null;
   const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
     <div className="surt-fila"><span className="muted">{k}</span><span>{v}</span></div>
   ) : null;
+
+  async function borrar() {
+    setBorrando(true);
+    try {
+      await eliminarMovimientoTanque(mov);
+      toast('Movimiento borrado', 'success');
+      await onBorrado();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error');
+      setBorrando(false);
+    }
+  }
+
   return (
-    <Modal title={`${ICONO[mov.tipo]} ${NOMBRE_TIPO[mov.tipo]} · ${num(mov.litros)} L`} size="md" onClose={onClose}
+    <Modal title={`${ICONO[mov.tipo]} ${NOMBRE_TIPO[mov.tipo]} · ${num(mov.litros)} L`} size="md" onClose={() => { if (!borrando) onClose(); }}
       footer={<>
+        {canWrite && !confirmando && <button className="btn btn-danger btn-grande" onClick={() => setConfirmando(true)} disabled={borrando}>🗑 Eliminar</button>}
         {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost btn-grande" onClick={onClose}>🖥 Corregir en la PC</Link>}
-        <button className="btn btn-primary btn-grande" onClick={onClose}>Cerrar</button>
+        <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
       </>}>
       <div className="surt-detalle">
         <Fila k="Tanque" v={tanque?.nombre} />
@@ -394,15 +504,32 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         <Fila k="Autorizado por" v={mov.autorizado_por} />
         <Fila k="Destino / mina" v={mov.ubicacion} />
         <Fila k="Observación" v={mov.observacion} />
+        {mov.tipo === 'entrada' && <Fila k="Costo por litro" v={money(mov.tasa_usd_litro)} />}
         <Fila k="Contador" v={mov.contador_global_ini != null || mov.contador_global_fin != null ? `${mov.contador_global_ini ?? '—'} → ${mov.contador_global_fin ?? '—'}` : null} />
         <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
         <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
         <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.created_by ? ` · ${mov.actor_name || mov.created_by}` : ''}`} />
       </div>
+
+      {confirmando && (
+        <div className="surt-confirmar" role="alertdialog" aria-label="Confirmar borrado">
+          <div style={{ fontSize: '1.05rem' }}>
+            <strong>¿Borrar este {NOMBRE_TIPO[mov.tipo].toLowerCase()} de {num(mov.litros)} L?</strong>
+            <div className="muted" style={{ marginTop: '.3rem', fontSize: '.9rem' }}>
+              Se borran también sus fotos{mov.mov_vinculado_id ? ' y el movimiento vinculado del otro tanque' : ''}, y el saldo del tanque se recalcula. No se puede deshacer. Se refleja al instante en la PC.
+            </div>
+          </div>
+          <div className="botones">
+            <button type="button" className="btn btn-peligro" onClick={() => void borrar()} disabled={borrando}>{borrando ? 'Borrando…' : '🗑 SÍ, BORRAR'}</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setConfirmando(false)} disabled={borrando}>↩ VOLVER</button>
+          </div>
+        </div>
+      )}
+
       <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} grande
         titulo="📷 Fotos y documentos" />
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
-        Acá se agregan o quitan fotos. Los litros, el equipo, la hora y los medidores se corrigen desde el módulo de Combustible en la PC; el cambio se ve acá al instante.
+        Acá se agregan o quitan fotos, o se borra el movimiento completo. Los litros, el equipo, la hora y los medidores se corrigen desde el módulo de Combustible en la PC; el cambio se ve acá al instante.
       </small>
     </Modal>
   );
