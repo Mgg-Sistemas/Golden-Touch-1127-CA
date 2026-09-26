@@ -21,6 +21,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { num, date, dateTime } from '@/shared/lib/format';
 import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCatalogoCombustible, TipoMovTanque } from '@/shared/lib/types';
 import {
@@ -276,27 +277,27 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
       {tipo === 'traslado' && (
         <div className="surt-campo">
           <label htmlFor="surt-destino">¿A qué tanque pasa?</label>
-          <select id="surt-destino" className="select surt-input" value={destinoId} onChange={(e) => setDestinoId(e.target.value)} required>
-            <option value="">— elegí el tanque —</option>
-            {destinos.map((t) => <option key={t.id} value={t.id}>{t.nombre} · {num(t.saldo_litros)} L</option>)}
-          </select>
+          <div className="surt-buscable">
+            <SearchSelect id="surt-destino" value={destinoId} onChange={setDestinoId} placeholder="🔍 Buscá el tanque…"
+              options={destinos.map((t) => ({ value: t.id, label: `${t.nombre} · ${num(t.saldo_litros)} L` }))} />
+          </div>
         </div>
       )}
 
       <div className="surt-campo">
         <label htmlFor="surt-equipo">{tipo === 'uso' ? '¿A qué equipo o camión va?' : 'Equipo / camión que lo lleva (opcional)'}</label>
-        <select id="surt-equipo" className="select surt-input" value={equipo} onChange={(e) => setEquipo(e.target.value)} required={tipo === 'uso'}>
-          <option value="">— elegí el equipo —</option>
-          {opts('equipo').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-        </select>
+        <div className="surt-buscable">
+          <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribí parte del nombre o la placa…"
+            options={opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))} />
+        </div>
       </div>
 
       <div className="surt-campo">
         <label htmlFor="surt-autorizado">Autorizado por</label>
-        <select id="surt-autorizado" className="select surt-input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)}>
-          <option value="">— elegí quién autorizó —</option>
-          {opts('autorizado').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-        </select>
+        <div className="surt-buscable">
+          <SearchSelect id="surt-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscá quién autorizó…"
+            options={opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))} />
+        </div>
       </div>
 
       <div className="surt-campo">
@@ -340,10 +341,10 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
           </div>
           <div className="surt-campo">
             <label htmlFor="surt-ubic">Destino / mina</label>
-            <select id="surt-ubic" className="select surt-input" value={ubicacion} onChange={(e) => setUbicacion(e.target.value)}>
-              <option value="">— sin destino —</option>
-              {opts('ubicacion').map((c) => <option key={c.id} value={c.valor}>{c.valor}</option>)}
-            </select>
+            <div className="surt-buscable">
+              <SearchSelect id="surt-ubic" value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscá el destino…"
+                options={[{ value: '', label: '— sin destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
+            </div>
           </div>
           <div className="surt-grid2">
             <div className="surt-campo">
