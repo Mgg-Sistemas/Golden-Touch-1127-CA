@@ -40,6 +40,9 @@
 .surt-alerta { color: var(--warning); font-weight: 600; }
 .surtidor .input.surt-input, .surtidor .select.surt-input { width: 100%; min-height: 56px; font-size: 1.15rem; padding: .6rem .8rem; }
 .surtidor .input.surt-litros { font-size: 2.2rem; text-align: center; font-family: var(--font-mono); font-weight: 800; min-height: 78px; }
+/* Listas buscables (equipo, autorizado, tanque destino, mina): el buscador con el
+   mismo alto y letra que los demás campos; se escribe una parte y filtra. */
+.surt-buscable .input { width: 100%; min-height: 56px; font-size: 1.15rem; padding: .6rem .8rem; }
 .surt-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .surt-mas { background: none; border: none; color: var(--primary-2); font: inherit; font-weight: 600; padding: .4rem 0; cursor: pointer; text-align: left; }
 .surt-guardar { min-height: 66px; font-size: 1.25rem; font-weight: 800; width: 100%; }
