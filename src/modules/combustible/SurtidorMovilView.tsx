@@ -41,6 +41,9 @@ const horaVE = () => new Intl.DateTimeFormat('en-US', { timeZone: 'America/Carac
 
 type TipoSurtidor = 'uso' | 'traslado';
 
+/** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
+export const ULTIMOS_EN_TELEFONO = 10;
+
 export function SurtidorMovilView() {
   const { user } = useSession();
   const { can, appUser, role } = usePermissions();
@@ -67,12 +70,12 @@ export function SurtidorMovilView() {
     setSelId((prev) => (prev && activos.some((t) => t.id === prev) ? prev : activos[0]?.id ?? ''));
   }, []);
 
-  // Solo los últimos 40 del tanque, del más nuevo al más viejo: en el teléfono no se
+  // Solo los últimos 10 del tanque, del más nuevo al más viejo: en el teléfono no se
   // lee un libro mayor, se mira lo que acaba de pasar.
   const reloadMovs = useCallback(async (id: string) => {
     if (!id) { setMovs([]); setConteo(new Map()); return; }
     const todos = await listMovimientosTanque(id);
-    const ultimos = todos.slice(-40).reverse();
+    const ultimos = todos.slice(-ULTIMOS_EN_TELEFONO).reverse();
     setMovs(ultimos);
     try { setConteo(await adjuntosCombustible.contar(MODULO_ADJUNTO_TANQUE, ultimos.map((m) => m.id))); }
     catch { /* el contador de fotos es adorno: sin él la lista se muestra igual */ }
@@ -149,7 +152,7 @@ export function SurtidorMovilView() {
 
       {sel && (
         <section className="surt-lista">
-          <h2>Últimos movimientos · {sel.nombre}</h2>
+          <h2>Últimos {ULTIMOS_EN_TELEFONO} movimientos · {sel.nombre}</h2>
           {!movs.length && <p className="muted">Este tanque no tiene movimientos todavía.</p>}
           {movs.map((m) => {
             const entra = m.tipo === 'entrada' || m.tipo === 'retorno';
@@ -169,6 +172,9 @@ export function SurtidorMovilView() {
               </button>
             );
           })}
+          {movs.length >= ULTIMOS_EN_TELEFONO && (
+            <p className="muted" style={{ fontSize: '.85rem' }}>Acá se ven los últimos {ULTIMOS_EN_TELEFONO}. El libro completo está en el módulo de Combustible en la PC.</p>
+          )}
         </section>
       )}
 
