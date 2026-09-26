@@ -11,6 +11,7 @@
    (responsable) del módulo de Salidas.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { adjuntosSalidasRepo } from './adjuntosSalida.repository';
 import type {
   EventoHistorial, ItemSalidaTemporal, SalidaTemporal, Producto,
 } from '@/shared/lib/types';
@@ -298,6 +299,8 @@ export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalid
 /** Elimina una salida temporal que AÚN está 'pendiente' (antes de aprobar). */
 export async function eliminarSalidaTemporal(s: SalidaTemporal): Promise<void> {
   if (s.estado !== 'pendiente') throw new Error('Solo se puede eliminar una salida temporal que está pendiente (sin aprobar).');
+  // Las fotos se borran desde acá (Storage API): la base no puede borrar archivos.
+  await adjuntosSalidasRepo.borrarTodos('salida_temporal', s.id).catch(() => {});
   const { error } = await supabase.from(TABLE).delete().eq('id', s.id);
   if (error) throw error;
 }

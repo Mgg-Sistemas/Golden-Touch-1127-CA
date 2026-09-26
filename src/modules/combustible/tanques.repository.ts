@@ -8,6 +8,7 @@
    El saldo corriente (litros y USD) se acumula al listar, como en el Excel.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import type {
   CatalogoCombustible,
   ConciliacionCombustible,
@@ -509,12 +510,12 @@ export async function registrarEntrada(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const costo = Math.max(0, num(input.costoLitro));
 
-  await insertarMovimiento({
+  const mov = await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'entrada',
@@ -531,6 +532,7 @@ export async function registrarEntrada(input: {
   // El recálculo recorre todos los movimientos y rearma el PMP, así que
   // converge aunque dos personas registren a la vez.
   await recomputarTanque(input.tanqueId);
+  return mov;
 }
 
 /** USO: el equipo consume combustible del tanque (al costo promedio actual). */
@@ -567,13 +569,13 @@ export async function registrarMerma(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
-  await insertarMovimiento({
+  const mov = await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'merma',
@@ -583,6 +585,7 @@ export async function registrarMerma(input: {
     actor_name: input.actorName ?? null,
   });
   await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
+  return mov;
 }
 
 /** RETORNO: combustible que VUELVE al tanque (entra al saldo a la tasa vigente,
@@ -1091,6 +1094,8 @@ export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<v
   // Y en vez de sumar/restar el saldo se RECALCULA cada tanque desde su libro,
   // que es convergente y no depende de un valor leído antes.
   const ids = par ? [mov.id, par.id] : [mov.id];
+  // Las fotos se borran desde acá (Storage API): la base no puede borrar archivos.
+  for (const id of ids) await adjuntosCombustible.borrarTodos(MODULO_ADJUNTO_TANQUE, id).catch(() => {});
   const { data: borrados, error } = await supabase
     .from('combustible_tanque_movimientos').delete().in('id', ids).select('id');
   if (error) throw error;
