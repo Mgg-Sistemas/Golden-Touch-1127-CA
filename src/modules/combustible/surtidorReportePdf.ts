@@ -195,13 +195,15 @@ export async function descargarSurtidorReportePdf(op: OpcionesSurtidorReportePdf
       const imgs = adj.filter((a) => cargadas.has(a.id));
       const docs = adj.filter((a) => !cargadas.has(a.id));
       const filasFotos = Math.ceil(imgs.length / 4);
-      const alto = 30 + filasFotos * (FOTO_H + GAP) + (docs.length ? 12 : 0);
+      const alto = 42 + filasFotos * (FOTO_H + GAP) + (docs.length ? 12 : 0);
       if (y + Math.min(alto, H - MARGIN * 2) > H - MARGIN) { doc.addPage(); y = MARGIN; }
 
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(0, 0, 0);
-      doc.text(pdfSafe(tituloMovimiento(m)), MARGIN, y, { maxWidth: ANCHO - 70 });
+      // El título puede ocupar varias líneas (observaciones largas): se mide y se baja lo que haga falta.
+      const tit = doc.splitTextToSize(pdfSafe(tituloMovimiento(m)), ANCHO - 70) as string[];
+      doc.text(tit, MARGIN, y);
       doc.text(litros(m.litros), W - MARGIN, y, { align: 'right' });
-      y += 11;
+      y += tit.length * 11.5;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(100, 100, 100);
       const det = doc.splitTextToSize(pdfSafe(detalleMovimiento(m, op.tanqueId ? null : nombreTanque(m.tanque_id))), ANCHO) as string[];
       doc.text(det, MARGIN, y);
