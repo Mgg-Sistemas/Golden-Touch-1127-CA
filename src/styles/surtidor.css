@@ -20,7 +20,8 @@
 .surt-tanque .saldo small { font-size: .8rem; font-weight: 600; }
 
 .surt-acciones { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin: 1rem 0; }
-.surt-acciones .surt-btn.primario { grid-column: 1 / -1; }
+.surt-acciones .surt-btn.primario,
+.surt-acciones .surt-btn.merma { grid-column: 1 / -1; }
 .surt-btn {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem;
   padding: 1rem .8rem; min-height: 118px;
