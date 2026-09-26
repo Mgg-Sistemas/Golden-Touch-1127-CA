@@ -4,7 +4,8 @@
    Qué pasó en un rango de fechas, agrupado por TIPO de movimiento
    (surtidos, traslados, entradas, mermas, retornos), con los litros de
    cada grupo y las FOTOS de cada movimiento como miniaturas. Se mira en
-   el teléfono, tocando una foto se abre grande.
+   el teléfono, tocando una foto se abre grande, y con «↓ PDF» se arma el
+   mismo reporte en papel (vista previa, se descarga si se pide).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
@@ -17,10 +18,9 @@ import { listMovimientosTanque } from './tanques.repository';
 import { esImagenAdjunto } from '@/modules/salidas/adjuntosSalidaReglas';
 import type { AdjuntoSalida } from '@/modules/salidas/adjuntosSalida.repository';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
+import { ORDEN_TIPOS, TITULO_TIPO, descargarSurtidorReportePdf } from './surtidorReportePdf';
 
-const ORDEN_TIPOS: TipoMovTanque[] = ['uso', 'traslado', 'entrada', 'merma', 'retorno'];
 const ICONO: Record<TipoMovTanque, string> = { entrada: '⬇', uso: '⛽', traslado: '🔁', retorno: '↩', merma: '🔻' };
-const TITULO: Record<TipoMovTanque, string> = { uso: 'Surtidos (consumo de equipos)', traslado: 'Traslados', entrada: 'Entradas (ingresos)', merma: 'Mermas', retorno: 'Retornos' };
 
 const primerDiaMes = () => {
   const d = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -38,6 +38,7 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
   const [fotos, setFotos] = useState<AdjuntoSalida[]>([]);
   const [urls, setUrls] = useState<Map<string, string>>(new Map());
   const [cargando, setCargando] = useState(true);
+  const [generando, setGenerando] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -70,9 +71,24 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
     catch { toast('No se pudo abrir la foto', 'error'); }
   }
 
+  async function pdf() {
+    setGenerando(true);
+    try { await descargarSurtidorReportePdf({ tanques, tanqueId, desde, hasta, movs, fotos, urls }); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    finally { setGenerando(false); }
+  }
+
   return (
     <Modal title="📊 Reporte con fotos" size="lg" onClose={onClose}
-      footer={<button className="btn btn-primary btn-grande" onClick={onClose}>Cerrar</button>}>
+      footer={(
+        <>
+          <button className="btn btn-ghost btn-grande" onClick={() => void pdf()} disabled={cargando || generando || !movs.length}
+            title="Ver el reporte en PDF (vista previa; se descarga si lo pedís)">
+            {generando ? 'Armando el PDF…' : '↓ PDF (vista previa)'}
+          </button>
+          <button className="btn btn-primary btn-grande" onClick={onClose}>Cerrar</button>
+        </>
+      )}>
       <div className="surt-grid2" style={{ marginBottom: '.6rem' }}>
         <div className="surt-campo">
           <label htmlFor="rep-desde">Desde</label>
@@ -97,7 +113,7 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
       {!cargando && grupos.map((g) => (
         <section key={g.tipo} className="rep-grupo">
           <h3 className="rep-grupo-titulo">
-            <span>{ICONO[g.tipo]} {TITULO[g.tipo]}</span>
+            <span>{ICONO[g.tipo]} {TITULO_TIPO[g.tipo]}</span>
             <span className="mono">{g.lista.length} · {num(g.litros)} L</span>
           </h3>
           {g.lista.map((m) => {
@@ -106,7 +122,7 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
               <div key={m.id} className="rep-mov">
                 <div className="rep-mov-cab">
                   <div style={{ minWidth: 0 }}>
-                    <div className="titulo">{m.equipo || m.observacion || TITULO[g.tipo]}</div>
+                    <div className="titulo">{m.equipo || m.observacion || TITULO_TIPO[g.tipo]}</div>
                     <div className="sub">
                       {date(m.fecha)}{m.hora ? ` ${m.hora}` : ''}{!tanqueId ? ` · ${nombreTanque(m.tanque_id)}` : ''}
                       {m.autorizado_por ? ` · Aut.: ${m.autorizado_por}` : ''}
