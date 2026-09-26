@@ -36,7 +36,8 @@ export function nombreJpg(nombre: string): string {
   return `${base}.jpg`;
 }
 
-async function cargarImagen(file: File): Promise<ImageBitmap | HTMLImageElement> {
+/** Carga una imagen (File o Blob) respetando la rotación EXIF; sirve para achicarla o para dibujarla en un PDF. */
+export async function cargarImagenDesdeBlob(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
   if (typeof createImageBitmap === 'function') {
     // `imageOrientation: 'from-image'` respeta la rotación EXIF de la cámara.
     try { return await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions); }
@@ -56,7 +57,7 @@ export async function comprimirImagen(file: File): Promise<File> {
   if (!convieneAchicar(file.type, file.size)) return file;
   if (typeof document === 'undefined') return file;
   try {
-    const img = await cargarImagen(file);
+    const img = await cargarImagenDesdeBlob(file);
     const { ancho, alto } = medidasAchicadas(img.width, img.height);
     const canvas = document.createElement('canvas');
     canvas.width = ancho; canvas.height = alto;
