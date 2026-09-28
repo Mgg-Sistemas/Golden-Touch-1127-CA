@@ -6,6 +6,7 @@
 @import './surtidor.css';
 @import './descansos.css';
 @import './listado.css';
+@import './cocina.css';
 
 @tailwind utilities;
 

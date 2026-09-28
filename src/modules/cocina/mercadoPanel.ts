@@ -253,3 +253,70 @@ export function sumarConsumoCocina(movs: MovimientoConsumo[]): {
   }
   return { porViver, comidaIds };
 }
+
+/* ───────── Los interruptores del panel (28/09/2026) ─────────
+   El selector de vistas pasó de cuatro botones a tres interruptores. «Ambos» ya
+   no es una opción aparte: es Disponible y Movimientos encendidos a la vez, que
+   es como lo dice la pantalla. La vista guardada sigue siendo la misma cadena,
+   así que a quien tenía «ambos» no se le mueve nada. */
+
+export type InterruptorVista = 'disponible' | 'movimientos' | 'distribucion';
+
+/** ¿Está encendido este interruptor con la vista actual? */
+export function vistaEncendida(v: VistaMercado, cual: InterruptorVista): boolean {
+  if (cual === 'distribucion') return v === 'distribucion';
+  if (v === 'distribucion') return false;
+  return v === 'ambos' || v === cual;
+}
+
+/**
+ * Qué vista queda al tocar un interruptor.
+ *   · Disponible y Movimientos se combinan: los dos encendidos son «ambos».
+ *   · No se pueden apagar los dos: apagar el último no hace nada, así la pantalla
+ *     nunca queda en blanco sin explicación.
+ *   · Distribución ocupa la pantalla: al encenderla apaga las otras dos, y al
+ *     apagarla vuelve a `previa`, que es lo que se estaba mirando antes.
+ */
+export function alternarVista(v: VistaMercado, cual: InterruptorVista, previa: VistaMercado = 'disponible'): VistaMercado {
+  if (cual === 'distribucion') {
+    if (v !== 'distribucion') return 'distribucion';
+    return previa === 'distribucion' ? 'disponible' : previa;
+  }
+  const disp = cual === 'disponible' ? !vistaEncendida(v, 'disponible') : vistaEncendida(v, 'disponible');
+  const movs = cual === 'movimientos' ? !vistaEncendida(v, 'movimientos') : vistaEncendida(v, 'movimientos');
+  if (!disp && !movs) return v;
+  if (disp && movs) return 'ambos';
+  return disp ? 'disponible' : 'movimientos';
+}
+
+/* ───────── El desglose de una cifra del ciclo (28/09/2026) ─────────
+   Cada tarjeta del panel se toca y abre quién puso ese número: un total sin el
+   detrás es un dato que hay que creer, y cuadrar el almacén es justamente no
+   creerle al total. */
+
+export type CifraCiclo = 'saldoInicial' | 'entradas' | 'disponible' | 'consumo' | 'mermas' | 'queda';
+
+export interface FilaDesglose {
+  producto_id: string;
+  nombre: string;
+  unidad: string | null;
+  valor: number;
+}
+
+const VALOR_DE: Record<CifraCiclo, (d: ResumenViver) => number> = {
+  saldoInicial: (d) => n(d.saldo_inicial),
+  entradas: (d) => n(d.entradas),
+  disponible: (d) => r2(n(d.saldo_inicial) + n(d.entradas)),
+  consumo: (d) => n(d.consumo),
+  mermas: (d) => n(d.mermas),
+  queda: (d) => n(d.queda),
+};
+
+/** Los víveres que aportan a una cifra, de mayor a menor. Los que no aportan no salen. */
+export function desgloseCifra(items: ResumenViver[], cual: CifraCiclo): FilaDesglose[] {
+  const valor = VALOR_DE[cual];
+  return items
+    .map((d) => ({ producto_id: d.producto_id, nombre: d.nombre, unidad: d.unidad ?? null, valor: r2(valor(d)) }))
+    .filter((f) => f.valor !== 0)
+    .sort((a, b) => b.valor - a.valor || a.nombre.localeCompare(b.nombre));
+}

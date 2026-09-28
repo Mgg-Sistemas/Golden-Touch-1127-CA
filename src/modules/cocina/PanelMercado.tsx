@@ -12,13 +12,15 @@
    Los dos sistemas comparten la hoja de estilos, así que las clases y los
    colores son los de MGG.
    ============================================================ */
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { CICLO_DIAS, type Mercado, type ResumenViver } from './cocinaMercado.repository';
 import { esDescartado } from './mercadoDescarte';
 import { diaCaracas } from './mercadoInicio';
+import { Modal } from '@/shared/ui/Modal';
 import {
-  costoDelCiclo, ecuacionDelCiclo, explicarDiferencia, filasDisponible, type VistaMercado,
+  alternarVista, costoDelCiclo, desgloseCifra, ecuacionDelCiclo, explicarDiferencia, filasDisponible,
+  vistaEncendida, type CifraCiclo, type InterruptorVista, type VistaMercado,
 } from './mercadoPanel';
 
 /** Un cero en una tabla larga es ruido: se muestra un punto tenue. */
@@ -42,6 +44,8 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
   const ec = useMemo(() => ecuacionDelCiclo(items), [items]);
   const costo = useMemo(() => costoDelCiclo(platos, consumoValor), [platos, consumoValor]);
   const abierto = mercado.estado === 'abierto';
+  // La tarjeta abierta: cuál cifra se está mirando por dentro.
+  const [detalle, setDetalle] = useState<CifraCiclo | 'costo' | null>(null);
 
   return (
     <div style={{ margin: '.3rem 0 .9rem' }}>
@@ -58,31 +62,40 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
         </span>
       </div>
 
-      {/* La cuenta del ciclo, en UNIDADES, en tarjetas como el resto del sistema
-          (28/09/2026, pedido del usuario: la franja de números apretados volvió al
-          dibujo de tarjetas que tenía Cocina antes, con la información de ahora). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: '.7rem' }}>
-        <Tarjeta rotulo="Saldo inicial" valor={num(ec.saldoInicial)} nota="lo que quedó del ciclo anterior" />
-        <Tarjeta rotulo="+ Entradas" valor={num(ec.entradas)} color="var(--primary-3, #2ecc71)" nota="compras del ciclo" />
-        <Tarjeta rotulo="= Disponible" valor={num(ec.disponible)} fuerte nota="saldo + entradas" />
-        <Tarjeta rotulo="− Consumo" valor={num(ec.consumo)} color="var(--danger)" nota="servido en comidas" />
+      {/* La cuenta del ciclo, en UNIDADES, en tarjetas (28/09/2026). Cada una se toca y
+          abre quién puso ese número: un total sin el detrás hay que creerlo, y cuadrar
+          el almacén es justamente no creerle al total. */}
+      <div className="coc-kpis">
+        <TarjetaCifra rotulo="Saldo inicial" valor={num(ec.saldoInicial)} nota="lo que quedó del ciclo anterior"
+          onAbrir={() => setDetalle('saldoInicial')} />
+        <TarjetaCifra rotulo="+ Entradas" valor={num(ec.entradas)} color="var(--primary-3, #2ecc71)" nota="compras del ciclo"
+          onAbrir={() => setDetalle('entradas')} />
+        <TarjetaCifra rotulo="= Disponible" valor={num(ec.disponible)} fuerte nota="saldo + entradas"
+          onAbrir={() => setDetalle('disponible')} />
+        <TarjetaCifra rotulo="− Consumo" valor={num(ec.consumo)} color="var(--danger)" nota="servido en comidas"
+          onAbrir={() => setDetalle('consumo')} />
         {/* Las pérdidas restan en la cuenta a la vista, pero no son comida servida: no van
             al costo por plato de abajo (decisión del usuario, 15/09/2026). */}
-        <Tarjeta rotulo="− Mermas / salidas" valor={num(ec.mermas)} color="var(--warning)" nota="dañado, ajustes y traslados" />
+        <TarjetaCifra rotulo="− Mermas / salidas" valor={num(ec.mermas)} color="var(--warning)" nota="dañado, ajustes y traslados"
+          onAbrir={() => setDetalle('mermas')} />
         {/* Sin «=», a diferencia de MGG: en GT «Queda» no sale de la cuenta, es el stock. */}
-        <Tarjeta rotulo={abierto ? 'Queda en inventario' : 'Quedó en inventario'} valor={num(ec.queda)} fuerte
-          color="var(--primary-3, #2ecc71)" nota={abierto ? 'pasa al próximo mercado' : 'pasó al próximo mercado'} />
+        <TarjetaCifra rotulo={abierto ? 'Queda en inventario' : 'Quedó en inventario'} valor={num(ec.queda)} fuerte
+          color="var(--primary-3, #2ecc71)" nota={abierto ? 'pasa al próximo mercado' : 'pasó al próximo mercado'}
+          onAbrir={() => setDetalle('queda')} />
       </div>
 
       {/* Lo que costó dar de comer. La cuenta de arriba se lee en UNIDADES y sirve para
           cuadrar el almacén; esta fila responde la pregunta del presupuesto. Va aparte:
           son otra unidad y mezclarlas con los kilos haría leer mal las dos. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: '.7rem', marginTop: '.7rem' }}>
-        {costo.platos != null && <Tarjeta rotulo="Platos servidos" valor={num(costo.platos)} nota="en este ciclo" />}
-        <Tarjeta rotulo="Costo del consumo" valor={money(costo.consumo)} color="var(--danger)" nota="víveres servidos" />
+      <div className="coc-kpis" style={{ marginTop: '.7rem' }}>
+        {costo.platos != null && <TarjetaCifra rotulo="Platos servidos" valor={num(costo.platos)} nota="en este ciclo"
+          onAbrir={() => setDetalle('costo')} />}
+        <TarjetaCifra rotulo="Costo del consumo" valor={money(costo.consumo)} color="var(--danger)" nota="víveres servidos"
+          onAbrir={() => setDetalle('costo')} />
         {costo.platos != null && (
-          <Tarjeta rotulo="Costo por plato" valor={costo.porPlato != null ? money(costo.porPlato) : '—'} color="var(--warning)" destacado
-            nota={costo.porPlato == null ? 'todavía no se sirvió ningún plato' : 'consumo ÷ platos'} />
+          <TarjetaCifra rotulo="Costo por plato" valor={costo.porPlato != null ? money(costo.porPlato) : '—'} color="var(--warning)" destacado
+            nota={costo.porPlato == null ? 'todavía no se sirvió ningún plato' : 'consumo ÷ platos'}
+            onAbrir={() => setDetalle('costo')} />
         )}
       </div>
 
@@ -107,47 +120,194 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
           </button>
         </div>
       )}
+
+      {detalle && (
+        <DetalleCifraModal cual={detalle} items={items} ec={ec} costo={costo} abierto={abierto}
+          onClose={() => setDetalle(null)} />
+      )}
     </div>
   );
 }
 
-/** Una cifra del ciclo, con el mismo dibujo que los demás KPI del sistema. */
-function Tarjeta({ rotulo, valor, nota, color, fuerte, destacado }: {
+/** Una cifra del ciclo. Es un botón: se toca y se abre de dónde sale. */
+function TarjetaCifra({ rotulo, valor, nota, color, fuerte, destacado, onAbrir }: {
   rotulo: string; valor: string; nota?: string; color?: string;
   /** Número más grande: los dos que se miran primero (Disponible y Queda). */
   fuerte?: boolean;
   /** Borde de marca, como el KPI destacado del resto del sistema. */
   destacado?: boolean;
+  onAbrir: () => void;
 }) {
   return (
-    <div className="card" style={{ padding: '.6rem .75rem', borderColor: destacado ? 'var(--brand, #ff8a00)' : undefined }}>
-      <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>{rotulo}</div>
-      <div className="mono" style={{ fontSize: fuerte ? '1.5rem' : '1.3rem', fontWeight: 800, color }}>{valor}</div>
-      {nota && <div className="muted" style={{ fontSize: '.7rem' }}>{nota}</div>}
-    </div>
+    <button type="button" className={`card coc-kpi${destacado ? ' destacado' : ''}`} onClick={onAbrir}
+      title={`Ver de dónde sale «${rotulo}»`}>
+      <div className="coc-kpi-rotulo">{rotulo}<span className="coc-kpi-lupa" aria-hidden="true">🔎</span></div>
+      <div className="mono coc-kpi-valor" style={{ fontSize: fuerte ? '1.5rem' : '1.3rem', color }}>{valor}</div>
+      {nota && <div className="muted coc-kpi-nota">{nota}</div>}
+    </button>
+  );
+}
+
+/* ───────── El detrás de una cifra ───────── */
+
+/** Qué es cada cifra y cómo se saca, en palabras de quien maneja la cocina. */
+const EXPLICA: Record<CifraCiclo, { titulo: string; que: string; como: string }> = {
+  saldoInicial: {
+    titulo: 'Saldo inicial',
+    que: 'Lo que quedó en la despensa cuando cerró el mercado anterior y arrancó este.',
+    como: 'Es la foto del inventario al abrir el ciclo. No se descarta nada al cerrar: lo que queda arranca el mercado siguiente.',
+  },
+  entradas: {
+    titulo: '+ Entradas',
+    que: 'Todo lo que entró a la despensa durante este ciclo: las compras del mercado.',
+    como: 'Suma de las entradas de inventario de víveres entre el inicio del ciclo y hoy.',
+  },
+  disponible: {
+    titulo: '= Disponible',
+    que: 'Todo lo que hubo para consumir en el ciclo.',
+    como: 'Saldo inicial + entradas. Es el techo: de acá salen las comidas y las mermas.',
+  },
+  consumo: {
+    titulo: '− Consumo',
+    que: 'Lo que se sirvió en comidas: desayuno, almuerzo y cena.',
+    como: 'Suma de los víveres de los movimientos de cocina del ciclo. Es lo único que entra en el costo por plato.',
+  },
+  mermas: {
+    titulo: '− Mermas / salidas',
+    que: 'Lo que bajó del inventario sin ser comida servida: dañado, ajustes a la baja y traslados.',
+    como: 'Resta en la cuenta a la vista, pero NO entra en el costo del consumo ni en el costo por plato.',
+  },
+  queda: {
+    titulo: 'Queda en inventario',
+    que: 'Lo que hay ahora mismo en la despensa, según el inventario.',
+    como: 'Es el stock real, no el resultado de la resta. Si no coincide con disponible − consumo − mermas, el panel avisa y muestra en cuáles víveres.',
+  },
+};
+
+function DetalleCifraModal({ cual, items, ec, costo, abierto, onClose }: {
+  cual: CifraCiclo | 'costo';
+  items: ResumenViver[];
+  ec: ReturnType<typeof ecuacionDelCiclo>;
+  costo: ReturnType<typeof costoDelCiclo>;
+  abierto: boolean;
+  onClose: () => void;
+}) {
+  const filas = useMemo(() => (cual === 'costo' ? [] : desgloseCifra(items, cual)), [cual, items]);
+  const total = useMemo(() => filas.reduce((a, f) => a + f.valor, 0), [filas]);
+
+  if (cual === 'costo') {
+    return (
+      <Modal title="💲 Lo que costó dar de comer" size="md" onClose={onClose}>
+        <p style={{ marginTop: 0 }}>
+          La cuenta de arriba se lee en <strong>unidades</strong> y sirve para cuadrar la despensa.
+          Esta fila responde otra pregunta: <strong>cuánto costó</strong>.
+        </p>
+        <div className="coc-kpis" style={{ marginBottom: '.8rem' }}>
+          <div className="card" style={{ padding: '.6rem .75rem' }}>
+            <div className="coc-kpi-rotulo">Platos servidos</div>
+            <div className="mono coc-kpi-valor" style={{ fontSize: '1.3rem' }}>{costo.platos != null ? num(costo.platos) : '—'}</div>
+            <div className="muted coc-kpi-nota">raciones cargadas en las comidas del ciclo</div>
+          </div>
+          <div className="card" style={{ padding: '.6rem .75rem' }}>
+            <div className="coc-kpi-rotulo">Costo del consumo</div>
+            <div className="mono coc-kpi-valor" style={{ fontSize: '1.3rem', color: 'var(--danger)' }}>{money(costo.consumo)}</div>
+            <div className="muted coc-kpi-nota">los víveres servidos, al precio del inventario</div>
+          </div>
+          <div className="card" style={{ padding: '.6rem .75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+            <div className="coc-kpi-rotulo">Costo por plato</div>
+            <div className="mono coc-kpi-valor" style={{ fontSize: '1.3rem', color: 'var(--warning)' }}>
+              {costo.porPlato != null ? money(costo.porPlato) : '—'}
+            </div>
+            <div className="muted coc-kpi-nota">costo del consumo ÷ platos servidos</div>
+          </div>
+        </div>
+        <p className="muted" style={{ marginBottom: 0, fontSize: '.85rem' }}>
+          Las <strong>mermas y salidas no entran acá</strong>: lo dañado, los ajustes y los traslados no son comida
+          servida, así que no encarecen el plato. {costo.platos == null && 'Este mercado es anterior a que se guardaran los platos del ciclo, por eso no hay costo por plato.'}
+        </p>
+      </Modal>
+    );
+  }
+
+  const x = EXPLICA[cual];
+  const titulo = cual === 'queda' && !abierto ? 'Quedó en inventario' : x.titulo;
+  return (
+    <Modal title={`🧮 ${titulo}`} size="lg" onClose={onClose}>
+      <p style={{ marginTop: 0 }}>{x.que}</p>
+      <p className="muted" style={{ fontSize: '.85rem' }}>{x.como}</p>
+
+      <div className="card" style={{ padding: '.55rem .8rem', marginBottom: '.7rem' }}>
+        <span className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>Total del ciclo</span>
+        <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 800 }}>{num(ec[cual])}</div>
+        <div className="muted" style={{ fontSize: '.75rem' }}>{num(filas.length)} {filas.length === 1 ? 'víver aporta' : 'víveres aportan'} a esta cifra</div>
+      </div>
+
+      {filas.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>Ningún víver aporta a esta cifra en el ciclo.</p>
+      ) : (
+        <div className="table-wrap" style={{ maxHeight: 360, overflow: 'auto' }}>
+          <table className="table" style={{ fontSize: '.85rem' }}>
+            <thead><tr>
+              <th>Víver</th>
+              <th style={{ textAlign: 'right' }}>Cantidad</th>
+              <th style={{ textAlign: 'right' }}>Parte</th>
+            </tr></thead>
+            <tbody>
+              {filas.map((r) => (
+                <tr key={r.producto_id}>
+                  <td>{r.nombre} {r.unidad && <span className="muted">· {r.unidad}</span>}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(r.valor)}</td>
+                  <td className="mono muted" style={{ textAlign: 'right' }}>
+                    {total > 0 ? `${num(Math.round((r.valor / total) * 1000) / 10)} %` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }
 
 /* ───────── CAPA 2 · Qué se quiere mirar ───────── */
 
-const VISTAS: [VistaMercado, string][] = [
-  ['disponible', 'Disponible'], ['movimientos', 'Movimientos'], ['ambos', 'Ambos'],
+/* Tres interruptores en vez de cuatro botones (28/09/2026, pedido del usuario).
+   «Ambos» dejó de ser una opción aparte: encender Disponible y Movimientos a la vez
+   ES ambos, que es como se piensa al mirar la pantalla. Cada uno dice qué prende. */
+const INTERRUPTORES: { vista: InterruptorVista; icono: string; titulo: string; que: string }[] = [
+  { vista: 'disponible', icono: '📋', titulo: 'Disponible', que: 'Qué hay de cada víver y cuánto queda' },
+  { vista: 'movimientos', icono: '🧾', titulo: 'Movimientos', que: 'Entradas, traslados, consumos y mermas' },
   // Traído de MGG (21/09/2026): el control de distribución vive acá, no en una
-  // pantalla aparte, porque mira el mismo ciclo que las otras tres vistas.
-  ['distribucion', '📊 Distribución'],
+  // pantalla aparte, porque mira el mismo ciclo que las otras dos vistas.
+  { vista: 'distribucion', icono: '📊', titulo: 'Distribución', que: 'Consumo por día, lote de compra y reorden' },
 ];
 
 export function SelectorVista({ vista, onElegir }: { vista: VistaMercado; onElegir: (v: VistaMercado) => void }) {
+  // Lo último que se miraba antes de Distribución: al apagarla se vuelve ahí y no a
+  // una vista cualquiera. Se guarda en el render porque no debe provocar otro.
+  const previa = useRef<VistaMercado>(vista === 'distribucion' ? 'disponible' : vista);
+  if (vista !== 'distribucion') previa.current = vista;
+
   return (
-    <div className="view-switch" role="group" aria-label="Qué mirar del mercado"
-      style={{ display: 'flex', gap: '.35rem', marginBottom: '.7rem', flexWrap: 'wrap' }}>
-      <span className="muted" style={{ fontSize: '.76rem', alignSelf: 'center', marginRight: '.2rem' }}>Ver:</span>
-      {VISTAS.map(([v, label]) => (
-        <button key={v} type="button" aria-pressed={vista === v}
-          className={`btn btn-sm ${vista === v ? 'btn-primary' : 'btn-ghost'}`} onClick={() => onElegir(v)}>
-          {label}
-        </button>
-      ))}
+    <div className="coc-vistas" role="group" aria-label="Qué mirar del mercado">
+      {INTERRUPTORES.map((it) => {
+        const on = vistaEncendida(vista, it.vista);
+        // Apagar el último encendido dejaría la pantalla en blanco: se avisa en vez de hacerlo.
+        const ultimo = on && it.vista !== 'distribucion' && alternarVista(vista, it.vista, previa.current) === vista;
+        return (
+          <button key={it.vista} type="button" role="switch" aria-checked={on} aria-label={`${it.titulo}: ${it.que}`}
+            className={`coc-vista${on ? ' on' : ''}${ultimo ? ' ultimo' : ''}`}
+            title={ultimo ? 'Es lo único encendido: prendé otra vista antes de apagar esta' : `${on ? 'Apagar' : 'Encender'} ${it.titulo}`}
+            onClick={() => onElegir(alternarVista(vista, it.vista, previa.current))}>
+            <span className="coc-vista-txt">
+              <span className="coc-vista-titulo">{it.icono} {it.titulo}</span>
+              <span className="coc-vista-que">{it.que}</span>
+            </span>
+            <span className="coc-sw" aria-hidden="true"><span className="coc-sw-bola" /></span>
+          </button>
+        );
+      })}
     </div>
   );
 }
