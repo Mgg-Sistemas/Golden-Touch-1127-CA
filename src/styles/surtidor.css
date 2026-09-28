@@ -93,3 +93,17 @@
 .surt-confirmar .botones { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: .7rem; }
 .surt-confirmar .btn { min-height: 60px; font-size: 1.1rem; font-weight: 800; }
 .btn-peligro { background: var(--danger); color: #fff; border: 0; }
+
+/* Pasar el movimiento por WhatsApp (detalle del movimiento) */
+.surt-compartir { margin-bottom: .9rem; padding: .7rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-3); }
+.surt-compartir-txt {
+  max-height: 168px; overflow-y: auto; margin-bottom: .6rem; padding: .55rem .65rem;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2);
+  font-size: .88rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+  -webkit-user-select: text; user-select: text;
+}
+.surt-compartir-btns { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.surt-compartir-btns > * { width: 100%; justify-content: center; text-align: center; }
+.btn.btn-wsp { border: 1px solid #1da851; background: #25d366; color: #0b2e18; font-weight: 800; text-decoration: none; }
+.btn.btn-wsp:hover { background: #1fbb5a; }
+@media (max-width: 420px) { .surt-compartir-btns { grid-template-columns: 1fr; } }
