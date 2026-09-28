@@ -41,6 +41,7 @@ import { descargarConciliacionesExcel } from './conciliacionExcel';
 import { enviarConciliacionesPorCorreo } from './enviarConciliacion';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { norm } from '@/shared/lib/texto';
+import { horaAInput, horaDesdeInput } from './horaMovimiento';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -971,7 +972,16 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
         </div>
         <div className="form-grid">
           <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required /></div>
-          <div className="form-row"><label>Hora (opcional)</label><input className="input" name="mov-hora" defaultValue={hora} onChange={(e) => setHora(e.target.value)} placeholder="8:02:00 AM" /></div>
+          {/* Selector de hora, no texto libre (28/09/2026, pedido del usuario). Escrita a
+              mano entraron horas como «6:42:08 M» —sin la A ni la P— que desordenaban el
+              libro. El campo habla en 24 h y se guarda en 12 h con AM/PM, que es como lo
+              muestra todo el sistema (ver horaMovimiento.ts). */}
+          <div className="form-row">
+            <label>Hora (opcional)</label>
+            <input className="input" type="time" step={1} name="mov-hora"
+              value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
+            <small className="muted">{hora ? `Se guarda como ${hora}` : 'Si se deja vacía, el movimiento va primero en el día.'}</small>
+          </div>
         </div>
         <div className="form-grid">
           <div className="form-row">
@@ -1162,7 +1172,12 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
       </div>
       <div className="form-grid">
         <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Hora</label><input className="input" name="det-hora" defaultValue={hora} onChange={(e) => setHora(e.target.value)} disabled={!canWrite} placeholder="8:02:00 AM" /></div>
+        <div className="form-row">
+          <label>Hora</label>
+          <input className="input" type="time" step={1} name="det-hora" disabled={!canWrite}
+            value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
+          <small className="muted">{hora ? `Se guarda como ${hora}` : 'Sin hora: el movimiento va primero en el día.'}</small>
+        </div>
       </div>
       <div className="form-grid">
         <div className="form-row">
