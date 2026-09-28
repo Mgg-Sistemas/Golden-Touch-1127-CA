@@ -9,6 +9,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
+import { compararMovimientos, horaOrden } from './horaMovimiento';
 import type {
   CatalogoCombustible,
   ConciliacionCombustible,
@@ -409,21 +410,6 @@ async function aplicarSaldoTanque(id: string, saldoLitros: number, saldoUsd: num
 
 /* ───────────── Movimientos (libro mayor) ───────────── */
 
-/** Convierte la hora «8:02:00 AM» a segundos desde medianoche, para ordenar cronológicamente.
- *  Sin hora → -1 (queda primero en orden ascendente / más viejo). */
-function horaOrden(h: string | null | undefined): number {
-  if (!h) return -1;
-  const m = h.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?$/);
-  if (!m) return -1;
-  let hh = Number(m[1]);
-  const mm = Number(m[2]);
-  const ss = Number(m[3] ?? 0);
-  const ap = (m[4] ?? '').toUpperCase();
-  if (ap === 'PM' && hh < 12) hh += 12;
-  if (ap === 'AM' && hh === 12) hh = 0;
-  return hh * 3600 + mm * 60 + ss;
-}
-
 export async function listMovimientosTanque(tanqueId: string): Promise<MovimientoTanque[]> {
   // El saldo corrido arranca del SALDO DE APERTURA del tanque (los litros con que se
   // creó, que no son un movimiento). Así la última fila iguala el saldo del header.
@@ -438,14 +424,12 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   // Compatibilidad: si el tanque aún no tiene saldo_inicial_usd, cae a litros × tasa.
   const aperturaURaw = (tk as { saldo_inicial_usd?: number | null } | null)?.saldo_inicial_usd;
   const aperturaU = aperturaURaw != null ? num(aperturaURaw) : round(aperturaL * tasaTk, 2);
-  // Orden cronológico real por fecha + hora (+ created_at de desempate) para el saldo corrido.
-  const rows = ((data ?? []) as MovimientoTanque[]).slice().sort((a, b) => {
-    const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
-    if (f !== 0) return f;
-    const h = horaOrden(a.hora) - horaOrden(b.hora);
-    if (h !== 0) return h;
-    return (a.created_at ?? '').localeCompare(b.created_at ?? '');
-  });
+  // Orden cronológico real: fecha, hora, «orden», carga y, de última, el id. Los dos
+  // últimos son el desempate que faltaba (28/09/2026): las filas importadas de un mismo
+  // día empataban en todo y quedaban en el orden que devolviera la base, que NO es fijo;
+  // el saldo corrido y el Excel salían distintos entre una lectura y la siguiente sin que
+  // nadie tocara nada. Las reglas y sus pruebas viven en horaMovimiento.ts.
+  const rows = ((data ?? []) as MovimientoTanque[]).slice().sort(compararMovimientos);
   // Saldos corridos (litros y USD), como en el Excel, partiendo de la apertura.
   let saldoL = aperturaL;
   let saldoU = aperturaU;
@@ -948,7 +932,11 @@ async function reencadenarMedidor(rows: FilaMedidor[], iniCol: string, finCol: s
       if (f !== 0) return f;
       const h = horaOrden(a.hora) - horaOrden(b.hora);
       if (h !== 0) return h;
-      return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+      const c = (a.created_at ?? '').localeCompare(b.created_at ?? '');
+      if (c !== 0) return c;
+      // Igual que el libro mayor: sin este último desempate, dos lecturas idénticas
+      // se encadenaban en un orden distinto en cada carga.
+      return (a.id ?? '').localeCompare(b.id ?? '');
     });
   if (usables.length === 0) return 0;
   // El medidor es ABSOLUTO: la lectura FINAL de cada fila es el dato físico leído del

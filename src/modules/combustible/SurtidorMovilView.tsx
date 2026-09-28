@@ -34,6 +34,7 @@ import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSali
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { SurtidorReporteMovil } from './SurtidorReporteMovil';
 import { enlaceWhatsapp, mensajeMovimiento } from './mensajeMovimiento';
+import { horaAInput, horaDesdeInput } from './horaMovimiento';
 
 /** Clave del rol que trabaja solo desde esta pantalla. */
 export const ROL_SURTIDOR = 'combustible';
@@ -438,7 +439,10 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
             </div>
             <div className="surt-campo">
               <label htmlFor="surt-hora">Hora</label>
-              <input id="surt-hora" className="input surt-input" value={hora} onChange={(e) => setHora(e.target.value)} placeholder="8:02:00 AM" />
+              {/* Selector de hora: en el teléfono abre el reloj del sistema. Escrita a
+                  mano entraban horas sin la A ni la P del AM/PM, que desordenaban el libro. */}
+              <input id="surt-hora" className="input surt-input" type="time" step={1}
+                value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
             </div>
           </div>
           {tipo !== 'merma' && (
