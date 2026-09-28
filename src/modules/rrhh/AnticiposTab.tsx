@@ -14,6 +14,7 @@ import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { money, date } from '@/shared/lib/format';
+import { RANGOS_RAPIDOS, hoyVenezuela, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EmpresaRrhh, Personal, AnticipoPrestamo } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
@@ -26,19 +27,20 @@ import {
 import { AnticipoDetalleModal } from './AnticipoDetalleModal';
 import { descargarPrestamosPdf, nombreArchivo } from './prestamosPdf';
 
-function Kpi({ icon, label, value, sub, onClick, danger }: {
-  icon: string; label: string; value: string; sub?: string; onClick?: () => void; danger?: boolean;
+function Kpi({ label, value, sub, color, onClick }: {
+  label: string; value: string; sub?: string; color?: string; onClick?: () => void;
 }) {
-  return (
-    <div className="kpi" role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}
-      onClick={onClick} onKeyDown={(e) => { if (onClick && e.key === 'Enter') onClick(); }}
-      style={onClick ? { cursor: 'pointer' } : undefined} title={onClick ? 'Tocá para ver el detalle' : undefined}>
-      <div className="icon">{icon}</div>
-      <div className="label">{label}</div>
-      <div className="value" style={{ fontSize: '1.5rem', ...(danger ? { color: 'var(--danger)' } : {}) }}>{value}</div>
-      {sub && <div className="delta" style={{ color: 'var(--text-muted)' }}>{sub}</div>}
-    </div>
+  const clase = `lt-kpi${color ? ` ${color}` : ''}`;
+  const cuerpo = (
+    <>
+      <span className="lt-kpi-label">{label}</span>
+      <span className="lt-kpi-valor">{value}</span>
+      {sub && <span className="lt-kpi-sub">{sub}</span>}
+    </>
   );
+  return onClick
+    ? <button type="button" className={clase} onClick={onClick} title="Tocá para ver el detalle">{cuerpo}</button>
+    : <div className={clase}>{cuerpo}</div>;
 }
 
 export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa: EmpresaRrhh; canWrite: boolean; actor: string; actorName: string | null }) {
@@ -53,6 +55,9 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [modal, setModal] = useState<'pendientes' | 'trabajadores' | null>(null);
   const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [altaAbierta, setAltaAbierta] = useState(false);
+  const [masFiltros, setMasFiltros] = useState(false);
+  const hoy = useMemo(hoyVenezuela, []);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -90,6 +95,7 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
       await registrarAnticipo(alta, actor, actorName);
       toast(alta.historico ? 'Préstamo histórico cargado' : 'Registrado', 'success');
       setAlta({ ...ALTA_VACIA, historico: alta.historico, fecha: alta.historico ? alta.fecha : ALTA_VACIA.fecha });
+      setAltaAbierta(false);
       await recargar();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); }
     finally { setGuardando(false); }
@@ -131,162 +137,108 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
   return (
     <div>
       {/* ── Tarjetas ── */}
-      <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
-        <Kpi icon="💰" label="Total préstamos pendientes" value={money(resumen.totalPendiente)} danger={resumen.totalPendiente > 0}
-          sub={`${resumen.pendientes} préstamo${resumen.pendientes === 1 ? '' : 's'} con saldo · tocá para ver`}
+      <div className="lt-kpis">
+        <Kpi color="rojo" label="Total préstamos pendientes" value={money(resumen.totalPendiente)}
+          sub={`${resumen.pendientes} préstamo(s) sin saldar · tocá para ver el detalle`}
           onClick={() => setModal('pendientes')} />
-        <Kpi icon="👥" label="Total de trabajadores con préstamos pendientes" value={String(resumen.trabajadoresConPendiente)}
-          sub="Lista buscable · tocá para ver" onClick={() => setModal('trabajadores')} />
-        <Kpi icon="📤" label="Total prestado" value={money(resumen.totalPrestado)} sub={nFiltros ? 'Según los filtros' : 'Todos los préstamos'} />
-        <Kpi icon="✅" label="Total pagado" value={money(resumen.totalPagado)} sub="Descuentos de nómina, abonos e histórico" />
+        <Kpi color="ambar" label="Trabajadores con préstamos pendientes" value={String(resumen.trabajadoresConPendiente)}
+          sub="personas debiendo · tocá para ver el detalle" onClick={() => setModal('trabajadores')} />
+        <Kpi color="naranja" label="Prestado / cobrado en lo filtrado" value={money(resumen.totalPrestado)}
+          sub={`cobrado ${money(resumen.totalPagado)}`} />
       </div>
 
-      {/* ── Alta ── */}
-      {canWrite && (
-        <form onSubmit={guardar} style={{ marginBottom: '1rem' }}>
-          {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div><strong>Error:</strong> {error}</div></div>}
-          <div className="card" style={{ padding: '.85rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
-              <div className="card-title" style={{ margin: 0 }}>{alta.historico ? 'Cargar préstamo histórico' : 'Registrar anticipo / préstamo'}</div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem', cursor: 'pointer' }}
-                title="Para los préstamos que ya existían antes del sistema: se carga con lo que ya se había abonado">
-                <input type="checkbox" checked={alta.historico} onChange={(e) => setAlta((a) => ({ ...a, historico: e.target.checked }))} />
-                📜 Modo histórico (ya existía antes del sistema)
-              </label>
-            </div>
-            <div className="form-grid">
-              <div className="form-row">
-                <label>Trabajador *</label>
-                <SearchSelect value={alta.personal_id} onChange={(v) => setAlta((a) => ({ ...a, personal_id: v }))} placeholder="🔍 Buscar trabajador…"
-                  options={personal.filter((p) => p.activo || alta.historico).map((p) => ({ value: p.id, label: `${nombreCompleto(p)}${p.ficha_nro ? ` · Ficha ${p.ficha_nro}` : ''}${p.activo ? '' : ' · inactivo'}` }))} />
-              </div>
-              <div className="form-row">
-                <label>Tipo</label>
-                <select className="select" value={alta.tipo} onChange={(e) => setAlta((a) => ({ ...a, tipo: e.target.value as AltaAnticipo['tipo'] }))}>
-                  <option value="prestamo">Préstamo</option>
-                  <option value="anticipo">Anticipo</option>
-                </select>
-              </div>
-              <div className="form-row">
-                <label>Fecha del préstamo *</label>
-                <input name="anticipo-fecha" className="input" type="date" value={alta.fecha} onChange={(e) => setAlta((a) => ({ ...a, fecha: e.target.value }))} required />
-                {alta.historico && <small className="muted">El día en que se dio el préstamo, aunque sea de hace meses.</small>}
-              </div>
-              <div className="form-row">
-                <label>Monto total (USD) *</label>
-                <input name="anticipo-monto-total" className="input mono" type="number" min={0} step="any" value={alta.monto_total ?? ''}
-                  onChange={(e) => setAlta((a) => ({ ...a, monto_total: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" required />
-              </div>
-              {alta.historico && (
-                <>
-                  <div className="form-row">
-                    <label>Ya abonado hasta hoy (USD)</label>
-                    <input name="anticipo-abonado" className="input mono" type="number" min={0} step="any" value={alta.abonado ?? ''}
-                      onChange={(e) => setAlta((a) => ({ ...a, abonado: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
-                    <small className="muted">
-                      {alta.monto_total != null && alta.monto_total > 0
-                        ? `Queda debiendo ${money(Math.max(0, (alta.monto_total || 0) - (alta.abonado || 0)))}`
-                        : 'Lo que ya pagó antes de cargarlo acá; queda como un abono «histórico».'}
-                    </small>
-                  </div>
-                  <div className="form-row">
-                    <label>Abonado hasta (fecha)</label>
-                    <input name="anticipo-fecha-abono" className="input" type="date" value={alta.fecha_abono} onChange={(e) => setAlta((a) => ({ ...a, fecha_abono: e.target.value }))} />
-                  </div>
-                </>
-              )}
-              <div className="form-row">
-                <label>Cuota sugerida por quincena (opcional)</label>
-                <input name="anticipo-cuota-sugerida" className="input mono" type="number" min={0} step="any" value={alta.cuota_sugerida ?? ''}
-                  onChange={(e) => setAlta((a) => ({ ...a, cuota_sugerida: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
-              </div>
-              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-                <label>Motivo</label>
-                <input name="anticipo-motivo" className="input" value={alta.motivo} onChange={(e) => setAlta((a) => ({ ...a, motivo: e.target.value }))} placeholder="Adelanto de quincena, préstamo personal…" />
-              </div>
-            </div>
-            <div style={{ marginTop: '.5rem' }}>
-              <button type="submit" className="btn btn-primary" disabled={guardando}>{guardando ? 'Guardando…' : alta.historico ? '📜 Cargar histórico' : '+ Registrar'}</button>
-            </div>
-            <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
-              El saldo se descuenta automáticamente al pagar la nómina, hasta saldar. Los pagos por fuera se registran como abono desde el detalle del préstamo.
-            </small>
-          </div>
-        </form>
-      )}
-
       {/* ── Filtros ── */}
-      <div className="card" style={{ padding: '.7rem .85rem', marginBottom: '.7rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.4rem' }}>
-          <div className="card-title" style={{ margin: 0 }}>🔎 Filtros {nFiltros > 0 && <span className="badge">{nFiltros}</span>}</div>
-          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-            {nFiltros > 0 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFiltros(FILTROS_VACIOS)}>✕ Limpiar filtros</button>}
-            <button type="button" className="btn btn-sm btn-ghost" disabled={generandoPdf || !visibles.length}
-              title="PDF de lo que se ve en la lista: total prestado, pagado y deuda por trabajador, con sus abonos"
-              onClick={() => void pdfLista(visibles, 'Préstamos y anticipos', textoFiltros(), `prestamos-${empresa}-${new Date().toISOString().slice(0, 10)}`)}>
-              {generandoPdf ? 'Generando…' : '↓ PDF del listado'}
-            </button>
+      <div className="lt-filtros">
+        <div className="lt-fila">
+          <div className="lt-campo lt-ancho">
+            <label htmlFor="ant-buscar">Buscar</label>
+            <input id="ant-buscar" name="anticipos-buscar" className="input" value={filtros.texto}
+              onChange={(e) => setF('texto', e.target.value)} placeholder="Nombre del trabajador o motivo…" />
           </div>
-        </div>
-        <div className="form-grid">
-          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-            <label>Buscar</label>
-            <input name="anticipos-buscar" className="input" value={filtros.texto} onChange={(e) => setF('texto', e.target.value)}
-              placeholder="Nombre, cédula, ficha, cargo, departamento o motivo…" />
-          </div>
-          <div className="form-row">
-            <label>Trabajador</label>
-            <SearchSelect value={filtros.personalId} onChange={(v) => setF('personalId', v)} placeholder="Todos"
-              options={[{ value: '', label: 'Todos' }, ...personal.map((p) => ({ value: p.id, label: `${nombreCompleto(p)}${p.ficha_nro ? ` · Ficha ${p.ficha_nro}` : ''}` }))]} />
-          </div>
-          <div className="form-row">
-            <label>Estado</label>
-            <select className="select" value={filtros.estado} onChange={(e) => setF('estado', e.target.value as FiltrosAnticipos['estado'])}>
-              <option value="activos">Activos (con saldo)</option>
-              <option value="saldados">Saldados</option>
-              <option value="todos">Todos</option>
+          <div className="lt-campo">
+            <label htmlFor="ant-trab">Trabajador</label>
+            <select id="ant-trab" className="select" value={filtros.personalId} onChange={(e) => setF('personalId', e.target.value)}>
+              <option value="">— todos —</option>
+              {personal.map((p) => <option key={p.id} value={p.id}>{nombreCompleto(p)}{p.ficha_nro ? ` · Ficha ${p.ficha_nro}` : ''}</option>)}
             </select>
           </div>
-          <div className="form-row">
-            <label>Tipo</label>
-            <select className="select" value={filtros.tipo} onChange={(e) => setF('tipo', e.target.value as FiltrosAnticipos['tipo'])}>
-              <option value="todos">Préstamos y anticipos</option>
+          <div className="lt-campo">
+            <label htmlFor="ant-tipo">Tipo</label>
+            <select id="ant-tipo" className="select" value={filtros.tipo} onChange={(e) => setF('tipo', e.target.value as FiltrosAnticipos['tipo'])}>
+              <option value="todos">Todos</option>
               <option value="prestamo">Solo préstamos</option>
               <option value="anticipo">Solo anticipos</option>
             </select>
           </div>
-          <div className="form-row">
-            <label>Origen</label>
-            <select className="select" value={filtros.origen} onChange={(e) => setF('origen', e.target.value as FiltrosAnticipos['origen'])}>
+          <div className="lt-campo">
+            <label htmlFor="ant-estado">Estado</label>
+            <select id="ant-estado" className="select" value={filtros.estado} onChange={(e) => setF('estado', e.target.value as FiltrosAnticipos['estado'])}>
               <option value="todos">Todos</option>
-              <option value="historico">Históricos (anteriores al sistema)</option>
-              <option value="sistema">Cargados en el sistema</option>
+              <option value="activos">Con saldo</option>
+              <option value="saldados">Saldados</option>
             </select>
           </div>
-          <div className="form-row">
-            <label>Departamento</label>
-            <select className="select" value={filtros.departamento} onChange={(e) => setF('departamento', e.target.value)}>
-              <option value="">Todos</option>
-              {departamentos.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
+          <div className="lt-campo">
+            <label htmlFor="ant-desde">Desde</label>
+            <input id="ant-desde" name="anticipos-desde" className="input" type="date" value={filtros.desde} onChange={(e) => setF('desde', e.target.value)} />
           </div>
-          <div className="form-row">
-            <label>Préstamos desde</label>
-            <input name="anticipos-desde" className="input" type="date" value={filtros.desde} onChange={(e) => setF('desde', e.target.value)} />
-          </div>
-          <div className="form-row">
-            <label>Préstamos hasta</label>
-            <input name="anticipos-hasta" className="input" type="date" value={filtros.hasta} onChange={(e) => setF('hasta', e.target.value)} />
-          </div>
-          <div className="form-row">
-            <label>Monto mínimo (USD)</label>
-            <input name="anticipos-monto-min" className="input mono" type="number" min={0} step="any" value={filtros.montoMin} onChange={(e) => setF('montoMin', e.target.value)} placeholder="0,00" />
-          </div>
-          <div className="form-row">
-            <label>Monto máximo (USD)</label>
-            <input name="anticipos-monto-max" className="input mono" type="number" min={0} step="any" value={filtros.montoMax} onChange={(e) => setF('montoMax', e.target.value)} placeholder="Sin tope" />
+          <div className="lt-campo">
+            <label htmlFor="ant-hasta">Hasta</label>
+            <input id="ant-hasta" name="anticipos-hasta" className="input" type="date" value={filtros.hasta} onChange={(e) => setF('hasta', e.target.value)} />
           </div>
         </div>
+
+        <div className="lt-pie">
+          {RANGOS_RAPIDOS.map((x) => (
+            <button key={x.valor} type="button" className={`lt-chip${rangoActivo(filtros.desde, filtros.hasta, hoy) === x.valor ? ' activo' : ''}`}
+              onClick={() => { const r = rangoRapido(x.valor, hoy); setFiltros((v) => ({ ...v, desde: r.desde, hasta: r.hasta })); }}>
+              {x.label}
+            </button>
+          ))}
+          <button type="button" className={`lt-chip${masFiltros ? ' activo' : ''}`} onClick={() => setMasFiltros((m) => !m)}>▾ Más filtros</button>
+          {nFiltros > 0 && <button type="button" className="lt-chip" onClick={() => setFiltros(FILTROS_VACIOS)}>✕ Limpiar ({nFiltros})</button>}
+          <span className="lt-contador">{visibles.length} de {lista.length} · {resumen.pendientes} con saldo</span>
+        </div>
+
+        {masFiltros && (
+          <div className="lt-mas lt-fila">
+            <div className="lt-campo">
+              <label htmlFor="ant-origen">Origen</label>
+              <select id="ant-origen" className="select" value={filtros.origen} onChange={(e) => setF('origen', e.target.value as FiltrosAnticipos['origen'])}>
+                <option value="todos">Todos</option>
+                <option value="historico">Históricos (anteriores al sistema)</option>
+                <option value="sistema">Cargados en el sistema</option>
+              </select>
+            </div>
+            <div className="lt-campo">
+              <label htmlFor="ant-depto">Departamento</label>
+              <select id="ant-depto" className="select" value={filtros.departamento} onChange={(e) => setF('departamento', e.target.value)}>
+                <option value="">Todos</option>
+                {departamentos.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div className="lt-campo">
+              <label htmlFor="ant-min">Monto mínimo (USD)</label>
+              <input id="ant-min" name="anticipos-monto-min" className="input mono" type="number" min={0} step="any" value={filtros.montoMin}
+                onChange={(e) => setF('montoMin', e.target.value)} placeholder="0,00" />
+            </div>
+            <div className="lt-campo">
+              <label htmlFor="ant-max">Monto máximo (USD)</label>
+              <input id="ant-max" name="anticipos-monto-max" className="input mono" type="number" min={0} step="any" value={filtros.montoMax}
+                onChange={(e) => setF('montoMax', e.target.value)} placeholder="Sin tope" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Acciones ── */}
+      <div className="lt-acciones">
+        {canWrite && <button className="btn btn-primary" onClick={() => setAltaAbierta(true)}>+ Registrar préstamo o anticipo</button>}
+        <button className="btn btn-ghost" disabled={generandoPdf || !visibles.length}
+          title="PDF de lo que se ve en la lista: total prestado, pagado y deuda por trabajador, con sus abonos"
+          onClick={() => void pdfLista(visibles, 'Préstamos y anticipos', textoFiltros(), `prestamos-${empresa}-${new Date().toISOString().slice(0, 10)}`)}>
+          {generandoPdf ? 'Generando…' : '📄 Consolidado en PDF'}
+        </button>
       </div>
 
       {/* ── Lista ── */}
@@ -341,6 +293,84 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
           )}
         </table>
       </div>
+
+      {/* ── Alta (modal) ── */}
+      {altaAbierta && canWrite && (
+        <Modal title={alta.historico ? '📜 Cargar préstamo histórico' : '+ Registrar préstamo o anticipo'} size="md"
+          onClose={() => { if (!guardando) { setAltaAbierta(false); setError(null); } }}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => { setAltaAbierta(false); setError(null); }} disabled={guardando}>Cancelar</button>
+            <button type="submit" form="alta-anticipo" className="btn btn-primary" disabled={guardando}>
+              {guardando ? 'Guardando…' : alta.historico ? '📜 Cargar histórico' : '+ Registrar'}
+            </button>
+          </>}>
+          <form id="alta-anticipo" onSubmit={guardar}>
+            {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div><strong>Error:</strong> {error}</div></div>}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontSize: '.88rem', cursor: 'pointer', marginBottom: '.7rem' }}
+              title="Para los préstamos que ya existían antes del sistema: se carga con lo que ya se había abonado">
+              <input type="checkbox" checked={alta.historico} onChange={(e) => setAlta((a) => ({ ...a, historico: e.target.checked }))} />
+              📜 Modo histórico (ya existía antes del sistema)
+            </label>
+            <div className="form-grid">
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label htmlFor="alta-trab">Trabajador *</label>
+                <SearchSelect id="alta-trab" value={alta.personal_id} onChange={(v) => setAlta((a) => ({ ...a, personal_id: v }))} placeholder="🔍 Buscar trabajador…"
+                  options={personal.filter((p) => p.activo || alta.historico).map((p) => ({ value: p.id, label: `${nombreCompleto(p)}${p.ficha_nro ? ` · Ficha ${p.ficha_nro}` : ''}${p.activo ? '' : ' · inactivo'}` }))} />
+              </div>
+              <div className="form-row">
+                <label htmlFor="alta-tipo">Tipo</label>
+                <select id="alta-tipo" className="select" value={alta.tipo} onChange={(e) => setAlta((a) => ({ ...a, tipo: e.target.value as AltaAnticipo['tipo'] }))}>
+                  <option value="prestamo">Préstamo</option>
+                  <option value="anticipo">Anticipo</option>
+                </select>
+              </div>
+              <div className="form-row">
+                <label htmlFor="alta-fecha">Fecha del préstamo *</label>
+                <input id="alta-fecha" name="anticipo-fecha" className="input" type="date" value={alta.fecha}
+                  onChange={(e) => setAlta((a) => ({ ...a, fecha: e.target.value }))} required />
+                {alta.historico && <small className="muted">El día en que se dio, aunque sea de hace meses.</small>}
+              </div>
+              <div className="form-row">
+                <label htmlFor="alta-monto">Monto total (USD) *</label>
+                <input id="alta-monto" name="anticipo-monto-total" className="input mono" type="number" min={0} step="any" value={alta.monto_total ?? ''}
+                  onChange={(e) => setAlta((a) => ({ ...a, monto_total: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" required />
+              </div>
+              <div className="form-row">
+                <label htmlFor="alta-cuota">Cuota sugerida por quincena</label>
+                <input id="alta-cuota" name="anticipo-cuota-sugerida" className="input mono" type="number" min={0} step="any" value={alta.cuota_sugerida ?? ''}
+                  onChange={(e) => setAlta((a) => ({ ...a, cuota_sugerida: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
+              </div>
+              {alta.historico && (
+                <>
+                  <div className="form-row">
+                    <label htmlFor="alta-abonado">Ya abonado hasta hoy (USD)</label>
+                    <input id="alta-abonado" name="anticipo-abonado" className="input mono" type="number" min={0} step="any" value={alta.abonado ?? ''}
+                      onChange={(e) => setAlta((a) => ({ ...a, abonado: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
+                    <small className="muted">
+                      {alta.monto_total != null && alta.monto_total > 0
+                        ? `Queda debiendo ${money(Math.max(0, (alta.monto_total || 0) - (alta.abonado || 0)))}`
+                        : 'Lo que ya pagó antes de cargarlo acá; queda como un abono «histórico».'}
+                    </small>
+                  </div>
+                  <div className="form-row">
+                    <label htmlFor="alta-fabono">Abonado hasta (fecha)</label>
+                    <input id="alta-fabono" name="anticipo-fecha-abono" className="input" type="date" value={alta.fecha_abono}
+                      onChange={(e) => setAlta((a) => ({ ...a, fecha_abono: e.target.value }))} />
+                  </div>
+                </>
+              )}
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label htmlFor="alta-motivo">Motivo</label>
+                <input id="alta-motivo" name="anticipo-motivo" className="input" value={alta.motivo}
+                  onChange={(e) => setAlta((a) => ({ ...a, motivo: e.target.value }))} placeholder="Adelanto de quincena, préstamo personal…" />
+              </div>
+            </div>
+            <p className="muted" style={{ fontSize: '.82rem', marginTop: '.6rem', marginBottom: 0 }}>
+              El saldo se descuenta automáticamente al pagar la nómina, hasta saldar. Los pagos por fuera se registran como abono desde el detalle del préstamo.
+            </p>
+          </form>
+        </Modal>
+      )}
 
       {/* ── Modal: préstamos pendientes ── */}
       {modal === 'pendientes' && (
