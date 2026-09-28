@@ -263,3 +263,31 @@ export function detalleCorto(a: Asignacion): string {
     a.numero_linea ? `Línea ${a.numero_linea}${a.operador ? ` (${a.operador})` : ''}` : null,
   ].filter(Boolean).join(' · ');
 }
+
+/* ───────── Varios artículos de una vez ─────────
+   En una misma entrega se le pueden dar varias cosas al trabajador (el
+   uniforme completo, la laptop y el cargador). Se cargan como renglones y
+   cada uno queda como su propia asignación, con su código: así uno se puede
+   devolver y el otro no. */
+
+/** ¿El renglón todavía está vacío? (permite guardar solo lo ya agregado) */
+export function itemVacio(f: FormAsignacion): boolean {
+  return !f.descripcion.trim() && !f.producto_id;
+}
+
+/** Cuánto de ese producto ya comprometen los renglones cargados. */
+export function comprometido(renglones: FormAsignacion[], productoId: string): number {
+  return renglones
+    .filter((r) => r.desdeInventario && r.producto_id === productoId)
+    .reduce((s, r) => s + (aNumero(r.cantidad) || 0), 0);
+}
+
+/** Deja el trabajador, la fecha y la categoría; limpia lo del artículo. */
+export function limpiarItem(f: FormAsignacion): FormAsignacion {
+  return { ...formVacio(f.fecha), personal_id: f.personal_id, categoria: f.categoria, retornable: f.retornable };
+}
+
+/** Total en dólares de los renglones cargados. */
+export function totalRenglones(rs: FormAsignacion[]): number {
+  return r2(rs.reduce((s, r) => s + (aNumero(r.cantidad) || 0) * (r.valor_unitario.trim() ? aNumero(r.valor_unitario) || 0 : 0), 0));
+}

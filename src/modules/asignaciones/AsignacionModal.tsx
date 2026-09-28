@@ -12,8 +12,9 @@ import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate } from '@/shared/lib/format';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import {
-  CATEGORIA, CATEGORIAS, CONDICION_LABEL, ESTADO_LABEL, detalleCorto, erroresForm, formDesde, formVacio,
-  nombreDe, payloadDe, valorTotal, type Asignacion, type CondicionDevolucion, type FormAsignacion, type PersonaMin,
+  CATEGORIA, CATEGORIAS, CONDICION_LABEL, ESTADO_LABEL, comprometido, detalleCorto, erroresForm, formDesde,
+  formVacio, itemVacio, limpiarItem, nombreDe, payloadDe, totalRenglones, valorTotal,
+  type Asignacion, type CondicionDevolucion, type FormAsignacion, type PersonaMin,
 } from './asignacionesReglas';
 import {
   anularDevolucion, crearAsignacion, devolverAsignacion, editarAsignacion, eliminarAsignacion,
@@ -39,12 +40,15 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
   const [errores, setErrores] = useState<string[]>([]);
   const [borrar, setBorrar] = useState(false);
   const [dev, setDev] = useState({ fecha: hoyVenezuela(), condicion: 'bueno' as CondicionDevolucion, reingresa: true, nota: '' });
+  // Artículos ya agregados a esta entrega (solo al crear). Cada uno queda como su propia asignación.
+  const [renglones, setRenglones] = useState<FormAsignacion[]>([]);
 
   const producto = productos.find((p) => p.id === f.producto_id) ?? null;
   const prodPorId = useMemo(() => new Map(productos.map((p) => [p.id, p])), [productos]);
   // Al editar, lo que ya tiene esta asignación vuelve al stock antes de sacar lo nuevo.
   const stockDisponible = producto
     ? Number(producto.stock) + (asignacion?.producto_id === producto.id ? Number(asignacion.cantidad) : 0)
+      - comprometido(renglones, producto.id)
     : null;
 
   const set = <K extends keyof FormAsignacion>(k: K, v: FormAsignacion[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -68,16 +72,39 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
     }));
   }, [f.desdeInventario, f.producto_id, prodPorId]);
 
-  async function guardar(e: FormEvent) {
-    e.preventDefault();
+  function agregarOtro() {
     const errs = erroresForm(f, stockDisponible);
     setErrores(errs);
     if (errs.length) return;
+    setRenglones((rs) => [...rs, f]);
+    setF(limpiarItem(f));
+  }
+
+  function quitarRenglon(i: number) {
+    setRenglones((rs) => rs.filter((_, x) => x !== i));
+  }
+
+  async function guardar(e: FormEvent) {
+    e.preventDefault();
+    // Si ya hay artículos agregados, el renglón en blanco no obliga a llenarlo.
+    const soloAgregados = !!renglones.length && itemVacio(f);
+    if (!soloAgregados) {
+      const errs = erroresForm(f, stockDisponible);
+      setErrores(errs);
+      if (errs.length) return;
+    } else setErrores([]);
+    const items = soloAgregados ? renglones : [...renglones, f];
     setSaving(true);
     try {
-      if (asignacion) await editarAsignacion(asignacion.id, payloadDe(f), actor, actorName);
-      else await crearAsignacion(payloadDe(f), actor, actorName);
-      toast(asignacion ? 'Asignación actualizada' : 'Asignación registrada', 'success');
+      if (asignacion) {
+        await editarAsignacion(asignacion.id, payloadDe(f), actor, actorName);
+        toast('Asignación actualizada', 'success');
+      } else {
+        // De a uno y en orden: cada uno descuenta stock, y si falla el tercero
+        // los dos primeros ya quedaron (se ven en la lista y se pueden borrar).
+        for (const it of items) await crearAsignacion(payloadDe(it), actor, actorName);
+        toast(items.length === 1 ? 'Asignación registrada' : `${items.length} asignaciones registradas`, 'success');
+      }
       onSaved();
     } catch (err) { setErrores([err instanceof Error ? err.message : 'No se pudo guardar']); setSaving(false); }
   }
@@ -126,8 +153,18 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
       )}
       {modo !== 'ver' && !esNueva && <button className="btn btn-ghost" onClick={() => { setModo('ver'); setErrores([]); }} disabled={saving}>Volver</button>}
       {(modo === 'ver' || esNueva) && <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}
+      {modo === 'editar' && canWrite && esNueva && (
+        <button type="button" className="btn btn-ghost" onClick={agregarOtro} disabled={saving} title="Guardar este artículo en la lista y cargar otro para el mismo trabajador">
+          + Agregar otro artículo
+        </button>
+      )}
       {modo === 'editar' && canWrite && (
-        <button type="submit" form="asig-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : esNueva ? 'Registrar' : 'Guardar'}</button>
+        <button type="submit" form="asig-form" className="btn btn-primary" disabled={saving}>
+          {saving ? 'Guardando…'
+            : !esNueva ? 'Guardar'
+            : renglones.length ? `Registrar ${renglones.length + (itemVacio(f) ? 0 : 1)} artículo(s)`
+            : 'Registrar'}
+        </button>
       )}
       {modo === 'devolver' && canWrite && (
         <button className="btn btn-primary" onClick={() => void confirmarDevolucion()} disabled={saving}>{saving ? 'Guardando…' : 'Confirmar devolución'}</button>
@@ -189,6 +226,32 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
               <div>Se marca como perdido: <strong>no vuelve al inventario</strong>, pero queda registrado en el historial del trabajador.</div>
             </div>
           )}
+        </div>
+      )}
+
+      {modo === 'editar' && !!renglones.length && (
+        <div className="asig-renglones">
+          <div className="asig-renglones-cab">
+            <strong>Artículos de esta entrega ({renglones.length})</strong>
+            <span className="mono">{money(totalRenglones(renglones))}</span>
+          </div>
+          {renglones.map((r, i) => (
+            <div key={`${r.descripcion}-${i}`} className="asig-renglon">
+              <span aria-hidden="true">{CATEGORIA[r.categoria]?.icono}</span>
+              <div style={{ minWidth: 0 }}>
+                <div className="asig-renglon-txt">{r.descripcion}</div>
+                <small className="muted">
+                  {r.cantidad}{r.unidad ? ` ${r.unidad}` : ''}
+                  {r.valor_unitario.trim() ? ` · ${money(Number(r.valor_unitario.replace(',', '.')) || 0)} c/u` : ''}
+                  {r.desdeInventario ? ' · del inventario' : ''}
+                  {r.retornable ? ' · retorna' : ' · no retorna'}
+                </small>
+              </div>
+              <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+                onClick={() => quitarRenglon(i)} title="Quitar de la lista" disabled={saving}>✕</button>
+            </div>
+          ))}
+          <small className="muted">Cada artículo queda como una asignación aparte, con su propio código.</small>
         </div>
       )}
 
