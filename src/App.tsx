@@ -22,6 +22,7 @@ const AcopioPage = lazy(() => import('./modules/acopio/AcopioPage').then((m) => 
 const CocinaPage = lazy(() => import('./modules/cocina/CocinaPage').then((m) => ({ default: m.CocinaPage })));
 const RrhhPage = lazy(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
 const TesoreriaPage = lazy(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
+const AsignacionesPage = lazy(() => import('./modules/asignaciones/AsignacionesPage').then((m) => ({ default: m.AsignacionesPage })));
 const VentasPage = lazy(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const RetencionesPage = lazy(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
 const RecepcionesPage = lazy(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
@@ -92,6 +93,7 @@ export function App() {
           <Route path="maquinaria" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/servicio-mantenimiento" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><ServicioMantenimientoPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
+          <Route path="asignaciones" element={<RequireModule module="asignaciones"><Suspense fallback={<PageLoader />}><AsignacionesPage /></Suspense></RequireModule>} />
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesPage /></Suspense></RequireModule>} />
           <Route path="recepciones" element={<RequireModule module="recepciones"><Suspense fallback={<PageLoader />}><RecepcionesPage /></Suspense></RequireModule>} />
