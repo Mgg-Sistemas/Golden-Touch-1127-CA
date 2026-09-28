@@ -39,6 +39,7 @@ import { HistorialSueldoModal } from './HistorialSueldoModal';
 import { errorFicha, etiquetaFicha, fichaEditable, FICHA_MIN } from './fichaNro';
 import { errorCorreo } from './correoPersonal';
 import { descargarHojaIngresoPdf } from './hojaIngresoPdf';
+import { GRADOS } from './instruccionYTrabajo';
 import { AjustarFoto } from './AjustarFoto';
 import type { Encuadre } from './encuadreFoto';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -49,6 +50,9 @@ const VACIO: PersonalInput = {
   tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '',
   fecha_nacimiento: '', genero: null, estado_civil: null, grupo_sanguineo: null,
   nacionalidad: '', direccion: '', contacto_emergencia_parentesco: null,
+  grado_instruccion: null, titulo_obtenido: '',
+  trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '',
+  trabajo_anterior_sueldo: null,
   ficha_nro: '',
 };
 
@@ -289,6 +293,12 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       alergias_detalle: p.alergias_detalle ?? '',
       tiene_enfermedad: p.tiene_enfermedad ?? null,
       enfermedad_detalle: p.enfermedad_detalle ?? '',
+      grado_instruccion: p.grado_instruccion ?? null,
+      titulo_obtenido: p.titulo_obtenido ?? '',
+      trabajo_anterior_empresa: p.trabajo_anterior_empresa ?? '',
+      trabajo_anterior_cargo: p.trabajo_anterior_cargo ?? '',
+      trabajo_anterior_duracion: p.trabajo_anterior_duracion ?? '',
+      trabajo_anterior_sueldo: p.trabajo_anterior_sueldo ?? null,
     });
     setCedula(p.cedula ?? '');
     setFicha(p.ficha_nro ?? '');
@@ -987,6 +997,71 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 <label>Dirección</label>
                 <input className="input" name="p-direccion" defaultValue={form.direccion ?? ''}
                   placeholder="Ciudad, sector, calle…" />
+              </div>
+            </div>
+
+            {/* Instrucción y último trabajo: lo que pregunta la hoja de ingreso
+                (28/09/2026). El título se habilita solo con un grado marcado, como
+                el detalle de una alergia cuelga del «sí»: un título sin grado es un
+                dato a medias que después nadie sabe si creer. */}
+            <div className="divider" />
+            <div className="card-title" style={{ marginBottom: '.5rem' }}>🎓 Instrucción y experiencia</div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Grado de instrucción</label>
+                <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', padding: '.35rem 0' }}>
+                  {GRADOS.map((g) => (
+                    <label key={g.value} style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontWeight: 400 }}>
+                      <input type="checkbox" checked={form.grado_instruccion === g.value}
+                        onChange={(e) => setForm((f) => ({
+                          ...f,
+                          // Las casillas son excluyentes: destildar la marcada deja «sin indicar».
+                          grado_instruccion: e.target.checked ? g.value : null,
+                          titulo_obtenido: e.target.checked ? f.titulo_obtenido : '',
+                        }))} />
+                      {g.label}
+                    </label>
+                  ))}
+                </div>
+                <small className="muted">Es una sola: marcar otra desmarca la anterior.</small>
+              </div>
+              <div className="form-row">
+                <label>Título obtenido</label>
+                <input className="input" value={form.titulo_obtenido ?? ''}
+                  disabled={!form.grado_instruccion}
+                  placeholder="Ej. T.S.U. EN ELECTRICIDAD"
+                  onChange={(e) => setForm((f) => ({ ...f, titulo_obtenido: e.target.value.toUpperCase() }))} />
+                <small className="muted">Se habilita al marcar un grado.</small>
+              </div>
+              <div className="form-row">
+                <label>Último trabajo (empresa)</label>
+                <input className="input" value={form.trabajo_anterior_empresa ?? ''}
+                  placeholder="Dónde estuvo antes"
+                  onChange={(e) => setForm((f) => ({ ...f, trabajo_anterior_empresa: e.target.value.toUpperCase() }))} />
+              </div>
+              <div className="form-row">
+                <label>Cargo que ocupaba</label>
+                <input className="input" value={form.trabajo_anterior_cargo ?? ''}
+                  placeholder="Ej. OPERADOR DE MAQUINARIA"
+                  onChange={(e) => setForm((f) => ({ ...f, trabajo_anterior_cargo: e.target.value.toUpperCase() }))} />
+              </div>
+              <div className="form-row">
+                <label>¿Cuánto duró?</label>
+                <input className="input" value={form.trabajo_anterior_duracion ?? ''}
+                  placeholder="Ej. 2 AÑOS Y 3 MESES"
+                  onChange={(e) => setForm((f) => ({ ...f, trabajo_anterior_duracion: e.target.value.toUpperCase() }))} />
+                <small className="muted">En palabras: es lo que la persona recuerda.</small>
+              </div>
+              <div className="form-row">
+                <label>Último sueldo (USD)</label>
+                <input className="input" type="number" min={0} step="0.01"
+                  value={form.trabajo_anterior_sueldo ?? ''}
+                  placeholder="0,00"
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    trabajo_anterior_sueldo: e.target.value === '' ? null : Number(e.target.value),
+                  }))} />
+                <small className="muted">Vacío no es lo mismo que cero: dejalo vacío si no lo dijo.</small>
               </div>
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.35rem' }}>📇 El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (botón 🪪 en la lista).</small>

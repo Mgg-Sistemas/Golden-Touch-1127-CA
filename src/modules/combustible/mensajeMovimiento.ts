@@ -10,13 +10,22 @@
    ============================================================ */
 import type { MovimientoTanque, TipoMovTanque } from '@/shared/lib/types';
 
-/** La flecha dice para dónde va el combustible: abajo sale, arriba entra. */
+/**
+ * La flecha dice para dónde va el combustible: abajo sale, arriba entra.
+ *
+ * TODOS los emojis de este archivo son «emoji por defecto» a propósito
+ * (28/09/2026). Los que se veían antes —↩️ ⚠️ 🛢️ ➡️ ⏱️ 🛣️— son símbolos de
+ * TEXTO que solo se pintan a color si los acompaña el selector invisible
+ * U+FE0F. WhatsApp lo pierde al abrir el enlace con el mensaje escrito, así
+ * que en el teléfono llegaban en blanco y negro o como un cuadrito. La prueba
+ * de este archivo corta cualquier emoji que necesite ese selector.
+ */
 export const EMOJI_TIPO: Record<TipoMovTanque, string> = {
   uso: '🔽',
   traslado: '🔁',
   entrada: '🔼',
-  retorno: '↩️',
-  merma: '⚠️',
+  retorno: '🔃',
+  merma: '🚨',
 };
 
 export const TITULO_TIPO: Record<TipoMovTanque, string> = {
@@ -56,11 +65,11 @@ export function mensajeMovimiento(d: DatosMensaje): string {
   const lineas: string[] = [
     `${EMOJI_TIPO[m.tipo]} *${TITULO_TIPO[m.tipo]}*`,
     '',
-    `⛽ *Litros:* ${signo}${num(m.litros)} L`,
+    `💧 *Litros:* ${signo}${num(m.litros)} L`,
   ];
 
-  if (d.tanque) lineas.push(`🛢️ *Tanque:* ${d.tanque}`);
-  if (m.tipo === 'traslado' && d.tanqueDestino) lineas.push(`➡️ *Pasa al tanque:* ${d.tanqueDestino}`);
+  if (d.tanque) lineas.push(`⛽ *Tanque:* ${d.tanque}`);
+  if (m.tipo === 'traslado' && d.tanqueDestino) lineas.push(`👉 *Pasa al tanque:* ${d.tanqueDestino}`);
   if (m.equipo) lineas.push(`🚚 *Equipo:* ${m.equipo}`);
   if (m.autorizado_por) lineas.push(`✅ *Autorizado por:* ${m.autorizado_por}`);
   if (m.ubicacion) lineas.push(`📍 *Destino:* ${m.ubicacion}`);
@@ -70,15 +79,26 @@ export function mensajeMovimiento(d: DatosMensaje): string {
   else if (m.hora) lineas.push(`🕒 *Hora:* ${m.hora}`);
 
   if (m.contador_global_fin != null) lineas.push(`🔢 *Contador:* ${num(m.contador_global_fin)}`);
-  if (m.horometro_fin != null) lineas.push(`⏱️ *Horómetro:* ${num(m.horometro_fin)}`);
-  if (m.kilometraje != null) lineas.push(`🛣️ *Kilometraje:* ${num(m.kilometraje)}`);
+  if (m.horometro_fin != null) lineas.push(`⏳ *Horómetro:* ${num(m.horometro_fin)}`);
+  if (m.kilometraje != null) lineas.push(`📏 *Kilometraje:* ${num(m.kilometraje)}`);
   if (m.observacion) lineas.push(`📝 *Nota:* ${m.observacion}`);
 
   lineas.push('', `🏢 GOLDEN TOUCH 1127 C.A.${d.registradoPor ? ` · Cargado por ${d.registradoPor}` : ''}`);
   return lineas.join('\n');
 }
 
-/** Enlace de WhatsApp con el mensaje ya escrito (abre la app o WhatsApp Web). */
+/**
+ * Enlace de WhatsApp con el mensaje ya escrito (abre la app o WhatsApp Web).
+ *
+ * Se limpia el selector invisible U+FE0F por si alguna vez se cuela: WhatsApp
+ * lo descarta igual y, cuando queda a medias, el emoji llega como cuadrito.
+ * Mejor mandar el carácter solo, que es lo que el teléfono sabe pintar.
+ */
 export function enlaceWhatsapp(texto: string): string {
-  return `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  return `https://wa.me/?text=${encodeURIComponent(sinSelectorDeEmoji(texto))}`;
+}
+
+/** Quita el selector de presentación de emoji (U+FE0F), que WhatsApp pierde. */
+export function sinSelectorDeEmoji(texto: string): string {
+  return texto.replace(/\uFE0F/g, '');
 }
