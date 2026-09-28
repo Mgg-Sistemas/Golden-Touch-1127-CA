@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   FILTROS_VACIOS, detalleCorto, erroresForm, filtrarAsignaciones, filtrosActivos, formDesde, formVacio,
-  payloadDe, porCategoria, resumenAsignaciones, valorTotal, type Asignacion, type PersonaMin,
+  comprometido, itemVacio, limpiarItem, payloadDe, porCategoria, resumenAsignaciones, totalRenglones, valorTotal,
+  type Asignacion, type PersonaMin,
 } from './asignacionesReglas';
 
 const personas = new Map<string, PersonaMin>([
@@ -74,5 +75,27 @@ describe('formulario', () => {
     expect(p).toMatchObject({ descripcion: 'Laptop', valor_unitario: 450.5, producto_id: null, serial: 'S1', retornable: true });
     expect(formDesde(base({ serial: 'S1', valor_unitario: 450.5 })).valor_unitario).toBe('450.5');
     expect(detalleCorto(base({ marca_modelo: 'Dell 5420', serial: 'S1' }))).toBe('Dell 5420 · S/N S1');
+  });
+});
+
+describe('varios artículos', () => {
+  const uno = { ...formVacio('2026-09-28'), personal_id: 'p1', categoria: 'equipo' as const, descripcion: 'Laptop', desdeInventario: true, producto_id: 'prod', cantidad: '2', valor_unitario: '500' };
+  it('detecta el renglón vacío', () => {
+    expect(itemVacio(formVacio('2026-09-28'))).toBe(true);
+    expect(itemVacio({ ...formVacio('2026-09-28'), descripcion: 'Botas' })).toBe(false);
+    expect(itemVacio({ ...formVacio('2026-09-28'), producto_id: 'prod' })).toBe(false);
+  });
+  it('suma lo comprometido del mismo producto', () => {
+    expect(comprometido([uno, { ...uno, cantidad: '3' }], 'prod')).toBe(5);
+    expect(comprometido([uno, { ...uno, producto_id: 'otro' }], 'prod')).toBe(2);
+    expect(comprometido([{ ...uno, desdeInventario: false }], 'prod')).toBe(0);
+  });
+  it('al limpiar conserva trabajador, fecha y categoría', () => {
+    const l = limpiarItem(uno);
+    expect(l).toMatchObject({ personal_id: 'p1', fecha: '2026-09-28', categoria: 'equipo', descripcion: '', producto_id: '', cantidad: '1' });
+  });
+  it('suma el total de los renglones', () => {
+    expect(totalRenglones([uno, { ...uno, cantidad: '1', valor_unitario: '10,5' }])).toBe(1010.5);
+    expect(totalRenglones([{ ...uno, valor_unitario: '' }])).toBe(0);
   });
 });
