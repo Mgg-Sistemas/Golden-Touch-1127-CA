@@ -65,7 +65,8 @@ const DUDAS: Entrada[] = [
     respuesta: (
       <>
         Veintiún días desde el inicio. Pasado el día 21 el contador se pone en rojo. El cierre es manual, con
-        «Cerrar mercado»: genera el PDF y abre el siguiente en ese mismo instante.
+        «Cerrar mercado»: guarda en el histórico todos los movimientos del ciclo, genera el PDF y abre el
+        siguiente en ese mismo instante, con lo que quedó en la despensa.
       </>
     ),
   },
@@ -81,13 +82,17 @@ const DUDAS: Entrada[] = [
     ),
   },
   {
-    pregunta: '¿Qué pasa si descarto un mercado?',
+    pregunta: '¿Al cerrar se pierde lo que queda en la despensa?',
     respuesta: (
       <>
-        El mercado deja de contar: no le pasa saldo al siguiente y sus cifras salen de la cadena.
-        <strong> No se borra nada</strong>: las comidas, los movimientos y el resumen quedan donde están, y el mercado
-        se sigue consultando en «Mercados cerrados», marcado como descartado. No se abre otro: se inicia con
-        «Iniciar mercado ahora». Hay que escribir por qué, y eso queda firmado.
+        <strong>No.</strong> Cerrar no descarta nada: lo que quedó es el <strong>saldo inicial del mercado nuevo</strong>,
+        y sobre eso se suman las entradas que vayan llegando. Todos los movimientos del ciclo que cierra
+        (entradas, comidas y mermas) pasan al <strong>histórico</strong> y quedan congelados, así el reporte de un
+        ciclo cerrado no cambia aunque después se corrija algo en Inventario.
+        <br />
+        <strong>Descartar un mercado ya no existe</strong> (28/09/2026): tirar el saldo dejaba al ciclo siguiente
+        arrancando en cero con la despensa llena. Los mercados descartados antes de esa fecha siguen en
+        «Mercados cerrados», con su motivo y su firma.
       </>
     ),
   },

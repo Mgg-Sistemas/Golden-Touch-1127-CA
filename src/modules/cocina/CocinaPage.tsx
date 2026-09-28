@@ -18,11 +18,11 @@ import {
 import { descargarCocinaPdf } from './cocinaPdf';
 import { crearAlertaMercado } from './alertasMercado.repository';
 import {
-  getMercadoActivo, iniciarMercado, descartarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
+  getMercadoActivo, iniciarMercado, computeResumen, cerrarMercado, diasDelCiclo, detalleViverCiclo,
   CICLO_DIAS, type Mercado, type ResumenViver, type TotalesMercado, type DetalleViverCiclo,
 } from './cocinaMercado.repository';
-import { claveDescarte, confirmacionValida, motivoValido, MOTIVO_DESCARTE_MIN } from './mercadoDescarte';
 import { LeyendaCocina } from './LeyendaCocina';
+import { avanceCierre } from './mercadoCierre';
 import { EcuacionMercado, SelectorVista, TablaDisponible } from './PanelMercado';
 import { diferenciasPorViver, explicarDiferencia, guardarVista, vistaGuardada, type VistaMercado } from './mercadoPanel';
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
@@ -83,7 +83,6 @@ export function CocinaPage() {
   // El modal se ata al mercado que se estaba descartando, no a un booleano: si otra
   // persona lo descarta primero y después se inicia uno nuevo, el modal no reaparece
   // solo para el mercado nuevo.
-  const [descartandoId, setDescartandoId] = useState<string | null>(null);
   const [iniciando, setIniciando] = useState(false);
   const [errorMercado, setErrorMercado] = useState<string | null>(null);
   // Error de la carga general (comidas y víveres). Sin esto, si fallaba la primera carga, con
@@ -202,6 +201,8 @@ export function CocinaPage() {
 
   // Contador del ciclo (día X de 21, cuántos faltan, si ya venció).
   const ciclo = useMemo(() => (mercado ? diasDelCiclo(mercado) : null), [mercado]);
+  // Qué se lleva el ciclo nuevo: es la cifra que hace entendible que no se descarta nada.
+  const avance = useMemo(() => avanceCierre(resMercado), [resMercado]);
 
   // Víveres cuya cuenta del ciclo no da lo que hay en el inventario (para el detalle).
   const difPorProducto = useMemo(
@@ -266,16 +267,6 @@ export function CocinaPage() {
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo iniciar el mercado', 'error'); }
     finally { setIniciando(false); }
-  }
-
-  async function alDescartar(m: Mercado) {
-    setDescartandoId(null);
-    // El descartado deja de mostrarse ya: mientras recarga no se ofrece cerrarlo ni se ve su
-    // panel, y el filtro de descuadrados no pasa al mercado siguiente.
-    setMercado(null); setResMercado([]); setTotMercado(null);
-    setMercadoLeido(false); setSoloDif(false);
-    notify(`Mercado ${m.numero ?? ''} descartado · no cuenta y no pasa saldo. El próximo se inicia con «Iniciar mercado».`, 'warning', { link: '#/app/cocina' });
-    await cargar();
   }
 
   return (
@@ -366,21 +357,17 @@ export function CocinaPage() {
         <DistribucionPanel inicioCiclo={mercado.inicio_at} onAbrirDetalle={() => setModal('control')} />
       )}
 
-      {/* Cerrar y descartar, al lado del panel como en MGG. Cerrar se resalta pasado el día
-          21; antes queda punteado. DESCARTAR es lo contrario de cerrar: no abre el siguiente
-          ni le pasa saldo. Va en tono discreto: es la salida de excepción, no la habitual. */}
+      {/* Cerrar, al lado del panel. Se resalta pasado el día 21; antes queda punteado.
+          Descartar se quitó el 28/09/2026: el cierre NO descarta lo que hay, lo pasa al
+          ciclo siguiente. */}
       {canWrite && mercado && (
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.8rem' }}>
           <button className={`btn ${ciclo?.vencido ? 'btn-primary' : 'btn-ghost'}`} style={ciclo?.vencido ? undefined : { borderStyle: 'dashed' }}
             onClick={() => setCerrandoId(mercado.id)}
             title={ciclo?.vencido
-              ? 'Cerrar el ciclo: genera el reporte (PDF/correo) y arranca el siguiente con lo que quedó'
+              ? 'Cerrar el ciclo: guarda sus movimientos en el histórico, genera el reporte y arranca el siguiente con lo que quedó en la despensa'
               : `Todavía no llega el día ${CICLO_DIAS + 1}; se puede cerrar igual si hace falta`}>
-            {ciclo?.vencido ? `🧾 Cerrar mercado (día ${ciclo.dia}) — genera PDF y arranca el siguiente` : '🧾 Cerrar mercado anticipadamente'}
-          </button>
-          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setDescartandoId(mercado.id)}
-            title="El mercado no cuenta y no le pasa saldo al siguiente. No se borra nada. El próximo se inicia con «Iniciar mercado».">
-            ⊘ Descartar mercado
+            {ciclo?.vencido ? `🧾 Cerrar mercado (día ${ciclo.dia}) — el saldo pasa al siguiente` : '🧾 Cerrar mercado anticipadamente'}
           </button>
         </div>
       )}
@@ -634,12 +621,13 @@ export function CocinaPage() {
           </>
         }>
           <p style={{ marginTop: 0 }}>
-            Se cierra el mercado <strong>{mercado.numero ?? ''}</strong> ({ciclo ? `día ${ciclo.dia} de ${CICLO_DIAS}` : ''}) y se genera el <strong>reporte del ciclo en PDF</strong> (consumo por víver y lo que queda). El <strong>siguiente mercado arranca con el saldo</strong> de lo que quedó. Queda en el <strong>histórico</strong> de mercados cerrados.
+            Se cierra el mercado <strong>{mercado.numero ?? ''}</strong> ({ciclo ? `día ${ciclo.dia} de ${CICLO_DIAS}` : ''}): <strong>todos sus movimientos</strong> (entradas, comidas y mermas) pasan al <strong>histórico</strong> y quedan congelados, y se genera el <strong>reporte del ciclo en PDF</strong>.
+            <br /><strong>No se descarta nada de la despensa:</strong> lo que quedó es el <strong>saldo inicial del mercado nuevo</strong>, y sobre eso se van sumando las entradas que lleguen.
           </p>
           <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
             <div><div className="muted" style={{ fontSize: '.72rem' }}>Víveres</div><div className="mono" style={{ fontWeight: 700 }}>{num(totMercado?.viveres ?? resMercado.length)}</div></div>
             <div><div className="muted" style={{ fontSize: '.72rem' }}>Consumo total</div><div className="mono" style={{ fontWeight: 700 }}>{money(totMercado?.consumo_valor ?? 0)}</div></div>
-            <div><div className="muted" style={{ fontSize: '.72rem' }}>Pasan al próximo</div><div className="mono" style={{ fontWeight: 700 }}>{num(totMercado?.queda_viveres ?? 0)} víveres</div></div>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Pasan al próximo</div><div className="mono" style={{ fontWeight: 700, color: 'var(--success)' }}>{num(avance.viveresQuePasan)} víveres · {num(avance.unidadesQuePasan)} und</div></div>
           </div>
           <div className="form-row">
             <label>Correo(s) para el reporte <span className="muted">(opcional · separá con coma)</span></label>
@@ -649,94 +637,7 @@ export function CocinaPage() {
         </Modal>
       )}
 
-      {descartandoId && mercado && mercado.id === descartandoId && (
-        <DescartarMercadoModal mercado={mercado} dia={ciclo?.dia ?? null} totales={totMercado}
-          actor={actor} actorName={actorName}
-          onClose={() => setDescartandoId(null)} onDone={alDescartar} />
-      )}
     </div>
-  );
-}
-
-/* ───────────── Descartar el mercado abierto ─────────────
-   Portado de MGG. Descartar no es cerrar: el ciclo queda guardado y marcado, no
-   cuenta y no le pasa saldo al siguiente. Tampoco abre uno nuevo: lo inicia una
-   persona cuando el inventario está como debe. Doble llave, como lo destructivo del
-   resto del sistema: un motivo que explique y el número del mercado escrito a mano. */
-function DescartarMercadoModal({ mercado, dia, totales, actor, actorName, onClose, onDone }: {
-  mercado: Mercado; dia: number | null; totales: TotalesMercado | null;
-  actor: string; actorName: string | null;
-  onClose: () => void; onDone: (m: Mercado) => void | Promise<void>;
-}) {
-  const [motivo, setMotivo] = useState('');
-  const [escrito, setEscrito] = useState('');
-  const [guardando, setGuardando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const clave = claveDescarte(mercado.numero);
-  const motivoOk = motivoValido(motivo);
-  const confirmado = confirmacionValida(escrito, clave);
-  const listo = motivoOk && confirmado && !guardando;
-
-  async function confirmar() {
-    if (!listo) return;
-    setGuardando(true); setError(null);
-    try {
-      const descartado = await descartarMercado(mercado, { actor, actorName, motivo });
-      await onDone(descartado);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo descartar el mercado');
-      setGuardando(false);
-    }
-  }
-
-  return (
-    <Modal title={`⊘ Descartar mercado ${mercado.numero ?? ''}`} size="md" onClose={() => { if (!guardando) onClose(); }} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
-        <button className="btn btn-danger" onClick={() => void confirmar()} disabled={!listo}>
-          {guardando ? 'Descartando…' : '⊘ Descartar'}
-        </button>
-      </>
-    }>
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <div className="card" style={{ borderColor: 'var(--danger)', marginTop: 0, marginBottom: '.75rem' }}>
-        <strong>Esto no se deshace.</strong> El ciclo <strong>deja de contar</strong>: no le pasa saldo al siguiente y sus cifras salen de la cadena.
-      </div>
-      <p className="muted" style={{ marginTop: 0 }}>
-        No se borra nada — las comidas, los movimientos y el resumen quedan donde están, y el ciclo se sigue
-        consultando en «Mercados cerrados» con todas sus cifras. No se abre otro mercado: cuando alguien lo inicie,
-        el <strong>saldo inicial será el stock del instante</strong> en que alguien presione «Iniciar mercado ahora», y
-        solo cuenta lo que pase desde ahí. Mientras tanto, las comidas se registran y descuentan stock, pero no entran
-        en ningún ciclo.
-      </p>
-      <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
-        <div><div className="muted" style={{ fontSize: '.72rem' }}>Ciclo</div><div className="mono" style={{ fontWeight: 700 }}>{dia != null ? `día ${dia} de ${CICLO_DIAS}` : '—'}</div></div>
-        <div><div className="muted" style={{ fontSize: '.72rem' }}>Víveres</div><div className="mono" style={{ fontWeight: 700 }}>{num(totales?.viveres ?? 0)}</div></div>
-        <div><div className="muted" style={{ fontSize: '.72rem' }}>Consumo del ciclo</div><div className="mono" style={{ fontWeight: 700 }}>{money(totales?.consumo_valor ?? 0)}</div></div>
-      </div>
-      <div className="form-row">
-        <label htmlFor="motivo-descarte">Por qué se descarta</label>
-        <textarea id="motivo-descarte" className="textarea" rows={3} value={motivo} disabled={guardando}
-          onChange={(e) => setMotivo(e.target.value)}
-          placeholder="Qué pasó con este ciclo y por qué sus cifras no sirven de punto de partida." />
-        {/* Obligatorio y con un mínimo real: dentro de seis meses, un ciclo que no cuenta y
-            no dice por qué parece un error del sistema en vez de una decisión de alguien. */}
-        {!motivoOk && (
-          <small className="muted" style={{ color: motivo.trim() ? 'var(--danger)' : undefined }}>
-            {motivo.trim()
-              ? `Explicá un poco más: esto queda en el historial (${motivo.trim().length}/${MOTIVO_DESCARTE_MIN}).`
-              : 'Obligatorio.'}
-          </small>
-        )}
-      </div>
-      <div className="form-row">
-        <label htmlFor="clave-descarte">Para confirmar, escribí <strong className="mono">{clave}</strong></label>
-        <input id="clave-descarte" className="input mono" value={escrito} disabled={guardando} autoComplete="off"
-          onChange={(e) => setEscrito(e.target.value)} placeholder={clave}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void confirmar(); } }} />
-        {escrito.trim() !== '' && !confirmado && <small className="muted" style={{ color: 'var(--danger)' }}>No coincide.</small>}
-      </div>
-    </Modal>
   );
 }
 
