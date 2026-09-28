@@ -3,7 +3,7 @@
 
    Portado de MGG (MercadoPanel). Las mismas capas y el mismo dibujo; las
    cuentas viven en mercadoPanel.ts:
-     · EcuacionMercado: los cinco números del ciclo, lo que costó el plato y el
+     · EcuacionMercado: los números del ciclo en tarjetas, lo que costó el plato y el
        contraste con el inventario, que aparece SOLO si no cuadra. Un «0» que
        tranquiliza ocupa lugar y enseña a no mirar.
      · SelectorVista: Disponible, Movimientos o Ambos.
@@ -44,9 +44,9 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
   const abierto = mercado.estado === 'abierto';
 
   return (
-    <div className="card" style={{ margin: '.3rem 0 .7rem', padding: '.8rem 1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.35rem' }}>
-        <strong style={{ fontSize: '.95rem' }}>Mercado {mercado.numero ?? ''}</strong>
+    <div style={{ margin: '.3rem 0 .9rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
+        <strong style={{ fontSize: '.95rem' }}>🛒 Mercado {mercado.numero ?? ''}</strong>
         <span className="muted" style={{ fontSize: '.78rem' }} title={`Inició ${dateTime(mercado.inicio_at)}`}>
           {dmy(mercado.inicio_at)} → {mercado.cierre_at ? dmy(mercado.cierre_at) : 'en curso'}
           {!abierto && (esDescartado(mercado) ? ' · descartado' : ' · cerrado')}
@@ -58,35 +58,36 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '.5rem' }}>
-        <Cifra rotulo="Saldo inicial" valor={num(ec.saldoInicial)} />
-        <Cifra rotulo="+ Entradas" valor={num(ec.entradas)} color="var(--primary-3, #2ecc71)" />
-        <Cifra rotulo="= Disponible" valor={num(ec.disponible)} fuerte />
-        <Cifra rotulo="− Consumo" valor={num(ec.consumo)} color="var(--danger)" />
+      {/* La cuenta del ciclo, en UNIDADES, en tarjetas como el resto del sistema
+          (28/09/2026, pedido del usuario: la franja de números apretados volvió al
+          dibujo de tarjetas que tenía Cocina antes, con la información de ahora). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: '.7rem' }}>
+        <Tarjeta rotulo="Saldo inicial" valor={num(ec.saldoInicial)} nota="lo que quedó del ciclo anterior" />
+        <Tarjeta rotulo="+ Entradas" valor={num(ec.entradas)} color="var(--primary-3, #2ecc71)" nota="compras del ciclo" />
+        <Tarjeta rotulo="= Disponible" valor={num(ec.disponible)} fuerte nota="saldo + entradas" />
+        <Tarjeta rotulo="− Consumo" valor={num(ec.consumo)} color="var(--danger)" nota="servido en comidas" />
         {/* Las pérdidas restan en la cuenta a la vista, pero no son comida servida: no van
             al costo por plato de abajo (decisión del usuario, 15/09/2026). */}
-        <Cifra rotulo="− Mermas / salidas" valor={num(ec.mermas)} color="var(--warning)" />
+        <Tarjeta rotulo="− Mermas / salidas" valor={num(ec.mermas)} color="var(--warning)" nota="dañado, ajustes y traslados" />
         {/* Sin «=», a diferencia de MGG: en GT «Queda» no sale de la cuenta, es el stock. */}
-        <Cifra rotulo={abierto ? 'Queda en inventario' : 'Quedó en inventario'} valor={num(ec.queda)} fuerte color="var(--primary-3, #2ecc71)" />
+        <Tarjeta rotulo={abierto ? 'Queda en inventario' : 'Quedó en inventario'} valor={num(ec.queda)} fuerte
+          color="var(--primary-3, #2ecc71)" nota={abierto ? 'pasa al próximo mercado' : 'pasó al próximo mercado'} />
       </div>
 
-      {/* Lo que costó dar de comer. La ecuación se lee en UNIDADES y sirve para cuadrar
-          el almacén; esta línea responde la pregunta del presupuesto. Va como línea
-          secundaria: son otra unidad y mezclarlas con los kilos haría leer mal las dos. */}
-      <div style={{
-        marginTop: '.6rem', paddingTop: '.55rem', borderTop: '1px solid var(--border)',
-        display: 'flex', gap: '1.4rem', flexWrap: 'wrap', alignItems: 'baseline',
-      }}>
-        {costo.platos != null && <Costo rotulo="Platos servidos" valor={num(costo.platos)} />}
-        <Costo rotulo="Costo del consumo" valor={money(costo.consumo)} color="var(--danger)" />
+      {/* Lo que costó dar de comer. La cuenta de arriba se lee en UNIDADES y sirve para
+          cuadrar el almacén; esta fila responde la pregunta del presupuesto. Va aparte:
+          son otra unidad y mezclarlas con los kilos haría leer mal las dos. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: '.7rem', marginTop: '.7rem' }}>
+        {costo.platos != null && <Tarjeta rotulo="Platos servidos" valor={num(costo.platos)} nota="en este ciclo" />}
+        <Tarjeta rotulo="Costo del consumo" valor={money(costo.consumo)} color="var(--danger)" nota="víveres servidos" />
         {costo.platos != null && (
-          <Costo rotulo="Costo por plato" valor={costo.porPlato != null ? money(costo.porPlato) : '—'} color="var(--warning)" fuerte
-            nota={costo.porPlato == null ? 'todavía no se sirvió ningún plato' : undefined} />
+          <Tarjeta rotulo="Costo por plato" valor={costo.porPlato != null ? money(costo.porPlato) : '—'} color="var(--warning)" destacado
+            nota={costo.porPlato == null ? 'todavía no se sirvió ningún plato' : 'consumo ÷ platos'} />
         )}
       </div>
 
       {ec.viveresConDiferencia > 0 && (
-        <div style={{ marginTop: '.6rem', paddingTop: '.55rem', borderTop: '1px solid var(--border)', fontSize: '.83rem' }}>
+        <div className="card" style={{ marginTop: '.7rem', borderColor: 'var(--warning)', padding: '.55rem .8rem', fontSize: '.83rem' }}>
           ⚠ Según la cuenta del ciclo {abierto ? 'deberían quedar' : 'debían quedar'} <strong className="mono">{num(ec.cuenta)}</strong>
           {ec.diferencia !== 0 ? (
             <>
@@ -110,23 +111,19 @@ export function EcuacionMercado({ mercado, items, platos, consumoValor, ciclo, s
   );
 }
 
-/** Un número de la ecuación, con su rótulo debajo. */
-function Cifra({ rotulo, valor, color, fuerte }: { rotulo: string; valor: string; color?: string; fuerte?: boolean }) {
+/** Una cifra del ciclo, con el mismo dibujo que los demás KPI del sistema. */
+function Tarjeta({ rotulo, valor, nota, color, fuerte, destacado }: {
+  rotulo: string; valor: string; nota?: string; color?: string;
+  /** Número más grande: los dos que se miran primero (Disponible y Queda). */
+  fuerte?: boolean;
+  /** Borde de marca, como el KPI destacado del resto del sistema. */
+  destacado?: boolean;
+}) {
   return (
-    <div>
-      <div className="mono" style={{ fontSize: fuerte ? '1.35rem' : '1.15rem', fontWeight: fuerte ? 800 : 700, color }}>{valor}</div>
-      <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.02em' }}>{rotulo}</div>
-    </div>
-  );
-}
-
-/** Un número en dinero o platos: rótulo primero, porque acá el rótulo es lo que desambigua. */
-function Costo({ rotulo, valor, color, fuerte, nota }: { rotulo: string; valor: string; color?: string; fuerte?: boolean; nota?: string }) {
-  return (
-    <div>
-      <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.02em' }}>{rotulo}</div>
-      <div className="mono" style={{ fontSize: fuerte ? '1.2rem' : '1.05rem', fontWeight: fuerte ? 800 : 700, color }}>{valor}</div>
-      {nota && <div className="muted" style={{ fontSize: '.68rem' }}>{nota}</div>}
+    <div className="card" style={{ padding: '.6rem .75rem', borderColor: destacado ? 'var(--brand, #ff8a00)' : undefined }}>
+      <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>{rotulo}</div>
+      <div className="mono" style={{ fontSize: fuerte ? '1.5rem' : '1.3rem', fontWeight: 800, color }}>{valor}</div>
+      {nota && <div className="muted" style={{ fontSize: '.7rem' }}>{nota}</div>}
     </div>
   );
 }
