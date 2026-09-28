@@ -24,6 +24,7 @@ import {
 import { LeyendaCocina } from './LeyendaCocina';
 import { avanceCierre } from './mercadoCierre';
 import { EcuacionMercado, SelectorVista, TablaDisponible } from './PanelMercado';
+import { MovimientosInventario } from './MovimientosInventario';
 import { diferenciasPorViver, explicarDiferencia, guardarVista, vistaGuardada, type VistaMercado } from './mercadoPanel';
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
@@ -97,6 +98,9 @@ export function CocinaPage() {
   const [vista, setVista] = useState<VistaMercado>(() => vistaGuardada());
   const [soloDif, setSoloDif] = useState(false);
   const [verBajos, setVerBajos] = useState(false);
+  // Sube en cada recarga (y con Realtime): la tabla de entradas y salidas lee el kardex
+  // por su cuenta y así se entera de un movimiento nuevo sin recargar la pantalla.
+  const [recarga, setRecarga] = useState(0);
   function elegirVista(v: VistaMercado) { setVista(v); guardarVista(v); }
 
   async function enviarAlertaMercado() {
@@ -166,7 +170,8 @@ export function CocinaPage() {
   }, [fDesde, fHasta, fTipo]);
 
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'cocina_mercados'], () => { void cargar(); });
+  useEffect(() => { setRecarga((v) => v + 1); }, [cargar]);
+  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'cocina_mercados'], () => { void cargar(); setRecarga((v) => v + 1); });
 
   // Búsqueda general (cliente): código, tipo, nota, fecha/hora, productos.
   const movsFiltrados = useMemo(() => {
@@ -397,7 +402,13 @@ export function CocinaPage() {
         <KpiCard titulo="Víveres en catálogo" valor={num(viveres.length)} nota="productos disponibles" />
       </div>
 
-      {/* Filtros de la tabla */}
+      {/* Entradas, salidas y ajustes del inventario en el ciclo (28/09/2026, pedido del
+          usuario). Van ANTES de las comidas: primero qué entró y qué salió del almacén,
+          después qué se sirvió. Los dos totales de su cabecera son los mismos que las
+          tarjetas «+ Entradas» y «− Mermas / salidas» del panel. */}
+      {mercado && <MovimientosInventario mercado={mercado} viveres={viveres} recargar={recarga} />}
+
+      {/* Filtros de la tabla de comidas */}
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-row" style={{ margin: 0 }}>
@@ -429,7 +440,7 @@ export function CocinaPage() {
         </div>
       </div>
 
-      {/* Tabla de movimientos por tipo de comida */}
+      {/* Tabla de comidas servidas, por tipo */}
       {loading ? (
         <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div>
       ) : movsFiltrados.length === 0 ? (

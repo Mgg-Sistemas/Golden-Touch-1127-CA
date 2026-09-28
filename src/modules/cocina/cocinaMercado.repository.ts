@@ -12,6 +12,7 @@ import { listViveres } from './cocina.repository';
 import { movimientosDeViver, saldoParaElNuevo, tieneCongelados, type MovimientosCiclo } from './mercadoCierre';
 import { reconstruirSaldo, resolverInicio } from './mercadoInicio';
 import { sumarConsumoCocina, sumarMermas, type MovimientoConsumo, type MovimientoParaMerma } from './mercadoPanel';
+import { filasInventario, type FilaKardex, type MovInventario } from './movInventario';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 
 const TABLE = 'cocina_mercados';
@@ -575,4 +576,40 @@ export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO
     };
   });
   return { entradas, consumos, mermas };
+}
+
+/* ───────── Las entradas y salidas del ciclo, para la pantalla (28/09/2026) ─────────
+   Pedido del usuario: que lo que se ve en Alimentación coincida con Inventario. Los
+   totales ya salían del mismo kardex; lo que faltaba eran las FILAS detrás. Un ciclo
+   cerrado las lee de su foto congelada, así el histórico no cambia. */
+
+/** Las entradas, salidas y ajustes de víveres del ciclo (las comidas van aparte). */
+export async function listMovInventarioCiclo(
+  m: Mercado, viveres: Producto[], hastaISO?: string,
+): Promise<MovInventario[]> {
+  const secos = viveres.map((p) => ({ id: p.id, nombre: p.nombre, unidad: p.unidad ?? null }));
+
+  // Ciclo cerrado con su foto: se lee de ahí, como el detalle del víver.
+  if (tieneCongelados(m)) {
+    const mv = m.movimientos!;
+    const crudas: FilaKardex[] = [
+      ...mv.entradas.map((x, i) => ({
+        id: `e${i}`, producto_id: x.producto_id, delta: x.cantidad, at: x.fecha,
+        tipo: 'entrada', ref_codigo: x.ref ?? null, detalle: x.detalle ?? null,
+      })),
+      ...mv.mermas.map((x, i) => ({
+        id: `m${i}`, producto_id: x.producto_id, delta: -Math.abs(x.cantidad), at: x.fecha,
+        // En la foto, `ref` guarda el tipo del kardex y `detalle` el motivo.
+        tipo: x.ref ?? 'salida', detalle: x.detalle ?? null,
+      })),
+    ];
+    return filasInventario(crudas, secos);
+  }
+
+  const hasta = hastaISO ?? m.cierre_at ?? new Date().toISOString();
+  const filas = await todasLasFilas<FilaKardex>((a, b) =>
+    supabase.from('movimientos').select('id, producto_id, delta, at, tipo, ref_tipo, ref_codigo, detalle, actor_name, actor')
+      .or(NO_COCINA).gte('at', m.inicio_at).lte('at', hasta)
+      .order('at', { ascending: false }).order('id').range(a, b));
+  return filasInventario(filas, secos);
 }
