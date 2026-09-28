@@ -33,6 +33,7 @@ import {
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { SurtidorReporteMovil } from './SurtidorReporteMovil';
+import { enlaceWhatsapp, mensajeMovimiento } from './mensajeMovimiento';
 
 /** Clave del rol que trabaja solo desde esta pantalla. */
 export const ROL_SURTIDOR = 'combustible';
@@ -82,13 +83,14 @@ export function SurtidorMovilView() {
 
   // Solo los últimos 10 del tanque, del más nuevo al más viejo: en el teléfono no se
   // lee un libro mayor, se mira lo que acaba de pasar.
-  const reloadMovs = useCallback(async (id: string) => {
-    if (!id) { setMovs([]); setConteo(new Map()); return; }
+  const reloadMovs = useCallback(async (id: string): Promise<MovimientoTanque[]> => {
+    if (!id) { setMovs([]); setConteo(new Map()); return []; }
     const todos = await listMovimientosTanque(id);
     const ultimos = todos.slice(-ULTIMOS_EN_TELEFONO).reverse();
     setMovs(ultimos);
     try { setConteo(await adjuntosCombustible.contar(MODULO_ADJUNTO_TANQUE, ultimos.map((m) => m.id))); }
     catch { /* el contador de fotos es adorno: sin él la lista se muestra igual */ }
+    return ultimos;
   }, []);
 
   useEffect(() => {
@@ -173,7 +175,14 @@ export function SurtidorMovilView() {
         <FormularioSurtido key={`${sel.id}-${tipo}`} tipo={tipo} tanque={sel} tanques={tanques} catalogos={catalogos}
           actor={actor} actorName={actorName}
           onCancel={() => setPaso('inicio')}
-          onSaved={async () => { setPaso('inicio'); await reloadBase().catch(() => {}); await reloadMovs(sel.id).catch(() => {}); }} />
+          onSaved={async (movId) => {
+            setPaso('inicio');
+            await reloadBase().catch(() => {});
+            const lista = await reloadMovs(sel.id).catch(() => [] as MovimientoTanque[]);
+            // Se abre el detalle de lo recién cargado: es donde está el botón para pasarlo por WhatsApp.
+            const nuevo = movId ? (lista ?? []).find((m) => m.id === movId) : null;
+            if (nuevo) setDetalle(nuevo);
+          }} />
       )}
 
       {sel && (
@@ -218,7 +227,7 @@ export function SurtidorMovilView() {
 /* ───────────── Formulario: surtido, traslado, entrada o merma ───────────── */
 function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName, onCancel, onSaved }: {
   tipo: TipoSurtidor; tanque: TanqueCombustible; tanques: TanqueCombustible[]; catalogos: CatalogoCombustible[];
-  actor: string; actorName: string | null; onCancel: () => void; onSaved: () => Promise<void>;
+  actor: string; actorName: string | null; onCancel: () => void; onSaved: (movId?: string) => Promise<void>;
 }) {
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
   const sale = tipo !== 'entrada';
@@ -294,7 +303,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         for (const f of r.fallos) toast(`Movimiento guardado, pero una foto no se pudo subir: ${f}`, 'error');
       }
       toast(`${TITULO[tipo]}: registrado`, 'success');
-      await onSaved();
+      await onSaved(movId);
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo registrar.'); }
     finally { setGuardando(false); }
   }
@@ -496,6 +505,9 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost btn-grande" onClick={onClose}>🖥 Corregir en la PC</Link>}
         <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
       </>}>
+      <CompartirMovimiento mov={mov} tanque={tanque?.nombre} tanqueDestino={destino}
+        registradoPor={mov.actor_name || mov.created_by} />
+
       <div className="surt-detalle">
         <Fila k="Tanque" v={tanque?.nombre} />
         <Fila k="Fecha" v={`${date(mov.fecha)}${mov.hora ? ` · ${mov.hora}` : ''}`} />
@@ -532,5 +544,46 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         Acá se agregan o quitan fotos, o se borra el movimiento completo. Los litros, el equipo, la hora y los medidores se corrigen desde el módulo de Combustible en la PC; el cambio se ve acá al instante.
       </small>
     </Modal>
+  );
+}
+
+/* ───────────── Pasar el movimiento por WhatsApp ─────────────
+   El que surte manda el aviso al grupo apenas carga el surtido. El botón
+   verde abre WhatsApp con el mensaje escrito; «Copiar» sirve cuando se
+   quiere pegar en otro lado (un correo, una nota). Si el teléfono tiene el
+   menú de compartir de Android/iOS, se usa ese. */
+function CompartirMovimiento({ mov, tanque, tanqueDestino, registradoPor }: {
+  mov: MovimientoTanque; tanque?: string | null; tanqueDestino?: string | null; registradoPor?: string | null;
+}) {
+  const [copiado, setCopiado] = useState(false);
+  const texto = mensajeMovimiento({ mov, tanque, tanqueDestino, registradoPor });
+
+  async function copiar() {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(texto);
+      else {
+        // Navegador viejo o sin permiso: se copia con un textarea escondido.
+        const ta = document.createElement('textarea');
+        ta.value = texto; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      }
+      setCopiado(true);
+      toast('Mensaje copiado', 'success');
+      setTimeout(() => setCopiado(false), 2500);
+    } catch { toast('No se pudo copiar. Mantené el dedo sobre el texto para copiarlo.', 'error'); }
+  }
+
+  return (
+    <div className="surt-compartir">
+      <div className="surt-compartir-txt">{texto}</div>
+      <div className="surt-compartir-btns">
+        <a className="btn btn-wsp btn-grande" href={enlaceWhatsapp(texto)} target="_blank" rel="noopener noreferrer">
+          📲 Enviar por WhatsApp
+        </a>
+        <button type="button" className="btn btn-ghost btn-grande" onClick={() => void copiar()}>
+          {copiado ? '✅ Copiado' : '📋 Copiar'}
+        </button>
+      </div>
+    </div>
   );
 }
