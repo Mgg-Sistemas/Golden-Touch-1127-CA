@@ -11,6 +11,7 @@ import {
 import { descargarCocinaCierrePdf } from './cocinaCierrePdf';
 import { enviarCierreCocinaPorCorreo } from './enviarCierreCocina';
 import { esDescartado } from './mercadoDescarte';
+import { contarMovimientos, tieneCongelados } from './mercadoCierre';
 import { EcuacionMercado, TablaDisponible } from './PanelMercado';
 
 const dmy = (iso?: string | null): string => {
@@ -157,6 +158,7 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
           <div className="muted" style={{ fontSize: '.82rem' }}>
             Ciclo <strong>{dmy(ver.inicio_at)} → {dmy(ver.cierre_at)}</strong> · {esDescartado(ver) ? 'descartado' : 'cerrado'} {dateTime(ver.cierre_at ?? ver.created_at)}
             {ver.cerrado_por ? ` · por ${ver.cerrado_por}` : ''} · consumo total <strong className="mono">{money(consumoValor)}</strong>
+            {tieneCongelados(ver) && <> · <strong>{contarMovimientos(ver.movimientos)}</strong> movimientos guardados en el histórico</>}
           </div>
 
           {esDescartado(ver) && (
