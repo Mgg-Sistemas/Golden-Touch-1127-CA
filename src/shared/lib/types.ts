@@ -1405,6 +1405,23 @@ export interface Personal {
   alergias_detalle?: string | null;
   tiene_enfermedad?: boolean | null;
   enfermedad_detalle?: string | null;
+  /**
+   * Grado de instrucción de la hoja de ingreso y el título que obtuvo
+   * (28/09/2026). El título cuelga del grado: sin grado marcado no se guarda,
+   * porque un título suelto no se sabe si creer (ver instruccionYTrabajo.ts).
+   */
+  grado_instruccion?: 'primaria' | 'bachiller' | 'universitario' | null;
+  titulo_obtenido?: string | null;
+  /**
+   * El último trabajo, como lo cuenta la persona en la hoja de ingreso: dónde
+   * estuvo, qué cargo tenía, cuánto duró y cuánto cobraba. La DURACIÓN es
+   * texto a propósito («2 años y 3 meses», «de 2021 a 2024»): pedir dos fechas
+   * exactas deja el campo vacío cuando no las recuerda, que es lo habitual.
+   */
+  trabajo_anterior_empresa?: string | null;
+  trabajo_anterior_cargo?: string | null;
+  trabajo_anterior_duracion?: string | null;
+  trabajo_anterior_sueldo?: number | null;
   /** Contacto de emergencia: nombre, parentesco y teléfono (van al carnet y al QR). */
   contacto_emergencia?: string | null;
   contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;

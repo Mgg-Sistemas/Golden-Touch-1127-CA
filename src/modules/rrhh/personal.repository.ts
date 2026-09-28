@@ -15,6 +15,7 @@ import { compararFicha, errorFicha, normalizarFicha } from './fichaNro';
 import { errorCorreo, normalizarCorreo } from './correoPersonal';
 import { normalizarCondicion } from './saludPersonal';
 import { esNeutro, normalizarEncuadre, type Encuadre } from './encuadreFoto';
+import { normalizarInstruccion, normalizarTrabajo } from './instruccionYTrabajo';
 
 const TABLE = 'personal';
 
@@ -46,6 +47,16 @@ export function ordenarPorFicha(lista: Personal[]): Personal[] {
     compararFicha(a.ficha_nro, b.ficha_nro) || nombreDe(a).localeCompare(nombreDe(b), 'es'));
 }
 
+/** Los cuatro datos del último trabajo, como los junta el formulario. */
+function trabajoDe(input: PersonalInput) {
+  return {
+    empresa: input.trabajo_anterior_empresa,
+    cargo: input.trabajo_anterior_cargo,
+    duracion: input.trabajo_anterior_duracion,
+    sueldo: input.trabajo_anterior_sueldo,
+  };
+}
+
 export interface PersonalInput {
   nombre: string;
   apellido?: string;
@@ -75,6 +86,12 @@ export interface PersonalInput {
   grupo_sanguineo?: string | null;
   nacionalidad?: string | null;
   direccion?: string | null;
+  grado_instruccion?: 'primaria' | 'bachiller' | 'universitario' | null;
+  titulo_obtenido?: string | null;
+  trabajo_anterior_empresa?: string | null;
+  trabajo_anterior_cargo?: string | null;
+  trabajo_anterior_duracion?: string | null;
+  trabajo_anterior_sueldo?: number | null;
 }
 
 function payload(input: PersonalInput) {
@@ -128,6 +145,13 @@ function baseSinSueldo(input: PersonalInput, soloDefinidos = false) {
     grupo_sanguineo: input.grupo_sanguineo?.trim() || null,
     nacionalidad: input.nacionalidad?.trim() || null,
     direccion: input.direccion?.trim() || null,
+    // El título cuelga del grado, igual que el detalle de una alergia cuelga del «sí».
+    grado_instruccion: normalizarInstruccion(input.grado_instruccion, input.titulo_obtenido).grado,
+    titulo_obtenido: normalizarInstruccion(input.grado_instruccion, input.titulo_obtenido).titulo,
+    trabajo_anterior_empresa: normalizarTrabajo(trabajoDe(input)).empresa,
+    trabajo_anterior_cargo: normalizarTrabajo(trabajoDe(input)).cargo,
+    trabajo_anterior_duracion: normalizarTrabajo(trabajoDe(input)).duracion,
+    trabajo_anterior_sueldo: normalizarTrabajo(trabajoDe(input)).sueldo,
   };
   if (!soloDefinidos) return todo;
   // Las claves de `todo` y las de PersonalInput son las mismas, así que se

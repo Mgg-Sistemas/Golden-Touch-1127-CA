@@ -14,6 +14,7 @@ import type { Personal, PersonalFamiliar } from '@/shared/lib/types';
 import { fotoPersonalDataUrl } from './personal.repository';
 import { etiquetaFicha } from './fichaNro';
 import { textoCondicion } from './saludPersonal';
+import { labelGrado } from './instruccionYTrabajo';
 import {
   antiguedad, edad, labelEmpresa, labelEstadoCivil, labelGenero, labelParentesco,
 } from './fichaPersonal';
@@ -123,6 +124,18 @@ export async function descargarFichaTecnicaPdf(
   bloque('CONDICIONES DE SALUD', [
     ['Alergias', textoCondicion(persona.tiene_alergias, persona.alergias_detalle)],
     ['Enfermedad', textoCondicion(persona.tiene_enfermedad, persona.enfermedad_detalle)],
+  ]);
+
+  // Lo que declaró al ingresar (28/09/2026). Va ANTES de los datos laborales de
+  // la empresa: primero de dónde viene, después qué hace acá.
+  bloque('INSTRUCCION Y EXPERIENCIA', [
+    ['Grado de instruccion', persona.grado_instruccion ? labelGrado(persona.grado_instruccion) : '—'],
+    ['Titulo obtenido', texto(persona.titulo_obtenido)],
+    ['Ultimo trabajo', texto(persona.trabajo_anterior_empresa)],
+    ['Cargo que ocupaba', texto(persona.trabajo_anterior_cargo)],
+    ['Cuanto duro', texto(persona.trabajo_anterior_duracion)],
+    ['Ultimo sueldo', persona.trabajo_anterior_sueldo != null
+      ? `$ ${Number(persona.trabajo_anterior_sueldo).toFixed(2)}` : '—'],
   ]);
 
   bloque('DATOS LABORALES', [

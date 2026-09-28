@@ -2,11 +2,17 @@
    Golden Touch · RRHH · Hoja de ingreso y registro de personal (PDF)
 
    Planilla EN BLANCO que se le entrega a quien ingresa para que la complete
-   a mano, y que después alimenta la ficha del sistema. Son DOS hojas:
+   a mano, y que después alimenta la ficha del sistema. Son TRES hojas:
 
    · HOJA 1: los datos de la persona (personales, condiciones de salud, carga
-     familiar y contacto de emergencia), con la declaración y la firma.
-   · HOJA 2: DOCUMENTOS A CONSIGNAR POR OFICINA. La lista de papeles que hay
+     familiar y contacto de emergencia).
+   · HOJA 2: INSTRUCCIÓN Y EXPERIENCIA LABORAL (28/09/2026, pedido del
+     usuario): el grado de instrucción por casillas —primaria, bachiller,
+     universitario— con el título obtenido, y el último trabajo: dónde estuvo,
+     qué cargo tenía, cuánto duró y cuánto cobraba, más lugar para los trabajos
+     anteriores. Acá van la declaración y la firma, que cierran TODOS los datos
+     de la persona: por eso están al final de esta hoja y no de la primera.
+   · HOJA 3: DOCUMENTOS A CONSIGNAR POR OFICINA. La lista de papeles que hay
      que entregar, por segmentos, que la oficina va tildando a medida que los
      recibe. La lista vive en `documentosAConsignar.ts`.
 
@@ -26,10 +32,10 @@
    Todo el texto es fijo: no lleva datos de nadie, son las planillas vacías.
 
    POR QUÉ LAS MEDIDAS SON TAN JUSTAS. La hoja 1 entra en UNA carta y tiene
-   que seguir entrando: cada renglón mide `ALTO_CAMPO`, y lo que sobra al pie
-   es el hueco para firmar. Si se agrega un campo hay que medir de nuevo —lo
-   que no entra se va a una hoja suelta con la firma sola, que es peor que no
-   agregarlo.
+   que seguir entrando: cada renglón mide `ALTO_CAMPO`. Con las cuatro
+   secciones de datos ya queda a menos de 50 pt del pie, así que lo que se
+   agregue de acá en más va en la hoja 2, que sí tiene aire. Un campo de más en
+   la hoja 1 empuja el contenido fuera del papel sin que nadie lo note.
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -152,6 +158,42 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
     return y + 17;
   }
 
+  /**
+   * Una tabla vacía para llenar a mano: encabezado gris, `filas` renglones y
+   * las divisiones de columna. Devuelve dónde termina.
+   *
+   * La usan la carga familiar y los trabajos anteriores. Antes estaba escrita
+   * a mano en la carga familiar; al necesitarla dos veces se sacó acá, porque
+   * dos copias de un dibujo con medidas se desincronizan a la primera
+   * corrección.
+   */
+  function tablaEnBlanco(cols: { titulo: string; ancho: number }[], y0: number, filas: number): number {
+    doc.setFillColor(243, 244, 246);
+    doc.rect(MARGIN, y0 - 10, ANCHO, 16, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    doc.setTextColor(60, 60, 60);
+    let colX = MARGIN;
+    for (const c of cols) {
+      doc.text(c.titulo.toUpperCase(), colX + 5, y0 + 1);
+      colX += c.ancho;
+    }
+    doc.setTextColor(20, 20, 20);
+    const arriba = y0 - 10;
+    const primera = y0 + 6;
+
+    doc.setDrawColor(170, 170, 170);
+    doc.setLineWidth(0.5);
+    for (let f = 0; f <= filas; f++) doc.line(MARGIN, primera + f * ALTO_FILA, MARGIN + ANCHO, primera + f * ALTO_FILA);
+    const abajo = primera + filas * ALTO_FILA;
+    colX = MARGIN;
+    for (let c = 0; c <= cols.length; c++) {
+      doc.line(colX, arriba, colX, abajo);
+      if (c < cols.length) colX += cols[c].ancho;
+    }
+    doc.line(MARGIN, arriba, MARGIN + ANCHO, arriba);
+    return abajo;
+  }
+
   /* ════════════════ HOJA 1 · Los datos de la persona ════════════════ */
   let y = membrete(MARGIN);
   y = titulo(y, 'HOJA DE INGRESO Y REGISTRO DE PERSONAL',
@@ -257,35 +299,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   ];
   const FILAS = 4;
 
-  // Encabezado de la tabla.
-  doc.setFillColor(243, 244, 246);
-  doc.rect(MARGIN, y - 10, ANCHO, 16, 'F');
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
-  doc.setTextColor(60, 60, 60);
-  let colX = MARGIN;
-  for (const c of COLS) {
-    doc.text(c.titulo.toUpperCase(), colX + 5, y + 1);
-    colX += c.ancho;
-  }
-  doc.setTextColor(20, 20, 20);
-  const tablaY = y - 10;
-  y += 6;
-
-  // Las filas vacías.
-  doc.setDrawColor(170, 170, 170);
-  doc.setLineWidth(0.5);
-  for (let f = 0; f <= FILAS; f++) {
-    const ly = y + f * ALTO_FILA;
-    doc.line(MARGIN, ly, MARGIN + ANCHO, ly);
-  }
-  const tablaFin = y + FILAS * ALTO_FILA;
-  colX = MARGIN;
-  for (let c = 0; c <= COLS.length; c++) {
-    doc.line(colX, tablaY, colX, tablaFin);
-    if (c < COLS.length) colX += COLS[c].ancho;
-  }
-  doc.line(MARGIN, tablaY, MARGIN + ANCHO, tablaY);
-  y = tablaFin + 14;
+  y = tablaEnBlanco(COLS, y, FILAS) + 14;
 
   // ─── 4. Contacto de emergencia ───
   y = seccion(doc, MARGIN, y, '4. Contacto en caso de emergencia');
@@ -298,11 +312,73 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   campo(doc, COL2_X, y, COL, 'Teléfono fijo / trabajo');
   y += ALTO_CAMPO + 6;
 
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  doc.text('Continúa en la hoja siguiente: instrucción, experiencia laboral y firma.', MARGIN, y + 4);
+  doc.setTextColor(20, 20, 20);
+
+  /* ════════════════ HOJA 2 · Instrucción y experiencia laboral ════════════════
+     Pedido del usuario (28/09/2026). Va en hoja aparte porque la hoja 1 ya
+     cerraba a menos de 50 pt del pie: meter acá estos renglones empujaba la
+     firma fuera del papel. */
+  doc.addPage();
+  y = membrete(MARGIN);
+  y = titulo(y, 'INSTRUCCIÓN Y EXPERIENCIA LABORAL',
+    'Marque su grado de instrucción e indique el título obtenido y su empleo anterior.');
+
+  // ─── 5. Grado de instrucción ───
+  y = seccion(doc, MARGIN, y, '5. Grado de instrucción');
+
+  rotulo(doc, MARGIN, y, 'Marque el grado alcanzado');
+  let gx = MARGIN;
+  for (const opcion of ['Primaria', 'Bachiller', 'Universitario']) {
+    gx = casilla(doc, gx, y + 15, opcion, 10) + 16;
+  }
+  y += ALTO_CAMPO + 4;
+
+  campo(doc, MARGIN, y, ANCHO, 'Título obtenido (escriba el nombre completo del título)');
+  y += ALTO_CAMPO;
+
+  campo(doc, MARGIN, y, COL, 'Institución donde estudió');
+  campo(doc, COL2_X, y, COL, 'Año de egreso');
+  y += ALTO_CAMPO + 6;
+
+  // ─── 6. Último trabajo ───
+  y = seccion(doc, MARGIN, y, '6. Último trabajo');
+
+  campo(doc, MARGIN, y, COL, '¿Dónde trabajó? (nombre de la empresa)');
+  campo(doc, COL2_X, y, COL, 'Cargo que ocupaba');
+  y += ALTO_CAMPO;
+
+  campo(doc, MARGIN, y, COL, '¿Cuánto tiempo duró? (ej. 2 años y 3 meses)');
+  campo(doc, COL2_X, y, COL, 'Último sueldo que cobró');
+  y += ALTO_CAMPO;
+
+  campo(doc, MARGIN, y, COL, 'Motivo de salida');
+  campo(doc, COL2_X, y, COL, 'Teléfono de referencia');
+  y += ALTO_CAMPO + 6;
+
+  // ─── 7. Trabajos anteriores ───
+  // Una tabla igual a la de carga familiar: se llenan los que haya, y si no hay
+  // se deja en blanco. Sin esto, quien tiene tres empleos anteriores los escribe
+  // apretados en el margen del renglón de arriba.
+  y = seccion(doc, MARGIN, y, '7. Otros trabajos anteriores (si los tuvo)');
+
+  const COLS_TRABAJO = [
+    { titulo: 'Empresa', ancho: ANCHO * 0.34 },
+    { titulo: 'Cargo', ancho: ANCHO * 0.26 },
+    { titulo: 'Tiempo que duró', ancho: ANCHO * 0.22 },
+    { titulo: 'Último sueldo', ancho: ANCHO * 0.18 },
+  ];
+  y = tablaEnBlanco(COLS_TRABAJO, y, 4) + 14;
+
   // ─── Declaración y firma ───
+  // Cierran TODOS los datos de la persona, por eso van al final de esta hoja y
+  // no de la primera: quien firma ya leyó todo lo que declara.
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
   doc.setTextColor(60, 60, 60);
-  const declaracion = 'Declaro bajo juramento que todos los datos aquí asentados son correctos, verídicos y '
-    + 'actualizados, autorizando a la empresa a verificar su autenticidad si así lo requiere.';
+  const declaracion = 'Declaro bajo juramento que todos los datos aquí asentados —en esta hoja y en la anterior— '
+    + 'son correctos, verídicos y actualizados, autorizando a la empresa a verificar su autenticidad si así lo requiere.';
   const lineas = doc.splitTextToSize(declaracion, ANCHO) as string[];
   doc.text(lineas, MARGIN, y);
   const finDeclaracion = y + lineas.length * 11;
@@ -315,9 +391,8 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   const firmaY = PISO - 16;
   const HUECO_MIN = 36;
   if (firmaY - finDeclaracion < HUECO_MIN) {
-    // No debería pasar con el contenido fijo de esta planilla; si alguien agrega
-    // campos y deja de entrar, es preferible una hoja más a una firma pisando
-    // el texto.
+    // Si alguien agrega campos y deja de entrar, es preferible una hoja más a
+    // una firma pisando el texto.
     doc.addPage();
   }
 
@@ -332,7 +407,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   doc.text('Fecha de entrega', PAGE_W - MARGIN - firmaW * 0.7, firmaY + 12);
   doc.setTextColor(20, 20, 20);
 
-  /* ════════════════ HOJA 2 · Documentos a consignar ════════════════ */
+  /* ════════════════ HOJA 3 · Documentos a consignar ════════════════ */
   doc.addPage();
   y = membrete(MARGIN);
   y = titulo(y, 'DOCUMENTOS A CONSIGNAR POR OFICINA',
