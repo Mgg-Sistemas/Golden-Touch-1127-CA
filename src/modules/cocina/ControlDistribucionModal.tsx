@@ -31,6 +31,9 @@ import {
   ordenarPorUrgencia, type Control, type ControlProducto, type ParametrosGenerales,
 } from './controlDistribucion.repository';
 import { descargarControlDistribucionPdf } from './controlDistribucionPdf';
+import { DetalleMovimientosReporte } from './DetalleMovimientosReporte';
+import type { MovimientoDetalle } from './controlDistribucion.repository';
+import { filtrarViveres } from './detalleDistribucion';
 
 /** Días que muestra la hoja original. Se mantiene como arranque. */
 const DIAS_VISTA = 12;
@@ -89,6 +92,13 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
     [control, selId],
   );
 
+  // El detalle sigue el recorte de la tabla: si arriba quedaron los víveres con
+  // ajustes, abajo se ven los movimientos de esos víveres y nada más.
+  const detalleVisible = useMemo(
+    () => filtrarViveres(control?.detalle ?? [], new Set(productos.map((x) => x.producto_id))),
+    [control, productos],
+  );
+
   const resumen = useMemo(() => {
     const ps = control?.productos ?? [];
     return {
@@ -116,6 +126,8 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
                 productos,
                 subtitulo: subtituloFiltro(fEstado, buscar),
                 sufijoArchivo: fEstado === 'todos' ? '' : fEstado,
+                // El detalle del papel es el de los víveres que se están viendo.
+                detalle: detalleVisible,
               }).catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'));
             }}
             title={sel || (fEstado === 'todos' && !buscar.trim())
@@ -178,6 +190,8 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
           actor={actor}
           onSel={setSelId}
           onGuardadoGenerales={() => { void recargar(); }}
+          detalle={detalleVisible}
+          recorte={subtituloFiltro(fEstado, buscar) || undefined}
         />
       )}
 
@@ -196,7 +210,7 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
 
 /* ───────── Nivel 1: el mercado entero ───────── */
 
-function VistaMercado({ productos, resumen, generales, canWrite, actor, onSel, onGuardadoGenerales }: {
+function VistaMercado({ productos, resumen, generales, canWrite, actor, onSel, onGuardadoGenerales, detalle, recorte }: {
   productos: ControlProducto[];
   resumen: { total: number; reordenar: number; alerta: number; comensales: number };
   generales: ParametrosGenerales | null;
@@ -204,6 +218,10 @@ function VistaMercado({ productos, resumen, generales, canWrite, actor, onSel, o
   actor: string;
   onSel: (id: string) => void;
   onGuardadoGenerales: () => void;
+  /** Los movimientos del período, ya recortados como la tabla. */
+  detalle: MovimientoDetalle[];
+  /** Qué recorte hay puesto, para decirlo en el título del detalle. */
+  recorte?: string;
 }) {
   return (
     <>
@@ -224,8 +242,11 @@ function VistaMercado({ productos, resumen, generales, canWrite, actor, onSel, o
             <thead>
               <tr>
                 <th>Producto</th>
-                <th style={{ textAlign: 'right' }}>Stock</th>
-                <th style={{ textAlign: 'right' }}>Consumo</th>
+                <th style={{ textAlign: 'right' }} title="Saldo inicial + entradas del período">Había</th>
+                <th style={{ textAlign: 'right' }} title="Lo que se fue en comidas registradas">Consumido</th>
+                <th style={{ textAlign: 'right' }} title="Lo que sacó Inventario sin ser una comida">Salidas inv.</th>
+                <th style={{ textAlign: 'right' }} title="Lo que Inventario corrigió a la baja">Ajustes</th>
+                <th style={{ textAlign: 'right' }} title="Lo que queda al cierre del período">Queda</th>
                 <th style={{ textAlign: 'right' }}>Prom./día</th>
                 <th style={{ textAlign: 'right' }}>Ratio</th>
                 <th style={{ textAlign: 'right' }}>Merma</th>
@@ -244,6 +265,13 @@ function VistaMercado({ productos, resumen, generales, canWrite, actor, onSel, o
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(p.stockActual)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(p.totales.consumo)}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: p.totales.salidas > 0 ? 'var(--warning)' : undefined }}>
+                    {p.totales.salidas ? num(p.totales.salidas) : '—'}
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right', color: p.totales.ajustes > 0 ? 'var(--warning)' : undefined }}>
+                    {p.totales.ajustes ? num(p.totales.ajustes) : '—'}
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{num(p.totales.invFinal)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(p.totales.promedioDiario)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(p.totales.ratioPromedio, 3)}</td>
                   <td className="mono" style={{ textAlign: 'right', color: p.totales.merma < 0 ? 'var(--danger)' : undefined }}>
@@ -261,6 +289,8 @@ function VistaMercado({ productos, resumen, generales, canWrite, actor, onSel, o
           </table>
         </div>
       )}
+
+      <DetalleMovimientosReporte filas={detalle} idsVisibles={new Set()} recorte={recorte} />
 
       <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
         <strong>Reorden</strong> = con ese stock hay que volver a pedir (demanda diaria × días de entrega).
@@ -367,10 +397,30 @@ function HojaProducto({ p, canWrite, actor, actorName, onCambio }: {
           <div style={{ marginTop: '.3rem' }}><span className={ESTADO_STOCK_BADGE[p.estado]}>{ESTADO_STOCK_LABEL[p.estado]}</span></div>
         </div>
         <div className="card" style={{ padding: '.6rem .8rem' }}>
-          <div className="muted" style={{ fontSize: '.75rem' }}>🍽 CONSUMO TOTAL</div>
+          <div className="muted" style={{ fontSize: '.75rem' }}>📦 HABÍA</div>
+          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: 700 }}>{num(p.totales.disponible)} {unidad}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Saldo inicial: {num(p.totales.invInicial)} {unidad}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Entró en el período: {num(p.totales.entradas)} {unidad}</div>
+        </div>
+        <div className="card" style={{ padding: '.6rem .8rem' }}>
+          <div className="muted" style={{ fontSize: '.75rem' }}>🍽 CONSUMIDO A LA FECHA</div>
           <div className="mono" style={{ fontSize: '1.35rem', fontWeight: 700 }}>{num(p.totales.consumo)} {unidad}</div>
           <div className="muted" style={{ fontSize: '.72rem' }}>Prom: {num(p.totales.promedioDiario)} {unidad}/día</div>
           <div className="muted" style={{ fontSize: '.72rem' }}>Días con consumo: {p.totales.diasConConsumo} / {p.dias.length}</div>
+        </div>
+        <div className="card" style={{ padding: '.6rem .8rem' }}>
+          <div className="muted" style={{ fontSize: '.75rem' }}>📤 INVENTARIO SACÓ</div>
+          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: 700, color: p.totales.otrasSalidas > 0 ? 'var(--warning)' : undefined }}>
+            {num(p.totales.otrasSalidas)} {unidad}
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Salidas: {num(p.totales.salidas)} {unidad}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Ajustes manuales: {num(p.totales.ajustes)} {unidad}</div>
+        </div>
+        <div className="card" style={{ padding: '.6rem .8rem' }}>
+          <div className="muted" style={{ fontSize: '.75rem' }}>✅ QUEDA</div>
+          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: 700 }}>{num(p.totales.invFinal)} {unidad}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>Al cierre del período</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>En inventario hoy: {num(p.stockActual)} {unidad}</div>
         </div>
         <div className="card" style={{ padding: '.6rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.75rem' }}>📉 MERMA Y RATIO</div>
@@ -399,8 +449,10 @@ function HojaProducto({ p, canWrite, actor, actorName, onCambio }: {
               <th>Fecha</th>
               <th style={{ textAlign: 'right' }}>Inv. inicial</th>
               <th style={{ textAlign: 'right' }}>Entradas</th>
+              <th style={{ textAlign: 'right' }}>Había</th>
               <th style={{ textAlign: 'right' }}>Consumo</th>
-              <th style={{ textAlign: 'right' }}>Otras salidas</th>
+              <th style={{ textAlign: 'right' }}>Salidas inv.</th>
+              <th style={{ textAlign: 'right' }}>Ajustes</th>
               <th style={{ textAlign: 'right' }}>Inv. teórico</th>
               <th style={{ textAlign: 'right' }}>Inv. físico</th>
               <th style={{ textAlign: 'right' }}>Merma</th>
@@ -416,7 +468,10 @@ function HojaProducto({ p, canWrite, actor, actorName, onCambio }: {
                 <td className="mono" style={{ textAlign: 'right' }}>{num(d.invInicial)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{d.entradas ? num(d.entradas) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{d.consumo ? num(d.consumo) : '—'}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{d.otrasSalidas ? num(d.otrasSalidas) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{num(d.disponible)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{d.consumo ? num(d.consumo) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{d.salidas ? num(d.salidas) : '—'}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{d.ajustes ? num(d.ajustes) : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(d.invTeorico)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{d.invFisico == null ? '—' : num(d.invFisico)}</td>
                 <td className="mono" style={{ textAlign: 'right', color: (d.diferencia ?? 0) < 0 ? 'var(--danger)' : undefined }}>
@@ -433,8 +488,10 @@ function HojaProducto({ p, canWrite, actor, actorName, onCambio }: {
               <td style={{ fontWeight: 700 }}>TOTAL</td>
               <td></td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.totales.entradas)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.totales.disponible)}</td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.totales.consumo)}</td>
-              <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.totales.otrasSalidas)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.totales.salidas)}</td>
+              <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.totales.ajustes)}</td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{ultimo ? num(ultimo.invTeorico) : '—'}</td>
               <td></td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.totales.merma)}</td>
@@ -447,8 +504,10 @@ function HojaProducto({ p, canWrite, actor, actorName, onCambio }: {
       </div>
 
       <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
-        <strong>Consumo</strong> es lo que se fue en comidas registradas; <strong>otras salidas</strong> es lo que
-        bajó el inventario sin ser una comida (salida manual, ajuste, traslado) y por eso va en su propia columna.
+        <strong>Había</strong> es el inventario inicial del día más lo que entró; de ahí sale el
+        <strong> consumo</strong> en comidas registradas, las <strong>salidas</strong> que hizo Inventario
+        (salida de material, salida manual) y los <strong>ajustes</strong> con los que Inventario corrigió el
+        stock a la baja. Cada uno va en su columna para poder cotejarlos contra Inventario uno por uno.
         La <strong>merma</strong> es el conteo físico menos el teórico: aparece solo los días que se contó, y el día
         siguiente <strong>abre con lo contado</strong>, para que el error no se arrastre.
       </small>
