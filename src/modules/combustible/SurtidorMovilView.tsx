@@ -552,15 +552,41 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
 }
 
 /* ───────────── Pasar el movimiento por WhatsApp ─────────────
-   El que surte manda el aviso al grupo apenas carga el surtido. El botón
-   verde abre WhatsApp con el mensaje escrito; «Copiar» sirve cuando se
-   quiere pegar en otro lado (un correo, una nota). Si el teléfono tiene el
-   menú de compartir de Android/iOS, se usa ese. */
+   El que surte manda el aviso al grupo apenas carga el surtido.
+
+   POR QUÉ SE COMPARTE Y NO SE ABRE UN ENLACE (29/09/2026). El botón abría
+   `wa.me/?text=…`, que mete el mensaje ENTERO dentro de una dirección web.
+   El enlace se arma bien —se comprobó: el texto vuelve idéntico al
+   decodificarlo—, pero WhatsApp muestra antes una pantalla propia,
+   «Compartir en WhatsApp», y ahí los emojis salían como ◆? y los renglones
+   quedaban pegados en un párrafo corrido. Eso ya no es algo que se arregle
+   de este lado: el mensaje viaja bien, lo pinta mal la página del medio.
+
+   La salida es no meterlo en una dirección: `navigator.share` le pasa el
+   TEXTO al menú de compartir del teléfono, que se lo entrega a WhatsApp tal
+   cual. Emojis y saltos de línea llegan enteros y se elige el chat de una.
+   Donde ese menú no existe —una PC— se sigue usando el enlace, que para eso
+   abre WhatsApp Web y ahí el texto sí entra bien en la caja del mensaje. */
 function CompartirMovimiento({ mov, tanque, tanqueDestino, registradoPor }: {
   mov: MovimientoTanque; tanque?: string | null; tanqueDestino?: string | null; registradoPor?: string | null;
 }) {
   const [copiado, setCopiado] = useState(false);
   const texto = mensajeMovimiento({ mov, tanque, tanqueDestino, registradoPor });
+  // El menú de compartir del teléfono. En una PC no existe y se cae al enlace.
+  const puedeCompartir = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  async function compartir(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (!puedeCompartir) return;   // sin menú nativo, que siga el href de siempre
+    e.preventDefault();
+    try {
+      await navigator.share({ text: texto });
+    } catch (err) {
+      // Cancelar el menú NO es un error: no se le avisa nada a nadie. Cualquier
+      // otra falla cae al enlace de siempre, que es lo que había antes.
+      if ((err as { name?: string })?.name === 'AbortError') return;
+      window.open(enlaceWhatsapp(texto), '_blank', 'noopener,noreferrer');
+    }
+  }
 
   async function copiar() {
     try {
@@ -581,13 +607,20 @@ function CompartirMovimiento({ mov, tanque, tanqueDestino, registradoPor }: {
     <div className="surt-compartir">
       <div className="surt-compartir-txt">{texto}</div>
       <div className="surt-compartir-btns">
-        <a className="btn btn-wsp btn-grande" href={enlaceWhatsapp(texto)} target="_blank" rel="noopener noreferrer">
+        <a className="btn btn-wsp btn-grande" href={enlaceWhatsapp(texto)} target="_blank" rel="noopener noreferrer"
+          onClick={(e) => void compartir(e)}>
           📲 Enviar por WhatsApp
         </a>
         <button type="button" className="btn btn-ghost btn-grande" onClick={() => void copiar()}>
           {copiado ? '✅ Copiado' : '📋 Copiar'}
         </button>
       </div>
+      {puedeCompartir && (
+        <small className="muted" style={{ display: 'block', marginTop: '.45rem' }}>
+          Se abre el menú de compartir del teléfono: elegí WhatsApp y el chat. Así el mensaje
+          llega con los emojis y los renglones enteros.
+        </small>
+      )}
     </div>
   );
 }
