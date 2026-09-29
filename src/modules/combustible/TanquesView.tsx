@@ -1813,8 +1813,8 @@ function fechaLocal(d: Date): string {
   return `${y}-${m}-${dd}`;
 }
 
-/** Respaldo manual del proceso automático: postea en la caja de Peramanal el consumo de
- *  combustible de GT de una semana (lunes→domingo). Idempotente: re-generar la misma
+/** Pase MANUAL (el único desde el 29/09/2026: se quitó el cron de los domingos) del consumo
+ *  de combustible de GT de una semana (lunes→domingo) a la caja de Peramanal. Idempotente: re-generar la misma
  *  semana reemplaza el gasto en vez de duplicarlo. */
 function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPosted: () => void | Promise<void> }) {
   // Por defecto, la última semana completa (lunes→domingo ya cerrada).
@@ -1883,10 +1883,9 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
         (movimientos de tanque tipo <strong>uso</strong>, a su costo por tasa PMP). Se registran
         <strong> dos movimientos</strong> por la misma cantidad: el gasto
         <strong> «CONSUMO COMBUSTIBLE GT»</strong> y una <strong>entrada de multimoneda</strong> que
-        lo compensa. Esto lo hace <strong>solo cada domingo</strong> de forma automática; este botón
-        es el <strong>respaldo</strong> para cuando <strong>no se actualizó el fin de semana</strong> y
-        se genera el lunes. Es idempotente: re-generar la misma semana <strong>reemplaza</strong> los
-        movimientos, no los duplica.
+        lo compensa. El pase se hace <strong>solo con este botón</strong> (ya no corre solo los domingos):
+        normalmente el <strong>lunes</strong>, por la semana que acaba de cerrar. Es idempotente: re-generar
+        la misma semana <strong>reemplaza</strong> los movimientos, no los duplica.
       </p>
       <div className="form-grid" style={{ marginTop: '.6rem' }}>
         <div className="form-row">
