@@ -11,9 +11,17 @@
    segmento quede vacío) y mañana la misma lista sirve para una pantalla de
    control de expedientes sin volver a escribirla.
 
-   LO QUE NO ESTÁ, A PROPÓSITO: nada bancario. La hoja de ingreso se armó sin
-   la sección de datos de transferencia a pedido del usuario, así que pedir
-   acá una constancia de cuenta sería volver a entrar por la ventana.
+   LO QUE NO ESTÁ, A PROPÓSITO:
+
+   · Nada bancario. La hoja de ingreso se armó sin la sección de datos de
+     transferencia a pedido del usuario, así que pedir acá una constancia de
+     cuenta sería volver a entrar por la ventana.
+
+   · Nada de seguridad social (29/09/2026). El segmento entero —IVSS forma
+     14-02, cuenta individual del IVSS, FAOV/BANAVIH, beneficiarios de la
+     póliza y carnet del INCES— se quitó a pedido del usuario. Va en línea con
+     la nómina, que tampoco descuenta IVSS ni FAOV. Si alguna vez vuelve a
+     pedirse, se agrega un segmento nuevo; no se reponga este sin decirlo.
 
    «(si aplica)» marca lo que no le corresponde a todo el mundo: sin eso, una
    lista con casilleros vacíos parece un expediente incompleto.
@@ -74,16 +82,6 @@ export const SEGMENTOS_DOCUMENTOS: readonly SegmentoDocumentos[] = [
       'Constancia de estudios de cada hijo en edad escolar',
       'Copia de la cédula de los padres a cargo (si aplica)',
       'Acta de defunción del cónyuge (si aplica)',
-    ],
-  },
-  {
-    titulo: 'Seguridad social y régimen laboral',
-    documentos: [
-      'Constancia de inscripción en el IVSS (forma 14-02)',
-      'Constancia de cuenta individual del IVSS',
-      'Planilla de inscripción del FAOV / BANAVIH',
-      'Declaración de beneficiarios de la póliza',
-      'Copia del carnet del INCES (si aplica)',
     ],
   },
 ];
