@@ -20,8 +20,8 @@ describe('mensajeMovimiento', () => {
       tanque: 'Tanque #1', registradoPor: 'PRUEBA',
     });
     expect(t).toContain('🔽 *SALIDA DE COMBUSTIBLE*');
-    expect(t).toContain('💧 *Litros:* -55 L');
-    expect(t).toContain('⛽ *Tanque:* Tanque #1');
+    expect(t).toContain('⛽ *Litros:* -55 L');
+    expect(t).toContain('🪣 *Tanque:* Tanque #1');
     expect(t).toContain('🚚 *Equipo:* ET8 A94EE8P');
     expect(t).toContain('✅ *Autorizado por:* EDINSON ANGULO');
     expect(t).toContain('📍 *Destino:* Mina Golden Touch');
@@ -31,7 +31,7 @@ describe('mensajeMovimiento', () => {
   });
 
   it('una entrada suma y una merma avisa', () => {
-    expect(mensajeMovimiento({ mov: mov({ tipo: 'entrada', litros: 10000 }) })).toContain('💧 *Litros:* +10.000 L');
+    expect(mensajeMovimiento({ mov: mov({ tipo: 'entrada', litros: 10000 }) })).toContain('⛽ *Litros:* +10.000 L');
     expect(mensajeMovimiento({ mov: mov({ tipo: 'entrada' }) })).toContain('🔼 *ENTRADA DE COMBUSTIBLE*');
     expect(mensajeMovimiento({ mov: mov({ tipo: 'merma', litros: 25, observacion: 'Fuga' }) })).toContain('🚨 *MERMA / FALTANTE*');
     expect(mensajeMovimiento({ mov: mov({ tipo: 'merma', observacion: 'Fuga' }) })).toContain('📝 *Nota:* Fuga');

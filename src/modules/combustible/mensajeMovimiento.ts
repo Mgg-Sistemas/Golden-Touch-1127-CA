@@ -13,6 +13,11 @@ import type { MovimientoTanque, TipoMovTanque } from '@/shared/lib/types';
 /**
  * La flecha dice para dónde va el combustible: abajo sale, arriba entra.
  *
+ * El surtidor (⛽) es el de los LITROS, que es el dato que se mira primero
+ * (29/09/2026, pedido del usuario: antes era una gota de agua). El tanque pasó
+ * al balde (🪣) para no repetir el mismo emoji dos renglones seguidos: el de
+ * bidón, 🛢, es de los que necesitan el selector invisible y llega roto.
+ *
  * TODOS los emojis de este archivo son «emoji por defecto» a propósito
  * (28/09/2026). Los que se veían antes —↩️ ⚠️ 🛢️ ➡️ ⏱️ 🛣️— son símbolos de
  * TEXTO que solo se pintan a color si los acompaña el selector invisible
@@ -65,10 +70,10 @@ export function mensajeMovimiento(d: DatosMensaje): string {
   const lineas: string[] = [
     `${EMOJI_TIPO[m.tipo]} *${TITULO_TIPO[m.tipo]}*`,
     '',
-    `💧 *Litros:* ${signo}${num(m.litros)} L`,
+    `⛽ *Litros:* ${signo}${num(m.litros)} L`,
   ];
 
-  if (d.tanque) lineas.push(`⛽ *Tanque:* ${d.tanque}`);
+  if (d.tanque) lineas.push(`🪣 *Tanque:* ${d.tanque}`);
   if (m.tipo === 'traslado' && d.tanqueDestino) lineas.push(`👉 *Pasa al tanque:* ${d.tanqueDestino}`);
   if (m.equipo) lineas.push(`🚚 *Equipo:* ${m.equipo}`);
   if (m.autorizado_por) lineas.push(`✅ *Autorizado por:* ${m.autorizado_por}`);
