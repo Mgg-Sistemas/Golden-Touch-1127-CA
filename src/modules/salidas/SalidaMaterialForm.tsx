@@ -13,6 +13,7 @@ import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCa
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
 import { SelectorAdjuntos } from './AdjuntosSalida';
 import { subirAdjuntosSalida } from './adjuntosSalida.repository';
+import { esValeCocina, MSG_VALE_COCINA } from '@/modules/cocina/categoriasCocina';
 
 // `key` = `${producto_id}|${almacen}` (identifica una existencia concreta).
 // `precio` = costo unitario EDITABLE (si se deja vacío usa el PMP/costo del inventario).
@@ -164,8 +165,11 @@ export function SalidaMaterialForm({
     const precioCambiado = !!producto && l.precio !== undefined && l.precio !== '' && Math.abs(precio - (producto.precio ?? 0)) > 0.0001;
     const cantNum = Number(l.cantidad) || 0;
     const excede = cantNum > stock;
-    return { l, pid, alm, producto, stock, precio, precioDefault, precioCambiado, cantNum, subtotal: precio * cantNum, excede };
+    // Comida a COCINA → vale de entrega: no descuenta stock (lo baja Distribución de comidas).
+    const vale = esValeCocina({ unidadSolicitante, categoria: producto?.categoria });
+    return { l, pid, alm, producto, stock, precio, precioDefault, precioCambiado, cantNum, subtotal: precio * cantNum, excede, vale };
   });
+  const hayVales = lineasCalc.some((x) => x.vale);
   const total = lineasCalc.reduce((a, x) => a + x.subtotal, 0);
   const hayInvalida = !opciones.length || lineasCalc.some((x) => !x.l.key || x.cantNum <= 0 || x.excede);
 
@@ -187,6 +191,7 @@ export function SalidaMaterialForm({
         precio_unit: x.precio,
         almacen: x.alm,
         observacion: null,
+        vale_cocina: x.vale || undefined,
       });
     }
     // Mismo material+almacén repetido en dos renglones → uniría a sumas inválidas.
@@ -287,13 +292,19 @@ export function SalidaMaterialForm({
             </button>
           </div>
           <small className="muted">La unidad nueva queda guardada en el catálogo compartido con OP (Pedidos → Categorías).</small>
+          {hayVales && (
+            <div className="card" style={{ marginTop: '.5rem', padding: '.5rem .7rem', borderColor: 'var(--warning, #f59e0b)', fontSize: '.8rem' }}>
+              🍽 <strong>Vale de entrega a Cocina.</strong> {MSG_VALE_COCINA} El documento, la nota de entrega, las firmas y el
+              correlativo siguen igual. Limpieza y los demás materiales de esta salida sí descuentan.
+            </div>
+          )}
         </div>
 
         {/* ── Carrito de materiales ── */}
         <label style={{ display: 'block', fontSize: '.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, margin: '.4rem 0 .35rem' }}>
           Materiales
         </label>
-        {lineasCalc.map(({ l, producto, alm, stock, precio, precioDefault, cantNum, subtotal, excede }, idx) => (
+        {lineasCalc.map(({ l, producto, alm, stock, precio, precioDefault, cantNum, subtotal, excede, vale }, idx) => (
           <div key={l.id} className="card" style={{ margin: '0 0 .5rem', padding: '.6rem .7rem', background: 'var(--bg-1)' }}>
             <div className="form-grid">
               <div className="form-row" style={{ marginBottom: 0 }}>
@@ -323,7 +334,9 @@ export function SalidaMaterialForm({
                 </div>
                 {excede
                   ? <small style={{ color: 'var(--danger)' }}>Máximo disponible: {num(stock)} {producto?.unidad ?? ''}.</small>
-                  : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && l.key && <>· queda {num(Math.max(0, stock - cantNum))}</>}</small>}
+                  : vale
+                    ? <small style={{ color: 'var(--warning, #f59e0b)' }}>🍽 Vale de entrega · no descuenta stock · Subtotal: <strong className="mono">{money(subtotal)}</strong></small>
+                    : <small className="muted">Subtotal: <strong className="mono">{money(subtotal)}</strong> {cantNum > 0 && l.key && <>· queda {num(Math.max(0, stock - cantNum))}</>}</small>}
               </div>
             </div>
             {/* Costo unitario editable: si se cambia, se usa en la salida y se

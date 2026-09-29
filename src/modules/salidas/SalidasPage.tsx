@@ -1324,6 +1324,7 @@ function SolicitudDetalleModal({
           <tr><td className="muted">Solicitante</td><td>{(() => { const s = (sol.solicitante ?? '').trim(); if (s) return s; const n = nombreDe(sol.actor); return n && n !== sol.actor ? n : (sol.actor ?? '—'); })()}</td></tr>
           {sol.sede_origen && <tr><td className="muted">Sede origen</td><td>{sol.sede_origen}</td></tr>}
           {sol.unidad_solicitante && <tr><td className="muted">Unidad solicitante</td><td>{sol.unidad_solicitante}</td></tr>}
+          {!!sol.items?.some((it) => it.vale_cocina) && <tr><td className="muted">Vale a Cocina</td><td style={{ color: 'var(--warning, #f59e0b)' }}>🍽 Los alimentos de esta salida no descuentan inventario: el consumo lo registra Distribución de comidas. Limpieza y demás sí descuentan.</td></tr>}
           {sol.tipo === 'material' ? (
             <>
               <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Inventario'}</td>
@@ -1338,6 +1339,7 @@ function SolicitudDetalleModal({
                         {sol.items.map((it, i) => (
                           <tr key={i}>
                             <td>{it.producto_nombre}{it.producto_sku ? ` · ${it.producto_sku}` : ''}
+                              {it.vale_cocina && <div style={{ fontSize: '.72rem', color: 'var(--warning, #f59e0b)' }} title="Comida entregada a Cocina: el stock lo descuenta Distribución de comidas al servir el plato">🍽 Vale de entrega · no descuenta stock</div>}
                               {it.observacion && <div className="muted" style={{ fontSize: '.72rem' }}>📝 {it.observacion}</div>}</td>
                             {sol.scope !== 'traslado' && <td>{invLabel(it.almacen ?? sol.almacen_origen)}</td>}
                             <td className="num mono">{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>

@@ -1038,6 +1038,25 @@
         <br><strong>Lo único que se carga a mano es el conteo físico</strong>, y es opcional. Si se carga, la <strong>merma</strong> de ese día es <em>conteo − teórico</em> y el día siguiente <strong>abre con lo contado</strong>, para que el error no se arrastre; si no se carga, la fila igual se arma. El <strong>consumo</strong> (lo servido en comidas) y las <strong>otras salidas</strong> (salida manual, ajuste, traslado) van en columnas distintas a propósito: no es lo mismo que la comida se la coma la gente a que el inventario baje por otro lado.
         <br><strong>El lote óptimo (EOQ):</strong> <em>Q* = √(2·D·S / H)</em> y <em>punto de reorden = (D / 365) · L</em>, las mismas fórmulas del Excel. En el Excel la <strong>demanda anual (D)</strong> se escribe a mano; aquí se <strong>estima llevando a un año lo consumido en el período</strong>, para que el control funcione en los más de 70 productos del mercado sin cargar nada. Se anualiza sobre los <strong>días del período</strong>, no sobre los que tuvieron consumo: un producto que se sirve una vez cada dos semanas tiene un solo día con consumo, y anualizar sobre ese día daría <strong>365 veces esa ración</strong> y haría pedir una montaña. Se confirma contra la hoja: Los Pinos consumió 54 UND en 12 días, que anualizado da <strong>1.642</strong>, y la demanda que ahí escribieron a mano es <strong>1.700</strong>, y se puede <strong>fijar a mano</strong> producto por producto cuando se conozca el número verdadero. Los costos (S y H) y el tiempo de entrega (L) son <strong>generales para todo el mercado</strong> y se editan desde la misma pantalla; arrancan en <strong>$3,33 por orden, $1,20 por unidad/año y 2 días de entrega</strong>, que son los de la hoja.
         <br><strong>Una diferencia con el Excel, a propósito:</strong> allí un día sin datos se leía como stock cero y pintaba <em>«REORDENAR»</em> en días futuros que todavía no habían pasado. Aquí el estado se calcula sobre el <strong>inventario real del día</strong> (el contado si lo hay; si no, el teórico). Hay <strong>PDF de las dos vistas</strong>: el del mercado es el papel con el que se sale a comprar.</li>
+      <li><strong>🍽 Regla: los víveres los descuenta únicamente Distribución de comidas · «vale de entrega a Cocina» (29/09/2026):</strong>
+        antes la comida se descontaba dos veces: al ejecutar la salida por <em>Salidas</em> (entrega a la cocina) y otra vez
+        cuando la cocina registraba el consumo en <em>Distribución de comidas</em>. Desde ahora, una <strong>salida de material
+        cuya unidad solicitante es COCINA</strong> (o comedor) y que lleva <strong>alimentos</strong> se convierte en un
+        <strong>vale de entrega</strong>: sigue el documento, la nota de entrega, la firma de la autorizadora y el correlativo,
+        pero <strong>no toca el stock</strong>. El kilo baja cuando se sirve el plato. Quien entrega no cambia su rutina: sigue
+        dejando constancia de qué entregó y a quién, y el almacén y el mercado de la cocina cuadran solos.
+        <br>· <strong>Qué cuenta como comida:</strong> alimentos, víveres, carnes, proteínas, hortalizas y legumbres, verduras,
+        <strong>frutas, jugos</strong>, bebidas, lácteos, quesos, huevos, pollo, pescado, embutidos, granos, cereales, harinas,
+        pastas, condimentos, especias, panadería, dulces, postres, café, azúcar, enlatados y conservas (se compara sin acentos ni
+        mayúsculas). <strong>Limpieza NO es comida</strong>: sale por Salidas y sí descuenta, aunque vaya a cocina. Esas mismas
+        categorías (más limpieza) son las que lista Distribución de comidas.
+        <br>· <strong>Dónde se ve:</strong> el formulario de salida avisa en vivo cuando la unidad es COCINA y hay alimentos
+        (renglón por renglón «🍽 Vale de entrega · no descuenta stock»); el detalle de la solicitud marca los renglones; el PDF
+        dice «Salida de material · Vale de entrega a Cocina», marca cada renglón con «VALE (no descuenta stock)» y lo explica en
+        las notas. Una salida mixta (comida + limpieza, p. ej.) descuenta solo lo que no es comida.
+        <br>· <strong>Candado en la base:</strong> aunque se intente por otra vía, un movimiento del módulo de Salidas que
+        descuente comida destinada a Cocina se rechaza con el aviso del vale. La salida a otras unidades (venta, otra mina)
+        sigue descontando normal. Las salidas manuales del Inventario no cambian.</li>
       <li><strong>⛽ El consumo semanal de combustible ya no pasa solo a la caja (29/09/2026):</strong> se eliminó el proceso
         automático de los domingos (el cron). El pase a la caja de Peramanal se hace <strong>únicamente con el botón 💰 CAJA</strong>
         del módulo de Combustible, eligiendo la semana; así el Excel y el sistema van al mismo paso y no aparecen renglones
