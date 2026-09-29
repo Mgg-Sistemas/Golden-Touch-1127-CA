@@ -265,7 +265,7 @@ export async function getProduccionConMateriales(id: string): Promise<Produccion
 export async function crearProduccion(input: CrearProduccionInput): Promise<Produccion> {
   const cantidad = Number(input.cantidad) || 0;
   if (cantidad <= 0) throw new Error('La cantidad a producir debe ser mayor que 0.');
-  if (!input.materiales.length) throw new Error('Seleccioná al menos un material.');
+  if (!input.materiales.length) throw new Error('Selecciona al menos un material.');
 
   // 1) Validar y calcular costo de cada material desde su existencia real.
   //    Las lecturas de existencia se hacen en paralelo (cada material es un

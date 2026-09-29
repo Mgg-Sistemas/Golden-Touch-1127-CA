@@ -71,7 +71,7 @@ export function SalidaMaterialForm({
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
 
   // Unidad solicitante: MISMO catálogo de OP (Pedidos). En vivo: si se agrega en
-  // OP o acá, se refleja al instante en ambos lados.
+  // OP o aquí, se refleja al instante en ambos lados.
   const [unidadSolicitante, setUnidadSolicitante] = useState('');
   const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
   const [nuevaUnidad, setNuevaUnidad] = useState('');
@@ -104,7 +104,7 @@ export function SalidaMaterialForm({
     // Igual que con la unidad: se lee el valor REAL del DOM y no el estado, porque el
     // input es no-controlado y tecleando rápido el estado queda atrás.
     const v = (nuevaSedeRef.current?.value ?? nuevaSede).trim();
-    if (!v) { toast('Escribí la sede nueva', 'error'); return; }
+    if (!v) { toast('Escribe la sede nueva', 'error'); return; }
     const yaEsta = sedeOpciones.find((s) => s.toLowerCase() === v.toLowerCase());
     if (yaEsta) {
       setSedeOrigen(yaEsta);
@@ -130,7 +130,7 @@ export function SalidaMaterialForm({
     // Leemos el valor REAL del DOM (ref), no el estado: el input es no-controlado y el
     // estado puede quedar atrás (ej. "COMPRA" tecleado rápido guardaba "COMP").
     const v = (nuevaUnidadRef.current?.value ?? nuevaUnidad).trim().toUpperCase();
-    if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
+    if (!v) { toast('Escribe la unidad nueva', 'error'); return; }
     if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
       setUnidadSolicitante(v);
       setNuevaUnidad('');
@@ -175,7 +175,7 @@ export function SalidaMaterialForm({
     if (!opciones.length) { setError('No hay materiales con stock en ningún almacén.'); return; }
     const items: ItemSalida[] = [];
     for (const x of lineasCalc) {
-      if (!x.l.key) { setError('Elegí el material en cada renglón.'); return; }
+      if (!x.l.key) { setError('Elige el material en cada renglón.'); return; }
       if (x.cantNum <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (x.cantNum > x.stock) { setError(`No hay stock suficiente de ${x.producto?.nombre} en ${invLabel(x.alm)}. Disponible: ${num(x.stock)}.`); return; }
       items.push({
@@ -258,7 +258,7 @@ export function SalidaMaterialForm({
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
             <input className="input" name="f-nueva-sede" ref={nuevaSedeRef} defaultValue={nuevaSede}
               onChange={(e) => setNuevaSede(e.target.value)}
-              placeholder="¿No está? Escribí la sede nueva…"
+              placeholder="¿No está? Escribe la sede nueva…"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarSedeNueva(); } }} />
             <button type="button" className="btn btn-ghost" onClick={() => void agregarSedeNueva()} disabled={addingSede}>
               {addingSede ? '…' : '+ Añadir'}
@@ -280,7 +280,7 @@ export function SalidaMaterialForm({
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
             <input className="input" name="f-nueva-unidad" ref={nuevaUnidadRef} defaultValue={nuevaUnidad}
               onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevaUnidad(e.target.value); }}
-              placeholder="¿No está? Escribí la unidad nueva…"
+              placeholder="¿No está? Escribe la unidad nueva…"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
             <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
               {addingUnidad ? '…' : '+ Añadir'}
@@ -304,7 +304,7 @@ export function SalidaMaterialForm({
                 <small className="muted">
                   {l.key
                     ? <>{invLabel(alm)} · Disponible: <strong className="mono">{num(stock)} {producto?.unidad ?? ''}</strong> · PMP <strong className="mono">{money(precioDefault)}</strong></>
-                    : 'Elegí el producto; se descuenta del Inventario General.'}
+                    : 'Elige el producto; se descuenta del Inventario General.'}
                 </small>
               </div>
               <div className="form-row" style={{ marginBottom: 0 }}>
@@ -332,7 +332,7 @@ export function SalidaMaterialForm({
               <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem', maxWidth: 260 }}>
                 <label>Costo unitario $</label>
                 <input className="input mono" type="number" min={0} step="any"
-                  title="Costo unitario. Si lo cambiás, se usa en esta salida y se actualiza el costo del producto en el inventario."
+                  title="Costo unitario. Si lo cambias, se usa en esta salida y se actualiza el costo del producto en el inventario."
                   value={l.precio !== undefined ? l.precio : String(precioDefault)}
                   onChange={(e) => setLinea(l.id, { precio: e.target.value })} />
                 <small className="muted">

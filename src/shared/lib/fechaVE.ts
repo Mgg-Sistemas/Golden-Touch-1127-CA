@@ -3,7 +3,7 @@
 
    El selector nativo del navegador escribe la fecha en el formato del
    IDIOMA DEL SISTEMA: en una máquina en inglés, 21 de octubre sale como
-   10-21-1973, que acá se lee como «21 de mes 10» — o directamente no se
+   10-21-1973, que aquí se lee como «21 de mes 10» — o directamente no se
    puede escribir a mano. Estas funciones dejan tipear en DD-MM-AAAA y
    traducen a lo que guarda la base (AAAA-MM-DD), sin tocar el calendario,
    que se sigue pudiendo abrir.
@@ -70,6 +70,6 @@ export function errorFechaVe(texto: string | null | undefined): string | null {
   const t = String(texto ?? '').trim();
   if (!t) return null;
   if (veAIso(t)) return null;
-  if (/^\d{1,2}[/\-. ]\d{1,2}[/\-. ]\d{4}$/.test(t)) return 'Esa fecha no existe. Revisá el día y el mes.';
+  if (/^\d{1,2}[/\-. ]\d{1,2}[/\-. ]\d{4}$/.test(t)) return 'Esa fecha no existe. Revisa el día y el mes.';
   return 'Escribila como DD-MM-AAAA (por ejemplo 21-10-1973).';
 }

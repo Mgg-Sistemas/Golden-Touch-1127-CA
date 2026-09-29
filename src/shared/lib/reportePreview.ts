@@ -199,7 +199,7 @@ export function previewArchivo(url: string, filename = 'archivo'): void {
 /** Muestra una vista previa (primera hoja como tabla) del Excel; descarga solo si el usuario lo pide. */
 export async function previewExcel(wbInput: WorkBook | unknown, filename: string): Promise<void> {
   // Los generadores castean su instancia de xlsx-js-style a un tipo local, por lo que
-  // el `wb` llega como `unknown`; acá lo normalizamos a WorkBook (mismo objeto real).
+  // el `wb` llega como `unknown`; aquí lo normalizamos a WorkBook (mismo objeto real).
   const wb = wbInput as WorkBook;
   const XLSX = await import('xlsx-js-style');
   const ui = buildOverlay(filename);

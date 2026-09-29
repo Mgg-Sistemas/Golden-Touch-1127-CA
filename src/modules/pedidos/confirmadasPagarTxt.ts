@@ -40,7 +40,7 @@ function monto(n: number | null | undefined, moneda?: string | null): string {
   return `${moneda} ${num(n)}`;
 }
 
-/** Monto de una pata del pago: acá la moneda se nombra (USD, Bs, USDT). */
+/** Monto de una pata del pago: aquí la moneda se nombra (USD, Bs, USDT). */
 function montoPata(m: PagoMetodo): string {
   return `${m.moneda || 'USD'} ${num(m.monto)}`;
 }
@@ -48,7 +48,7 @@ function montoPata(m: PagoMetodo): string {
 /**
  * Banco como lo pide quien paga: el nombre primero y el código entre
  * paréntesis. En la app se muestra al revés («0102 · Banco de Venezuela»)
- * porque ahí se elige de una lista ordenada por código; acá se lee, no se
+ * porque ahí se elige de una lista ordenada por código; aquí se lee, no se
  * busca, y el nombre es lo que se reconoce.
  */
 function banco(codigo: string | null | undefined): string {
@@ -109,7 +109,7 @@ function lineasDatosPago(metodo: string, d: Record<string, string> | undefined):
  * El cuerpo de una orden, en el marcado de WhatsApp.
  * Se exporta para poder fijarlo con tests: el formato es un acuerdo con quien
  * lo lee del otro lado del chat, así que un cambio accidental se tiene que
- * notar acá y no en el teléfono de alguien.
+ * notar aquí y no en el teléfono de alguien.
  */
 export function textoOrdenPagar(o: Orden, proveedor: Proveedor | null): string {
   const L: string[] = [];

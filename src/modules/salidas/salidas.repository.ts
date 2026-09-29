@@ -290,28 +290,28 @@ export const MOTIVO_SALIDA_MINIMO = 3;
  * ¿Esta solicitud exige motivo? Solo la SALIDA DE MATERIAL: saca stock del
  * inventario y, sin motivo, después nadie sabe explicarla. Traslados y salidas
  * de dinero quedan como estaban. La regla vive en la base
- * (`salida_material_lleva_motivo`); acá se valida para avisar antes y claro.
+ * (`salida_material_lleva_motivo`); aquí se valida para avisar antes y claro.
  */
 export function exigeMotivoSalida(scope: string | null | undefined, tipo: string | null | undefined): boolean {
   return scope === 'salida' && tipo === 'material';
 }
 
 export const MSG_MOTIVO_SALIDA =
-  'Escribí el motivo de la salida de material. Queda en el historial del producto y es lo que permite explicarla después.';
+  'Escribe el motivo de la salida de material. Queda en el historial del producto y es lo que permite explicarla después.';
 
 const motivoCorto = (m: string | null | undefined) => (m ?? '').trim().length < MOTIVO_SALIDA_MINIMO;
 
 export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Promise<SolicitudSalida> {
-  if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+  if (!input.solicitante.trim()) throw new Error('Indica quién hace la solicitud.');
   if (exigeMotivoSalida(input.scope, input.tipo) && motivoCorto(input.motivo)) throw new Error(MSG_MOTIVO_SALIDA);
   let items: ItemSalida[] = [];
   if (input.tipo === 'material') {
     items = normalizarItemsSalida(input);
-    if (!items.length) throw new Error('Agregá al menos un material con cantidad.');
+    if (!items.length) throw new Error('Agrega al menos un material con cantidad.');
     if (input.scope === 'traslado') {
       // El traslado mueve todo de un almacén origen a un destino (a nivel solicitud).
-      if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
-      if (!input.almacenDestino) throw new Error('Indicá el almacén destino.');
+      if (!input.almacenOrigen) throw new Error('Indica el almacén de origen.');
+      if (!input.almacenDestino) throw new Error('Indica el almacén destino.');
       if (input.almacenOrigen === input.almacenDestino) throw new Error('El almacén origen y destino deben ser distintos.');
     } else {
       // La salida descuenta cada material de SU almacén (el de cada renglón).
@@ -321,12 +321,12 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
   } else {
     const monto = Number(input.monto) || 0;
     if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
-    if (!input.cajaId) throw new Error('Elegí la caja.');
+    if (!input.cajaId) throw new Error('Elige la caja.');
     if (input.scope === 'traslado') {
-      if (!input.cajaDestinoId) throw new Error('Elegí la caja destino.');
+      if (!input.cajaDestinoId) throw new Error('Elige la caja destino.');
       if (input.cajaId === input.cajaDestinoId) throw new Error('La caja origen y destino deben ser distintas.');
     } else if (!input.destino?.trim()) {
-      throw new Error('Indicá a quién va dirigida la salida de dinero.');
+      throw new Error('Indica a quién va dirigida la salida de dinero.');
     }
   }
 
@@ -425,10 +425,10 @@ export interface TrasladoCasiteritaExternoInput {
  * (descuenta del origen + empuja los Kg al otro Supabase, recepción automática).
  */
 export async function crearTrasladoCasiteritaExterno(input: TrasladoCasiteritaExternoInput): Promise<SolicitudSalida> {
-  if (!input.solicitante.trim()) throw new Error('Indicá quién hace el traslado.');
-  if (!input.almacenOrigen) throw new Error('Indicá el almacén de origen.');
+  if (!input.solicitante.trim()) throw new Error('Indica quién hace el traslado.');
+  if (!input.almacenOrigen) throw new Error('Indica el almacén de origen.');
   const lineas = (input.lineas ?? []).filter((l) => l.producto && (Number(l.cantidad) || 0) > 0);
-  if (!lineas.length) throw new Error('Agregá al menos un renglón de casiterita con cantidad.');
+  if (!lineas.length) throw new Error('Agrega al menos un renglón de casiterita con cantidad.');
   for (const l of lineas) {
     if (!esCasiterita(l.producto)) {
       throw new Error(`Al otro sistema solo se envía CASITERITA (${l.producto.nombre} no lo es).`);
@@ -436,7 +436,7 @@ export async function crearTrasladoCasiteritaExterno(input: TrasladoCasiteritaEx
   }
 
   // 1) Ejecuta el puente por cada renglón (descuenta origen + entrega al otro sistema).
-  //    Si algún renglón falla, se corta acá: lo ya enviado queda registrado en el puente
+  //    Si algún renglón falla, se corta aquí: lo ya enviado queda registrado en el puente
   //    (Inventario → transferencias inter-sistema) y no se crea el registro en Salidas.
   const enviados: { producto: Producto; kg: number; precioUnit: number }[] = [];
   for (const l of lineas) {
@@ -552,7 +552,7 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
     historial: appendHistorial(s, 'editada', input.actor),
   };
   if (input.solicitante !== undefined) {
-    if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+    if (!input.solicitante.trim()) throw new Error('Indica quién hace la solicitud.');
     patch.solicitante = input.solicitante.trim();
   }
   if (input.unidadSolicitante !== undefined) patch.unidad_solicitante = input.unidadSolicitante?.trim() || null;
@@ -579,8 +579,8 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
     nuevoOrigen = input.almacenOrigen !== undefined ? (input.almacenOrigen?.trim() || null) : (s.almacen_origen ?? null);
     nuevoDestino = input.almacenDestino !== undefined ? (input.almacenDestino?.trim() || null) : (s.almacen_destino ?? null);
     if (input.almacenOrigen !== undefined || input.almacenDestino !== undefined) {
-      if (!nuevoOrigen) throw new Error('Indicá el almacén de origen.');
-      if (!nuevoDestino) throw new Error('Indicá el almacén destino.');
+      if (!nuevoOrigen) throw new Error('Indica el almacén de origen.');
+      if (!nuevoDestino) throw new Error('Indica el almacén destino.');
       if (nuevoOrigen === nuevoDestino) throw new Error('El almacén origen y destino deben ser distintos.');
       patch.almacen_origen = nuevoOrigen;
       patch.almacen_destino = nuevoDestino;
@@ -662,7 +662,7 @@ export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string):
     .eq('estado', 'por_aprobar')
     .select('id');
   if (error) throw error;
-  if (!data?.length) throw new Error('La solicitud ya fue atendida por otro usuario. Actualizá la lista.');
+  if (!data?.length) throw new Error('La solicitud ya fue atendida por otro usuario. Actualiza la lista.');
 }
 
 /**
@@ -674,7 +674,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
 
   // ── Reserva atómica (GT-SIN-17) ────────────────────────────────────────────
   // El `if` de arriba mira la copia que tiene ESTE navegador. Si dos personas
-  // pulsan «Ejecutar» a la vez, las dos lo pasan y el material sale dos veces.
+  // presionan «Ejecutar» a la vez, las dos lo pasan y el material sale dos veces.
   // Por eso marcamos primero, condicionado al estado real en la base: gana una
   // sola, y solo la ganadora mueve stock. Si el movimiento falla, se libera.
   const { data: reserva, error: errReserva } = await supabase
@@ -774,7 +774,7 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     throw e;
   }
 
-  // El estado ya quedó fijado en la reserva; acá solo se anota el movimiento.
+  // El estado ya quedó fijado en la reserva; aquí solo se anota el movimiento.
   const { error } = await supabase
     .from(SOL)
     .update({ mov_id: movId, mov_ref: movRef })

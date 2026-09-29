@@ -20,7 +20,7 @@ function usd(n: number | null | undefined): string {
 }
 /** COP (pesos por 1 USD). */
 function cop(n: number | null | undefined): string {
-  return n == null ? '—' : `COP ${Number(n).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return n == null ? '—' : `COP ${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** Tarjeta de tasa con el estilo kpi del sistema (como el dashboard). */
@@ -104,7 +104,7 @@ export function TasasView() {
     const txt = window.prompt(`Precio de ${m.label} en USD por ${m.unidad}:`, m.usd != null ? String(m.usd) : '');
     if (txt == null) return;
     const v = Number(txt.replace(',', '.'));
-    if (!Number.isFinite(v) || v <= 0) { toast('Indicá un precio válido', 'error'); return; }
+    if (!Number.isFinite(v) || v <= 0) { toast('Indica un precio válido', 'error'); return; }
     try {
       await setMetalManual(m.key, v);
       await cargar();
@@ -114,7 +114,7 @@ export function TasasView() {
 
   const usdUsdt = binance?.promedio ?? mercado?.usdtVes ?? null;
   const copUsd = mercado?.copUsd ?? null;
-  // "Configurá la API" solo si faltan los metales automáticos (no cuenta el estaño, que es manual).
+  // "Configura la API" solo si faltan los metales automáticos (no cuenta el estaño, que es manual).
   const autoFaltante = metales.some((m) => !m.manual) && !metales.some((m) => !m.manual && m.usd != null);
   const ultimaCripto = cripto.find((c) => c.at)?.at ?? null;
 
@@ -151,7 +151,7 @@ export function TasasView() {
       {/* Metales */}
       <div className="card-title" style={{ margin: '1rem 0 .5rem' }}>
         <span>Metales (USD)</span>
-        {autoFaltante && <span className="muted" style={{ fontSize: '.72rem' }}>· configurá la API de metales para activarlos</span>}
+        {autoFaltante && <span className="muted" style={{ fontSize: '.72rem' }}>· configura la API de metales para activarlos</span>}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.75rem' }}>
         {metales.map((m) => (

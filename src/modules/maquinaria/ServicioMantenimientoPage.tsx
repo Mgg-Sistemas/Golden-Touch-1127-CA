@@ -134,7 +134,7 @@ export function ServicioMantenimientoPage() {
     return m;
   }, [equipos, horometros, bitMap]);
 
-  // Conteo por grupo + lista de equipos sin clasificar (para que igual se vean acá,
+  // Conteo por grupo + lista de equipos sin clasificar (para que igual se vean aquí,
   // aunque no tengan un grupo asignado en su ficha — así "sincronizan" con Control
   // de Maquinaria sin obligar a clasificarlos primero).
   const porGrupo = useMemo(() => {
@@ -230,7 +230,7 @@ export function ServicioMantenimientoPage() {
       {loading ? (
         <EmptyState message="Cargando…" />
       ) : !lista.length ? (
-        <EmptyState message={`Sin equipos en «${grupoLabel}». Asigná este grupo a los equipos desde su ficha.`} icon="🔧" />
+        <EmptyState message={`Sin equipos en «${grupoLabel}». Asigna este grupo a los equipos desde su ficha.`} icon="🔧" />
       ) : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
@@ -259,7 +259,7 @@ export function ServicioMantenimientoPage() {
                     <td className="mono" style={{ textAlign: 'right' }}>{e.mantenimiento_cada_hrs != null ? fmtNum(e.mantenimiento_cada_hrs) : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {info?.restantes == null
-                        ? <span className="muted" title={!e.mantenimiento_cada_hrs ? 'Definí «Mantenimiento cada (hrs)» en la ficha' : 'Sin horómetro registrado'}>—</span>
+                        ? <span className="muted" title={!e.mantenimiento_cada_hrs ? 'Define «Mantenimiento cada (hrs)» en la ficha' : 'Sin horómetro registrado'}>—</span>
                         : info.alerta
                           ? <span style={{ color: 'var(--warning)', fontWeight: 700 }} title={`Faltan ${fmtNum(info.restantes)} h`}>⚠️ {fmtNum(info.restantes)} h</span>
                           : <span>{fmtNum(info.restantes)} h</span>}
@@ -305,7 +305,7 @@ export function ServicioMantenimientoPage() {
 
 /**
  * Lista las solicitudes de servicio (tipo='servicio' de Pedidos) vinculadas a un
- * equipo: de dónde se pidió el servicio → acá se ve. Se gestionan en la pestaña
+ * equipo: de dónde se pidió el servicio → aquí se ve. Se gestionan en la pestaña
  * Servicios de Pedidos (aprobar, cotizar, pagar, realizar) y el seguimiento del
  * consumo se lleva en la bitácora del equipo.
  */

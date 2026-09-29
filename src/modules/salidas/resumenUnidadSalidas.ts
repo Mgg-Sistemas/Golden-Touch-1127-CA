@@ -232,7 +232,7 @@ export async function enviarResumenUnidadCorreo(
   const lista = Array.from(new Set(
     emails.map((e) => e.trim().toLowerCase()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
   ));
-  if (!lista.length) throw new Error('Indicá al menos un correo válido');
+  if (!lista.length) throw new Error('Indica al menos un correo válido');
   const doc = await construirPdf(grupos, gruposProd, filas, meta);
   const base64 = (doc.output('datauristring').split(',')[1]) ?? '';
   const { data, error } = await supabase.functions.invoke<

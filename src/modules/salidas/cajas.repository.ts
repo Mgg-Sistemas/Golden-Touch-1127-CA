@@ -164,7 +164,7 @@ export async function egresarGastoCaja(input: {
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
-  if (!input.concepto.trim()) throw new Error('Indicá el concepto del gasto.');
+  if (!input.concepto.trim()) throw new Error('Indica el concepto del gasto.');
   // Descuento ATÓMICO del saldo visible (lock + valida fondos en el servidor).
   const { saldoAntes, saldoDespues, moneda } = await aplicarSaldoCaja(input.cajaId, -monto, false);
 
@@ -193,7 +193,7 @@ export async function ingresarDineroCaja(input: {
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
-  if (!input.concepto.trim()) throw new Error('Indicá el concepto del ingreso.');
+  if (!input.concepto.trim()) throw new Error('Indica el concepto del ingreso.');
   // Ingreso ATÓMICO (suma; permite quedar como esté, no valida fondos).
   const { saldoAntes, saldoDespues, moneda } = await aplicarSaldoCaja(input.cajaId, monto, true);
 
@@ -212,7 +212,7 @@ export async function ingresarDineroCaja(input: {
 /* ───────────── Editar / borrar movimientos MANUALES (gasto / ingreso / ajuste) ─────────────
    Solo movimientos sueltos cargados a mano. Los VINCULADOS (pago de OC, traslado entre
    cajas, conciliación de mineral, pago de compra/servicio directo, conversión, reverso)
-   NO se editan acá: se anulan desde su módulo, para no descuadrar el otro lado/inventario.
+   NO se editan aquí: se anulan desde su módulo, para no descuadrar el otro lado/inventario.
    Al editar/borrar se SINCRONIZA el saldo de la caja (legacy o multimoneda). */
 
 const CATEGORIAS_VINCULADAS = new Set(['pago_oc', 'reembolso_oc', 'traslado', 'conversion', 'compra_directa', 'servicio_directo', 'reembolso_compra_directa', 'reembolso_servicio_directo', 'reverso', 'conciliacion']);
@@ -241,7 +241,7 @@ const CATEGORIAS_DOCUMENTO = new Set(['pago_oc', 'reembolso_oc', 'compra_directa
 export function esMovimientoBorrable(m: MovimientoCaja): boolean {
   if (!['salida', 'ingreso', 'ajuste', 'traslado_salida', 'traslado_entrada'].includes(m.tipo)) return false;
   const r = m as unknown as Record<string, unknown>;
-  // Ligados a un documento/registro externo: no se borran acá.
+  // Ligados a un documento/registro externo: no se borran aquí.
   if (r.ref_orden_id || r.ref_nomina_renglon_id || r.estado_mineral || r.mineral_mov_id) return false;
   if (m.categoria && CATEGORIAS_DOCUMENTO.has(m.categoria)) return false;
   return true;
@@ -280,11 +280,11 @@ async function aplicarDeltaSaldo(m: MovimientoCaja, delta: number): Promise<void
  * Borra un movimiento del libro y REVIERTE su efecto en el saldo de la caja (multimoneda
  * o legacy). Cubre los manuales (ingreso/salida/ajuste), los TRASLADOS y las CONVERSIONES
  * (cada pata revierte el saldo de su propia caja). Los ligados a un documento externo
- * (pago de OC, compra/servicio directo, nómina, conciliación) NO se borran acá.
+ * (pago de OC, compra/servicio directo, nómina, conciliación) NO se borran aquí.
  */
 export async function eliminarMovimientoCaja(m: MovimientoCaja): Promise<void> {
   if (!esMovimientoBorrable(m))
-    throw new Error('Este movimiento está ligado a un documento (pago de OC, compra/servicio directo, nómina o conciliación de mineral) y no se borra acá: anulalo o reabrilo desde su módulo.');
+    throw new Error('Este movimiento está ligado a un documento (pago de OC, compra/servicio directo, nómina o conciliación de mineral) y no se borra aquí: anulalo o reabrilo desde su módulo.');
   await aplicarDeltaSaldo(m, -efectoMov(m));
   const { error } = await supabase.from(LIBRO).delete().eq('id', m.id);
   if (error) throw error;
@@ -308,7 +308,7 @@ export interface EditarMovimientoManualInput {
 export async function editarMovimientoCajaManual(input: EditarMovimientoManualInput): Promise<void> {
   const m = input.mov;
   if (!esMovimientoEditable(m))
-    throw new Error('Este movimiento está vinculado y no se edita acá: anulalo desde su módulo.');
+    throw new Error('Este movimiento está vinculado y no se edita aquí: anulalo desde su módulo.');
   const montoNuevo = round2(Number(input.monto) || 0);
   if (m.tipo !== 'ajuste' && montoNuevo <= 0) throw new Error('El monto debe ser mayor que 0.');
 
@@ -341,7 +341,7 @@ export async function editarMovimientoCajaManual(input: EditarMovimientoManualIn
  * sincroniza además la fecha de pago del documento vinculado para que coincida.
  */
 export async function editarFechaMovimiento(mov: MovimientoCaja, fechaIso: string): Promise<void> {
-  if (!fechaIso) throw new Error('Indicá la fecha del movimiento.');
+  if (!fechaIso) throw new Error('Indica la fecha del movimiento.');
   const { error } = await supabase.from(LIBRO).update({ at: fechaIso }).eq('id', mov.id);
   if (error) throw error;
   // Sincroniza la fecha de pago del/los documento(s) vinculado(s) para que TODO coincida
@@ -470,7 +470,7 @@ export async function conciliarConMineral(input: ConciliarMineralInput): Promise
   let productoId = input.productoId;
   let productoNombre = '';
   if (!productoId) {
-    if (!input.productoNuevo?.nombre.trim()) throw new Error('Indicá el mineral recibido.');
+    if (!input.productoNuevo?.nombre.trim()) throw new Error('Indica el mineral recibido.');
     const nombre = input.productoNuevo.nombre.trim().toUpperCase();
     const sku = slugSku(nombre);
     if (await findBySku(sku)) throw new Error(`Ya existe un producto con el SKU ${sku}.`);

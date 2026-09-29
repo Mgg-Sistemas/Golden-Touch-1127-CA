@@ -35,7 +35,7 @@ export async function enviarMensaje(input: {
   autorNombre?: string | null;
 }): Promise<MensajeOrden> {
   const texto = input.mensaje.trim();
-  if (!texto) throw new Error('Escribí un mensaje.');
+  if (!texto) throw new Error('Escribe un mensaje.');
   const { data, error } = await supabase
     .from('orden_mensajes')
     .insert({

@@ -91,7 +91,7 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
   return doc;
 }
 
-/** Abre el PDF del cierre en vista previa (se descarga al pulsar Descargar). */
+/** Abre el PDF del cierre en vista previa (se descarga al presionar Descargar). */
 export async function descargarCocinaCierrePdf(m: Mercado): Promise<void> {
   const doc = await construirDocCierre(m);
   previewPdf(doc, `${esDescartado(m) ? 'mercado-descartado' : 'cierre-mercado'}-${(m.numero ?? 'MK')}-${soloFecha(m.cierre_at).replace(/\//g, '-')}.pdf`);

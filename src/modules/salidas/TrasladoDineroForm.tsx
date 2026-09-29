@@ -42,7 +42,7 @@ export function TrasladoDineroForm({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!origenId || !destinoValido) { setError('Elegí caja origen y destino (misma moneda).'); return; }
+    if (!origenId || !destinoValido) { setError('Elige caja origen y destino (misma moneda).'); return; }
     if (montoNum <= 0) { setError('El monto debe ser mayor que 0.'); return; }
     if (montoNum > saldo) { setError(`Saldo insuficiente. Disponible: ${money(saldo)} ${origen?.moneda}.`); return; }
     setSaving(true);

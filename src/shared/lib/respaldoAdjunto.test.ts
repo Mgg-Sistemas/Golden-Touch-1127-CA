@@ -62,7 +62,7 @@ describe('avisoSiNoEntraEnCorreo', () => {
   it('pasado el tope dice qué hacer, no solo que falló', () => {
     const aviso = avisoSiNoEntraEnCorreo(20 * 1024 * 1024) ?? '';
     expect(aviso).toMatch(/Descargar/);
-    expect(aviso).toMatch(/Avisá/);
+    expect(aviso).toMatch(/Avisa/);
   });
 
   it('el volcado real de 15 MB SIN comprimir no habría entrado', () => {

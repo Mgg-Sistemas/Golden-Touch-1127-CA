@@ -108,7 +108,7 @@ export function calcularDespiece(e: EntradaDespiece): DespieceCalc {
 
 /**
  * Las filas del formulario que sí son un corte. Se descartan las vacías (el
- * renglón en blanco que queda al pie), y el nombre se normaliza acá una sola vez.
+ * renglón en blanco que queda al pie), y el nombre se normaliza aquí una sola vez.
  */
 export function cortesListos(renglones: RenglonCorte[]): CorteListo[] {
   return renglones
@@ -126,10 +126,10 @@ export function erroresDespiece(e: EntradaDespiece): string[] {
   const cortes = e.cortes;
 
   if (!cortes.some((c) => c.kg > 0)) {
-    errores.push('Cargá al menos un corte con sus kilos.');
+    errores.push('Carga al menos un corte con sus kilos.');
   }
   if (cortes.some((c) => !c.nombre)) {
-    errores.push('Hay un corte sin nombre: escribí cómo entra al inventario.');
+    errores.push('Hay un corte sin nombre: escribe cómo entra al inventario.');
   }
   cortes.forEach((c) => {
     if (c.nombre && c.kg <= 0) errores.push(`«${c.nombre}» no tiene kilos.`);
@@ -139,7 +139,7 @@ export function erroresDespiece(e: EntradaDespiece): string[] {
   cortes.forEach((c) => {
     if (!c.nombre) return;
     const clave = norm(c.nombre);
-    if (vistos.has(clave)) errores.push(`«${c.nombre}» está cargado dos veces: sumá los kilos en un solo renglón.`);
+    if (vistos.has(clave)) errores.push(`«${c.nombre}» está cargado dos veces: suma los kilos en un solo renglón.`);
     else vistos.set(clave, c.nombre);
   });
 

@@ -576,7 +576,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
             onChange={(next) => setForm((prev) => ({ ...prev, categorias: next }))}
             onCreate={async (name) => {
               const added = await addCategoria(name);
-              if (added) setCategorias((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
+              if (added) setCategorias((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es-VE'))));
               return added;
             }}
             placeholder="🔍 Buscar categoría o crear una nueva…"

@@ -72,7 +72,7 @@ export async function subirDocumentoEquipo(input: {
   equipoId: string; espacio: number; nombre: string; file: File; actor: string; actorNombre: string | null;
 }): Promise<DocumentoEquipo> {
   const nombre = normalizarNombreDocumento(input.nombre);
-  if (!nombre) throw new Error('Poné el nombre del documento.');
+  if (!nombre) throw new Error('Pon el nombre del documento.');
   if (!(input.espacio >= 1 && input.espacio <= MAX_DOCUMENTOS_EQUIPO)) {
     throw new Error(`Cada equipo admite hasta ${MAX_DOCUMENTOS_EQUIPO} documentos.`);
   }

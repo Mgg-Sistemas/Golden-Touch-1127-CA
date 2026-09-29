@@ -255,7 +255,7 @@ export function AcopioPage() {
           <div className="form-row" style={{ marginBottom: 0 }}>
             <label>N° de la caja nueva</label>
             <input className="input" value={numeroCierre} onChange={(e) => setNumeroCierre(e.target.value)} placeholder="Ej. Caja 5" autoFocus />
-            <small className="muted">Indicalo la primera vez; luego se sugiere incremental automáticamente. Podés editarlo.</small>
+            <small className="muted">Indicalo la primera vez; luego se sugiere incremental automáticamente. Puedes editarlo.</small>
           </div>
         </Modal>
       )}
@@ -327,8 +327,8 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
     setError(null);
     const gas = r2(gastos), tras = r2(traslado), ent = r2(entrada);
     const kg = Number(kgRecibidos) || 0;
-    if (gas <= 0 && tras <= 0 && kg <= 0 && ent <= 0) { setError('Ingresá al menos un monto.'); return; }
-    if (gas > 0 && !gastoCat) { setError('Elegí la categoría del gasto.'); return; }
+    if (gas <= 0 && tras <= 0 && kg <= 0 && ent <= 0) { setError('Ingresa al menos un monto.'); return; }
+    if (gas > 0 && !gastoCat) { setError('Elige la categoría del gasto.'); return; }
     setSaving(true);
     try {
       const cajaId = cajaActual?.id ?? null;
@@ -351,7 +351,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
       toast(`${filas.length} movimiento(s) registrado(s)`, 'success');
       onSaved();
     } catch (e) {
-      // Supabase no tira `Error`: con `instanceof` el motivo real se perdía. Por acá
+      // Supabase no tira `Error`: con `instanceof` el motivo real se perdía. Por aquí
       // llega el candado que avisa que ese contrato ya existe en Producción.
       setError(mensajeError(e, 'No se pudo guardar.')); setSaving(false);
     }
@@ -384,7 +384,7 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
     <Modal title="Agregar movimiento" size="md" onClose={onClose} footer={footer}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
       <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-        Caja: <strong>{cajaActual ? `${cajaActual.numero}${cajaActual.nombre ? ` · ${cajaActual.nombre}` : ''}` : '—'}</strong>. Completá los campos que apliquen; cada concepto se registra como un movimiento.
+        Caja: <strong>{cajaActual ? `${cajaActual.numero}${cajaActual.nombre ? ` · ${cajaActual.nombre}` : ''}` : '—'}</strong>. Completa los campos que apliquen; cada concepto se registra como un movimiento.
       </p>
 
       <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
@@ -462,7 +462,7 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
   useEffect(() => { cargar(); }, [cargar]);
   useRealtime(['acopio_caja_movimientos', 'acopio_contratos'], cargar);
 
-  const pct = (v: number) => `${(v * 100).toLocaleString('es', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  const pct = (v: number) => `${(v * 100).toLocaleString('es-VE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 
   const footer = (
     <>
@@ -714,7 +714,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onCl
 
   async function guardar() {
     setError(null);
-    if (!fecha) { setError('Indicá la fecha.'); return; }
+    if (!fecha) { setError('Indica la fecha.'); return; }
     setSaving(true);
     try {
       if (esNueva) {
@@ -731,7 +731,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onCl
   // Corrige SOLO la fecha (metadato), esté abierta o cerrada. No toca el stock.
   async function guardarFecha() {
     setError(null);
-    if (!fecha) { setError('Indicá la fecha.'); return; }
+    if (!fecha) { setError('Indica la fecha.'); return; }
     setSaving(true);
     try {
       await actualizarFechaRecepcion(recepcion!.id, fecha);
@@ -742,7 +742,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onCl
 
   async function guardarYCerrar() {
     setError(null);
-    if (!productoId) { setError('Elegí el producto (mineral) al que se suma el stock.'); return; }
+    if (!productoId) { setError('Elige el producto (mineral) al que se suma el stock.'); return; }
     if (cantidadStock <= 0) { setError('El peso recibido debe ser mayor que 0.'); return; }
     setSaving(true);
     try {
@@ -830,7 +830,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onCl
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
           {/* La FECHA se puede corregir aunque la recepción esté CERRADA (es metadato: no
               toca el stock). El resto de campos siguen bloqueados tras el cierre. */}
-          <div className="form-row"><label>FECHA {!esNueva && estado === 'cerrada' && canWrite && <span className="muted" style={{ fontSize: '.72rem' }}>(editable · corregí y «Guardar fecha»)</span>}</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite || estado === 'anulada'} /></div>
+          <div className="form-row"><label>FECHA {!esNueva && estado === 'cerrada' && canWrite && <span className="muted" style={{ fontSize: '.72rem' }}>(editable · corrige y «Guardar fecha»)</span>}</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite || estado === 'anulada'} /></div>
           <div className="form-row"><label>CENTRO DE ACOPIO</label><input className="input" name="rec-centro" defaultValue={centro} onChange={(e) => setCentro(e.target.value)} disabled={ro} /></div>
           <div className="form-row"><label>ALIADO</label><input className="input" name="rec-aliado" defaultValue={aliado} onChange={(e) => setAliado(e.target.value)} placeholder="Nombre del aliado" disabled={ro} /></div>
         </div>
@@ -935,7 +935,7 @@ function RecepcionModal({ recepcion, productos, canWrite, actor, actorName, onCl
       )}
       {editable && (
         <p className="muted" style={{ fontSize: '.8rem', marginTop: '.6rem' }}>
-          Al cerrar se sumarán <strong className="mono">{num(cantidadStock)} {unidad}</strong> al stock de <strong>{productoSel?.nombre ?? '(elegí producto)'}</strong> en el <strong>Inventario General</strong>
+          Al cerrar se sumarán <strong className="mono">{num(cantidadStock)} {unidad}</strong> al stock de <strong>{productoSel?.nombre ?? '(elige producto)'}</strong> en el <strong>Inventario General</strong>
           {totales.recepcionado <= 0 && totales.neto > 0 && ' · se usa el peso neto porque no hay peso recepcionado.'}
         </p>
       )}

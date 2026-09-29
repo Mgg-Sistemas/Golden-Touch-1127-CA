@@ -11,7 +11,7 @@
 
 /** MARIANA TOVAR — Analista de Compras: ELABORA las Órdenes de Compra. Se estampa como
  *  «Elaborado por» en el PDF de la OC, aparte de la firma de quien la aprueba. Igual que los
- *  aprobadores, va fijo acá: si cambia la persona/cargo/CI se edita este único lugar. */
+ *  aprobadores, va fijo aquí: si cambia la persona/cargo/CI se edita este único lugar. */
 export const ELABORADOR_OC = {
   nombre: 'MARIANA TOVAR',
   cargo: 'Analista de Compras',

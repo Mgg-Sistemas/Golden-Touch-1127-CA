@@ -207,7 +207,7 @@ export async function updateRecepcion(id: string, input: RecepcionInput): Promis
  */
 export async function actualizarFechaRecepcion(id: string, fecha: string): Promise<RecepcionAcopio> {
   const f = (fecha || '').trim();
-  if (!f) throw new Error('Indicá la fecha.');
+  if (!f) throw new Error('Indica la fecha.');
   const { error } = await supabase
     .from('acopio_recepciones')
     .update({ fecha: f, updated_at: new Date().toISOString() })
@@ -224,9 +224,9 @@ export async function cerrarRecepcion(id: string, actor: string, actorName?: str
   const rec = await getRecepcion(id);
   if (!rec) throw new Error('Recepción no encontrada.');
   if (rec.estado !== 'abierta') throw new Error('Solo se puede cerrar una recepción abierta.');
-  if (!rec.producto_id) throw new Error('Elegí el producto (mineral) al que se suma el stock antes de cerrar.');
-  if (!rec.almacen?.trim()) throw new Error('Elegí el almacén destino del stock antes de cerrar.');
-  if (!(rec.lotes ?? []).length) throw new Error('Agregá al menos un lote antes de cerrar.');
+  if (!rec.producto_id) throw new Error('Elige el producto (mineral) al que se suma el stock antes de cerrar.');
+  if (!rec.almacen?.trim()) throw new Error('Elige el almacén destino del stock antes de cerrar.');
+  if (!(rec.lotes ?? []).length) throw new Error('Agrega al menos un lote antes de cerrar.');
 
   const cantidad = cantidadAStock(rec.lotes ?? []);
   if (cantidad <= 0) throw new Error('El peso recibido debe ser mayor que 0 para sumar stock.');

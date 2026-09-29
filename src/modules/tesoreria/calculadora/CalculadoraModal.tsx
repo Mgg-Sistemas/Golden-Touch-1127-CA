@@ -3,11 +3,11 @@
 
    Salió de TesoreriaPage.tsx (6.820 líneas), donde vivía entre las 3602 y 3866.
 
-   El cálculo NO vive acá: lo hace `calcular()` de `@/shared/lib/calculo`, que es
+   El cálculo NO vive aquí: lo hace `calcular()` de `@/shared/lib/calculo`, que es
    puro y se testea sin React. Este archivo junta las tasas que MGG ya tiene,
    se las pasa, y pinta el resultado.
 
-   ESTO INFORMA, NO VALORA. Ninguna cuenta hecha acá se guarda en un documento
+   ESTO INFORMA, NO VALORA. Ninguna cuenta hecha aquí se guarda en un documento
    ni decide cuánto vale una compra: es una herramienta de escritorio. Lo que
    valora sigue siendo el camino de siempre.
    ============================================================ */
@@ -21,9 +21,9 @@ import { calcular } from '@/shared/lib/calculo';
 import {
   aceptaLetra, borrarUltimo, desdeBolivares, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo,
 } from './tasasParaCalculo';
-/* Acá vivía `evalExpr`, un shunting-yard sobre números planos, hasta el
+/* Aquí vivía `evalExpr`, un shunting-yard sobre números planos, hasta el
    04/09/2026. Hacía `replace(/,/g, '.')` sobre toda la expresión y leía con
-   `parseFloat`, así que «2.000» —dos mil, con el separador de miles de acá—
+   `parseFloat`, así que «2.000» —dos mil, con el separador de miles de aquí—
    daba 2. Y no fallaba: devolvía el número equivocado con total confianza. */
 
 const CALC_FMT = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 6 });
@@ -51,7 +51,7 @@ function limpiarPegado(texto: string): string {
  * El resultado, escrito de forma que el motor lo vuelva a leer EXACTAMENTE igual.
  *
  * `String(1234.567)` da «1234.567», y esa cadena releída es un millón doscientos
- * mil: el punto con tres dígitos detrás es separador de miles acá. O sea que
+ * mil: el punto con tres dígitos detrás es separador de miles aquí. O sea que
  * apretar «=» sobre un resultado de tres decimales lo multiplicaba por mil. Por
  * eso no se reusa `String()`: se escribe sin separador de miles y con coma
  * decimal, que es la única forma que el motor lee sin ambigüedad. `toFixed`
@@ -104,7 +104,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
   /**
    * Evalúa una cuenta. Devuelve también si el resultado es DINERO, porque un
    * monto y una proporción no se muestran igual: `1,25` es una razón y
-   * `Bs 1.234,56` es plata.
+   * `Bs 1.234,56` es dinero.
    */
   const evaluar = useCallback((texto: string) => {
     const r = calcular(texto, mapas.alias, mapas.enBolivares, nombreDeCalculo, simboloDeCalculo);
@@ -137,7 +137,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
     // borra, sin haber pedido ese cambio.
     if (val === '⌫') { setExpr(borrarUltimo); return; }
     if (val === '=') {
-      /* Los efectos (guardar en la cinta, fijar el resultado) van ACÁ y no dentro
+      /* Los efectos (guardar en la cinta, fijar el resultado) van Aquí y no dentro
          del updater de `setExpr`. Un updater tiene que ser una función pura de
          estado a estado: React lo invoca dos veces en desarrollo para detectar
          justamente esto, y con los efectos adentro cada «=» agregaba DOS
@@ -164,7 +164,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
      `incompleta` distingue «todavía no cierra» de «no hay nada escrito», y no es
      un detalle: antes, con la cuenta a medias el visor caía al resultado
      ANTERIOR y mostraba un número viejo como si fuera el de la cuenta en curso.
-     En una calculadora de plata, un número que no corresponde es peor que
+     En una calculadora de dinero, un número que no corresponde es peor que
      ninguno — así que mientras no cierre se muestra un guion. */
   const preview = useMemo(() => {
     const cur = expr.trim();
@@ -226,7 +226,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       else if (k === '%') press('%');
       // Las monedas se escriben con letras y símbolos. Sin esto, «100 $» no se
       // puede teclear y el motor de monedas queda inalcanzable: el visor es un
-      // div, así que TODO lo que se escribe pasa por acá.
+      // div, así que TODO lo que se escribe pasa por aquí.
       // La barra también activa el botón que quedó con el foco tras un clic, así
       // que sin preventDefault se repetía la última tecla apretada con el mouse.
       else if (k === ' ') { ev.preventDefault(); press(' '); }
@@ -404,7 +404,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
 
       {/* Teclado. `.btn` es inline-flex SIN justify-content, así que al estirarse
           en una celda de grilla la etiqueta se pega a la izquierda — que es como
-          se veía. Se centra acá; 44px de alto es el mínimo cómodo para el dedo. */}
+          se veía. Se centra aquí; 44px de alto es el mínimo cómodo para el dedo. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.5rem', marginTop: '.6rem' }}>
         {KEYS.map((k) => (
           <button key={k.label} type="button"

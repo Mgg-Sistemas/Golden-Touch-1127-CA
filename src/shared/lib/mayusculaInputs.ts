@@ -45,9 +45,9 @@ function debeMayuscular(el: EventTarget | null): el is HTMLInputElement | HTMLTe
  * compara el valor del campo contra el tracker, los ve iguales y DECIDE QUE NO
  * CAMBIO NADA: no dispara onChange.
  *
- * Eso es exactamente lo que pasaba acá. Al escribir en minúscula, este listener
+ * Eso es exactamente lo que pasaba aquí. Al escribir en minúscula, este listener
  * convertía a mayúscula, el campo mostraba el texto… y el estado de React quedaba
- * vacío. De ahí el «Indicá la categoría» con PEAJE escrito en pantalla. Al escribir
+ * vacío. De ahí el «Indica la categoría» con PEAJE escrito en pantalla. Al escribir
  * en mayúscula no se convertía nada, así que el error aparecía solo a veces.
  *
  * Escribiendo por el setter del PROTOTIPO se saltea el de React: el tracker queda

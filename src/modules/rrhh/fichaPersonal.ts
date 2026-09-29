@@ -269,7 +269,7 @@ export function agruparPersonal(
     .map(([t, gente]) => ({ clave: t, titulo: t, gente }))
     .sort((a, b) => {
       if (sinDato(a.titulo) !== sinDato(b.titulo)) return sinDato(a.titulo) ? 1 : -1;
-      return a.titulo.localeCompare(b.titulo, 'es');
+      return a.titulo.localeCompare(b.titulo, 'es-VE');
     });
 }
 
@@ -280,5 +280,5 @@ export function opcionesDe(lista: Personal[], campo: 'departamento' | 'cargo'): 
     const v = (p[campo] ?? '').trim();
     if (v) s.add(v);
   }
-  return [...s].sort((a, b) => a.localeCompare(b, 'es'));
+  return [...s].sort((a, b) => a.localeCompare(b, 'es-VE'));
 }

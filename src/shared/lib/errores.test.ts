@@ -6,8 +6,8 @@ describe('mensajeError · lo que ya hacía', () => {
     expect(mensajeError(new Error('No hay saldo en la caja'), 'Falló')).toBe('No hay saldo en la caja');
   });
   it('un error de Supabase suma el hint, que es la parte útil', () => {
-    expect(mensajeError({ message: 'violates check constraint', hint: 'Revisá el estado' }, 'Falló'))
-      .toBe('violates check constraint · Revisá el estado');
+    expect(mensajeError({ message: 'violates check constraint', hint: 'Revisa el estado' }, 'Falló'))
+      .toBe('violates check constraint · Revisa el estado');
   });
   it('sin mensaje, al menos dice el código', () => {
     expect(mensajeError({ code: '23514' }, 'No se pudo pagar.')).toBe('No se pudo pagar. (código 23514)');
@@ -25,7 +25,7 @@ describe('mensajeError · timeout del servidor', () => {
   it('lo traduce por el código de Postgres', () => {
     const m = mensajeError({ code: '57014', message: crudo }, 'Falló');
     expect(m).toMatch(/tardó más de lo que el servidor permite/);
-    expect(m).toMatch(/achicá el rango/);
+    expect(m).toMatch(/achica el rango/);
     expect(m).not.toMatch(/canceling statement/);
   });
 
@@ -38,7 +38,7 @@ describe('mensajeError · timeout del servidor', () => {
   });
 
   it('dice qué hacer si ya se acotó el rango', () => {
-    expect(mensajeError({ code: '57014', message: crudo }, 'Falló')).toMatch(/avisá/);
+    expect(mensajeError({ code: '57014', message: crudo }, 'Falló')).toMatch(/avisa/);
   });
 
   it('la traducción pisa el hint crudo: es el mismo error mejor dicho', () => {
@@ -54,7 +54,7 @@ describe('mensajeError · conexión cortada', () => {
   });
   it('avisa de verificar si el cambio quedó', () => {
     expect(mensajeError({ code: '08003', message: 'connection does not exist' }, 'Falló'))
-      .toMatch(/verificá antes si el cambio quedó/);
+      .toMatch(/verifica antes si el cambio quedó/);
   });
 });
 

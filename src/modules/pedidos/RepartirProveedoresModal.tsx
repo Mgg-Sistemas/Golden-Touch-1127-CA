@@ -121,7 +121,7 @@ export function RepartirProveedoresModal({
   const totalGeneral = grupos.reduce((a, g) => a + totalConImp(g), 0);
 
   async function confirmar() {
-    if (!hayConPrecio) { toast('Asigná al menos un ítem con precio a un proveedor.', 'error'); return; }
+    if (!hayConPrecio) { toast('Asigna al menos un ítem con precio a un proveedor.', 'error'); return; }
     setSaving(true);
     try {
       const hijos = await repartirOpEntreProveedores(orden, grupos, actorEmail);
@@ -151,7 +151,7 @@ export function RepartirProveedoresModal({
   return (
     <Modal title={`Repartir entre proveedores · ${orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-        Elegí a qué proveedor comprarle cada ítem. Cada ítem va a un solo proveedor. Al confirmar se crea
+        Elige a qué proveedor comprarle cada ítem. Cada ítem va a un solo proveedor. Al confirmar se crea
         <strong> una Orden de Compra por proveedor</strong> (cada una con su método de pago y su PDF).
       </p>
 
@@ -202,7 +202,7 @@ export function RepartirProveedoresModal({
       {/* Resumen por proveedor */}
       <div className="card" style={{ marginTop: '.8rem', background: 'var(--surface-2)' }}>
         <div className="card-title" style={{ fontSize: '.85rem' }}><span>Órdenes a generar ({grupos.length})</span></div>
-        {!grupos.length ? <p className="muted" style={{ margin: 0 }}>Asigná ítems para ver las órdenes.</p> : (
+        {!grupos.length ? <p className="muted" style={{ margin: 0 }}>Asigna ítems para ver las órdenes.</p> : (
           <div className="table-wrap">
           <table className="table" style={{ fontSize: '.82rem' }}>
             <thead><tr><th>Proveedor</th><th className="num">Ítems</th><th className="num">Total (BCV)</th><th className="num">Total divisa</th></tr></thead>

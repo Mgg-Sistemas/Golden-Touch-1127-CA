@@ -9,7 +9,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { listTaxonomia, addTaxonomia, invalidateTaxonomia } from '@/shared/lib/taxonomias';
 
 function ordenar(set: Set<string>): string[] {
-  return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
+  return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es-VE'));
 }
 
 async function columna(tabla: 'usuarios' | 'personal', col: 'departamento' | 'cargo'): Promise<string[]> {

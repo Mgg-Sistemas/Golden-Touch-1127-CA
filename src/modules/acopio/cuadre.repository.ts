@@ -112,7 +112,7 @@ async function nextNumero(fecha: string): Promise<string> {
 }
 
 export async function crearCuadre(input: CuadreInput, actor: string, actorName?: string | null): Promise<Cuadre> {
-  if (!input.fecha) throw new Error('Indicá la fecha del cuadre.');
+  if (!input.fecha) throw new Error('Indica la fecha del cuadre.');
   const numero = await nextNumero(input.fecha);
   const billetes = (input.billetes ?? []).filter((b) => numv(b.cantidad) > 0);
   const { data, error } = await supabase

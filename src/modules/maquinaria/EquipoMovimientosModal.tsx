@@ -135,7 +135,7 @@ export function EquipoMovimientosModal({ equipo, onClose }: { equipo: Maquinaria
     }
     return [...acc.entries()]
       .map(([productoId, v]) => ({ productoId, ...v }))
-      .sort((a, b) => b.veces - a.veces || a.nombre.localeCompare(b.nombre, 'es'));
+      .sort((a, b) => b.veces - a.veces || a.nombre.localeCompare(b.nombre, 'es-VE'));
   }, [servicios, directos, equipo.id, dentroDelRango]);
 
   // Existencia actual de esos repuestos. Se piden solo los que hacen falta.

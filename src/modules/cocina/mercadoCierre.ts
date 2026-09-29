@@ -13,7 +13,7 @@
      · Lo que queda en la despensa NO se descarta: es el saldo inicial del
        mercado nuevo. Durante el ciclo nuevo se le suman las entradas.
 
-   Acá viven las piezas que se prueban sin base ni React.
+   Aquí viven las piezas que se prueban sin base ni React.
    ============================================================ */
 import type { ResumenViver, SaldoViver } from './cocinaMercado.repository';
 

@@ -28,9 +28,9 @@ export interface MovAcopioMeta { filtro?: string }
 
 const NOMBRE = 'movimientos-centro-acopio';
 const fmtNum = (v: number | null | undefined) =>
-  v == null ? '' : v.toLocaleString('es', { maximumFractionDigits: 2 });
+  v == null ? '' : v.toLocaleString('es-VE', { maximumFractionDigits: 2 });
 const fmtUsd = (v: number | null | undefined) =>
-  v == null ? '' : `$${v.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  v == null ? '' : `$${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const HEAD = [
   'Fecha', 'Descripción', '$Usd entregado', 'Kg Cerrados', '$Usd Facturados',

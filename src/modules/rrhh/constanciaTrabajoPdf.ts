@@ -14,7 +14,7 @@ import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
 
 export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
-/** Se re-exporta para no romper a quien ya lo importaba desde acá.
+/** Se re-exporta para no romper a quien ya lo importaba desde aquí.
  *  El valor vive en `@/shared/lib/empresa`, junto al correo y el WhatsApp. */
 export { EMPRESA_RIF };
 

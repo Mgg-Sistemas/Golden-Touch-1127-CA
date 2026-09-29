@@ -155,7 +155,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
     try {
       const added = await addCategoria(clean);
       if (!added) return;
-      setCategorias((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
+      setCategorias((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es-VE'))));
       setForm((prev) => ({ ...prev, categoria: added }));
       setNuevaCat('');
       toast(`Categoría "${added}" añadida`, 'success');
@@ -176,7 +176,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
       return;
     }
     if (form.esReceta && !form.receta_fundicion) {
-      setError('Seleccioná la receta de producción o cambiá la respuesta a "No".');
+      setError('Selecciona la receta de producción o cambia la respuesta a "No".');
       return;
     }
     const restockRaw = form.restock_pct.trim();
@@ -339,9 +339,9 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
                 <option key={u} value={u}>{u}</option>
               ))}
             </select>
-            {/* Las medidas NO se crean desde acá: solo se elige una existente. Para dar de
+            {/* Las medidas NO se crean desde aquí: solo se elige una existente. Para dar de
                 alta una medida nueva se usa el gestor «📏 Medidas» del Inventario. */}
-            <small className="muted">Solo medidas existentes. Para crear una nueva, usá <strong>📏 Medidas</strong> en Inventario.</small>
+            <small className="muted">Solo medidas existentes. Para crear una nueva, usa <strong>📏 Medidas</strong> en Inventario.</small>
           </div>
         </div>
 
@@ -369,7 +369,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
               value={form.receta_fundicion}
               onChange={(e) => update('receta_fundicion', e.target.value as RecetaFundicion | '')}
             >
-              <option value="">— elegí una receta —</option>
+              <option value="">— elige una receta —</option>
               {RECETAS_FUNDICION.map((r) => (
                 <option key={r} value={r}>{r}</option>
               ))}
@@ -418,7 +418,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
             />
             <small className="muted" style={{ fontSize: '.72rem' }}>
               {isEdit
-                ? 'Ajustá el stock desde “Movimiento” (entrada/salida/ajuste) en el Inventario General.'
+                ? 'Ajusta el stock desde “Movimiento” (entrada/salida/ajuste) en el Inventario General.'
                 : esBulto
                   ? `Cantidad de ${form.unidad}s. Se convierte a unidades con el campo de la derecha.`
                   : 'Ingresa al Inventario General. Luego se ajusta por movimientos.'}
@@ -439,7 +439,7 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
               <small className="muted" style={{ fontSize: '.72rem' }}>
                 {undXBulto > 0
                   ? <>Se guardará en unidades: <strong>{stockBultos} {form.unidad}{stockBultos === 1 ? '' : 's'} × {undXBulto} = {totalUnidades} und</strong>.</>
-                  : <>Indicá cuántas unidades trae cada {form.unidad} (ej. 20). El stock se guardará en unidades.</>}
+                  : <>Indica cuántas unidades trae cada {form.unidad} (ej. 20). El stock se guardará en unidades.</>}
               </small>
             </div>
           )}

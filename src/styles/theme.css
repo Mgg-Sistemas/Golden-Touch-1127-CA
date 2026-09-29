@@ -528,11 +528,11 @@ button.tira:focus-visible { outline: 2px solid var(--primary); outline-offset: 2
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* Alerta: banner que reclama atención (p. ej. DINERO POR ENTRAR) */
-.alert-pulse {
+.alert-presione {
   position: relative;
   animation: alertPulse 1.6s ease-in-out infinite;
 }
-.alert-pulse::after {
+.alert-presione::after {
   content: '';
   position: absolute; inset: 0;
   border-radius: inherit;
@@ -550,15 +550,15 @@ button.tira:focus-visible { outline: 2px solid var(--primary); outline-offset: 2
   100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .alert-pulse, .alert-pulse::after { animation: none; }
+  .alert-presione, .alert-presione::after { animation: none; }
 }
 
 /* Variante ámbar (warning) — aviso de mantenimiento / despliegue */
-.alert-pulse-warn {
+.alert-presione-warn {
   position: relative;
   animation: alertPulseWarn 1.6s ease-in-out infinite;
 }
-.alert-pulse-warn::after {
+.alert-presione-warn::after {
   content: '';
   position: absolute; inset: 0;
   border-radius: inherit;
@@ -576,7 +576,7 @@ button.tira:focus-visible { outline: 2px solid var(--primary); outline-offset: 2
   100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .alert-pulse-warn, .alert-pulse-warn::after { animation: none; }
+  .alert-presione-warn, .alert-presione-warn::after { animation: none; }
 }
 
 /* Empty state */

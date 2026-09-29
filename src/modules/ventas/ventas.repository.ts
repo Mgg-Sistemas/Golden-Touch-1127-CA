@@ -3,8 +3,8 @@
 
    Acceso a las tres tablas del módulo (`ventas`, `ventas_renglones`,
    `ventas_recibidos`) y a las tres transiciones, que NO son `update` sueltos:
-   cada una mueve plata o material en varias tablas a la vez, así que vive en
-   la base como RPC y acá solo se la llama. Un corte de red en el medio no
+   cada una mueve dinero o material en varias tablas a la vez, así que vive en
+   la base como RPC y aquí solo se la llama. Un corte de red en el medio no
    puede dejar una venta confirmada sin deuda, ni media entrega.
 
    La regla que ordena el módulo:
@@ -12,7 +12,7 @@
      · Al ENTREGAR se mueve el material (kardex).
 
    Los totales salen SIEMPRE de `calcularTotalesVenta` (`ventasCalculos.ts`).
-   Acá no se vuelve a escribir la cuenta: el bug de «el IVA no se suma» ya
+   Aquí no se vuelve a escribir la cuenta: el bug de «el IVA no se suma» ya
    volvió varias veces por tenerla escrita en varios lados.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
@@ -37,13 +37,13 @@ const V_MOV_CAJA = 'ventas_movimientos_caja';
 export type TipoVenta = 'venta' | 'permuta';
 /**
  * borrador → por_autorizar → autorizada → confirmada → entregada (y `anulada` desde
- * cualquiera). Antes de mover plata la venta pasa por LEYDIS RENGEL o JESUS LOZADA:
+ * cualquiera). Antes de mover dinero la venta pasa por LEYDIS RENGEL o JESUS LOZADA:
  * lo hace cumplir la base (trigger `trg_ventas_guardia_y_historial`), no la pantalla.
  */
 export type EstadoVenta = 'borrador' | 'por_autorizar' | 'autorizada' | 'confirmada' | 'entregada' | 'anulada';
 /** Con qué documento sale: nota de entrega o factura (con su nº y su nº de control). */
 export type DocumentoVenta = 'nota_entrega' | 'factura';
-/** Estados en los que todavía no se movió plata ni material: se pueden editar. */
+/** Estados en los que todavía no se movió dinero ni material: se pueden editar. */
 export const ESTADOS_EDITABLES: EstadoVenta[] = ['borrador', 'por_autorizar', 'autorizada'];
 
 export const DOCUMENTO_LABEL: Record<DocumentoVenta, string> = {
@@ -193,7 +193,7 @@ export interface VentaCompleta {
   recibidos: VentaRecibido[];
 }
 
-/** Fila de `public.ventas_movimientos_caja`: a qué caja fue la plata de la venta. */
+/** Fila de `public.ventas_movimientos_caja`: a qué caja fue el dinero de la venta. */
 export interface MovimientoCajaDeVenta {
   venta_id: string;
   movimiento_id: string;
@@ -562,7 +562,7 @@ export async function listRecibidosDeVentas(ventaIds: string[]): Promise<VentaRe
 }
 
 /**
- * A qué cajas fue la plata de esta venta. Lee la vista
+ * A qué cajas fue el dinero de esta venta. Lee la vista
  * `public.ventas_movimientos_caja`, que es `movimientos_caja` filtrada por
  * `ref_venta_id` con el nombre de la caja ya resuelto. Trae tanto el cobro
  * (`categoria = 'cobro_venta'`) como la reversa de la anulación.
@@ -692,14 +692,14 @@ function filasRecibidos(ventaId: string, recibidos: RecibidoInput[]): Record<str
 /** Valida lo que la base rechazaría igual, pero con un mensaje entendible. */
 function validarInput(input: VentaInput): { renglones: RenglonInput[]; recibidos: RecibidoInput[] } {
   const renglones = (input.renglones ?? []).filter((r) => r.producto_id && num(r.cantidad) > 0);
-  if (!renglones.length) throw new Error('Agregá al menos un producto con cantidad.');
+  if (!renglones.length) throw new Error('Agrega al menos un producto con cantidad.');
   const recibidos = (input.recibidos ?? []).filter((r) => r.producto_id && num(r.cantidad) > 0);
   if ((input.tipo ?? 'venta') !== 'permuta' && recibidos.length) {
-    throw new Error('Solo una permuta puede recibir material: cambiá el tipo del documento.');
+    throw new Error('Solo una permuta puede recibir material: cambia el tipo del documento.');
   }
   // En una permuta el valor del material ES la forma de pago. En 0 el material
   // entraría al inventario sin costo y la diferencia a cobrar saldría mal; la
-  // base lo rechaza con un error de restricción, acá se avisa antes y claro.
+  // base lo rechaza con un error de restricción, aquí se avisa antes y claro.
   const sinValor = recibidos.find((r) => num(r.valor_unit) <= 0);
   if (sinValor) {
     const quien = sinValor.producto_nombre ?? 'El material recibido';
@@ -721,7 +721,7 @@ async function insertarHijas(
 
 /**
  * Crea un BORRADOR con sus renglones (y su material recibido si es permuta).
- * No mueve plata ni stock: eso pasa al confirmar y al entregar. Los totales se
+ * No mueve dinero ni stock: eso pasa al confirmar y al entregar. Los totales se
  * guardan ya calculados para que el tablero muestre números desde el minuto
  * cero; al confirmar, la base los vuelve a calcular y los congela.
  */
@@ -755,7 +755,7 @@ export async function crearBorrador(input: VentaInput): Promise<VentaCompleta> {
 
 /**
  * Reescribe la venta entera (cabecera + hijas). Se puede editar mientras no se
- * haya movido plata ni material: `borrador`, `por_autorizar` y `autorizada`.
+ * haya movido dinero ni material: `borrador`, `por_autorizar` y `autorizada`.
  * Editar una venta ya enviada o autorizada la DEVUELVE A BORRADOR: lo que se
  * autorizó fue otro documento, así que hay que volver a pedir la autorización
  * (queda anotado en el historial). Desde `confirmada` en adelante el camino es
@@ -786,7 +786,7 @@ export async function actualizarBorrador(id: string, input: VentaInput): Promise
   if (error) throw error;
   // El `eq('estado','borrador')` es el candado: si otro usuario la confirmó
   // mientras esta pantalla la editaba, no se pisa nada.
-  if (!data) throw new Error('La venta cambió de estado mientras se editaba: volvé a abrirla.');
+  if (!data) throw new Error('La venta cambió de estado mientras se editaba: vuelve a abrirla.');
 
   const { error: dR } = await supabase.from(T_RENGLONES).delete().eq('venta_id', id);
   if (dR) throw dR;
@@ -800,7 +800,7 @@ export async function actualizarBorrador(id: string, input: VentaInput): Promise
 }
 
 /**
- * Borra un borrador de verdad. No hubo nada que anular: no movió plata ni
+ * Borra un borrador de verdad. No hubo nada que anular: no movió dinero ni
  * stock. Las hijas se van solas por `on delete cascade`.
  */
 export async function borrarBorrador(id: string): Promise<void> {
@@ -814,7 +814,7 @@ export async function borrarBorrador(id: string): Promise<void> {
 
 /* ─────────────────── Transiciones (RPC en la base) ───────────────────
    Cada una es un puñado de escrituras que valen todas o ninguna. Van en
-   Postgres, en una sola transacción, y desde acá solo se las llama. */
+   Postgres, en una sola transacción, y desde aquí solo se las llama. */
 
 /**
  * Borrador → POR AUTORIZAR. No mueve nada: deja la venta esperando a LEYDIS
@@ -860,7 +860,7 @@ export async function confirmarVenta(id: string, actor: string, actorName: strin
 }
 
 /**
- * Confirmada → ENTREGADA. **Mueve el material, no la plata.** Salida de kardex
+ * Confirmada → ENTREGADA. **Mueve el material, no el dinero.** Salida de kardex
  * por cada renglón y, en permuta, entrada por cada recibido al valor pactado
  * (así el costo promedio de esa ficha se recalcula solo). Si un renglón falla,
  * no queda nada entregado a medias.
@@ -878,7 +878,7 @@ export async function entregarVenta(id: string, actor: string, actorName: string
  * entregada, reversa las patas de caja y, a crédito, RESTA de la cuenta
  * corriente del cliente (que comparte con otras ventas: anular una no la
  * cierra, le deja un cargo negativo como rastro). Se niega si esa cuenta ya
- * tiene cobros: primero hay que devolver esa plata.
+ * tiene cobros: primero hay que devolver ese dinero.
  */
 export async function anularVenta(
   id: string, actor: string, actorName: string, motivo: string,

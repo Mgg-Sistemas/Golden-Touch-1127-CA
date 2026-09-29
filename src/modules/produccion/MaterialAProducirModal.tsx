@@ -189,7 +189,7 @@ export function MaterialAProducirModal({
 
   async function handleAddHorno() {
     const nombre = hornoNuevo.trim();
-    if (!nombre) { toast('Escribí el nombre del horno', 'error'); return; }
+    if (!nombre) { toast('Escribe el nombre del horno', 'error'); return; }
     setHornoSaving(true);
     try {
       const creado = await crearHorno(nombre, actor);
@@ -234,15 +234,15 @@ export function MaterialAProducirModal({
     setError(null);
 
     if (cantidadNum <= 0) { setError('La cantidad a producir debe ser mayor que 0.'); return; }
-    if (modoOutput === 'existente' && !productoSelId) { setError('Elegí el producto a producir.'); return; }
-    if (modoOutput === 'nuevo' && !nombreNuevo.trim()) { setError('Escribí el nombre del producto a producir.'); return; }
-    if (!seleccion.length) { setError('Seleccioná al menos un material con cantidad.'); return; }
+    if (modoOutput === 'existente' && !productoSelId) { setError('Elige el producto a producir.'); return; }
+    if (modoOutput === 'nuevo' && !nombreNuevo.trim()) { setError('Escribe el nombre del producto a producir.'); return; }
+    if (!seleccion.length) { setError('Selecciona al menos un material con cantidad.'); return; }
 
     for (const { m, row } of seleccion) {
       const cant = Number(row.cantidad) || 0;
       const stock = exStock(m.id, row.almacen);
       if (cant > stock) {
-        setError(`"${m.nombre}": pedís ${num(cant)} pero hay ${num(stock)}.`);
+        setError(`"${m.nombre}": pides ${num(cant)} pero hay ${num(stock)}.`);
         return;
       }
     }
@@ -375,7 +375,7 @@ export function MaterialAProducirModal({
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setHornoAddOpen((v) => !v)}>+ Horno nuevo</button>
           </div>
           <select className="select" value={horno} onChange={(e) => setHorno(e.target.value)}>
-            {!hornosList.length && <option value="">— Sin hornos: agregá uno →</option>}
+            {!hornosList.length && <option value="">— Sin hornos: agrega uno →</option>}
             {hornosList.map((h) => <option key={h} value={h}>{h}</option>)}
             {/* Si el seleccionado no está en la lista activa (recién creado), lo mostramos igual. */}
             {horno && !hornosList.includes(horno) && <option value={horno}>{horno}</option>}
@@ -411,7 +411,7 @@ export function MaterialAProducirModal({
               recetaLoading ? (
                 <span>Cargando receta del producto…</span>
               ) : recetaBase ? (
-                <span>basada en <strong>Receta #{num(recetaBase.numero)}</strong> · base para <strong>{num(recetaBase.rendimiento)}</strong> und → escaladas a <strong>{num(cantidadNum)}</strong> und. Podés ajustar o agregar insumos.</span>
+                <span>basada en <strong>Receta #{num(recetaBase.numero)}</strong> · base para <strong>{num(recetaBase.rendimiento)}</strong> und → escaladas a <strong>{num(cantidadNum)}</strong> und. Puedes ajustar o agregar insumos.</span>
               ) : (
                 <span>Primera receta de este producto. Se guardará para {num(cantidadNum)} und.</span>
               )
@@ -474,7 +474,7 @@ export function MaterialAProducirModal({
 
           {!materiales.length ? (
             <div className="muted" style={{ fontSize: '.82rem', padding: '.5rem 0' }}>
-              No hay insumos marcados como receta. Agregá uno con “+ Nuevo insumo”.
+              No hay insumos marcados como receta. Agrega uno con “+ Nuevo insumo”.
             </div>
           ) : (
             <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>

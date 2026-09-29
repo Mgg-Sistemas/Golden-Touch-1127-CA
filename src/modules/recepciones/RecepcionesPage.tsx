@@ -114,7 +114,7 @@ export function RecepcionesPage() {
   useRealtime(['recepciones_lab', 'recepciones_analisis', 'recepciones_minerales', 'recepciones_humedad_prov', 'recepciones_humedad_final', 'recepciones_conciliaciones', 'recepciones_totales', 'recepciones_pesadas', 'recepciones_bigbags', 'recepciones_procedencias'], () => { void reload(); });
 
   // La Humedad Final se alimenta de los BIG BAGS por procedencia. El modal de pesos ya
-  // sincroniza al editar, pero lo aseguramos también acá: ante CUALQUIER cambio de bigbags
+  // sincroniza al editar, pero lo aseguramos también aquí: ante CUALQUIER cambio de bigbags
   // o pesadas (venga de donde venga, incluido otro usuario o al reabrir/restaurar) se
   // recalcula la Humedad Final. Loop-safe: el sync SOLO escribe en recepciones_humedad_final
   // (no en bigbags/pesadas), así que esta suscripción nunca se auto-dispara.
@@ -297,7 +297,7 @@ export function RecepcionesPage() {
     for (const p of catProc) { const nb = (p.nombre || '').toUpperCase(); if (nb) s.add(nb); }
     for (const a of analisis) { const nb = (a.procedencia ?? 'PERAMANAL').toUpperCase(); if (nb) s.add(nb); }
     if (!s.size) s.add('PERAMANAL');
-    return [...s].sort((a, b) => a.localeCompare(b, 'es'));
+    return [...s].sort((a, b) => a.localeCompare(b, 'es-VE'));
   })();
   const procSel = procTabs.includes(procAnaSel) ? procAnaSel : (procTabs[0] ?? 'PERAMANAL');
   const analisisProc = analisis.filter((a) => (a.procedencia ?? 'PERAMANAL').toUpperCase() === procSel);
@@ -378,7 +378,7 @@ export function RecepcionesPage() {
       <div className="card" style={{ padding: '.5rem .75rem', marginBottom: '.6rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <span className="muted" style={{ fontSize: '.78rem', fontWeight: 700 }}>Análisis de {procSel}:</span>
-          {!analisisProc.length && <span className="muted" style={{ fontSize: '.78rem' }}>Ninguno. Usá «＋ Añadir valores».</span>}
+          {!analisisProc.length && <span className="muted" style={{ fontSize: '.78rem' }}>Ninguno. Usa «＋ Añadir valores».</span>}
           {analisisProc.map((r) => (
             <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '.25rem', border: '1px solid var(--border, #2a2f3a)', borderRadius: 8, padding: '.1rem .35rem' }}>
               <span className="muted" style={{ fontSize: '.72rem' }}>N°</span>
@@ -550,7 +550,7 @@ export function RecepcionesPage() {
             </div>
 
             {!minerales.length ? (
-              <EmptyState message="No hay minerales configurados. Usá «Configurar minerales» para agregarlos." icon="⚗" />
+              <EmptyState message="No hay minerales configurados. Usa «Configurar minerales» para agregarlos." icon="⚗" />
             ) : (
               <div style={{ padding: '.6rem .75rem' }}>
                 {/* Pestañas de procedencia: cada una tiene su propio set de análisis. */}
@@ -560,7 +560,7 @@ export function RecepcionesPage() {
                     <button key={p} type="button" className={`btn btn-sm ${p === procSel ? 'btn-primary' : 'btn-ghost'}`}
                       onClick={() => setProcAnaSel(p)} style={{ padding: '.2rem .6rem' }}>{p}</button>
                   ))}
-                  <span className="muted" style={{ fontSize: '.68rem' }}>· agregá procedencias en 🏷 Procedencias</span>
+                  <span className="muted" style={{ fontSize: '.68rem' }}>· agrega procedencias en 🏷 Procedencias</span>
                 </div>
                 {barraAnalisis()}
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -571,7 +571,7 @@ export function RecepcionesPage() {
             )}
 
             <div className="muted" style={{ fontSize: '.74rem', padding: '.5rem .75rem' }}>
-              Prom. = promedio de las casillas con dato (si cargás 2 lecturas, divide entre 2). Promedio del lote = promedio de los Prom. de todos los análisis con valor.
+              Prom. = promedio de las casillas con dato (si cargas 2 lecturas, divide entre 2). Promedio del lote = promedio de los Prom. de todos los análisis con valor.
               Esta tabla es <strong>independiente</strong> de la de recepciones: «＋ Añadir valores» agrega solo análisis químicos.
               Cada mineral se muestra en columna (uno bajo otro), 5 de un lado y 5 del otro. El N° de lecturas (A, B, C, D…) se ajusta por mineral en «⚙ Configurar minerales». Los cambios se guardan al salir de cada celda (tiempo real) o con «💾 Guardar datos».
             </div>
@@ -604,7 +604,7 @@ export function RecepcionesPage() {
                   <tbody>
                     {!humProv.length && (
                       <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>
-                        Sin filas. Usá «＋ Humedad Provisional».
+                        Sin filas. Usa «＋ Humedad Provisional».
                       </td></tr>
                     )}
                     {humProv.map((r) => {
@@ -664,7 +664,7 @@ export function RecepcionesPage() {
                   <tbody>
                     {!humFin.length && (
                       <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>
-                        Cargá los pesos por procedencia: la Humedad Final se completa sola.
+                        Carga los pesos por procedencia: la Humedad Final se completa sola.
                       </td></tr>
                     )}
                     {humFin.map((r) => {
@@ -791,7 +791,7 @@ function ProcedenciasCatalogoModal({ canWrite, actor, actorName, onClose }: {
         <div className="muted" style={{ padding: '1rem', textAlign: 'center' }}>Cargando…</div>
       ) : !rows.length ? (
         <div className="muted" style={{ padding: '1.25rem', textAlign: 'center', border: '1px dashed var(--border, #2a2f3a)', borderRadius: 'var(--r-md)' }}>
-          Sin procedencias. Agregá la primera arriba.
+          Sin procedencias. Agrega la primera arriba.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
@@ -853,7 +853,7 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
   useEffect(() => { void cargar(); }, [cargar]);
 
   async function agregar() {
-    if (!nombre.trim()) { toast('Indicá el nombre (mineral, letra o número).', 'error'); return; }
+    if (!nombre.trim()) { toast('Indica el nombre (mineral, letra o número).', 'error'); return; }
     setSaving(true);
     try {
       await addMineral({ nombre, subtitulo, columnas, n_lecturas: nLect, color });
@@ -975,7 +975,7 @@ function ConfigMineralesModal({ onClose, onChanged }: { onClose: () => void; onC
                   </tr>
                 )
               ))}
-              {!minerales.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin minerales. Agregá el primero arriba.</td></tr>}
+              {!minerales.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin minerales. Agrega el primero arriba.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1111,7 +1111,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
               <tr><th className="num" style={{ width: 42 }}>Ítem</th><th>Procedencia</th><th className="num">Peso</th><th>Categoría</th>{canWrite && <th style={{ width: 30 }}></th>}</tr>
             </thead>
             <tbody>
-              {!rows.length && <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin pesajes. Usá «＋ Añadir».</td></tr>}
+              {!rows.length && <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin pesajes. Usa «＋ Añadir».</td></tr>}
               {rows.map((r, i) => {
                 const t = tipoValido(r.tipo);
                 return (
@@ -1168,7 +1168,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
   return (
     <Modal title="⚖ Añadir pesos — Bigbags" size="xl" onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      {/* Memoria de procedencias (combobox): elegí una ya usada o escribí una nueva. */}
+      {/* Memoria de procedencias (combobox): elige una ya usada o escribe una nueva. */}
       <datalist id="rec-proc-memoria">
         {procMemoria.map((p) => <option key={p} value={p} />)}
       </datalist>
@@ -1218,7 +1218,7 @@ function PesosBigbagsModal({ canWrite, actor, actorName, onClose }: {
           <span className="muted mono">{num(pesadas.length)} pesada(s)</span>
         </div>
         {!pesadas.length ? (
-          <EmptyState message="Aún no hay pesadas guardadas. Cargá bigbags y usá «Guardar pesos»." icon="📦" />
+          <EmptyState message="Aún no hay pesadas guardadas. Carga bigbags y usa «Guardar pesos»." icon="📦" />
         ) : (
           <div className="table-wrap" style={{ overflowX: 'auto' }}>
             <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
@@ -1393,7 +1393,7 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRe
     <Modal title={mode === 'list' ? '⚖ Conciliación de Centros de Acopio' : (draft?.id ? `Conciliación N° ${draft.numero}` : 'Nueva conciliación')} size="xl" onClose={onClose} footer={footer}>
       {mode === 'list' ? (
         loading ? <p className="muted">Cargando…</p> : !lista.length ? (
-          <EmptyState message="Sin conciliaciones. Usá «＋ Nueva conciliación»." icon="⚖" />
+          <EmptyState message="Sin conciliaciones. Usa «＋ Nueva conciliación»." icon="⚖" />
         ) : (
           <div className="table-wrap" style={{ overflowX: 'auto' }}>
             <table className="table" style={{ fontSize: '.85rem' }}>
@@ -1435,7 +1435,7 @@ function ConciliacionModal({ canWrite, actor, actorName, pesoTotal, pesoHumedoRe
                 <table className="table" style={{ fontSize: '.82rem', whiteSpace: 'nowrap' }}>
                   <thead><tr><th className="num">Saldo (KG)</th><th>Centro de Acopio / Aliado</th><th>Categoría</th>{canWrite && <th style={{ width: 30 }}></th>}</tr></thead>
                   <tbody>
-                    {!draft.centros.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usá «＋ Añadir centro».</td></tr>}
+                    {!draft.centros.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usa «＋ Añadir centro».</td></tr>}
                     {draft.centros.map((ce, i) => {
                       const esResguardo = (ce.categoria ?? '') === 'RESGUARDO';
                       return (
@@ -1618,7 +1618,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, netoHumedoTotal, 
     // Primer centro tomado del cierre de caja: nombre Peramanal, Total SnO2 = Saldo Kg de
     // casiterita y Precio/Tasa = tasa del cierre.
     // Pesos Kg (base RECEPCIONADA) = NETO HÚMEDO recepcionado (p. ej. 2.570). Las mermas de
-    // humedad (provisional/final) se RESTAN de acá para llegar al costo final (seco).
+    // humedad (provisional/final) se RESTAN de aquí para llegar al costo final (seco).
     setDraft({ id: null, numero, fecha: null, centros: [{ nombre: 'Peramanal', sno2: pesoTotal || null, precio: cajaTasa || null }], gastos: 0, pesos_kg: netoHumedoTotal || pesoTotal || 0, humedad_prov: 0, humedad_final: 0, fe_esteril: 0, observacion: '' });
     setMode('form');
   }
@@ -1708,7 +1708,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, netoHumedoTotal, 
     <Modal title={mode === 'list' ? '🧮 Totales — Precio de compra' : (draft?.id ? `Totales N° ${draft.numero}` : 'Nuevos totales')} size="xl" onClose={onClose} footer={footer}>
       {mode === 'list' ? (
         loading ? <p className="muted">Cargando…</p> : !lista.length ? (
-          <EmptyState message="Sin totales. Usá «＋ Nuevos totales»." icon="🧮" />
+          <EmptyState message="Sin totales. Usa «＋ Nuevos totales»." icon="🧮" />
         ) : (
           <div className="table-wrap" style={{ overflowX: 'auto' }}>
             <table className="table" style={{ fontSize: '.85rem' }}>
@@ -1745,7 +1745,7 @@ function TotalesModal({ canWrite, actor, actorName, pesoTotal, netoHumedoTotal, 
                 <th>Centro de costo</th>{canWrite && <th style={{ width: 30 }}></th>}
               </tr></thead>
               <tbody>
-                {!draft.centros.length && <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usá «＋ Añadir centro».</td></tr>}
+                {!draft.centros.length && <tr><td colSpan={canWrite ? 5 : 4} className="muted" style={{ textAlign: 'center' }}>Sin centros. Usa «＋ Añadir centro».</td></tr>}
                 {draft.centros.map((c, i) => {
                   const moneda = (Number(c.sno2) || 0) * (Number(c.precio) || 0);
                   return (
@@ -1919,7 +1919,7 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
     <Modal title={mode === 'cerrar' ? 'Cerrar recepción' : mode === 'detalle' ? `Recepción cerrada N° ${ver?.numero ?? ''}` : '🔒 Recepciones cerradas (histórico)'} size="xl" onClose={onClose} footer={footer}>
       {mode === 'list' && (
         loading ? <p className="muted">Cargando…</p> : !lista.length ? (
-          <EmptyState message="Sin recepciones cerradas. Usá «🔒 Cerrar recepción»." icon="🔒" />
+          <EmptyState message="Sin recepciones cerradas. Usa «🔒 Cerrar recepción»." icon="🔒" />
         ) : (
           <div className="table-wrap" style={{ overflowX: 'auto' }}>
             <table className="table" style={{ fontSize: '.85rem' }}>
@@ -2094,8 +2094,8 @@ function CierresModal({ canWrite, actor, actorName, onCerrado, onClose }: {
       )}
       {aReabrir && (
         <ConfirmDialog title={`Reabrir Recepción N° ${aReabrir.numero}`}
-          message={`Se devolverán todos los datos de esta recepción a la hoja de trabajo para modificarla, y se REVERTIRÁ su ingreso al inventario (neto seco de casiterita + resguardos). La hoja de trabajo debe estar vacía. Al terminar, volvés a cerrarla.${cierreTienePesosEnFoto(aReabrir) ? '' : ' ⚠️ ATENCIÓN: esta recepción se cerró con una versión anterior y su foto NO incluye los BIG BAGS/PESADAS: al reabrir NO se restaurarán y tendrás que recargarlos a mano.'} ¿Reabrir la Recepción N° ${aReabrir.numero}?`}
-          confirmText="Reabrir" requireText="REABRIR" requireLabel="Escribí REABRIR para confirmar"
+          message={`Se devolverán todos los datos de esta recepción a la hoja de trabajo para modificarla, y se REVERTIRÁ su ingreso al inventario (neto seco de casiterita + resguardos). La hoja de trabajo debe estar vacía. Al terminar, vuelves a cerrarla.${cierreTienePesosEnFoto(aReabrir) ? '' : ' ⚠️ ATENCIÓN: esta recepción se cerró con una versión anterior y su foto NO incluye los BIG BAGS/PESADAS: al reabrir NO se restaurarán y tendrás que recargarlos a mano.'} ¿Reabrir la Recepción N° ${aReabrir.numero}?`}
+          confirmText="Reabrir" requireText="REABRIR" requireLabel="Escribe REABRIR para confirmar"
           onConfirm={() => void reabrir(aReabrir)} onCancel={() => setAReabrir(null)} />
       )}
     </Modal>

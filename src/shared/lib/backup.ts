@@ -17,7 +17,7 @@ const MS_30D = DIAS * 24 * 60 * 60 * 1000;
 /**
  * Correos destino del respaldo (automático y opción "Enviar por correo").
  *
- * Acá viaja la base ENTERA de Golden Touch, así que la lista se cambia solo
+ * Aquí viaja la base ENTERA de Golden Touch, así que la lista se cambia solo
  * a pedido expreso. El 23/09/2026 se sacó `sistemas@mineralgroupguayana.com`
  * y entró `sistemamgg1@gmail.com`.
  */
@@ -122,7 +122,7 @@ export async function enviarRespaldoPorCorreo(
   const nombre = nombreZipRespaldo(fecha, automatico);
   const zip = zipSync({ [nombreSqlRespaldo(fecha, automatico)]: strToU8(sql) }, { level: 9 });
 
-  // Si algún día ni comprimido entra, se corta acá con un mensaje que dice el
+  // Si algún día ni comprimido entra, se corta aquí con un mensaje que dice el
   // tamaño y la salida, en vez de volver a fallar con un 413 indescifrable.
   const aviso = avisoSiNoEntraEnCorreo(zip.length);
   if (aviso) throw new Error(aviso);

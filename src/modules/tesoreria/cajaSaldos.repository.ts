@@ -60,7 +60,7 @@ export async function ingresarDivisa(input: IngresarDivisaInput): Promise<CajaSa
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   const esBs = input.moneda === 'Bs';
   const tasaBs = esBs ? 1 : round4(Number(input.tasaBs) || 0);
-  if (!esBs && tasaBs <= 0) throw new Error('Indicá la tasa de compra (Bs por unidad).');
+  if (!esBs && tasaBs <= 0) throw new Error('Indica la tasa de compra (Bs por unidad).');
 
   // ── Ingreso ATÓMICO (GT-SIN-03) ────────────────────────────────────────────
   // Antes esto leía el saldo y la tasa, promediaba en JavaScript y escribía el
@@ -164,7 +164,7 @@ export async function egresarDivisa(input: EgresarDivisaInput): Promise<{ id: st
   }).select('id').single();
   if (movErr) {
     // El saldo YA bajó (la RPC de arriba es atómica y quedó confirmada) pero el asiento
-    // no se pudo escribir. Sin esto la plata desaparecía: menos saldo y ningún movimiento
+    // no se pudo escribir. Sin esto el dinero desaparecía: menos saldo y ningún movimiento
     // que lo explique. Se devuelve el monto y recién después se avisa del fallo.
     await supabase.rpc('aplicar_saldo_divisa', {
       p_caja_id: input.cajaId, p_cuenta: input.cuenta, p_moneda: input.moneda,
@@ -218,11 +218,11 @@ export async function trasladoEntreCajasMulti(input: {
   origenId: string; destinoId: string; legs: TrasladoLeg[]; motivo: string;
   origenNombre?: string; destinoNombre?: string; actor: string; actorName?: string | null;
 }): Promise<void> {
-  if (!input.origenId || !input.destinoId) throw new Error('Elegí caja origen y destino.');
+  if (!input.origenId || !input.destinoId) throw new Error('Elige caja origen y destino.');
   if (input.origenId === input.destinoId) throw new Error('El origen y el destino no pueden ser la misma caja.');
   if (!input.motivo?.trim()) throw new Error('El motivo es obligatorio.');
   const legs = (input.legs ?? []).map((l) => ({ ...l, monto: round2(l.monto) })).filter((l) => l.monto > 0);
-  if (!legs.length) throw new Error('Indicá al menos un monto a trasladar.');
+  if (!legs.length) throw new Error('Indica al menos un monto a trasladar.');
   const motivo = input.motivo.trim();
 
   for (const leg of legs) {
@@ -256,7 +256,7 @@ export async function trasladoEntreCajasMulti(input: {
     });
 
     // El destino ya quedó acreditado por la misma función, con su promedio
-    // ponderado recalculado sobre el saldo real. Acá solo se anota en el libro.
+    // ponderado recalculado sobre el saldo real. Aquí solo se anota en el libro.
     await supabase.from('movimientos_caja').insert({
       caja_id: input.destinoId, tipo: 'traslado_entrada', monto: leg.monto, moneda: leg.moneda, cuenta: leg.cuenta,
       tasa_bs: leg.moneda === 'Bs' ? null : (nuevaTasa || null), saldo_antes: saldoAntesD, saldo_despues: saldoDespuesD,
@@ -282,9 +282,9 @@ export async function convertirDivisaEnCaja(input: {
 }): Promise<void> {
   const dMonto = round2(input.desde.monto);
   const hMonto = round2(input.hacia.monto);
-  if (dMonto <= 0 || hMonto <= 0) throw new Error('Indicá montos válidos para convertir.');
+  if (dMonto <= 0 || hMonto <= 0) throw new Error('Indica montos válidos para convertir.');
   if (input.desde.moneda === input.hacia.moneda && input.desde.cuenta === input.hacia.cuenta)
-    throw new Error('Elegí monedas (o cuentas) distintas para convertir.');
+    throw new Error('Elige monedas (o cuentas) distintas para convertir.');
 
   // ── Conversión ATÓMICA (GT-SIN-03) ─────────────────────────────────────────
   // Antes descontaba una moneda en una llamada y acreditaba la otra en otra,
@@ -456,7 +456,7 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
     tasaBs: tasaBsDest, origen: 'conversion', motivo, at, actor: input.actor, actorName: input.actorName,
   });
 
-  // 3) El renglón del historial. Va DESPUÉS de mover la plata y a propósito no rompe la
+  // 3) El renglón del historial. Va DESPUÉS de mover el dinero y a propósito no rompe la
   //    conversión si falla: el dinero ya se movió y los dos asientos del libro mayor son
   //    la verdad. Perder el índice es molesto; deshacer un cambio de divisas, mucho peor.
   try {

@@ -31,7 +31,7 @@ export function HistoricoCajasModal({ onClose }: { onClose: () => void }) {
 
       {!sel ? (
         !cajas.length ? (
-          <p className="muted" style={{ margin: 0 }}>Aún no hay cierres de caja. Cuando cierres una caja, su resumen quedará acá.</p>
+          <p className="muted" style={{ margin: 0 }}>Aún no hay cierres de caja. Cuando cierres una caja, su resumen quedará aquí.</p>
         ) : (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>

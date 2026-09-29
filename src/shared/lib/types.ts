@@ -1375,14 +1375,14 @@ export interface Personal {
   apellido: string;
   cedula?: string | null;
   /** RIF del trabajador (V-12345678-9). Es otro dato que la cédula.
-   *  El ARCHIVO del RIF no está acá: va en `personal_documentos`. */
+   *  El ARCHIVO del RIF no está aquí: va en `personal_documentos`. */
   rif?: string | null;
   cargo?: string | null;
   departamento?: string | null;
   sueldo_base: number;          // sueldo MENSUAL (USD)
   activo: boolean;
   fecha_ingreso?: string | null;
-  /** De acá sale la EDAD: no se guarda, se calcula (un número guardado envejece mal). */
+  /** De aquí sale la EDAD: no se guarda, se calcula (un número guardado envejece mal). */
   fecha_nacimiento?: string | null;
   genero?: 'M' | 'F' | 'O' | null;
   estado_civil?: 'soltero' | 'casado' | 'divorciado' | 'viudo' | 'concubinato' | null;

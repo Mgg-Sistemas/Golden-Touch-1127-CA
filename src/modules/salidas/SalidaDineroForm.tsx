@@ -38,10 +38,10 @@ export function SalidaDineroForm({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!cajaId) { setError('Elegí la caja.'); return; }
+    if (!cajaId) { setError('Elige la caja.'); return; }
     if (montoNum <= 0) { setError('El monto debe ser mayor que 0.'); return; }
     if (montoNum > saldo) { setError(`Saldo insuficiente. Disponible: ${money(saldo)} ${caja?.moneda}.`); return; }
-    if (!destino.trim()) { setError('Indicá a quién va dirigido el dinero.'); return; }
+    if (!destino.trim()) { setError('Indica a quién va dirigido el dinero.'); return; }
     setSaving(true);
     try {
       const creada = await crearSolicitudSalida({

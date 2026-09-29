@@ -11,7 +11,7 @@
    Para GUARDAR y MOSTRAR, no: el dato conserva su acento. Estas funciones se
    usan solo del lado de la comparación; nunca para escribir en la base.
 
-   POR QUÉ ACÁ
+   POR QUÉ Aquí
    Este helper estaba copiado y pegado en 18 archivos, cada copia con una
    variante distinta (una recortaba espacios, otra no; una bajaba a minúscula
    antes de quitar acentos, otra después). Resultado: el mismo buscador se

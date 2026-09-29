@@ -244,7 +244,7 @@ export function AppShell() {
       setRespaldoOpen(false);
     } catch (e) {
       // `mensajeError` y no `e.message`: el respaldo envuelve el error de Postgres
-      // en un Error, así que acá llegaba el texto crudo en inglés («canceling
+      // en un Error, así que aquí llegaba el texto crudo en inglés («canceling
       // statement due to statement timeout») y salía tal cual en el aviso.
       toast(mensajeError(e, 'No se pudo generar el respaldo'), 'error');
     } finally {
@@ -283,7 +283,7 @@ export function AppShell() {
       .catch((e) => {
         toast(
           `El respaldo automático no se pudo hacer · ${mensajeError(e, 'error desconocido')} · `
-          + 'Se reintenta al volver a entrar; mientras tanto podés hacerlo a mano desde Respaldo de datos.',
+          + 'Se reintenta al volver a entrar; mientras tanto puedes hacerlo a mano desde Respaldo de datos.',
           'error',
         );
       });
@@ -483,7 +483,7 @@ export function AppShell() {
           }
         >
           <p className="muted" style={{ margin: 0, fontSize: '.9rem' }}>
-            {descargandoBackup ? 'Generando el respaldo…' : <>¿Cómo querés el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>.</>}
+            {descargandoBackup ? 'Generando el respaldo…' : <>¿Cómo quieres el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>.</>}
           </p>
         </Modal>
       )}

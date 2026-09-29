@@ -10,7 +10,7 @@
    cuánto sacar de la caja, pero no quedaba escrita: la ficha y el PDF seguían
    mostrando la del analista, y nadie podía decir a qué tasa se pagó de verdad.
 
-   Acá vive la aritmética de esa conversión, sin base ni React, para poder
+   Aquí vive la aritmética de esa conversión, sin base ni React, para poder
    probarla: qué monto sale de la billetera y cuándo falta la tasa.
    ============================================================ */
 
@@ -66,7 +66,7 @@ export function errorTasaPago(
     return `No se puede pagar un documento en ${monedaDoc ?? '—'} con una billetera en ${monedaCaja ?? '—'}: `
       + 'la tasa BCV solo convierte entre bolívares y dólares.';
   }
-  if (!(Number(tasa) > 0)) return 'Indicá la tasa de pago (Bs por $) para convertir el monto a la moneda de la billetera.';
+  if (!(Number(tasa) > 0)) return 'Indica la tasa de pago (Bs por $) para convertir el monto a la moneda de la billetera.';
   return null;
 }
 

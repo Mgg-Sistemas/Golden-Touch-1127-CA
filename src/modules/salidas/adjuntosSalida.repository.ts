@@ -37,7 +37,7 @@ export const TOPE_SUBIDA_MS = 90_000;
 
 function conTope<T>(p: Promise<T>, ms: number, nombre: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`«${nombre}» tardó más de ${Math.round(ms / 1000)} s en subir. Revisá la señal y volvé a intentar desde el detalle.`)), ms);
+    const t = setTimeout(() => reject(new Error(`«${nombre}» tardó más de ${Math.round(ms / 1000)} s en subir. Revisa la señal y vuelve a intentar desde el detalle.`)), ms);
     p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
   });
 }

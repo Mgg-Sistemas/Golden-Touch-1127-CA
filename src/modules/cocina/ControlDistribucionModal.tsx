@@ -4,7 +4,7 @@
    La hoja «Control de consumo de pollo», pero para TODO el mercado.
 
    La hoja traía una pestaña por cocina y una sola columna de producto (el
-   pollo). Acá el mercado son ~70 productos, así que se lee en dos niveles:
+   pollo). Aquí el mercado son ~70 productos, así que se lee en dos niveles:
 
      1. EL MERCADO ENTERO, ordenado por urgencia: lo que hay que comprar
         primero arriba. Es la pregunta que se hace todos los días.
@@ -568,7 +568,7 @@ function RegistroDiario({ p, actor, actorName, onGuardado }: {
       </div>
       <div className="muted" style={{ fontSize: '.78rem', marginTop: '.4rem' }}>
         {teorico == null
-          ? 'Ese día está fuera del período mostrado; ampliá el rango para ver la cuenta.'
+          ? 'Ese día está fuera del período mostrado; amplía el rango para ver la cuenta.'
           : <>Inventario teórico de ese día: <strong>{num(teorico)}</strong>.{' '}
             {mermaPrevia == null
               ? 'Al escribir el conteo se muestra la diferencia.'

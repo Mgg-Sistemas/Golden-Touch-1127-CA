@@ -7,9 +7,9 @@ import type { ResumenCajaAcopio } from './caja.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
 const NOMBRE = 'resumen-caja-acopio';
-const fmtUsd = (v: number) => `$${v.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const fmtNum = (v: number) => v.toLocaleString('es', { maximumFractionDigits: 2 });
-const fmtPct = (v: number) => `${(v * 100).toLocaleString('es', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+const fmtUsd = (v: number) => `$${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtNum = (v: number) => v.toLocaleString('es-VE', { maximumFractionDigits: 2 });
+const fmtPct = (v: number) => `${(v * 100).toLocaleString('es-VE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 
 async function construirResumenDoc(r: ResumenCajaAcopio) {
   const [{ dateTime }, { loadLogoDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([

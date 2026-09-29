@@ -90,7 +90,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     ficha_tecnica: v(input.ficha_tecnica), ficha_mantenimiento: v(input.ficha_mantenimiento),
     documentacion: v(input.documentacion), mantenimiento_cada_hrs: n(input.mantenimiento_cada_hrs),
     mantenimiento_cada_km: n(input.mantenimiento_cada_km),
-    // NB: mantenimiento_base_hrs/km NO se tocan acá (los maneja reiniciarMantenimientoDeEquipo,
+    // NB: mantenimiento_base_hrs/km NO se tocan aquí (los maneja reiniciarMantenimientoDeEquipo,
     // que escribe directo). Así editar la ficha del equipo no borra el contador.
     combustible_equipo: v(input.combustible_equipo),
     grupo_mantenimiento: v(input.grupo_mantenimiento),
@@ -101,7 +101,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
 }
 
 export async function addEquipo(input: MaquinariaEquipoInput, actor: string): Promise<MaquinariaEquipo> {
-  if (!input.equipo?.trim()) throw new Error('Indicá el equipo.');
+  if (!input.equipo?.trim()) throw new Error('Indica el equipo.');
   const { data, error } = await supabase.from(TABLE)
     .insert({ ...sanitize(input), created_by: actor })
     .select('*').single();
@@ -110,7 +110,7 @@ export async function addEquipo(input: MaquinariaEquipoInput, actor: string): Pr
 }
 
 export async function updateEquipo(id: string, input: MaquinariaEquipoInput): Promise<void> {
-  if (!input.equipo?.trim()) throw new Error('Indicá el equipo.');
+  if (!input.equipo?.trim()) throw new Error('Indica el equipo.');
   const { error } = await supabase.from(TABLE)
     .update({ ...sanitize(input), updated_at: new Date().toISOString() })
     .eq('id', id);

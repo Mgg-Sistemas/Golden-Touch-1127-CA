@@ -5,7 +5,7 @@
    corrido, el encadenado de contador y horómetro y el Excel salen de ese
    orden, así que una hora mal leída corre todo un día entero.
 
-   Por qué esto vive acá y no adentro del repositorio (28/09/2026): revisando
+   Por qué esto vive aquí y no adentro del repositorio (28/09/2026): revisando
    el Excel de combustible aparecieron TRES cosas que desordenaban el libro.
 
    1) HORAS A LAS QUE LES FALTA LA LETRA. En la base hay ocho filas con

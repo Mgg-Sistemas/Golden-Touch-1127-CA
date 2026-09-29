@@ -3,7 +3,7 @@
    Documento que deja constancia del PAGO de una Orden de Compra /
    Servicio ya finalizada: caja de la que salió, método(s), monto,
    impuestos, quién y cuándo pagó, y los abonos (si fue a crédito).
-   Se abre en vista previa; se descarga solo al pulsar Descargar.
+   Se abre en vista previa; se descarga solo al presionar Descargar.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, montoMoneda } from '@/shared/lib/format';

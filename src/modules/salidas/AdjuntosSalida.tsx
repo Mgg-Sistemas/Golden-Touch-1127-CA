@@ -90,7 +90,7 @@ export function AdjuntosSalida({ modulo, refId, actor, soloLectura = false, titu
             <input ref={inputRef} type="file" accept={ACEPTA} multiple style={{ display: 'none' }}
               onChange={(e) => onPick(Array.from(e.target.files ?? []))} />
             <button type="button" className={grande ? 'btn btn-primary btn-grande' : 'btn btn-sm btn-primary'} disabled={subiendo || libres === 0}
-              title={libres === 0 ? `Ya tiene ${MAX_ADJUNTOS_SALIDA}: borrá uno para subir otro` : `Podés subir ${libres} más`}
+              title={libres === 0 ? `Ya tiene ${MAX_ADJUNTOS_SALIDA}: borra uno para subir otro` : `Puedes subir ${libres} más`}
               onClick={() => inputRef.current?.click()}>
               {subiendo ? 'Subiendo…' : '📷 Agregar foto o PDF'}
             </button>
@@ -167,7 +167,7 @@ export function SelectorAdjuntos({ archivos, onChange, titulo = '📎 Fotos y do
         <input ref={inputRef} type="file" accept={ACEPTA} multiple style={{ display: 'none' }}
           onChange={(e) => elegir(Array.from(e.target.files ?? []))} />
         <button type="button" className={grande ? 'btn btn-primary btn-grande' : 'btn btn-sm btn-ghost'} disabled={libres === 0}
-          title={libres === 0 ? `Ya elegiste ${MAX_ADJUNTOS_SALIDA}` : `Podés elegir ${libres} más`}
+          title={libres === 0 ? `Ya elegiste ${MAX_ADJUNTOS_SALIDA}` : `Puedes elegir ${libres} más`}
           onClick={() => inputRef.current?.click()}>
           {grande ? '📷 Tomar foto o elegir archivo' : '＋ Agregar foto o PDF'}
         </button>

@@ -81,7 +81,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   // GT-INT-15 · El vínculo con Combustible es por TEXTO. Si renombraron el valor en el
   // catálogo, la ficha queda apuntando a un nombre que ya no existe y el equipo pierde su
   // horómetro y su gasoil — con lo cual la alerta de mantenimiento se apaga sin avisar.
-  // Acá se avisa. Se mira contra TODOS los valores, no solo los activos: apuntar a uno
+  // Aquí se avisa. Se mira contra TODOS los valores, no solo los activos: apuntar a uno
   // dado de baja no rompe nada (el vínculo es por texto y los movimientos se siguen
   // viendo), así que marcarlo en rojo sería una falsa alarma.
   // (La lista vacía todavía no cargó: no se acusa un vínculo roto de más.)
@@ -94,7 +94,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!f.equipo?.trim()) { setError('Indicá el nombre del equipo.'); return; }
+    if (!f.equipo?.trim()) { setError('Indica el nombre del equipo.'); return; }
     setSaving(true);
     try {
       if (esNuevo) await addEquipo(f, actor);
@@ -131,14 +131,14 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           </div>
           <div className="form-row">
             <label>Tipo de maquinaria</label>
-            <SearchSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', v || null)} options={tipos.map((t) => ({ value: t, label: t }))} placeholder="— elegí el tipo —" />
+            <SearchSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', v || null)} options={tipos.map((t) => ({ value: t, label: t }))} placeholder="— elige el tipo —" />
           </div>
         </div>
 
         <div className="form-grid">
           <div className="form-row">
             <label>Propietario</label>
-            <SearchSelect value={f.propietario ?? ''} onChange={(v) => set('propietario', v || null)} options={props.map((t) => ({ value: t, label: t }))} placeholder="— elegí el propietario —" />
+            <SearchSelect value={f.propietario ?? ''} onChange={(v) => set('propietario', v || null)} options={props.map((t) => ({ value: t, label: t }))} placeholder="— elige el propietario —" />
           </div>
           <div className="form-row">
             <label>Status</label>
@@ -151,7 +151,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Última ubicación</label>
-            <SearchCreateSelect value={f.ubicacion ?? ''} onChange={(v) => set('ubicacion', upper(v) || null)} options={ubicaciones} placeholder="Buscá una ubicación de Combustible o escribí una nueva…" />
+            <SearchCreateSelect value={f.ubicacion ?? ''} onChange={(v) => set('ubicacion', upper(v) || null)} options={ubicaciones} placeholder="Busca una ubicación de Combustible o escribe una nueva…" />
             <small className="muted">Se traen del catálogo de Combustible → Ubicaciones.</small>
           </div>
           <div className="form-row">
@@ -218,7 +218,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
                 ⚠ <strong>Vínculo roto.</strong> Este equipo apunta a «{f.combustible_equipo}», que ya no
                 existe en el catálogo de Combustible — seguramente lo renombraron. Mientras siga así,
                 el equipo <strong>no ve su horómetro ni su gasoil</strong> y su{' '}
-                <strong>alerta de mantenimiento no suena</strong>. Elegí arriba el nombre correcto.
+                <strong>alerta de mantenimiento no suena</strong>. Elige arriba el nombre correcto.
               </small>
             ) : (
               <small className="muted">Al vincularlo, el <strong>horómetro</strong> y el <strong>gasoil consumido</strong> se traen del módulo de Combustible.</small>

@@ -1,10 +1,10 @@
 /* ============================================================
    Golden Touch · Retenciones fiscales (Supabase)
    Cuando al indicar el método de pago de una OC se elige soporte
-   "Factura", la orden entra a Retenciones. Acá se cargan los
+   "Factura", la orden entra a Retenciones. Aquí se cargan los
    comprobantes fiscales (IVA / ISLR / Municipal) y se finaliza la
    retención. La marca de pago la pone Tesorería automáticamente al
-   pagar la OC. Las de "Nota de entrega" NO pasan por acá (van directo
+   pagar la OC. Las de "Nota de entrega" NO pasan por aquí (van directo
    a Tesorería).
    Archivos en el bucket `compras-oc` (mismo de factura/retención de OC).
    ============================================================ */
@@ -100,7 +100,7 @@ export async function finalizarRetencion(input: {
   actor: string;
 }): Promise<void> {
   const entries = (Object.entries(input.archivos) as [TipoRetencion, File | undefined][]).filter(([, f]) => !!f);
-  if (!entries.length) throw new Error('Cargá al menos un comprobante de retención (IVA, ISLR o Municipal).');
+  if (!entries.length) throw new Error('Carga al menos un comprobante de retención (IVA, ISLR o Municipal).');
   for (const [, f] of entries) {
     const file = f as File;
     if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {

@@ -33,7 +33,7 @@ export function SalidaMaterialDetalle({
 
   async function handleEnviarCorreo() {
     const lista = emails.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
-    if (!lista.length) { toast('Indicá al menos un correo', 'error'); return; }
+    if (!lista.length) { toast('Indica al menos un correo', 'error'); return; }
     setEnviando(true);
     try {
       const { enviados, fallidos } = await enviarSalidaAMultiples(mov, esTraslado, lista);
@@ -116,7 +116,7 @@ export function SalidaMaterialDetalle({
               placeholder="correo@ejemplo.com, otro@ejemplo.com"
               autoFocus
             />
-            <small className="muted">Separá varios correos con coma o espacio. Se adjunta el comprobante en PDF con la fecha de entrega.</small>
+            <small className="muted">Separa varios correos con coma o espacio. Se adjunta el comprobante en PDF con la fecha de entrega.</small>
           </div>
         </Modal>
       )}

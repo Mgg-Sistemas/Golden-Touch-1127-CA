@@ -144,7 +144,7 @@ export function UsuariosPage() {
         <p className="muted" style={{ textAlign: 'center' }}>
           {view === 'creacion'
             ? 'Gestión de usuarios del sistema. Crea cuentas con clave por defecto, edita datos, resetea claves olvidadas y habilita/deshabilita accesos. Los deshabilitados se pueden archivar para que salgan de la lista.'
-            : 'Configurá la matriz de permisos por rol y por módulo del sistema.'}
+            : 'Configura la matriz de permisos por rol y por módulo del sistema.'}
         </p>
 
         <div className="view-switch" role="tablist" aria-label="Vista de usuarios">
@@ -1019,7 +1019,7 @@ function UsuarioEditModal({
           placeholder="correo@ejemplo.com"
           autoComplete="off"
         />
-        <small className="muted">Es el correo con el que inicia sesión. Si lo cambiás, el usuario deberá entrar con el nuevo correo (la contraseña no cambia).</small>
+        <small className="muted">Es el correo con el que inicia sesión. Si lo cambias, el usuario deberá entrar con el nuevo correo (la contraseña no cambia).</small>
       </div>
 
       {nuevoDeptoOpen && (
@@ -1227,7 +1227,7 @@ function ClaveTemporalModal({ titulo, email, clave, onClose }: {
       await navigator.clipboard.writeText(clave);
       toast('Clave copiada', 'success');
     } catch {
-      toast('No se pudo copiar: anotala a mano', 'error');
+      toast('No se pudo copiar: anótala a mano', 'error');
     }
   }
   return (

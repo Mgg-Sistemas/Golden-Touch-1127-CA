@@ -320,7 +320,7 @@ export interface PagarRenglonInput {
 export async function pagarRenglon(input: PagarRenglonInput): Promise<void> {
   const r = input.renglon;
   if (r.estado === 'pagada') throw new Error('Este renglón ya fue pagado.');
-  if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
+  if (!input.cajaId) throw new Error('Elige la caja con la que se paga.');
 
   const { data: cajaRow, error: cErr } = await supabase.from(CAJAS).select('*').eq('id', input.cajaId).maybeSingle();
   if (cErr) throw cErr;
@@ -328,7 +328,7 @@ export async function pagarRenglon(input: PagarRenglonInput): Promise<void> {
   const caja = cajaRow as Caja;
 
   const montoPago = round2(Number(input.monto) || 0);
-  if (montoPago <= 0) throw new Error('Indicá el monto a pagar.');
+  if (montoPago <= 0) throw new Error('Indica el monto a pagar.');
 
   // Moneda/cuenta de pago. Si la caja maneja saldos multimoneda (caja_saldos),
   // se descuenta del saldo elegido (cuenta+moneda); si no, del saldo legado de
@@ -454,7 +454,7 @@ export async function procesarVacacion(input: {
   actorEmail: string; actorName?: string | null;
 }): Promise<{ renglonId: string; periodoId: string; neto: number }> {
   const dias = Number(input.dias) || 0;
-  if (dias <= 0) throw new Error('Indicá los días de vacaciones.');
+  if (dias <= 0) throw new Error('Indica los días de vacaciones.');
   const sueldo = Number(input.persona.sueldo_base) || 0;
   if (sueldo <= 0) throw new Error('El trabajador no tiene sueldo base cargado.');
   const c = calcularRenglon({ sueldo_base_mensual: sueldo, dias_trabajados: dias });

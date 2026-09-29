@@ -170,7 +170,7 @@ function trocear(
     }
 
     /* Los glifos tipográficos valen igual que los ASCII. Un teclado en pantalla
-       muestra «×» y «÷» porque se leen mejor, y de ahí salen tal cual hacia acá;
+       muestra «×» y «÷» porque se leen mejor, y de ahí salen tal cual hacia aquí;
        el signo «−» de un texto pegado tampoco es el guion del teclado. Si el
        motor solo aceptara ASCII, multiplicar y dividir sería imposible desde la
        interfaz — pasó exactamente eso: la normalización vivía en el motor viejo

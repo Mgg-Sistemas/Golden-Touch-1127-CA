@@ -39,7 +39,7 @@ function Kpi({ label, value, sub, color, onClick }: {
     </>
   );
   return onClick
-    ? <button type="button" className={clase} onClick={onClick} title="Tocá para ver el detalle">{cuerpo}</button>
+    ? <button type="button" className={clase} onClick={onClick} title="Toca para ver el detalle">{cuerpo}</button>
     : <div className={clase}>{cuerpo}</div>;
 }
 
@@ -139,10 +139,10 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
       {/* ── Tarjetas ── */}
       <div className="lt-kpis">
         <Kpi color="rojo" label="Total préstamos pendientes" value={money(resumen.totalPendiente)}
-          sub={`${resumen.pendientes} préstamo(s) sin saldar · tocá para ver el detalle`}
+          sub={`${resumen.pendientes} préstamo(s) sin saldar · toca para ver el detalle`}
           onClick={() => setModal('pendientes')} />
         <Kpi color="ambar" label="Trabajadores con préstamos pendientes" value={String(resumen.trabajadoresConPendiente)}
-          sub="personas debiendo · tocá para ver el detalle" onClick={() => setModal('trabajadores')} />
+          sub="personas debiendo · toca para ver el detalle" onClick={() => setModal('trabajadores')} />
         <Kpi color="naranja" label="Prestado / cobrado en lo filtrado" value={money(resumen.totalPrestado)}
           sub={`cobrado ${money(resumen.totalPagado)}`} />
       </div>
@@ -349,7 +349,7 @@ export function AnticiposTab({ empresa, canWrite, actor, actorName }: { empresa:
                     <small className="muted">
                       {alta.monto_total != null && alta.monto_total > 0
                         ? `Queda debiendo ${money(Math.max(0, (alta.monto_total || 0) - (alta.abonado || 0)))}`
-                        : 'Lo que ya pagó antes de cargarlo acá; queda como un abono «histórico».'}
+                        : 'Lo que ya pagó antes de cargarlo aquí; queda como un abono «histórico».'}
                     </small>
                   </div>
                   <div className="form-row">

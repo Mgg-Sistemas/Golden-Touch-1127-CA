@@ -61,7 +61,7 @@ export async function renombrarHorno(id: string, nombre: string): Promise<Horno>
 /** Inhabilita un horno guardando el MOTIVO (obligatorio). */
 export async function deshabilitarHorno(id: string, motivo: string): Promise<Horno> {
   const m = motivo.trim();
-  if (!m) throw new Error('Indicá el motivo por el cual se deshabilita el horno');
+  if (!m) throw new Error('Indica el motivo por el cual se deshabilita el horno');
   const { data, error } = await supabase
     .from(TABLE)
     .update({ estado: 'inactivo', motivo_inhabilitacion: m, updated_at: new Date().toISOString() })

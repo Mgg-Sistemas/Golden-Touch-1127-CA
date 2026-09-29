@@ -70,7 +70,7 @@ function mensaje(error: { message?: string; hint?: string }): string {
   // Las excepciones que levanta `cambiar_sueldo` ya vienen escritas para leer.
   if (/motivo|negativo|mismo que ya tenía|no se encontró/i.test(m)) return m;
   if (/permission denied|row-level security/i.test(m)) {
-    return 'No tenés permiso para cambiar sueldos en RRHH.';
+    return 'No tienes permiso para cambiar sueldos en RRHH.';
   }
   return m;
 }

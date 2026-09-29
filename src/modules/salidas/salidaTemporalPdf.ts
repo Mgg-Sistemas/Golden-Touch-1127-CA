@@ -4,7 +4,7 @@
    retornarlo al inventario. Variante de la Orden de Salida:
    sin precio/total, con estado (pendiente/en tránsito/finalizada),
    quién autorizó (Leydis / Jesús) y el tiempo en tránsito.
-   Se abre en vista previa; se descarga solo al pulsar Descargar.
+   Se abre en vista previa; se descarga solo al presionar Descargar.
    ============================================================ */
 import type { SalidaTemporal } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';

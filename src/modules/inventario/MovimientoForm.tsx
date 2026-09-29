@@ -75,7 +75,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
   // los carga una persona y son los que después nadie sabe explicar.
   // `consumo` entra aunque no sea una «salida»: resta stock igual, y dejarlo
   // afuera convertía al desplegable en la puerta para esquivar el motivo.
-  // La regla vive en la base (`movimiento_manual_lleva_motivo`); acá se valida
+  // La regla vive en la base (`movimiento_manual_lleva_motivo`); aquí se valida
   // para avisar antes y con un texto entendible, no para proteger.
   const exigeMotivo = tipo === 'entrada' || tipo === 'salida' || tipo === 'ajuste' || tipo === 'consumo';
   const MOTIVO_MINIMO = 3;
@@ -90,7 +90,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
     setError(null);
 
     if (!isFundicion && porBulto && undXBulto <= 0) {
-      setError('Indicá cuántas unidades trae cada caja/bulto.');
+      setError('Indica cuántas unidades trae cada caja/bulto.');
       return;
     }
     if (!isFundicion && cantidadNum <= 0) {
@@ -110,7 +110,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
       return;
     }
     if (exigeMotivo && detalle.trim().length < MOTIVO_MINIMO) {
-      setError('Escribí el motivo del movimiento. Queda en el historial del producto y es lo que permite explicarlo después.');
+      setError('Escribe el motivo del movimiento. Queda en el historial del producto y es lo que permite explicarlo después.');
       return;
     }
 
@@ -221,7 +221,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
               <small className="muted" style={{ fontSize: '.72rem' }}>
                 {undXBulto > 0
                   ? <>{cantidadRaw} caja{cantidadRaw === 1 ? '' : 's'} × {undXBulto} = <strong>{num(cantidadNum)} {producto.unidad}</strong></>
-                  : <>Indicá cuántas unidades trae cada caja/bulto.</>}
+                  : <>Indica cuántas unidades trae cada caja/bulto.</>}
               </small>
             </div>
           )}

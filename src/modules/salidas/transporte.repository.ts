@@ -45,7 +45,7 @@ export async function listChoferes(soloActivos = false): Promise<Chofer[]> {
 
 export async function addChofer(input: { nombre: string; apellido?: string; cedula?: string; actor?: string }): Promise<Chofer> {
   const nombre = input.nombre.trim();
-  if (!nombre) throw new Error('Indicá el nombre del chofer.');
+  if (!nombre) throw new Error('Indica el nombre del chofer.');
   const { data, error } = await supabase.from('choferes').insert({
     nombre,
     apellido: (input.apellido ?? '').trim(),
@@ -61,7 +61,7 @@ export async function addChofer(input: { nombre: string; apellido?: string; cedu
 
 export async function updateChofer(id: string, input: { nombre: string; apellido?: string; cedula?: string }): Promise<void> {
   const nombre = input.nombre.trim();
-  if (!nombre) throw new Error('Indicá el nombre del chofer.');
+  if (!nombre) throw new Error('Indica el nombre del chofer.');
   const { error } = await supabase.from('choferes').update({
     nombre, apellido: (input.apellido ?? '').trim(), cedula: (input.cedula ?? '').trim(),
   }).eq('id', id);
@@ -94,8 +94,8 @@ export async function listVehiculos(soloActivos = false): Promise<Vehiculo[]> {
 export async function addVehiculo(input: { descripcion: string; placa: string; actor?: string }): Promise<Vehiculo> {
   const descripcion = input.descripcion.trim();
   const placa = input.placa.trim().toUpperCase();
-  if (!descripcion) throw new Error('Indicá la descripción del vehículo.');
-  if (!placa) throw new Error('Indicá la placa del vehículo.');
+  if (!descripcion) throw new Error('Indica la descripción del vehículo.');
+  if (!placa) throw new Error('Indica la placa del vehículo.');
   const { data, error } = await supabase.from('vehiculos').insert({
     descripcion, placa, created_by: input.actor ?? null,
   }).select('*').single();
@@ -109,8 +109,8 @@ export async function addVehiculo(input: { descripcion: string; placa: string; a
 export async function updateVehiculo(id: string, input: { descripcion: string; placa: string }): Promise<void> {
   const descripcion = input.descripcion.trim();
   const placa = input.placa.trim().toUpperCase();
-  if (!descripcion) throw new Error('Indicá la descripción del vehículo.');
-  if (!placa) throw new Error('Indicá la placa del vehículo.');
+  if (!descripcion) throw new Error('Indica la descripción del vehículo.');
+  if (!placa) throw new Error('Indica la placa del vehículo.');
   const { error } = await supabase.from('vehiculos').update({ descripcion, placa }).eq('id', id);
   if (error) {
     if ((error as { code?: string }).code === '23505') throw new Error('Ya existe un vehículo con esa placa.');

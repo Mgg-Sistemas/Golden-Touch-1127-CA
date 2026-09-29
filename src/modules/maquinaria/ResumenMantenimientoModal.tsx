@@ -122,7 +122,7 @@ export function ResumenMantenimientoModal({ grupo, equipos, infoEquipo, onClose 
       </div>
       <p className="muted" style={{ fontSize: '.72rem', margin: '.4rem 0 0' }}>
         Los consumos (aceite / gasoil / refrigerante / filtros) se suman de la bitácora de cada equipo en el período elegido.
-        <strong> Hacé clic en un equipo</strong> para ver todos sus movimientos y descargar su historial en PDF por fechas.
+        <strong> Haz clic en un equipo</strong> para ver todos sus movimientos y descargar su historial en PDF por fechas.
       </p>
 
       {verEquipo && <EquipoMovimientosModal equipo={verEquipo} onClose={() => setVerEquipo(null)} />}

@@ -35,7 +35,7 @@ export function DineroPorEntrar({ entrantes, cajas, actor, actorName, onReload }
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={`card${count ? ' alert-pulse' : ''}`}
+        className={`card${count ? ' alert-presione' : ''}`}
         style={{
           width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: '1rem',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem',

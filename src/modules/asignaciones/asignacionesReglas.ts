@@ -211,18 +211,18 @@ export const aNumero = (s: string) => Number(String(s ?? '').replace(/\s/g, '').
  */
 export function erroresForm(f: FormAsignacion, stock?: number | null): string[] {
   const e: string[] = [];
-  if (!f.personal_id) e.push('Elegí el trabajador.');
-  if (!f.fecha) e.push('Indicá la fecha.');
-  if (!f.descripcion.trim()) e.push('Escribí qué se asigna.');
+  if (!f.personal_id) e.push('Elige el trabajador.');
+  if (!f.fecha) e.push('Indica la fecha.');
+  if (!f.descripcion.trim()) e.push('Escribe qué se asigna.');
   const cant = aNumero(f.cantidad);
   if (!(cant > 0)) e.push('La cantidad tiene que ser mayor a 0.');
   const val = f.valor_unitario.trim() ? aNumero(f.valor_unitario) : 0;
   if (!(val >= 0) || Number.isNaN(val)) e.push('El valor no es un número válido.');
   if (f.desdeInventario) {
-    if (!f.producto_id) e.push('Elegí el producto del inventario.');
+    if (!f.producto_id) e.push('Elige el producto del inventario.');
     else if (stock != null && cant > stock) e.push(`No alcanza el stock: hay ${stock} y se quieren asignar ${cant}.`);
   }
-  if (f.categoria === 'linea' && !f.numero_linea.trim()) e.push('Indicá el número de la línea.');
+  if (f.categoria === 'linea' && !f.numero_linea.trim()) e.push('Indica el número de la línea.');
   return e;
 }
 

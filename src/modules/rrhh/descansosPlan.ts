@@ -5,7 +5,7 @@
    es que no pueden salir todos juntos: hay un TOPE de personas fuera a la vez
    (por defecto 4, se cambia en Ajustes).
 
-   Acá vive la lógica pura, sin pantalla ni base, para poder probarla:
+   Aquí vive la lógica pura, sin pantalla ni base, para poder probarla:
      · fechas como texto AAAA-MM-DD (en UTC, así un cambio de horario no corre un día);
      · cuántos están fuera cada día y qué días se pasan del tope;
      · el armado del plan: a cada trabajador se le busca el "desfase" dentro del

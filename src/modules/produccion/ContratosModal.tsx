@@ -13,7 +13,7 @@ import {
 
 /** Formatea un ratio (0.123) como porcentaje «12,30 %»; null/no-finito → «—». */
 export const pct = (v: number | null | undefined) =>
-  v == null || !Number.isFinite(v) ? '—' : `${(v * 100).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
+  v == null || !Number.isFinite(v) ? '—' : `${(v * 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
 
 /* ───────────── Modal: crear / editar contrato de producción ───────────── */
 
@@ -113,7 +113,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
   const fm = useMemo(() => formulasMinero({ kgSecoLimpio: Number(kgLim) || 0, precioCasiterita: Number(precioCas) || 0 }), [kgLim, precioCas]);
 
   async function guardar() {
-    if (!lugar.trim()) { toast('Indicá el lugar de extracción.', 'error'); return; }
+    if (!lugar.trim()) { toast('Indica el lugar de extracción.', 'error'); return; }
     if (!supervisor.trim()) { toast('El supervisor de producción es obligatorio.', 'error'); return; }
     setBusy(true);
     try {
@@ -166,7 +166,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
         {/* Encabezado */}
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
           <div className="form-row">
-            <label>N° de contrato {editando ? '' : '(editá el primero; luego es incremental)'}</label>
+            <label>N° de contrato {editando ? '' : '(edita el primero; luego es incremental)'}</label>
             <input className="input mono" value={editando ? numero : numeroManual} onChange={(e) => setNumeroManual(e.target.value)} readOnly={editando || ro} placeholder={numeroSugerido} />
           </div>
           <div className="form-row"><label>Fecha <span className="muted">(editable · re-ubica el contrato en la caja)</span></label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={ro} /></div>
@@ -175,12 +175,12 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
         <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
           <div className="form-row">
             <label>Supervisor de Producción <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <SearchCreateSelect options={supervisoresActivos.map((s) => s.valor)} value={supervisor} onChange={setSupervisor} disabled={ro} placeholder="Escribí o elegí…" />
+            <SearchCreateSelect options={supervisoresActivos.map((s) => s.valor)} value={supervisor} onChange={setSupervisor} disabled={ro} placeholder="Escribe o elige…" />
             <small className="muted">Si es nuevo, se guarda solo en el catálogo de supervisores.</small>
           </div>
           <div className="form-row">
             <label>Lugar de extracción <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <SearchCreateSelect options={lugaresActivos.map((l) => l.valor)} value={lugar} onChange={setLugar} disabled={ro} placeholder="Escribí o elegí…" />
+            <SearchCreateSelect options={lugaresActivos.map((l) => l.valor)} value={lugar} onChange={setLugar} disabled={ro} placeholder="Escribe o elige…" />
             <small className="muted">Si es nuevo, se guarda solo en el catálogo de lugares.</small>
           </div>
           <div className="form-row">
@@ -228,7 +228,7 @@ export function ContratosModal({ contrato, canWrite, actor, actorName, onClose, 
               <table className="table" style={{ fontSize: '.84rem' }}>
                 <thead><tr><th style={{ width: 40 }}>#</th><th>Nombre y apellido</th><th style={{ width: 200 }}>Cédula</th>{!ro && <th style={{ width: 40 }}></th>}</tr></thead>
                 <tbody ref={personasBodyRef}>
-                  {!personas.length && <tr><td colSpan={ro ? 3 : 4} className="muted" style={{ textAlign: 'center' }}>Sin personas. Usá «＋ Añadir persona».</td></tr>}
+                  {!personas.length && <tr><td colSpan={ro ? 3 : 4} className="muted" style={{ textAlign: 'center' }}>Sin personas. Usa «＋ Añadir persona».</td></tr>}
                   {personas.map((p, i) => (
                     <tr key={personaKeys[i] ?? i}>
                       <td className="mono muted">{i + 1}</td>
@@ -290,7 +290,7 @@ export function CatalogoAcopioModal({ canWrite, onClose }: { canWrite: boolean; 
   const lista = useMemo(() => items.filter((i) => i.tipo === tab), [items, tab]);
 
   async function agregar() {
-    if (!valor.trim()) { toast(`Indicá el ${tabActual.singular}`, 'error'); return; }
+    if (!valor.trim()) { toast(`Indica el ${tabActual.singular}`, 'error'); return; }
     setBusy(true);
     try { await addCatalogoAcopio(tab, valor); setValor(''); await recargar(); toast('Agregado', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }

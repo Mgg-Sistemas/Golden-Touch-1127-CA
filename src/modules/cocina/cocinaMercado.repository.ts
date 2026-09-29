@@ -4,7 +4,7 @@
    se saca la foto de lo que queda (stock actual de cada víver), se
    arma el reporte (saldo inicial + entradas del mercado − consumo =
    lo que queda) y el siguiente ciclo arranca con ese saldo. El
-   contador y el cierre son manuales (Cocina pulsa «Cerrar mercado»).
+   contador y el cierre son manuales (Cocina presiona «Cerrar mercado»).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto } from '@/shared/lib/types';
@@ -142,14 +142,14 @@ export async function getMercadoActivo(): Promise<Mercado | null> {
  * Empieza en el INSTANTE del clic (decisión del usuario, 14/09/2026 16:54): lo movido antes
  * queda dentro del saldo inicial y no cuenta como entrada ni consumo del ciclo. El saldo es
  * el stock de ese instante; como leer el inventario tarda, se corrige con lo movido desde el
- * clic (reconstruirSaldo). Las reglas viven en mercadoInicio.ts. La guarda está acá y no
+ * clic (reconstruirSaldo). Las reglas viven en mercadoInicio.ts. La guarda está aquí y no
  * solo en la pantalla, porque la pantalla se puede saltear.
  */
 export async function iniciarMercado(): Promise<Mercado> {
   // La hora va primero, antes de cualquier espera: es el instante en que se presionó el botón.
   const clic = new Date().toISOString();
   const actual = await getMercadoActivo();
-  if (actual) throw new Error(`Ya hay un mercado abierto (${actual.numero ?? 'sin número'}). Recargá la pantalla.`);
+  if (actual) throw new Error(`Ya hay un mercado abierto (${actual.numero ?? 'sin número'}). Recarga la pantalla.`);
   const previos = await listMercados();
   const inicio = resolverInicio(clic, previos);
   if ('error' in inicio) throw new Error(inicio.error);
@@ -495,7 +495,7 @@ export async function actualizarMercadoHistorico(
  * Elimina un ciclo del histórico (no repone stock ni toca el ciclo abierto).
  *
  * Un mercado DESCARTADO no se elimina: es el rastro de por qué ese ciclo no cuenta.
- * La pantalla ya oculta el botón; la guarda va también acá porque la pantalla se
+ * La pantalla ya oculta el botón; la guarda va también aquí porque la pantalla se
  * puede saltear.
  */
 export async function eliminarMercado(id: string): Promise<void> {
@@ -533,7 +533,7 @@ export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO
   }
   const hasta = hastaISO ?? m.cierre_at ?? new Date().toISOString();
   // Los consumos salen del KARDEX, igual que la cuenta del ciclo (ver consumoDelCiclo):
-  // así la lista que se ve acá explica exactamente el número de arriba. La comida solo
+  // así la lista que se ve aquí explica exactamente el número de arriba. La comida solo
   // aporta su código y el tipo; la fecha que se muestra es la del movimiento, que es
   // cuando el víver salió de verdad del inventario.
   const [movs, consumoMovs, salidas] = await Promise.all([

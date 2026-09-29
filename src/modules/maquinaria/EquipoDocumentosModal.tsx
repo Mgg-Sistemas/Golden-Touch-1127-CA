@@ -144,11 +144,11 @@ function EspacioDocumento({ espacio, doc, equipoId, canWrite, actor, actorName, 
   async function subir() {
     const nombre = normalizarNombreDocumento(nombreRef.current?.value);
     if (!nombre) {
-      toast('Poné el nombre del documento: elegilo de la lista o escribí uno nuevo.', 'error');
+      toast('Pon el nombre del documento: elígelo de la lista o escribe uno nuevo.', 'error');
       nombreRef.current?.focus();
       return;
     }
-    if (!archivo) { toast('Elegí el archivo (PDF o imagen).', 'error'); return; }
+    if (!archivo) { toast('Elige el archivo (PDF o imagen).', 'error'); return; }
     setTrabajando('subir');
     try {
       await subirDocumentoEquipo({ equipoId, espacio, nombre, file: archivo, actor, actorNombre: actorName });

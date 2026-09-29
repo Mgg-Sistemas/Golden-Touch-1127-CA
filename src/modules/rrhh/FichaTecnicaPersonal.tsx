@@ -170,7 +170,7 @@ export function FichaTecnicaPersonal({
       </Seccion>
 
       {/* Lo que declaró al ingresar (28/09/2026). Va antes de los datos laborales
-          de la empresa: primero de dónde viene, después qué hace acá. */}
+          de la empresa: primero de dónde viene, después qué hace aquí. */}
       <Seccion titulo="Instrucción y experiencia">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', columnGap: '1.2rem' }}>
           <Dato label="Grado de instrucción">{persona.grado_instruccion ? labelGrado(persona.grado_instruccion) : vacio}</Dato>

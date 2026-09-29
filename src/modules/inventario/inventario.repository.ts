@@ -156,7 +156,7 @@ export async function getCategorias(fromProductos: Producto[] = []): Promise<str
   // Defaults de respaldo sólo si la lectura del catálogo falló completamente.
   if (set.size === 0) CATEGORIAS_DEFAULT.forEach((c) => set.add(c));
   // GENERAL ya no es una categoría: nunca se ofrece, aunque quede en datos viejos en memoria.
-  return Array.from(set).filter(esCategoriaReal).sort((a, b) => a.localeCompare(b, 'es'));
+  return Array.from(set).filter(esCategoriaReal).sort((a, b) => a.localeCompare(b, 'es-VE'));
 }
 
 export async function addCategoria(nombre: string, actorEmail?: string): Promise<string | null> {
@@ -227,7 +227,7 @@ export async function getUnidades(fromProductos: Producto[] = []): Promise<strin
     } catch { /* falla silenciosa */ }
   }
   if (porClave.size === 0) UNIDADES_DEFAULT.forEach(agregar);
-  return Array.from(porClave.values()).sort((a, b) => a.localeCompare(b, 'es'));
+  return Array.from(porClave.values()).sort((a, b) => a.localeCompare(b, 'es-VE'));
 }
 
 export async function addUnidad(nombre: string, actorEmail?: string): Promise<string | null> {
@@ -361,7 +361,7 @@ export async function createProducto(input: ProductoInput): Promise<Producto> {
     if ((error as { code?: string }).code === '23505' && /nombre_sin_acentos/.test(error.message ?? '')) {
       throw new Error(
         `Ya existe un producto llamado «${input.nombre}» (los acentos y las mayúsculas no cuentan: ` +
-        'si está cargado como «PLÁTANO», no se puede crear «PLATANO»). Buscalo en el inventario y usá ese.',
+        'si está cargado como «PLÁTANO», no se puede crear «PLATANO»). Búscalo en el inventario y usa ese.',
       );
     }
     throw error;
@@ -545,8 +545,8 @@ export async function contarRecepcionesPorMarcar(): Promise<number> {
    para preguntarle antes de crear.
 
    El parecido lo calcula la base con trigramas sobre nombre + marca + modelo +
-   código + SKU (ver supabase/2026-09-04-productos-parecidos.sql). Se hace allá
-   y no acá para no traerse los 469 productos al navegador en cada tecla.
+   código + SKU (ver supabase/2026-09-04-productos-parecidos.sql). Se hace allí
+   y no aquí para no traerse los 469 productos al navegador en cada tecla.
    ============================================================ */
 export interface ProductoParecido {
   id: string;

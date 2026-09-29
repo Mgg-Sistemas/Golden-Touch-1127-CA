@@ -102,7 +102,7 @@ export function AgregarOfertaModal({
   //
   // La MARCA y el MODELO no se blanquean: son lo que la solicitud PIDIÓ, y arrancar en
   // blanco obligaba a reescribirlos en cada cotización y a perderlos si nadie lo hacía.
-  // Quedan editables: si el proveedor ofrece otra marca, se cambia acá y vale la suya.
+  // Quedan editables: si el proveedor ofrece otra marca, se cambia aquí y vale la suya.
   const [items, setItems] = useState<FormItem[]>(
     (ofertaEditar
       ? ofertaEditar.items
@@ -306,7 +306,7 @@ export function AgregarOfertaModal({
     // El proveedor puede cotizar SOLO en Bs (BCV) o SOLO en $: basta con que uno
     // de los dos totales sea mayor a cero.
     if (precioTotal <= 0 && totalUsd <= 0) {
-      toast('Ingresá el precio en Bs (BCV) o en USD (al menos uno)', 'error');
+      toast('Ingresa el precio en Bs (BCV) o en USD (al menos uno)', 'error');
       return;
     }
     if (items.some((i) => !(Number(i.cantidad) > 0))) {
@@ -314,7 +314,7 @@ export function AgregarOfertaModal({
       return;
     }
     if (!condiciones.trim()) {
-      toast('Elegí la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
+      toast('Elige la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
     // Anticipo parcial: solo en servicio + condición 'anticipado' + monto > 0.
@@ -614,7 +614,7 @@ export function AgregarOfertaModal({
                 emptyText="Ningún proveedor coincide"
               />
               {editando && (
-                <small className="muted">Podés corregir el proveedor de la oferta. El resto de datos se edita abajo.</small>
+                <small className="muted">Puedes corregir el proveedor de la oferta. El resto de datos se edita abajo.</small>
               )}
               {statSel && (
                 <div className="card" style={{ marginTop: '.4rem', padding: '.45rem .6rem', background: 'var(--bg-1)', fontSize: '.82rem' }}>
@@ -666,7 +666,7 @@ export function AgregarOfertaModal({
       </div>
 
       <div className="form-row">
-        <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y/o en USD efectivo — completá al menos una columna)</span></label>
+        <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y/o en USD efectivo — completa al menos una columna)</span></label>
         <div className="table-wrap">
           <table className="items-table" style={{ fontSize: '.84rem' }}>
             <thead>
@@ -784,9 +784,9 @@ export function AgregarOfertaModal({
           </div>
         )}
         <small className="muted">
-          <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. Si el proveedor cotiza en una sola moneda, <strong>llená solo esa columna</strong> (la otra puede quedar en blanco). La <strong>Diferencia</strong> = (Bs − USD)
+          <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. Si el proveedor cotiza en una sola moneda, <strong>llena solo esa columna</strong> (la otra puede quedar en blanco). La <strong>Diferencia</strong> = (Bs − USD)
           y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
-          Si el proveedor ofrece el <strong>mismo producto en varias marcas/modelos</strong>, usá <strong>+ marca</strong> para cargar cada variante con su precio.
+          Si el proveedor ofrece el <strong>mismo producto en varias marcas/modelos</strong>, usa <strong>+ marca</strong> para cargar cada variante con su precio.
         </small>
       </div>
 
@@ -850,7 +850,7 @@ export function AgregarOfertaModal({
               onChange={(e) => setAnticipoMonto(e.target.value)} />
           </div>
           <small className="muted">
-            Se aplica al <strong>aceptar la oferta</strong>: el anticipo <strong>no descuenta caja</strong>, se resta del total y el <strong>resto queda a crédito</strong> (aparece en Tesorería y en el saldo pendiente). Si lo dejás en blanco, es <strong>prepago total</strong>.
+            Se aplica al <strong>aceptar la oferta</strong>: el anticipo <strong>no descuenta caja</strong>, se resta del total y el <strong>resto queda a crédito</strong> (aparece en Tesorería y en el saldo pendiente). Si lo dejas en blanco, es <strong>prepago total</strong>.
           </small>
         </div>
       )}
@@ -947,7 +947,7 @@ export function AgregarOfertaModal({
           <div style={{ marginBottom: '.5rem' }}>
             {adjuntosExistentes.length > 0 ? (
               <div style={{ display: 'grid', gap: '.25rem' }}>
-                <div className="muted" style={{ fontSize: '.74rem' }}>Adjuntos actuales (tocá ✕ para quitar; podés agregar más abajo):</div>
+                <div className="muted" style={{ fontSize: '.74rem' }}>Adjuntos actuales (toca ✕ para quitar; puedes agregar más abajo):</div>
                 {adjuntosExistentes.map((a, i) => (
                   <div key={a.path} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: '.78rem' }}>
                     <span className="muted">📎</span>
@@ -959,7 +959,7 @@ export function AgregarOfertaModal({
                 ))}
               </div>
             ) : (
-              <div className="muted" style={{ fontSize: '.74rem' }}>Sin adjuntos guardados. Podés cargar nuevos abajo.</div>
+              <div className="muted" style={{ fontSize: '.74rem' }}>Sin adjuntos guardados. Puedes cargar nuevos abajo.</div>
             )}
           </div>
         )}

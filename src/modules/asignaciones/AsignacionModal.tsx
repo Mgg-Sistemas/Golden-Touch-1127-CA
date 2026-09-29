@@ -355,7 +355,7 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
           {!esNueva && asignacion?.producto_id && (
             <div className="aviso info sm" style={{ marginTop: '.5rem' }}>
               <span className="aviso-icono">ℹ</span>
-              <div>Si cambiás el producto o la cantidad, se devuelve al inventario lo que estaba asignado y se descuenta lo nuevo.</div>
+              <div>Si cambias el producto o la cantidad, se devuelve al inventario lo que estaba asignado y se descuenta lo nuevo.</div>
             </div>
           )}
         </form>

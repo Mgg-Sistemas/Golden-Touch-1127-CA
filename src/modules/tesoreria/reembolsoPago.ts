@@ -6,7 +6,7 @@
    200 y los 100 salen en otro egreso, «REEMBOLSO DE ORDEN DE COMPRA …».
 
    En el multipago el dinero sale de varias cuentas, cada una en su moneda.
-   Acá se decide qué parte de cada cuenta es PAGO y qué parte es REEMBOLSO:
+   Aquí se decide qué parte de cada cuenta es PAGO y qué parte es REEMBOLSO:
    las cuentas se recorren en orden; mientras falte cubrir el total van
    enteras al pago, la que cruza el total se parte en dos, y las que quedan
    después van enteras al reembolso. Cada cuenta conserva su monto exacto

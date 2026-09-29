@@ -36,8 +36,8 @@ const ficha = (it: ItemOrden): string => rotuloMarcaModelo(it);
 
 /** Almacenes ordenados: cada principal seguido de sus sub-almacenes. */
 function almacenesOrdenados(almacenes: Almacen[]): Almacen[] {
-  const principales = almacenes.filter((a) => !a.parent_id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  const hijosDe = (id: string) => almacenes.filter((a) => a.parent_id === id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const principales = almacenes.filter((a) => !a.parent_id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE'));
+  const hijosDe = (id: string) => almacenes.filter((a) => a.parent_id === id).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE'));
   const out: Almacen[] = [];
   for (const p of principales) { out.push(p); out.push(...hijosDe(p.id)); }
   out.push(...almacenes.filter((a) => a.parent_id && !almacenes.some((x) => x.id === a.parent_id)));
@@ -81,10 +81,10 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
   async function handleConfirm() {
     setError(null);
     const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
-    if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
+    if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indica al menos una cantidad recibida.'); return; }
     // Un servicio no entra a ningún almacén: no se le pide destino.
-    if (!esServicio && !almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
-    if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
+    if (!esServicio && !almacen.trim()) { setError('Elige el almacén destino al que entra la mercancía.'); return; }
+    if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indica una nota explicando la diferencia.'); return; }
     setSaving(true);
     try {
       await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName, esServicio ? null : almacen.trim());
@@ -93,7 +93,7 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
         esServicio
           ? `Servicio confirmado · ${orden.codigo} · queda en el historial del equipo, sin tocar el inventario`
           : esContra
-            ? `Recepción confirmada · ${orden.codigo} · indicá el método para pagar lo recibido en Tesorería`
+            ? `Recepción confirmada · ${orden.codigo} · indica el método para pagar lo recibido en Tesorería`
             : `Mercancía recibida · ${orden.codigo} · stock actualizado en ${almacen.trim()}`,
         'success',
       );
@@ -121,13 +121,13 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
     >
       {orden.tipo === 'servicio' ? (
         <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
-          Confirmá que el <strong>servicio se prestó</strong>. Con esto la orden queda lista para
+          Confirma que el <strong>servicio se prestó</strong>. Con esto la orden queda lista para
           finalizarse y para reiniciar el contador de mantenimiento del equipo.
         </p>
       ) : (
         <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
-          Confirmá cuánto entró realmente por ítem y elegí el <strong>almacén destino</strong>. Solo lo recibido se suma al inventario.
-          Si llegó menos de lo pedido, dejá una <strong>nota</strong>; la orden cierra sin saldo pendiente.
+          Confirma cuánto entró realmente por ítem y elige el <strong>almacén destino</strong>. Solo lo recibido se suma al inventario.
+          Si llegó menos de lo pedido, deja una <strong>nota</strong>; la orden cierra sin saldo pendiente.
         </p>
       )}
       {orden.tipo === 'servicio' && (
@@ -150,7 +150,7 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
       <div className="form-row" style={{ marginBottom: '.6rem', display: esServicio ? 'none' : undefined }}>
         <label>Almacén / sub-almacén destino *</label>
         <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required={!esServicio}>
-          <option value="">— elegí el almacén —</option>
+          <option value="">— elige el almacén —</option>
           {almacenesOrdenados(almacenes).map((a) => {
             const padre = a.parent_id ? almacenes.find((x) => x.id === a.parent_id) : null;
             const corto = nombreCortoAlmacen(a, almacenes);
@@ -244,7 +244,7 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
 
   async function handleConfirm() {
     setError(null);
-    if (!almacen.trim()) { setError('Elegí el almacén/sub-almacén destino.'); return; }
+    if (!almacen.trim()) { setError('Elige el almacén/sub-almacén destino.'); return; }
     setSaving(true);
     try {
       await recepcionarCompraDirecta({ compra, almacen: almacen.trim(), actor, actorName });
@@ -272,7 +272,7 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
       }
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
-        Compra directa ya <strong>pagada</strong>. Elegí el <strong>almacén / sub-almacén destino</strong> y confirmá para dar
+        Compra directa ya <strong>pagada</strong>. Elige el <strong>almacén / sub-almacén destino</strong> y confirma para dar
         entrada al inventario de todos los materiales (con su costo).
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
@@ -291,7 +291,7 @@ export function RecibirCompraModal({ compra, almacenes, actor, actorName, onClos
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
         <label>Almacén / sub-almacén destino *</label>
         <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required>
-          <option value="">— elegí el almacén —</option>
+          <option value="">— elige el almacén —</option>
           {almacenesOrdenados(almacenes).map((a) => {
             const padre = a.parent_id ? almacenes.find((x) => x.id === a.parent_id) : null;
             const corto = nombreCortoAlmacen(a, almacenes);
@@ -439,7 +439,7 @@ function HistoricoRecepcionesModal({ ordenes, onVer, onClose }: {
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-        Las recepciones finalizadas anteriores a las {MAX_RECEPCIONES_VISIBLES} más recientes. Tocá una para ver su detalle.
+        Las recepciones finalizadas anteriores a las {MAX_RECEPCIONES_VISIBLES} más recientes. Toca una para ver su detalle.
       </p>
       <input
         className="input"

@@ -8,7 +8,7 @@ import type { Personal } from '@/shared/lib/types';
 /* ============================================================
    El carnet se imprime: un color que no contrasta no es un detalle
    estético, es una tarjeta que hay que volver a mandar a imprimir.
-   Por eso el contraste se verifica acá y no a ojo.
+   Por eso el contraste se verifica aquí y no a ojo.
 
    Se usa la fórmula de WCAG 2.1 (luminancia relativa). Umbrales:
    · 4.5 para texto normal (AA)

@@ -56,7 +56,7 @@ export type InicioResuelto = { inicio_at: string; ajustadoAlCierre: boolean } | 
  */
 export function resolverInicio(clic: string, previos: CicloPrevio[]): InicioResuelto {
   const ms = Date.parse(clic ?? '');
-  if (!Number.isFinite(ms)) return { error: 'No se pudo tomar la hora del inicio. Probá de nuevo.' };
+  if (!Number.isFinite(ms)) return { error: 'No se pudo tomar la hora del inicio. Prueba de nuevo.' };
   if (previos.some((p) => p.estado === 'abierto')) {
     return { error: 'Ya hay un mercado abierto: se cierra o se descarta antes de iniciar otro.' };
   }

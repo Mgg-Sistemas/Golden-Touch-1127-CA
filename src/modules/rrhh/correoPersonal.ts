@@ -5,7 +5,7 @@
    `shared/lib/empresa.ts` y es el que sale impreso en los documentos).
 
    La regla de verdad está en la base: un trigger que pasa a minúsculas y
-   recorta, y un CHECK con esta misma forma mínima. Acá se repite para poder
+   recorta, y un CHECK con esta misma forma mínima. Aquí se repite para poder
    avisar mientras se escribe, en castellano, en vez de que el guardado
    explote con un mensaje de Postgres que no le dice nada a nadie.
    ============================================================ */
@@ -27,6 +27,6 @@ export function normalizarCorreo(v?: string | null): string | null {
 export function errorCorreo(v?: string | null): string | null {
   const correo = normalizarCorreo(v);
   if (!correo) return null; // el correo no es obligatorio
-  if (!RX_CORREO.test(correo)) return 'El correo no parece válido. Revisá que tenga arroba y dominio (ej. nombre@gmail.com).';
+  if (!RX_CORREO.test(correo)) return 'El correo no parece válido. Revisa que tenga arroba y dominio (ej. nombre@gmail.com).';
   return null;
 }

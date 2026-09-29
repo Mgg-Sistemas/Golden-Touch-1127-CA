@@ -19,7 +19,7 @@ export function LoginPage() {
 
   // Si ya hay sesión abierta, esta pantalla NO la cierra: manda al sistema.
   //
-  // Hasta el 09/09/2026 acá se hacía un `signOutLocal()` incondicional al montar,
+  // Hasta el 09/09/2026 aquí se hacía un `signOutLocal()` incondicional al montar,
   // con la idea de que «el usuario debe autenticarse siempre». Cerraba sesiones
   // vivas: bastaba recargar estando en el login, o tocar «Ingresar» en la portada
   // teniendo la sesión abierta, para tener que escribir la clave de nuevo.
@@ -29,7 +29,7 @@ export function LoginPage() {
   // `signOut()` ANTES de navegar, así que la sesión está cerrada cuando esta
   // pantalla aparece. Entrar con otra cuenta tampoco lo necesita: al iniciar
   // sesión, la nueva reemplaza a la anterior. Y quien tiene sesión viva y abre
-  // una ruta del sistema entra directo, sin pasar por acá, así que la regla que
+  // una ruta del sistema entra directo, sin pasar por aquí, así que la regla que
   // el comentario decía aplicar no se aplicaba igual.
   const { session, loading: cargandoSesion } = useSession();
   const didCleanRef = useRef(false);
@@ -47,12 +47,12 @@ export function LoginPage() {
 
   async function handleHuella() {
     const correo = (email || hint || '').trim();
-    if (!correo) { setError('Escribí tu correo para entrar con huella.'); return; }
+    if (!correo) { setError('Escribe tu correo para entrar con huella.'); return; }
     setError(null);
     setHuellaBusy(true);
     try {
       try {
-        if (await estaBloqueado(correo)) { setHuellaBusy(false); setError('Tu cuenta está bloqueada por 3 intentos fallidos. Pedile al administrador que la desbloquee.'); return; }
+        if (await estaBloqueado(correo)) { setHuellaBusy(false); setError('Tu cuenta está bloqueada por 3 intentos fallidos. Pídele al administrador que la desbloquee.'); return; }
         if (await estaInhabilitado(correo)) { setHuellaBusy(false); setError(INHABILITADO_MSG); return; }
       } catch { /* si el chequeo falla, se continúa */ }
       await loginConHuella(correo);
@@ -65,8 +65,8 @@ export function LoginPage() {
     }
   }
 
-  const BLOQUEADO_MSG = 'Tu cuenta está bloqueada por 3 intentos fallidos. Pedile al administrador que la desbloquee.';
-  const INHABILITADO_MSG = 'Tu cuenta está deshabilitada. Contactá al administrador para que la reactive.';
+  const BLOQUEADO_MSG = 'Tu cuenta está bloqueada por 3 intentos fallidos. Pídele al administrador que la desbloquee.';
+  const INHABILITADO_MSG = 'Tu cuenta está deshabilitada. Contacta al administrador para que la reactive.';
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -233,7 +233,7 @@ export function LoginPage() {
               <div className="login-help" style={{ marginTop: '.4rem' }}>
                 {hint
                   ? <>Huella activa en este equipo para <strong>{hint}</strong>.</>
-                  : <>Para usar huella, primero entrá con tu clave y activala desde tu sesión.</>}
+                  : <>Para usar huella, primero entra con tu clave y activala desde tu sesión.</>}
               </div>
             </>
           )}

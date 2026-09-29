@@ -2,7 +2,7 @@
    Golden Touch · Ventas · Quién AUTORIZA las ventas
 
    Toda venta (nota de entrega o factura, venta o permuta) pasa por una
-   autorización previa antes de mover plata. La dan dos personas:
+   autorización previa antes de mover dinero. La dan dos personas:
      · JESUS LOZADA  (admin / Gerente)
      · LEYDIS RENGEL (Jefa de administración)
 

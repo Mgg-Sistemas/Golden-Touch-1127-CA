@@ -3,7 +3,7 @@
 
    Una solicitud de salida, de traslado o de salida temporal puede llevar
    hasta CUATRO archivos: fotos del material, del vehículo, de la guía, o un
-   PDF. Acá están las reglas que se comprueban antes de subir nada, para
+   PDF. Aquí están las reglas que se comprueban antes de subir nada, para
    avisar en castellano en la pantalla. El tope de 4 también lo hace cumplir
    la base (trigger `salidas_adjuntos_tope`), así que dos personas subiendo a
    la vez tampoco lo pasan.
@@ -64,7 +64,7 @@ export function cuposLibres(actuales: number): number {
 export function errorCupo(actuales: number, nuevos: number): string | null {
   const libres = cuposLibres(actuales);
   if (nuevos <= libres) return null;
-  if (libres === 0) return `Esta solicitud ya tiene ${MAX_ADJUNTOS_SALIDA} adjuntos, que es el máximo. Borrá uno para subir otro.`;
+  if (libres === 0) return `Esta solicitud ya tiene ${MAX_ADJUNTOS_SALIDA} adjuntos, que es el máximo. Borra uno para subir otro.`;
   return `Solo ${libres === 1 ? 'entra 1 archivo más' : `entran ${libres} archivos más`} (máximo ${MAX_ADJUNTOS_SALIDA} por solicitud).`;
 }
 

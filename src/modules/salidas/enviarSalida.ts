@@ -22,7 +22,7 @@ export async function enviarSalidaAMultiples(
         .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
     ),
   );
-  if (!unicos.length) throw new Error('Indicá al menos un correo válido');
+  if (!unicos.length) throw new Error('Indica al menos un correo válido');
 
   const { base64 } = await obtenerSalidaMaterialPdfBase64(mov, esTraslado);
   const enviados: string[] = [];

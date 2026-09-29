@@ -144,7 +144,7 @@ export async function guardarConteo(input: {
 }): Promise<Conteo> {
   const cantidad = Number(input.cantidad);
   if (!Number.isFinite(cantidad) || cantidad < 0) throw new Error('El conteo no puede ser negativo.');
-  if (!input.fecha) throw new Error('Indicá la fecha del conteo.');
+  if (!input.fecha) throw new Error('Indica la fecha del conteo.');
   if (input.fecha > new Date().toISOString().slice(0, 10)) {
     throw new Error('No se puede contar un día que todavía no llegó.');
   }
@@ -330,6 +330,6 @@ export function ordenarPorUrgencia(productos: ControlProducto[]): ControlProduct
     if (d !== 0) return d;
     const c = b.totales.consumo - a.totales.consumo;
     if (c !== 0) return c;
-    return a.nombre.localeCompare(b.nombre, 'es');
+    return a.nombre.localeCompare(b.nombre, 'es-VE');
   });
 }

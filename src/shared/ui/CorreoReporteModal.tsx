@@ -30,7 +30,7 @@ export function CorreoReporteModal({ titulo, descripcion, defaultEmail, onEnviar
       if (!EMAIL_RX.test(extraClean)) { toast('El correo adicional no es válido', 'error'); return; }
       if (!lista.includes(extraClean)) lista.push(extraClean);
     }
-    if (!lista.length) { toast('Marcá al menos un destinatario', 'error'); return; }
+    if (!lista.length) { toast('Marca al menos un destinatario', 'error'); return; }
     setEnviando(true);
     try {
       const enviados = await onEnviar(lista);
@@ -68,7 +68,7 @@ export function CorreoReporteModal({ titulo, descripcion, defaultEmail, onEnviar
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
         <input className="input" type="email" name="correo-adicional" defaultValue={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
-        <small className="muted">Podés mandarlo a un segundo destinatario al mismo tiempo.</small>
+        <small className="muted">Puedes mandarlo a un segundo destinatario al mismo tiempo.</small>
       </div>
     </Modal>
   );

@@ -5,7 +5,7 @@
    por qué la cuenta no da lo que queda, por qué un víver no aparece, qué pasa
    al descartar, desde cuándo cuenta un mercado nuevo.
 
-   Las respuestas están escritas para GT, no copiadas: acá «Queda» es el stock
+   Las respuestas están escritas para GT, no copiadas: aquí «Queda» es el stock
    del inventario y el mercado arranca de una foto del stock en un instante.
 
    Va plegada y con la clase `hint`, así el botón «?» del topbar la esconde junto
@@ -35,7 +35,7 @@ const DUDAS: Entrada[] = [
       <>
         Porque «Queda» sale del inventario, no de la cuenta. La diferencia son movimientos que no son comidas ni
         entradas del mercado: <strong>salidas manuales, ajustes, traslados, conteos</strong>, o comidas cargadas con
-        una fecha anterior al inicio del mercado. Tocá el víver para ver sus entradas y consumos.
+        una fecha anterior al inicio del mercado. Toca el víver para ver sus entradas y consumos.
       </>
     ),
   },
@@ -101,7 +101,7 @@ const DUDAS: Entrada[] = [
     respuesta: (
       <>
         Hay un solo mercado abierto a la vez: si ya hay uno, se cierra o se descarta antes. Antes de iniciarlo,
-        cargá las comidas atrasadas: mientras no hay mercado se registran y descuentan stock, pero no entran en
+        carga las comidas atrasadas: mientras no hay mercado se registran y descuentan stock, pero no entran en
         ningún ciclo, y lo registrado antes del clic queda dentro del saldo inicial.
       </>
     ),

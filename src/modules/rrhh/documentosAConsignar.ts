@@ -5,7 +5,7 @@
    sus papeles. Va como SEGUNDA HOJA de la hoja de ingreso, así que se
    imprime y se llena a mano junto con ella.
 
-   POR QUÉ ESTÁ ACÁ Y NO ESCRITO DENTRO DEL PDF. Es una lista que va a
+   POR QUÉ ESTÁ Aquí Y NO ESCRITO DENTRO DEL PDF. Es una lista que va a
    cambiar: se agrega un requisito, se saca otro. Teniéndola como dato se
    toca en un solo lugar, se puede probar (que no haya repetidos, que ningún
    segmento quede vacío) y mañana la misma lista sirve para una pantalla de
@@ -14,7 +14,7 @@
    LO QUE NO ESTÁ, A PROPÓSITO:
 
    · Nada bancario. La hoja de ingreso se armó sin la sección de datos de
-     transferencia a pedido del usuario, así que pedir acá una constancia de
+     transferencia a pedido del usuario, así que pedir aquí una constancia de
      cuenta sería volver a entrar por la ventana.
 
    · Nada de seguridad social (29/09/2026). El segmento entero —IVSS forma

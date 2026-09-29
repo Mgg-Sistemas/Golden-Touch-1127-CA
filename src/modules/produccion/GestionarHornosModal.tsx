@@ -49,7 +49,7 @@ export function GestionarHornosModal({
   function notificarCambio() { onCambioAplicado?.(); }
 
   async function agregar() {
-    if (!nuevo.trim()) { toast('Escribí el nombre del horno', 'error'); return; }
+    if (!nuevo.trim()) { toast('Escribe el nombre del horno', 'error'); return; }
     setBusy(true);
     try {
       await crearHorno(nuevo, actor);
@@ -82,7 +82,7 @@ export function GestionarHornosModal({
 
   async function confirmarDeshabilitar() {
     if (!motivoId) return;
-    if (!motivo.trim()) { toast('Indicá el motivo', 'error'); return; }
+    if (!motivo.trim()) { toast('Indica el motivo', 'error'); return; }
     setBusy(true);
     try {
       await deshabilitarHorno(motivoId, motivo);
@@ -120,7 +120,7 @@ export function GestionarHornosModal({
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Administrá los hornos disponibles para producción. Podés agregar, renombrar y
+        Administrá los hornos disponibles para producción. Puedes agregar, renombrar y
         deshabilitar (indicando el motivo). Los hornos deshabilitados no aparecen en el
         formulario de producción.
       </p>
@@ -152,7 +152,7 @@ export function GestionarHornosModal({
             </thead>
             <tbody>
               {hornos.length === 0 && (
-                <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin hornos. Agregá el primero arriba.</td></tr>
+                <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin hornos. Agrega el primero arriba.</td></tr>
               )}
               {hornos.map((h) => {
                 const enEdicion = editId === h.id;

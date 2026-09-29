@@ -1,13 +1,13 @@
 /* ============================================================
    Golden Touch · Ventas · Partes compartidas de los formularios
 
-   Acá vive TODO lo que la venta y la permuta hacen igual. Antes estaba
+   Aquí vive TODO lo que la venta y la permuta hacen igual. Antes estaba
    escrito dos veces y un arreglo aplicado a uno no llegaba al otro; el caso
    que más dolía eran los tres avisos del renglón (sin costo / por debajo del
    costo / más que el stock): si mañana alguien corrige el criterio en un
    formulario, el otro sigue mintiendo. Ahora el criterio está una sola vez.
 
-   Lo que NO vive acá, a propósito:
+   Lo que NO vive aquí, a propósito:
      · Contra qué monto cuadran las patas de pago. La venta cuadra contra el
        total; la permuta contra la DIFERENCIA, porque parte del precio ya se
        pagó con material y cobrar el total sería cobrarlo dos veces. Por eso
@@ -104,7 +104,7 @@ export interface FilaVenta {
 }
 
 /**
- * Los tres avisos del renglón viven acá y en ningún otro lado. Ninguno bloquea:
+ * Los tres avisos del renglón viven aquí y en ningún otro lado. Ninguno bloquea:
  * los tres cuentan algo que el vendedor tiene que saber ANTES de confirmar, no
  * después.
  */
@@ -154,19 +154,19 @@ export function useClienteVenta(clienteIdInicial: string) {
   /**
    * Da de alta el cliente si se lo estaba creando al vuelo. Devuelve la ficha
    * (no solo el id): el `setState` de recién no se ve todavía en esta pasada,
-   * así que el nombre y el RIF hay que tomarlos de acá.
+   * así que el nombre y el RIF hay que tomarlos de aquí.
    */
   async function resolver(): Promise<Cliente | null> {
     if (!nuevoCliente) return clientes.find((c) => c.id === clienteId) ?? null;
     const nombre = cliNombre.trim();
-    if (!nombre) throw new Error('Escribí el nombre del cliente nuevo.');
+    if (!nombre) throw new Error('Escribe el nombre del cliente nuevo.');
     const partes = partirRif(cliRif);
     const creado = await crearCliente({
       nombre,
       rif: partes.numero ? `${partes.letra}-${partes.numero}` : null,
       telefono: cliTelefono.trim() || null,
     });
-    setClientes((cs) => [...cs, creado].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')));
+    setClientes((cs) => [...cs, creado].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE')));
     setClienteId(creado.id);
     setNuevoCliente(false);
     notify(`Cliente «${creado.nombre}» registrado`, 'success', { link: '#/app/ventas' });
@@ -198,7 +198,7 @@ export interface ClienteSelectorProps {
   setCliTelefono: Dispatch<SetStateAction<string>>;
 }
 
-/** Elegir cliente del padrón de Tesorería, o darlo de alta acá mismo. */
+/** Elegir cliente del padrón de Tesorería, o darlo de alta aquí mismo. */
 export function ClienteSelector({
   clientes, clienteId, setClienteId,
   nuevoCliente, setNuevoCliente,
@@ -328,7 +328,7 @@ export function TablaRenglonesVenta({
                           + (costo > 0 ? ` · costo ${montoMoneda(costo, moneda)}` : ' · SIN COSTO'),
                       };
                     })} />
-                  {/* Los tres avisos. Se ven acá, pegados al renglón que los provoca. */}
+                  {/* Los tres avisos. Se ven aquí, pegados al renglón que los provoca. */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginTop: '.3rem' }}>
                     {f.sinCosto && (
                       <span className="badge warning" title="El costo sale de existencias.costo_promedio y ese producto no lo tiene cargado">
@@ -386,7 +386,7 @@ export function TablaRenglonesVenta({
 
       {hayAvisos && (
         <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--warning, #f59e0b)' }}>
-          <div className="card-title" style={{ marginBottom: '.25rem' }}>⚠ Revisá antes de confirmar</div>
+          <div className="card-title" style={{ marginBottom: '.25rem' }}>⚠ Revisa antes de confirmar</div>
           <div className="muted" style={{ fontSize: '.82rem' }}>
             {productosSinCosto > 0 && (
               <div>
@@ -431,7 +431,7 @@ export function TablaPagoLegs({
   legs, cajas, saldos, aCobrar, pagado, falta, legSinCaja, moneda,
   onSetLeg, onAgregar, onQuitar, etiquetaObjetivo, textoCuadran,
 }: TablaPagoLegsProps) {
-  /** Saldo actual de la billetera de una pata (solo informativo: acá entra plata). */
+  /** Saldo actual de la billetera de una pata (solo informativo: aquí entra dinero). */
   function saldoDeLeg(l: LegUI): CajaSaldo | undefined {
     return saldos.find((s) => s.caja_id === l.cajaId && s.cuenta === l.cuenta && s.moneda === l.moneda);
   }
@@ -581,7 +581,7 @@ export function DocumentoImpuestos({
       </div>
 
       {!factura ? (
-        <small className="muted">La nota de entrega no lleva IVA ni IGTF. Si hacen falta impuestos, elegí Factura.</small>
+        <small className="muted">La nota de entrega no lleva IVA ni IGTF. Si hacen falta impuestos, elige Factura.</small>
       ) : (
         <div className="form-grid">
           <div className="form-row">

@@ -59,7 +59,7 @@ export async function enviarTrazabilidadAMultiples(
         .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
     ),
   );
-  if (!unicos.length) throw new Error('Indicá al menos un correo válido');
+  if (!unicos.length) throw new Error('Indica al menos un correo válido');
 
   const { base64 } = await obtenerTrazabilidadPdfBase64(ordenId);
   const enviados: string[] = [];

@@ -24,7 +24,7 @@ export async function listSedes(): Promise<string[]> {
   const { data } = await supabase.from(TABLE).select('sede');
   const set = new Set<string>();
   (data ?? []).forEach((r) => { const s = (r as { sede?: string | null }).sede?.trim(); if (s) set.add(s); });
-  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es-VE'));
 }
 
 export interface AlmacenValor {
@@ -51,7 +51,7 @@ export async function getNombresAlmacenes(fromProductos: Producto[] = []): Promi
   } catch { /* falla silenciosa: caemos a valores legados */ }
   fromProductos.forEach((p) => p.almacen && set.add(p.almacen));
   if (set.size === 0) set.add('General');
-  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es-VE'));
 }
 
 /** ¿Existe ya un almacén con ese nombre exacto? (la columna nombre es única). */
@@ -190,7 +190,7 @@ export async function eliminarAlmacen(id: string, nombre: string): Promise<void>
   const { data: hijos, error: hErr } = await supabase.from(TABLE).select('id').eq('parent_id', id);
   if (hErr) throw hErr;
   if ((hijos ?? []).length > 0) {
-    throw new Error(`No se puede eliminar: este almacén tiene ${(hijos ?? []).length} subalmacén(es). Eliminá o reasigná los subalmacenes primero.`);
+    throw new Error(`No se puede eliminar: este almacén tiene ${(hijos ?? []).length} subalmacén(es). Elimina o reasigna los subalmacenes primero.`);
   }
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;

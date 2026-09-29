@@ -39,7 +39,7 @@ export async function enviarProduccionAMultiples(
         .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
     ),
   );
-  if (!unicos.length) throw new Error('Indicá al menos un correo válido');
+  if (!unicos.length) throw new Error('Indica al menos un correo válido');
 
   const { base64 } = await obtenerProduccionPdfBase64(produccionId);
   const enviados: string[] = [];

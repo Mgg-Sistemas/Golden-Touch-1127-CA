@@ -3,7 +3,7 @@
 
    Golden Touch NO es agente de retención. Lo que pasa de verdad es que sus
    CLIENTES le retienen —IVA, ISLR, municipal— y le entregan un comprobante, y
-   que al pagar en divisas le cobran el IGTF. Ese papel vale plata: la retención
+   que al pagar en divisas le cobran el IGTF. Ese papel vale dinero: la retención
    que nos practican es un ANTICIPO DE IMPUESTO que se descuenta en la
    declaración, y el que no se registra se pierde.
 
@@ -239,7 +239,7 @@ export function LibroRetencionesPanel({ puedeCargar, actor, actorName }: {
                 <tr><td colSpan={12}>
                   <EmptyState icon="🧾" message={filas.length
                     ? 'Ninguna retención coincide con esos filtros.'
-                    : 'Todavía no hay retenciones en este período. Cargá acá los comprobantes que te entregan los clientes: cada uno es impuesto que ya pagaste.'} />
+                    : 'Todavía no hay retenciones en este período. Carga aquí los comprobantes que te entregan los clientes: cada uno es impuesto que ya pagaste.'} />
                 </td></tr>
               )}
               {!loading && filtradas.map((r) => (
@@ -432,7 +432,7 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
 
   // Golden Touch no está designada contribuyente especial, así que no puede
   // retener IVA ni percibir IGTF. Solo aplica al lado «practicada»: que le
-  // retengan a ella se registra siempre, porque es plata a favor.
+  // retengan a ella se registra siempre, porque es dinero a favor.
   const bloqueoAgente = rol === 'practicada'
     ? motivoNoPuedeRetener(tipo, params.contribuyente_especial)
     : null;
@@ -441,20 +441,20 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
     e.preventDefault();
     setError(null);
     if (bloqueoAgente) { setError(bloqueoAgente); return; }
-    if (!razon.trim()) { setError(rol === 'sufrida' ? 'Indicá quién te retuvo.' : 'Indicá a quién le retuviste.'); return; }
+    if (!razon.trim()) { setError(rol === 'sufrida' ? 'Indica quién te retuvo.' : 'Indica a quién le retuviste.'); return; }
     if (rol === 'sufrida' && !comprobante.trim()) {
-      setError('Transcribí el N° del comprobante que te entregaron: sin él no se puede respaldar el anticipo.');
+      setError('Transcribe el N° del comprobante que te entregaron: sin él no se puede respaldar el anticipo.');
       return;
     }
     if (tipo === 'IVA') {
       const err = errorRetencionIva({ baseImponible: baseNum, ivaFactura: ivaNum, porcentaje: pctIva, facturaNro });
       if (err) { setError(err); return; }
-      if (pctIva === 100 && !motivo) { setError('Indicá por qué se retiene el 100%.'); return; }
+      if (pctIva === 100 && !motivo) { setError('Indica por qué se retiene el 100%.'); return; }
     }
-    if (tipo === 'IGTF' && divisasNum <= 0) { setError('Indicá cuánto se pagó en divisas.'); return; }
-    if (tipo !== 'IVA' && tipo !== 'IGTF' && baseNum <= 0) { setError('Indicá el monto del pago sin IVA.'); return; }
-    if (calculo.monto <= 0) { setError(islr.aviso ?? 'La retención da cero: revisá los montos.'); return; }
-    if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indicá la tasa para llevar la retención a bolívares: así se declara.'); return; }
+    if (tipo === 'IGTF' && divisasNum <= 0) { setError('Indica cuánto se pagó en divisas.'); return; }
+    if (tipo !== 'IVA' && tipo !== 'IGTF' && baseNum <= 0) { setError('Indica el monto del pago sin IVA.'); return; }
+    if (calculo.monto <= 0) { setError(islr.aviso ?? 'La retención da cero: revisa los montos.'); return; }
+    if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indica la tasa para llevar la retención a bolívares: así se declara.'); return; }
 
     setSaving(true);
     try {
@@ -559,7 +559,7 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
           <div className="form-row">
             <label>RIF</label>
             <input className="input mono" value={rif} onChange={(e) => setRif(e.target.value)} placeholder="J-12345678-9" />
-            {rifMal && <small style={{ color: 'var(--danger)' }}>Ese RIF no pasa el dígito verificador: revisalo.</small>}
+            {rifMal && <small style={{ color: 'var(--danger)' }}>Ese RIF no pasa el dígito verificador: revísalo.</small>}
           </div>
         </div>
 
@@ -627,7 +627,7 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
               <div className="form-row">
                 <label>Concepto *</label>
                 <select className="select" value={conceptoCod} onChange={(e) => setConceptoCod(e.target.value)}>
-                  <option value="">— elegí el concepto —</option>
+                  <option value="">— elige el concepto —</option>
                   {conceptos.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.concepto}</option>)}
                 </select>
               </div>
@@ -655,7 +655,7 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
                     {concepto.base_pct !== 100 ? ` sobre el ${concepto.base_pct}% del pago` : ''}
                     {islr.sustraendo ? ` · sustraendo ${islr.sustraendo.toFixed(2)}` : ''}
                     {islr.aviso ? ` · ${islr.aviso}` : ''}</>
-                : 'Elegí el concepto: de ahí sale el porcentaje según quién cobra.'}
+                : 'Elige el concepto: de ahí sale el porcentaje según quién cobra.'}
             </small>
           </div>
         )}
@@ -788,7 +788,7 @@ function ParametrosModal({ params, onClose, onSaved }: {
             <label>Unidad tributaria (Bs)</label>
             <input className="input mono" type="number" min={0} step="any" value={p.unidad_tributaria}
               onChange={(e) => set('unidad_tributaria', Number(e.target.value) || 0)} />
-            <small className="muted">De acá salen el mínimo exento y el sustraendo del ISLR.</small>
+            <small className="muted">De aquí salen el mínimo exento y el sustraendo del ISLR.</small>
           </div>
           <div className="form-row">
             <label>Alícuota de IVA (%)</label>
@@ -822,7 +822,7 @@ function ParametrosModal({ params, onClose, onSaved }: {
         </label>
         <small className="muted">
           Hoy está en <strong>{p.contribuyente_especial ? 'sí' : 'no'}</strong>. Golden Touch no fue designada agente de
-          retención: si el SENIAT la designa, marcalo acá.
+          retención: si el SENIAT la designa, márcalo aquí.
         </small>
       </form>
     </Modal>
@@ -838,7 +838,7 @@ function AnularModal({ retencion, actor, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
 
   async function confirmar() {
-    if (!motivo.trim()) { toast('Escribí el motivo de la anulación', 'error'); return; }
+    if (!motivo.trim()) { toast('Escribe el motivo de la anulación', 'error'); return; }
     setSaving(true);
     try {
       await anularRetencion(retencion.id, motivo, actor);
