@@ -28,19 +28,26 @@ export interface FilaMov {
   gastosGt: number | null;
   nominasGt: number | null;
   trasladoCaja: number | null;
+  /** Columna K del Excel: sale del saldo, no suma a la tasa. */
+  inversion: number | null;
   saldoUsd: number;
   kgRecibidosMgg: number | null;
   saldoKgCasiterita: number;
 }
 
+/** Las mismas columnas que la cabecera del Excel «CAJA PERAMANAL» (D3…N3). */
 export interface ResumenAcopio {
-  saldoKg: number;
-  tasa: number;
-  usdEntregado: number;
-  saldoUsd: number;
-  gastos: number;
-  nominas: number;
-  facturado: number;
+  saldoKg: number;        // N3 · Saldo en Kg de casiterita
+  tasa: number;           // F3 · (facturado + gastos + nóminas) ÷ kg cerrados
+  usdEntregado: number;   // D3
+  saldoUsd: number;       // L3 · D − G − H − I − J − K
+  gastos: number;         // H3
+  nominas: number;        // I3
+  facturado: number;      // G3
+  kgCerrados: number;     // E3
+  traslado: number;       // J3
+  inversion: number;      // K3 · fuera de la tasa y de Gastos GT
+  kgRecibidos: number;    // M3
 }
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -107,7 +114,7 @@ export function construirMovimientosAcopio(args: {
         descripcion: `CONTRATO ${esMinero ? 'MINERO' : 'PRODUCCIÓN'} GT - #${e.c.seq}`,
         usdEntregado: null, kgCerrados: kg,
         precioUsdKg: tasaMinero > 0 ? tasaMinero : null, usdFacturados: facturadoContrato,
-        gastosGt: null, nominasGt: null, trasladoCaja: null,
+        gastosGt: null, nominasGt: null, trasladoCaja: null, inversion: null,
         saldoUsd, kgRecibidosMgg: null, saldoKgCasiterita: saldoKg,
       };
     }
@@ -117,14 +124,16 @@ export function construirMovimientosAcopio(args: {
     const gastos = n(m.gastos);
     const nominas = n(m.nominas);
     const traslado = n(m.traslado);
+    const inversion = n(m.inversion);
     const kgc = n(m.kg_cerrados);
     const mgg = n(m.kg_recibidos);
-    saldoUsd = saldoUsd + entregado - facturados - gastos - nominas - traslado;
+    // La inversión (columna K) sale del saldo de caja, pero no entra en la tasa.
+    saldoUsd = saldoUsd + entregado - facturados - gastos - nominas - traslado - inversion;
     saldoKg = saldoKg + kgc - mgg;
     return {
       id: `m-${m.id}`, fecha: m.fecha, descripcion: m.descripcion || 'Movimiento de caja',
       usdEntregado: entregado || null, kgCerrados: kgc, precioUsdKg: null, usdFacturados: facturados,
-      gastosGt: gastos || null, nominasGt: nominas || null, trasladoCaja: traslado || null,
+      gastosGt: gastos || null, nominasGt: nominas || null, trasladoCaja: traslado || null, inversion: inversion || null,
       saldoUsd, kgRecibidosMgg: mgg || null, saldoKgCasiterita: saldoKg,
     };
   });
@@ -134,6 +143,9 @@ export function construirMovimientosAcopio(args: {
   const totalGastos = filas.reduce((a, f) => a + (f.gastosGt ?? 0), 0);
   const totalNominas = filas.reduce((a, f) => a + (f.nominasGt ?? 0), 0);
   const totalUsdEntregado = filas.reduce((a, f) => a + (f.usdEntregado ?? 0), 0);
+  const totalTraslado = filas.reduce((a, f) => a + (f.trasladoCaja ?? 0), 0);
+  const totalInversion = filas.reduce((a, f) => a + (f.inversion ?? 0), 0);
+  const totalKgRecibidos = filas.reduce((a, f) => a + (f.kgRecibidosMgg ?? 0), 0);
   const saldoKgFinal = filas.length ? filas[filas.length - 1].saldoKgCasiterita : saldoKg;
   const saldoUsdFinal = filas.length ? filas[filas.length - 1].saldoUsd : 0;
   const tasa = totalKg !== 0 ? (totalFacturado + totalGastos + totalNominas) / totalKg : 0;
@@ -143,6 +155,7 @@ export function construirMovimientosAcopio(args: {
     resumen: {
       saldoKg: saldoKgFinal, tasa, usdEntregado: totalUsdEntregado, saldoUsd: saldoUsdFinal,
       gastos: totalGastos, nominas: totalNominas, facturado: totalFacturado,
+      kgCerrados: totalKg, traslado: totalTraslado, inversion: totalInversion, kgRecibidos: totalKgRecibidos,
     },
   };
 }

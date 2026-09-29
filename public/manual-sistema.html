@@ -1038,6 +1038,22 @@
         <br><strong>Lo único que se carga a mano es el conteo físico</strong>, y es opcional. Si se carga, la <strong>merma</strong> de ese día es <em>conteo − teórico</em> y el día siguiente <strong>abre con lo contado</strong>, para que el error no se arrastre; si no se carga, la fila igual se arma. El <strong>consumo</strong> (lo servido en comidas) y las <strong>otras salidas</strong> (salida manual, ajuste, traslado) van en columnas distintas a propósito: no es lo mismo que la comida se la coma la gente a que el inventario baje por otro lado.
         <br><strong>El lote óptimo (EOQ):</strong> <em>Q* = √(2·D·S / H)</em> y <em>punto de reorden = (D / 365) · L</em>, las mismas fórmulas del Excel. En el Excel la <strong>demanda anual (D)</strong> se escribe a mano; aquí se <strong>estima llevando a un año lo consumido en el período</strong>, para que el control funcione en los más de 70 productos del mercado sin cargar nada. Se anualiza sobre los <strong>días del período</strong>, no sobre los que tuvieron consumo: un producto que se sirve una vez cada dos semanas tiene un solo día con consumo, y anualizar sobre ese día daría <strong>365 veces esa ración</strong> y haría pedir una montaña. Se confirma contra la hoja: Los Pinos consumió 54 UND en 12 días, que anualizado da <strong>1.642</strong>, y la demanda que ahí escribieron a mano es <strong>1.700</strong>, y se puede <strong>fijar a mano</strong> producto por producto cuando se conozca el número verdadero. Los costos (S y H) y el tiempo de entrega (L) son <strong>generales para todo el mercado</strong> y se editan desde la misma pantalla; arrancan en <strong>$3,33 por orden, $1,20 por unidad/año y 2 días de entrega</strong>, que son los de la hoja.
         <br><strong>Una diferencia con el Excel, a propósito:</strong> allí un día sin datos se leía como stock cero y pintaba <em>«REORDENAR»</em> en días futuros que todavía no habían pasado. Aquí el estado se calcula sobre el <strong>inventario real del día</strong> (el contado si lo hay; si no, el teórico). Hay <strong>PDF de las dos vistas</strong>: el del mercado es el papel con el que se sale a comprar.</li>
+      <li><strong>📊 Las tarjetas del Centro de Acopio son la cabecera del Excel, y llega la columna «Inversión» (29/09/2026):</strong>
+        el panel ahora muestra <strong>once tarjetas, las mismas columnas de la fila 3 del Excel y en el mismo orden</strong>:
+        $ Usd entregado (D) · Kg cerrados (E) · Precio $ por Kg (F) · $ Usd facturados (G) · Gastos GT (H) · Nóminas GT (I) ·
+        Traslado de caja (J) · <strong>Inversión (K)</strong> · Saldo actual de caja (L) · Kg recibidos por MGG (M) · Saldo en Kg (N).
+        Cada tarjeta dice debajo qué columna del Excel es, para cotejar a la vista. «Gastos GT» ya es solo la columna H
+        (antes sumaba facturado y nómina, por eso decía mucho más que el Excel).
+        <br>· <strong>Inversión</strong> es dinero que sale de la caja pero no es gasto de operación (equipos, abonos de compras
+        grandes). Igual que en el Excel, <strong>resta del saldo</strong> (L = D − G − H − I − J − K) pero <strong>no entra en el
+        precio por Kg</strong> (F = (G + H + I) ÷ E) ni en Gastos GT. Se registra en «Registrar movimiento» (campo $ Inversión, con
+        descripción obligatoria) o al editar un movimiento; tiene su columna en la lista de movimientos, en el PDF/Excel de
+        movimientos, en el Resumen de caja y en la foto del cierre.
+        <br>· En la CAJA 13, el <em>abono de los equipos comprados en Brasil</em> ($100.000, 31-08) pasó de gasto a inversión,
+        como está en el Excel. Con eso la tasa deja de estar inflada (bajaba de 80 a 40 $/kg) y Gastos GT queda en la
+        misma base que el Excel.
+        <br>· El cierre de caja guarda también traslado, inversión y kg recibidos en la foto; los cierres viejos siguen
+        mostrándose igual.</li>
       <li><strong>💵 La CAJA 13 del Centro de Acopio cotejada renglón por renglón contra el Excel (29/09/2026):</strong>
         se cotejó la caja abierta (del 28-06 al 27-09) contra la hoja <em>CAJA PERAMANAL - GOLDEN TOUCH</em> del Excel
         <em>27-06-2026</em>, día por día y renglón por renglón. De 74 días, 23 cuadraban y 51 no: el sistema estaba

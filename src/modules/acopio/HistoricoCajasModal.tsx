@@ -82,6 +82,7 @@ export function HistoricoCajasModal({ onClose }: { onClose: () => void }) {
                 <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: snap.resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }}>{money(snap.resumen.saldoUsd)}</div></div>
                 <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: snap.resumen.saldoKg < 0 ? 'var(--danger)' : undefined }}>{num(snap.resumen.saldoKg)} Kg</div></div>
                 <div className="card"><div className="card-title"><span>Gastos GT</span></div><div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--danger)' }}>{money(snap.resumen.gastos + snap.resumen.nominas)}</div></div>
+                {!!snap.resumen.inversion && <div className="card"><div className="card-title"><span>Inversión</span></div><div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--warning, #f59e0b)' }}>{money(snap.resumen.inversion)}</div></div>}
               </div>
 
               {/* Tabla de movimientos congelada: todos los del período */}

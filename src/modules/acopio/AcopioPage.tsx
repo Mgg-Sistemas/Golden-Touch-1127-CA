@@ -74,7 +74,7 @@ export function AcopioPage() {
   // Switch «Listar movimientos»: la tabla de movimientos arranca oculta y se muestra al activarlo.
   const [listar, setListar] = useState(false);
   // Resumen único que alimenta TODAS las tarjetas (misma fuente que la tabla de movimientos).
-  const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0 });
+  const [resumen, setResumen] = useState<ResumenAcopio>({ saldoKg: 0, tasa: 0, usdEntregado: 0, saldoUsd: 0, gastos: 0, nominas: 0, facturado: 0, kgCerrados: 0, traslado: 0, inversion: 0, kgRecibidos: 0 });
   // Filas actuales de la tabla (para tomar la foto exacta al cerrar la caja).
   const [filasActuales, setFilasActuales] = useState<FilaMov[]>([]);
   const navigate = useNavigate();
@@ -142,11 +142,13 @@ export function AcopioPage() {
             saldoUsd: resumen.saldoUsd, saldoKg: resumen.saldoKg, tasa: resumen.tasa,
             usdEntregado: resumen.usdEntregado, gastos: resumen.gastos, nominas: resumen.nominas,
             facturado: resumen.facturado, totalKg,
+            traslado: resumen.traslado, inversion: resumen.inversion, kgRecibidos: resumen.kgRecibidos,
           },
           filas: filasActuales.map((f) => ({
             fecha: f.fecha, descripcion: f.descripcion, usdEntregado: f.usdEntregado,
             kgCerrados: f.kgCerrados, usdFacturados: f.usdFacturados, gastosGt: f.gastosGt,
-            nominasGt: f.nominasGt, saldoUsd: f.saldoUsd, saldoKgCasiterita: f.saldoKgCasiterita,
+            nominasGt: f.nominasGt, trasladoCaja: f.trasladoCaja, inversion: f.inversion,
+            saldoUsd: f.saldoUsd, saldoKgCasiterita: f.saldoKgCasiterita,
           })),
           // Contratos de producción aún activos: referencia dentro de la foto del cierre.
           contratosActivos: contratosActivos.map((c) => ({
@@ -197,32 +199,40 @@ export function AcopioPage() {
       {canWrite && <GastosPorAceptar gastos={gastosPorAceptar} onReload={reload} />}
 
       {/* Tarjeta protagonista: TASA ACTUAL DEL MATERIAL (varía con los gastos) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+      {/* Tarjetas = la cabecera del Excel «CAJA PERAMANAL» (fila 3), columna por columna y en
+          el mismo orden, para cotejar a la vista: D entregado · E kg · F precio · G facturado ·
+          H gastos · I nóminas · J traslado · K inversión · L saldo $ · M kg recibidos · N saldo kg. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '.75rem', marginBottom: '1.25rem' }}>
+        <div className="card" style={{ borderColor: 'var(--success)', cursor: 'pointer' }}
+          onClick={() => navigate('/app/tesoreria?ver=creditos')}
+          title="Ver la deuda a MGG en Cuentas por pagar (créditos)">
+          <div className="card-title"><span>💵 $ Usd entregado</span></div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--success)' }} className="mono">{money(resumen.usdEntregado)}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>columna D · se debe a MGG → clic para ver en Tesorería</div>
+        </div>
+        <div className="card"><div className="card-title"><span>Kg cerrados</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--primary-3)' }} className="mono">{num(resumen.kgCerrados)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>columna E · kg limpios de los contratos cerrados</div></div>
         <div className="card" style={{ borderColor: 'var(--primary)', background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
-          <div className="card-title"><span>💲 Tasa actual del material</span></div>
+          <div className="card-title"><span>💲 Precio $ Usd por Kg</span></div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
-            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(resumen.tasa)}<span style={{ fontSize: '.9rem', fontWeight: 500 }}> /Kg</span></div>
+            <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">{money(resumen.tasa)}<span style={{ fontSize: '.85rem', fontWeight: 500 }}> /Kg</span></div>
             {tasaTrend && (
-              <span style={{ fontWeight: 800, fontSize: '.9rem', color: tasaTrend === 'up' ? 'var(--success)' : 'var(--danger)' }}
+              <span style={{ fontWeight: 800, fontSize: '.85rem', color: tasaTrend === 'up' ? 'var(--success)' : 'var(--danger)' }}
                 title={tasaTrend === 'up' ? 'La tasa subió respecto al valor anterior' : 'La tasa bajó respecto al valor anterior'}>
                 {tasaTrend === 'up' ? '▲ SUBIÓ' : '▼ BAJÓ'}
               </span>
             )}
           </div>
-          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>(Facturado + Gastos + Nóminas) ÷ Kg cerrados</div>
+          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.3rem' }}>columna F · (Facturado + Gastos + Nóminas) ÷ Kg cerrados · la inversión no entra</div>
         </div>
-        <div className="card" style={{ borderColor: 'var(--success)', cursor: 'pointer' }}
-          onClick={() => navigate('/app/tesoreria?ver=creditos')}
-          title="Ver la deuda a MGG en Cuentas por pagar (créditos)">
-          <div className="card-title"><span>💵 USD entregados</span></div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--success)' }} className="mono">{money(resumen.usdEntregado)}</div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>suma de lo que entra (incluye el dinero recibido del otro sistema) · se debe a MGG → clic para ver en Tesorería</div>
-        </div>
-        <div className="card"><div className="card-title"><span>Saldo de caja</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo en moneda $ Usd (corrido)</div></div>
-        <div className="card"><div className="card-title"><span>Saldo en Kg</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: resumen.saldoKg < 0 ? 'var(--danger)' : undefined }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>saldo de casiterita (acumulado)</div></div>
-        <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.facturado + resumen.gastos + resumen.nominas)}</div><div className="muted" style={{ fontSize: '.72rem' }}>incluye facturado y nómina</div></div>
+        <div className="card"><div className="card-title"><span>$ Usd facturados</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700 }} className="mono">{money(resumen.facturado)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna G · casiterita comprada a mineros (kg × tasa del contrato)</div></div>
+        <div className="card"><div className="card-title"><span>Gastos GT</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.gastos)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna H · solo gastos (sin facturado, nómina ni inversión)</div></div>
+        <div className="card"><div className="card-title"><span>Nóminas GT</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--danger)' }} className="mono">{money(resumen.nominas)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna I</div></div>
+        <div className="card"><div className="card-title"><span>Traslado de caja</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700 }} className="mono">{money(resumen.traslado)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna J</div></div>
+        <div className="card"><div className="card-title"><span>Inversión</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--warning, #f59e0b)' }} className="mono">{money(resumen.inversion)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna K · sale del saldo, no suma a la tasa</div></div>
+        <div className="card" style={{ borderColor: resumen.saldoUsd < 0 ? 'var(--danger)' : 'var(--info, #22d3ee)' }}><div className="card-title"><span>Saldo actual de caja</span></div><div style={{ fontSize: '1.35rem', fontWeight: 800, color: resumen.saldoUsd < 0 ? 'var(--danger)' : undefined }} className="mono">{money(resumen.saldoUsd)}</div><div className="muted" style={{ fontSize: '.72rem' }}>columna L · entregado − facturado − gastos − nóminas − traslado − inversión</div></div>
+        <div className="card"><div className="card-title"><span>Kg recibidos por MGG</span></div><div style={{ fontSize: '1.35rem', fontWeight: 700 }} className="mono">{num(resumen.kgRecibidos)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>columna M</div></div>
+        <div className="card"><div className="card-title"><span>Saldo en Kg de casiterita</span></div><div style={{ fontSize: '1.35rem', fontWeight: 800, color: resumen.saldoKg < 0 ? 'var(--danger)' : 'var(--primary-3)' }} className="mono">{num(resumen.saldoKg)} Kg</div><div className="muted" style={{ fontSize: '.72rem' }}>columna N · saldo anterior + kg cerrados − kg recibidos</div></div>
       </div>
-
       {/* Lista de movimientos del centro de acopio (contratos cerrados se reflejan aquí).
           Se muestra solo con el switch «Listar movimientos»; aun oculta, alimenta las tarjetas. */}
       <MovimientosAcopioView onResumen={onResumenAcopio} onFilas={onFilasAcopio} visible={listar} caja={cajaActual} />
@@ -306,6 +316,8 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
   const [descGastos, setDescGastos] = useState('');
   const [traslado, setTraslado] = useState('');
   const [descTraslado, setDescTraslado] = useState('');
+  const [inversion, setInversion] = useState('');
+  const [descInversion, setDescInversion] = useState('');
   const [kgRecibidos, setKgRecibidos] = useState('');
   const [descKg, setDescKg] = useState('');
   const [cats, setCats] = useState<ClasificacionAcopio[]>([]);
@@ -325,9 +337,10 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
 
   async function guardar() {
     setError(null);
-    const gas = r2(gastos), tras = r2(traslado), ent = r2(entrada);
+    const gas = r2(gastos), tras = r2(traslado), ent = r2(entrada), inv = r2(inversion);
     const kg = Number(kgRecibidos) || 0;
-    if (gas <= 0 && tras <= 0 && kg <= 0 && ent <= 0) { setError('Ingresa al menos un monto.'); return; }
+    if (gas <= 0 && tras <= 0 && kg <= 0 && ent <= 0 && inv <= 0) { setError('Ingresa al menos un monto.'); return; }
+    if (inv > 0 && !descInversion.trim()) { setError('Describe la inversión (qué se compró o abonó).'); return; }
     if (gas > 0 && !gastoCat) { setError('Elige la categoría del gasto.'); return; }
     setSaving(true);
     try {
@@ -346,6 +359,8 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
           : { fecha, gastos: gas, clasif_grupo: 'gastos_caja', clasif_valor: gastoCat, descripcion: descGastos.trim() || gastoCat, caja_id: cajaId });
       }
       if (tras > 0) filas.push({ fecha, traslado: tras, clasif_grupo: 'traslado', descripcion: descTraslado.trim() || 'Traslado de caja', caja_id: cajaId });
+      // Inversión (columna K del Excel): sale del saldo pero no entra en la tasa ni en Gastos GT.
+      if (inv > 0) filas.push({ fecha, inversion: inv, descripcion: descInversion.trim(), caja_id: cajaId });
       if (kg > 0) filas.push({ fecha, kg_recibidos: kg, descripcion: descKg.trim() || 'Kg recibidos por MGG', caja_id: cajaId });
       for (const f of filas) await crearMovimientoCaja(f, actor, actorName);
       toast(`${filas.length} movimiento(s) registrado(s)`, 'success');
@@ -426,6 +441,13 @@ function AgregarMovimientoModal({ cajaActual, actor, actorName, onClose, onSaved
         {campoUsd('$ Traslado de Caja', traslado, setTraslado, 'mov-traslado')}
         {campoDesc(descTraslado, setDescTraslado, 'Traslado de caja', 'mov-desc-traslado')}
       </div>
+
+      {/* Inversión (columna K del Excel): equipos, abonos de compras grandes… no suma a la tasa */}
+      <div className="form-grid">
+        {campoUsd('$ Inversión', inversion, setInversion, 'mov-inversion')}
+        {campoDesc(descInversion, setDescInversion, 'Inversión (ej. abono de equipos)', 'mov-desc-inversion')}
+      </div>
+      {r2(inversion) > 0 && <small className="muted">La inversión sale del saldo de caja pero <strong>no</strong> entra en el precio por Kg ni en Gastos GT (igual que la columna K del Excel).</small>}
 
       {/* Kg recibidos por MGG: cantidad + descripción */}
       <div className="form-grid">
@@ -554,6 +576,7 @@ function ResumenCajaModal({ defaultEmail, onClose }: { defaultEmail: string; onC
             <Kpi titulo="Total entregado" valor={money(r.totalEntregado)} color="var(--success)" />
             <Kpi titulo="Total gastado" valor={money(r.totalGastado)} color="var(--danger)" />
             <Kpi titulo="Tasa del material" valor={`${money(r.tasaMaterial)} /Kg`} color="var(--primary-3)" />
+            <Kpi titulo="Inversión (fuera de la tasa)" valor={money(r.totalInversion)} color="var(--warning, #f59e0b)" />
           </div>
 
           {/* % Gastos vs % Nómina */}

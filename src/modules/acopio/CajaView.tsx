@@ -83,6 +83,7 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
         <div className="card"><div className="muted" style={{ fontSize: '.72rem' }}>Total gastado</div><div className="mono" style={{ fontWeight: 700 }}>{money(resumen.totalGastado)}</div></div>
         <div className="card"><div className="muted" style={{ fontSize: '.72rem' }}>Saldo de caja</div><div className="mono" style={{ fontWeight: 700 }}>{money(resumen.saldoUsd)}</div></div>
         <div className="card"><div className="muted" style={{ fontSize: '.72rem' }}>Kg cerrados</div><div className="mono" style={{ fontWeight: 700 }}>{num(resumen.kgCerrados)} Kg</div></div>
+        {resumen.inversion > 0 && <div className="card"><div className="muted" style={{ fontSize: '.72rem' }}>Inversión (fuera de la tasa)</div><div className="mono" style={{ fontWeight: 700 }}>{money(resumen.inversion)}</div></div>}
       </div>
 
       {/* Distribución por categoría */}

@@ -40,6 +40,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
   const [gastos, setGastos] = useState(mov?.gastos ? String(mov.gastos) : '');
   const [nominas, setNominas] = useState(mov?.nominas ? String(mov.nominas) : '');
   const [traslado, setTraslado] = useState(mov?.traslado ? String(mov.traslado) : '');
+  const [inversion, setInversion] = useState(mov?.inversion ? String(mov.inversion) : '');
   const [kgRecibidos, setKgRecibidos] = useState(mov?.kg_recibidos ? String(mov.kg_recibidos) : '');
   const [equipo, setEquipo] = useState(mov?.equipo ?? '');
   const [equipos, setEquipos] = useState<string[]>([]);
@@ -86,7 +87,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
       fecha, descripcion,
       usd_entregado: Number(usdEntregado) || 0, kg_cerrados: Number(kgCerrados) || 0,
       facturados: Number(facturados) || 0, gastos: Number(gastos) || 0, nominas: Number(nominas) || 0,
-      traslado: Number(traslado) || 0, kg_recibidos: Number(kgRecibidos) || 0,
+      traslado: Number(traslado) || 0, inversion: Number(inversion) || 0, kg_recibidos: Number(kgRecibidos) || 0,
       clasif_grupo: grupo || null, clasif_valor: valor || null,
       costo_clasificacion: costoCl || null, costo_subclasificacion: costoSub || null,
       equipo: pideEquipo ? (equipo || null) : null, // solo se guarda en categorías de vehículo
@@ -199,6 +200,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
         {fld('Gastos GT', 'f-gastos', gastos, setGastos, 'suma a la tasa')}
         {fld('Nóminas GT', 'f-nominas', nominas, setNominas, 'suma a la tasa')}
         {fld('Traslado de caja', 'f-traslado', traslado, setTraslado)}
+        {fld('Inversión', 'f-inversion', inversion, setInversion, 'sale del saldo · no suma a la tasa')}
         {fld('Kg Recibidos por MGG', 'f-kg-recibidos', kgRecibidos, setKgRecibidos)}
       </div>
       {confirmDel && (
