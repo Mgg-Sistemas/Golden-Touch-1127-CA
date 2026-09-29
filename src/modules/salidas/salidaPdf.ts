@@ -186,6 +186,9 @@ export async function descargarOrdenSalidaPdf(
     ? sol.items
     : [{ producto_nombre: sol.producto_nombre || '—', producto_sku: null as string | null, unidad: null as string | null, cantidad: cant, precio_unit: precio, almacen: sol.almacen_origen ?? null, observacion: null as string | null }];
   const total = items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0);
+  // Vale de entrega a Cocina: comida a la unidad COCINA. Mismo documento y firmas; no toca stock.
+  const esVale = (it: unknown) => !!(it as { vale_cocina?: boolean }).vale_cocina;
+  const conVale = items.some(esVale);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -201,7 +204,7 @@ export async function descargarOrdenSalidaPdf(
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
   doc.text(esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA', TX, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : 'Salida de material'}`, TX, y + 38);
+  doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : (conVale ? 'Salida de material · Vale de entrega a Cocina' : 'Salida de material')}`, TX, y + 38);
   doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
   y += Math.max(LOGO, 42) + 8;
 
@@ -267,7 +270,7 @@ export async function descargarOrdenSalidaPdf(
   head.push('Cantidad', 'Precio USD', 'Total USD');
 
   const body = items.map((it, i) => {
-    const row: string[] = [String(i + 1), `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`];
+    const row: string[] = [String(i + 1), `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}${esVale(it) ? ' · VALE (no descuenta stock)' : ''}`];
     if (conAlmacen) row.push(invLabel(it.almacen ?? sol.almacen_origen));
     if (conObs) row.push((it.observacion ?? '').trim() || '—');
     row.push(
@@ -303,7 +306,10 @@ export async function descargarOrdenSalidaPdf(
   y = lastY() + 18;
 
   // ── Observaciones / notas ──
-  const notas = [sol.motivo?.trim(), sol.nota_entrega?.trim()].filter(Boolean).join(' · ') || '—';
+  const notas = [
+    sol.motivo?.trim(), sol.nota_entrega?.trim(),
+    conVale ? 'Vale de entrega a Cocina: los alimentos de esta salida no descuentan inventario; el consumo lo registra Distribución de comidas al servir el plato.' : '',
+  ].filter(Boolean).join(' · ') || '—';
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(120);
   doc.text('OBSERVACIONES / NOTAS', MARGIN, y);
   doc.setTextColor(20); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);

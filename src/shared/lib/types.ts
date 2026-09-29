@@ -959,6 +959,10 @@ export interface ItemSalida {
   almacen?: string | null;
   /** Observación por ítem (p. ej. "será trasladado para reparación"). */
   observacion?: string | null;
+  /** true = vale de entrega a Cocina: comida que va a la unidad COCINA. Sigue el
+   *  documento, la nota y las firmas, pero NO descuenta stock (lo descuenta
+   *  Distribución de comidas al servir el plato). */
+  vale_cocina?: boolean;
 }
 
 export interface SolicitudSalida {

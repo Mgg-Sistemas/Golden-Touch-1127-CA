@@ -11,6 +11,7 @@ import type {
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { findProducto } from '@/modules/inventario/inventario.repository';
+import { esValeCocina } from '@/modules/cocina/categoriasCocina';
 import {
   registrarTrasladoCasiteritaExterno, esCasiterita, DESTINO_EXTERNO_CASITERITA_LABEL,
 } from '@/modules/inventario/casiteritaInter.repository';
@@ -27,6 +28,8 @@ export interface SalidaMaterialInput {
   fechaEntrega?: string | null;
   /** Persona que solicitó (se guarda en el movimiento para el historial). */
   solicitante?: string | null;
+  /** Id de la solicitud de salida que origina el movimiento (para el candado del vale a Cocina). */
+  refId?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -47,6 +50,7 @@ export async function salidaMaterial(input: SalidaMaterialInput): Promise<Movimi
     actor: input.actor,
     actor_name: input.actorName ?? null,
     ref_tipo: 'salida_modulo',
+    ref_id: input.refId ?? null,
     destino: input.destino || null,
     solicitante: input.solicitante ?? null,
     fecha_entrega: input.fechaEntrega || null,
@@ -301,6 +305,21 @@ export const MSG_MOTIVO_SALIDA =
 
 const motivoCorto = (m: string | null | undefined) => (m ?? '').trim().length < MOTIVO_SALIDA_MINIMO;
 
+/**
+ * Marca cada renglón como VALE DE ENTREGA cuando la salida va a COCINA y el producto es
+ * comida (regla en `categoriasCocina.ts`). La categoría se lee del inventario, no del
+ * renglón, para que nadie la pueda falsear desde el navegador.
+ */
+async function marcarValesCocina(unidadSolicitante: string | null | undefined, items: ItemSalida[]): Promise<ItemSalida[]> {
+  const out: ItemSalida[] = [];
+  for (const it of items) {
+    const p = await findProducto(it.producto_id).catch(() => null);
+    const vale = esValeCocina({ unidadSolicitante, categoria: p?.categoria });
+    out.push(vale ? { ...it, vale_cocina: true } : { ...it, vale_cocina: undefined });
+  }
+  return out;
+}
+
 export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Promise<SolicitudSalida> {
   if (!input.solicitante.trim()) throw new Error('Indica quién hace la solicitud.');
   if (exigeMotivoSalida(input.scope, input.tipo) && motivoCorto(input.motivo)) throw new Error(MSG_MOTIVO_SALIDA);
@@ -316,6 +335,9 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
     } else {
       // La salida descuenta cada material de SU almacén (el de cada renglón).
       if (items.some((i) => !i.almacen)) throw new Error('Cada material debe indicar de qué almacén sale.');
+      // Comida a COCINA = vale de entrega (no toca stock). Se marca desde ya para que
+      // el detalle y el PDF lo digan antes de ejecutarse.
+      items = await marcarValesCocina(input.unidadSolicitante, items);
     }
     // La salida de material NO lleva destino (a quién va dirigido): solo el traslado.
   } else {
@@ -709,14 +731,21 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
 
   let movId: string | null = null;
   let movRef = '';
+  let itemsFinales: ItemSalida[] | null = null;
   try {
   if (s.scope === 'salida' && s.tipo === 'material') {
     if (!itemsMat.length) throw new Error('La solicitud no tiene materiales.');
     // Cada renglón sale de SU almacén (o del de cabecera, para solicitudes viejas).
     const almDe = (it: ItemSalida) => it.almacen || s.almacen_origen || '';
-    // Pre-validación: que TODOS los renglones tengan stock antes de mover nada
-    // (reduce ejecuciones a medias; la atomicidad real queda pendiente en servidor).
-    for (const it of itemsMat) {
+    // Regla: la comida que va a COCINA es un VALE DE ENTREGA. Se recalcula aquí (no se
+    // confía en la marca guardada): esos renglones no mueven stock; el kilo baja cuando
+    // Distribución de comidas sirve el plato. Limpieza y lo demás sí salen.
+    const marcados = await marcarValesCocina(s.unidad_solicitante, itemsMat);
+    const conStock = marcados.filter((it) => !it.vale_cocina);
+    itemsFinales = s.items && s.items.length ? marcados : null;
+    // Pre-validación: que TODOS los renglones que mueven stock lo tengan antes de mover
+    // nada (reduce ejecuciones a medias; la atomicidad real queda pendiente en servidor).
+    for (const it of conStock) {
       const alm = almDe(it);
       const ex = await getExistencia(it.producto_id, alm);
       const stock = Number(ex?.stock) || 0;
@@ -724,15 +753,15 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
         throw new Error(`Stock insuficiente de ${it.producto_nombre || 'un material'} en ${alm}. Disponible: ${stock}.`);
       }
     }
-    for (const it of itemsMat) {
+    for (const it of conStock) {
       const mov = await salidaMaterial({
         productoId: it.producto_id, almacen: almDe(it), cantidad: Number(it.cantidad) || 0,
         destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit,
-        fechaEntrega: s.fecha_entrega, solicitante: s.solicitante, actor, actorName,
+        fechaEntrega: s.fecha_entrega, solicitante: s.solicitante, refId: s.id, actor, actorName,
       });
       if (!movId) movId = mov.id;
     }
-    movRef = 'salida_modulo';
+    movRef = conStock.length ? 'salida_modulo' : 'vale_cocina';
   } else if (s.scope === 'traslado' && s.tipo === 'material') {
     if (!itemsMat.length) throw new Error('La solicitud no tiene materiales.');
     for (const it of itemsMat) {
@@ -774,10 +803,11 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
     throw e;
   }
 
-  // El estado ya quedó fijado en la reserva; aquí solo se anota el movimiento.
+  // El estado ya quedó fijado en la reserva; aquí solo se anota el movimiento (y la
+  // marca de vale por renglón, tal como se decidió al ejecutar).
   const { error } = await supabase
     .from(SOL)
-    .update({ mov_id: movId, mov_ref: movRef })
+    .update(itemsFinales ? { mov_id: movId, mov_ref: movRef, items: itemsFinales } : { mov_id: movId, mov_ref: movRef })
     .eq('id', s.id);
   if (error) throw error;
 }
