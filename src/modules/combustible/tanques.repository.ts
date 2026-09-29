@@ -1192,9 +1192,9 @@ export async function previewConsumoCombustibleSemana(desde: string, hasta: stri
 /**
  * Postea (IDEMPOTENTE) el consumo de combustible de GT de una semana como un gasto en la
  * caja de Peramanal abierta: suma los movimientos de tanque tipo 'uso' del rango (a su
- * costo, tasa PMP) y crea/actualiza el gasto «CONSUMO COMBUSTIBLE GT». Es el respaldo
- * MANUAL del proceso automático que corre cada domingo (por si el cron falló o para
- * re-generar una semana puntual). Devuelve el monto $ posteado (0 si no hubo consumo).
+ * costo, tasa PMP) y crea/actualiza el gasto «CONSUMO COMBUSTIBLE GT». Es el ÚNICO camino
+ * desde el 29/09/2026 (se quitó el cron de los domingos): el pase lo dispara el botón
+ * «💰 CAJA» del módulo. Devuelve el monto $ posteado (0 si no hubo consumo).
  * Fechas en 'YYYY-MM-DD' (lunes→domingo, ambos inclusive).
  */
 export async function postearConsumoCombustibleSemana(desde: string, hasta: string): Promise<number> {
