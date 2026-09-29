@@ -48,7 +48,7 @@ export function MaquinariaCatalogoModal({ canWrite, onClose, tabInicial }: {
   }, [items, tab, filtro]);
 
   async function agregar() {
-    if (!valor.trim()) { toast(`Indicá el ${tabActual.singular}`, 'error'); return; }
+    if (!valor.trim()) { toast(`Indica el ${tabActual.singular}`, 'error'); return; }
     setBusy(true);
     try {
       await addCatalogoMaquinaria(tab, valor.trim().toUpperCase());

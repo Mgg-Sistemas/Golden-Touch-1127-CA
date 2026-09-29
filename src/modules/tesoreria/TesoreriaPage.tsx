@@ -114,7 +114,7 @@ const VENTA_ESTADO_BADGE: Record<string, { label: string; clase: string }> = {
 };
 
 /** `ref_venta_id` existe en `movimientos_caja` (la trae el `select('*')`), pero el
- *  tipo compartido `MovimientoCaja` todavía no la declara. Se lee acá, en un solo
+ *  tipo compartido `MovimientoCaja` todavía no la declara. Se lee aquí, en un solo
  *  lugar, en vez de esparcir casts por el archivo. */
 function refVentaIdDe(m: MovimientoCaja): string | null {
   return (m as { ref_venta_id?: string | null }).ref_venta_id ?? null;
@@ -241,7 +241,7 @@ export function TesoreriaPage() {
     setDisp(d); setCajas(cs); setSaldos(sal); setLibroTodo(mov); setPorPagarCount(pend.porPagar); setCreditosCount(credOc + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
   }, []);
 
-  // Movimientos que se ven en el registro: los filtros se resuelven acá, sobre lo ya
+  // Movimientos que se ven en el registro: los filtros se resuelven aquí, sobre lo ya
   // cargado. La comparación por día (`at` recortado a AAAA-MM-DD) da el mismo resultado
   // que el filtro que antes hacía el servidor, porque la base trabaja en UTC igual que
   // la fecha ISO que llega al navegador.
@@ -250,7 +250,7 @@ export function TesoreriaPage() {
     [libroTodo, fCaja, fMoneda, fTipo, fDesde, fHasta],
   );
 
-  // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
+  // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja aquí.
   useRealtime(['movimientos_caja', 'caja_saldos', 'cajas', 'transferencias_inter', 'ordenes', 'nomina_renglones', 'cuentas_por_pagar', 'cuentas_por_pagar_abonos', 'cuentas_por_pagar_ingresos', 'cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos', 'compras_directas', 'servicios_directos', 'abonos_credito', 'proveedor_datos_pago'], () => { void reload(); });
 
   useEffect(() => {
@@ -746,8 +746,8 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
   }, [mov.ref_nomina_renglon_id]);
 
   // Si el movimiento vino de una venta (cobro o reverso), traemos su cabecera:
-  // desde Tesorería se tiene que poder ver QUÉ venta hizo entrar esa plata.
-  // Mismo patrón que `ref_orden_id` acá arriba.
+  // desde Tesorería se tiene que poder ver QUÉ venta hizo entrar ese dinero.
+  // Mismo patrón que `ref_orden_id` aquí arriba.
   useEffect(() => {
     if (!refVentaId) { setVenta(null); return; }
     setCargandoVenta(true);
@@ -853,7 +853,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
           <strong>¿Borrar este movimiento?</strong> Se revertirá su efecto en el saldo de la caja. No se puede deshacer.
           {esPar && (
             <div className="muted" style={{ fontSize: '.78rem', marginTop: '.35rem' }}>
-              ⚠ Es una pata de un <strong>{mov.categoria === 'conversion' ? 'conversión' : 'traslado'}</strong>: esto borra <strong>solo esta pata</strong> y ajusta el saldo de <strong>esta</strong> caja. Si querés deshacer la operación completa, borrá también la <strong>otra pata</strong> en la otra caja/moneda.
+              ⚠ Es una pata de un <strong>{mov.categoria === 'conversion' ? 'conversión' : 'traslado'}</strong>: esto borra <strong>solo esta pata</strong> y ajusta el saldo de <strong>esta</strong> caja. Si quieres deshacer la operación completa, borra también la <strong>otra pata</strong> en la otra caja/moneda.
             </div>
           )}
           <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem' }}>
@@ -899,7 +899,7 @@ function MovimientoDetalleModal({ mov, defaultEmail, onClose, onChanged }: { mov
               </div>
               <div className="form-row">
                 <label>Subcategoría</label>
-                <SearchSelect value={eSubId} onChange={setESubId} disabled={!eCatId} placeholder={eCatId ? '🔍 Subcategoría…' : '— elegí la categoría —'} emptyText="Sin subcategorías"
+                <SearchSelect value={eSubId} onChange={setESubId} disabled={!eCatId} placeholder={eCatId ? '🔍 Subcategoría…' : '— elige la categoría —'} emptyText="Sin subcategorías"
                   options={(eCatId ? subcategoriasDe(catsEdit, eCatId) : []).map((c) => ({ value: c.id, label: c.nombre }))} />
               </div>
             </div>
@@ -1251,7 +1251,7 @@ function DetalleCorreoModal({ mov, orden, defaultEmail, onClose }: {
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
         <input className="input" type="email" name="correo-extra" defaultValue={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
-        <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
+        <small className="muted">Si no marcas ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
   );
@@ -1339,10 +1339,10 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
   async function ingresar(e: FormEvent) {
     e.preventDefault(); setError(null);
     if ((Number(montoStr) || 0) <= 0) { setError('El monto debe ser mayor que 0.'); return; }
-    if (moneda !== 'Bs' && (Number(tasaStr) || 0) <= 0) { setError('Indicá la tasa de compra (Bs por unidad).'); return; }
+    if (moneda !== 'Bs' && (Number(tasaStr) || 0) <= 0) { setError('Indica la tasa de compra (Bs por unidad).'); return; }
     // El cliente/proveedor es OPCIONAL: si se eligió un tipo, exigimos el nombre;
     // si no se elige ninguno, el ingreso es solo un movimiento de caja (sin cuenta).
-    if (origenTipo && !origen.trim()) { setError(origenTipo === 'proveedor' ? 'Indicá la razón social del proveedor.' : 'Indicá el nombre del cliente.'); return; }
+    if (origenTipo && !origen.trim()) { setError(origenTipo === 'proveedor' ? 'Indica la razón social del proveedor.' : 'Indica el nombre del cliente.'); return; }
     const generaCuenta = !!origenTipo && !!origen.trim();
     setSaving(true);
     try {
@@ -1402,7 +1402,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
             <thead><tr><th>Cuenta</th><th>Moneda</th><th style={{ textAlign: 'right' }}>Saldo</th><th></th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-              {!loading && !saldos.length && <tr><td colSpan={4}><EmptyState message="Sin saldos · ingresá dinero abajo" /></td></tr>}
+              {!loading && !saldos.length && <tr><td colSpan={4}><EmptyState message="Sin saldos · ingresa dinero abajo" /></td></tr>}
               {!loading && saldos.map((s) => (
                 <tr key={s.id}>
                   <td>{s.cuenta === 'general' ? '—' : s.cuenta === 'juridica' ? 'Jurídica' : 'Personal'}</td>
@@ -1562,7 +1562,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                 })}
               </div>
               {!origenTipo && (
-                <small className="muted">Sin cliente/proveedor el ingreso es <strong>solo un movimiento de caja</strong>. Elegí Cliente o Proveedor para que además genere una <strong>cuenta por pagar</strong>.</small>
+                <small className="muted">Sin cliente/proveedor el ingreso es <strong>solo un movimiento de caja</strong>. Elige Cliente o Proveedor para que además genere una <strong>cuenta por pagar</strong>.</small>
               )}
               {origenTipo && (() => {
                 const guardados = contrapartes.filter((c) => c.tipo === origenTipo);
@@ -1583,7 +1583,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                     {guardados.map((c) => <option key={c.id} value={c.nombre} />)}
                   </datalist>
                   <small className="muted">
-                    Buscá en los {guardados.length} {origenTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribí uno nuevo.{' '}
+                    Busca en los {guardados.length} {origenTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribe uno nuevo.{' '}
                     {origen.trim() && !existe
                       ? <strong style={{ color: 'var(--primary-3, #ff8a00)' }}>Nuevo → se guardará para próximos pagos.</strong>
                       : 'Se gestionan en “👥 Clientes / Proveedores”.'}
@@ -1721,7 +1721,7 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
       email: leer('cp-email'),
       nota: leer('cp-nota'),
     };
-    if (!datos.nombre) { setError(form.tipo === 'proveedor' ? 'Indicá la razón social.' : 'Indicá el nombre del cliente.'); return; }
+    if (!datos.nombre) { setError(form.tipo === 'proveedor' ? 'Indica la razón social.' : 'Indica el nombre del cliente.'); return; }
     setBusy(true); setError(null);
     try {
       if (editId) await actualizarContraparte(editId, datos);
@@ -1895,19 +1895,19 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja.'); return; }
-    if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) se paga.'); return; }
+    if (!cajaId) { setError('Elige la caja.'); return; }
+    if (esMulti && !selSaldo) { setError('Elige de qué saldo (moneda) se paga.'); return; }
     const m = Number(montoStr) || 0;
     if (m > disponible + 0.01) { setError(`Saldo insuficiente. Disponible: ${monto(disponible, monedaPago)}.`); return; }
     const catN = catNombre.trim(); const subN = subNombre.trim();
-    if (!catN) { setError('Elegí o creá la categoría del gasto.'); return; }
-    if (!subN) { setError('Elegí o creá la subcategoría del gasto.'); return; }
-    if (esPeramanal && !esDolar && tasaPeramanalNum <= 0) { setError('Indicá la tasa (Bs por $) para reflejar el gasto en la caja de Acopio.'); return; }
+    if (!catN) { setError('Elige o crea la categoría del gasto.'); return; }
+    if (!subN) { setError('Elige o crea la subcategoría del gasto.'); return; }
+    if (esPeramanal && !esDolar && tasaPeramanalNum <= 0) { setError('Indica la tasa (Bs por $) para reflejar el gasto en la caja de Acopio.'); return; }
     // Para RECEPCIÓN/EXPORTACIÓN el primer correlativo lo ingresa el usuario.
     let primerCorr: number | null = null;
     if (llevaCorrelativo && ultimoCorr == null) {
       const c = Math.trunc(Number(correlativoStr));
-      if (!Number.isFinite(c) || c <= 0) { setError('Ingresá el número de correlativo inicial (mayor que 0).'); return; }
+      if (!Number.isFinite(c) || c <= 0) { setError('Ingresa el número de correlativo inicial (mayor que 0).'); return; }
       primerCorr = c;
     }
     setSaving(true);
@@ -1960,11 +1960,11 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Categoría *</label>
-            <SearchCreateSelect value={catNombre} onChange={(v) => { setCatNombre(v); setSubNombre(''); }} options={catOpts} placeholder="Elegí o escribí una categoría…" />
+            <SearchCreateSelect value={catNombre} onChange={(v) => { setCatNombre(v); setSubNombre(''); }} options={catOpts} placeholder="Elige o escribe una categoría…" />
           </div>
           <div className="form-row">
             <label>Subcategoría *</label>
-            <SearchCreateSelect value={subNombre} onChange={setSubNombre} options={subOpts} placeholder={catNombre.trim() ? 'Elegí o escribí una subcategoría…' : 'Elegí primero la categoría'} />
+            <SearchCreateSelect value={subNombre} onChange={setSubNombre} options={subOpts} placeholder={catNombre.trim() ? 'Elige o escribe una subcategoría…' : 'Elige primero la categoría'} />
           </div>
         </div>
         {llevaCorrelativo && (
@@ -1980,7 +1980,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
             )}
             <small className="muted">
               {ultimoCorr == null
-                ? 'Primer registro de esta categoría: ingresá el número inicial. De ahí la secuencia sigue sola.'
+                ? 'Primer registro de esta categoría: ingresa el número inicial. De ahí la secuencia sigue sola.'
                 : `Se asignará automáticamente el N° ${correlativoSugerido} (último registrado: ${ultimoCorr}).`}
             </small>
           </div>
@@ -1988,7 +1988,7 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
         <div className="form-row">
           <label>Concepto</label>
           <input className="input" name="g-concepto" value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="A qué corresponde el gasto" required />
-          <small className="muted">Categoría y subcategoría son obligatorias (podés crearlas escribiéndolas). El gasto queda etiquetado y aparece en el registro de movimientos.</small>
+          <small className="muted">Categoría y subcategoría son obligatorias (puedes crearlas escribiéndolas). El gasto queda etiquetado y aparece en el registro de movimientos.</small>
         </div>
         {/* Reflejo en la caja del Centro de Acopio (Peramanal). En Bs se convierte a $ con tasa personalizada. */}
         <div className="form-row">
@@ -2010,8 +2010,8 @@ function GastoModal({ cajas, actor, actorName, onClose, onSaved }: {
             {esPeramanal
               ? (esDolar
                   ? `Se crea el movimiento en la caja de Acopio por $${reflejoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (columna Gastos o Nómina según la categoría) y afecta la tasa $/kg.`
-                  : 'El gasto está en Bs: indicá la tasa (Bs por $) y se refleja convertido a $ en la caja de Acopio (Gastos o Nómina según la categoría), afectando la tasa $/kg.')
-              : 'Marcalo si el gasto es del Centro de Acopio: además del movimiento en Tesorería, se refleja en la caja de Acopio.'}
+                  : 'El gasto está en Bs: indica la tasa (Bs por $) y se refleja convertido a $ en la caja de Acopio (Gastos o Nómina según la categoría), afectando la tasa $/kg.')
+              : 'Márcalo si el gasto es del Centro de Acopio: además del movimiento en Tesorería, se refleja en la caja de Acopio.'}
           </small>
         </div>
       </form>
@@ -2045,8 +2045,8 @@ function RecibirDineroMggModal({ cajas, actor, actorName, onClose, onSaved }: {
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja a la que entra el dinero.'); return; }
-    if (montoNum <= 0) { setError('Indicá el monto recibido (mayor que 0).'); return; }
+    if (!cajaId) { setError('Elige la caja a la que entra el dinero.'); return; }
+    if (montoNum <= 0) { setError('Indica el monto recibido (mayor que 0).'); return; }
     setSaving(true);
     try {
       await recibirDineroDeMGG({ cajaId, monto: montoNum, nota: nota.trim() || null, actor, actorName });
@@ -2147,12 +2147,12 @@ function TrasladoModal({ cajas, actor, actorName, onClose, onSaved }: {
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!origenId || !destinoId) { setError('Elegí la caja origen y el centro de acopio.'); return; }
+    if (!origenId || !destinoId) { setError('Elige la caja origen y el centro de acopio.'); return; }
     if (!motivo.trim()) { setError('El motivo es obligatorio.'); return; }
     const legs = saldos
       .map((s) => ({ cuenta: s.cuenta, moneda: s.moneda, monto: Number(montos[s.id]) || 0 }))
       .filter((l) => l.monto > 0);
-    if (!legs.length) { setError('Indicá al menos un monto a trasladar.'); return; }
+    if (!legs.length) { setError('Indica al menos un monto a trasladar.'); return; }
     setSaving(true);
     try {
       await trasladoEntreCajasMulti({
@@ -2257,7 +2257,7 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
 
   async function confirmar(t: TransferenciaInter) {
     const cajaId = t.caja_id || sel[t.id];
-    if (!cajaId) { toast('Elegí la caja que recibe el dinero.', 'error'); return; }
+    if (!cajaId) { toast('Elige la caja que recibe el dinero.', 'error'); return; }
     setBusy(t.id);
     try {
       await confirmarTransferenciaEntrante({ row: t, cajaId, actor, actorName });
@@ -2296,9 +2296,9 @@ function TransferenciasInterPanel({ transfers, cajas, canWrite, actor, actorName
       {/* ENTRANTES por confirmar */}
       {entrantes.length > 0 && (
         <div style={{ marginBottom: salientesVivas.length ? '.8rem' : 0 }}>
-          <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.35rem' }}>Entrantes por confirmar · acreditá a la caja que recibe</div>
+          <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.35rem' }}>Entrantes por confirmar · acredita a la caja que recibe</div>
           <div className="muted" style={{ fontSize: '.72rem', marginBottom: '.4rem', color: 'var(--brand, #ff8a00)' }}>
-            🏭 El mismo dinero se acepta por separado en cada módulo: acá acreditás la parte de <strong>Tesorería</strong> (a la caja elegida). En <strong>Acopio</strong>, el banner «Dinero por entrar» acredita su parte como «USD entregado». La transferencia se completa cuando ambos aceptan.
+            🏭 El mismo dinero se acepta por separado en cada módulo: aquí acreditas la parte de <strong>Tesorería</strong> (a la caja elegida). En <strong>Acopio</strong>, el banner «Dinero por entrar» acredita su parte como «USD entregado». La transferencia se completa cuando ambos aceptan.
           </div>
           <div style={{ display: 'grid', gap: '.45rem' }}>
             {entrantes.map((t) => (
@@ -2416,7 +2416,7 @@ function EnviarReporteModal({ movs, meta, defaultEmail, onClose }: {
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
         <input className="input" type="email" name="correo-extra" defaultValue={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
-        <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
+        <small className="muted">Si no marcas ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
   );
@@ -2538,10 +2538,10 @@ function PagarRenglonModal({ renglon, cajas, actor, actorName, onClose, onPaid }
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
-    if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) de la caja se paga.'); return; }
+    if (!cajaId) { setError('Elige la caja con la que se paga.'); return; }
+    if (esMulti && !selSaldo) { setError('Elige de qué saldo (moneda) de la caja se paga.'); return; }
     const m = round2(Number(montoStr) || 0);
-    if (m <= 0) { setError('Indicá el monto a pagar.'); return; }
+    if (m <= 0) { setError('Indica el monto a pagar.'); return; }
     if (m > disponible + 0.01) { setError(`Saldo insuficiente. Disponible: ${monto(disponible, moneda)}.`); return; }
     setSaving(true);
     try {
@@ -2617,7 +2617,7 @@ function PagarRenglonModal({ renglon, cajas, actor, actorName, onClose, onPaid }
             <label>Monto a pagar ({moneda})</label>
             <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required />
             <small className="muted">Disponible: <strong className="mono">{monto(disponible, moneda)}</strong></small>
-            {moneda === 'Bs' && <small className="muted">Se autocompletó con la tasa BCV; podés ajustarlo.</small>}
+            {moneda === 'Bs' && <small className="muted">Se autocompletó con la tasa BCV; puedes ajustarlo.</small>}
             {pagaUsdEfectivo && redondearArriba5(Number(montoStr) || 0) > (Number(montoStr) || 0) && (
               <small className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
                 💵 El monto tiene decimales. En efectivo se sugiere <strong className="mono">{monto(redondearArriba5(Number(montoStr) || 0), 'USD')}</strong> (redondeado al múltiplo de $5).
@@ -2729,7 +2729,7 @@ function LibroMayorDetalleModal({ moneda, movimientos, onSelMov, onClose }: {
         <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
       </>
     }>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.78rem' }}>{ordenados.length} movimiento(s). Tocá uno para ver <strong>todo su detalle</strong> (fecha, motivo, beneficiario, cuenta, etc.).</p>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.78rem' }}>{ordenados.length} movimiento(s). Toca uno para ver <strong>todo su detalle</strong> (fecha, motivo, beneficiario, cuenta, etc.).</p>
       <div className="table-wrap" style={{ maxHeight: 440, overflow: 'auto' }}>
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead><tr><th>Fecha</th><th>Caja</th><th>Concepto</th><th style={{ textAlign: 'right' }}>Debe</th><th style={{ textAlign: 'right' }}>Haber</th></tr></thead>
@@ -2863,7 +2863,7 @@ function ResumenMovimientosModal({ movimientos, defaultEmail, onClose }: { movim
           }} />
       </div>
 
-      <p className="muted" style={{ fontSize: '.74rem', margin: '0 0 .4rem' }}>📊 Tocá una barra o una tarjeta (Ingresos/Egresos/Gastos) para ver sus movimientos. Tocá un movimiento para ver <strong>todo su detalle</strong>.</p>
+      <p className="muted" style={{ fontSize: '.74rem', margin: '0 0 .4rem' }}>📊 Toca una barra o una tarjeta (Ingresos/Egresos/Gastos) para ver sus movimientos. Toca un movimiento para ver <strong>todo su detalle</strong>.</p>
 
       {/* Drill de GASTOS: agrupado por categoría, expandible; cada gasto abre su detalle. */}
       {drill === 'gastos' && (
@@ -2963,7 +2963,7 @@ function RetencionesTesoreriaModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="🧾 Retenciones listas" size="lg" onClose={onClose} footer={footer}>
       <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .6rem' }}>
-        Retenciones <strong>finalizadas</strong> (con sus comprobantes cargados), listas para pagar. Al pagar la OC se marcan como <strong>pagadas</strong> automáticamente y se reflejan acá y en el módulo de Retenciones.
+        Retenciones <strong>finalizadas</strong> (con sus comprobantes cargados), listas para pagar. Al pagar la OC se marcan como <strong>pagadas</strong> automáticamente y se reflejan aquí y en el módulo de Retenciones.
       </p>
 
       {loading && <EmptyState message="Cargando…" />}
@@ -3167,8 +3167,8 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
   function limpiarComision() { setNetoOverride(null); setComisionStr(''); }
 
   async function convertir() {
-    if (!origenSaldo) { setErr('Elegí de qué saldo sale el dinero.'); return; }
-    if (!destinoCajaId) { setErr('Elegí la caja destino.'); return; }
+    if (!origenSaldo) { setErr('Elige de qué saldo sale el dinero.'); return; }
+    if (!destinoCajaId) { setErr('Elige la caja destino.'); return; }
     if (de === a) { setErr('Las monedas de origen y destino deben ser distintas.'); return; }
     if (excede) { setErr(`No hay saldo suficiente. Disponible: ${monto(disponible, de)}.`); return; }
     setErr(null); setSaving(true);
@@ -3219,7 +3219,7 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
         </>
       )
     }>
-      {/* Las dos caras del conversor. El historial vive acá adentro y no en otra pantalla:
+      {/* Las dos caras del conversor. El historial vive aquí adentro y no en otra pantalla:
           la pregunta «¿a cuánto cambiamos la última vez?» se hace justo antes de convertir. */}
       <div className="view-toggle" role="tablist" style={{ marginBottom: '.85rem' }}>
         <button className={vista === 'convertir' ? 'active' : ''} onClick={() => setVista('convertir')}>💱 Convertir</button>
@@ -3253,7 +3253,7 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
       </div>
       {fechaOp !== new Date().toISOString().slice(0, 10) && (
         <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.5rem', color: 'var(--warning, #ff8a00)' }}>
-          Se va a cargar con fecha <strong>{fechaOp}</strong>, no la de hoy. Revisá que la tasa sea la de ese día.
+          Se va a cargar con fecha <strong>{fechaOp}</strong>, no la de hoy. Revisa que la tasa sea la de ese día.
         </div>
       )}
 
@@ -3299,12 +3299,12 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
         <div className="form-row">
           <label>Entra en (caja destino)</label>
           <select className="select" value={destinoCajaId} onChange={(e) => setDestinoCajaId(e.target.value)}>
-            <option value="">— Elegí caja —</option>
+            <option value="">— Elige caja —</option>
             {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.moneda ? ` · ${c.moneda}` : ''}</option>)}
           </select>
           {destinoDescuadra && (
             <small style={{ color: 'var(--warning)', display: 'block', marginTop: '.25rem' }}>
-              ⚠️ Vas a acreditar {a} en <strong>{nombreCaja(destinoCajaId)}</strong> (caja {monedaCajaDestino}); el total de <strong>{cajaNaturalDestino?.nombre}</strong> no lo reflejará. Elegí <strong>{cajaNaturalDestino?.nombre}</strong> para que sume ahí.
+              ⚠️ Vas a acreditar {a} en <strong>{nombreCaja(destinoCajaId)}</strong> (caja {monedaCajaDestino}); el total de <strong>{cajaNaturalDestino?.nombre}</strong> no lo reflejará. Elige <strong>{cajaNaturalDestino?.nombre}</strong> para que sume ahí.
             </small>
           )}
         </div>
@@ -3354,7 +3354,7 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
                 {guardados.map((c) => <option key={c.id} value={c.nombre} />)}
               </datalist>
               <small className="muted">
-                Buscá en los {guardados.length} {cpTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribí uno nuevo.{' '}
+                Busca en los {guardados.length} {cpTipo === 'proveedor' ? 'proveedor(es)' : 'cliente(s)'} guardados o escribe uno nuevo.{' '}
                 {cpNombre.trim() && !existe
                   ? <strong style={{ color: 'var(--primary-3, #ff8a00)' }}>Nuevo → se guardará para próximas operaciones.</strong>
                   : 'Queda registrado en el motivo del movimiento.'}
@@ -3389,7 +3389,7 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
             placeholder={netoManual != null ? `≈ ${comisionPct}% (redondeado)` : '0'} />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRedondearOpen(true)} disabled={bruto <= 0}
-              title="Escribí a mano el monto redondeado que debe recibir el destino (ej. 60)">⊕ Redondear</button>
+              title="Escribe a mano el monto redondeado que debe recibir el destino (ej. 60)">⊕ Redondear</button>
             {(comisionStr || netoManual != null) && <button type="button" className="btn btn-sm btn-ghost" onClick={limpiarComision}>✕ Sin comisión</button>}
           </div>
           <small className="muted">
@@ -3434,7 +3434,7 @@ function ConversorModal({ cajas, actor, actorName, onClose, onConverted }: {
  *
  * Filtra por texto, por par de monedas, por quien lo hizo y por rango de fechas. El
  * rango usa la fecha en que OCURRIO el cambio, no la de carga: quien revisa busca por
- * el dia en que se cambio la plata, no por el dia en que alguien lo anoto.
+ * el dia en que se cambio el dinero, no por el dia en que alguien lo anoto.
  */
 function HistorialConversiones({ filas, cargando, nombreCaja }: {
   filas: ConversionCaja[]; cargando: boolean; nombreCaja: (id: string) => string;
@@ -3477,7 +3477,7 @@ function HistorialConversiones({ filas, cargando, nombreCaja }: {
   return (
     <>
       <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-        Cada cambio de moneda que se hizo desde acá, del más reciente al más viejo. La fecha
+        Cada cambio de moneda que se hizo desde aquí, del más reciente al más viejo. La fecha
         es la del <strong>cambio</strong>; si se cargó otro día, el renglón lo avisa.
       </p>
 
@@ -3669,7 +3669,7 @@ function GraficoTasasModal({ onClose }: { onClose: () => void }) {
       ) : (
         <BarChart data={bars} color="#f3ba2f" height={240}
           yFormatter={(v) => v.toLocaleString('es-VE', { maximumFractionDigits: 0 })}
-          emptyMessage="Aún no hay tasas capturadas. Usá ↻ Actualizar ahora." />
+          emptyMessage="Aún no hay tasas capturadas. Usa ↻ Actualizar ahora." />
       )}
       {tasas?.at && <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', textAlign: 'right' }}>Última captura: {dateTime(tasas.at)}</div>}
     </Modal>
@@ -3706,7 +3706,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
     noLeidosPorOrden(rows.map((r) => r.orden.id), user.id, user.email).then(setNoLeidos).catch(() => setNoLeidos(new Map()));
   }, [rows, user?.id, user?.email]);
   useEffect(() => { recalcNoLeidos(); }, [recalcNoLeidos]);
-  // orden_chat_lecturas: si lo leyó en otra pestaña o equipo, el chip se apaga acá también.
+  // orden_chat_lecturas: si lo leyó en otra pestaña o equipo, el chip se apaga aquí también.
   useRealtime(['orden_mensajes', 'orden_chat_lecturas'], () => { recalcNoLeidos(); });
 
   // Filas seleccionadas, proveedor "bloqueado" (el de la primera marcada) y total.
@@ -3736,8 +3736,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
       </>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Órdenes de compra aprobadas por el Gerente. Hacé clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
-        compra y registrar el pago, o <strong>marcá varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>
+        Órdenes de compra aprobadas por el Gerente. Haz clic en una fila (o en <strong>Ver</strong>) para ver el detalle de la
+        compra y registrar el pago, o <strong>marca varias del mismo proveedor</strong> (✓) para <strong>pagarlas juntas</strong>
         (un egreso por OC). Se pueden incluir las que están <strong>⏳ Esperando método de pago</strong>: Tesorería las paga
         directo eligiendo la caja, aunque el analista todavía no haya indicado el método.
       </p>
@@ -3894,9 +3894,9 @@ function PagarVariasOcModal({ rows, cajas, actor, actorName, onClose, onPaid }: 
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
-    if (moneda === 'Bs' && !(tasa > 0)) { setError('Indicá la tasa BCV (Bs por $) para convertir el pago.'); return; }
-    if (!comprobanteOpcional && !factura) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
+    if (!cajaId) { setError('Elige la caja con la que se paga.'); return; }
+    if (moneda === 'Bs' && !(tasa > 0)) { setError('Indica la tasa BCV (Bs por $) para convertir el pago.'); return; }
+    if (!comprobanteOpcional && !factura) { setError('Adjunta el comprobante (PDF o imagen).'); return; }
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('El comprobante debe ser un PDF o una imagen.'); return;
     }
@@ -4045,7 +4045,7 @@ function NuevaCuentaForm({ btnLabel, onCrear }: {
   async function crear() {
     setError(null);
     const n = contraparte.trim();
-    if (!n) { setError('Indicá el cliente o proveedor.'); return; }
+    if (!n) { setError('Indica el cliente o proveedor.'); return; }
     const m = Number(montoStr) || 0;
     if (m <= 0) { setError('El monto debe ser mayor que 0.'); return; }
     setSaving(true);
@@ -4077,7 +4077,7 @@ function NuevaCuentaForm({ btnLabel, onCrear }: {
             </div>
             <div className="form-row">
               <label>{tipo === 'proveedor' ? 'Proveedor' : 'Cliente'} *</label>
-              <SearchCreateSelect value={contraparte} onChange={setContraparte} options={opts} placeholder="Elegí o escribí… (se crea si no existe)" />
+              <SearchCreateSelect value={contraparte} onChange={setContraparte} options={opts} placeholder="Elige o escribe… (se crea si no existe)" />
             </div>
             <div className="form-row">
               <label>Monto *</label>
@@ -4247,12 +4247,12 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
     const legs: AbonoLeg[] = saldosCaja
       .map((s) => ({ cajaId, cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, montoUsd: legUsd(s.moneda, Number(legMontos[s.id]) || 0) }))
       .filter((l) => l.monto > 0);
-    if (!legs.length) { setError('Indicá cuánto abonar en al menos una moneda.'); return; }
+    if (!legs.length) { setError('Indica cuánto abonar en al menos una moneda.'); return; }
     if (sumUsd > saldo + 0.01) { setError(`El abono (${monto(sumUsd, 'USD')}) supera el saldo pendiente (${monto(saldo, 'USD')}).`); return; }
     // Comisión bancaria opcional (egreso aparte; no reduce la deuda).
     let comision: AbonoComision | null = null;
     if (comisionMontoNum > 0) {
-      if (!comisionSaldo) { setError('Elegí de qué saldo sale la comisión bancaria.'); return; }
+      if (!comisionSaldo) { setError('Elige de qué saldo sale la comisión bancaria.'); return; }
       if (comisionMontoNum > Number(comisionSaldo.saldo) + 0.01) { setError('La comisión bancaria supera el saldo disponible de esa moneda.'); return; }
       comision = { cajaId, cuenta: comisionSaldo.cuenta as CuentaCaja, moneda: comisionSaldo.moneda, monto: comisionMontoNum, montoUsd: comisionUsd };
     }
@@ -4578,8 +4578,8 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
     const leer = (n: string) => ((document.querySelector(`[name="${n}"]`) as HTMLInputElement | null)?.value ?? '');
     const m = Number(leer('cxp-monto')) || Number(montoStr) || 0;
     const notaVal = (leer('cxp-nota') || nota).trim();
-    if (m <= 0) { setError('Indicá el monto a abonar.'); return; }
-    if (!cajaId) { setError('Elegí la caja del egreso.'); return; }
+    if (m <= 0) { setError('Indica el monto a abonar.'); return; }
+    if (!cajaId) { setError('Elige la caja del egreso.'); return; }
     if (!cuentaCaja) { setError(`La caja no tiene saldo en ${sel.moneda}.`); return; }
     setSaving(true);
     try {
@@ -4606,7 +4606,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
         onCrear={async (inp) => { await crearCuentaPorPagar({ ...inp, actor, actorName }); await cargar(); await onChanged(); }} />
 
       {loading ? <p className="muted">Cargando…</p>
-        : !lista.length ? <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar de clientes/proveedores todavía. Agregá una arriba. 🎉</p>
+        : !lista.length ? <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por pagar de clientes/proveedores todavía. Agrega una arriba. 🎉</p>
         : (
       <>
       <div className="form-row" style={{ marginBottom: '.6rem' }}>
@@ -4685,7 +4685,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
                 ) : saldoCuentaSel ? (
                   <small className="muted">Sale en <strong>{sel.moneda}</strong> de la cuenta <strong>{cuentaCaja === 'general' ? 'general' : cuentaCaja === 'juridica' ? 'Jurídica' : 'Personal'}</strong> · disponible <strong className="mono">{monto(Number(saldoCuentaSel.saldo), sel.moneda)}</strong></small>
                 ) : (
-                  <small style={{ color: 'var(--danger)' }}>⚠ Esta caja no tiene saldo en {sel.moneda}. Elegí otra caja.</small>
+                  <small style={{ color: 'var(--danger)' }}>⚠ Esta caja no tiene saldo en {sel.moneda}. Elige otra caja.</small>
                 )}
               </div>
               <div className="form-row">
@@ -4697,7 +4697,7 @@ function CuentasPorPagarManualPanel({ cajas, actor, actorName, onChanged }: {
 
             {/* Dónde hay dinero disponible en la caja elegida (todas las monedas). */}
             <div className="card" style={{ margin: '.25rem 0 .1rem', padding: '.5rem .7rem', background: 'rgba(255,255,255,.02)' }}>
-              <div className="muted" style={{ fontSize: '.7rem', marginBottom: '.3rem' }}>DINERO DISPONIBLE EN ESTA CAJA</div>
+              <div className="muted" style={{ fontSize: '.7rem', marginBottom: '.3rem' }}>Dinero disponible EN ESTA CAJA</div>
               {!dispCaja.length ? (
                 <small className="muted">Sin saldo en ninguna moneda.</small>
               ) : (
@@ -4853,10 +4853,10 @@ function PagarConProductosModal({ cuenta, actor, actorName, onClose, onPagado }:
 
   async function confirmar() {
     setError(null);
-    if (!itemsValidos.length) { setError('Agregá al menos un producto con cantidad.'); return; }
+    if (!itemsValidos.length) { setError('Agrega al menos un producto con cantidad.'); return; }
     // Validar stock disponible por producto.
     for (const { p, cant } of itemsValidos) {
-      if (cant > (Number(p.stock) || 0)) { setError(`Stock insuficiente de ${p.sku}: hay ${p.stock}, pedís ${cant}.`); return; }
+      if (cant > (Number(p.stock) || 0)) { setError(`Stock insuficiente de ${p.sku}: hay ${p.stock}, pides ${cant}.`); return; }
     }
     setSaving(true);
     try {
@@ -4881,7 +4881,7 @@ function PagarConProductosModal({ cuenta, actor, actorName, onClose, onPagado }:
       </>
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
-        Saldás la deuda <strong>entregando productos del inventario</strong> (ej.: casiterita a MGG). Cada producto se valora a su
+        Saldas la deuda <strong>entregando productos del inventario</strong> (ej.: casiterita a MGG). Cada producto se valora a su
         <strong> precio de inventario × cantidad</strong>, se descuenta del stock y el valor abona la cuenta. Saldo actual: <strong>{monto(saldo, cuenta.moneda)}</strong>.
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
@@ -4962,10 +4962,10 @@ function AbonarConProductoRecibidoModal({ cuenta, actor, actorName, onClose, onA
   async function confirmar() {
     setError(null);
     const cant = Number(cantidad.replace(',', '.')) || 0;
-    if (cant <= 0) { setError('Indicá la cantidad recibida.'); return; }
-    if (valor <= 0) { setError('Indicá el valor del producto al cambio (USD).'); return; }
-    if (!noRegistrado && !productoId) { setError('Elegí el producto recibido (o marcá «producto no registrado»).'); return; }
-    if (noRegistrado && !nuevoNombre.trim()) { setError('Escribí el nombre del producto nuevo.'); return; }
+    if (cant <= 0) { setError('Indica la cantidad recibida.'); return; }
+    if (valor <= 0) { setError('Indica el valor del producto al cambio (USD).'); return; }
+    if (!noRegistrado && !productoId) { setError('Elige el producto recibido (o marca «producto no registrado»).'); return; }
+    if (noRegistrado && !nuevoNombre.trim()) { setError('Escribe el nombre del producto nuevo.'); return; }
     if (noRegistrado && !esCategoriaReal(nuevoCategoria)) { setError(MENSAJE_CATEGORIA_OBLIGATORIA); return; }
     setSaving(true);
     try {
@@ -5129,9 +5129,9 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
     const leer = (n: string) => ((document.querySelector(`[name="${n}"]`) as HTMLInputElement | null)?.value ?? '');
     const m = Number(leer('cxc-monto')) || Number(montoStr) || 0;
     const notaVal = (leer('cxc-nota') || nota).trim();
-    if (m <= 0) { setError('Indicá el monto a cobrar.'); return; }
-    if (!cajaId) { setError('Elegí la caja que recibe el dinero.'); return; }
-    if (!esBs && (Number(tasaStr) || 0) <= 0) { setError(`Indicá la tasa (Bs por ${sel.moneda}).`); return; }
+    if (m <= 0) { setError('Indica el monto a cobrar.'); return; }
+    if (!cajaId) { setError('Elige la caja que recibe el dinero.'); return; }
+    if (!esBs && (Number(tasaStr) || 0) <= 0) { setError(`Indica la tasa (Bs por ${sel.moneda}).`); return; }
     setSaving(true);
     try {
       const r = await registrarCobro({
@@ -5152,12 +5152,12 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
     <Modal title="💰 Cuentas por cobrar" size="xl" onClose={() => !saving && onClose()}
       footer={<button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Lo que un cliente/proveedor le debe a la empresa. Nace al <strong>pagar de más</strong> una cuenta por pagar (el excedente queda a favor), al confirmar una <strong>venta a crédito</strong>, y se cobra con <strong>abonos</strong> (entradas de dinero a la caja). La cuenta es <strong>corriente por cliente</strong>: acumula varias ventas, y en el historial de cargos se ve <strong>de qué venta viene cada una</strong>. También podés <strong>agregar una cuenta por cobrar manual</strong> acá abajo.
+        Lo que un cliente/proveedor le debe a la empresa. Nace al <strong>pagar de más</strong> una cuenta por pagar (el excedente queda a favor), al confirmar una <strong>venta a crédito</strong>, y se cobra con <strong>abonos</strong> (entradas de dinero a la caja). La cuenta es <strong>corriente por cliente</strong>: acumula varias ventas, y en el historial de cargos se ve <strong>de qué venta viene cada una</strong>. También puedes <strong>agregar una cuenta por cobrar manual</strong> aquí abajo.
       </p>
       <NuevaCuentaForm btnLabel="Nueva cuenta por cobrar (cliente / proveedor)"
         onCrear={async (inp) => { await crearOAcumularCuentaPorCobrar({ ...inp, actor, actorName }); await cargar(); await onChanged(); }} />
       {loading ? <p className="muted">Cargando…</p> : !lista.length ? (
-        <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por cobrar todavía. Agregá una arriba. 🎉</p>
+        <p className="muted" style={{ textAlign: 'center' }}>No hay cuentas por cobrar todavía. Agrega una arriba. 🎉</p>
       ) : (
         <>
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
@@ -5355,7 +5355,7 @@ function EnviarCuentaPorPagarModal({ cuenta, abonos, ingresos, defaultEmail, onC
       <div className="form-row" style={{ marginTop: '.4rem' }}>
         <label>Correo adicional (opcional)</label>
         <input className="input" type="email" name="correo-extra" defaultValue={extra} onChange={(e) => setExtra(e.target.value)} placeholder="otro@correo.com" maxLength={120} />
-        <small className="muted">Si no marcás ninguno, se envía a los admin/jefe.</small>
+        <small className="muted">Si no marcas ninguno, se envía a los admin/jefe.</small>
       </div>
     </Modal>
   );
@@ -5384,7 +5384,7 @@ function AnclarGastoFields({ categoria, subcategoria, onChange }: {
         <div className="form-row">
           <label>Subcategoría</label>
           <SearchSelect value={subcategoria} onChange={(v) => onChange(categoria, v)} disabled={!catSel}
-            placeholder={catSel ? (subOpts.length ? '🔍 Buscar subcategoría…' : '— sin subcategorías —') : 'Elegí una categoría primero'}
+            placeholder={catSel ? (subOpts.length ? '🔍 Buscar subcategoría…' : '— sin subcategorías —') : 'Elige una categoría primero'}
             options={subOpts.map((s) => ({ value: s, label: s }))} />
         </div>
       </div>
@@ -5406,8 +5406,8 @@ function avisarComprobantesFaltantes(pedidos: File[], pagada: Orden): void {
   if (faltan <= 0) return;
   toast(
     faltan === pedidos.length
-      ? 'OC pagada, pero el comprobante no se pudo adjuntar (conexión lenta). Volvé a subirlo desde el detalle de la OC.'
-      : `OC pagada, pero ${faltan} de ${pedidos.length} comprobantes no se pudieron adjuntar (conexión lenta). Volvé a subirlos desde el detalle de la OC.`,
+      ? 'OC pagada, pero el comprobante no se pudo adjuntar (conexión lenta). Vuelve a subirlo desde el detalle de la OC.'
+      : `OC pagada, pero ${faltan} de ${pedidos.length} comprobantes no se pudieron adjuntar (conexión lenta). Vuelve a subirlos desde el detalle de la OC.`,
     'error',
   );
 }
@@ -5684,21 +5684,21 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   /** `confirmado` = ya se aceptó registrar el reembolso de lo pagado de más. */
   async function pagar(confirmado: boolean) {
     setError(null);
-    if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
+    if (!cajaId) { setError('Elige la caja con la que se paga.'); return; }
     if (retencionInvalida) {
       setError(faltaTasaRet
-        ? 'Indicá la tasa (Bs por $) para convertir la retención.'
+        ? 'Indica la tasa (Bs por $) para convertir la retención.'
         : 'La retención tiene que ser mayor que 0 y menor que el total de la factura.');
       return;
     }
-    if (!comprobanteOpcional && !comprobantes.length) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
+    if (!comprobanteOpcional && !comprobantes.length) { setError('Adjunta el comprobante (PDF o imagen).'); return; }
     if (comprobantes.length > MAX_COMPROBANTES_PAGO) { setError(`Como máximo ${MAX_COMPROBANTES_PAGO} comprobantes por pago.`); return; }
     const noSirve = comprobantes.find((c) => c.type && c.type !== 'application/pdf' && !c.type.startsWith('image/'));
     if (noSirve) { setError(`«${noSirve.name}» no es PDF ni imagen. Cada comprobante tiene que ser una de las dos cosas.`); return; }
     // Comisión bancaria opcional: sale de la billetera elegida (egreso extra, no suma al total).
     const comSaldo = saldosCaja.find((s) => s.id === comisionSaldoId) ?? saldosCaja[0] ?? null;
     const comMonto = Number(comisionMonto) || 0;
-    if (comMonto > 0 && !comSaldo) { setError('Elegí de qué billetera sale la comisión bancaria.'); return; }
+    if (comMonto > 0 && !comSaldo) { setError('Elige de qué billetera sale la comisión bancaria.'); return; }
     const comision = comMonto > 0 && comSaldo
       ? { cajaId: comSaldo.caja_id, cuenta: comSaldo.cuenta as CuentaCaja, moneda: comSaldo.moneda, monto: comMonto, montoUsd: legUsd(comSaldo.moneda, comMonto) }
       : null;
@@ -5710,7 +5710,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
         const legs = saldosCaja
           .map((s) => ({ cajaId: s.caja_id, cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0 }))
           .filter((l) => l.monto > 0);
-        if (!legs.length) { setError('Indicá cuánto pagar en al menos una cuenta.'); setSaving(false); return; }
+        if (!legs.length) { setError('Indica cuánto pagar en al menos una cuenta.'); setSaving(false); return; }
         // Si se cargó de más, cada cuenta se parte: lo que cubre el total es pago y el
         // resto es reembolso, que sale de esa misma cuenta en su propio egreso.
         const { pago: legsPago, reembolso: legsReembolso, reembolsoUsd } = repartirPagoYReembolso(legs, totalUsd, legUsd, montoDesdeUsd);
@@ -5735,7 +5735,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
       // El pago YA se hizo y solo falló guardar sus datos: tratarlo como error
       // llevaba a pagar dos veces. Se avisa, se cierra y se recarga como pagada.
       if (esPagoRegistradoSinDatos(err)) {
-        notify(`OC ${etiquetaOc} pagada · faltó guardar el comprobante: volvé a subirlo desde el detalle`, 'warning', { link: '#/app/tesoreria' });
+        notify(`OC ${etiquetaOc} pagada · faltó guardar el comprobante: vuelve a subirlo desde el detalle`, 'warning', { link: '#/app/tesoreria' });
         toast(mensajeError(err, MENSAJE_PAGO_REGISTRADO_SIN_DATOS), 'warning');
         onPaid();
         return;
@@ -5839,10 +5839,10 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                 )}
               </div>
             ))}
-            {/* Imagen del pago (QR) que cargó Compras: escaneá y pagá directo. */}
+            {/* Imagen del pago (QR) que cargó Compras: escanea y paga directo. */}
             {qrPagoUrl && (
               <div style={{ marginTop: '.5rem', borderTop: '1px dashed var(--border)', paddingTop: '.5rem' }}>
-                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.3rem' }}>📷 Imagen / QR del pago — escaneá y pagá:</div>
+                <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.3rem' }}>📷 Imagen / QR del pago — escanea y paga:</div>
                 <a href={qrPagoUrl} target="_blank" rel="noreferrer" title="Ver en grande">
                   <img src={qrPagoUrl} alt="QR / imagen del pago" style={{ maxWidth: 220, maxHeight: 260, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'contain', background: '#fff' }} />
                 </a>
@@ -5955,11 +5955,11 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
           {retencionInvalida && (
             <small style={{ color: 'var(--danger)', display: 'block', marginTop: '.3rem' }}>
               {faltaTasaRet
-                ? 'Indicá la tasa (Bs por $) para convertir la retención.'
+                ? 'Indica la tasa (Bs por $) para convertir la retención.'
                 : 'La retención tiene que ser mayor que 0 y menor que el total de la factura.'}
             </small>
           )}
-          {!conRetencion && <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>Marcalo si la factura tiene retención: el monto se resta del total a pagar.</small>}
+          {!conRetencion && <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>Márcalo si la factura tiene retención: el monto se resta del total a pagar.</small>}
         </div>
 
         {/* Conversión $ ⇄ Bs con la tasa BCV del día (editable). */}
@@ -6027,7 +6027,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length}
               placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
               options={cajas.map((c) => ({ value: c.id, label: c.nombre }))} />
-            <small className="muted">Se descuenta de esta caja y queda registrado en el registro de movimientos (pago de compra).{esMultimoneda ? ' Abajo elegís de qué cuentas (con saldo) sale el dinero.' : ''}</small>
+            <small className="muted">Se descuenta de esta caja y queda registrado en el registro de movimientos (pago de compra).{esMultimoneda ? ' Abajo eliges de qué cuentas (con saldo) sale el dinero.' : ''}</small>
           </div>
           {!esMultimoneda && (
             <div className="form-row">
@@ -6035,7 +6035,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
               <input className="input mono" type="number" min={0} step="any" value={montoStr} onChange={(e) => setMontoStr(dosDecimales(e.target.value))} required={!esMultimoneda}
                 style={{ borderColor: excedeTotalSimple ? 'var(--danger)' : undefined }} />
               {excedeTotalSimple && (
-                <small style={{ color: 'var(--warning)' }}>↩ Pagás de más: se pagan <strong className="mono">{monto(debidoEnMoneda, moneda)}</strong> a la OC y <strong className="mono">{monto(excedenteEnMoneda, moneda)}</strong> salen como <strong>REEMBOLSO DE ORDEN DE COMPRA {etiquetaOc}</strong>. Se pide confirmación.</small>
+                <small style={{ color: 'var(--warning)' }}>↩ Pagas de más: se pagan <strong className="mono">{monto(debidoEnMoneda, moneda)}</strong> a la OC y <strong className="mono">{monto(excedenteEnMoneda, moneda)}</strong> salen como <strong>REEMBOLSO DE ORDEN DE COMPRA {etiquetaOc}</strong>. Se pide confirmación.</small>
               )}
               {tasa > 0 && montoNum > 0 && (
                 <small className="muted">
@@ -6045,12 +6045,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
                     : ` · ${monto(montoNum, 'USD')} × ${tasa.toLocaleString('es-VE')}`}
                 </small>
               )}
-              {moneda === 'Bs' && <small className="muted">Se autocompletó con la tasa BCV; podés ajustarlo.</small>}
+              {moneda === 'Bs' && <small className="muted">Se autocompletó con la tasa BCV; puedes ajustarlo.</small>}
             </div>
           )}
         </div>
 
-        {/* Multipago por cuenta: repartí el total entre las monedas de la caja Multimoneda. */}
+        {/* Multipago por cuenta: reparte el total entre las monedas de la caja Multimoneda. */}
         {esMultimoneda && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>Multipago por cuenta · ¿cuánto sale de cada caja/moneda?</div>
@@ -6147,7 +6147,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
               </div>
             ) : (
               <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
-                Agregá un serial por billete. Quedan registrados con el pago.
+                Agrega un serial por billete. Quedan registrados con el pago.
               </small>
             )}
           </div>
@@ -6190,8 +6190,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
             <small className="muted">
               {comprobantes.length}/{MAX_COMPROBANTES_PAGO} cargados.
               {comprobantes.length >= MAX_COMPROBANTES_PAGO
-                ? ' Llegaste al máximo: quitá uno para cambiarlo.'
-                : ' Podés elegir varios de una vez o ir sumándolos de a uno.'}
+                ? ' Llegaste al máximo: quita uno para cambiarlo.'
+                : ' Puedes elegir varios de una vez o ir sumándolos de a uno.'}
             </small>
             {comprobanteOpcional && <small className="muted">Pago en efectivo: el comprobante no es obligatorio.</small>}
           </div>

@@ -90,7 +90,7 @@ export function DistribucionPanel({ inicioCiclo, onAbrirDetalle }: {
         <div className="card-title" style={{ margin: 0 }}>
           Distribución del mercado{' '}
           <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-            · registro diario por víver, lote óptimo de compra (EOQ) y punto de reorden · tocá un víver para su hoja
+            · registro diario por víver, lote óptimo de compra (EOQ) y punto de reorden · toca un víver para su hoja
           </span>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>

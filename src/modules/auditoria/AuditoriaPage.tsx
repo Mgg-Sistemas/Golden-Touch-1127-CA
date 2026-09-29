@@ -189,7 +189,7 @@ export function AuditoriaPage() {
       <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0 }}>🛡️ Auditoría de usuarios</h1>
-          <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Quién se conecta, cuánto tiempo y qué hace (cambios, aprobaciones, registros). Tocá un usuario para ver su detalle.</p>
+          <p className="muted hint" style={{ margin: '.25rem 0 0' }}>Quién se conecta, cuánto tiempo y qué hace (cambios, aprobaciones, registros). Toca un usuario para ver su detalle.</p>
         </div>
         <button className="btn btn-ghost" onClick={() => void pdfResumen()} disabled={loading}>🖨 Vista previa PDF</button>
       </div>
@@ -225,13 +225,13 @@ export function AuditoriaPage() {
               <div className="card-title" style={{ marginBottom: '.4rem' }}>⏱ Tiempo conectado por usuario</div>
               <HBarChart data={barsConexion} yFormatter={(n) => fmtDuracion(n)} emptyMessage="Sin sesiones en el período."
                 onBarClick={(_p, i) => { const u = porUsuario[i]; if (u) abrirUsuario(u); }} />
-              <small className="muted">Tocá una barra para ver el detalle del usuario.</small>
+              <small className="muted">Toca una barra para ver el detalle del usuario.</small>
             </div>
             <div className="card">
               <div className="card-title" style={{ marginBottom: '.4rem' }}>⚡ Acciones por usuario</div>
               <HBarChart data={barsEventos} color="#ff8a00" emptyMessage="Sin acciones en el período."
                 onBarClick={(_p, i) => { const u = evPorUsuario[i]; if (u) abrirUsuario(u); }} />
-              <small className="muted">Tocá una barra para ver el detalle del usuario.</small>
+              <small className="muted">Toca una barra para ver el detalle del usuario.</small>
             </div>
           </div>
 

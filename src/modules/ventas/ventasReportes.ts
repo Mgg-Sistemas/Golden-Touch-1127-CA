@@ -1,7 +1,7 @@
 /* ============================================================
    Golden Touch · Ventas · Los cuatro reportes
 
-   Son reportes INTERNOS: los lee la empresa, no el cliente. Por eso acá SÍ van
+   Son reportes INTERNOS: los lee la empresa, no el cliente. Por eso aquí SÍ van
    el costo y la ganancia, justo al revés que los comprobantes (`comprobante*Pdf`),
    donde esas dos columnas no pueden aparecer nunca.
 
@@ -9,19 +9,19 @@
    ──────────────────────────
    1) La ganancia YA ESTÁ GUARDADA Y CONGELADA en cada renglón
       (`ventas_renglones.ganancia`, escrita por `confirmar_venta` contra el costo
-      promedio de ESE día). Acá se SUMA lo guardado; jamás se recalcula contra el
+      promedio de ESE día). Aquí se SUMA lo guardado; jamás se recalcula contra el
       costo actual del producto. El costo promedio se mueve con cada compra: si
       se recalculara, el margen de una venta de hace seis meses cambiaría solo,
       y el reporte del mes pasado dejaría de coincidir consigo mismo.
 
    2) El margen % se calcula sobre la VENTA SIN IVA, no sobre el total. El IVA no
-      es venta ni es ganancia: es plata del Estado que se retiene y se entrega.
+      es venta ni es ganancia: es dinero del Estado que se retiene y se entrega.
       Dividir la ganancia por un total con IVA adentro achica el margen a mentira.
         · por documento: base = total − iva_monto  (= subtotal − descuento)
         · por renglón:   `ventas_renglones.subtotal` ya viene sin IVA.
 
    Los cuatro terminan en `previewPdf`: se ven en pantalla y se bajan solo si el
-   usuario pulsa Descargar.
+   usuario presiona Descargar.
    ============================================================ */
 import type { jsPDF as JsPDFType } from 'jspdf';
 import { date, dateTime, money, montoMoneda, num } from '@/shared/lib/format';
@@ -261,7 +261,7 @@ const hoy = () => new Date().toISOString().slice(0, 10);
  * Las ventas del período con su total y su ganancia, y los totales al pie.
  *
  * Por defecto lista **confirmadas y entregadas**: un borrador todavía no es una
- * venta (no movió plata ni material) y una anulada dejó de serlo. Si el usuario
+ * venta (no movió dinero ni material) y una anulada dejó de serlo. Si el usuario
  * pide explícitamente otros estados se respetan, pero los totales del pie
  * **nunca suman las anuladas** —sumarlas mostraría una facturación que no
  * existió— y el PDF lo dice cuando alguna aparece en la lista.
@@ -464,7 +464,7 @@ export function agruparGananciaPorCategoria(filas: FilaGananciaProducto[]): Fila
 }
 
 /**
- * Qué producto y qué categoría dejan plata, sobre las ventas ENTREGADAS del
+ * Qué producto y qué categoría dejan dinero, sobre las ventas ENTREGADAS del
  * período. Solo entregadas: es material que ya salió del almacén y ganancia que
  * ya se realizó. Una confirmada sin entregar todavía puede anularse.
  */
@@ -572,7 +572,7 @@ export async function descargarGananciaPorProductoPdf(rango: RangoReporte = {}):
     'El descuento del DOCUMENTO no se reparte entre los renglones: la ganancia por producto no lo descuenta. El número exacto por documento está en «Ventas del período».',
     'Un producto sin costo cargado sale con margen del 100 %: es un aviso de ficha incompleta, no una ganancia real.',
     ...(monedas.length > 1
-      ? [`Hay ventas en varias monedas (${monedas.join(', ')}) y los importes están sumados SIN convertir. Filtrá por moneda para leer estos totales.`]
+      ? [`Hay ventas en varias monedas (${monedas.join(', ')}) y los importes están sumados SIN convertir. Filtra por moneda para leer estos totales.`]
       : []),
   ]);
 
@@ -627,7 +627,7 @@ export function agruparGananciaPorCliente(
     .sort((a, b) => b.ganancia - a.ganancia);
 }
 
-/** Qué cliente deja plata, sobre las ventas ENTREGADAS del período. */
+/** Qué cliente deja dinero, sobre las ventas ENTREGADAS del período. */
 export async function descargarGananciaPorClientePdf(rango: RangoReporte = {}): Promise<void> {
   const ventas = await listVentas({
     estado: 'entregada', desde: rango.desde ?? null, hasta: rango.hasta ?? null,
@@ -840,7 +840,7 @@ export async function descargarCuentasPorCobrarPdf(
   // ─── Antigüedad del saldo, por tramo y moneda ───
   // La clave junta tramo y moneda, pero las partes se guardan aparte en el valor:
   // los nombres de los tramos llevan espacios y guiones («0 – 30 días»), así que
-  // recomponerlos partiendo la clave sería frágil. Acá no hay nada que parsear.
+  // recomponerlos partiendo la clave sería frágil. Aquí no hay nada que parsear.
   const porTramo = new Map<string, { t: string; m: string; cuentas: number; saldo: number }>();
   for (const f of filas) {
     const t = tramo(f.antiguedadDias);

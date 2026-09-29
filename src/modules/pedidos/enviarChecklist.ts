@@ -16,7 +16,7 @@ export async function enviarChecklistAMultiples(
   const unicos = Array.from(
     new Set(emails.map((e) => e.trim().toLowerCase()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))),
   );
-  if (!unicos.length) throw new Error('Indicá al menos un correo válido');
+  if (!unicos.length) throw new Error('Indica al menos un correo válido');
 
   const base64 = await obtenerChecklistOcPdfBase64(rows, codigo);
   const total = rows.reduce((a, r) => a + (Number(r.orden.total) || 0), 0);

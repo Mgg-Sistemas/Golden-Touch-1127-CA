@@ -47,7 +47,7 @@ const TZ = 'America/Caracas';
  * horaria que corresponda. Se construye a mano y no con `toLocaleDateString`
  * porque ese método devuelve lo que el navegador crea que es el formato local:
  * en una máquina en inglés salía "Mar 12, 2024", y en español "12 mar 2024".
- * Acá la fecha se escribe siempre igual, se use la máquina que se use.
+ * Aquí la fecha se escribe siempre igual, se use la máquina que se use.
  */
 function partesFecha(d: Date, tz: string, conHora: boolean): string | null {
   if (isNaN(d.getTime())) return null;

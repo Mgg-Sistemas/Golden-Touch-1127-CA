@@ -99,7 +99,7 @@ export function ChatOrden({ ordenId, ordenLabel, autorNombre }: {
         )}
         {!loading && !cargaError && !msgs.length && (
           <div className="muted" style={{ fontSize: '.84rem', textAlign: 'center', padding: '.6rem 0' }}>
-            Sin mensajes. Iniciá la conversación de seguimiento de esta orden.
+            Sin mensajes. Inicia la conversación de seguimiento de esta orden.
           </div>
         )}
         {msgs.map((m) => {
@@ -129,7 +129,7 @@ export function ChatOrden({ ordenId, ordenLabel, autorNombre }: {
           className="input"
           rows={1}
           style={{ flex: 1, resize: 'none' }}
-          placeholder="Escribí un mensaje… (Enter para enviar)"
+          placeholder="Escribe un mensaje… (Enter para enviar)"
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void enviar(); } }}

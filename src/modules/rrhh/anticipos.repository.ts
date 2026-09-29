@@ -41,7 +41,7 @@ export interface AnticipoInput {
 
 export async function crearAnticipo(input: AnticipoInput, actorEmail?: string, actorName?: string | null): Promise<AnticipoPrestamo> {
   const monto = r2(Number(input.monto_total) || 0);
-  if (!input.personal_id) throw new Error('Indicá a quién corresponde.');
+  if (!input.personal_id) throw new Error('Indica a quién corresponde.');
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   const { data, error } = await supabase.from(TABLE).insert({
     personal_id: input.personal_id,

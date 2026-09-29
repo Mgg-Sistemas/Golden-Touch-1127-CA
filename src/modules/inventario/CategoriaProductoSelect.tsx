@@ -38,7 +38,7 @@ export async function asegurarCategoria(categoria: string, actorEmail?: string |
 }
 
 export function CategoriaProductoSelect({
-  value, onChange, id, placeholder = '🔍 Categoría * (buscá o escribí una nueva)', disabled,
+  value, onChange, id, placeholder = '🔍 Categoría * (busca o escribe una nueva)', disabled,
 }: {
   value: string;
   onChange: (categoria: string) => void;
@@ -63,7 +63,7 @@ export function CategoriaProductoSelect({
       value={value}
       onChange={(v) => onChange(formatoCategoria(v))}
       placeholder={placeholder}
-      emptyText="Sin coincidencias: escribí el nombre para crearla"
+      emptyText="Sin coincidencias: escribe el nombre para crearla"
       disabled={disabled}
     />
   );

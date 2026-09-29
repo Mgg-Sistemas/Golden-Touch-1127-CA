@@ -7,7 +7,7 @@
    (eso está fuera de alcance): es el comprobante del documento `VT-AAAA-####`.
 
    LA REGLA FIRME DE ESTE ARCHIVO
-   Acá NO se imprime lo que la empresa pagó por la mercancía ni el margen que
+   Aquí NO se imprime lo que la empresa pagó por la mercancía ni el margen que
    le dejó. Son números internos de la casa y este papel sale por la puerta:
    el cliente no tiene por qué verlos. Por eso el comprobante lee solo las
    columnas de precio del documento —subtotal, descuento, IVA y total— y ni
@@ -15,14 +15,14 @@
 
    DE DÓNDE SALEN LOS NÚMEROS
    De la cabecera ya cargada (`VentaCompleta`), que la base calculó y congeló
-   al confirmar con la función única de totales. Acá no se rehace ninguna
+   al confirmar con la función única de totales. Aquí no se rehace ninguna
    cuenta: el bug de «el IVA no se suma» ya volvió varias veces por tener la
    cuenta escrita en varios lados. Tampoco se va a buscar nada a la base.
 
    Sigue el molde de la casa: jsPDF + autotable con import perezoso (la
    librería no se carga hasta que alguien pide el PDF), logo opcional,
    `pdfSafe` para el texto y `previewPdf` al final —vista previa, se descarga
-   solo si el usuario pulsa Descargar.
+   solo si el usuario presiona Descargar.
    ============================================================ */
 import type { jsPDF as JsPdf } from 'jspdf';
 import { dateTime, montoMoneda, num } from '@/shared/lib/format';
@@ -42,7 +42,7 @@ export interface OpcionesComprobante {
   /**
    * Nombre de cada caja, indexado por id. Las patas de pago guardan `cajaId`
    * (un uuid) y no el nombre; el comprobante no va a la base a buscarlo, así
-   * que la pantalla —que ya tiene las cajas en memoria— se lo pasa por acá.
+   * que la pantalla —que ya tiene las cajas en memoria— se lo pasa por aquí.
    * Sin este mapa la pata sale igual, solo que sin el nombre de la caja.
    */
   cajas?: Record<string, string>;

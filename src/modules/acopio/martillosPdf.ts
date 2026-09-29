@@ -7,8 +7,8 @@ import type { MartilloMovimiento } from './martillos.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
 const NOMBRE = 'consumo-martillos-molino-h66';
-const fmtUsd = (v: number | null | undefined) => (v == null ? '' : `$${v.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-const fmtNum = (v: number | null | undefined) => (v == null ? '' : v.toLocaleString('es', { maximumFractionDigits: 2 }));
+const fmtUsd = (v: number | null | undefined) => (v == null ? '' : `$${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const fmtNum = (v: number | null | undefined) => (v == null ? '' : v.toLocaleString('es-VE', { maximumFractionDigits: 2 }));
 
 const HEAD = [
   'Fecha', 'Descripción', '$Usd Entregados', 'Cant. entregados', 'Precio $/Martillo',

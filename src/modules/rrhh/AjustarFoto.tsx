@@ -2,7 +2,7 @@
    Golden Touch · RRHH · Ajustar la foto (zoom y centrado)
 
    Se arrastra la foto para elegir qué queda en el centro y se mueve la barra
-   para acercar. Lo que se ve acá es EXACTAMENTE lo que va a salir en el
+   para acercar. Lo que se ve aquí es EXACTAMENTE lo que va a salir en el
    carnet: mismo recorte, misma proporción (54 × 86 mm).
 
    El archivo no se recorta: se guardan tres números y el recorte se aplica al
@@ -101,8 +101,8 @@ export function AjustarFoto({ fotoDataUrl, encuadreInicial, guardando, onGuardar
       }
     >
       <p className="muted" style={{ fontSize: '.8rem', marginTop: 0 }}>
-        <strong>Arrastrá la foto</strong> para elegir qué queda en el centro y usá la barra para acercar.
-        Lo que ves acá es <strong>exactamente</strong> lo que va a salir en el carnet.
+        <strong>Arrastrá la foto</strong> para elegir qué queda en el centro y usa la barra para acercar.
+        Lo que ves aquí es <strong>exactamente</strong> lo que va a salir en el carnet.
       </p>
 
       <canvas

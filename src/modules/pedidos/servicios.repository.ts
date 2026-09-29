@@ -23,7 +23,7 @@ export const CATEGORIA_MANTENIMIENTO = 'MANTENIMIENTO';
  */
 export function esRecargaGas(...textos: Array<string | null | undefined>): boolean {
   const t = textos.filter(Boolean).join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  // NB: NO se agrega "agua" acá — "Recarga de agua" ya matchea por "recarga", y sumar
+  // NB: NO se agrega "agua" aquí — "Recarga de agua" ya matchea por "recarga", y sumar
   // "agua" haría que mantenimientos como "Bomba de agua" activaran los campos por error.
   return /(recarga|gas|oxigeno|extintor)/.test(t);
 }
@@ -93,8 +93,8 @@ export async function listServiciosActivos(categoria?: string): Promise<Servicio
 export async function addServicioCatalogo(categoria: string, nombre: string, actor?: string | null): Promise<ServicioCatalogo> {
   const cat = categoria.trim().toUpperCase();
   const nom = nombre.trim();
-  if (!cat) throw new Error('Indicá la categoría del servicio.');
-  if (!nom) throw new Error('Indicá el nombre del servicio.');
+  if (!cat) throw new Error('Indica la categoría del servicio.');
+  if (!nom) throw new Error('Indica el nombre del servicio.');
   const { data, error } = await supabase
     .from(TABLE)
     .insert({ categoria: cat, nombre: nom, orden: 999, created_by: actor ?? null })
@@ -109,7 +109,7 @@ export async function addServicioCatalogo(categoria: string, nombre: string, act
 
 export async function updateServicioCatalogo(id: string, nombre: string, categoria?: string): Promise<void> {
   const nom = nombre.trim();
-  if (!nom) throw new Error('Indicá el nombre del servicio.');
+  if (!nom) throw new Error('Indica el nombre del servicio.');
   const patch: { nombre: string; categoria?: string } = { nombre: nom };
   if (categoria !== undefined) patch.categoria = categoria.trim().toUpperCase();
   const { error } = await supabase.from(TABLE).update(patch).eq('id', id);

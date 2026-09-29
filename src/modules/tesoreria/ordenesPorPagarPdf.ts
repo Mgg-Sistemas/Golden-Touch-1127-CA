@@ -168,7 +168,7 @@ export async function descargarOrdenesPorPagarPdf(
       codigo: pdfSafe(c.codigo) || '—',
       proveedor: pdfSafe(c.proveedor_nombre) || '—',
       estado: 'Por pagar',
-      // Una compra directa elige el método recién al pagarla: acá van los
+      // Una compra directa elige el método recién al pagarla: aquí van los
       // datos guardados del proveedor, como referencia.
       pago: textoPagoSeguro(null, c.proveedor_id),
       usd,

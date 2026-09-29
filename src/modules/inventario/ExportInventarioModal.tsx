@@ -96,7 +96,7 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
       }
     >
       <p className="muted" style={{ fontSize: '.85rem', marginTop: 0 }}>
-        Aplicá los filtros que querés que aparezcan en el reporte. La vista previa muestra cuántos productos quedan.
+        Aplica los filtros que quieres que aparezcan en el reporte. La vista previa muestra cuántos productos quedan.
       </p>
 
       <div className="form-grid">
@@ -110,7 +110,7 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
           />
         </div>
         <div className="form-row">
-          <label>Categorías <span className="muted" style={{ fontWeight: 400 }}>(marcá una o varias · vacío = todas)</span></label>
+          <label>Categorías <span className="muted" style={{ fontWeight: 400 }}>(marca una o varias · vacío = todas)</span></label>
           <div style={{ border: '1px solid var(--border, #2a2f3a)', borderRadius: 8, maxHeight: 210, overflowY: 'auto', padding: '.45rem .65rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
             {categorias.length === 0 ? (
               <span className="muted" style={{ fontSize: '.8rem' }}>Sin categorías.</span>

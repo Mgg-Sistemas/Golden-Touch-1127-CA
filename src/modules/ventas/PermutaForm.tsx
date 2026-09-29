@@ -7,13 +7,13 @@
      1. El bloque «Material que recibo»: qué entrega el cliente, cuánto, y a
         qué valor por unidad se pactó. Ese material puede ser algo que la
         empresa nunca compró, así que se permite dar de alta la ficha del
-        producto acá mismo.
+        producto aquí mismo.
 
      2. La BALANZA, visible y permanente:
              vendo $X · recibo $Y · diferencia $Z
         · Z > 0 → el cliente debe: se cobra con las patas de pago o queda a
           crédito.
-        · Z = 0 → permuta cerrada, sin plata de por medio.
+        · Z = 0 → permuta cerrada, sin dinero de por medio.
         · Z < 0 → saldo a favor del cliente. El sistema NO lo lleva: hoy
           `cuentas_por_cobrar` no tiene dónde alojar un saldo a favor, así que
           solo queda anotado en la nota de este documento.
@@ -25,17 +25,17 @@
 
    LO QUE SE COBRA ES LA DIFERENCIA, NO EL TOTAL. Parte del precio ya se pagó
    con material: si las patas de pago cuadraran contra el total, se estaría
-   cobrando dos veces. Todo lo que compara plata en esta pantalla mira
+   cobrando dos veces. Todo lo que compara dinero en esta pantalla mira
    `resumen.diferencia`.
 
    El valor por unidad del material recibido es OBLIGATORIO y mayor que cero.
    La base lo exige (`ventas_recibidos_valor_unit_check`), pero un error de
-   restricción no le explica nada a nadie: acá se avisa antes y con la razón.
+   restricción no le explica nada a nadie: aquí se avisa antes y con la razón.
    En una permuta el valor del material ES la forma de pago; si va en 0, el
    material entra al inventario sin costo y la diferencia a cobrar sale mal.
 
    Los totales salen SIEMPRE de `resumenDeVenta` (que por dentro es
-   `calcularTotalesVenta`). Acá no se vuelve a escribir la cuenta ni en el JSX.
+   `calcularTotalesVenta`). Aquí no se vuelve a escribir la cuenta ni en el JSX.
    ============================================================ */
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
@@ -85,7 +85,7 @@ const nuevoRecibo = (id: number): ReciboUI => ({ id, productoId: '', cantidad: '
    El cliente puede entregar algo que la empresa nunca compró: sin esto habría
    que salir a Inventario, crear la ficha y volver a empezar la permuta. La
    ficha nace en 0 y sin costo a propósito: el costo se lo pone la ENTRADA de
-   kardex al entregar, con el valor por unidad pactado acá. */
+   kardex al entregar, con el valor por unidad pactado aquí. */
 function NuevaFichaModal({ categorias, unidades, onCancel, onCreada }: {
   categorias: string[];
   unidades: string[];
@@ -101,7 +101,7 @@ function NuevaFichaModal({ categorias, unidades, onCancel, onCreada }: {
 
   async function crear() {
     const n = nombre.trim().toUpperCase();
-    if (!n) { setError('Escribí el nombre del material.'); return; }
+    if (!n) { setError('Escribe el nombre del material.'); return; }
     if (!esCategoriaReal(categoria)) { setError(MENSAJE_CATEGORIA_OBLIGATORIA); return; }
     setError(null);
     setCreando(true);
@@ -134,7 +134,7 @@ function NuevaFichaModal({ categorias, unidades, onCancel, onCreada }: {
     }>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Para material que la empresa nunca compró. La ficha nace con stock 0 y sin costo: el costo se lo pone la
-        entrada al inventario cuando se <strong>entregue</strong> la permuta, con el valor por unidad que se pacte acá.
+        entrada al inventario cuando se <strong>entregue</strong> la permuta, con el valor por unidad que se pacte aquí.
       </p>
       {error && (
         <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}>
@@ -150,7 +150,7 @@ function NuevaFichaModal({ categorias, unidades, onCancel, onCreada }: {
         <div className="form-row">
           <label>Categoría *</label>
           <select className="select" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-            <option value="">Elegí una categoría…</option>
+            <option value="">Elige una categoría…</option>
             {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <small className="muted">De ahí sale el prefijo del SKU.</small>
@@ -277,7 +277,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
 
   /* ────────────────────── Cuentas de lo que RECIBO ──────────────────────
      `sinValor` es el aviso propio de la permuta: la base rechaza valor 0 con
-     una restricción, y acá se explica por qué antes de que eso pase. */
+     una restricción, y aquí se explica por qué antes de que eso pase. */
   const filasRecibo = useMemo(() => recibos.map((r) => {
     const producto = r.productoId ? porId.get(r.productoId) ?? null : null;
     const existencia = r.productoId ? existencias[r.productoId] : undefined;
@@ -445,7 +445,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
     const quien = mal.producto?.nombre ?? 'El material recibido';
     return `«${quien}» no tiene valor por unidad. En una permuta el valor del material ES la forma de pago, no un dato opcional: `
       + 'si va en 0, el material entra al inventario sin costo y la diferencia a cobrar sale mal. '
-      + 'Poné cuánto se pactó por unidad.';
+      + 'Pon cuánto se pactó por unidad.';
   }
 
   /** Guarda el borrador (alta o edición) y devuelve el documento leído de la base. */
@@ -481,8 +481,8 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
   }
 
   /**
-   * Guarda y la manda a autorizar. NO mueve plata ni material: la permuta se
-   * CONFIRMA (plata) y se ENTREGA (material) recién después de que LEYDIS RENGEL
+   * Guarda y la manda a autorizar. NO mueve dinero ni material: la permuta se
+   * CONFIRMA (dinero) y se ENTREGA (material) recién después de que LEYDIS RENGEL
    * o JESUS LOZADA la autorizan.
    */
   async function handleConfirmar() {
@@ -514,7 +514,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
       <button type="submit" form="permuta-form" className="btn btn-primary" disabled={!puedeGuardar}
         title={recibidosSinValor
           ? 'Falta el valor por unidad del material recibido: sin eso la base rechaza el documento'
-          : 'Guarda sin mover plata ni material'}>
+          : 'Guarda sin mover dinero ni material'}>
         {guardando ? 'Guardando…' : '💾 Guardar borrador'}
       </button>
       <button type="button" className="btn btn-primary" disabled={!puedeConfirmar}
@@ -522,7 +522,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
         title={recibidosSinValor
           ? 'Falta el valor por unidad del material recibido'
           : patasCuadran
-            ? `Guarda y la manda a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve plata ni material.`
+            ? `Guarda y la manda a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve dinero ni material.`
             : 'Las patas de pago tienen que sumar la diferencia, no el total'}>
         📤 Guardar y enviar a autorizar
       </button>
@@ -555,7 +555,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
             </select>
             <small className="muted">
               {!debeElCliente
-                ? 'Con esta balanza no queda nada que cobrar, así que la condición no mueve plata.'
+                ? 'Con esta balanza no queda nada que cobrar, así que la condición no mueve dinero.'
                 : esContado
                   ? 'Al confirmar entra a la caja SOLO la diferencia, por las patas de pago de abajo.'
                   : 'Al confirmar se le carga SOLO la diferencia a la cuenta corriente del cliente.'}
@@ -595,7 +595,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
         <p className="muted" style={{ margin: '0 0 .5rem', fontSize: '.82rem' }}>
           Lo que entrega el cliente, valorado al pactar. Ese valor <strong>es la forma de pago</strong>: descuenta de lo
           que hay que cobrar y, al <strong>entregar</strong>, entra al inventario a ese mismo precio (así el costo
-          promedio de la ficha se recalcula solo). Si es material que la empresa nunca compró, se le crea la ficha acá.
+          promedio de la ficha se recalcula solo). Si es material que la empresa nunca compró, se le crea la ficha aquí.
         </p>
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
@@ -671,7 +671,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginTop: '.4rem' }}>
           <button type="button" className="btn btn-sm btn-ghost" onClick={agregarRecibo}>＋ Agregar material recibido</button>
           {sinMaterialRecibido && (
-            <span className="badge info">todavía no recibís nada: así esto es una venta común, no una permuta</span>
+            <span className="badge info">todavía no recibes nada: así esto es una venta común, no una permuta</span>
           )}
         </div>
 
@@ -685,7 +685,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
               pasan dos cosas malas: el material entra al inventario <strong>sin costo</strong> (y toda venta futura de
               esa ficha va a mostrar una ganancia inventada), y la <strong>diferencia a cobrar sale mal</strong> porque
               el pago en material no se descuenta. La base tampoco lo acepta: lo rechaza con la restricción
-              <span className="mono"> ventas_recibidos_valor_unit_check</span>. Poné cuánto se pactó por unidad.
+              <span className="mono"> ventas_recibidos_valor_unit_check</span>. Pon cuánto se pactó por unidad.
             </div>
           </div>
         )}
@@ -704,7 +704,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
               </strong>
             </div>
             {cerrada
-              ? <span className="badge success">✔ permuta cerrada: no hay plata de por medio</span>
+              ? <span className="badge success">✔ permuta cerrada: no hay dinero de por medio</span>
               : debeElCliente
                 ? <span className="badge warning">el cliente debe {montoMoneda(aCobrar, moneda)}</span>
                 : <span className="badge info">saldo a favor del cliente: {montoMoneda(Math.abs(aCobrar), moneda)}</span>}
@@ -768,7 +768,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
         {/* ── Patas de pago: contra la DIFERENCIA, nunca contra el total ── */}
         {esContado && debeElCliente && (
           <>
-            <h4 style={{ margin: '1rem 0 .5rem' }}>Cobro de la diferencia · ¿en qué cajas entra la plata?</h4>
+            <h4 style={{ margin: '1rem 0 .5rem' }}>Cobro de la diferencia · ¿en qué cajas entra el dinero?</h4>
             <TablaPagoLegs
               legs={legs} cajas={cajas} saldos={saldos}
               aCobrar={aCobrar} pagado={pagado} falta={falta} legSinCaja={legSinCaja} moneda={moneda}
@@ -790,7 +790,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
             <div className="card-title" style={{ marginBottom: '.25rem' }}>Sin cobro</div>
             <div className="muted" style={{ fontSize: '.82rem' }}>
               {cerrada
-                ? 'La balanza cierra en cero: no hay formas de pago que cargar. Al confirmar no se mueve plata.'
+                ? 'La balanza cierra en cero: no hay formas de pago que cargar. Al confirmar no se mueve dinero.'
                 : 'El saldo queda a favor del cliente, así que no hay nada que cobrar. Este módulo no paga saldos a favor en efectivo.'}
             </div>
           </div>
@@ -823,7 +823,7 @@ export function PermutaForm({ venta, onSaved, onCancel }: PermutaFormProps) {
           <textarea className="input" rows={3} ref={notaRef} defaultValue={venta?.venta.nota ?? ''}
             placeholder="Qué se pactó en el intercambio (se muestra en el comprobante)…" />
           {aFavorDelCliente && (
-            <small className="muted">Acá es donde tiene que quedar el saldo a favor: el sistema no lo lleva en ningún otro lado.</small>
+            <small className="muted">Aquí es donde tiene que quedar el saldo a favor: el sistema no lo lleva en ningún otro lado.</small>
           )}
         </div>
 

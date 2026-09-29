@@ -38,7 +38,7 @@ export async function listActivosPedido(tipo: TipoCatalogoPedido): Promise<strin
 
 export async function addCatalogoPedido(tipo: TipoCatalogoPedido, valor: string, categoria?: string | null): Promise<CatalogoPedido> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   const cat = categoria?.trim() || null;
   const { data, error } = await supabase
     .from(TABLE)
@@ -54,7 +54,7 @@ export async function addCatalogoPedido(tipo: TipoCatalogoPedido, valor: string,
 
 export async function updateCatalogoPedido(id: string, valor: string, categoria?: string | null): Promise<void> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   // Si `categoria` no se pasa (undefined), no se toca la columna; null/'' la limpia.
   const patch: { valor: string; categoria?: string | null } = { valor: v };
   if (categoria !== undefined) patch.categoria = categoria?.trim() || null;

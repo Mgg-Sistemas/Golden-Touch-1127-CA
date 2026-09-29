@@ -53,7 +53,7 @@ export function HistoricoPage() {
   // Detalle de una orden del histórico (clic en la fila) + impresión PDF con vista previa.
   const [detalle, setDetalle] = useState<Orden | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
-  // Eliminar OC (revierte plata + stock). Gateado por permiso de escritura de Pedidos.
+  // Eliminar OC (revierte dinero + stock). Gateado por permiso de escritura de Pedidos.
   const { can, isAdmin } = usePermissions();
   const { user } = useSession();
   const puedeEliminar = isAdmin || can('pedidos', 'escritura');
@@ -78,7 +78,7 @@ export function HistoricoPage() {
     setBorrando(true);
     try {
       await eliminarOrdenCompra(eliminar, user?.email ?? 'sistema', user?.email ?? null);
-      toast(`${eliminar.oc_codigo ?? eliminar.codigo} eliminada. Se revirtió lo que había movido (plata y stock).`, 'success');
+      toast(`${eliminar.oc_codigo ?? eliminar.codigo} eliminada. Se revirtió lo que había movido (dinero y stock).`, 'success');
       setEliminar(null);
       setDetalle(null);
       await cargar();
@@ -356,7 +356,7 @@ export function HistoricoPage() {
                     className="btn btn-danger"
                     onClick={() => setEliminar(o)}
                     disabled={pdfBusy || borrando}
-                    title="Eliminar la orden y revertir plata y stock que haya movido"
+                    title="Eliminar la orden y revertir dinero y stock que haya movido"
                     style={{ marginRight: 'auto' }}
                   >
                     🗑️ Eliminar
@@ -424,7 +424,7 @@ export function HistoricoPage() {
           <ConfirmDialog
             title="Eliminar orden"
             message={`¿Eliminar ${eliminar.oc_codigo ?? eliminar.codigo}?`
-              + (reversa ? ` Se ${reversa}.` : ' No movió plata ni stock, así que solo se borra.')
+              + (reversa ? ` Se ${reversa}.` : ' No movió dinero ni stock, así que solo se borra.')
               + ' También se borran sus ofertas, abonos, chat y adjuntos. Esta acción no se puede deshacer.'}
             confirmText={borrando ? 'Eliminando…' : 'Eliminar'}
             danger

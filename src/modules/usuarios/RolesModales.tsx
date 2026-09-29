@@ -53,7 +53,7 @@ export function NuevoRolModal({ actorEmail, onClose, onCreated }: NuevoRolModalP
       return;
     }
     if (!key) {
-      toast('No se pudo derivar la clave del rol; usá letras y números', 'error');
+      toast('No se pudo derivar la clave del rol; usa letras y números', 'error');
       return;
     }
     setBusy(true);
@@ -170,7 +170,7 @@ export function GestionarRolesModal({
       .slice()
       .sort((a, b) => {
         if (a.sistema !== b.sistema) return a.sistema ? -1 : 1;
-        return a.label.localeCompare(b.label, 'es');
+        return a.label.localeCompare(b.label, 'es-VE');
       });
   }, [roles, filtro]);
 
@@ -179,7 +179,7 @@ export function GestionarRolesModal({
     const r = roles.find((x) => x.key === editando);
     if (r) setColorEdit(r.color);
     // El nombre/descripción se siembran vía defaultValue (key={editando}); no los
-    // pisamos acá para no borrar lo que el usuario ya esté tecleando.
+    // pisamos aquí para no borrar lo que el usuario ya esté tecleando.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editando]);
 
@@ -229,7 +229,7 @@ export function GestionarRolesModal({
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}
     >
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Corregí el nombre, descripción o color de los roles. Los roles del sistema
+        Corrige el nombre, descripción o color de los roles. Los roles del sistema
         (admin / analista / obrero) no pueden eliminarse, pero sí re-etiquetarse.
       </p>
 

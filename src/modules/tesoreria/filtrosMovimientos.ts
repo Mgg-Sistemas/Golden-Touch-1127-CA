@@ -7,13 +7,13 @@
    la tabla quedaba en "Cargando…".
 
    Como la pantalla YA tiene en memoria todos los movimientos vigentes, filtrar
-   acá da el mismo resultado sin red. La equivalencia con el filtro anterior es
+   aquí da el mismo resultado sin red. La equivalencia con el filtro anterior es
    exacta porque la base trabaja en UTC y la fecha ISO que llega al navegador
    también: comparar el día recortado (AAAA-MM-DD) equivale al
    `at >= desdeT00:00:00` / `at <= hastaT23:59:59` que hacía Postgres.
    ============================================================ */
 /**
- * Lo único que mira el filtro. Se declara acá en vez de recortarlo de
+ * Lo único que mira el filtro. Se declara aquí en vez de recortarlo de
  * `MovimientoCaja`: el tipo compartido declara `moneda` como 'USD' | 'Bs',
  * pero la caja multimoneda guarda también USDT y COP, así que filtrar por
  * ese tipo dejaría afuera monedas que existen de verdad.

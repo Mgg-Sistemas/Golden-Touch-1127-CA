@@ -106,7 +106,7 @@ export async function subirDocumentoPersonal(
   };
   // Ya no se puede usar `upsert`: el índice único (personal_id, tipo) pasó a ser
   // PARCIAL —no aplica a los libres, de los que hay varios— y PostgREST no sabe
-  // expresar el WHERE de un índice parcial. Así que se decide acá: si ya había
+  // expresar el WHERE de un índice parcial. Así que se decide aquí: si ya había
   // uno de ese tipo se ACTUALIZA ese renglón; si no, se inserta.
   const { data, error } = anterior?.id
     ? await supabase.from(TABLE).update(fila).eq('id', anterior.id).select('*').single()

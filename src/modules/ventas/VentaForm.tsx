@@ -2,19 +2,19 @@
    Golden Touch · Ventas · Formulario de venta (alta / edición de borrador)
 
    Lo que hace esta pantalla, y en qué orden:
-     1. Se elige el cliente (del padrón de Tesorería, o se lo da de alta acá).
+     1. Se elige el cliente (del padrón de Tesorería, o se lo da de alta aquí).
      2. Se cargan los renglones. El precio se PRECARGA de `productos.precio_venta`
         pero queda editable: hoy ningún producto lo tiene cargado, así que el
         campo arranca vacío y eso es normal, no un error.
      3. Cada renglón muestra su ganancia EN VIVO y, si corresponde, sus avisos.
      4. Si la condición es contado, se reparte el cobro en patas de pago.
-     5. «Guardar borrador» no mueve nada. «Confirmar» SÍ mueve plata, así que
+     5. «Guardar borrador» no mueve nada. «Confirmar» SÍ mueve dinero, así que
         pide confirmación explícita.
 
    El cliente, la grilla de renglones (con sus tres avisos) y la tabla de patas
    de pago son las MISMAS que las de la permuta: viven en `ventasFormPartes`.
    Los tres avisos del renglón son el corazón de la pantalla y por eso están
-   escritos una sola vez, allá:
+   escritos una sola vez, allí:
      · Costo en 0 → la ganancia de ese renglón no es real (el margen sale 100 %
        y es mentira). Hoy hay 145 productos activos sin costo cargado.
      · Precio por debajo del costo → se avisa, NO se bloquea: a veces se remata.
@@ -22,7 +22,7 @@
        después (al ENTREGAR), y para entonces puede haber entrado más.
 
    Los totales salen SIEMPRE de `resumenDeVenta` (que por dentro es
-   `calcularTotalesVenta`). Acá no se vuelve a escribir la cuenta ni en el JSX:
+   `calcularTotalesVenta`). Aquí no se vuelve a escribir la cuenta ni en el JSX:
    el bug de «el IVA no se suma» ya volvió varias veces por tenerla en varios
    lados. Lo mismo con la ganancia: NUNCA es `total − costo`, porque el total
    lleva IVA y el IVA no es ganancia de nadie.
@@ -241,7 +241,7 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
   }
 
   /**
-   * Guarda y la manda a autorizar. NO mueve plata: eso pasa al CONFIRMAR, y solo
+   * Guarda y la manda a autorizar. NO mueve dinero: eso pasa al CONFIRMAR, y solo
    * se puede confirmar una venta que LEYDIS RENGEL o JESUS LOZADA autorizaron.
    */
   async function handleConfirmar() {
@@ -275,7 +275,7 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
       <button type="button" className="btn btn-primary" disabled={!puedeConfirmar}
         onClick={() => setPidiendoConfirmar(true)}
         title={patasCuadran
-          ? `Guarda y la manda a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve plata ni material.`
+          ? `Guarda y la manda a ${AUTORIZADORES_VENTAS_TEXTO}. No mueve dinero ni material.`
           : 'Las patas de pago tienen que sumar exactamente lo que hay que cobrar'}>
         📤 Guardar y enviar a autorizar
       </button>
@@ -308,7 +308,7 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
             </select>
             <small className="muted">
               {esContado
-                ? 'Al confirmar entra la plata a la caja, por las patas de pago de abajo.'
+                ? 'Al confirmar entra el dinero a la caja, por las patas de pago de abajo.'
                 : 'Al confirmar se le carga la deuda a la cuenta corriente del cliente (la comparte con sus otras ventas).'}
             </small>
           </div>
@@ -367,7 +367,7 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
         {/* ── Patas de pago (solo contado) ── */}
         {esContado && (
           <>
-            <h4 style={{ margin: '1rem 0 .5rem' }}>Cobro · ¿en qué cajas entra la plata?</h4>
+            <h4 style={{ margin: '1rem 0 .5rem' }}>Cobro · ¿en qué cajas entra el dinero?</h4>
             <TablaPagoLegs
               legs={legs} cajas={cajas} saldos={saldos}
               aCobrar={aCobrar} pagado={pagado} falta={falta} legSinCaja={legSinCaja} moneda={moneda}
@@ -407,7 +407,7 @@ export function VentaForm({ venta, onSaved, onCancel }: VentaFormProps) {
           message={
             `${docImp.documento === 'factura' ? 'Factura' : 'Nota de entrega'} por ${montoMoneda(resumen.total, moneda)}`
             + ` (${esContado ? 'de contado' : 'a crédito'}). Se guarda y le llega un aviso a ${AUTORIZADORES_VENTAS_TEXTO}.`
-            + ' No se mueve plata ni material: después de la autorización se CONFIRMA (entra la plata) y se ENTREGA (sale el material).'
+            + ' No se mueve dinero ni material: después de la autorización se CONFIRMA (entra el dinero) y se ENTREGA (sale el material).'
             + (productosSinCosto > 0
               ? ` OJO: ${productosSinCosto === 1 ? 'hay 1 renglón' : `hay ${productosSinCosto} renglones`} con costo en 0, así que la ganancia no es real.`
               : '')

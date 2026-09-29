@@ -89,7 +89,7 @@ export function GestionarCategoriasModal({
     return activa.categorias
       .filter((c) => !q || norm(c).includes(q))
       .slice()
-      .sort((a, b) => a.localeCompare(b, 'es'));
+      .sort((a, b) => a.localeCompare(b, 'es-VE'));
   }, [activa.categorias, filtro, versionLocal]);
 
   async function aplicarRename() {
@@ -102,7 +102,7 @@ export function GestionarCategoriasModal({
       (c) => c !== editando && c.toLowerCase() === nuevoNombre.toLowerCase(),
     );
     if (choca) {
-      toast(`Ya existe "${nuevoNombre}" (sin distinguir mayúsculas). Elegí otro nombre.`, 'error');
+      toast(`Ya existe "${nuevoNombre}" (sin distinguir mayúsculas). Elige otro nombre.`, 'error');
       return;
     }
     setGuardando(true);
@@ -127,7 +127,7 @@ export function GestionarCategoriasModal({
     if (!activa.onAgregar) { toast('No se puede agregar en esta pestaña', 'error'); return; }
     // Fuente de verdad: el DOM (input no controlado), no el estado React.
     const clean = (nuevoRef.current?.value ?? nuevo).trim();
-    if (!clean) { toast(`Escribí el nombre de la ${termino}`, 'error'); return; }
+    if (!clean) { toast(`Escribe el nombre de la ${termino}`, 'error'); return; }
     // Sin duplicados por mayúsculas/minúsculas.
     if ((activa.categorias ?? []).some((c) => c.toLowerCase() === clean.toLowerCase())) {
       toast(`La ${termino} "${clean}" ya existe`, 'warning');
@@ -203,7 +203,7 @@ export function GestionarCategoriasModal({
       )}
 
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Agregá nuevas o corregí errores de tipeo. El renombrado se aplica en cascada: todos los {activa.entidadLabel}s
+        Agrega nuevas o corrige errores de tipeo. El renombrado se aplica en cascada: todos los {activa.entidadLabel}s
         que usaban el nombre viejo quedan con el nuevo automáticamente. No se permiten duplicados (ni por mayúsculas/minúsculas).
       </p>
 

@@ -83,7 +83,7 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
       footer={(
         <>
           <button className="btn btn-ghost btn-grande" onClick={() => void pdf()} disabled={cargando || generando || !movs.length}
-            title="Ver el reporte en PDF (vista previa; se descarga si lo pedís)">
+            title="Ver el reporte en PDF (vista previa; se descarga si lo pides)">
             {generando ? 'Armando el PDF…' : '↓ PDF (vista previa)'}
           </button>
           <button className="btn btn-primary btn-grande" onClick={onClose}>Cerrar</button>

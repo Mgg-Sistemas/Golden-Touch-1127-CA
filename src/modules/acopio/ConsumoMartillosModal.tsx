@@ -175,13 +175,13 @@ function MartilloFormModal({ actor, actorName, precioVigente, editar, onClose, o
     setError(null);
     let input: MartilloInput;
     if (tipo === 'consumo') {
-      if (cantConsumo <= 0) { setError('Ingresá la cantidad de martillos consumidos.'); return; }
-      if (precioVigente <= 0) { setError('No hay precio vigente del martillo: registrá primero una entrega facturada.'); return; }
+      if (cantConsumo <= 0) { setError('Ingresa la cantidad de martillos consumidos.'); return; }
+      if (precioVigente <= 0) { setError('No hay precio vigente del martillo: registra primero una entrega facturada.'); return; }
       input = { fecha, descripcion, consumidos: cantConsumo };
     } else {
       const ent = r2(usdEntregados), fac = r2(usdFacturados);
       const cant = Number(cantEntregados) || 0, aGt = Number(martillosAGt) || 0;
-      if (ent <= 0 && fac <= 0 && cant <= 0 && aGt <= 0) { setError('Ingresá al menos un valor.'); return; }
+      if (ent <= 0 && fac <= 0 && cant <= 0 && aGt <= 0) { setError('Ingresa al menos un valor.'); return; }
       input = { fecha, descripcion, usd_entregados: ent, cantidad_entregados: cant, usd_facturados: fac, martillos_a_gt: aGt, consumidos: 0 };
     }
     setSaving(true);

@@ -59,7 +59,7 @@ export function OcPorLoteView() {
 
   async function pdf() {
     const elegidas = seleccionadas(rows);
-    if (!elegidas.length) { toast('Seleccioná al menos una orden para el PDF', 'error'); return; }
+    if (!elegidas.length) { toast('Selecciona al menos una orden para el PDF', 'error'); return; }
     try { await descargarChecklistOcPdf(elegidas, await ensureCodigo()); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
@@ -86,10 +86,10 @@ export function OcPorLoteView() {
       <div className="filterbar" style={{ justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {puedeAprobar && (
-            <button className="btn btn-primary" onClick={() => { if (!porConfirmar(rows).length) { toast('Seleccioná al menos una OC por confirmar', 'error'); return; } setConfirmAprob(true); }}>✔ Aprobar en lote ({porConfirmar(rows).length})</button>
+            <button className="btn btn-primary" onClick={() => { if (!porConfirmar(rows).length) { toast('Selecciona al menos una OC por confirmar', 'error'); return; } setConfirmAprob(true); }}>✔ Aprobar en lote ({porConfirmar(rows).length})</button>
           )}
           <button className="btn btn-ghost" onClick={pdf}>↓ PDF ({sel.size})</button>
-          <button className="btn btn-ghost" onClick={() => { if (!sel.size) { toast('Seleccioná al menos una orden', 'error'); return; } setCorreoOpen(true); }}>✉ Enviar por correo</button>
+          <button className="btn btn-ghost" onClick={() => { if (!sel.size) { toast('Selecciona al menos una orden', 'error'); return; } setCorreoOpen(true); }}>✉ Enviar por correo</button>
           <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem' }}>
             <input type="checkbox" checked={incluirPagadas} onChange={(e) => setIncluirPagadas(e.target.checked)} /> Incluir confirmadas
           </label>
@@ -167,7 +167,7 @@ function CorreoModal({ rows, ensureCodigo, onClose }: {
 
   async function enviar() {
     const lista = emails.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
-    if (!lista.length) { toast('Indicá al menos un correo', 'error'); return; }
+    if (!lista.length) { toast('Indica al menos un correo', 'error'); return; }
     if (!rows.length) { toast('No hay órdenes para enviar', 'error'); return; }
     setEnviando(true);
     try {
@@ -189,7 +189,7 @@ function CorreoModal({ rows, ensureCodigo, onClose }: {
       <div className="form-row">
         <label>Correo(s) destinatario(s)</label>
         <input className="input" name="cm-emails" defaultValue={emails} onChange={(e) => setEmails(e.target.value)} placeholder="correo@ejemplo.com, otro@ejemplo.com" autoFocus />
-        <small className="muted">Separá varios con coma o espacio. Se adjunta la relación en PDF.</small>
+        <small className="muted">Separa varios con coma o espacio. Se adjunta la relación en PDF.</small>
       </div>
     </Modal>
   );

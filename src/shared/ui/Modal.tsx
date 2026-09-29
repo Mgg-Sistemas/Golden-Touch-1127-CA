@@ -40,7 +40,7 @@ interface ConfirmDialogProps {
   danger?: boolean;
   /** Si se indica, el usuario debe escribir EXACTAMENTE este texto para habilitar el botón. */
   requireText?: string;
-  /** Etiqueta sobre el input de confirmación (por defecto: «Escribí … para confirmar»). */
+  /** Etiqueta sobre el input de confirmación (por defecto: «Escribe … para confirmar»). */
   requireLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
@@ -77,20 +77,20 @@ export function ConfirmDialog({ title = 'Confirmar', message, preview, confirmTe
       {preview}
       {requireText != null && (
         <div className="form-row" style={{ marginTop: '0.9rem' }}>
-          <label>{requireLabel ?? <>Escribí <strong>{requireText}</strong> para confirmar</>}</label>
+          <label>{requireLabel ?? <>Escribe <strong>{requireText}</strong> para confirmar</>}</label>
           <input
             className="input"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && matches) { e.preventDefault(); onConfirm(); } }}
-            placeholder={`Escribí "${requireText}" aquí…`}
+            placeholder={`Escribe "${requireText}" aquí…`}
             autoFocus
           />
           {!matches && typed.trim().length > 0 && (
-            <small className="muted">Escribí exactamente <strong>{requireText}</strong> para habilitar el botón.</small>
+            <small className="muted">Escribe exactamente <strong>{requireText}</strong> para habilitar el botón.</small>
           )}
           {matches && (
-            <small style={{ color: 'var(--success, #22c55e)', fontWeight: 600 }}>✓ Listo — tocá «{confirmText}» para confirmar.</small>
+            <small style={{ color: 'var(--success, #22c55e)', fontWeight: 600 }}>✓ Listo — toca «{confirmText}» para confirmar.</small>
           )}
         </div>
       )}

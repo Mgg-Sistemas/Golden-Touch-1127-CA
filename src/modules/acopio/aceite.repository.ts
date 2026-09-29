@@ -86,9 +86,9 @@ function payloadAceite(input: AceiteInput): Record<string, unknown> {
 }
 
 export async function crearMovimientoAceite(input: AceiteInput, actor: string, actorName?: string | null): Promise<void> {
-  if (!input.fecha) throw new Error('Indicá la fecha del movimiento.');
+  if (!input.fecha) throw new Error('Indica la fecha del movimiento.');
   // Si lleva consumo, un trigger de la BD crea el gasto «USO DE ACEITE» en la caja de
-  // Acopio; acá solo guardamos el movimiento.
+  // Acopio; aquí solo guardamos el movimiento.
   const { error } = await supabase.from('acopio_aceite_movimientos').insert({
     ...payloadAceite(input),
     created_by: actor,
@@ -99,7 +99,7 @@ export async function crearMovimientoAceite(input: AceiteInput, actor: string, a
 
 /** Edita un movimiento de aceite. El trigger re-crea/actualiza el gasto ligado. */
 export async function actualizarMovimientoAceite(id: string, input: AceiteInput): Promise<void> {
-  if (!input.fecha) throw new Error('Indicá la fecha del movimiento.');
+  if (!input.fecha) throw new Error('Indica la fecha del movimiento.');
   const { error } = await supabase.from('acopio_aceite_movimientos')
     .update({ ...payloadAceite(input), updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;

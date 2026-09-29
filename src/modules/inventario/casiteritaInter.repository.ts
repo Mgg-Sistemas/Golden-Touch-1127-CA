@@ -104,7 +104,7 @@ export async function registrarTrasladoCasiteritaExterno(input: {
   // vaciar con delta = -stock deja la existencia EXACTAMENTE en 0, sin residuales.
   // OJO: esta lectura es solo la INTENCIÓN. Desde GT-SIN-16 la RPC ya no recorta a 0 en
   // silencio: si el stock cambió en el medio, levanta «Stock insuficiente». Lo que vale
-  // para el puente es lo que devuelve cada movimiento, no lo que se leyó acá.
+  // para el puente es lo que devuelve cada movimiento, no lo que se leyó aquí.
   let rows = (exRows ?? [])
     .map((r) => ({
       almacen: String(r.almacen),
@@ -138,7 +138,7 @@ export async function registrarTrasladoCasiteritaExterno(input: {
   //    entre la lectura y el movimiento otro usuario pudo haber consumido material.
   //    Todo lo que sigue —los Kg que cruzan el puente, el registro de la transferencia y
   //    la cantidad que vuelve a Salidas— se calcula sobre esa cifra, nunca sobre la
-  //    lectura. Si no, a MGG se le acreditarían kilos que nunca salieron de acá.
+  //    lectura. Si no, a MGG se le acreditarían kilos que nunca salieron de aquí.
   const aplicados: { almacen: string; kg: number; costo: number }[] = [];
   try {
     for (const r of rows) {
@@ -166,7 +166,7 @@ export async function registrarTrasladoCasiteritaExterno(input: {
       const base = e instanceof Error ? e.message : 'No se pudo completar el traslado';
       throw new Error(
         `${base} · ADEMÁS no se pudo devolver al inventario: ${noDevueltos.join('; ')}. ` +
-        `Revisá el kardex de ${input.producto.nombre}.`,
+        `Revisa el kardex de ${input.producto.nombre}.`,
       );
     }
     throw e;
@@ -231,18 +231,18 @@ export async function registrarTrasladoCasiteritaExterno(input: {
 /* ═══════════════════════════════════════════════════════════════════
    GT-INT-11 · Rescate de una entrega fallida
    La casiterita sale del almacén ANTES de que MGG la acepte. Si el puente
-   falla, esos kilos quedan en el limbo: ya no están acá y nunca llegaron
-   allá. Estas dos funciones son la salida de ese limbo.
+   falla, esos kilos quedan en el limbo: ya no están aquí y nunca llegaron
+   allí. Estas dos funciones son la salida de ese limbo.
    ═══════════════════════════════════════════════════════════════════ */
 
 /**
  * Reintenta entregar a MGG una transferencia que quedó en `error`.
  *
- * SEGURO DE REPETIR: viaja el MISMO `transf_id`, y MGG deduplica por él. Si allá ya
+ * SEGURO DE REPETIR: viaja el MISMO `transf_id`, y MGG deduplica por él. Si allí ya
  * había entrado, contesta que ya la tenía y no acredita dos veces.
  *
  * La fila se reserva antes de tocar el puente (`.eq('estado','error')`): si otra persona
- * la está reintentando en este mismo momento, esta llamada se corta acá.
+ * la está reintentando en este mismo momento, esta llamada se corta aquí.
  */
 export async function reintentarTrasladoCasiterita(input: {
   id: string;
@@ -257,7 +257,7 @@ export async function reintentarTrasladoCasiterita(input: {
     .select('*');
   if (resErr) throw resErr;
   const t = (reservadas ?? [])[0] as TransferenciaCasiteritaInter | undefined;
-  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que vos.');
+  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que tú.');
 
   try {
     const { data: res, error } = await supabase.functions.invoke('transfer-enviar', {
@@ -292,7 +292,7 @@ export async function reintentarTrasladoCasiterita(input: {
  * Devuelve la casiterita al almacén y marca la transferencia como `revertida`.
  *
  * ⚠ NO ES SEGURO DE USAR A CIEGAS. Que el puente haya fallado no prueba que MGG no la
- * haya recibido: pudo haber entrado allá y haberse perdido solo el acuse. En ese caso
+ * haya recibido: pudo haber entrado allí y haberse perdido solo el acuse. En ese caso
  * devolver los kilos los DUPLICA entre las dos empresas.
  *
  * El orden correcto es: primero REINTENTAR (que es idempotente y dice la verdad), y
@@ -315,7 +315,7 @@ export async function revertirTrasladoCasiterita(input: {
     .select('*');
   if (resErr) throw resErr;
   const t = (reservadas ?? [])[0] as TransferenciaCasiteritaInter | undefined;
-  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que vos.');
+  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que tú.');
 
   const liberar = async (motivo: string) => {
     await supabase.from('transferencias_casiterita_inter')
@@ -325,7 +325,7 @@ export async function revertirTrasladoCasiterita(input: {
 
   if (!t.producto_id) {
     await liberar('No se pudo devolver: la transferencia no guarda qué producto salió.');
-    throw new Error('Esta transferencia no guarda qué producto salió, así que no se puede devolver sola. Cargá la entrada a mano en Inventario.');
+    throw new Error('Esta transferencia no guarda qué producto salió, así que no se puede devolver sola. Carga la entrada a mano en Inventario.');
   }
 
   // El almacén guardado puede ser la etiqueta «VARIOS (...)» de un barrido de varios

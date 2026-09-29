@@ -143,7 +143,7 @@ export async function cargarResumenInventario(desde: string | null, hasta: strin
   }
   const porAlmacen = Array.from(porAlmacenMap.values())
     .map((r) => ({ ...r, valor: Math.round(r.valor * 100) / 100 }))
-    .sort((a, b) => (a.sede.localeCompare(b.sede, 'es') || a.almacen.localeCompare(b.almacen, 'es')));
+    .sort((a, b) => (a.sede.localeCompare(b.sede, 'es-VE') || a.almacen.localeCompare(b.almacen, 'es-VE')));
 
   // 2) Movimientos del rango (con join al producto para sku/nombre). Paginado: sin rango de
   //    fechas la tabla `movimientos` puede pasar de 1.000 filas y PostgREST cortaría en silencio.
@@ -319,7 +319,7 @@ export async function enviarResumenInventarioCorreo(emails: string[], r: Resumen
   const lista = Array.from(new Set(
     emails.map((e) => e.trim().toLowerCase()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
   ));
-  if (!lista.length) throw new Error('Indicá al menos un correo válido');
+  if (!lista.length) throw new Error('Indica al menos un correo válido');
   const doc = await construirPdf(r);
   const base64 = (doc.output('datauristring').split(',')[1]) ?? '';
   const { data, error } = await supabase.functions.invoke<

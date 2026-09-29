@@ -106,7 +106,7 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
       size="xl" onClose={onClose} footer={footer}>
       {mode === 'list' && (
         loading ? <p className="muted">Cargando…</p> : !lista.length ? (
-          <EmptyState message="Todavía no hay mercados cerrados. Cerrá un ciclo desde «🧾 Cerrar mercado»." icon="🗂" />
+          <EmptyState message="Todavía no hay mercados cerrados. Cierra un ciclo desde «🧾 Cerrar mercado»." icon="🗂" />
         ) : (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.85rem' }}>
@@ -193,7 +193,7 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
           ) : (
             // EDITAR: tabla editable de cantidades por víver + nota.
             <>
-              <div className="muted" style={{ fontSize: '.76rem' }}>Corregí las cantidades de ESTE ciclo (no reescribe el ciclo siguiente). «Disponible» = saldo + entrada.</div>
+              <div className="muted" style={{ fontSize: '.76rem' }}>Corrige las cantidades de ESTE ciclo (no reescribe el ciclo siguiente). «Disponible» = saldo + entrada.</div>
               <div className="table-wrap" style={{ maxHeight: '48vh', overflow: 'auto' }}>
                 <table className="table" style={{ fontSize: '.82rem' }}>
                   <thead><tr><th>Víver</th><th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'right' }}>Entrada</th><th style={{ textAlign: 'right' }}>Consumo</th><th style={{ textAlign: 'right' }}>Mermas / salidas</th><th style={{ textAlign: 'right' }}>Queda</th></tr></thead>

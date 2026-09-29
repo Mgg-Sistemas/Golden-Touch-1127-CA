@@ -105,12 +105,12 @@ export function AsignacionesPage() {
         <button type="button" className="lt-kpi ambar" onClick={() => setListaModal('pendientes')}>
           <span className="lt-kpi-label">En poder del personal</span>
           <span className="lt-kpi-valor">{r.pendientes}</span>
-          <span className="lt-kpi-sub">{money(r.valorPendiente)} por recuperar · tocá para ver el detalle</span>
+          <span className="lt-kpi-sub">{money(r.valorPendiente)} por recuperar · toca para ver el detalle</span>
         </button>
         <button type="button" className="lt-kpi naranja" onClick={() => setListaModal('trabajadores')}>
           <span className="lt-kpi-label">Trabajadores con asignaciones</span>
           <span className="lt-kpi-valor">{r.trabajadoresConPendientes}</span>
-          <span className="lt-kpi-sub">con algo pendiente · tocá para ver la lista</span>
+          <span className="lt-kpi-sub">con algo pendiente · toca para ver la lista</span>
         </button>
         <div className={`lt-kpi ${r.pendientesInactivos ? 'rojo' : 'verde'}`}>
           <span className="lt-kpi-label">Pendientes de personal inactivo</span>

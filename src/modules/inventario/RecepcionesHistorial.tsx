@@ -76,7 +76,7 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
 
   const almacenesConRecepcion = useMemo(() => {
     const s = new Set(recs.map((r) => r.almacen).filter((x): x is string => !!x));
-    return [...s].sort((a, b) => a.localeCompare(b, 'es'));
+    return [...s].sort((a, b) => a.localeCompare(b, 'es-VE'));
   }, [recs]);
 
   return (

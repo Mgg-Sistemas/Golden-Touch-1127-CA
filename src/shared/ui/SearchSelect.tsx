@@ -192,7 +192,7 @@ export function SearchSelect({
         ))}
         {filtered.length > visibles.length && (
           <div className="muted" style={{ padding: '.4rem .7rem', fontSize: '.78rem', borderTop: '1px solid var(--border, #2a3240)' }}>
-            …y {filtered.length - visibles.length} más · seguí escribiendo para afinar
+            …y {filtered.length - visibles.length} más · sigue escribiendo para afinar
           </div>
         )}
       </DropdownPortal>
@@ -209,7 +209,7 @@ export function SearchCreateSelect({
   options,
   value,
   onChange,
-  placeholder = 'Escribí o elegí…',
+  placeholder = 'Escribe o elige…',
   emptyText = 'Sin coincidencias',
   style,
   id,

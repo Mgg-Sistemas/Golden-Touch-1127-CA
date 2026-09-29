@@ -2,12 +2,12 @@
    Golden Touch · RRHH · Sueldos (cálculo puro)
 
    Hasta ahora el sueldo de una persona era UN SOLO NÚMERO que se pisaba:
-   cambiarlo borraba el anterior y no quedaba ni cuándo ni por qué. Acá vive
+   cambiarlo borraba el anterior y no quedaba ni cuándo ni por qué. Aquí vive
    lo que se puede calcular y validar sin tocar la base: de cuánto a cuánto,
    cuánto se movió, y si el cambio está en condiciones de registrarse.
 
    Las mismas reglas están escritas también en la base (la función
-   `cambiar_sueldo`), a propósito: acá avisan antes de guardar, allá impiden
+   `cambiar_sueldo`), a propósito: aquí avisan antes de guardar, allí impiden
    que entre un cambio sin motivo por cualquier otro camino.
    ============================================================ */
 
@@ -59,7 +59,7 @@ export function variacionSueldo(anterior: number | null | undefined, nuevo: numb
 /**
  * Lo que impide registrar el cambio, en palabras. `null` = se puede guardar.
  * Se mira primero el monto y después el motivo: si alguien escribió el mismo
- * sueldo, pedirle el motivo primero lo manda a llenar un campo al pedo.
+ * sueldo, pedirle el motivo primero lo manda a llenar un campo de más.
  */
 export function errorCambioSueldo(
   actual: number | null | undefined,
@@ -68,12 +68,12 @@ export function errorCambioSueldo(
 ): string | null {
   // Un valor que falta NO es cero: `Number(null)` da 0, y dejar pasar eso
   // sería poner en cero el sueldo de alguien porque se vació el campo.
-  if (nuevo === null || nuevo === undefined) return 'Escribí el sueldo nuevo.';
+  if (nuevo === null || nuevo === undefined) return 'Escribe el sueldo nuevo.';
   const b = Number(nuevo);
-  if (!Number.isFinite(b)) return 'Escribí el sueldo nuevo.';
+  if (!Number.isFinite(b)) return 'Escribe el sueldo nuevo.';
   if (b < 0) return 'El sueldo no puede ser negativo.';
   if (round2(n(actual)) === round2(b)) return 'El sueldo es el mismo que ya tenía. No hay cambio que registrar.';
-  if (!String(motivo ?? '').trim()) return 'Indicá el motivo del cambio de sueldo.';
+  if (!String(motivo ?? '').trim()) return 'Indica el motivo del cambio de sueldo.';
   return null;
 }
 

@@ -34,7 +34,7 @@ export async function getCategorias(fromProveedores: Proveedor[] = []): Promise<
   } catch { /* falla silenciosa */ }
   fromProveedores.forEach((p) => (p.categorias ?? []).forEach((c) => c && set.add(c)));
   if (set.size === 0) CATEGORIAS_DEFAULT.forEach((c) => set.add(c));
-  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es-VE'));
 }
 
 export async function addCategoria(nombre: string, actorEmail?: string): Promise<string | null> {

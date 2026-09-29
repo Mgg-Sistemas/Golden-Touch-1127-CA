@@ -49,7 +49,7 @@ export function HuellaModal({ onClose }: { onClose: () => void }) {
       ) : (
         <>
           <p className="muted" style={{ fontSize: '.85rem' }}>
-            Activá la huella (o Face ID / Windows Hello) <strong>en este equipo</strong> para entrar más rápido.
+            Activa la huella (o Face ID / Windows Hello) <strong>en este equipo</strong> para entrar más rápido.
             La huella nunca sale del dispositivo; tu <strong>contraseña sigue funcionando</strong> como respaldo y
             queda <strong>atada a este equipo</strong> (en otro tendrás que activarla de nuevo).
           </p>

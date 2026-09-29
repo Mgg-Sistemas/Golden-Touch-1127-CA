@@ -44,7 +44,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     if (mostrarCargando) setLoading(true);
     const u = await getAppUser(user);
     // Cuenta deshabilitada (el admin la desactivó, quizá con la sesión abierta):
-    // el servidor ya bloquea toda escritura vía is_operativo(); acá además la
+    // el servidor ya bloquea toda escritura vía is_operativo(); aquí además la
     // sacamos al login con un motivo claro. Cubre tanto el arranque como el
     // refresco por realtime de `usuarios`.
     if (u && u.estado && u.estado !== 'activo') {

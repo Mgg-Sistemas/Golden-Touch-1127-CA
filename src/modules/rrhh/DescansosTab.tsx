@@ -149,7 +149,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
       {minimo > cfg.max_simultaneos && (
         <div className="aviso warning" style={{ marginBottom: '.6rem' }}>
           <span className="aviso-icono">⚠</span>
-          <div>Con <strong>{personal.length}</strong> trabajadores en {cfg.dias_trabajo}×{cfg.dias_descanso}, lo mínimo que puede haber fuera a la vez es <strong>{minimo}</strong>: el tope de {cfg.max_simultaneos} alcanza para {capacidadRotacion(cfg)} personas. Subí el tope en ⚙ Ajustes o aceptá esos días en rojo.</div>
+          <div>Con <strong>{personal.length}</strong> trabajadores en {cfg.dias_trabajo}×{cfg.dias_descanso}, lo mínimo que puede haber fuera a la vez es <strong>{minimo}</strong>: el tope de {cfg.max_simultaneos} alcanza para {capacidadRotacion(cfg)} personas. Sube el tope en ⚙ Ajustes o acepta esos días en rojo.</div>
         </div>
       )}
 
@@ -197,7 +197,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
         <span><i className="desc-muestra plan" /> Del plan</span>
         <span><i className="desc-muestra manual" /> Cargado a mano</span>
         <span><i className="desc-muestra choque" /> Día sobre el tope</span>
-        {canWrite && <span>Tocá un día vacío para cargar un descanso, o una barra para cambiarla.</span>}
+        {canWrite && <span>Toca un día vacío para cargar un descanso, o una barra para cambiarla.</span>}
       </div>
 
       {editar && (
@@ -301,10 +301,10 @@ function DescansoModal({ inicial, personal, descansos, cfg, canWrite, actor, act
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!persona) { setError('Elegí el trabajador.'); return; }
+    if (!persona) { setError('Elige el trabajador.'); return; }
     if (!valido) { setError('La fecha «hasta» tiene que ser igual o posterior a «desde».'); return; }
     if (propio) { setError(`Ya tiene un descanso del ${fmtDate(propio.desde)} al ${fmtDate(propio.hasta)} que se cruza.`); return; }
-    if (choques.length && !aceptoChoque) { setError('Esos días se pasa el tope. Marcá «Guardar igual» si es a propósito, o cambiá las fechas.'); return; }
+    if (choques.length && !aceptoChoque) { setError('Esos días se pasa el tope. Marca «Guardar igual» si es a propósito, o cambia las fechas.'); return; }
     setSaving(true);
     try {
       if (d0) await editarDescanso(d0.id, { desde, hasta, nota });
@@ -368,7 +368,7 @@ function DescansoModal({ inicial, personal, descansos, cfg, canWrite, actor, act
           </div>
         )}
         {d0?.origen === 'plan' && canWrite && (
-          <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Si lo cambiás queda como «cargado a mano» y el generador de plan ya no lo mueve.</p>
+          <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Si lo cambias queda como «cargado a mano» y el generador de plan ya no lo mueve.</p>
         )}
       </form>
       {borrar && d0 && (

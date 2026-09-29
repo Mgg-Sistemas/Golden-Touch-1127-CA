@@ -67,14 +67,14 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
   }, []);
 
   async function agregarValor() {
-    if (!grupo) { setError('Elegí primero el grupo.'); return; }
+    if (!grupo) { setError('Elige primero el grupo.'); return; }
     const v = nuevoValor.trim();
     if (!v) return;
     try { await addClasificacion(grupo, v); setValor(v); setNuevoValor(''); setNuevoValorKey((k) => k + 1); toast('Clasificación agregada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
   }
   async function agregarSub() {
-    if (!costoCl.trim()) { setError('Indicá la clasificación de costo.'); return; }
+    if (!costoCl.trim()) { setError('Indica la clasificación de costo.'); return; }
     const v = nuevoValor.trim();
     if (!v) return;
     try { await addCostoClase(costoCl, v); setCostoSub(v); setNuevoValor(''); setNuevoValorKey((k) => k + 1); toast('Sub-clasificación agregada', 'success'); }
@@ -102,7 +102,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
     } catch (e) {
       // Supabase no tira `Error`: con `instanceof` el motivo real se perdía y el
       // usuario veía «No se pudo guardar.» sin saber qué corregir. El candado que
-      // avisa que el contrato ya existe en Producción llega por acá.
+      // avisa que el contrato ya existe en Producción llega por aquí.
       setError(mensajeError(e, 'No se pudo guardar.')); setSaving(false);
     }
   }
@@ -143,7 +143,7 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
           <label>Categoría <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: grupoColor(grupo), verticalAlign: 'middle' }} /></label>
           <SearchSelect value={valor} onChange={setValor}
             options={valoresGrupo.map((c) => ({ value: c.valor, label: c.valor }))}
-            placeholder="🔍 Elegí o buscá la categoría…" emptyText="Sin categorías en este grupo" />
+            placeholder="🔍 Elige o busca la categoría…" emptyText="Sin categorías en este grupo" />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
             <input key={`nv-cat-${nuevoValorKey}`} className="input" name="f-nueva-categoria" style={{ flex: 1 }} defaultValue={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva categoría a este grupo" />
             <button type="button" className="btn btn-sm btn-ghost" onClick={agregarValor}>Agregar</button>
@@ -172,13 +172,13 @@ export function MovimientoCajaModal({ mov, cajaId, clasificaciones, costoClases,
           <label>Costo · Clasificación</label>
           <SearchSelect value={costoCl} onChange={(v) => { setCostoCl(v); setCostoSub(''); }}
             options={clasifCosto.map((c) => ({ value: c, label: c }))}
-            placeholder="🔍 Buscá la clasificación…" emptyText="Sin clasificaciones de costo" />
+            placeholder="🔍 Busca la clasificación…" emptyText="Sin clasificaciones de costo" />
         </div>
         <div className="form-row">
           <label>Costo · Sub-clasificación</label>
           <SearchSelect value={costoSub} onChange={setCostoSub} disabled={!costoCl}
             options={subsCosto.map((c) => ({ value: c.subclasificacion, label: c.subclasificacion }))}
-            placeholder={costoCl ? '🔍 Elegí la sub-clasificación…' : '— elegí la clasificación —'} emptyText="Sin sub-clasificaciones" />
+            placeholder={costoCl ? '🔍 Elige la sub-clasificación…' : '— elige la clasificación —'} emptyText="Sin sub-clasificaciones" />
           {costoCl && (
             <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
               <input key={`nv-sub-${nuevoValorKey}`} className="input" name="f-nueva-subclasificacion" style={{ flex: 1 }} defaultValue={nuevoValor} onChange={(e) => setNuevoValor(e.target.value)} placeholder="+ nueva sub-clasificación" />

@@ -244,7 +244,7 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       sinInsumo: l.sinInsumo === true ? true : null,
     }))
     .filter((l) => l.descripcion && l.cantidad > 0);
-  if (!lineas.length) throw new Error('Agregá al menos un servicio con cantidad.');
+  if (!lineas.length) throw new Error('Agrega al menos un servicio con cantidad.');
 
   const items: ServicioDirectoItem[] = lineas.map((l) => ({
     categoria: l.categoria, descripcion: l.descripcion,
@@ -333,11 +333,11 @@ export interface FinalizarServicioDirectoInput {
 export async function finalizarServicioDirecto(input: FinalizarServicioDirectoInput): Promise<void> {
   const { servicio } = input;
   if (servicio.estado !== 'en_proceso') throw new Error('Este servicio ya fue completado.');
-  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  if (!input.cajaId) throw new Error('Elige la caja de la que sale el dinero.');
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('El servicio no tiene renglones.');
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
-  if (total <= 0) throw new Error('Indicá cuánto costó el servicio.');
+  if (total <= 0) throw new Error('Indica cuánto costó el servicio.');
 
   // 1) Egreso de la caja (valida saldo) → pasa por Tesorería.
   const concepto = `Servicio directo · ${servicio.codigo ?? servicio.descripcion}${servicio.equipo_nombre ? ` · ${servicio.equipo_nombre}` : ''}`;
@@ -354,7 +354,7 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
       });
       if (!primero) primero = r.id;
     }
-    if (!primero) throw new Error('Indicá cuánto pagar en al menos una moneda.');
+    if (!primero) throw new Error('Indica cuánto pagar en al menos una moneda.');
     movCajaId = primero;
   } else {
     const movCaja = await egresarGastoCaja({
@@ -421,7 +421,7 @@ export async function enviarServicioAPagar(input: EnviarServicioAPagarInput): Pr
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('El servicio no tiene renglones.');
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
-  if (total <= 0) throw new Error('Cargá los montos del servicio.');
+  if (total <= 0) throw new Error('Carga los montos del servicio.');
 
   // PAGO ANTICIPADO (EDITABLE mientras no esté pagado): se registra como adelanto (no toca
   // caja), se convierte a la moneda del servicio y se resta del total; el resto queda como
@@ -436,7 +436,7 @@ export async function enviarServicioAPagar(input: EnviarServicioAPagarInput): Pr
       anticipoServ = antRaw;
     } else {
       const tasa = Number(input.tasaConversion) || 0;
-      if (!(tasa > 0)) throw new Error('Para un anticipo en otra moneda, indicá la tasa (Bs por $) con el conversor.');
+      if (!(tasa > 0)) throw new Error('Para un anticipo en otra moneda, indica la tasa (Bs por $) con el conversor.');
       anticipoServ = antMoneda === 'Bs' ? Math.round((antRaw / tasa) * 100) / 100 : Math.round((antRaw * tasa) * 100) / 100;
     }
     anticipoServ = Math.min(anticipoServ, total); // no se adelanta más que el total
@@ -519,7 +519,7 @@ export interface PagarServicioInput {
 export async function pagarServicioDirecto(input: PagarServicioInput): Promise<{ aviso?: string }> {
   const { servicio } = input;
   if (servicio.estado === 'finalizada') throw new Error('Este servicio ya fue pagado.');
-  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  if (!input.cajaId) throw new Error('Elige la caja de la que sale el dinero.');
   const items = (servicio.items ?? []).map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('El servicio no tiene renglones.');
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
@@ -545,7 +545,7 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<{
       });
       if (!primero) primero = r.id;
     }
-    if (!primero) throw new Error('Indicá cuánto pagar en al menos una moneda.');
+    if (!primero) throw new Error('Indica cuánto pagar en al menos una moneda.');
     movCajaId = primero;
   } else {
     const movCaja = await egresarGastoCaja({
@@ -597,7 +597,7 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<{
     }).eq('id', servicio.id);
     if (eExtra) {
       aviso = `El servicio se pagó, pero no se pudo anotar la retención o el reembolso en su ficha (${eExtra.message}). `
-        + 'Si se reabre, revisá a mano lo que vuelve a la caja.';
+        + 'Si se reabre, revisa a mano lo que vuelve a la caja.';
     }
   }
   // Compra del mantenimiento concretada (Tesorería pagó) → reinicia el contador del equipo.
@@ -671,9 +671,9 @@ export interface RegistrarAbonoServicioInput {
 export async function registrarAbonoServicio(input: RegistrarAbonoServicioInput): Promise<void> {
   const { servicio } = input;
   if (servicio.estado === 'finalizada') throw new Error('Este servicio ya está pagado.');
-  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  if (!input.cajaId) throw new Error('Elige la caja de la que sale el dinero.');
   const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
-  if (monto <= 0) throw new Error('Indicá el monto del abono.');
+  if (monto <= 0) throw new Error('Indica el monto del abono.');
   const total = Math.round((Number(servicio.gasto) || 0) * 100) / 100;
   if (total <= 0) throw new Error('El servicio no tiene monto total cargado.');
   const previo = Math.round((Number(servicio.abonado_total) || 0) * 100) / 100;
@@ -862,7 +862,7 @@ export interface EditarServicioDirectoInput {
 /** Edita un servicio directo EN PROCESO: reemplaza renglones y proveedor. No toca caja. */
 export async function editarServicioDirectoEnProceso(input: EditarServicioDirectoInput): Promise<ServicioDirecto> {
   if (input.servicio.estado !== 'en_proceso')
-    throw new Error('Solo se puede editar un servicio En proceso. Reabrí el servicio primero.');
+    throw new Error('Solo se puede editar un servicio En proceso. Reabre el servicio primero.');
   const lineas = input.lineas
     .map((l) => ({
       categoria: (l.categoria ?? '').trim() || null,
@@ -877,7 +877,7 @@ export async function editarServicioDirectoEnProceso(input: EditarServicioDirect
       sinInsumo: l.sinInsumo === true ? true : null,
     }))
     .filter((l) => l.descripcion && l.cantidad > 0);
-  if (!lineas.length) throw new Error('Agregá al menos un servicio con cantidad.');
+  if (!lineas.length) throw new Error('Agrega al menos un servicio con cantidad.');
 
   const items: ServicioDirectoItem[] = lineas.map((l) => ({
     categoria: l.categoria, descripcion: l.descripcion,

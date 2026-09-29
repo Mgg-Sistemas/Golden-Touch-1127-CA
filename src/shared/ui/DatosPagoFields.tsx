@@ -138,22 +138,22 @@ const TELEFONO_VE = /^04\d{9}$/;
 /** Valida que los datos mínimos del método estén completos. Devuelve error o null. */
 export function validarDatosPago(metodo: string, d: DatosPago): string | null {
   if (metodo === 'pago_movil') {
-    if (!d.ci_rif?.trim()) return 'Indicá el CI o RIF';
-    if (!d.banco?.trim()) return 'Elegí el banco';
-    if (!d.telefono?.trim()) return 'Indicá el teléfono';
+    if (!d.ci_rif?.trim()) return 'Indica el CI o RIF';
+    if (!d.banco?.trim()) return 'Elige el banco';
+    if (!d.telefono?.trim()) return 'Indica el teléfono';
     if (!TELEFONO_VE.test(d.telefono.trim())) {
       return 'El teléfono debe tener 11 dígitos y empezar con 04 (ej. 04141234567)';
     }
   } else if (metodo === 'transferencia') {
-    if (!d.nombre?.trim()) return 'Indicá el nombre';
-    if (!d.ci?.trim()) return 'Indicá el CI / RIF';
-    if (!d.banco?.trim()) return 'Elegí el banco';
+    if (!d.nombre?.trim()) return 'Indica el nombre';
+    if (!d.ci?.trim()) return 'Indica el CI / RIF';
+    if (!d.banco?.trim()) return 'Elige el banco';
     if ((d.cuenta ?? '').length !== 20) return 'El número de cuenta debe tener 20 dígitos';
   } else if (metodo === 'zelle') {
-    if (!d.nombre?.trim()) return 'Indicá el nombre';
-    if (!d.email?.trim()) return 'Indicá el correo';
+    if (!d.nombre?.trim()) return 'Indica el nombre';
+    if (!d.email?.trim()) return 'Indica el correo';
   } else if (metodo === 'binance_usdt') {
-    if (!d.email_o_id?.trim()) return 'Indicá el correo o ID de Binance';
+    if (!d.email_o_id?.trim()) return 'Indica el correo o ID de Binance';
   }
   return null;
 }

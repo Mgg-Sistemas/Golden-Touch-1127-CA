@@ -4,7 +4,7 @@
    Eso lo vuelve un acuerdo con una persona del otro lado: cambia el formato y
    quien paga tiene que volver a aprender dónde mirar. Estos tests fijan la
    forma exacta, incluidos los emoji y los asteriscos de WhatsApp, para que un
-   cambio accidental se note acá y no en el teléfono de alguien.
+   cambio accidental se note aquí y no en el teléfono de alguien.
    ============================================================ */
 import { describe, it, expect } from 'vitest';
 import type { Orden, Proveedor } from '@/shared/lib/types';
@@ -63,7 +63,7 @@ describe('textoOrdenPagar', () => {
     const txt = textoOrdenPagar(conNota, proveedor);
     expect(txt).toContain('🗒 *Nota:* Retirar en tienda, preguntar por Luis.');
     // El orden importa: primero para qué se pide, después la aclaración, y
-    // recién al final la plata y por dónde se paga.
+    // recién al final el dinero y por dónde se paga.
     expect(txt.indexOf('📝')).toBeLessThan(txt.indexOf('🗒'));
     expect(txt.indexOf('🗒')).toBeLessThan(txt.indexOf('💵'));
   });

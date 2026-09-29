@@ -181,7 +181,7 @@ function NuevaCajaModal({ actor, onClose, onSaved }: { actor: string; onClose: (
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   async function guardar() {
-    if (!numero.trim()) { toast('Indicá el número de caja', 'error'); return; }
+    if (!numero.trim()) { toast('Indica el número de caja', 'error'); return; }
     setSaving(true);
     try { const c = await crearCaja({ numero, nombre, recepcion, fecha_inicio: fecha }, actor); toast('Caja creada', 'success'); onSaved(c.id); }
     catch (e) { toast(e instanceof Error ? e.message : 'Error', 'error'); setSaving(false); }

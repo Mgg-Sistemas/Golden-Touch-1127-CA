@@ -67,7 +67,7 @@ export function CostosYMedidasModal({ productos, actor, actorName, canWrite, onC
 
   const categorias = useMemo(
     () => Array.from(new Set(activos.map((p) => p.categoria).filter(Boolean)))
-      .sort((a, b) => a.localeCompare(b, 'es')),
+      .sort((a, b) => a.localeCompare(b, 'es-VE')),
     [activos],
   );
 
@@ -82,7 +82,7 @@ export function CostosYMedidasModal({ productos, actor, actorName, canWrite, onC
           .map((c) => norm(String(c ?? ''))).join(' ');
         return texto.split(/\s+/).filter(Boolean).every((t) => heno.includes(t));
       })
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE'));
   }, [activos, filtro, cat, q]);
 
   const sinCosto = useMemo(() => contarSinCosto(productos), [productos]);
@@ -201,8 +201,8 @@ export function CostosYMedidasModal({ productos, actor, actorName, canWrite, onC
     >
       <p style={{ marginTop: 0 }}>
         Estos productos existen y se pueden mover, pero valen <strong>$0</strong> en el inventario:
-        el material está, el valor no. Cargá el <strong>costo unitario</strong> y, si hace falta,
-        corregí la <strong>medida</strong>. Cada costo cargado queda como un ajuste en el kardex,
+        el material está, el valor no. Carga el <strong>costo unitario</strong> y, si hace falta,
+        corrige la <strong>medida</strong>. Cada costo cargado queda como un ajuste en el kardex,
         con quién lo valoró y cuándo.
       </p>
       <p className="muted" style={{ fontSize: '.8rem' }}>

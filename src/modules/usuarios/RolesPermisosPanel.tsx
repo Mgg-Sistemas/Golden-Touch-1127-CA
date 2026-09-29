@@ -150,7 +150,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
         <div>
           <h2 style={{ margin: 0 }}>Roles y Permiso</h2>
           <p className="muted" style={{ margin: '.25rem 0 0', fontSize: '.88rem' }}>
-            Definí qué acciones puede realizar cada rol sobre cada módulo. Podés crear roles
+            Define qué acciones puede realizar cada rol sobre cada módulo. Puedes crear roles
             nuevos y eliminar los que no tengan usuarios asignados.
           </p>
         </div>

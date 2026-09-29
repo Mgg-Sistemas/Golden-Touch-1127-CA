@@ -13,7 +13,7 @@
    Le pasó a MGG el 17 y el 19/09/2026: 19 comidas del 11 al 14/09 cargadas
    después del conteo del 14; hubo que devolver 211,21 unidades a mano.
 
-   Acá solo se DETECTA para poder avisar antes de guardar. No bloquea: la carga
+   Aquí solo se DETECTA para poder avisar antes de guardar. No bloquea: la carga
    atrasada es válida, lo que hace falta es saber qué implica.
 
    Nota para GT: el libro del mercado ya NO se descuadra por esto (desde el
@@ -76,7 +76,7 @@ export function avisoFueraDelCiclo(caso: FueraDelCiclo, mercado: VentanaMercado 
   if (caso === 'antes') {
     return `Esa fecha es anterior al mercado ${n}, que arrancó el ${dia(mercado.inicio_at)}. `
       + 'La comida va a descontar el inventario HOY. Si esos víveres ya se contaron en un '
-      + 'CONTEO REAL, van a salir dos veces del inventario: revisá el stock después de guardar.';
+      + 'CONTEO REAL, van a salir dos veces del inventario: revisa el stock después de guardar.';
   }
   return `Esa fecha es posterior al cierre previsto del mercado ${n} (${dia(finDelCiclo(mercado.inicio_at))}).`;
 }

@@ -12,7 +12,7 @@
    Escribe en las MISMAS tablas que el módulo de PC (registrarUso /
    registrarTraslado / registrarEntrada / registrarMerma /
    eliminarMovimientoTanque, con PMP y contadores encadenados), así que
-   lo que se hace acá aparece al instante en la PC y viceversa (realtime).
+   lo que se hace aquí aparece al instante en la PC y viceversa (realtime).
    Corregir litros, equipo u hora es tarea de la PC.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
@@ -107,7 +107,7 @@ export function SurtidorMovilView() {
   });
 
   const sel = useMemo(() => tanques.find((t) => t.id === selId) ?? null, [tanques, selId]);
-  // Si el movimiento abierto lo borró otro (o se borró acá), el detalle se cierra solo.
+  // Si el movimiento abierto lo borró otro (o se borró aquí), el detalle se cierra solo.
   const detalleVivo = detalle ? movs.find((m) => m.id === detalle.id) ?? null : null;
   useEffect(() => { if (detalle && !loading && movs.length && !movs.some((m) => m.id === detalle.id)) setDetalle(null); }, [detalle, movs, loading]);
 
@@ -209,7 +209,7 @@ export function SurtidorMovilView() {
             );
           })}
           {movs.length >= ULTIMOS_EN_TELEFONO && (
-            <p className="muted" style={{ fontSize: '.85rem' }}>Acá se ven los últimos {ULTIMOS_EN_TELEFONO}. El libro completo está en el módulo de Combustible en la PC.</p>
+            <p className="muted" style={{ fontSize: '.85rem' }}>Aquí se ven los últimos {ULTIMOS_EN_TELEFONO}. El libro completo está en el módulo de Combustible en la PC.</p>
           )}
         </section>
       )}
@@ -278,11 +278,11 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   async function guardar(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!(litrosNum > 0)) { setError(tipo === 'entrada' ? 'Indicá los litros que entraron.' : tipo === 'merma' ? 'Indicá los litros de la merma.' : 'Indicá los litros surtidos.'); return; }
-    if (tipo === 'uso' && !equipo) { setError('Indicá a qué equipo o camión va el combustible.'); return; }
-    if (tipo === 'traslado' && !destinoId) { setError('Indicá a qué tanque pasa el combustible.'); return; }
-    if (tipo === 'merma' && !observacion.trim()) { setError('Indicá el motivo de la merma (faltante, derrame, evaporación…).'); return; }
-    if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indicá el costo por litro.'); return; }
+    if (!(litrosNum > 0)) { setError(tipo === 'entrada' ? 'Indica los litros que entraron.' : tipo === 'merma' ? 'Indica los litros de la merma.' : 'Indica los litros surtidos.'); return; }
+    if (tipo === 'uso' && !equipo) { setError('Indica a qué equipo o camión va el combustible.'); return; }
+    if (tipo === 'traslado' && !destinoId) { setError('Indica a qué tanque pasa el combustible.'); return; }
+    if (tipo === 'merma' && !observacion.trim()) { setError('Indica el motivo de la merma (faltante, derrame, evaporación…).'); return; }
+    if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indica el costo por litro.'); return; }
     if (sale && litrosNum > (Number(tanque.saldo_litros) || 0)) { setError(`El tanque tiene ${num(tanque.saldo_litros)} L: no alcanza para ${num(litrosNum)} L.`); return; }
     setGuardando(true); setEtapa('movimiento');
     try {
@@ -345,7 +345,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         <div className="surt-campo">
           <label htmlFor="surt-destino">¿A qué tanque pasa?</label>
           <div className="surt-buscable">
-            <SearchSelect id="surt-destino" value={destinoId} onChange={setDestinoId} placeholder="🔍 Buscá el tanque…"
+            <SearchSelect id="surt-destino" value={destinoId} onChange={setDestinoId} placeholder="🔍 Busca el tanque…"
               options={destinos.map((t) => ({ value: t.id, label: `${t.nombre} · ${num(t.saldo_litros)} L` }))} />
           </div>
         </div>
@@ -365,7 +365,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
             {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}
           </label>
           <div className="surt-buscable">
-            <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribí parte del nombre o la placa…"
+            <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe parte del nombre o la placa…"
               options={opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))} />
           </div>
         </div>
@@ -374,7 +374,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
       <div className="surt-campo">
         <label htmlFor="surt-autorizado">Autorizado por</label>
         <div className="surt-buscable">
-          <SearchSelect id="surt-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscá quién autorizó…"
+          <SearchSelect id="surt-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Busca quién autorizó…"
             options={opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))} />
         </div>
       </div>
@@ -428,7 +428,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
           <div className="surt-campo">
             <label htmlFor="surt-ubic">Destino / mina</label>
             <div className="surt-buscable">
-              <SearchSelect id="surt-ubic" value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscá el destino…"
+              <SearchSelect id="surt-ubic" value={ubicacion} onChange={setUbicacion} placeholder="🔍 Busca el destino…"
                 options={[{ value: '', label: '— sin destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
             </div>
           </div>
@@ -460,7 +460,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
           <span className="aviso-icono">⏳</span>
           <div>
             {etapa === 'fotos'
-              ? <><strong>El movimiento ya quedó guardado</strong>; se están subiendo las fotos con poca señal. No lo vuelvas a cargar. Podés esperar o volver a la lista: las fotos siguen subiendo solas.</>
+              ? <><strong>El movimiento ya quedó guardado</strong>; se están subiendo las fotos con poca señal. No lo vuelvas a cargar. Puedes esperar o volver a la lista: las fotos siguen subiendo solas.</>
               : <>Está tardando más de lo normal por la señal. No lo vuelvas a cargar hasta revisar la lista.</>}
             <div style={{ marginTop: '.5rem' }}>
               <button type="button" className="btn btn-sm btn-ghost" onClick={onCancel}>Ver la lista</button>
@@ -545,7 +545,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
       <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} grande
         titulo="📷 Fotos y documentos" />
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
-        Acá se agregan o quitan fotos, o se borra el movimiento completo. Los litros, el equipo, la hora y los medidores se corrigen desde el módulo de Combustible en la PC; el cambio se ve acá al instante.
+        Aquí se agregan o quitan fotos, o se borra el movimiento completo. Los litros, el equipo, la hora y los medidores se corrigen desde el módulo de Combustible en la PC; el cambio se ve aquí al instante.
       </small>
     </Modal>
   );
@@ -600,7 +600,7 @@ function CompartirMovimiento({ mov, tanque, tanqueDestino, registradoPor }: {
       setCopiado(true);
       toast('Mensaje copiado', 'success');
       setTimeout(() => setCopiado(false), 2500);
-    } catch { toast('No se pudo copiar. Mantené el dedo sobre el texto para copiarlo.', 'error'); }
+    } catch { toast('No se pudo copiar. Mantén el dedo sobre el texto para copiarlo.', 'error'); }
   }
 
   return (
@@ -617,7 +617,7 @@ function CompartirMovimiento({ mov, tanque, tanqueDestino, registradoPor }: {
       </div>
       {puedeCompartir && (
         <small className="muted" style={{ display: 'block', marginTop: '.45rem' }}>
-          Se abre el menú de compartir del teléfono: elegí WhatsApp y el chat. Así el mensaje
+          Se abre el menú de compartir del teléfono: elige WhatsApp y el chat. Así el mensaje
           llega con los emojis y los renglones enteros.
         </small>
       )}

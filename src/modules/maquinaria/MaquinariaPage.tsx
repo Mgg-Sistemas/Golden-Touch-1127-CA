@@ -148,7 +148,7 @@ export function MaquinariaPage() {
 
   // GT-INT-15 · Fichas que apuntan a un valor que ya no está en el catálogo de
   // Combustible. Ese equipo no ve su horómetro ni su gasoil, y su alerta de mantenimiento
-  // preventivo NO suena — sin ningún error, que es lo peligroso. Se listan acá arriba para
+  // preventivo NO suena — sin ningún error, que es lo peligroso. Se listan aquí arriba para
   // que se vea sin tener que abrir equipo por equipo.
   const vinculosRotos = useMemo(() => {
     if (!combEquipos.length) return [];
@@ -263,7 +263,7 @@ export function MaquinariaPage() {
           🔗 <strong>{vinculosRotos.length} equipo(s) desvinculados de Combustible.</strong>{' '}
           Su ficha apunta a un nombre que ya no está en el catálogo — casi siempre porque lo
           renombraron. Mientras siga así, <strong>no ven su horómetro ni su gasoil y su alerta de
-          mantenimiento no suena</strong>. Abrí cada equipo y elegí de nuevo el equipo de
+          mantenimiento no suena</strong>. Abre cada equipo y elige de nuevo el equipo de
           Combustible:
           <ul style={{ margin: '.4rem 0 0', paddingLeft: '1.1rem' }}>
             {vinculosRotos.map((e) => (

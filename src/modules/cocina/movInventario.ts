@@ -11,7 +11,7 @@
    otro de mermas sin una sola fila detrás: para cotejar había que irse a
    Inventario y sumar a mano.
 
-   Acá viven las reglas para armar esa lista, sin base ni React.
+   Aquí viven las reglas para armar esa lista, sin base ni React.
    ============================================================ */
 
 const round2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
@@ -49,7 +49,7 @@ export interface FilaKardex {
   actor?: string | null;
 }
 
-/** Cómo se dice cada origen en la pantalla. Lo que no esté acá sale tal cual. */
+/** Cómo se dice cada origen en la pantalla. Lo que no esté aquí sale tal cual. */
 export const ROTULO_ORIGEN: Record<string, string> = {
   orden: 'Orden de compra',
   compra_directa: 'Compra directa',

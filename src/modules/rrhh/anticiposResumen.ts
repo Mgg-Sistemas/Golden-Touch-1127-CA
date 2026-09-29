@@ -194,15 +194,15 @@ const esFecha = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 /** Qué le falta al alta para poder guardarse; null si está bien. */
 export function errorAlta(a: AltaAnticipo): string | null {
-  if (!a.personal_id) return 'Elegí el trabajador.';
-  if (!esFecha(a.fecha)) return 'Indicá la fecha del préstamo.';
-  if (a.monto_total == null || !(a.monto_total > 0)) return 'Indicá el monto.';
+  if (!a.personal_id) return 'Elige el trabajador.';
+  if (!esFecha(a.fecha)) return 'Indica la fecha del préstamo.';
+  if (a.monto_total == null || !(a.monto_total > 0)) return 'Indica el monto.';
   if (a.cuota_sugerida != null && a.cuota_sugerida < 0) return 'La cuota no puede ser negativa.';
   if (a.cuota_sugerida != null && a.cuota_sugerida > a.monto_total) return 'La cuota no puede superar el monto del préstamo.';
   if (a.historico) {
     if (a.abonado != null && a.abonado < 0) return 'Lo abonado no puede ser negativo.';
     if (a.abonado != null && r2(a.abonado) > r2(a.monto_total)) return 'Lo abonado no puede superar el monto del préstamo.';
-    if (a.abonado != null && a.abonado > 0 && !esFecha(a.fecha_abono)) return 'Indicá hasta qué fecha va lo abonado.';
+    if (a.abonado != null && a.abonado > 0 && !esFecha(a.fecha_abono)) return 'Indica hasta qué fecha va lo abonado.';
     if (a.abonado != null && a.abonado > 0 && a.fecha_abono < a.fecha) return 'Lo abonado no puede ser anterior al préstamo.';
   }
   return null;
@@ -210,9 +210,9 @@ export function errorAlta(a: AltaAnticipo): string | null {
 
 /** Qué le falta a un abono manual; null si está bien. */
 export function errorAbono(saldo: number, monto: number | null, fecha: string, fechaPrestamo?: string | null): string | null {
-  if (monto == null || !(monto > 0)) return 'Indicá el monto del abono.';
+  if (monto == null || !(monto > 0)) return 'Indica el monto del abono.';
   if (r2(monto) > r2(saldo)) return `El abono supera lo que falta por pagar (${r2(saldo).toFixed(2)} $).`;
-  if (!esFecha(fecha)) return 'Indicá la fecha del abono.';
+  if (!esFecha(fecha)) return 'Indica la fecha del abono.';
   if (fechaPrestamo && fecha < String(fechaPrestamo).slice(0, 10)) return 'El abono no puede ser anterior al préstamo.';
   return null;
 }

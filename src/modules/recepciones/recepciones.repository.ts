@@ -258,7 +258,7 @@ async function claveUnica(nombre: string): Promise<string> {
 
 export async function addMineral(input: { nombre: string; subtitulo?: string | null; columnas: 'abc' | 'prom'; n_lecturas?: number | null; color?: string | null }): Promise<MineralLab> {
   const nombre = input.nombre.trim();
-  if (!nombre) throw new Error('Indicá el nombre (mineral, letra o número).');
+  if (!nombre) throw new Error('Indica el nombre (mineral, letra o número).');
   const clave = await claveUnica(nombre);
   const { data: max } = await supabase.from(TABLE_MIN).select('orden').order('orden', { ascending: false }).limit(1).maybeSingle();
   const orden = (num((max as { orden?: number } | null)?.orden) || 0) + 1;
@@ -486,7 +486,7 @@ export async function listBigbags(
 
 export async function crearBigbag(input: { actor: string; actorName?: string | null; pesadaId?: string | null; tipo?: TipoPesaje }): Promise<BigbagRow> {
   const pesadaId = input.pesadaId ?? null;
-  // GT-INT-10 · El número lo pone la base. Acá se manda 0 y el trigger
+  // GT-INT-10 · El número lo pone la base. Aquí se manda 0 y el trigger
   // `asignar_numero_bigbag` asigna el siguiente bajo un lock del conjunto. Antes se
   // leía el máximo y se le sumaba uno desde el navegador: dos personas pesando a la vez
   // leían el mismo máximo y los dos bultos salían con el MISMO número.
@@ -519,7 +519,7 @@ export async function actualizarBigbag(id: string, patch: { numero?: number; pro
   if (error) {
     // GT-INT-10 · El índice único no deja repetir el número dentro del mismo conjunto.
     if ((error as { code?: string }).code === '23505') {
-      throw new Error(`Ya hay otro bulto con el número ${upd.numero}. Poné uno distinto.`);
+      throw new Error(`Ya hay otro bulto con el número ${upd.numero}. Pon uno distinto.`);
     }
     throw error;
   }
@@ -582,7 +582,7 @@ export async function listProcedencias(): Promise<ProcedenciaRow[]> {
 
 export async function crearProcedencia(input: { nombre: string; actor: string; actorName?: string | null }): Promise<ProcedenciaRow> {
   const nombre = input.nombre.trim().toUpperCase();
-  if (!nombre) throw new Error('Indicá el nombre de la procedencia.');
+  if (!nombre) throw new Error('Indica el nombre de la procedencia.');
   const { data, error } = await supabase.from(TABLE_PROC)
     .insert({ nombre, created_by: input.actor, actor_name: input.actorName ?? null }).select('*').single();
   if (error) throw (error.code === '23505' ? new Error('Esa procedencia ya existe.') : error);
@@ -617,7 +617,7 @@ export async function listProcedenciasConocidas(): Promise<string[]> {
     const p = (r.procedencia ?? '').trim().toUpperCase();
     if (p) set.add(p);
   }
-  return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+  return [...set].sort((a, b) => a.localeCompare(b, 'es-VE'));
 }
 
 /** Bigbags ACTIVOS de la recepción en curso: el set de trabajo (sin guardar) + los de
@@ -662,7 +662,7 @@ export async function sincronizarHumedadFinalPorProcedencia(input: { actor: stri
   // procedencia. La merma final se triplicaba y arrastraba la humedad adicional,
   // el SnO₂ final y la tasa final — que es el precio unitario con el que la
   // casiterita entra al inventario.
-  // Acá se conserva la más vieja de cada procedencia y se borran las repetidas,
+  // Aquí se conserva la más vieja de cada procedencia y se borran las repetidas,
   // así el arreglo además repara los duplicados que ya estén en la base.
   const { data: exist } = await supabase
     .from(TABLE_HFIN).select('id, procedencia').eq('auto', true)
@@ -1081,7 +1081,7 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
   // ── RESERVA del cierre ──────────────────────────────────────────────────
   // La fila del cierre se inserta ANTES de tocar el inventario, apoyada en el índice
   // único de `numero`. Si dos personas cierran la misma recepción a la vez, la segunda
-  // choca acá y se detiene sin haber ingresado nada. Antes las dos llegaban a
+  // choca aquí y se detiene sin haber ingresado nada. Antes las dos llegaban a
   // `registrarMovimiento` con las mismas pesadas disponibles y el mineral entraba dos
   // veces al inventario. La foto se escribe al final (paso «actualizar la reserva»).
   const { data: reserva, error: eRes } = await supabase.from(TABLE_CIERRES).insert({
@@ -1091,7 +1091,7 @@ export async function cerrarRecepcion(input: { numero: number; actor: string; ac
   }).select('*').single();
   if (eRes) {
     if ((eRes as { code?: string }).code === '23505') {
-      throw new Error(`La Recepción N° ${numero} ya fue cerrada por otra persona. Actualizá la pantalla antes de volver a intentar.`);
+      throw new Error(`La Recepción N° ${numero} ya fue cerrada por otra persona. Actualiza la pantalla antes de volver a intentar.`);
     }
     throw eRes;
   }
@@ -1296,7 +1296,7 @@ export async function reabrirCierre(cierre: CierreRecepcion, input: { actor: str
     .from(TABLE_CIERRES).delete().eq('id', cierre.id).select('*');
   if (eTom) throw eTom;
   if (!tomado?.length) {
-    throw new Error(`La Recepción N° ${cierre.numero} ya fue reabierta por otra persona. Actualizá la pantalla.`);
+    throw new Error(`La Recepción N° ${cierre.numero} ya fue reabierta por otra persona. Actualiza la pantalla.`);
   }
   const filaCierre = tomado[0];
 
@@ -1416,7 +1416,7 @@ async function reabrirCierreInterno(
   if (snap.bigbags?.length) await reInsert(TABLE_BB, snap.bigbags);
 
   // El cierre ya se borró al entrar (fue la reserva): ahora vive de nuevo en la hoja
-  // de trabajo, así que a partir de acá no hay nada que revertir.
+  // de trabajo, así que a partir de aquí no hay nada que revertir.
 
   // Aviso para la UI: si la foto es vieja (sin la clave de pesos), los bigbags NO volvieron.
   return { pesosRestaurados: cierreTienePesosEnFoto(cierre) };

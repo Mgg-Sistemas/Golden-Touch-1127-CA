@@ -63,11 +63,11 @@ describe('resumen', () => {
 describe('formulario', () => {
   it('valida lo obligatorio, el stock y la línea', () => {
     const f = formVacio('2026-09-28');
-    expect(erroresForm(f)).toEqual(['Elegí el trabajador.', 'Escribí qué se asigna.']);
+    expect(erroresForm(f)).toEqual(['Elige el trabajador.', 'Escribe qué se asigna.']);
     const g = { ...f, personal_id: 'p1', descripcion: 'Botas', desdeInventario: true, producto_id: 'prod', cantidad: '5' };
     expect(erroresForm(g, 3)).toEqual(['No alcanza el stock: hay 3 y se quieren asignar 5.']);
     expect(erroresForm({ ...g, cantidad: '2' }, 3)).toEqual([]);
-    expect(erroresForm({ ...g, desdeInventario: false, categoria: 'linea' })).toEqual(['Indicá el número de la línea.']);
+    expect(erroresForm({ ...g, desdeInventario: false, categoria: 'linea' })).toEqual(['Indica el número de la línea.']);
   });
   it('arma el payload y vuelve al formulario', () => {
     const f = { ...formVacio('2026-09-28'), personal_id: 'p1', descripcion: ' Laptop ', cantidad: '1', valor_unitario: '450,5', categoria: 'equipo' as const, serial: 'S1', retornable: true };

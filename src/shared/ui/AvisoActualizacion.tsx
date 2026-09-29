@@ -2,7 +2,7 @@ import { useVersionCheck } from '@/shared/lib/useVersionCheck';
 
 /**
  * Banner global que aparece SOLO cuando se detecta un despliegue real (cambio en
- * main ya publicado). NO se puede ocultar: persiste hasta que el usuario pulsa
+ * main ya publicado). NO se puede ocultar: persiste hasta que el usuario presiona
  * «Actualizar ahora» (recarga la página y trae la última versión). Así se fuerza
  * a todos los usuarios a refrescar el sistema tras cada actualización.
  */
@@ -15,7 +15,7 @@ export function AvisoActualizacion() {
       <span className="update-banner__icon" aria-hidden="true">🔄</span>
       <div className="update-banner__text">
         <strong>El sistema se actualizó.</strong>{' '}
-        Recargá para usar la última versión (guardá lo que estés escribiendo).
+        Recarga para usar la última versión (guarda lo que estés escribiendo).
       </div>
       <button className="btn btn-primary update-banner__btn" onClick={() => window.location.reload()}>
         Actualizar ahora

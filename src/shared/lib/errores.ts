@@ -33,13 +33,13 @@ function traducirPostgres(codigo: string, mensaje: string): string | null {
   if (codigo === '57014' || m.includes('statement timeout') || m.includes('canceling statement')) {
     return 'La consulta tardó más de lo que el servidor permite y se canceló. '
       + 'Suele pasar al pedir un rango de fechas muy largo o una lista sin filtrar: '
-      + 'achicá el rango (o filtrá por lo que estés buscando) y volvé a intentar. '
-      + 'Si sigue pasando con un rango corto, avisá: hay que revisarlo del lado del servidor.';
+      + 'achica el rango (o filtra por lo que estés buscando) y vuelve a intentar. '
+      + 'Si sigue pasando con un rango corto, avisa: hay que revisarlo del lado del servidor.';
   }
   // 08006 / 08003 · se cortó la conexión con la base.
   if (codigo === '08006' || codigo === '08003' || m.includes('connection terminated')) {
-    return 'Se cortó la conexión con el servidor. Revisá internet y volvé a intentar; '
-      + 'si estabas guardando, verificá antes si el cambio quedó.';
+    return 'Se cortó la conexión con el servidor. Revisa internet y vuelve a intentar; '
+      + 'si estabas guardando, verifica antes si el cambio quedó.';
   }
   return null;
 }

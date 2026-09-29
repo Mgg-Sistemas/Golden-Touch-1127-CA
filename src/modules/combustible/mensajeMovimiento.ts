@@ -5,7 +5,7 @@
    litros, de qué tanque, a qué equipo, quién autorizó y cuándo. Con emojis
    porque se lee en el teléfono, a la carrera y con sol.
 
-   El texto se arma acá, sin pantalla, para poder probarlo: WhatsApp no
+   El texto se arma aquí, sin pantalla, para poder probarlo: WhatsApp no
    perdona un mensaje mal armado y este se manda a un grupo de trabajo.
    ============================================================ */
 import type { MovimientoTanque, TipoMovTanque } from '@/shared/lib/types';
@@ -62,7 +62,7 @@ export interface DatosMensaje {
 
 /**
  * El mensaje listo para pegar en WhatsApp. Cada dato en su renglón: los que
- * no existen no se escriben, así no quedan renglones con «—» al pedo.
+ * no existen no se escriben, así no quedan renglones con «—» de más.
  */
 export function mensajeMovimiento(d: DatosMensaje): string {
   const m = d.mov;

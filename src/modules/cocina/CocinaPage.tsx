@@ -131,7 +131,7 @@ export function CocinaPage() {
         listViveres().catch(() => [] as Producto[]),
       ]);
       setMovs(m); setViveres(v); setErrorCarga(null);
-      // La tabla ya tiene lo suyo: se suelta ACÁ y no al final. Antes el mismo
+      // La tabla ya tiene lo suyo: se suelta Aquí y no al final. Antes el mismo
       // `loading` tapaba también la lectura del mercado y su resumen, que es lo
       // lento, así que quedaba un rato largo con las tarjetas llenas de números
       // y la tabla diciendo «Cargando…» — la misma pantalla contando dos cosas
@@ -191,7 +191,7 @@ export function CocinaPage() {
   const notaPeriodo = fDesde && fHasta
     ? (fDesde === fHasta ? (fDesde === hoyISO() ? 'hoy' : dmy(fDesde)) : `${dmy(fDesde)} – ${dmy(fHasta)}`)
     : fDesde ? `desde ${dmy(fDesde)}` : fHasta ? `hasta ${dmy(fHasta)}` : 'todo el registro';
-  // Víveres al 20% o menos de su mínimo (se avisa a Compras y se muestra acá).
+  // Víveres al 20% o menos de su mínimo (se avisa a Compras y se muestra aquí).
   const bajos = useMemo(() => viveresBajos(viveres), [viveres]);
 
   async function confirmarEliminar(m: CocinaMovimiento) {
@@ -310,9 +310,9 @@ export function CocinaPage() {
             <button className="btn btn-primary" onClick={() => void iniciar()} disabled={iniciando}>
               {iniciando ? 'Iniciando…' : '🛒 Iniciar mercado ahora'}
             </button>
-          ) : <p className="muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
+          ) : <p className="muted" style={{ margin: 0 }}>No tienes permiso para iniciar el mercado.</p>}
           <p className="muted" style={{ fontSize: '.8rem', margin: '.5rem 0 0' }}>
-            Mientras no haya mercado, las comidas se registran y descuentan stock igual, pero no entran en ningún ciclo. Cargá las comidas atrasadas antes de iniciarlo: lo registrado antes del clic queda dentro del saldo inicial.
+            Mientras no haya mercado, las comidas se registran y descuentan stock igual, pero no entran en ningún ciclo. Carga las comidas atrasadas antes de iniciarlo: lo registrado antes del clic queda dentro del saldo inicial.
           </p>
           <LeyendaCocina />
         </div>
@@ -641,9 +641,9 @@ export function CocinaPage() {
             <div><div className="muted" style={{ fontSize: '.72rem' }}>Pasan al próximo</div><div className="mono" style={{ fontWeight: 700, color: 'var(--success)' }}>{num(avance.viveresQuePasan)} víveres · {num(avance.unidadesQuePasan)} und</div></div>
           </div>
           <div className="form-row">
-            <label>Correo(s) para el reporte <span className="muted">(opcional · separá con coma)</span></label>
+            <label>Correo(s) para el reporte <span className="muted">(opcional · separa con coma)</span></label>
             <input className="input" value={emailCierre} onChange={(e) => setEmailCierre(e.target.value)} placeholder="correo@empresa.com, otro@empresa.com" />
-            <small className="muted">Opcional: si cargás uno o más correos, además de descargar el PDF <strong>se envía por correo</strong>. Si lo dejás vacío, solo se genera el PDF.</small>
+            <small className="muted">Opcional: si cargas uno o más correos, además de descargar el PDF <strong>se envía por correo</strong>. Si lo dejas vacío, solo se genera el PDF.</small>
           </div>
         </Modal>
       )}
@@ -759,11 +759,11 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
     const items: CocinaItem[] = lineas.filter((l) => l.info && l.cant > 0).map((l) => ({
       producto_id: l.info!.id, sku: l.info!.sku, nombre: l.info!.nombre, cantidad: l.cant, precio: l.precio, almacen: l.info!.almacen ?? null,
     }));
-    if (!items.length) { setError('Marcá al menos un víver con cantidad mayor a 0.'); return; }
+    if (!items.length) { setError('Marca al menos un víver con cantidad mayor a 0.'); return; }
     const exc = lineas.find((l) => l.excede);
     if (exc) { setError(`No hay stock suficiente de ${exc.info?.nombre} (disponible ${num(Number((prodMap.get(exc.pid)?.stock ?? 0)) + (esEdicion ? (oldQty.get(exc.pid) ?? 0) : 0))}).`); return; }
     const nPlatos = Number(platos) || 0;
-    if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
+    if (nPlatos <= 0) { setError('Indica cuántos platos se realizaron.'); return; }
     // Fecha del servicio: se combina el día elegido con una hora (para el orden dentro del
     // día). Si es una fecha desfasada, queda registrado en ese día.
     //
@@ -850,7 +850,7 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
 
         {/* Víveres consumidos: checklist de TODOS los víveres del inventario (cualquier almacén) */}
         <div className="form-row">
-          <label>Productos consumidos <span className="muted">(marcá los que se usaron · Alimentos, Víveres, Carnes, Proteínas, Hortalizas/Legumbres y Limpieza del inventario, sin importar el almacén)</span></label>
+          <label>Productos consumidos <span className="muted">(marca los que se usaron · Alimentos, Víveres, Carnes, Proteínas, Hortalizas/Legumbres y Limpieza del inventario, sin importar el almacén)</span></label>
           <input ref={searchRef} className="input" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
             placeholder={viveres.length ? '🔍 Buscar víver por nombre o SKU…' : '— sin víveres en el inventario —'}
             style={{ marginBottom: '.5rem' }} disabled={!viveres.length} />
@@ -891,7 +891,7 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
             })}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
-            <small className="muted">Los precios salen del inventario (PMP). {esEdicion ? <>Al guardar, el inventario se <strong>ajusta por la diferencia</strong> (si bajás una cantidad, vuelve al stock; si la subís, se descuenta más).</> : <>Al registrar, cada víver se <strong>descuenta del stock</strong>.</>}</small>
+            <small className="muted">Los precios salen del inventario (PMP). {esEdicion ? <>Al guardar, el inventario se <strong>ajusta por la diferencia</strong> (si bajas una cantidad, vuelve al stock; si la subes, se descuenta más).</> : <>Al registrar, cada víver se <strong>descuenta del stock</strong>.</>}</small>
             <span style={{ fontWeight: 700 }}>
               {nSeleccionados} seleccionado{nSeleccionados === 1 ? '' : 's'} · TOTAL {money(total)}
               {(Number(platos) || 0) > 0 && <> · Prom./plato <span style={{ color: 'var(--brand, #ff8a00)' }}>{money(total / (Number(platos) || 1))}</span></>}

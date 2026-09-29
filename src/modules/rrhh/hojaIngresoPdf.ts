@@ -10,7 +10,7 @@
      usuario): el grado de instrucción por casillas —primaria, bachiller,
      universitario— con el título obtenido, y el último trabajo: dónde estuvo,
      qué cargo tenía, cuánto duró y cuánto cobraba, más lugar para los trabajos
-     anteriores. Acá van la declaración y la firma, que cierran TODOS los datos
+     anteriores. Aquí van la declaración y la firma, que cierran TODOS los datos
      de la persona: por eso están al final de esta hoja y no de la primera.
    · HOJA 3: DOCUMENTOS A CONSIGNAR POR OFICINA. La lista de papeles que hay
      que entregar, por segmentos, que la oficina va tildando a medida que los
@@ -23,7 +23,7 @@
      documentos tampoco pide nada de banco.
 
    · ADAPTADA A VENEZUELA. El modelo venía con vocabulario de otro país
-     («Cédula / DNI / RUT», «Ciudad / Comuna»). Acá dice «Cédula de
+     («Cédula / DNI / RUT», «Ciudad / Comuna»). Aquí dice «Cédula de
      Identidad» y «Ciudad / Municipio», el estado civil usa las mismas
      opciones que el sistema (soltero, casado, divorciado, viudo,
      concubinato) y se pide el RIF, para que lo que se escribe a mano entre
@@ -34,7 +34,7 @@
    POR QUÉ LAS MEDIDAS SON TAN JUSTAS. La hoja 1 entra en UNA carta y tiene
    que seguir entrando: cada renglón mide `ALTO_CAMPO`. Con las cuatro
    secciones de datos ya queda a menos de 50 pt del pie, así que lo que se
-   agregue de acá en más va en la hoja 2, que sí tiene aire. Un campo de más en
+   agregue de aquí en más va en la hoja 2, que sí tiene aire. Un campo de más en
    la hoja 1 empuja el contenido fuera del papel sin que nadie lo note.
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
@@ -163,7 +163,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
    * las divisiones de columna. Devuelve dónde termina.
    *
    * La usan la carga familiar y los trabajos anteriores. Antes estaba escrita
-   * a mano en la carga familiar; al necesitarla dos veces se sacó acá, porque
+   * a mano en la carga familiar; al necesitarla dos veces se sacó aquí, porque
    * dos copias de un dibujo con medidas se desincronizan a la primera
    * corrección.
    */
@@ -233,7 +233,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   doc.setTextColor(20, 20, 20);
 
   // La cédula y el RIF son DOS datos distintos: el RIF es el fiscal y es el
-  // que va en los recibos, así que se pide acá y no se deduce de la cédula.
+  // que va en los recibos, así que se pide aquí y no se deduce de la cédula.
   campo(doc, TER2_X, y, TER, 'Cédula de identidad');
   campo(doc, TER3_X, y, TER, 'RIF (J/V-00000000-0)');
   // Este renglón es MÁS ALTO que los demás: lleva los rótulos «día/mes/año»
@@ -319,7 +319,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
 
   /* ════════════════ HOJA 2 · Instrucción y experiencia laboral ════════════════
      Pedido del usuario (28/09/2026). Va en hoja aparte porque la hoja 1 ya
-     cerraba a menos de 50 pt del pie: meter acá estos renglones empujaba la
+     cerraba a menos de 50 pt del pie: meter aquí estos renglones empujaba la
      firma fuera del papel. */
   doc.addPage();
   y = membrete(MARGIN);

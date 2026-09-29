@@ -71,7 +71,7 @@ export interface MovimientoParaMerma {
  * las resta en su propia columna, a la vista, y NO entran en el costo por plato.
  *
  * Las comidas se registran con `ref_tipo = 'cocina'`, y también sus reversos y las
- * ediciones: todo eso ya lo cuenta el consumo, y contarlo acá lo restaría dos veces.
+ * ediciones: todo eso ya lo cuenta el consumo, y contarlo aquí lo restaría dos veces.
  * Solo cuentan los víveres del ciclo y solo lo que baja. Devuelve cantidades positivas.
  */
 export function sumarMermas(movs: MovimientoParaMerma[], viverIds: Set<string>): Map<string, number> {

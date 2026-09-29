@@ -271,7 +271,7 @@ export interface SolicitudServicioEquipo {
 /**
  * Solicitudes de servicio (órdenes tipo='servicio') agrupadas por equipo. Sirve al
  * submódulo «Servicio de Mantenimiento»: desde Pedidos se pide/cotiza el servicio y
- * acá, en la tarjeta del equipo, se ve y se le da seguimiento. Una sola consulta;
+ * aquí, en la tarjeta del equipo, se ve y se le da seguimiento. Una sola consulta;
  * se agrupa en memoria por equipo_id (un renglón por equipo por orden).
  */
 export async function solicitudesServicioPorEquipo(): Promise<Map<string, SolicitudServicioEquipo[]>> {

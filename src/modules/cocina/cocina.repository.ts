@@ -64,7 +64,7 @@ export async function listViveres(): Promise<Producto[]> {
   const prods = await listProductos();
   return prods
     .filter((p) => p.estado === 'activo' && esCategoriaViveres(p.categoria))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE'));
 }
 
 /* ───────────── Alerta de víveres bajos → Analistas de Compras ───────────── */
@@ -249,8 +249,8 @@ async function consumirDeInventario(o: {
  */
 export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): Promise<CocinaMovimiento> {
   const items = (input.items ?? []).filter((i) => i.producto_id && Number(i.cantidad) > 0);
-  if (!items.length) throw new Error('Agregá al menos un víver con cantidad.');
-  if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indicá cuántos platos se realizaron (mayor que 0).');
+  if (!items.length) throw new Error('Agrega al menos un víver con cantidad.');
+  if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indica cuántos platos se realizaron (mayor que 0).');
 
   // ── GT-SIN-13 · El REGISTRO va primero, el descuento después ────────────────
   // Antes se descontaban los N víveres y recién al final se insertaba el
@@ -347,8 +347,8 @@ export interface ActualizarMovimientoCocinaInput {
  */
 export async function actualizarMovimientoCocina(id: string, input: ActualizarMovimientoCocinaInput): Promise<CocinaMovimiento> {
   const items = (input.items ?? []).filter((i) => i.producto_id && Number(i.cantidad) > 0);
-  if (!items.length) throw new Error('Agregá al menos un víver con cantidad.');
-  if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indicá cuántos platos se realizaron (mayor que 0).');
+  if (!items.length) throw new Error('Agrega al menos un víver con cantidad.');
+  if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indica cuántos platos se realizaron (mayor que 0).');
 
   // 1) Movimiento actual (para calcular la diferencia de consumo por víver).
   const { data: cur, error: eCur } = await supabase.from(TABLE).select('*').eq('id', id).single();

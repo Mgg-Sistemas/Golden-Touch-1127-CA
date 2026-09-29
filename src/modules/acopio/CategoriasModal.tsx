@@ -46,7 +46,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
   }, [items, tab, filtro]);
 
   async function agregar() {
-    if (!valor.trim()) { toast('Indicá la categoría', 'error'); return; }
+    if (!valor.trim()) { toast('Indica la categoría', 'error'); return; }
     setBusy(true);
     try { await addClasificacion(tab, valor); setValor(''); setValorKey((k) => k + 1); await recargar(); toast('Categoría agregada', 'success'); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
@@ -69,7 +69,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
         ))}
       </div>
 
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Categorías de <strong>{tabActual.label}</strong>. Agregá, editá o activá/desactivá según necesites.</p>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Categorías de <strong>{tabActual.label}</strong>. Agrega, edita o activa/desactiva según necesites.</p>
 
       {canWrite && (
         <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.6rem' }}>
@@ -86,7 +86,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
           <table className="table" style={{ fontSize: '.86rem' }}>
             <thead><tr><th style={{ width: 50 }}>#</th><th>Categoría</th><th style={{ width: 110 }}>Estado</th>{canWrite && <th style={{ width: 220 }}></th>}</tr></thead>
             <tbody>
-              {!lista.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin categorías en {tabActual.label}. {canWrite ? 'Agregá la primera.' : ''}</td></tr>}
+              {!lista.length && <tr><td colSpan={canWrite ? 4 : 3} className="muted" style={{ textAlign: 'center' }}>Sin categorías en {tabActual.label}. {canWrite ? 'Agrega la primera.' : ''}</td></tr>}
               {lista.map((c) => (
                 <tr key={c.id} style={{ opacity: c.activo ? 1 : 0.5 }}>
                   <td className="mono muted">{c.orden}</td>

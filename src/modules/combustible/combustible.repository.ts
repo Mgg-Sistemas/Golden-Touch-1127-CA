@@ -84,7 +84,7 @@ export async function crearCombustible(input: {
   const nombre = input.nombre.trim();
   if (!nombre) throw new Error('El nombre del combustible es obligatorio.');
   const almacen = (input.almacen || '').trim();
-  if (!almacen) throw new Error('Indicá el almacén donde se registra el combustible.');
+  if (!almacen) throw new Error('Indica el almacén donde se registra el combustible.');
   const litros = Math.max(0, Number(input.litrosIniciales) || 0);
   // Tasa por defecto $0,50/L si no se indica un costo explícito.
   const costo = input.costoLitro != null && Number(input.costoLitro) > 0
@@ -170,7 +170,7 @@ export async function registrarIngreso(input: {
   const litros = Number(input.litros) || 0;
   if (litros <= 0) throw new Error('Los litros deben ser mayores que 0.');
   const almacen = (input.almacen || '').trim();
-  if (!almacen) throw new Error('Indicá el almacén del ingreso.');
+  if (!almacen) throw new Error('Indica el almacén del ingreso.');
   const costo = Math.max(0, Number(input.costoLitro) || 0);
 
   const { data: comb, error: cErr } = await supabase
@@ -311,10 +311,10 @@ export async function crearSolicitudCombustible(input: {
 }): Promise<SolicitudCombustible> {
   const litros = Number(input.litros) || 0;
   if (litros <= 0) throw new Error('Los litros solicitados deben ser mayores que 0.');
-  if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
-  if (!input.destino.trim()) throw new Error('Indicá a dónde va el combustible.');
+  if (!input.solicitante.trim()) throw new Error('Indica quién hace la solicitud.');
+  if (!input.destino.trim()) throw new Error('Indica a dónde va el combustible.');
   const almacen = (input.almacen || '').trim();
-  if (!almacen) throw new Error('Indicá de qué almacén sale el combustible.');
+  if (!almacen) throw new Error('Indica de qué almacén sale el combustible.');
 
   const codigo = await nextCodigoSolicitud();
   const historial = appendHistorial({ historial: [] }, 'creada', input.actor, { litros, almacen });
@@ -357,7 +357,7 @@ export async function aprobarSolicitudCombustible(s: SolicitudCombustible, actor
     .eq('estado', 'por_aprobar')
     .select('id');
   if (error) throw error;
-  if (!data || data.length === 0) throw new Error('La solicitud ya no está «por aprobar» (otra persona la actualizó). Refrescá la vista.');
+  if (!data || data.length === 0) throw new Error('La solicitud ya no está «por aprobar» (otra persona la actualizó). Refresca la vista.');
 }
 
 /**
@@ -411,7 +411,7 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
     .select('id');
   if (rErr) throw rErr;
   if (!reserva || reserva.length === 0) {
-    throw new Error('Esta solicitud ya fue finalizada por otra persona (o cambió de estado). No se descontó nada de nuevo — refrescá la vista.');
+    throw new Error('Esta solicitud ya fue finalizada por otra persona (o cambió de estado). No se descontó nada de nuevo — refresca la vista.');
   }
 
   // A partir de aquí la solicitud es NUESTRA y la reserva NO se libera, ni ante error:
@@ -467,7 +467,7 @@ export async function finalizarSolicitudCombustible(s: SolicitudCombustible, act
     if (sErr) throw sErr;
   } catch (e) {
     throw new Error(
-      `La finalización de ${s.codigo} se interrumpió a mitad de proceso; es posible que los litros ya se hayan descontado del inventario o la tarjeta. Revisá el kardex del combustible ANTES de reintentar (la solicitud quedó marcada como finalizada). Detalle: ${e instanceof Error ? e.message : String(e)}`,
+      `La finalización de ${s.codigo} se interrumpió a mitad de proceso; es posible que los litros ya se hayan descontado del inventario o la tarjeta. Revisa el kardex del combustible ANTES de reintentar (la solicitud quedó marcada como finalizada). Detalle: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 }
@@ -486,5 +486,5 @@ export async function cancelarSolicitudCombustible(s: SolicitudCombustible, acto
     .neq('estado', 'finalizada')
     .select('id');
   if (error) throw error;
-  if (!data || data.length === 0) throw new Error('No se pudo cancelar: la solicitud ya fue finalizada (o cambió de estado). Refrescá la vista.');
+  if (!data || data.length === 0) throw new Error('No se pudo cancelar: la solicitud ya fue finalizada (o cambió de estado). Refresca la vista.');
 }

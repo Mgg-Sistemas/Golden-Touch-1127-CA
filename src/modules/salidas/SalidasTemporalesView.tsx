@@ -143,7 +143,7 @@ export function SalidasTemporalesView({
       <div className="page-head">
         <div>
           <h1>Salidas Temporales</h1>
-          <p className="muted hint">Sacá un material a <strong>mantenimiento</strong> y retornalo al inventario. Se crea <strong>pendiente</strong>, se <strong>aprueba</strong> (firma) y sale del stock; al <strong>finalizar</strong> el material vuelve y se registra el tiempo que estuvo afuera.</p>
+          <p className="muted hint">Saca un material a <strong>mantenimiento</strong> y retornalo al inventario. Se crea <strong>pendiente</strong>, se <strong>aprueba</strong> (firma) y sale del stock; al <strong>finalizar</strong> el material vuelve y se registra el tiempo que estuvo afuera.</p>
         </div>
         <div className="actions">
           {canWrite && <button className="btn btn-primary" onClick={() => setForm({ open: true, edit: null })}>＋ Nueva salida temporal</button>}
@@ -170,7 +170,7 @@ export function SalidasTemporalesView({
         <EmptyState message="Cargando…" icon="◔" />
       ) : vista === 'kanban' ? (
         !filtradas.length ? (
-          <EmptyState message="No hay salidas temporales. Creá la primera con el botón de arriba." icon="🔧" />
+          <EmptyState message="No hay salidas temporales. Crea la primera con el botón de arriba." icon="🔧" />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '.75rem' }}>
             {EST_COLS.map((col) => {
@@ -564,17 +564,17 @@ function SalidaTemporalForm({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!solicitante.trim()) { setError('Indicá quién hace la solicitud.'); return; }
+    if (!solicitante.trim()) { setError('Indica quién hace la solicitud.'); return; }
 
     const itemsInput: ItemSalidaTemporalInput[] = [];
     for (const r of renglones) {
       const cant = Number(r.cantidad) || 0;
       if (r.esNuevo) {
         if (!r.nombre.trim()) {
-          if (cant > 0) { setError('Indicá el nombre del material nuevo.'); return; }
+          if (cant > 0) { setError('Indica el nombre del material nuevo.'); return; }
           continue; // renglón vacío: se ignora
         }
-        if (cant <= 0) { setError(`Poné una cantidad mayor que 0 para «${r.nombre.trim()}».`); return; }
+        if (cant <= 0) { setError(`Pon una cantidad mayor que 0 para «${r.nombre.trim()}».`); return; }
         if (r.producto_id) {
           // Ya dado de alta en una edición anterior: se conserva la ficha.
           itemsInput.push({
@@ -589,7 +589,7 @@ function SalidaTemporalForm({
           });
           continue;
         }
-        if (!esCategoriaReal(r.categoria)) { setError(`Elegí la categoría de «${r.nombre.trim()}». GENERAL ya no es una categoría.`); return; }
+        if (!esCategoriaReal(r.categoria)) { setError(`Elige la categoría de «${r.nombre.trim()}». GENERAL ya no es una categoría.`); return; }
         itemsInput.push({
           producto_nombre: r.nombre.trim(),
           unidad: r.unidadNueva.trim() || 'UND',
@@ -601,10 +601,10 @@ function SalidaTemporalForm({
         });
       } else {
         if (!r.producto_id) {
-          if (cant > 1 || r.observacion.trim()) { setError('Elegí el material en cada renglón (o quitá el renglón vacío).'); return; }
+          if (cant > 1 || r.observacion.trim()) { setError('Elige el material en cada renglón (o quita el renglón vacío).'); return; }
           continue; // renglón sin material: se ignora
         }
-        if (cant <= 0) { setError(`Poné una cantidad mayor que 0 para «${r.producto_nombre}».`); return; }
+        if (cant <= 0) { setError(`Pon una cantidad mayor que 0 para «${r.producto_nombre}».`); return; }
         const disponible = disponiblePara(r.productoKey);
         if (cant > disponible) { setError(`No hay stock suficiente de ${r.producto_nombre} en ${invLabel(r.almacen)}. Disponible: ${num(disponible)}.`); return; }
         itemsInput.push({
@@ -619,8 +619,8 @@ function SalidaTemporalForm({
         });
       }
     }
-    if (!itemsInput.length) { setError('Agregá al menos un material con cantidad.'); return; }
-    if (movioInventario && !enTransitoEn) { setError('Indicá desde cuándo está en tránsito.'); return; }
+    if (!itemsInput.length) { setError('Agrega al menos un material con cantidad.'); return; }
+    if (movioInventario && !enTransitoEn) { setError('Indica desde cuándo está en tránsito.'); return; }
 
     setSaving(true);
     try {
@@ -676,7 +676,7 @@ function SalidaTemporalForm({
         <div className="card" style={{ padding: '.55rem .75rem', background: 'var(--bg-1)', marginBottom: '.75rem', borderColor: movioInventario ? 'var(--warning, #f59e0b)' : undefined }}>
           <span className="muted" style={{ fontSize: '.8rem' }}>
             {movioInventario ? (
-              <>Esta salida <strong>ya movió inventario</strong> (el material está afuera). Si cambiás materiales o cantidades, el inventario se <strong>ajusta solo por la diferencia</strong> y queda en el kardex.</>
+              <>Esta salida <strong>ya movió inventario</strong> (el material está afuera). Si cambias materiales o cantidades, el inventario se <strong>ajusta solo por la diferencia</strong> y queda en el kardex.</>
             ) : (
               <>El N° correlativo (<strong>ST-001…</strong>) se asigna solo al guardar. El material sale del inventario al <strong>aprobar</strong> y retorna al <strong>finalizar</strong>.</>
             )}
@@ -748,12 +748,12 @@ function SalidaTemporalForm({
                     <div className="form-row" style={{ marginBottom: 0 }}>
                       <label>Categoría *</label>
                       <SearchCreateSelect value={r.categoria} onChange={(v) => setRenglon(r.key, { categoria: v.toUpperCase() })}
-                        options={categorias} placeholder="Elegí o escribí una categoría" />
+                        options={categorias} placeholder="Elige o escribe una categoría" />
                     </div>
                     <div className="form-row" style={{ marginBottom: 0 }}>
                       <label>Medida / unidad</label>
                       <SearchSelect value={r.unidadNueva} onChange={(v) => setRenglon(r.key, { unidadNueva: v })}
-                        options={unidades.map((u) => ({ value: u, label: u }))} placeholder="Elegí una medida existente" />
+                        options={unidades.map((u) => ({ value: u, label: u }))} placeholder="Elige una medida existente" />
                       <small className="muted">Solo medidas existentes.</small>
                     </div>
                   </div>

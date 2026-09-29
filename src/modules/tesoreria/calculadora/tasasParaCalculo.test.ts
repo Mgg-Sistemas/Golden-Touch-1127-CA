@@ -163,7 +163,7 @@ describe('el motor con las tasas reales de MGG', () => {
   });
 
   it('el margen del paralelo sale de una división', () => {
-    // Es el dato que la barra ya muestra; acá se puede calcular a mano.
+    // Es el dato que la barra ya muestra; aquí se puede calcular a mano.
     const r = calc('1 usdt / 1 $')!;
     expect(r.valor.dim).toBe(0);
     expect(r.valor.bs).toBeCloseTo(965.78 / 807.39, 6);

@@ -126,24 +126,24 @@ export function CrearServicioModal({
    *  catálogo). Devuelve el ítem o null si falta algo. NO toca el estado. */
   async function buildItem(): Promise<ItemOrden | null> {
     const nom = servicio.trim();
-    if (!nom) { toast('Elegí o escribí el servicio', 'error'); return null; }
+    if (!nom) { toast('Elige o escribe el servicio', 'error'); return null; }
     const gas = esRecargaGas(categoria, nom);
     const etq = etiquetasRecarga(categoria, nom);
     // En recargas la cantidad la dan los recipientes (bombonas/cisternas), no hay campo Cantidad.
     const cant = gas
       ? (Number(String(bombonas).replace(',', '.')) || 0)
       : (Number(String(cantidad).replace(',', '.')) || 0);
-    if (cant <= 0) { toast(gas ? `Indicá la ${etq.cantidad.toLowerCase()}` : 'La cantidad debe ser mayor a 0', 'error'); return null; }
+    if (cant <= 0) { toast(gas ? `Indica la ${etq.cantidad.toLowerCase()}` : 'La cantidad debe ser mayor a 0', 'error'); return null; }
     let equipoNombre: string | null = null;
     if (esMantenimiento) {
-      if (!equipoId) { toast('Seleccioná la máquina/vehículo del mantenimiento', 'error'); return null; }
+      if (!equipoId) { toast('Selecciona la máquina/vehículo del mantenimiento', 'error'); return null; }
       if (!insumoId && !sinInsumo) {
-        toast('Elegí el repuesto del inventario, o marcá que este servicio no lleva ninguno', 'error');
+        toast('Elige el repuesto del inventario, o marca que este servicio no lleva ninguno', 'error');
         return null;
       }
       equipoNombre = equipos.find((e) => e.id === equipoId)?.equipo ?? null;
     } else if (esElectro) {
-      if (!electro.trim()) { toast('Elegí el electrodoméstico', 'error'); return null; }
+      if (!electro.trim()) { toast('Elige el electrodoméstico', 'error'); return null; }
       equipoNombre = electro.trim();
     }
     // Si el servicio no existe en el catálogo, lo guardamos para reutilizarlo.
@@ -192,7 +192,7 @@ export function CrearServicioModal({
         if (!it) return; // buildItem ya avisó qué falta
         lista = [it];
       } else {
-        toast('Añadí al menos un servicio', 'error');
+        toast('Añade al menos un servicio', 'error');
         return;
       }
     }
@@ -283,7 +283,7 @@ export function CrearServicioModal({
             <div>
               <label className="label">{esMantenimiento ? 'Tipo de servicio' : 'Servicio'}</label>
               <SearchCreateSelect options={serviciosCat} value={servicio} onChange={setServicio}
-                placeholder={esMantenimiento ? 'Elegí el tipo (caucho, repuesto, aceite, pintura…)' : 'Elegí o escribí un servicio…'}
+                placeholder={esMantenimiento ? 'Elige el tipo (caucho, repuesto, aceite, pintura…)' : 'Elige o escribe un servicio…'}
                 emptyText="Sin servicios en esta categoría" />
             </div>
           </div>
@@ -308,7 +308,7 @@ export function CrearServicioModal({
             <div>
               <label className="label">Electrodoméstico</label>
               <SearchCreateSelect options={[...ELECTRODOMESTICOS]} value={electro} onChange={setElectro}
-                placeholder="Elegí (cocina, nevera, lavadora, microondas…)" emptyText="Escribí para agregar otro" />
+                placeholder="Elige (cocina, nevera, lavadora, microondas…)" emptyText="Escribe para agregar otro" />
             </div>
           )}
           {esMantenimiento && (
@@ -418,7 +418,7 @@ export function CrearServicioModal({
             placeholder="Detalle del servicio requerido…" />
         </div>
         <div>
-          <label className="label">Adjuntar imágenes o PDF <span className="muted">(podés elegir varios)</span></label>
+          <label className="label">Adjuntar imágenes o PDF <span className="muted">(puedes elegir varios)</span></label>
           <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
           {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
         </div>

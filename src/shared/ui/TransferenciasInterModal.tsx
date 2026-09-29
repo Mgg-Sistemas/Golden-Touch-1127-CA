@@ -2,8 +2,8 @@
    GT-INT-11 · Transferencias con MGG: ver, reintentar, revertir
 
    El material sale de Golden Touch ANTES de que MGG lo acepte. Cuando el
-   puente falla, esos litros o esos kilos quedan en el limbo: ya no están acá
-   y nunca llegaron allá. Hasta ahora no había ninguna pantalla que lo
+   puente falla, esos litros o esos kilos quedan en el limbo: ya no están aquí
+   y nunca llegaron allí. Hasta ahora no había ninguna pantalla que lo
    mostrara — las funciones que listaban estas transferencias existían en el
    código pero no las llamaba nadie.
 
@@ -104,9 +104,9 @@ export function TransferenciasInterModal({
                 : `Hay ${enError.length} envíos que no llegaron a MGG.`}
             </strong>
             <p style={{ margin: '6px 0 0', color: 'var(--text-muted)' }}>
-              Esos {unidad} ya salieron de Golden Touch. <b>Probá primero «Reintentar»</b>: se puede
+              Esos {unidad} ya salieron de Golden Touch. <b>Prueba primero «Reintentar»</b>: se puede
               apretar las veces que haga falta sin riesgo de mandar de más, y si MGG ya lo tenía, la
-              transferencia se resuelve sola. Usá «Devolver» únicamente cuando hayas confirmado con
+              transferencia se resuelve sola. Usa «Devolver» únicamente cuando hayas confirmado con
               MGG que nunca les llegó.
             </p>
           </div>
@@ -117,7 +117,7 @@ export function TransferenciasInterModal({
         ) : filas.length === 0 ? (
           <EmptyState
             icon="↔"
-            message={`Todavía no se envió ${recurso.toLowerCase()} a MGG. Acá van a aparecer los envíos, con su estado y qué hacer si alguno falla.`}
+            message={`Todavía no se envió ${recurso.toLowerCase()} a MGG. Aquí van a aparecer los envíos, con su estado y qué hacer si alguno falla.`}
           />
         ) : (
           <div className="table-wrap">
@@ -193,12 +193,12 @@ export function TransferenciasInterModal({
           title={`Devolver ${unidad} a Golden Touch`}
           danger
           requireText="DEVOLVER"
-          requireLabel="Escribí DEVOLVER para confirmar"
+          requireLabel="Escribe DEVOLVER para confirmar"
           message={
             `Vas a reponer «${porRevertir.resumen ?? 'este envío'}» en Golden Touch y a marcar el envío como devuelto.\n\n` +
-            `Hacelo SOLO si confirmaste con MGG que nunca les llegó. Si allá sí entró y lo que falló fue el aviso de vuelta, ` +
-            `devolverlo acá deja los mismos ${unidad} contados en las dos empresas.\n\n` +
-            `Si no lo confirmaste todavía, cerrá esto y apretá «Reintentar»: es seguro y te dice la verdad.`
+            `Hazlo SOLO si confirmaste con MGG que nunca les llegó. Si allí sí entró y lo que falló fue el aviso de vuelta, ` +
+            `devolverlo aquí deja los mismos ${unidad} contados en las dos empresas.\n\n` +
+            `Si no lo confirmaste todavía, cierra esto y aprieta «Reintentar»: es seguro y te dice la verdad.`
           }
           confirmText="Devolver"
           onCancel={() => setPorRevertir(null)}

@@ -132,12 +132,12 @@ export function retencionIva(ivaFactura: number, porcentaje: number): number {
 export function errorRetencionIva(input: {
   baseImponible: number; ivaFactura: number; porcentaje: number; facturaNro?: string | null;
 }): string | null {
-  if (n(input.baseImponible) <= 0) return 'Indicá la base imponible de la factura.';
-  if (n(input.ivaFactura) <= 0) return 'Indicá el IVA de la factura: la retención se calcula sobre él, no sobre la base.';
+  if (n(input.baseImponible) <= 0) return 'Indica la base imponible de la factura.';
+  if (n(input.ivaFactura) <= 0) return 'Indica el IVA de la factura: la retención se calcula sobre él, no sobre la base.';
   if (!PORCENTAJES_IVA.includes(n(input.porcentaje) as 75 | 100)) {
     return 'La retención de IVA solo puede ser 75% o 100% (Providencia SNAT/2015/0049).';
   }
-  if (!String(input.facturaNro ?? '').trim()) return 'Indicá el número de la factura: el comprobante lo lleva.';
+  if (!String(input.facturaNro ?? '').trim()) return 'Indica el número de la factura: el comprobante lo lleva.';
   return null;
 }
 
@@ -214,7 +214,7 @@ export function calcularIslr(input: {
   const baseAplicada = r2(pago * (basePct / 100));
   const vacio: ResultadoIslr = { baseAplicada, porcentaje, sustraendo: 0, monto: 0, aviso: null };
 
-  if (pago <= 0) return { ...vacio, aviso: 'Indicá el monto del pago.' };
+  if (pago <= 0) return { ...vacio, aviso: 'Indica el monto del pago.' };
   if (porcentaje <= 0) {
     return { ...vacio, aviso: 'Ese concepto no prevé retención para este sujeto.' };
   }
@@ -385,7 +385,7 @@ export function resumirLibro(filas: FilaLibro[]): ResumenLibro {
 /* ───────── 7) Validación del RIF ─────────
    Vive en la librería compartida: el RIF no es un asunto de retenciones, lo
    usan también proveedores, ventas y la ficha del personal. Se reexporta para
-   no cambiar quién lo importa desde acá. */
+   no cambiar quién lo importa desde aquí. */
 export { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';
 
 /* ───────── Qué puede retener la empresa ───────── */
@@ -396,12 +396,12 @@ export { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';
  *
  * · IVA · La Providencia SNAT/2015/0049 nombra agentes de retención de IVA a
  *   los contribuyentes especiales. Quien no lo es, no retiene IVA: retenerlo
- *   sería quedarse con plata del proveedor que después nadie puede acreditar.
+ *   sería quedarse con dinero del proveedor que después nadie puede acreditar.
  * · IGTF · La Ley del IGTF pone la percepción en cabeza de los contribuyentes
  *   especiales. Golden Touch lo SUFRE cuando paga en divisas a un especial —y
  *   ahí es un costo—, pero no lo percibe.
  *
- * ISLR, MUNICIPAL y ESTADAL no están acá a propósito: el ISLR (Decreto 1808) lo
+ * ISLR, MUNICIPAL y ESTADAL no están aquí a propósito: el ISLR (Decreto 1808) lo
  * retiene cualquier persona jurídica que pague un concepto sujeto, y el
  * municipal/estadal sale de la ordenanza, no de la condición de especial.
  */
@@ -429,6 +429,6 @@ export function motivoNoPuedeRetener(
     : 'la Ley del IGTF pone la percepción en cabeza de los contribuyentes especiales';
   return `${TIPO_RETENCION_LABEL[tipo]}: la empresa no puede retener este impuesto porque `
     + `no está designada contribuyente especial, y ${norma}. `
-    + 'Si lo que pasó es que te lo retuvieron a vos, cambiá «¿Quién retuvo?» a «Nos la practicaron». '
-    + 'Si el SENIAT designó a la empresa, marcá la casilla en Parámetros fiscales.';
+    + 'Si lo que pasó es que te lo retuvieron a tú, cambia «¿Quién retuvo?» a «Nos la practicaron». '
+    + 'Si el SENIAT designó a la empresa, marca la casilla en Parámetros fiscales.';
 }

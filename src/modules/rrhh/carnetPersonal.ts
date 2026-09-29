@@ -185,7 +185,7 @@ export function textoQrPersona(p: Personal): string {
     (p.contacto_emergencia || p.telefono_emergencia)
       ? `Emergencia: ${[p.contacto_emergencia, p.telefono_emergencia].filter(Boolean).join(' · ')}`
       : '',
-    // Las condiciones de salud van acá por lo mismo que el contacto de
+    // Las condiciones de salud van aquí por lo mismo que el contacto de
     // emergencia: quien asiste a un accidentado escanea el carnet y necesita
     // saber a qué no puede ser alérgico ANTES de medicarlo.
     ...lineasSaludQr(p),
@@ -340,7 +340,7 @@ export async function generarCarnetPersonalDataUrl(
   // Leyenda bajo el QR.
   ctx.fillStyle = pal.tenue;
   ctx.font = "500 20px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText('Escaneá el código para ver los datos de contacto', cx, panelY + panelW + 30);
+  ctx.fillText('Escanea el código para ver los datos de contacto', cx, panelY + panelW + 30);
 
   // Pie naranja.
   const footY = CARNET_H - 62;

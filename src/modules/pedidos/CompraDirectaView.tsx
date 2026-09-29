@@ -200,7 +200,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       {loading ? (
         <EmptyState message="Cargando compras directas..." icon="◔" />
       ) : !compras.length ? (
-        <EmptyState message="Sin compras directas. Creá la primera con “+ Nueva compra directa”." icon="🛒" />
+        <EmptyState message="Sin compras directas. Crea la primera con “+ Nueva compra directa”." icon="🛒" />
       ) : vista === 'kanban' ? (
         <div className="kanban">
           {COLS.map((col) => (
@@ -539,7 +539,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
     try {
       const added = await addCategoria(clean);
       if (!added) return;
-      setCats((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es'))));
+      setCats((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es-VE'))));
       set(lineId, { categoria: added });
       setNuevaCat((m) => ({ ...m, [lineId]: '' }));
       toast(`Categoría "${added}" añadida`, 'success');
@@ -553,13 +553,13 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
       const cant = Number(l.cantidad) || 0;
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (l.modo === 'existente') {
-        if (!l.productoId) { setError('Elegí el material en cada renglón.'); return; }
+        if (!l.productoId) { setError('Elige el material en cada renglón.'); return; }
         payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant, unidad: l.unidad });
       } else {
         // Se lee del DOM (ref) para no perder la última letra por un re-render.
         const nombre = (nombreRefs.current[l.id]?.value ?? l.nombre).trim().toUpperCase();
-        if (!nombre) { setError('Indicá el nombre del material nuevo.'); return; }
-        // Categoría: si tecleó una NUEVA sin pulsar «+ Añadir», la guardamos ahora en el
+        if (!nombre) { setError('Indica el nombre del material nuevo.'); return; }
+        // Categoría: si tecleó una NUEVA sin presionar «+ Añadir», la guardamos ahora en el
         // catálogo del inventario (taxonomías) y la usamos — así queda sincronizada.
         let categoria = l.categoria;
         const tecleada = (nuevaCat[l.id] ?? '').trim();
@@ -569,11 +569,11 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
           else {
             try {
               const added = await addCategoria(tecleada);
-              if (added) { categoria = added; setCats((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es')))); }
+              if (added) { categoria = added; setCats((prev) => (prev.some((c) => c.toLowerCase() === added.toLowerCase()) ? prev : [...prev, added].sort((a, b) => a.localeCompare(b, 'es-VE')))); }
             } catch { /* si falla, cae a la categoría seleccionada */ }
           }
         }
-        if (!categoria) { setError('Elegí o creá una categoría para el material nuevo.'); return; }
+        if (!categoria) { setError('Elige o crea una categoría para el material nuevo.'); return; }
         payload.push({ modo: 'nuevo', nombre, categoria, unidad: l.unidad, cantidad: cant });
       }
     }
@@ -871,7 +871,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   // (aplica en ambas monedas); el % no cambia. Guarda la tasa usada para Tesorería.
   function convertirMoneda() {
     const t = Number(tasa) || 0;
-    if (t <= 0) { setError('Cargá la tasa (Bs por $) para convertir.'); return; }
+    if (t <= 0) { setError('Carga la tasa (Bs por $) para convertir.'); return; }
     const destino: 'USD' | 'Bs' = monedaCompra === 'USD' ? 'Bs' : 'USD';
     const factor = destino === 'Bs' ? t : 1 / t;
     const conv = (s: string | undefined) => {
@@ -966,8 +966,8 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (total <= 0) { setError('Indicá cuánto se gastó en cada material.'); return; }
-    if (!monedaConfirmada) { setError('Elegí la MONEDA de la compra (USD $ o Bs) antes de continuar. Es obligatorio para no registrar bolívares como dólares.'); return; }
+    if (total <= 0) { setError('Indica cuánto se gastó en cada material.'); return; }
+    if (!monedaConfirmada) { setError('Elige la MONEDA de la compra (USD $ o Bs) antes de continuar. Es obligatorio para no registrar bolívares como dólares.'); return; }
     if (files.some((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'))) { setError('Los adjuntos deben ser PDF o imagen.'); return; }
 
     // MODO MONTAR (analista): carga factura + montos y deja "Por pagar" (no toca caja ni inventario).
@@ -987,8 +987,8 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     const confirmado = reembolsoConfirmado.current;
     reembolsoConfirmado.current = false;
     if (ret.error) { setError(ret.error); return; }
-    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
-    if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
+    if (!cajaId) { setError('Elige la caja de la que sale el dinero.'); return; }
+    if (catsGasto.length && (!catId || !subId)) { setError('Elige la categoría y la subcategoría de gasto.'); return; }
     let legs: PagoLeg[] | undefined;
     let reembolsoLegs: PagoLeg[] = [];
     let reembolsoUsd = 0;
@@ -996,7 +996,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       legs = saldosCaja
         .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, cajaId: s.caja_id }))
         .filter((l) => l.monto > 0);
-      if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
+      if (!legs.length) { setError('Indica cuánto pagar en al menos una moneda.'); return; }
       if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(totalUsdObjetivo, 'USD')}).`); return; }
       if (excedeTotalMulti) {
         if (!confirmado) { setConfirmarReembolso(true); return; }
@@ -1008,7 +1008,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
       // así que el egreso sale de la billetera real. Si la compra está en OTRA moneda que la
       // billetera (ej. compra en $ y billetera en Bs), se descuenta el EQUIVALENTE con la tasa.
       const s = saldosCaja[0];
-      if (monedaCompra !== s.moneda && !(tasa > 0)) { setError('Indicá la tasa (Bs por $) para convertir el total a la moneda de la billetera.'); return; }
+      if (monedaCompra !== s.moneda && !(tasa > 0)) { setError('Indica la tasa (Bs por $) para convertir el total a la moneda de la billetera.'); return; }
       const montoLeg = convertir(aPagar, monedaCompra, s.moneda);
       if (montoLeg > Number(s.saldo) + 0.01) { setError(`Saldo insuficiente en la billetera (${montoCaja(Number(s.saldo), s.moneda)}). Requiere ${montoCaja(montoLeg, s.moneda)}.`); return; }
       legs = [{ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: montoLeg, cajaId: s.caja_id }];
@@ -1084,7 +1084,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
           <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 320 }}
             placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
             options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
-          <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Repartí el pago por moneda/caja abajo.' : ''}</small>
+          <small className="muted">El gasto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Reparte el pago por moneda/caja abajo.' : ''}</small>
         </div>
         )}
 
@@ -1107,7 +1107,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                 </span>
               ))}
             </div>
-            <small className="muted">Sumá otra caja para pagar parte en una moneda/caja y el resto en otra (ej. 50$ divisas + 50$ Bs al cambio).</small>
+            <small className="muted">Suma otra caja para pagar parte en una moneda/caja y el resto en otra (ej. 50$ divisas + 50$ Bs al cambio).</small>
           </div>
         )}
 
@@ -1125,7 +1125,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
             <div className="form-row">
               <label>Subcategoría</label>
               <SearchSelect value={subId} onChange={setSubId} disabled={!catId}
-                placeholder={catId ? '🔍 Subcategoría…' : '— elegí primero la categoría —'} emptyText="Sin subcategorías"
+                placeholder={catId ? '🔍 Subcategoría…' : '— elige primero la categoría —'} emptyText="Sin subcategorías"
                 options={(catId ? subcategoriasDe(catsGasto, catId) : []).map((c) => ({ value: c.id, label: c.nombre }))} />
             </div>
           </div>
@@ -1212,7 +1212,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
           </div>
         )}
 
-        {/* Multipago por cuenta: repartí el total entre las monedas de la caja Multimoneda. */}
+        {/* Multipago por cuenta: reparte el total entre las monedas de la caja Multimoneda. */}
         {esPago && esMultimoneda && (
           <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>Pago por moneda/caja · ¿cuánto sale de cada una?</div>
@@ -1270,13 +1270,13 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                   if (v !== 'Bs' && v !== 'USD') return;
                   setMonedaCompra(v); setMonedaConfirmada(true); setTasaConversion(null);
                 }}>
-                {!monedaConfirmada && <option value="" disabled>— elegí la moneda —</option>}
+                {!monedaConfirmada && <option value="" disabled>— elige la moneda —</option>}
                 <option value="USD">$ (USD)</option>
                 <option value="Bs">Bs</option>
               </select>
               {!monedaConfirmada && <span style={{ color: 'var(--danger)', fontSize: '.72rem' }}>⚠ Obligatorio: ¿la compra es en $ o en Bs?</span>}
               <button type="button" className="btn btn-sm btn-ghost" onClick={convertirMoneda} disabled={!monedaConfirmada || !(Number(tasa) > 0)}
-                title={Number(tasa) > 0 ? `Convierte todos los montos a la tasa ${num(tasa)}` : 'Cargá la tasa abajo para convertir'}>
+                title={Number(tasa) > 0 ? `Convierte todos los montos a la tasa ${num(tasa)}` : 'Carga la tasa abajo para convertir'}>
                 ⇄ Convertir a {monedaCompra === 'USD' ? 'Bs' : '$'}
               </button>
               {tasaConversion != null && tasaConversion > 0 && (
@@ -1294,7 +1294,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
               </label>
               <span className="muted" style={{ fontSize: '.72rem' }}>
                 {ivaNum > 0
-                  ? <>sobre base {montoCaja(baseIva, monedaCompra)} · podés ajustar el monto a mano</>
+                  ? <>sobre base {montoCaja(baseIva, monedaCompra)} · puedes ajustar el monto a mano</>
                   : 'opcional · el % calcula el monto y el monto se puede ajustar'}
               </span>
             </div>
@@ -1310,7 +1310,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
               <span className="muted">Total ajustable:</span>
               <input className="input mono" type="number" min={0} step="any" value={total || ''} onChange={(e) => onTotal(e.target.value)} style={{ width: 150, textAlign: 'right', fontWeight: 700 }} /> {monedaCompra === 'Bs' ? 'Bs' : '$'}
-              <span className="muted" style={{ fontSize: '.72rem' }}>ajustá el total y el descuento se sincroniza.</span>
+              <span className="muted" style={{ fontSize: '.72rem' }}>ajusta el total y el descuento se sincroniza.</span>
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
               <span className="muted">Tasa BCV (Bs/$):</span>
@@ -1318,7 +1318,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
               <span className="muted" style={{ fontSize: '.8rem' }}>
                 {tasa > 0
                   ? <>Equivale a <strong className="mono">{monedaCompra === 'Bs' ? montoCaja(totalUsd, 'USD') : montoCaja(totalBs, 'Bs')}</strong></>
-                  : 'cargá la tasa (modificable)'}
+                  : 'carga la tasa (modificable)'}
               </span>
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
@@ -1352,10 +1352,10 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
 
         {!esPago && (
           <div className="form-row">
-            <label>Adjuntar facturas · PDF o imagen <span className="muted">(podés elegir varias)</span></label>
+            <label>Adjuntar facturas · PDF o imagen <span className="muted">(puedes elegir varias)</span></label>
             <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
             {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
-            <small className="muted">Podés sumar más facturas después desde el detalle.</small>
+            <small className="muted">Puedes sumar más facturas después desde el detalle.</small>
           </div>
         )}
 
@@ -1370,7 +1370,7 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
             <small className="muted">
               {afectaInventario
                 ? 'Al pagar, cada material entra al inventario (stock + costo PMP).'
-                : '⚠ No entrarán al inventario al pagar (marcalo así si ya los cargaste a mano, para no duplicar el stock).'}
+                : '⚠ No entrarán al inventario al pagar (márcalo así si ya los cargaste a mano, para no duplicar el stock).'}
             </small>
           </div>
         )}

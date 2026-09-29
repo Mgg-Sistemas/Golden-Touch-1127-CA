@@ -95,7 +95,7 @@ export function TransporteFields({
 
   async function guardarChofer() {
     const nombre = (chNombreRef.current?.value ?? '').trim();
-    if (!nombre) { toast('Escribí al menos el nombre del chofer', 'error'); return; }
+    if (!nombre) { toast('Escribe al menos el nombre del chofer', 'error'); return; }
     try {
       setAddingCh(true);
       const c = await addChofer({
@@ -120,8 +120,8 @@ export function TransporteFields({
   async function guardarVehiculo() {
     const descripcion = (veDescRef.current?.value ?? '').trim();
     const placa = (vePlacaRef.current?.value ?? '').trim();
-    if (!descripcion) { toast('Escribí la descripción del vehículo', 'error'); return; }
-    if (!placa) { toast('Escribí la placa del vehículo', 'error'); return; }
+    if (!descripcion) { toast('Escribe la descripción del vehículo', 'error'); return; }
+    if (!placa) { toast('Escribe la placa del vehículo', 'error'); return; }
     try {
       setAddingVe(true);
       const v = await addVehiculo({ descripcion, placa, actor });
@@ -263,7 +263,7 @@ function GestionarChoferesModal({ choferes, onClose, onCambio }: {
 
   return (
     <Modal title="Gestionar choferes" size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Editá, desactivá o eliminá choferes. Los desactivados no aparecen en el formulario.</p>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Edita, desactiva o elimina choferes. Los desactivados no aparecen en el formulario.</p>
       {choferes.length === 0 && <div className="muted" style={{ padding: '.5rem 0' }}>Sin choferes cargados.</div>}
       {choferes.map((c) => (
         <div key={c.id} className="card" style={{ padding: '.5rem .7rem', margin: '0 0 .45rem', background: 'var(--bg-1)', opacity: c.activo ? 1 : 0.55 }}>
@@ -336,7 +336,7 @@ function GestionarVehiculosModal({ vehiculos, onClose, onCambio }: {
 
   return (
     <Modal title="Gestionar vehículos" size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Editá, desactivá o eliminá vehículos. Los desactivados no aparecen en el formulario.</p>
+      <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Edita, desactiva o elimina vehículos. Los desactivados no aparecen en el formulario.</p>
       {vehiculos.length === 0 && <div className="muted" style={{ padding: '.5rem 0' }}>Sin vehículos cargados.</div>}
       {vehiculos.map((v) => (
         <div key={v.id} className="card" style={{ padding: '.5rem .7rem', margin: '0 0 .45rem', background: 'var(--bg-1)', opacity: v.activo ? 1 : 0.55 }}>

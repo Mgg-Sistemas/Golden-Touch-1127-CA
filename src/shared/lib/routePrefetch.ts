@@ -2,12 +2,12 @@
    Golden Touch · Prefetch de rutas
    Las páginas se cargan en chunks separados (lazy en App.tsx). Sin prefetch,
    el chunk del módulo se descarga RECIÉN al hacer clic → la navegación "tarda".
-   Acá bajamos ese JS ANTES: al pasar el mouse/foco por el ítem del menú y, en
+   Aquí bajamos ese JS ANTES: al pasar el mouse/foco por el ítem del menú y, en
    segundo plano (idle), los módulos a los que el usuario tiene acceso. Así el
    clic navega al instante.
 
    Los import() usan los MISMOS módulos que App.tsx (Vite deduplica por id), así
-   que se comparte el chunk: precargar acá deja el módulo en caché para el lazy().
+   que se comparte el chunk: precargar aquí deja el módulo en caché para el lazy().
    ============================================================ */
 
 type Loader = () => Promise<unknown>;

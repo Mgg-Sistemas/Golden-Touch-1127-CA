@@ -64,11 +64,11 @@ export function GestionarCajasModal({
     if (ES_DIVISA(moneda) && tasaBinance != null && !tasaUsdt) setTasaUsdt(String(tasaBinance));
   }, [moneda, tasaBinance, tasaUsdt]);
 
-  // Saldo multimoneda (caja_saldos) por caja: para USDT el saldo real vive acá.
+  // Saldo multimoneda (caja_saldos) por caja: para USDT el saldo real vive aquí.
   const saldoMultiPorCaja = useMemo(() => {
     const m = new Map<string, { saldo: number; tasaProm: number | null; moneda: string }>();
     for (const s of saldos) {
-      if (s.moneda === 'Bs') continue; // las cajas de divisa que nos importan acá son USDT/USD
+      if (s.moneda === 'Bs') continue; // las cajas de divisa que nos importan aquí son USDT/USD
       const cur = m.get(s.caja_id);
       const saldo = (cur?.saldo ?? 0) + (Number(s.saldo) || 0);
       m.set(s.caja_id, { saldo, tasaProm: s.tasa_prom != null ? Number(s.tasa_prom) : (cur?.tasaProm ?? null), moneda: s.moneda });
@@ -77,11 +77,11 @@ export function GestionarCajasModal({
   }, [saldos]);
 
   async function agregar() {
-    if (!nombre.trim()) { toast('Escribí el nombre de la caja', 'error'); return; }
+    if (!nombre.trim()) { toast('Escribe el nombre de la caja', 'error'); return; }
     const saldoInicial = Number(saldoIni) || 0;
     const esUsdt = ES_DIVISA(moneda);
     const tasa = Number(tasaUsdt) || 0;
-    if (esUsdt && saldoInicial > 0 && tasa <= 0) { toast('Indicá la tasa Binance (Bs por USDT) del saldo inicial.', 'error'); return; }
+    if (esUsdt && saldoInicial > 0 && tasa <= 0) { toast('Indica la tasa Binance (Bs por USDT) del saldo inicial.', 'error'); return; }
     setBusy(true);
     try {
       // USDT es multimoneda: la caja nace sin saldo legacy y el saldo entra como
@@ -124,7 +124,7 @@ export function GestionarCajasModal({
 
   async function guardarAjuste() {
     if (!ajusteId) return;
-    if (!ajusteMotivo.trim()) { toast('Indicá el motivo del ajuste', 'error'); return; }
+    if (!ajusteMotivo.trim()) { toast('Indica el motivo del ajuste', 'error'); return; }
     setBusy(true);
     try {
       await ajustarSaldo(ajusteId, Number(ajusteVal) || 0, ajusteMotivo, actor, actorName);

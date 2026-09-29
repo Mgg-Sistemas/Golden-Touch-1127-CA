@@ -165,7 +165,7 @@ const EXPLICA: Record<CifraCiclo, { titulo: string; que: string; como: string }>
   disponible: {
     titulo: '= Disponible',
     que: 'Todo lo que hubo para consumir en el ciclo.',
-    como: 'Saldo inicial + entradas. Es el techo: de acá salen las comidas y las mermas.',
+    como: 'Saldo inicial + entradas. Es el techo: de aquí salen las comidas y las mermas.',
   },
   consumo: {
     titulo: '− Consumo',
@@ -222,7 +222,7 @@ function DetalleCifraModal({ cual, items, ec, costo, abierto, onClose }: {
           </div>
         </div>
         <p className="muted" style={{ marginBottom: 0, fontSize: '.85rem' }}>
-          Las <strong>mermas y salidas no entran acá</strong>: lo dañado, los ajustes y los traslados no son comida
+          Las <strong>mermas y salidas no entran aquí</strong>: lo dañado, los ajustes y los traslados no son comida
           servida, así que no encarecen el plato. {costo.platos == null && 'Este mercado es anterior a que se guardaran los platos del ciclo, por eso no hay costo por plato.'}
         </p>
       </Modal>
@@ -278,7 +278,7 @@ function DetalleCifraModal({ cual, items, ec, costo, abierto, onClose }: {
 const INTERRUPTORES: { vista: InterruptorVista; icono: string; titulo: string; que: string }[] = [
   { vista: 'disponible', icono: '📋', titulo: 'Disponible', que: 'Qué hay de cada víver y cuánto queda' },
   { vista: 'movimientos', icono: '🧾', titulo: 'Movimientos', que: 'Entradas, traslados, consumos y mermas' },
-  // Traído de MGG (21/09/2026): el control de distribución vive acá, no en una
+  // Traído de MGG (21/09/2026): el control de distribución vive aquí, no en una
   // pantalla aparte, porque mira el mismo ciclo que las otras dos vistas.
   { vista: 'distribucion', icono: '📊', titulo: 'Distribución', que: 'Consumo por día, lote de compra y reorden' },
 ];
@@ -298,7 +298,7 @@ export function SelectorVista({ vista, onElegir }: { vista: VistaMercado; onEleg
         return (
           <button key={it.vista} type="button" role="switch" aria-checked={on} aria-label={`${it.titulo}: ${it.que}`}
             className={`coc-vista${on ? ' on' : ''}${ultimo ? ' ultimo' : ''}`}
-            title={ultimo ? 'Es lo único encendido: prendé otra vista antes de apagar esta' : `${on ? 'Apagar' : 'Encender'} ${it.titulo}`}
+            title={ultimo ? 'Es lo único encendido: enciende otra vista antes de apagar esta' : `${on ? 'Apagar' : 'Encender'} ${it.titulo}`}
             onClick={() => onElegir(alternarVista(vista, it.vista, previa.current))}>
             <span className="coc-vista-txt">
               <span className="coc-vista-titulo">{it.icono} {it.titulo}</span>
@@ -335,7 +335,7 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
       <div className="card-title" style={{ marginBottom: '.5rem' }}>
         Disponible a consumir{' '}
         <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-          · saldo inicial + entradas − consumos − mermas{onElegir ? ' · tocá un víver para el detalle' : ''}
+          · saldo inicial + entradas − consumos − mermas{onElegir ? ' · toca un víver para el detalle' : ''}
         </span>
       </div>
 

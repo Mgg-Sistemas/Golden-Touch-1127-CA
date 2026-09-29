@@ -2,7 +2,7 @@
    Golden Touch · RRHH · Detalle de un préstamo / anticipo
 
    Todo lo de UN préstamo: a quién, cuándo, cuánto, qué se abonó (por nómina,
-   a mano o del histórico) y cuánto falta. Desde acá se abona a mano, se
+   a mano o del histórico) y cuánto falta. Desde aquí se abona a mano, se
    corrige el dato mal cargado y se saca el estado de cuenta en PDF.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -75,9 +75,9 @@ export function AnticipoDetalleModal({
   const edMontoNum = numOrNull(edMonto);
   const edCuotaNum = numOrNull(edCuota);
   const problemaEdicion = modo === 'editar'
-    ? (edMontoNum == null || !Number.isFinite(edMontoNum) || edMontoNum <= 0) ? 'Indicá el monto total.'
+    ? (edMontoNum == null || !Number.isFinite(edMontoNum) || edMontoNum <= 0) ? 'Indica el monto total.'
       : r2(edMontoNum) < pagado ? `El total no puede ser menor que lo ya abonado (${money(pagado)}).`
-        : !/^\d{4}-\d{2}-\d{2}$/.test(edFecha) ? 'Indicá la fecha del préstamo.'
+        : !/^\d{4}-\d{2}-\d{2}$/.test(edFecha) ? 'Indica la fecha del préstamo.'
           : (edCuotaNum != null && (Number.isNaN(edCuotaNum) || edCuotaNum < 0)) ? 'La cuota no puede ser negativa.'
             : null
     : null;
@@ -299,7 +299,7 @@ export function AnticipoDetalleModal({
         </div>
       )}
       <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
-        Los abonos de <strong>nómina</strong> no se borran desde acá: quedan casados con la quincena pagada. Los abonos a mano y los históricos sí.
+        Los abonos de <strong>nómina</strong> no se borran desde aquí: quedan casados con la quincena pagada. Los abonos a mano y los históricos sí.
       </small>
 
       {porBorrar && (

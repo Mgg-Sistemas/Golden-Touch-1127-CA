@@ -7,7 +7,7 @@
    recibe. Antes se escribían recién en la oferta y al recibir se
    perdían: al producto solo se le tocaba stock y precio.
 
-   Acá vive el formato único de ese rótulo. Estaba repetido —con
+   Aquí vive el formato único de ese rótulo. Estaba repetido —con
    pequeñas diferencias— en la lista de la OC, en las recepciones
    pendientes y en el reparto entre proveedores.
    ============================================================ */

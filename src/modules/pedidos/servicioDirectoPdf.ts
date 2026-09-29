@@ -3,7 +3,7 @@
    Cabecera + tabla de servicios (categoría, tipo, equipo, cantidad,
    recipientes y volumen en recargas — bombonas/KG en gas/oxígeno/extintores,
    cisternas/litros en agua — y monto).
-   Se abre en vista previa; se descarga solo al pulsar Descargar.
+   Se abre en vista previa; se descarga solo al presionar Descargar.
    ============================================================ */
 import type { ServicioDirecto } from './serviciosDirectos.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';

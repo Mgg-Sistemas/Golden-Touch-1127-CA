@@ -60,7 +60,7 @@ export function DestinoSelect({
 
       {modo === 'almacen' ? (
         <select className="select" value={opcionesAlmacen.includes(value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
-          <option value="">— elegí el almacén —</option>
+          <option value="">— elige el almacén —</option>
           {opcionesAlmacen.map((a) => <option key={a} value={a}>{invLabel(a)}</option>)}
         </select>
       ) : (

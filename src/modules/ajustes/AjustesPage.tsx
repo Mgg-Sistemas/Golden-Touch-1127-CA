@@ -108,7 +108,7 @@ export function AjustesPage() {
   }
 
   function handleCambiarClave() {
-    // Pasamos `from` para que la pantalla de cambio sepa volver acá
+    // Pasamos `from` para que la pantalla de cambio sepa volver aquí
     // en lugar de cerrar sesión y mandar al landing.
     navigate('/cambiar-clave', { state: { from: '/app/ajustes' } });
   }
@@ -316,7 +316,7 @@ export function AjustesPage() {
           </div>
           {isWebAuthnSupported() && (
             <p className="muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>
-              La huella se activa por equipo: registrá la biometría de este dispositivo para entrar más rápido.
+              La huella se activa por equipo: registra la biometría de este dispositivo para entrar más rápido.
             </p>
           )}
         </div>

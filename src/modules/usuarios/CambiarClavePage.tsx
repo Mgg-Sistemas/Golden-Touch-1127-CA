@@ -13,7 +13,7 @@ export function CambiarClavePage() {
   const [submitting, setSubmitting] = useState(false);
 
   // Si el usuario llega desde otra pantalla del app (ej. Ajustes), `state.from`
-  // viene seteado: "Volver" lo lleva de regreso allá sin cerrar sesión.
+  // viene seteado: "Volver" lo lleva de regreso allí sin cerrar sesión.
   // "Aceptar" siempre cierra sesión y manda al landing porque al cambiar la
   // clave el JWT vigente queda obsoleto y se debe reingresar.
   const fromInterno = (location.state as { from?: string } | null)?.from;

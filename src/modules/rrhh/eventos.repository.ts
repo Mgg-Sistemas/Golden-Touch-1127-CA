@@ -28,7 +28,7 @@ export interface EventoInput {
 }
 
 export async function crearEvento(input: EventoInput, actorEmail?: string, actorName?: string | null): Promise<RrhhEvento> {
-  if (!input.personal_id) throw new Error('Indicá a quién corresponde.');
+  if (!input.personal_id) throw new Error('Indica a quién corresponde.');
   const { data, error } = await supabase.from(TABLE).insert({
     personal_id: input.personal_id,
     tipo: input.tipo,

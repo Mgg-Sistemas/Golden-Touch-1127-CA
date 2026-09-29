@@ -13,7 +13,7 @@
          Q*  = √(2·D·S / H)          lote óptimo de compra
          ROP = (D / 365) · L         punto de reorden
          órdenes/año = D / Q*        ·  ciclo = 365 / órdenes-año
-      La diferencia con la hoja: allá D se escribe a mano. Acá, para que el
+      La diferencia con la hoja: allí D se escribe a mano. Aquí, para que el
       control sirva en los ~70 productos del mercado sin cargar nada, D se
       ESTIMA del consumo real (promedio diario × 365) y se puede pisar producto
       por producto cuando se conozca el número verdadero.

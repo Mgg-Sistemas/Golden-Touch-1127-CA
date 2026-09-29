@@ -127,7 +127,7 @@ export async function descargarFichaTecnicaPdf(
   ]);
 
   // Lo que declaró al ingresar (28/09/2026). Va ANTES de los datos laborales de
-  // la empresa: primero de dónde viene, después qué hace acá.
+  // la empresa: primero de dónde viene, después qué hace aquí.
   bloque('INSTRUCCION Y EXPERIENCIA', [
     ['Grado de instruccion', persona.grado_instruccion ? labelGrado(persona.grado_instruccion) : '—'],
     ['Titulo obtenido', texto(persona.titulo_obtenido)],

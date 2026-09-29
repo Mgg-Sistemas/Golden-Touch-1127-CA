@@ -41,8 +41,8 @@ describe('errorFicha', () => {
     expect(errorFicha('100')).toBeNull();
   });
 
-  it('el mensaje de «muy corta» dice qué pasa si la dejás vacía', () => {
-    expect(errorFicha('1')).toMatch(/lo dejás vacío/);
+  it('el mensaje de «muy corta» dice qué pasa si la dejas vacía', () => {
+    expect(errorFicha('1')).toMatch(/lo dejas vacío/);
   });
 
   it('los espacios no cuentan para llegar al mínimo', () => {

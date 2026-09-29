@@ -40,8 +40,8 @@ export function ConciliarMineralModal({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (modo === 'existente' && !productoId) { setError('Elegí el mineral.'); return; }
-    if (modo === 'nuevo' && !nombreNuevo.trim()) { setError('Escribí el nombre del mineral.'); return; }
+    if (modo === 'existente' && !productoId) { setError('Elige el mineral.'); return; }
+    if (modo === 'nuevo' && !nombreNuevo.trim()) { setError('Escribe el nombre del mineral.'); return; }
     if (cantNum <= 0) { setError('El total entrante debe ser mayor que 0.'); return; }
     setSaving(true);
     try {

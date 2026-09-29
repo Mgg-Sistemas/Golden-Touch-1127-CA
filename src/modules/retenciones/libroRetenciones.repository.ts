@@ -3,7 +3,7 @@
 
    Golden Touch NO es agente de retención. Lo que pasa de verdad es que sus
    CLIENTES le retienen (IVA, ISLR, municipal) y le entregan el comprobante, y
-   que al pagar en divisas le cobran el IGTF. Ese papel vale plata: la retención
+   que al pagar en divisas le cobran el IGTF. Ese papel vale dinero: la retención
    sufrida es un ANTICIPO DE IMPUESTO que se descuenta en la declaración, y el
    que no se registra se pierde.
 
@@ -310,7 +310,7 @@ export async function marcarDeclaradas(ids: string[], actor: string): Promise<nu
  */
 export async function anularRetencion(id: string, motivo: string, actor: string): Promise<void> {
   const m = motivo.trim();
-  if (!m) throw new Error('Indicá por qué se anula: queda en el libro como constancia.');
+  if (!m) throw new Error('Indica por qué se anula: queda en el libro como constancia.');
   const { error } = await supabase.from(TABLE).update({
     estado: 'anulada', anulada_motivo: m, actor, updated_at: new Date().toISOString(),
   }).eq('id', id);

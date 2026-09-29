@@ -179,7 +179,7 @@ function EnviarProduccionModal({
       lista.push(extraClean);
     }
     if (!lista.length) {
-      toast('Marcá al menos un destinatario', 'error');
+      toast('Marca al menos un destinatario', 'error');
       return;
     }
     setEnviando(true);
@@ -252,7 +252,7 @@ function EnviarProduccionModal({
           placeholder="otro@correo.com"
           maxLength={120}
         />
-        <small className="muted">Podés mandarlo a un segundo destinatario al mismo tiempo.</small>
+        <small className="muted">Puedes mandarlo a un segundo destinatario al mismo tiempo.</small>
       </div>
     </Modal>
   );

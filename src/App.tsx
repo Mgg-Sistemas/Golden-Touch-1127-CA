@@ -42,7 +42,7 @@ function SinAccesoPage() {
     <div className="card" style={{ padding: '2rem', maxWidth: 520, margin: '2rem auto', textAlign: 'center' }}>
       <h2 style={{ marginTop: 0 }}>Sin acceso</h2>
       <p className="muted">
-        Tu rol no tiene permisos sobre ningún módulo. Pedile a un administrador que ajuste tus
+        Tu rol no tiene permisos sobre ningún módulo. Pídele a un administrador que ajuste tus
         permisos en <strong>Usuarios → Roles y Permisos</strong>.
       </p>
     </div>

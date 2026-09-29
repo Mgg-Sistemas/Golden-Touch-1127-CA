@@ -129,7 +129,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
       {loading ? (
         <EmptyState message="Cargando servicios directos..." icon="◔" />
       ) : !servicios.length ? (
-        <EmptyState message="Sin servicios directos. Creá el primero con “+ Nuevo servicio directo”." icon="🔧" />
+        <EmptyState message="Sin servicios directos. Crea el primero con “+ Nuevo servicio directo”." icon="🔧" />
       ) : vista === 'kanban' ? (
         <div className="kanban">
           {COLS.map((col) => (
@@ -468,13 +468,13 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
       const gas = esRecargaGas(cat, tipo);
       // En recargas la cantidad la dan las bombonas (no hay campo Cantidad).
       const cant = gas ? (Number(l.bombonas) || 0) : (Number(l.cantidad) || 0);
-      if (!cat) { setError('Indicá la categoría de cada servicio.'); return; }
-      if (!tipo) { setError('Indicá el tipo de servicio en cada renglón.'); return; }
-      if (cant <= 0) { setError(gas ? `Indicá la ${etiquetasRecarga(cat, tipo).cantidad.toLowerCase()}.` : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
+      if (!cat) { setError('Indica la categoría de cada servicio.'); return; }
+      if (!tipo) { setError('Indica el tipo de servicio en cada renglón.'); return; }
+      if (cant <= 0) { setError(gas ? `Indica la ${etiquetasRecarga(cat, tipo).cantidad.toLowerCase()}.` : 'Cada servicio debe tener cantidad mayor que 0.'); return; }
       // Mantenimiento: hay que DECIDIR si lleva repuesto del inventario o no.
       // Dejarlo en blanco no se puede; la base tampoco lo acepta.
       if (cat === CATEGORIA_MANTENIMIENTO && !l.insumoId && !l.sinInsumo) {
-        setError('En los renglones de mantenimiento, elegí el repuesto del inventario o marcá que ese servicio no lleva ninguno.');
+        setError('En los renglones de mantenimiento, elige el repuesto del inventario o marca que ese servicio no lleva ninguno.');
         return;
       }
       const esElectro = esElectrodomestico(cat);
@@ -634,7 +634,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
               <option value="USD">$ (USD)</option>
               <option value="Bs">Bs</option>
             </select>
-            <small className="muted">Los montos se muestran en esta moneda. Podés cambiarla al editar.</small>
+            <small className="muted">Los montos se muestran en esta moneda. Puedes cambiarla al editar.</small>
           </div>
         </div>
 
@@ -650,12 +650,12 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
               <div className="form-row">
                 <label>Categoría del servicio *</label>
                 <SearchCreateSelect options={categoriaOptions} value={l.categoria} onChange={(v) => set(l.id, { categoria: v })}
-                  placeholder="Buscá o escribí (mantenimiento de vehículos…)" emptyText="Escribí para crear una categoría" />
+                  placeholder="Busca o escribe (mantenimiento de vehículos…)" emptyText="Escribe para crear una categoría" />
               </div>
               <div className="form-row">
                 <label>Tipo de servicio</label>
                 <SearchCreateSelect options={tiposDe(l.categoria)} value={l.tipo} onChange={(v) => set(l.id, { tipo: v })}
-                  placeholder="Elegí el tipo (caucho, aceite, pintura…)" emptyText="Escribí para crear un tipo" />
+                  placeholder="Elige el tipo (caucho, aceite, pintura…)" emptyText="Escribe para crear un tipo" />
               </div>
             </div>
             {/* En recargas (gas / oxígeno / extintores) NO se pide equipo ni cantidad:
@@ -666,7 +666,7 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                   <div className="form-row">
                     <label>Electrodoméstico *</label>
                     <SearchCreateSelect options={[...ELECTRODOMESTICOS]} value={l.electro} onChange={(v) => set(l.id, { electro: v })}
-                      placeholder="Elegí (cocina, nevera, lavadora, microondas…)" emptyText="Escribí para agregar otro" />
+                      placeholder="Elige (cocina, nevera, lavadora, microondas…)" emptyText="Escribe para agregar otro" />
                     <small className="muted">Artículo electrodoméstico al que se le hace el mantenimiento.</small>
                   </div>
                 ) : (
@@ -677,9 +677,9 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                         options={[{ value: '', label: 'Todos los tipos' }, ...tiposEquipo.map((t) => ({ value: t, label: t }))]}
                         placeholder="Todos los tipos" emptyText="Sin tipos" />
                       <SearchSelect value={l.equipoId} onChange={(v) => set(l.id, { equipoId: v })} options={opcionesEquipo(l.tipoEquipo)}
-                        placeholder={l.tipoEquipo ? `🔍 Buscá la ${l.tipoEquipo.toLowerCase()}…` : '🔍 Buscá el equipo / vehículo / moto…'} emptyText="Sin equipos" />
+                        placeholder={l.tipoEquipo ? `🔍 Busca la ${l.tipoEquipo.toLowerCase()}…` : '🔍 Busca el equipo / vehículo / moto…'} emptyText="Sin equipos" />
                     </div>
-                    <small className="muted">Filtrá por tipo (ej. MOTO) y elegí el equipo. Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
+                    <small className="muted">Filtra por tipo (ej. MOTO) y elige el equipo. Vincula el servicio al equipo (aparece en Control de Mantenimiento).</small>
                   </div>
                 )}
                 {(() => {
@@ -745,10 +745,10 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
         <button type="button" className="btn btn-sm btn-ghost" onClick={add}>＋ Agregar servicio</button>
 
         <div className="form-row" style={{ marginTop: '.75rem' }}>
-          <label>Adjuntar imágenes o PDF <span className="muted">(podés elegir varios)</span></label>
+          <label>Adjuntar imágenes o PDF <span className="muted">(puedes elegir varios)</span></label>
           <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
           {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
-          {esEdicion && editServicio && <small className="muted" style={{ display: 'block' }}>Los adjuntos se agregan a la lista del servicio (podés verlos/borrarlos en el detalle).</small>}
+          {esEdicion && editServicio && <small className="muted" style={{ display: 'block' }}>Los adjuntos se agregan a la lista del servicio (puedes verlos/borrarlos en el detalle).</small>}
         </div>
 
         <div style={{ marginTop: '.75rem' }}>
@@ -814,7 +814,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
   // (del día o la que escriba el usuario) y cambia la moneda del servicio. Guarda la tasa usada.
   function convertirMoneda() {
     const t = Number(tasa) || 0;
-    if (t <= 0) { setError('Cargá la tasa (Bs por $) para convertir.'); return; }
+    if (t <= 0) { setError('Carga la tasa (Bs por $) para convertir.'); return; }
     const destino: 'USD' | 'Bs' = monedaServicio === 'USD' ? 'Bs' : 'USD';
     const factor = destino === 'Bs' ? t : 1 / t;
     setGastos((m) => {
@@ -897,7 +897,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (total <= 0) { setError('Indicá cuánto costó cada servicio.'); return; }
+    if (total <= 0) { setError('Indica cuánto costó cada servicio.'); return; }
     if (files.some((f) => f.type && f.type !== 'application/pdf' && !f.type.startsWith('image/'))) { setError('Los adjuntos deben ser PDF o imagen.'); return; }
     const items: ServicioDirectoItem[] = servicio.items.map((it, i) => ({ ...it, gasto: Number(gastos[i]) || 0 }));
 
@@ -919,8 +919,8 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
     const confirmado = reembolsoConfirmado.current;
     reembolsoConfirmado.current = false;
     if (ret.error) { setError(ret.error); return; }
-    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
-    if (catsGasto.length && (!catId || !subId)) { setError('Elegí la categoría y la subcategoría de gasto.'); return; }
+    if (!cajaId) { setError('Elige la caja de la que sale el dinero.'); return; }
+    if (catsGasto.length && (!catId || !subId)) { setError('Elige la categoría y la subcategoría de gasto.'); return; }
     let legs: PagoLeg[] | undefined;
     let reembolsoLegs: PagoLeg[] = [];
     let reembolsoUsd = 0;
@@ -928,7 +928,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
       legs = saldosCaja
         .map((s) => ({ cuenta: s.cuenta as CuentaCaja, moneda: s.moneda, monto: Number(legMontos[s.id]) || 0, cajaId: s.caja_id }))
         .filter((l) => l.monto > 0);
-      if (!legs.length) { setError('Indicá cuánto pagar en al menos una moneda.'); return; }
+      if (!legs.length) { setError('Indica cuánto pagar en al menos una moneda.'); return; }
       if (!cubreTotalMulti) { setError(`Lo cargado (${montoCaja(sumUsdMulti, 'USD')}) no cubre el total (${montoCaja(totalUsd, 'USD')}).`); return; }
       if (excedeTotalMulti) {
         if (!confirmado) { setConfirmarReembolso(true); return; }
@@ -1015,7 +1015,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
                 <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" style={{ width: 120, textAlign: 'right' }} />
               </label>
               <button type="button" className="btn btn-sm btn-ghost" onClick={convertirMoneda} disabled={!(Number(tasa) > 0)}
-                title={Number(tasa) > 0 ? `Convierte todos los montos a la tasa ${num(tasa)}` : 'Cargá la tasa para convertir'}>
+                title={Number(tasa) > 0 ? `Convierte todos los montos a la tasa ${num(tasa)}` : 'Carga la tasa para convertir'}>
                 ⇄ Convertir a {monedaServicio === 'USD' ? 'Bs' : '$'}
               </button>
               {tasaConversion != null && tasaConversion > 0 && (
@@ -1032,7 +1032,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
           <SearchSelect value={cajaId} onChange={setCajaId} disabled={!cajas.length} style={{ maxWidth: 320 }}
             placeholder={cajas.length ? '🔍 Buscar caja…' : '— sin cajas —'}
             options={cajas.map((c) => ({ value: c.id, label: `${c.nombre} · ${montoCaja(saldoMostrar(c), c.moneda)}` }))} />
-          <small className="muted">El monto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Repartí el pago por moneda/caja abajo.' : ''}</small>
+          <small className="muted">El monto total se descuenta de esta caja (egreso en Tesorería / registro de movimientos).{esMultimoneda ? ' Reparte el pago por moneda/caja abajo.' : ''}</small>
         </div>
         )}
 
@@ -1055,7 +1055,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
                 </span>
               ))}
             </div>
-            <small className="muted">Sumá otra caja para pagar parte en una moneda/caja y el resto en otra (ej. 50$ divisas + 50$ Bs al cambio).</small>
+            <small className="muted">Suma otra caja para pagar parte en una moneda/caja y el resto en otra (ej. 50$ divisas + 50$ Bs al cambio).</small>
           </div>
         )}
 
@@ -1070,7 +1070,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
             <div className="form-row">
               <label>Subcategoría</label>
               <SearchSelect value={subId} onChange={setSubId} disabled={!catId}
-                placeholder={catId ? '🔍 Subcategoría…' : '— elegí primero la categoría —'} emptyText="Sin subcategorías"
+                placeholder={catId ? '🔍 Subcategoría…' : '— elige primero la categoría —'} emptyText="Sin subcategorías"
                 options={(catId ? subcategoriasDe(catsGasto, catId) : []).map((c) => ({ value: c.id, label: c.nombre }))} />
             </div>
           </div>
@@ -1127,7 +1127,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
               <input type="checkbox" checked={conAbonos} onChange={(e) => setConAbonos(e.target.checked)} />
               <span>Se pagará <strong>con abonos</strong> (cuotas)</span>
             </label>
-            <small className="muted">Si lo marcás, Tesorería registra pagos parciales que se acumulan hasta saldar el servicio (en vez de un solo pago). Igual se puede pagar todo de una desde Tesorería.</small>
+            <small className="muted">Si lo marcas, Tesorería registra pagos parciales que se acumulan hasta saldar el servicio (en vez de un solo pago). Igual se puede pagar todo de una desde Tesorería.</small>
           </div>
         )}
 
@@ -1225,7 +1225,7 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
         )}
 
         <div className="form-row">
-          <label>Adjuntar facturas / comprobantes · PDF o imagen (podés elegir varios)</label>
+          <label>Adjuntar facturas / comprobantes · PDF o imagen (puedes elegir varios)</label>
           <input className="input" type="file" accept="application/pdf,image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
           {files.length > 0 && <small className="muted">{files.length} archivo(s): {files.map((f) => f.name).join(', ')}</small>}
         </div>

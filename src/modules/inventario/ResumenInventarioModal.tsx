@@ -127,7 +127,7 @@ export function ResumenInventarioModal({ defaultEmail, onClose }: { defaultEmail
             <KpiCard titulo="Traslados" valor={num(resumen.traslados.count)} nota={money(resumen.traslados.valor)} activo={drill === 'traslados'} onClick={() => setDrill((d) => d === 'traslados' ? null : 'traslados')} />
           </div>
 
-          {/* Detalle del bloque seleccionado (tocá una fila = trazabilidad del producto) */}
+          {/* Detalle del bloque seleccionado (toca una fila = trazabilidad del producto) */}
           {drill === 'nuevos' && <NuevosTabla filas={resumen.nuevos.filas} onProducto={setTrazaId} />}
           {drill === 'entradas' && <MovTabla titulo="Entradas" filas={resumen.entradas.filas} onProducto={setTrazaId} />}
           {drill === 'salidas' && <MovTabla titulo="Salidas" filas={resumen.salidas.filas} onProducto={setTrazaId} />}
@@ -184,7 +184,7 @@ function KpiCard({ titulo, valor, nota, destacado, activo, onClick }: {
         borderLeft: `3px solid ${destacado ? 'var(--brand, #ff8a00)' : activo ? 'var(--brand, #ff8a00)' : 'var(--border)'}`,
         background: activo ? 'rgba(255,138,0,.10)' : undefined,
       }}
-      title={onClick ? 'Tocá para ver el detalle' : undefined}
+      title={onClick ? 'Toca para ver el detalle' : undefined}
     >
       <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.04em' }}>{titulo}</div>
       <div style={{ fontWeight: 800, fontSize: '1.25rem' }}>{valor}</div>
@@ -197,7 +197,7 @@ function MovTabla({ titulo, filas, onProducto }: { titulo: string; filas: MovRes
   const total = filas.reduce((a, f) => a + f.valor, 0);
   return (
     <div className="card" style={{ padding: '.6rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)' }}>
-      <div className="card-title" style={{ marginBottom: '.4rem' }}><span>{titulo} · {filas.length} · {money(total)}</span><span className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>Tocá una fila para ver su trazabilidad</span></div>
+      <div className="card-title" style={{ marginBottom: '.4rem' }}><span>{titulo} · {filas.length} · {money(total)}</span><span className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>Toca una fila para ver su trazabilidad</span></div>
       <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.78rem' }}>
           <thead>
@@ -226,7 +226,7 @@ function MovTabla({ titulo, filas, onProducto }: { titulo: string; filas: MovRes
 function NuevosTabla({ filas, onProducto }: { filas: NuevoProductoRow[]; onProducto: (id: string) => void }) {
   return (
     <div className="card" style={{ padding: '.6rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)' }}>
-      <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Productos nuevos · {filas.length}</span><span className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>Tocá una fila para ver su trazabilidad</span></div>
+      <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Productos nuevos · {filas.length}</span><span className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>Toca una fila para ver su trazabilidad</span></div>
       <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.78rem' }}>
           <thead>

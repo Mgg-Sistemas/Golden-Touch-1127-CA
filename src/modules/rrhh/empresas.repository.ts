@@ -1,7 +1,7 @@
 /* ============================================================
    Golden Touch · RRHH · Empresas (nóminas GT y MTO)
 
-   Acá vive lo poco que hay que preguntarle a la base SOBRE las nóminas en sí,
+   Aquí vive lo poco que hay que preguntarle a la base SOBRE las nóminas en sí,
    no sobre una persona: hoy, cuánta gente activa tiene cada una. Ese número
    va entre paréntesis en el switch del encabezado («Nómina GT (12)»), así se
    ve de un vistazo dónde está la plantilla sin entrar a la pestaña.
@@ -37,7 +37,7 @@ export async function contarPersonalPorEmpresa(): Promise<ConteoPorEmpresa> {
       supabase.from(TABLE).select('id', head).eq('activo', true).eq('empresa', empresa),
     ),
   );
-  // Si una de las dos consultas falla, se corta acá: quien llama decide qué
+  // Si una de las dos consultas falla, se corta aquí: quien llama decide qué
   // hacer (el encabezado, por ejemplo, muestra el switch sin números).
   const errores = resultados.find((r) => r.error);
   if (errores?.error) throw errores.error;

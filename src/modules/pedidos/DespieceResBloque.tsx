@@ -34,7 +34,7 @@ export function DespieceResBloque({ item, kgRecibidos, productos, valor, onChang
     const mismos = productos
       .filter((p) => p.estado === 'activo' && p.id !== item.productoId && (!canal || p.categoria === canal.categoria))
       .map((p) => p.nombre);
-    return [...new Set([...CORTES_SUGERIDOS, ...mismos])].sort((a, b) => a.localeCompare(b, 'es'));
+    return [...new Set([...CORTES_SUGERIDOS, ...mismos])].sort((a, b) => a.localeCompare(b, 'es-VE'));
   }, [productos, item.productoId]);
 
   // Nombre normalizado → producto, para casar lo tecleado con el inventario y no

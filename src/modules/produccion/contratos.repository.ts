@@ -163,7 +163,7 @@ export function formulasContrato(i: { tonProcesadas?: number; kgHumedo?: number;
 
 export async function crearContrato(input: ContratoInput & { actor: string; actorName?: string | null }): Promise<ContratoAcopio> {
   const lugar = (input.lugarExtraccion || '').trim();
-  if (!lugar) throw new Error('Indicá el lugar de extracción.');
+  if (!lugar) throw new Error('Indica el lugar de extracción.');
 
   // Guardamos lugar y supervisor en el catálogo si son nuevos (upsert idempotente).
   await addCatalogoAcopio('lugar_extraccion', lugar).catch(() => { /* ya existe: ok */ });
@@ -196,7 +196,7 @@ export async function crearContrato(input: ContratoInput & { actor: string; acto
     if ((error as { code?: string }).code !== '23505') throw error;
     // 23505 = correlativo tomado por otro usuario: reintentamos con el siguiente.
   }
-  throw new Error('No se pudo asignar el número de contrato. Intentá de nuevo.');
+  throw new Error('No se pudo asignar el número de contrato. Intenta de nuevo.');
 }
 
 /** Etiqueta de la observación del contrato que refleja el peso de mesa. */
@@ -236,7 +236,7 @@ export async function setMesaContrato(id: string, pesoMojado: number | null, pes
 
 export async function actualizarContrato(id: string, input: ContratoInput): Promise<void> {
   const lugar = (input.lugarExtraccion || '').trim();
-  if (!lugar) throw new Error('Indicá el lugar de extracción.');
+  if (!lugar) throw new Error('Indica el lugar de extracción.');
   await addCatalogoAcopio('lugar_extraccion', lugar).catch(() => { /* ya existe: ok */ });
   if (input.supervisor?.trim()) await addCatalogoAcopio('supervisor', input.supervisor).catch(() => {});
   const payload = payloadContrato(input);
@@ -329,7 +329,7 @@ export async function cerrarContrato(id: string, actor: string, actorName?: stri
     throw e;
   }
 
-  // El estado ya quedó fijado en la reserva; acá solo se anota la traza del movimiento.
+  // El estado ya quedó fijado en la reserva; aquí solo se anota la traza del movimiento.
   const { error: uErr } = await supabase.from('acopio_contratos').update({
     mov_id: movId, mov_producto_id: movProductoId, mov_almacen: movAlmacen, mov_cantidad: cantidad,
   }).eq('id', id);
@@ -441,7 +441,7 @@ export async function listCatalogosAcopio(tipo?: TipoCatalogoAcopio): Promise<Ca
 
 export async function addCatalogoAcopio(tipo: TipoCatalogoAcopio, valor: string): Promise<CatalogoAcopio> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   const { data, error } = await supabase
     .from('acopio_catalogos')
     .insert({ tipo, valor: v, orden: 999 })
@@ -456,7 +456,7 @@ export async function addCatalogoAcopio(tipo: TipoCatalogoAcopio, valor: string)
 
 export async function updateCatalogoAcopio(id: string, valor: string): Promise<void> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   const { error } = await supabase.from('acopio_catalogos').update({ valor: v }).eq('id', id);
   if (error) {
     if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
