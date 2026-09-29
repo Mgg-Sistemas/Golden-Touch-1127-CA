@@ -1038,6 +1038,26 @@
         <br><strong>Lo único que se carga a mano es el conteo físico</strong>, y es opcional. Si se carga, la <strong>merma</strong> de ese día es <em>conteo − teórico</em> y el día siguiente <strong>abre con lo contado</strong>, para que el error no se arrastre; si no se carga, la fila igual se arma. El <strong>consumo</strong> (lo servido en comidas) y las <strong>otras salidas</strong> (salida manual, ajuste, traslado) van en columnas distintas a propósito: no es lo mismo que la comida se la coma la gente a que el inventario baje por otro lado.
         <br><strong>El lote óptimo (EOQ):</strong> <em>Q* = √(2·D·S / H)</em> y <em>punto de reorden = (D / 365) · L</em>, las mismas fórmulas del Excel. En el Excel la <strong>demanda anual (D)</strong> se escribe a mano; aquí se <strong>estima llevando a un año lo consumido en el período</strong>, para que el control funcione en los más de 70 productos del mercado sin cargar nada. Se anualiza sobre los <strong>días del período</strong>, no sobre los que tuvieron consumo: un producto que se sirve una vez cada dos semanas tiene un solo día con consumo, y anualizar sobre ese día daría <strong>365 veces esa ración</strong> y haría pedir una montaña. Se confirma contra la hoja: Los Pinos consumió 54 UND en 12 días, que anualizado da <strong>1.642</strong>, y la demanda que ahí escribieron a mano es <strong>1.700</strong>, y se puede <strong>fijar a mano</strong> producto por producto cuando se conozca el número verdadero. Los costos (S y H) y el tiempo de entrega (L) son <strong>generales para todo el mercado</strong> y se editan desde la misma pantalla; arrancan en <strong>$3,33 por orden, $1,20 por unidad/año y 2 días de entrega</strong>, que son los de la hoja.
         <br><strong>Una diferencia con el Excel, a propósito:</strong> allí un día sin datos se leía como stock cero y pintaba <em>«REORDENAR»</em> en días futuros que todavía no habían pasado. Aquí el estado se calcula sobre el <strong>inventario real del día</strong> (el contado si lo hay; si no, el teórico). Hay <strong>PDF de las dos vistas</strong>: el del mercado es el papel con el que se sale a comprar.</li>
+      <li><strong>💵 La CAJA 13 del Centro de Acopio cotejada renglón por renglón contra el Excel (29/09/2026):</strong>
+        se cotejó la caja abierta (del 28-06 al 27-09) contra la hoja <em>CAJA PERAMANAL - GOLDEN TOUCH</em> del Excel
+        <em>27-06-2026</em>, día por día y renglón por renglón. De 74 días, 23 cuadraban y 51 no: el sistema estaba
+        <strong>$28.061 por debajo en USD entregado y $14.563 en gastos</strong>. Con respaldo previo de la caja, quedó así:
+        <br>· <strong>Se cargaron 90 renglones que faltaban</strong> (todo del 15-09 al 27-09, varios días de agosto y las
+        entradas «CAJA MULTIMONEDAS» de una docena de días), con la categoría que traía el Excel. Los que el Excel no
+        clasifica quedaron sin categoría, para ponérsela desde la caja.
+        <br>· <strong>10 gastos estaban anotados como USD entregado</strong> (3 pailas de aceite, adelanto del transformador,
+        apoyo combustible PDVSA, mercado del 04-08, consumo de combustible del 09-08, papel ahumado, filtro ODC 0083, mano
+        de obra Cornelio, pollos ODC 0066): pasaron a la columna de gastos.
+        <br>· <strong>2 renglones del 11-08 tenían fecha 12-08</strong>; <strong>3 montos con dedazo</strong> (44,43→44,33 ·
+        25,05→25,02 · 160→166); <strong>13 entradas</strong> que estaban en otro monto o repartidas en varias filas se dejaron
+        como en el Excel; y se quitaron <strong>2 renglones sin sentido</strong> (entradas con monto de gasto, 4,04 y 7,71)
+        que el Excel no tiene.
+        <br><strong>Lo que queda a decisión, sin tocar:</strong> tres cosas están en el sistema y no en el Excel —
+        <em>puntas de martillo Veliz La Guaira</em> $1.400 (20-08), <em>repuestos DR9</em> $12.900 (02-09; el Excel sí
+        cuenta esos $12.900 dentro de la entrada de $13.664,04, pero no anota el gasto) y el <em>consumo de combustible de la
+        semana 21–27/09</em> $455,27, que lo genera el módulo de Combustible y el Excel aún no registra. Si son reales, el
+        Excel es el que debe anotarlos; si no, se eliminan desde la caja.
+        <br>Comprobado al cierre: los 74 días dan lo mismo que el Excel salvo esos tres renglones.</li>
       <li><strong>🏷️ Las categorías del Centro de Acopio cotejadas contra el Excel (29/09/2026):</strong>
         se cotejó el catálogo de categorías (Gastos caja, Contratos, Movimientos de caja, Nómina y Traslado) contra la
         hoja <em>CLASIFICACIONES</em> del Excel <em>CAJA PERAMANAL - GOLDEN TOUCH 27-06-2026</em>. Cuatro grupos
