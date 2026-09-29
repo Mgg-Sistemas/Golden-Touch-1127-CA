@@ -359,7 +359,8 @@ export function CocinaPage() {
 
       {/* ── CAPA 3 · Distribución (EOQ) · vista traída de MGG ── */}
       {verDistribucion && mercado && (
-        <DistribucionPanel inicioCiclo={mercado.inicio_at} onAbrirDetalle={() => setModal('control')} />
+        <DistribucionPanel inicioCiclo={mercado.inicio_at} saldoCiclo={mercado.saldo_inicial}
+          onAbrirDetalle={() => setModal('control')} />
       )}
 
       {/* Cerrar, al lado del panel. Se resalta pasado el día 21; antes queda punteado.

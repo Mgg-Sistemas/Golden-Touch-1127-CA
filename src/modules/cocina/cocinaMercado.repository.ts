@@ -11,6 +11,7 @@ import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
 import { movimientosDeViver, saldoParaElNuevo, tieneCongelados, type MovimientosCiclo } from './mercadoCierre';
 import { reconstruirSaldo, resolverInicio } from './mercadoInicio';
+import { esDeCocina, NO_COCINA_OR, REF_TIPOS_COCINA } from './claseMovimiento';
 import { sumarConsumoCocina, sumarMermas, type MovimientoConsumo, type MovimientoParaMerma } from './mercadoPanel';
 import { filasInventario, type FilaKardex, type MovInventario } from './movInventario';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
@@ -198,8 +199,13 @@ async function entradasPorViver(desde: string, hasta: string, viverIds: Set<stri
   return out;
 }
 
-/** Movimientos del kardex que NO vienen de la cocina (PostgREST: `ref_tipo` nulo o distinto). */
-const NO_COCINA = 'ref_tipo.is.null,ref_tipo.neq.cocina';
+/** Movimientos del kardex que NO vienen de la cocina. Cuáles son los `ref_tipo` de
+ *  cocina lo dice `claseMovimiento`, que es la misma lista que usa el control de
+ *  distribución: de ahí sale que las dos pantallas den el mismo número. */
+const NO_COCINA = NO_COCINA_OR;
+
+/** Los `ref_tipo` que son consumo de cocina, para el `in` de PostgREST. */
+const COCINA = [...REF_TIPOS_COCINA];
 
 /**
  * Mermas y salidas por víver dentro de la ventana [desde, hasta]: todo lo que bajó el
@@ -238,7 +244,7 @@ async function consumoDelCiclo(desde: string, hasta: string): Promise<{
   // Paginado: `movimientos` pasa las 1.000 filas y PostgREST corta sin avisar.
   const movs = await todasLasFilas<MovimientoConsumo>((a, b) => supabase.from('movimientos')
     .select('producto_id, delta, costo_promedio, precio_unitario, ref_id')
-    .eq('ref_tipo', 'cocina').gte('at', desde).lte('at', hasta)
+    .in('ref_tipo', COCINA).gte('at', desde).lte('at', hasta)
     .order('at').order('id').range(a, b));
   const { porViver, comidaIds } = sumarConsumoCocina(movs);
 
@@ -266,7 +272,7 @@ export async function congelarMovimientos(m: Mercado, hastaISO: string, viverIds
         .order('at').order('id').range(a, b)),
     todasLasFilas<{ producto_id: string; delta: number; at: string; costo_promedio: number | null; precio_unitario: number | null; ref_id: string | null; ref_codigo: string | null }>((a, b) =>
       supabase.from('movimientos').select('producto_id, delta, at, costo_promedio, precio_unitario, ref_id, ref_codigo')
-        .eq('ref_tipo', 'cocina').gte('at', m.inicio_at).lte('at', hastaISO)
+        .in('ref_tipo', COCINA).gte('at', m.inicio_at).lte('at', hastaISO)
         .order('at').order('id').range(a, b)),
     todasLasFilas<{ producto_id: string; delta: number; at: string; tipo: string; detalle: string | null; ref_tipo: string | null }>((a, b) =>
       supabase.from('movimientos').select('producto_id, delta, at, tipo, detalle, ref_tipo')
@@ -307,7 +313,7 @@ export async function congelarMovimientos(m: Mercado, hastaISO: string, viverIds
 
 /** Mismo criterio que `sumarMermas`: baja de stock que no es una comida. */
 function esMerma(r: { tipo: string; ref_tipo: string | null }): boolean {
-  return r.ref_tipo !== 'cocina';
+  return !esDeCocina(r.ref_tipo);
 }
 /**
  * Resumen del ciclo por víver: saldo inicial (del mercado anterior) + entradas (nuevo
@@ -540,7 +546,7 @@ export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO
     supabase.from('movimientos').select('delta, at, ref_codigo, tipo')
       .eq('tipo', 'entrada').or(NO_COCINA).eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
     supabase.from('movimientos').select('delta, at, costo_promedio, precio_unitario, ref_id, ref_codigo')
-      .eq('ref_tipo', 'cocina').eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
+      .in('ref_tipo', COCINA).eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
     supabase.from('movimientos').select('delta, at, tipo, detalle, actor_name, actor')
       .eq('producto_id', productoId).lt('delta', 0).or(NO_COCINA).gte('at', m.inicio_at).lte('at', hasta).order('at'),
   ]);

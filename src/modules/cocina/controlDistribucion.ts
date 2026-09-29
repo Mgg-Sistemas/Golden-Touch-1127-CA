@@ -26,6 +26,8 @@
    Piezas puras: se prueban sin base de datos ni React.
    ============================================================ */
 
+import { claseMovimiento } from './claseMovimiento';
+
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 const r3 = (v: number) => Math.round((Number(v) || 0) * 1000) / 1000;
 const n = (v: unknown) => Number(v) || 0;
@@ -123,17 +125,20 @@ export const ESTADO_STOCK_BADGE: Record<EstadoStock, string> = {
 export type FiltroEstado = EstadoStock | 'todos';
 
 /**
- * El recorte del listado. Además de los tres estados hay dos que salen de las
- * tarjetas de arriba («Consumo» y «Merma»), porque tocarlas tiene que mostrar
- * de qué víveres está hecho ese número.
+ * El recorte del listado. Además de los tres estados están los que salen de las
+ * tarjetas de arriba, porque tocarlas tiene que mostrar de qué víveres está hecho
+ * ese número: consumo, salidas de inventario, ajustes y merma.
  */
-export type FiltroDistribucion = FiltroEstado | 'con-consumo' | 'con-merma';
+export type FiltroDistribucion =
+  | FiltroEstado | 'con-consumo' | 'con-salidas' | 'con-ajustes' | 'con-merma';
 
 const FILTRO_TEXTO: Record<Exclude<FiltroDistribucion, 'todos'>, string> = {
   reordenar: 'Solo los víveres por REORDENAR',
   alerta: 'Solo los víveres EN ALERTA',
   normal: 'Solo los víveres en NORMAL',
   'con-consumo': 'Solo los víveres CON CONSUMO en el período',
+  'con-salidas': 'Solo los víveres CON SALIDAS DE INVENTARIO en el período',
+  'con-ajustes': 'Solo los víveres CON AJUSTES MANUALES en el período',
   'con-merma': 'Solo los víveres CON MERMA en el período',
 };
 
@@ -145,18 +150,25 @@ export function filtrarPorEstado<T extends { estado: EstadoStock }>(items: T[], 
 /** Lo mínimo para saber si un víver entra en el recorte. */
 export interface FiltrableDistribucion {
   estado: EstadoStock;
-  totales: { consumo: number; merma: number };
+  totales: { consumo: number; salidas: number; ajustes: number; merma: number };
 }
 
+/** Qué número mira cada recorte de los que salen de las tarjetas. */
+const CIFRA_DEL_FILTRO: Record<'con-consumo' | 'con-salidas' | 'con-ajustes' | 'con-merma',
+  keyof FiltrableDistribucion['totales']> = {
+  'con-consumo': 'consumo', 'con-salidas': 'salidas', 'con-ajustes': 'ajustes', 'con-merma': 'merma',
+};
+
 /**
- * Aplica el recorte elegido: por estado, o por tener consumo o merma en el
- * período. Un víver «con merma» es cualquiera cuyo conteo físico no dio igual
- * que el teórico, sobre o falte: las dos cosas hay que mirarlas.
+ * Aplica el recorte elegido: por estado, o por tener consumo, salidas, ajustes o
+ * merma en el período. Un víver «con merma» es cualquiera cuyo conteo físico no dio
+ * igual que el teórico, sobre o falte: las dos cosas hay que mirarlas.
  */
 export function filtrarDistribucion<T extends FiltrableDistribucion>(items: T[], filtro: FiltroDistribucion): T[] {
   if (filtro === 'todos') return items;
-  if (filtro === 'con-consumo') return items.filter((i) => Math.abs(n(i.totales?.consumo)) > 0.0001);
-  if (filtro === 'con-merma') return items.filter((i) => Math.abs(n(i.totales?.merma)) > 0.0001);
+  const cifra = filtro in CIFRA_DEL_FILTRO
+    ? CIFRA_DEL_FILTRO[filtro as keyof typeof CIFRA_DEL_FILTRO] : null;
+  if (cifra) return items.filter((i) => Math.abs(n(i.totales?.[cifra])) > 0.0001);
   return items.filter((i) => i.estado === filtro);
 }
 
@@ -193,17 +205,25 @@ export interface MovimientoDia {
   fecha: string;
   /** Positivo entra, negativo sale. */
   delta: number;
-  /** 'cocina' = lo consumió una comida; cualquier otra cosa es merma o salida. */
+  /** El `ref_tipo` del kardex: de ahí se sabe si lo movió la cocina. */
   refTipo?: string | null;
+  /** El `tipo` del kardex. Es lo que separa un ajuste de inventario de una salida. */
+  tipo?: string | null;
 }
 
 export interface FilaDia {
   fecha: string;
   invInicial: number;
   entradas: number;
-  /** Lo que se fue en comidas de la cocina. */
+  /** Lo que HABÍA para gastar ese día: inventario inicial + entradas. */
+  disponible: number;
+  /** Lo que se fue en comidas de la cocina. Un reverso de comida lo resta. */
   consumo: number;
-  /** Lo que bajó el inventario sin ser una comida (salida manual, ajuste, traslado). */
+  /** Lo que sacó Inventario sin ser una comida: salida de material, salida manual. */
+  salidas: number;
+  /** Lo que corrigió Inventario a la baja con un ajuste. */
+  ajustes: number;
+  /** salidas + ajustes: todo lo que bajó el inventario sin ser una comida. */
   otrasSalidas: number;
   invTeorico: number;
   /** Lo contado en el depósito ese día; null si nadie contó. */
@@ -243,21 +263,30 @@ function leer(mapa: Map<string, number> | Record<string, number>, clave: string)
  * realidad en vez de arrastrar el error hacia adelante.
  */
 export function construirDias(e: EntradaControl): FilaDia[] {
-  const porDia = new Map<string, { entradas: number; consumo: number; otras: number }>();
+  const vacio = () => ({ entradas: 0, consumo: 0, salidas: 0, ajustes: 0 });
+  const porDia = new Map<string, ReturnType<typeof vacio>>();
   for (const m of e.movimientos) {
-    const acc = porDia.get(m.fecha) ?? { entradas: 0, consumo: 0, otras: 0 };
+    const acc = porDia.get(m.fecha) ?? vacio();
     const d = n(m.delta);
-    if (d > 0) acc.entradas = r2(acc.entradas + d);
-    else if (m.refTipo === 'cocina') acc.consumo = r2(acc.consumo - d);
-    else acc.otras = r2(acc.otras - d);
+    // Las reglas viven en `claseMovimiento`, que es la misma que usa el panel del
+    // mercado: es lo que hace que los dos den el mismo número.
+    switch (claseMovimiento({ delta: d, tipo: m.tipo, refTipo: m.refTipo })) {
+      // Lo de cocina se netea: un reverso entra (d > 0) y resta de lo consumido.
+      case 'consumo': acc.consumo = r2(acc.consumo - d); break;
+      case 'entrada': acc.entradas = r2(acc.entradas + d); break;
+      case 'ajuste': acc.ajustes = r2(acc.ajustes - d); break;
+      default: acc.salidas = r2(acc.salidas - d); break;
+    }
     porDia.set(m.fecha, acc);
   }
 
   const filas: FilaDia[] = [];
   let abre = r2(e.aperturaInventario);
   for (const fecha of e.dias) {
-    const mov = porDia.get(fecha) ?? { entradas: 0, consumo: 0, otras: 0 };
-    const invTeorico = r2(abre + mov.entradas - mov.consumo - mov.otras);
+    const mov = porDia.get(fecha) ?? vacio();
+    const otrasSalidas = r2(mov.salidas + mov.ajustes);
+    const disponible = r2(abre + mov.entradas);
+    const invTeorico = r2(disponible - mov.consumo - otrasSalidas);
     const fisico = leer(e.conteosPorDia, fecha);
     const invFisico = fisico == null ? null : r2(fisico);
     const comensales = Math.max(0, Math.trunc(leer(e.comensalesPorDia, fecha) ?? 0));
@@ -265,8 +294,11 @@ export function construirDias(e: EntradaControl): FilaDia[] {
       fecha,
       invInicial: abre,
       entradas: mov.entradas,
+      disponible,
       consumo: mov.consumo,
-      otrasSalidas: mov.otras,
+      salidas: mov.salidas,
+      ajustes: mov.ajustes,
+      otrasSalidas,
       invTeorico,
       invFisico,
       diferencia: invFisico == null ? null : r2(invFisico - invTeorico),
@@ -282,8 +314,17 @@ export function construirDias(e: EntradaControl): FilaDia[] {
 /* ───────── 4) Totales del control ───────── */
 
 export interface TotalesControl {
+  /** Con lo que abrió el período: el saldo del primer día. */
+  invInicial: number;
   entradas: number;
+  /** LO QUE HABÍA en todo el período: saldo inicial + entradas. */
+  disponible: number;
   consumo: number;
+  /** Lo que sacó Inventario sin ser comida (salida de material, salida manual). */
+  salidas: number;
+  /** Lo que Inventario corrigió a la baja con un ajuste. */
+  ajustes: number;
+  /** salidas + ajustes. */
   otrasSalidas: number;
   /** Suma de las diferencias de los días contados. Negativo = falta. */
   merma: number;
@@ -296,17 +337,18 @@ export interface TotalesControl {
   ratioPromedio: number;
   /** Consumo total sobre comensales totales. */
   ratioGlobal: number;
-  /** Inventario con el que cierra el último día. */
+  /** LO QUE QUEDA: el inventario con el que cierra el último día. */
   invFinal: number;
 }
 
 export function totalizarControl(filas: FilaDia[]): TotalesControl {
-  let entradas = 0, consumo = 0, otras = 0, merma = 0, comensales = 0;
+  let entradas = 0, consumo = 0, salidas = 0, ajustes = 0, merma = 0, comensales = 0;
   let diasConConsumo = 0, sumaRatios = 0;
   for (const f of filas) {
     entradas = r2(entradas + f.entradas);
     consumo = r2(consumo + f.consumo);
-    otras = r2(otras + f.otrasSalidas);
+    salidas = r2(salidas + f.salidas);
+    ajustes = r2(ajustes + f.ajustes);
     if (f.diferencia != null) merma = r2(merma + f.diferencia);
     comensales += f.comensales;
     // El promedio se hace sobre el ratio EXACTO, no sobre el que se muestra: promediar
@@ -315,8 +357,16 @@ export function totalizarControl(filas: FilaDia[]): TotalesControl {
     if (f.consumo > 0) { diasConConsumo += 1; sumaRatios += f.comensales > 0 ? f.consumo / f.comensales : 0; }
   }
   const ultima = filas.length ? filas[filas.length - 1] : null;
+  const invInicial = filas.length ? filas[0].invInicial : 0;
   return {
-    entradas, consumo, otrasSalidas: otras, merma, comensales, diasConConsumo,
+    invInicial,
+    entradas,
+    // Lo que había: con lo que se abrió más todo lo que entró después. Es el techo
+    // de la cuenta del período: de aquí sale el consumo, las salidas y los ajustes.
+    disponible: r2(invInicial + entradas),
+    consumo,
+    salidas, ajustes, otrasSalidas: r2(salidas + ajustes),
+    merma, comensales, diasConConsumo,
     promedioDiario: diasConConsumo > 0 ? r2(consumo / diasConConsumo) : 0,
     ratioPromedio: diasConConsumo > 0 ? r3(sumaRatios / diasConConsumo) : 0,
     ratioGlobal: comensales > 0 ? r3(consumo / comensales) : 0,

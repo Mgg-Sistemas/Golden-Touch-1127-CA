@@ -18,6 +18,7 @@
 
    Piezas puras: se prueban sin base ni React.
    ============================================================ */
+import { esDeCocina } from './claseMovimiento';
 import type { ResumenViver } from './cocinaMercado.repository';
 
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
@@ -72,13 +73,14 @@ export interface MovimientoParaMerma {
  *
  * Las comidas se registran con `ref_tipo = 'cocina'`, y también sus reversos y las
  * ediciones: todo eso ya lo cuenta el consumo, y contarlo aquí lo restaría dos veces.
- * Solo cuentan los víveres del ciclo y solo lo que baja. Devuelve cantidades positivas.
+ * Lo mismo vale para `cocina_sync` (ver `esDeCocina`). Solo cuentan los víveres del
+ * ciclo y solo lo que baja. Devuelve cantidades positivas.
  */
 export function sumarMermas(movs: MovimientoParaMerma[], viverIds: Set<string>): Map<string, number> {
   const out = new Map<string, number>();
   for (const m of movs) {
     const delta = n(m.delta);
-    if (delta >= 0 || m.ref_tipo === 'cocina' || !viverIds.has(m.producto_id)) continue;
+    if (delta >= 0 || esDeCocina(m.ref_tipo) || !viverIds.has(m.producto_id)) continue;
     out.set(m.producto_id, r2((out.get(m.producto_id) ?? 0) - delta));
   }
   return out;

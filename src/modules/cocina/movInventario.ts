@@ -14,6 +14,8 @@
    Aquí viven las reglas para armar esa lista, sin base ni React.
    ============================================================ */
 
+import { esDeCocina } from './claseMovimiento';
+
 const round2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 
 /** Una fila del kardex de víveres que no es una comida. */
@@ -81,7 +83,7 @@ export function filasInventario(
 ): MovInventario[] {
   const porId = new Map(viveres.map((p) => [p.id, p]));
   return filas
-    .filter((r) => porId.has(r.producto_id) && r.ref_tipo !== 'cocina' && (Number(r.delta) || 0) !== 0)
+    .filter((r) => porId.has(r.producto_id) && !esDeCocina(r.ref_tipo) && (Number(r.delta) || 0) !== 0)
     .map((r, i) => {
       const p = porId.get(r.producto_id)!;
       return {
