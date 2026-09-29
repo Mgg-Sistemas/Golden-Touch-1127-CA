@@ -62,6 +62,7 @@ async function construirResumenDoc(r: ResumenCajaAcopio) {
     ['Total entregado', fmtUsd(r.totalEntregado)],
     ['Total gastado (gastos + nómina)', fmtUsd(r.totalGastado)],
     ['Tasa del material', `${fmtUsd(r.tasaMaterial)} /Kg`],
+    ['Inversión (fuera de la tasa)', fmtUsd(r.totalInversion)],
     [`Gastos GT  (${fmtPct(r.pctGastos)})`, fmtUsd(r.totalGastos)],
     [`Nómina GT  (${fmtPct(r.pctNomina)})`, fmtUsd(r.totalNominas)],
   ];

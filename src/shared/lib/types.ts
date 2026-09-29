@@ -686,6 +686,7 @@ export interface CajaMovimiento {
   gastos: number;          // H · Gastos GT
   nominas: number;         // I · Nóminas GT
   traslado: number;        // J · Traslado de caja
+  inversion: number;       // K · Inversión (sale del saldo; NO suma a la tasa ni a Gastos GT)
   kg_recibidos: number;    // L · Kg recibidos por MGG
   clasif_grupo?: GrupoClasificacion | null;
   clasif_valor?: string | null;
@@ -753,6 +754,10 @@ export interface CierreSnapshot {
     nominas: number;
     facturado: number;
     totalKg: number;
+    /** Columnas J, K y M del Excel (cierres viejos no las traen). */
+    traslado?: number;
+    inversion?: number;
+    kgRecibidos?: number;
   };
   /** Filas de la tabla de movimientos al cierre (para mostrarlas tal cual en el histórico). */
   filas: CierreSnapshotFila[];
@@ -777,6 +782,8 @@ export interface CierreSnapshotFila {
   usdFacturados: number;
   gastosGt: number | null;
   nominasGt: number | null;
+  trasladoCaja?: number | null;
+  inversion?: number | null;
   saldoUsd: number;
   saldoKgCasiterita: number;
 }
@@ -789,9 +796,10 @@ export interface CajaResumen {
   gastos: number;         // H3
   nominas: number;        // I3
   traslado: number;       // J3
-  saldoUsd: number;       // K3 = D - G - H - I - J
-  kgRecibidos: number;    // L3
-  saldoKg: number;        // M3 = E - L
+  inversion: number;      // K3 · Inversión (fuera de la tasa)
+  saldoUsd: number;       // L3 = D - G - H - I - J - K
+  kgRecibidos: number;    // M3
+  saldoKg: number;        // N3 = E - M
   /** Tasa del material = (facturados + gastos + nominas) / kgCerrados (F3). */
   tasa: number;
 }
