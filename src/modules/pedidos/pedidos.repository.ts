@@ -427,7 +427,35 @@ export async function actualizarOrdenEditable(
     .select('*')
     .single();
   if (error) throw error;
+  // Cotización aceptada al día (30/09/2026): si a una OC con oferta elegida (pendiente del
+  // GG o esperando método) se le agregan/quitan productos o cambian precios, la oferta
+  // ACEPTADA toma los mismos renglones y su precio, para que la comparativa, el PDF
+  // (precio BCV / divisa) y «Reelegir» hablen de lo mismo que la OC.
+  if (patch.items && itemsCambian && (o.estado === 'oc_creada' || o.estado === 'confirmada_metodo') && Number(o.total) > 0) {
+    await sincronizarOfertaAceptada(o.id, patch.items);
+  }
   return data as Orden;
+}
+
+/** Copia los renglones de la OC a su oferta aceptada y recalcula su precio (BCV y, si lo
+ *  tenía, en divisa: por suma de precios USD o, si no hay, proporcional al cambio). */
+async function sincronizarOfertaAceptada(ordenId: string, items: ItemOrden[]): Promise<void> {
+  const { data, error: errSel } = await supabase.from('ofertas_proveedor')
+    .select('id, precio_total, precio_divisa').eq('orden_id', ordenId).eq('estado', 'aceptada').maybeSingle();
+  if (errSel) throw errSel;
+  const of = data as { id: string; precio_total: number | null; precio_divisa: number | null } | null;
+  if (!of) return;
+  const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const comprados = items.filter((i) => i.comprar !== false);
+  const bcv = r2(comprados.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0));
+  const usd = r2(comprados.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_usd) || 0), 0));
+  const upd: Record<string, unknown> = { items, precio_total: bcv };
+  if (of.precio_divisa != null) {
+    const prevBcv = Number(of.precio_total) || 0;
+    upd.precio_divisa = usd > 0 ? usd : (prevBcv > 0 ? r2((Number(of.precio_divisa) || 0) * bcv / prevBcv) : bcv);
+  }
+  const { error } = await supabase.from('ofertas_proveedor').update(upd).eq('id', of.id);
+  if (error) throw error;
 }
 
 /**
