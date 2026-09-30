@@ -144,7 +144,7 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
       doc.addImage(firmaGerente, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
     } else if (input.firmante === 'leydis' && firmaLeydis) {
       const w = 150, h = Math.min(80, (w * firmaLeydis.h) / (firmaLeydis.w || 1));
-      doc.addImage(firmaLeydis.dataUrl, 'JPEG', centro - w / 2, firmaY - h + 6, w, h);
+      doc.addImage(firmaLeydis.dataUrl, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
     }
   } catch { /* firma opcional */ }
 

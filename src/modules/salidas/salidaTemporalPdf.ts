@@ -164,24 +164,30 @@ export async function descargarSalidaTemporalPdf(
 
   // ── Observaciones / notas ──
   const notas = s.motivo?.trim() || '—';
+  const notasWrap = doc.splitTextToSize(notas, PAGE_W - MARGIN * 2);
+  if (y + 15 + notasWrap.length * 12 > PAGE_H - MARGIN - 60) { doc.addPage(); y = MARGIN; }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(120);
   doc.text('OBSERVACIONES / NOTAS', MARGIN, y);
   doc.setTextColor(20); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  const notasWrap = doc.splitTextToSize(notas, PAGE_W - MARGIN * 2);
   doc.text(notasWrap, MARGIN, y + 15);
+  const notasFin = y + 15 + notasWrap.length * 12;
 
   // ── Firmas al pie ──
-  const fy = PAGE_H - MARGIN - 50;
+  // El bloque arranca después de las notas dejando sitio a la firma (antes iba fijo al pie y,
+  // con una tabla larga, la firma tapaba los productos); si no cabe, pasa a una hoja nueva.
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
   const cx = MARGIN + colW + 40 + colW / 2; // centro de la columna «Autorizado por»
+  const maxW = 260, maxH = 110;
+  const ratio = firma2 ? Math.min(maxW / firma2.w, maxH / firma2.h) : 0;
+  const sw2 = firma2 ? firma2.w * ratio : 0;
+  const sh2 = firma2 ? firma2.h * ratio : (firmaGerente ? 67 : 0);
+  let fy = Math.max(PAGE_H - MARGIN - 50, notasFin + sh2 + 16);
+  if (fy + 40 > PAGE_H - MARGIN) { doc.addPage(); fy = MARGIN + sh2 + 24; }
   // Firma del autorizador estampada SOBRE la línea, solo si ya fue aprobada.
   if (firma2) {
-    // LEYDIS RENGEL: firma con dimensiones naturales, centrada sobre la columna.
-    const maxW = 300, maxH = 160;
-    const ratio = Math.min(maxW / firma2.w, maxH / firma2.h);
-    const sw = firma2.w * ratio, sh = firma2.h * ratio;
-    const sx = Math.max(MARGIN, Math.min(cx - sw / 2, PAGE_W - MARGIN - sw));
-    doc.addImage(firma2.dataUrl, 'JPEG', sx, fy - sh - 1, sw, sh);
+    // LEYDIS RENGEL: firma con fondo transparente, centrada sobre la columna.
+    const sx = Math.max(MARGIN, Math.min(cx - sw2 / 2, PAGE_W - MARGIN - sw2));
+    doc.addImage(firma2.dataUrl, 'PNG', sx, fy - sh2 - 1, sw2, sh2);
   } else if (firmaGerente) {
     // JESÚS LOZADA: firma sin dimensiones, tamaño fijo razonable, centrada.
     const sw = 150, sh = 67;
