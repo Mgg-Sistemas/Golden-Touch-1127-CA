@@ -95,7 +95,7 @@ import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
-import { puedeAprobarOc } from './aprobadoresOc';
+import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_GERENTE_CANCELA, ESTADOS_FIRMADOS_GG } from './aprobadoresOc';
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
@@ -2362,9 +2362,13 @@ function OrdenDetailModal({
   const canCancel = ['pendiente', 'aprobada'].includes(o.estado);
   // Cancelar la OC ya aprobada por el gerente (o con proveedor desistido) antes de
   // pagarla. Pide motivo y queda registrado para el PDF.
+  // Ya firmada por el GG (espera método / confirmada pagar): solo quien aprueba OC la cancela.
+  const firmadaGG = (ESTADOS_FIRMADOS_GG as readonly string[]).includes(o.estado);
   const canCancelOc =
     canManageProcurement &&
-    ['oc_creada', 'confirmada_metodo', 'oc_aprobada', 'desistida_proveedor'].includes(o.estado);
+    ['oc_creada', 'confirmada_metodo', 'oc_aprobada', 'desistida_proveedor'].includes(o.estado) &&
+    puedeCancelarOc(o.estado, usuarioRole, actorEmail);
+  const soloGerenteCancela = canManageProcurement && firmadaGG && !puedeCancelarOc(o.estado, usuarioRole, actorEmail);
   const isCancelada = o.estado === 'cancelada';
   // ¿La orden llegó a etapa de OC? (para ofrecer el PDF de la OC aun cancelada).
   const tuvoOc =
@@ -2512,17 +2516,23 @@ function OrdenDetailModal({
         </button>
       )}
       {puedeEditarOc && (
-        <button className="btn btn-ghost" onClick={onEditarOrden} title="Modificar ítems, cantidades, costo de los productos, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.">
-          ✎ Editar orden
+        <button className="btn btn-ghost" onClick={onEditarOrden}
+          title={isOcCreada
+            ? 'Agregar productos (del inventario o nuevos), cambiar cantidades o precios dentro de la cotización ya aceptada, antes de que apruebe el Gerente General. La oferta aceptada se actualiza con los mismos renglones y la OC sigue pendiente de aprobación.'
+            : 'Modificar ítems, cantidades, costo de los productos, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.'}>
+          {isOcCreada ? '✎ Editar orden / agregar productos' : '✎ Editar orden'}
         </button>
       )}
       {canCancel && (
         <button className="btn btn-danger" onClick={onCancel}>Cancelar orden</button>
       )}
       {canCancelOc && (
-        <button className="btn btn-danger" onClick={onCancel} title={`Cancelar ${esServicioOrd ? 'el Control de Servicio' : 'la OC'} (indicando el motivo, que aparecerá en el PDF)`}>
+        <button className="btn btn-danger" onClick={onCancel} title={`Cancelar ${esServicioOrd ? 'el Control de Servicio' : 'la OC'} (indicando el motivo, que aparecerá en el PDF)${firmadaGG ? ' · ya aprobada por el GG: decisión del gerente' : ''}`}>
           ✖ Cancelar {ocLbl}
         </button>
+      )}
+      {soloGerenteCancela && (
+        <span className="muted" style={{ fontSize: '.78rem', alignSelf: 'center' }} title={MSG_SOLO_GERENTE_CANCELA}>🔒 Aprobada por el GG · solo el gerente puede cancelarla</span>
       )}
       {/* OC cancelada: el PDF queda disponible con el motivo de cancelación. */}
       {isCancelada && tuvoOc && (
@@ -4380,7 +4390,9 @@ function EditarOrdenModal({
       {Number(orden.total) > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.6rem', fontSize: '.8rem' }}>
           {editarPrecios
-            ? <>⚠ Puedes <strong>editar el costo unitario</strong> de cada producto aquí abajo. Al guardar, el total se recalcula y la OC <strong>vuelve a aprobación del Gerente General</strong>.</>
+            ? (orden.estado === 'oc_creada'
+              ? <>🧾 <strong>Cotización aceptada.</strong> Puedes <strong>agregar productos</strong> (del inventario, abajo en «Buscar producto», o nuevos con «+ Producto nuevo») y <strong>editar cantidades y costo unitario</strong>. Al guardar, la <strong>oferta aceptada se actualiza</strong> con los mismos renglones y precio, el total se recalcula y la OC <strong>sigue pendiente de aprobación del Gerente General</strong>.</>
+              : <>⚠ Puedes <strong>editar el costo unitario</strong> de cada producto aquí abajo. Al guardar, el total se recalcula y la OC <strong>vuelve a aprobación del Gerente General</strong>.</>)
             : <>⚠ Esta orden ya tiene una oferta con precio elegida. Si cambias los ítems o cantidades, deberás <strong>volver a evaluar la oferta</strong> para recalcular el monto.</>}
         </div>
       )}
