@@ -19,12 +19,12 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
 import {
-  aplicarPlanDescansos, crearDescanso, editarDescanso, eliminarDescanso, getConfigDescansos,
-  guardarConfigDescansos, listDescansos, type Descanso,
+  aplicarPlanDescansos, crearDescanso, editarDescanso, eliminarDescanso, getConfigDescansos, getSeleccionPlan,
+  guardarConfigDescansos, guardarSeleccionPlan, listDescansos, type Descanso, type SeleccionPlanGuardada,
 } from './descansos.repository';
 import {
   CONFIG_POR_DEFECTO, capacidadRotacion, cargaPorDia, diasConChoque, diasDe, fechasEntre, fueraEl,
-  generarPlan, minimoSimultaneo, seCruzan, sumarDias, type ConfigDescansos, type DescansoRango, type ResultadoPlan,
+  generarPlan, minimoSimultaneo, seCruzan, seleccionInicialPlan, sumarDias, type ConfigDescansos, type DescansoRango, type ResultadoPlan,
 } from './descansosPlan';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -50,6 +50,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
   const [personal, setPersonal] = useState<Personal[]>([]);
   const [descansos, setDescansos] = useState<Descanso[]>([]);
   const [cfg, setCfg] = useState<ConfigDescansos>(CONFIG_POR_DEFECTO);
+  const [selGuardada, setSelGuardada] = useState<SeleccionPlanGuardada>({ ids: [], en: null, por: null });
   const [loading, setLoading] = useState(true);
   const [texto, setTexto] = useState('');
   const [editar, setEditar] = useState<{ descanso?: Descanso; personalId?: string; desde?: string } | null>(null);
@@ -60,11 +61,12 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
   const recargar = useCallback(async () => {
     try {
       const ps = (await listPersonal(true, empresa)).sort((a, b) => nombre(a).localeCompare(nombre(b)));
-      const [ds, c] = await Promise.all([
+      const [ds, c, sg] = await Promise.all([
         listDescansos(ps.map((p) => p.id)),
         getConfigDescansos(empresa).catch(() => CONFIG_POR_DEFECTO),
+        getSeleccionPlan(empresa).catch(() => ({ ids: [], en: null, por: null } as SeleccionPlanGuardada)),
       ]);
-      setPersonal(ps); setDescansos(ds); setCfg(c);
+      setPersonal(ps); setDescansos(ds); setCfg(c); setSelGuardada(sg);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los descansos', 'error'); }
     finally { setLoading(false); }
   }, [empresa]);
@@ -211,6 +213,8 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
       )}
       {plan && (
         <GenerarPlanModal personal={personal} descansos={descansos} cfg={cfg} hoy={hoy} actor={actor} actorName={actorName}
+          empresa={empresa} selGuardada={selGuardada}
+          onSeleccionGuardada={(sg) => setSelGuardada(sg)}
           onClose={() => setPlan(false)} onSaved={async () => { setPlan(false); await recargar(); }} />
       )}
       {lista && (
@@ -423,15 +427,34 @@ function AjustesModal({ empresa, cfg, personas, actor, onClose, onSaved }: {
 }
 
 /* ───────── Generar plan ───────── */
-function GenerarPlanModal({ personal, descansos, cfg, hoy, actor, actorName, onClose, onSaved }: {
+function GenerarPlanModal({ personal, descansos, cfg, hoy, actor, actorName, empresa, selGuardada, onSeleccionGuardada, onClose, onSaved }: {
   personal: Personal[]; descansos: Descanso[]; cfg: ConfigDescansos; hoy: string;
-  actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+  actor: string; actorName: string | null; empresa: EmpresaRrhh;
+  /** Selección guardada para el próximo descanso (ids de personal). */
+  selGuardada: SeleccionPlanGuardada;
+  onSeleccionGuardada: (sg: SeleccionPlanGuardada) => void;
+  onClose: () => void; onSaved: () => void;
 }) {
   const [desde, setDesde] = useState(hoy);
   const [meses, setMeses] = useState(3);
-  const [sel, setSel] = useState<Set<string>>(() => new Set(personal.map((p) => p.id)));
+  // Abre con la selección guardada (si sigue vigente); si no hay, con todos.
+  const [sel, setSel] = useState<Set<string>>(() => seleccionInicialPlan(selGuardada.ids, personal.map((p) => p.id)));
   const [texto, setTexto] = useState('');
   const [saving, setSaving] = useState(false);
+  const [guardandoSel, setGuardandoSel] = useState(false);
+  const guardadaVigente = useMemo(() => selGuardada.ids.filter((id) => personal.some((p) => p.id === id)), [selGuardada, personal]);
+  const igualAGuardada = guardadaVigente.length === sel.size && guardadaVigente.every((id) => sel.has(id));
+
+  async function guardarSeleccion() {
+    setGuardandoSel(true);
+    try {
+      const ids = personal.filter((p) => sel.has(p.id)).map((p) => p.id); // en orden de la nómina
+      await guardarSeleccionPlan(empresa, ids, actor);
+      onSeleccionGuardada({ ids, en: new Date().toISOString(), por: actor });
+      toast(ids.length ? `Selección guardada: ${ids.length} trabajador(es) para el próximo descanso` : 'Selección guardada vaciada', 'success');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar la selección', 'error'); }
+    finally { setGuardandoSel(false); }
+  }
   const hasta = desde ? finDePlan(desde, Math.max(1, meses)) : '';
 
   const visibles = personal.filter((p) => !texto.trim() || normal(`${nombre(p)} ${p.cargo ?? ''} ${p.cedula ?? ''}`).includes(normal(texto.trim())));
@@ -504,7 +527,17 @@ function GenerarPlanModal({ personal, descansos, cfg, hoy, actor, actorName, onC
           <input id="plan-buscar" className="input" style={{ flex: '1 1 200px' }} placeholder="🔍 Buscar trabajador…" value={texto} onChange={(e) => setTexto(e.target.value)} />
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(new Set(personal.map((p) => p.id)))}>Todos</button>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(new Set())}>Ninguno</button>
-          <span className="muted" style={{ fontSize: '.8rem' }}>{sel.size} de {personal.length}</span>
+          {guardadaVigente.length > 0 && (
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSel(new Set(guardadaVigente))} disabled={igualAGuardada}
+              title={`Selección guardada${selGuardada.en ? ` el ${fmtDate(selGuardada.en.slice(0, 10))}` : ''}${selGuardada.por ? ` por ${selGuardada.por}` : ''}`}>
+              ↺ Usar guardada ({guardadaVigente.length})
+            </button>
+          )}
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => void guardarSeleccion()} disabled={guardandoSel || igualAGuardada}
+            title="Guarda esta selección para el próximo descanso: la próxima vez «Generar plan» abre con ella">
+            {guardandoSel ? 'Guardando…' : '💾 Guardar selección'}
+          </button>
+          <span className="muted" style={{ fontSize: '.8rem' }}>{sel.size} de {personal.length}{igualAGuardada && guardadaVigente.length ? ' · es la guardada' : ''}</span>
         </div>
         <div className="desc-plan-lista">
           {visibles.map((p) => {
