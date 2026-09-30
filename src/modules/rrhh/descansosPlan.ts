@@ -27,6 +27,16 @@ export interface ConfigDescansos {
 
 export const CONFIG_POR_DEFECTO: ConfigDescansos = { dias_trabajo: 21, dias_descanso: 7, max_simultaneos: 4 };
 
+/**
+ * Selección con la que abre «Generar plan»: la guardada para el próximo descanso (solo
+ * los que siguen activos en la nómina); si no hay ninguna guardada válida, todos.
+ */
+export function seleccionInicialPlan(guardada: readonly string[], activos: readonly string[]): Set<string> {
+  const validos = new Set(activos);
+  const g = guardada.filter((id) => validos.has(id));
+  return new Set(g.length ? g : activos);
+}
+
 const DIA_MS = 86_400_000;
 
 function aMs(iso: string): number {

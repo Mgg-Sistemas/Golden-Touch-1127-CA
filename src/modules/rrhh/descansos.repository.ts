@@ -5,7 +5,8 @@
                            origen 'plan' = lo armó el generador; 'manual' = cargado a mano.
                            La base no deja que una persona tenga dos descansos cruzados.
    rrhh_descansos_config → días de trabajo, días de descanso y tope de personas
-                           fuera a la vez, uno por nómina (GT / MTO).
+                           fuera a la vez, uno por nómina (GT / MTO). Guarda también la
+                           SELECCIÓN de trabajadores para el próximo «Generar plan».
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh } from '@/shared/lib/types';
@@ -48,6 +49,25 @@ export async function getConfigDescansos(empresa: EmpresaRrhh): Promise<ConfigDe
 export async function guardarConfigDescansos(empresa: EmpresaRrhh, cfg: ConfigDescansos, actor: string): Promise<void> {
   const { error } = await supabase.from(TABLA_CFG)
     .upsert({ empresa, ...cfg, updated_at: new Date().toISOString(), updated_by: actor }, { onConflict: 'empresa' });
+  if (error) throw error;
+}
+
+/** Selección guardada para el próximo «Generar plan» (ids de personal), por nómina. */
+export interface SeleccionPlanGuardada { ids: string[]; en: string | null; por: string | null }
+
+export async function getSeleccionPlan(empresa: EmpresaRrhh): Promise<SeleccionPlanGuardada> {
+  const { data, error } = await supabase.from(TABLA_CFG).select('seleccion_plan, seleccion_plan_en, seleccion_plan_por')
+    .eq('empresa', empresa).maybeSingle();
+  if (error) throw error;
+  const row = data as { seleccion_plan?: unknown; seleccion_plan_en?: string | null; seleccion_plan_por?: string | null } | null;
+  const ids = Array.isArray(row?.seleccion_plan) ? (row!.seleccion_plan as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+  return { ids, en: row?.seleccion_plan_en ?? null, por: row?.seleccion_plan_por ?? null };
+}
+
+/** Guarda (o limpia, con []) la selección para el próximo plan. No toca la rotación. */
+export async function guardarSeleccionPlan(empresa: EmpresaRrhh, ids: string[], actor: string): Promise<void> {
+  const { error } = await supabase.from(TABLA_CFG)
+    .upsert({ empresa, seleccion_plan: ids, seleccion_plan_en: new Date().toISOString(), seleccion_plan_por: actor }, { onConflict: 'empresa' });
   if (error) throw error;
 }
 
