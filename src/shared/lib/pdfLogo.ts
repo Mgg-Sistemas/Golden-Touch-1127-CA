@@ -42,6 +42,8 @@ export async function loadLogoDataUrl(): Promise<string> {
  * como data URL JPEG + dimensiones naturales (para mantener la proporción al estamparla
  * sobre la línea de «Autorizado por» en la Orden de Salida). Devuelve `null` si no existe.
  */
+/** Firma de LEYDIS RENGEL (`public/firma2.jpeg`) como PNG con fondo transparente, con su
+ *  ancho/alto naturales. Estamparla con formato 'PNG'. */
 export async function loadFirma2DataUrl(): Promise<{ dataUrl: string; w: number; h: number } | null> {
   if (cachedFirma2 !== undefined) return cachedFirma2;
   try {
@@ -63,10 +65,19 @@ export async function loadFirma2DataUrl(): Promise<{ dataUrl: string; w: number;
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d');
       if (!ctx) { cachedFirma2 = null; return null; }
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
-      cachedFirma2 = { dataUrl: canvas.toDataURL('image/jpeg', 0.92), w, h };
+      // El JPEG trae fondo blanco: se vuelve TRANSPARENTE (los píxeles casi blancos quedan
+      // con alfa 0) y se exporta como PNG, para que la firma no tape lo que tenga debajo
+      // (líneas, texto) y el trazo se vea limpio. Los consumidores la estampan como 'PNG'.
+      const px = ctx.getImageData(0, 0, w, h);
+      const d = px.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const min = Math.min(d[i], d[i + 1], d[i + 2]);
+        if (min >= 235) d[i + 3] = 0;                       // blanco → transparente
+        else if (min >= 200) d[i + 3] = Math.round(((235 - min) / 35) * 255); // borde suave
+      }
+      ctx.putImageData(px, 0, 0);
+      cachedFirma2 = { dataUrl: canvas.toDataURL('image/png'), w, h };
       return cachedFirma2;
     } finally {
       URL.revokeObjectURL(objectUrl);

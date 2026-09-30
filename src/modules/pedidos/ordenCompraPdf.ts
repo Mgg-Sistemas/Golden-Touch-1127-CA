@@ -583,7 +583,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       const SIG_W = 150;
       if (quienFirma === 'leydis' && firmaLeydis) {
         const SIG_H = Math.min(80, (SIG_W * firmaLeydis.h) / (firmaLeydis.w || 1)); // conserva proporción real
-        doc.addImage(firmaLeydis.dataUrl, 'JPEG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
+        doc.addImage(firmaLeydis.dataUrl, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
       } else if (firmaGerente) {
         const SIG_H = 67; // conserva el aspecto real de firma.png (707×317 ≈ 2.23)
         doc.addImage(firmaGerente, 'PNG', MARGIN + 6, pageH - 80 - SIG_H + 8, SIG_W, SIG_H);
