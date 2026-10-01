@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Minuta } from '@/shared/lib/types';
-import { borradorDesdeMinuta, hoyVE, participanteDesdePersonal } from './minutaBorrador';
+import { borradorDesdeMinuta, filaTieneContenido, hoyVE, participanteDesdePersonal } from './minutaBorrador';
 
 const minuta: Minuta = {
   id: 'm1', numero: 'MIN-2026-0001', estado: 'finalizada', lugar: null,
@@ -58,5 +58,20 @@ describe('participanteDesdePersonal', () => {
   it('sin apellido ni cargo no deja «undefined» ni espacios sobrantes', () => {
     expect(participanteDesdePersonal({ id: 'p2', nombre: 'Luis', apellido: null, cargo: null }))
       .toEqual({ personal_id: 'p2', nombre: 'Luis', cargo: '' });
+  });
+});
+
+describe('filaTieneContenido', () => {
+  it('una fila en blanco no tiene contenido', () => {
+    expect(filaTieneContenido(['', '  ', null, undefined])).toBe(false);
+  });
+  it('un solo campo con texto basta', () => {
+    expect(filaTieneContenido(['', 'Comprar sillas', null])).toBe(true);
+  });
+  it('un porcentaje en 0 cuenta como contenido', () => {
+    expect(filaTieneContenido(['', null, 0])).toBe(true);
+  });
+  it('una fecha cuenta como contenido', () => {
+    expect(filaTieneContenido(['', '2026-10-05'])).toBe(true);
   });
 });

@@ -6,14 +6,14 @@
    y avances) no tienen tope de filas y arrancan con una en blanco.
    ============================================================ */
 import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { FechaInput } from '@/shared/ui/FechaInput';
 import { toast } from '@/shared/ui/Toast';
 import type { Minuta, MinutaAcuerdo, MinutaAvance, MinutaParticipante, Personal } from '@/shared/lib/types';
 import {
   errorMinuta, filaAcuerdoVacia, filaAvanceVacia, filaParticipanteVacia, type BorradorMinuta,
 } from './minutaModelo';
-import { borradorDesdeMinuta, participanteDesdePersonal } from './minutaBorrador';
+import { borradorDesdeMinuta, filaTieneContenido, participanteDesdePersonal } from './minutaBorrador';
 import { actualizarMinuta, crearMinuta } from './minutas.repository';
 import { listPersonal } from './personal.repository';
 
@@ -59,10 +59,23 @@ function AreaCrece({ value, onChange, rows = 2 }: {
   );
 }
 
-function Papelera({ onClick }: { onClick: () => void }) {
+/** Fila en blanco: se quita de un clic. Con algo escrito, antes pregunta. */
+function Papelera({ onClick, campos }: { onClick: () => void; campos: unknown[] }) {
+  const [confirmando, setConfirmando] = useState(false);
   return (
-    <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
-      title="Quitar fila" aria-label="Quitar fila" onClick={onClick}>🗑</button>
+    <>
+      <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
+        title="Quitar fila" aria-label="Quitar fila"
+        onClick={() => (filaTieneContenido(campos) ? setConfirmando(true) : onClick())}>🗑</button>
+      {confirmando && (
+        <ConfirmDialog
+          title="Quitar fila" danger confirmText="Sí, quitar"
+          message="Esta fila tiene datos escritos. Si la quitas, se pierden. ¿Seguro que quieres quitarla?"
+          onConfirm={() => { setConfirmando(false); onClick(); }}
+          onCancel={() => setConfirmando(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -87,7 +100,15 @@ function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) 
 const pctATexto = (n: number | null) => (n === null || n === undefined ? '' : String(n));
 const textoAPct = (s: string): number | null => (s.trim() === '' ? null : Number(s));
 
-export function MinutaEditorModal({ minuta, actor, onClose, onGuardada }: MinutaEditorModalProps) {
+/**
+ * El `key` hace que cambiar de minuta remonte el formulario: sin él, el estado
+ * inicial (que se toma una sola vez) se quedaría con lo de la minuta anterior.
+ */
+export function MinutaEditorModal(props: MinutaEditorModalProps) {
+  return <MinutaEditorForm key={props.minuta?.id ?? 'nueva'} {...props} />;
+}
+
+function MinutaEditorForm({ minuta, actor, onClose, onGuardada }: MinutaEditorModalProps) {
   const [inicial] = useState(() => borradorDesdeMinuta(minuta));
   const [fecha, setFecha] = useState(inicial.fecha);
   const [lugar, setLugar] = useState(inicial.lugar);
@@ -148,7 +169,7 @@ export function MinutaEditorModal({ minuta, actor, onClose, onGuardada }: Minuta
 
   return (
     <Modal
-      size="xl" title={titulo} onClose={onClose}
+      size="xl" title={titulo} onClose={() => { if (!ocupado) onClose(); }}
       footer={
         <>
           <button type="button" className="btn btn-ghost" disabled={ocupado} onClick={onClose}>Cancelar</button>
@@ -198,7 +219,7 @@ export function MinutaEditorModal({ minuta, actor, onClose, onGuardada }: Minuta
                     <AreaCrece value={t} rows={1}
                       onChange={(v) => setOrdenDia((prev) => prev.map((x, j) => (j === i ? v : x)))} />
                   </td>
-                  <td style={{ textAlign: 'center' }}><Papelera onClick={() => quitar(setOrdenDia)(i)} /></td>
+                  <td style={{ textAlign: 'center' }}><Papelera campos={[t]} onClick={() => quitar(setOrdenDia)(i)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -233,7 +254,7 @@ export function MinutaEditorModal({ minuta, actor, onClose, onGuardada }: Minuta
                     </td>
                     <td><input className="input" value={p.nombre} onChange={(e) => cambiar(setParticipantes, i, { nombre: e.target.value })} /></td>
                     <td><input className="input" value={p.cargo} onChange={(e) => cambiar(setParticipantes, i, { cargo: e.target.value })} /></td>
-                    <td style={{ textAlign: 'center' }}><Papelera onClick={() => quitar(setParticipantes)(i)} /></td>
+                    <td style={{ textAlign: 'center' }}><Papelera campos={[p.nombre, p.cargo]} onClick={() => quitar(setParticipantes)(i)} /></td>
                   </tr>
                 );
               })}
@@ -258,7 +279,7 @@ export function MinutaEditorModal({ minuta, actor, onClose, onGuardada }: Minuta
                   <td><input className="input" value={a.responsable} onChange={(e) => cambiar(setAcuerdos, i, { responsable: e.target.value })} /></td>
                   <td><AreaCrece value={a.actividad} rows={1} onChange={(v) => cambiar(setAcuerdos, i, { actividad: v })} /></td>
                   <td><FechaInput value={a.fecha_compromiso ?? ''} onChange={(iso) => cambiar(setAcuerdos, i, { fecha_compromiso: iso || null })} /></td>
-                  <td style={{ textAlign: 'center' }}><Papelera onClick={() => quitar(setAcuerdos)(i)} /></td>
+                  <td style={{ textAlign: 'center' }}><Papelera campos={[a.responsable, a.actividad, a.fecha_compromiso]} onClick={() => quitar(setAcuerdos)(i)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -287,7 +308,7 @@ export function MinutaEditorModal({ minuta, actor, onClose, onGuardada }: Minuta
                     <AreaCrece value={t} rows={1}
                       onChange={(v) => setProximosPuntos((prev) => prev.map((x, j) => (j === i ? v : x)))} />
                   </td>
-                  <td style={{ textAlign: 'center' }}><Papelera onClick={() => quitar(setProximosPuntos)(i)} /></td>
+                  <td style={{ textAlign: 'center' }}><Papelera campos={[t]} onClick={() => quitar(setProximosPuntos)(i)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -327,7 +348,7 @@ export function MinutaEditorModal({ minuta, actor, onClose, onGuardada }: Minuta
                     <input className="input" type="number" min={0} max={100} inputMode="decimal"
                       value={pctATexto(a.pct_avance)} onChange={(e) => cambiar(setAvances, i, { pct_avance: textoAPct(e.target.value) })} />
                   </td>
-                  <td style={{ textAlign: 'center' }}><Papelera onClick={() => quitar(setAvances)(i)} /></td>
+                  <td style={{ textAlign: 'center' }}><Papelera campos={[a.actividad, a.responsable, a.fecha_programada, a.revision_fecha, a.pct_inicial, a.revision_final, a.pct_avance]} onClick={() => quitar(setAvances)(i)} /></td>
                 </tr>
               ))}
             </tbody>

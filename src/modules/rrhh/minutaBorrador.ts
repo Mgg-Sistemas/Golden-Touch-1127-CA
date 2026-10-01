@@ -70,3 +70,12 @@ export function participanteDesdePersonal(p: PersonaElegible): MinutaParticipant
     cargo: p.cargo ?? '',
   };
 }
+
+/**
+ * ¿La fila tiene algo escrito? Mismo criterio que usa el repositorio para
+ * descartar filas en blanco al guardar: null, undefined y texto en blanco son
+ * vacío; el número 0 NO lo es. El editor pide confirmación solo si hay contenido.
+ */
+export function filaTieneContenido(campos: unknown[]): boolean {
+  return campos.some((v) => !(v === null || v === undefined || (typeof v === 'string' && v.trim() === '')));
+}
