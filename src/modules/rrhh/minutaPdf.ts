@@ -35,6 +35,15 @@ export function filasConRenglones<T>(filas: T[], minimo: number, vacia: () => T)
   return [...filas, ...Array.from({ length: faltan }, vacia)];
 }
 
+/**
+ * Renglones que debe tener una tabla: sin filas cargadas (hoja en blanco, o
+ * sección vacía) es el mínimo del formato de papel de ESA sección; con filas,
+ * son las cargadas más los renglones de cortesía.
+ */
+export function minimoFilas(seccion: keyof typeof RENGLONES_HOJA, cargadas: number): number {
+  return cargadas > 0 ? cargadas + RENGLONES_EXTRA : RENGLONES_HOJA[seccion];
+}
+
 type Doc = import('jspdf').jsPDF;
 
 /** Alto de un renglón con raya (campos de texto libre). */
@@ -104,9 +113,6 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   const ANCHO = W - MARGIN * 2;
   let y = MARGIN;
 
-  // Renglones mínimos: hoja en blanco = formato de papel; cargada = filas + extra.
-  const minimo = (cargadas: number, hoja: number) => (m ? cargadas + RENGLONES_EXTRA : hoja);
-
   /** Salta de página si lo que sigue no entra. */
   const asegurar = (alto: number) => {
     if (y + alto > H - MARGIN) { doc.addPage(); y = MARGIN; }
@@ -164,24 +170,24 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
       margin: MARGIN,
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
-    y = (doc.lastAutoTable?.finalY ?? y) + 14;
+    y = (doc.lastAutoTable?.finalY ?? y) + 8;
   };
 
   /** Lista numerada (orden del día y puntos a tratar). */
-  const listaNumerada = (titulo: string, items: string[], hoja: number) => {
-    const filas = filasConRenglones(items, minimo(items.length, hoja), () => '');
-    tabla(['#', titulo], filas.map((t, i) => [String(i + 1), pdfSafe(t)]), { 0: { cellWidth: 28, halign: 'center' } });
+  const listaNumerada = (titulo: string, items: string[], seccion: keyof typeof RENGLONES_HOJA) => {
+    const filas = filasConRenglones(items, minimoFilas(seccion, items.length), () => '');
+    tabla(['#', titulo], filas.map((t, i) => [String(i + 1), pdfSafe(t)]), { 0: { cellWidth: 28, halign: 'center' } }, { cellPadding: 4 });
   };
 
   /* 3. Orden del día */
-  listaNumerada('ORDEN DEL DÍA', m?.orden_dia ?? [], RENGLONES_HOJA.ordenDia);
+  listaNumerada('ORDEN DEL DÍA', m?.orden_dia ?? [], 'ordenDia');
 
   /* 4. Participantes (firma siempre vacía) */
   tabla(
     ['PARTICIPANTES', 'CARGO', 'FIRMA'],
     filasConRenglones(
       m?.participantes ?? [],
-      minimo(m?.participantes.length ?? 0, RENGLONES_HOJA.participantes),
+      minimoFilas('participantes', m?.participantes.length ?? 0),
       () => ({ personal_id: null, nombre: '', cargo: '' } as MinutaParticipante),
     ).map((p) => [pdfSafe(p.nombre), pdfSafe(p.cargo), '']),
     { 1: { cellWidth: 130 }, 2: { cellWidth: 120 } },
@@ -194,10 +200,11 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
     ['RESPONSABLE', 'ACTIVIDAD', 'FECHA COMPROMISO'],
     filasConRenglones(
       m?.acuerdos ?? [],
-      minimo(m?.acuerdos.length ?? 0, RENGLONES_HOJA.acuerdos),
+      minimoFilas('acuerdos', m?.acuerdos.length ?? 0),
       () => ({ responsable: '', actividad: '', fecha_compromiso: null } as MinutaAcuerdo),
     ).map((a) => [pdfSafe(a.responsable), pdfSafe(a.actividad), dia(a.fecha_compromiso)]),
     { 0: { cellWidth: 120 }, 2: { cellWidth: 90 } },
+    { cellPadding: 4 },
   );
 
   /* 6. Otros asuntos: texto sobre rayas */
@@ -207,7 +214,7 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   const lineasOtros = m?.otros_asuntos?.trim()
     ? (doc.splitTextToSize(pdfSafe(m.otros_asuntos), ANCHO - 4) as string[])
     : [];
-  const rayas = filasConRenglones(lineasOtros, minimo(lineasOtros.length, RENGLONES_HOJA.observaciones), () => '');
+  const rayas = filasConRenglones(lineasOtros, minimoFilas('observaciones', lineasOtros.length), () => '');
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
   for (const linea of rayas) {
     asegurar(ALTO_RAYA);
@@ -226,14 +233,14 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   y += campo(doc, MARGIN, y, MITAD, 'Fecha de la próxima reunión', dia(m?.proxima_fecha)) + 10;
 
   /* 8. Puntos a tratar en la próxima reunión */
-  listaNumerada('PUNTOS A TRATAR EN LA PRÓXIMA REUNIÓN', m?.proximos_puntos ?? [], RENGLONES_HOJA.ordenDia);
+  listaNumerada('PUNTOS A TRATAR EN LA PRÓXIMA REUNIÓN', m?.proximos_puntos ?? [], 'ordenDia');
 
   /* 9. Avances */
   tabla(
     ['ACTIVIDAD', 'RESPONSABLE', 'FECHA PROGRAMADA', 'REV. FECHA', 'REV. %', 'REVISIÓN FINAL', '% AVANCE'],
     filasConRenglones(
       m?.avances ?? [],
-      minimo(m?.avances.length ?? 0, RENGLONES_HOJA.avances),
+      minimoFilas('avances', m?.avances.length ?? 0),
       () => ({
         actividad: '', responsable: '', fecha_programada: null, revision_fecha: null,
         pct_inicial: null, revision_final: '', pct_avance: null,
@@ -244,16 +251,16 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
     ]),
     // Solo esta tabla baja a fuente 8 y padding 3 (siete columnas). Medido con
     // jsPDF (helvetica bold 8): PROGRAMADA 59, RESPONSABLE 60,6, REVISION 38,1,
-    // AVANCE 32,3, FECHA 27,4; fecha dd/mm/aaaa normal 39,7. Cada columna se
+    // AVANCE 32,3, FECHA 27,4; fecha dd/mm/aaaa normal 39,7. Cada columna fija se
     // dimensiona como texto mas largo + 2*3 de padding + holgura:
     //   RESPONSABLE 68 | FECHA PROGRAMADA 68 | REV. FECHA 48 | REV. % 34
-    //   | REVISION FINAL 48 | % AVANCE 42            = 308
-    //   ACTIVIDAD = 532 (ancho util: 612 - 2*40) - 308 = 224 (auto)
-    // Suma total 532 <= 532. Ningun encabezado se parte a mitad de palabra ni
-    // una fecha cae en dos renglones.
+    //   | REVISION FINAL 88 (texto libre: entra «Contratacion» sin partirse)
+    //   | % AVANCE 42                                   = 348
+    //   ACTIVIDAD 184 (fija, tambien texto libre)
+    // Total 348 + 184 = 532 = ancho util (612 - 2*40). Nunca pasa de 532.
     {
-      1: { cellWidth: 68 }, 2: { cellWidth: 68 }, 3: { cellWidth: 48 },
-      4: { cellWidth: 34 }, 5: { cellWidth: 48 }, 6: { cellWidth: 42 },
+      0: { cellWidth: 184 }, 1: { cellWidth: 68 }, 2: { cellWidth: 68 }, 3: { cellWidth: 48 },
+      4: { cellWidth: 34 }, 5: { cellWidth: 88 }, 6: { cellWidth: 42 },
     },
     { fontSize: 8, cellPadding: 3 },
     { fontSize: 8 },
@@ -263,7 +270,9 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   const obs = m?.observaciones?.trim() ? [pdfSafe(m.observaciones)] : [];
   tabla(
     ['OBSERVACIONES'],
-    filasConRenglones(obs, minimo(obs.length, RENGLONES_HOJA.observaciones), () => '').map((t) => [t]),
+    filasConRenglones(obs, minimoFilas('observaciones', obs.length), () => '').map((t) => [t]),
+    {},
+    { cellPadding: 4 },
   );
 
   /* ── Adjuntos: una página por imagen; los PDF solo se listan por nombre ── */

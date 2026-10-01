@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Minuta } from '@/shared/lib/types';
 import {
-  RENGLONES_EXTRA, RENGLONES_HOJA, construirMinutaPdf, filasConRenglones,
+  RENGLONES_EXTRA, RENGLONES_HOJA, construirMinutaPdf, filasConRenglones, minimoFilas,
 } from './minutaPdf';
 
 const vacia = () => ({ a: '' });
@@ -80,5 +80,24 @@ describe('construirMinutaPdf', () => {
       otros_asuntos: null, proxima_fecha: null, proximos_puntos: [], avances: [], observaciones: null,
     }));
     expect(vacia.getNumberOfPages()).toBe(blanca.getNumberOfPages());
+  });
+});
+
+describe('minimoFilas', () => {
+  it('sin filas cargadas devuelve el mínimo del papel de cada sección', () => {
+    expect(minimoFilas('ordenDia', 0)).toBe(7);
+    expect(minimoFilas('participantes', 0)).toBe(6);
+    expect(minimoFilas('acuerdos', 0)).toBe(6);
+    expect(minimoFilas('avances', 0)).toBe(4);
+    expect(minimoFilas('observaciones', 0)).toBe(7);
+  });
+  it('con filas cargadas devuelve cargadas + RENGLONES_EXTRA, en cualquier sección', () => {
+    for (const k of Object.keys(RENGLONES_HOJA) as (keyof typeof RENGLONES_HOJA)[]) {
+      expect(minimoFilas(k, 3)).toBe(3 + RENGLONES_EXTRA);
+      expect(minimoFilas(k, 20)).toBe(20 + RENGLONES_EXTRA);
+    }
+  });
+  it('cero filas cargadas da el mínimo del papel, no el extra', () => {
+    expect(minimoFilas('acuerdos', 0)).not.toBe(RENGLONES_EXTRA);
   });
 });
