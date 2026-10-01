@@ -11,8 +11,9 @@ import { NominaTab } from './NominaTab';
 import { VacacionesTab } from './VacacionesTab';
 import { DescansosTab } from './DescansosTab';
 import { AdministrativoTab } from './AdministrativoTab';
+import { MinutasTab } from './MinutasTab';
 
-type Vista = 'personal' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo';
+type Vista = 'personal' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo' | 'minutas';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'personal', label: 'Personal', icon: '👥' },
@@ -21,6 +22,7 @@ const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'vacaciones', label: 'Vacaciones', icon: '🏖' },
   { key: 'descansos', label: 'Descansos', icon: '🏠' },
   { key: 'administrativo', label: 'Administrativo', icon: '🗂' },
+  { key: 'minutas', label: 'Minutas', icon: '📝' },
 ];
 
 /** Un ícono por nómina, solo para que las dos pastillas del switch se
@@ -132,6 +134,8 @@ export function RrhhPage() {
       {vista === 'vacaciones' && <VacacionesTab key={empresa} empresa={empresa} canWrite={canWrite} actor={actor} actorName={actorName} />}
       {vista === 'descansos' && <DescansosTab key={empresa} empresa={empresa} canWrite={canWrite} actor={actor} actorName={actorName} />}
       {vista === 'administrativo' && <AdministrativoTab key={empresa} empresa={empresa} canWrite={canWrite} actor={actor} actorName={actorName} />}
+      {/* Sin `key`: las minutas son de toda la organización, no dependen de la nómina. */}
+      {vista === 'minutas' && <MinutasTab canWrite={canWrite} actor={actor} />}
     </div>
   );
 }

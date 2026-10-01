@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { convieneAchicar, medidasAchicadas, nombreJpg, UMBRAL_BYTES } from './comprimirImagen';
+import { convieneAchicar, debeConvertirSiempre, medidasAchicadas, nombreJpg, UMBRAL_BYTES } from './comprimirImagen';
 
 describe('convieneAchicar', () => {
   it('solo fotos pesadas', () => {
@@ -11,6 +11,19 @@ describe('convieneAchicar', () => {
     expect(convieneAchicar('application/pdf', 9_000_000)).toBe(false);
     expect(convieneAchicar('image/gif', 9_000_000)).toBe(false);
     expect(convieneAchicar('image/svg+xml', 9_000_000)).toBe(false);
+  });
+  it('un WEBP se convierte aunque sea chico: el PDF no sabe dibujarlo', () => {
+    expect(convieneAchicar('image/webp', 1024)).toBe(true);
+    expect(convieneAchicar('image/webp', UMBRAL_BYTES)).toBe(true);
+  });
+});
+
+describe('debeConvertirSiempre', () => {
+  it('solo el WEBP, que jsPDF no dibuja', () => {
+    expect(debeConvertirSiempre('image/webp')).toBe(true);
+    expect(debeConvertirSiempre('image/jpeg')).toBe(false);
+    expect(debeConvertirSiempre('image/png')).toBe(false);
+    expect(debeConvertirSiempre('application/pdf')).toBe(false);
   });
 });
 
