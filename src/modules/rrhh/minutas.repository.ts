@@ -6,7 +6,7 @@
    que pueda cortarse a la mitad y dejar la minuta incompleta.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Minuta } from '@/shared/lib/types';
+import type { Minuta, MinutaAcuerdo, MinutaAvance, MinutaParticipante } from '@/shared/lib/types';
 import { componerBusq, numeroMinuta, type BorradorMinuta } from './minutaModelo';
 
 const TABLE = 'minutas';
@@ -15,6 +15,15 @@ const textoONull = (s: string | null | undefined) => {
   const t = (s ?? '').trim();
   return t ? t : null;
 };
+
+const recortar = (s: string | null | undefined) => (s ?? '').trim();
+
+/** Un campo está vacío si es null, undefined o texto en blanco. El número 0 NO es vacío. */
+const campoVacio = (v: unknown) =>
+  v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+
+/** ¿Todos los campos editables de la fila están vacíos? Solo entonces se descarta. */
+const filaVacia = (campos: unknown[]) => campos.every(campoVacio);
 
 /**
  * Convierte lo que hay en pantalla en la fila que va a la base. Las filas que
@@ -29,12 +38,26 @@ export function filasAGuardar(b: BorradorMinuta): Record<string, unknown> {
     hora_inicio: textoONull(b.hora_inicio),
     objetivo: textoONull(b.objetivo),
     orden_dia: b.orden_dia.map((s) => s.trim()).filter(Boolean),
-    participantes: b.participantes.filter((p) => p.nombre.trim()),
-    acuerdos: b.acuerdos.filter((a) => a.actividad.trim() || a.responsable.trim()),
+    participantes: b.participantes
+      .filter((p) => !filaVacia([p.nombre, p.cargo]))
+      .map((p): MinutaParticipante => ({ ...p, nombre: recortar(p.nombre), cargo: recortar(p.cargo) })),
+    acuerdos: b.acuerdos
+      .filter((a) => !filaVacia([a.responsable, a.actividad, a.fecha_compromiso]))
+      .map((a): MinutaAcuerdo => ({ ...a, responsable: recortar(a.responsable), actividad: recortar(a.actividad) })),
     otros_asuntos: textoONull(b.otros_asuntos),
     proxima_fecha: b.proxima_fecha || null,
     proximos_puntos: b.proximos_puntos.map((s) => s.trim()).filter(Boolean),
-    avances: b.avances.filter((a) => a.actividad.trim() || a.responsable.trim()),
+    avances: b.avances
+      .filter((a) => !filaVacia([
+        a.actividad, a.responsable, a.fecha_programada, a.revision_fecha,
+        a.pct_inicial, a.revision_final, a.pct_avance,
+      ]))
+      .map((a): MinutaAvance => ({
+        ...a,
+        actividad: recortar(a.actividad),
+        responsable: recortar(a.responsable),
+        revision_final: recortar(a.revision_final),
+      })),
     observaciones: textoONull(b.observaciones),
     anexar_adjuntos_pdf: b.anexar_adjuntos_pdf,
     busq: componerBusq(b),
@@ -58,7 +81,11 @@ export async function getMinuta(id: string): Promise<Minuta | null> {
 async function proximoNumero(anio: number): Promise<string> {
   const { data, error } = await supabase.rpc('next_correlativo', { p_clave: `minuta-${anio}` });
   if (error) throw error;
-  return numeroMinuta(anio, Number(data) || 1);
+  const n = Number(data);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error('El correlativo de minutas devolvió un valor inválido.');
+  }
+  return numeroMinuta(anio, n);
 }
 
 export async function crearMinuta(b: BorradorMinuta, actor: string): Promise<Minuta> {
