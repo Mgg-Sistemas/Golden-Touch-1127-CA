@@ -18,7 +18,7 @@ import {
 import { generarMinutaPdf } from './minutaPdf';
 import { borrarMinuta } from './minutas.repository';
 import {
-  escalaSiguiente, esImagenAdjunto, giroSiguiente, repartirTanda, transformVisor,
+  anchoVisor, escalaSiguiente, esImagenAdjunto, giroSiguiente, repartirTanda,
 } from './minutaVisor';
 
 interface MinutaDetalleModalProps {
@@ -82,9 +82,11 @@ function VisorImagen({ url, nombre, onClose }: { url: string; nombre: string; on
         </>
       }
     >
-      <div style={{ overflow: 'auto', maxHeight: '70vh', display: 'grid', placeItems: 'center', padding: '1rem' }}>
+      <div style={{ overflow: 'auto', maxHeight: '70vh', display: 'grid', placeItems: 'safe center', padding: '1rem' }}>
+        {/* El zoom va por el ancho (el contenedor scrollea completo) y solo el giro
+            por transform: con scale() lo que desborda arriba/izquierda no se alcanza. */}
         <img src={url} alt={nombre}
-          style={{ maxWidth: '100%', transform: transformVisor(escala, giro), transition: 'transform .15s' }} />
+          style={{ width: anchoVisor(escala), maxWidth: 'none', transform: `rotate(${giro}deg)`, transition: 'transform .15s' }} />
       </div>
     </Modal>
   );
@@ -164,18 +166,24 @@ export function MinutaDetalleModal({
   async function adjuntosParaPdf() {
     if (!minuta.anexar_adjuntos_pdf) return [];
     const out: { nombre: string; dataUrl: string }[] = [];
+    let fallidas = 0;
     for (const a of adjuntos.filter((x) => esImagenAdjunto(x.tipo))) {
       try {
         const url = await urlAdjunto(a.path);
-        const blob = await (await fetch(url)).blob();
-        const dataUrl = await new Promise<string>((res, rej) => {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const dataUrl = await new Promise<string>((resolve, rej) => {
           const fr = new FileReader();
-          fr.onload = () => res(String(fr.result));
+          fr.onload = () => resolve(String(fr.result));
           fr.onerror = () => rej(fr.error);
           fr.readAsDataURL(blob);
         });
         out.push({ nombre: a.nombre, dataUrl });
-      } catch { /* esa imagen no va al PDF; el resto sí */ }
+      } catch { fallidas += 1; /* esa imagen no va al PDF; el resto sí */ }
+    }
+    if (fallidas > 0) {
+      toast(`${fallidas === 1 ? 'Una imagen no se pudo anexar' : `${fallidas} imágenes no se pudieron anexar`} al PDF y quedó fuera.`, 'error');
     }
     return out;
   }
@@ -370,7 +378,7 @@ export function MinutaDetalleModal({
       {confirmaBorrar && (
         <ConfirmDialog
           title="Borrar minuta" danger confirmText="Sí, borrar"
-          message={<>Vas a borrar la minuta <strong>{minuta.numero}</strong>. Se pierde con todos sus adjuntos y no se puede recuperar.</>}
+          message={<>Vas a borrar la minuta <strong>{minuta.numero}</strong>. Se borra también con todos sus adjuntos y no se puede recuperar.</>}
           onConfirm={() => { void borrar(); }}
           onCancel={() => setConfirmaBorrar(false)}
         />

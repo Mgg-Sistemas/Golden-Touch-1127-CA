@@ -21,9 +21,9 @@ export function giroSiguiente(actual: number): number {
   return (actual + 90) % 360;
 }
 
-/** El único lugar donde se arma el `transform` del visor. */
-export function transformVisor(escala: number, giro: number): string {
-  return `scale(${escala}) rotate(${giro}deg)`;
+/** Ancho de la imagen del visor: el zoom va por el ancho, no por `scale()`. */
+export function anchoVisor(escala: number): string {
+  return `${escala * 100}%`;
 }
 
 /** ¿Se puede mostrar como imagen? Va por el tipo MIME guardado al subir. */

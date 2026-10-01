@@ -7,6 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Minuta, MinutaAcuerdo, MinutaAvance, MinutaParticipante } from '@/shared/lib/types';
+import { borrarArchivosDeMinuta } from './minutaAdjuntos.repository';
 import { componerBusq, numeroMinuta, type BorradorMinuta } from './minutaModelo';
 
 const TABLE = 'minutas';
@@ -112,4 +113,7 @@ export async function actualizarMinuta(id: string, b: BorradorMinuta, actor: str
 export async function borrarMinuta(id: string): Promise<void> {
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
+  // Después de la fila, nunca antes: si el borrado fallara, no quedaría una
+  // minuta viva con los adjuntos rotos. Peor un huérfano que eso.
+  await borrarArchivosDeMinuta(id);
 }

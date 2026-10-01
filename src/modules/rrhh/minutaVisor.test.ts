@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ESCALA_MAX, ESCALA_MIN, escalaSiguiente, esImagenAdjunto, giroSiguiente, repartirTanda, transformVisor,
+  ESCALA_MAX, ESCALA_MIN, escalaSiguiente, esImagenAdjunto, giroSiguiente, repartirTanda, anchoVisor,
 } from './minutaVisor';
 
 describe('escalaSiguiente', () => {
@@ -9,8 +9,10 @@ describe('escalaSiguiente', () => {
     expect(escalaSiguiente(1, -1)).toBe(0.75);
   });
   it('no pasa de 0,5 ni de 4', () => {
-    expect(escalaSiguiente(ESCALA_MIN, -1)).toBe(ESCALA_MIN);
-    expect(escalaSiguiente(ESCALA_MAX, 1)).toBe(ESCALA_MAX);
+    expect(escalaSiguiente(0.5, -1)).toBe(0.5);
+    expect(escalaSiguiente(4, 1)).toBe(4);
+    expect(ESCALA_MIN).toBe(0.5);
+    expect(ESCALA_MAX).toBe(4);
   });
   it('no arrastra decimales tras muchos pasos', () => {
     let e = 1;
@@ -26,9 +28,10 @@ describe('giroSiguiente', () => {
   });
 });
 
-describe('transformVisor', () => {
-  it('arma escala y giro en un solo texto', () => {
-    expect(transformVisor(1.5, 90)).toBe('scale(1.5) rotate(90deg)');
+describe('anchoVisor', () => {
+  it('el zoom se expresa como porcentaje de ancho', () => {
+    expect(anchoVisor(1.5)).toBe('150%');
+    expect(anchoVisor(0.5)).toBe('50%');
   });
 });
 

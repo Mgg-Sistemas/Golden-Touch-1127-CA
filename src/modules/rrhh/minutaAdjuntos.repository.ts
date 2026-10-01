@@ -105,7 +105,24 @@ export async function subirAdjunto(minutaId: string, file: File, actor: string):
 export async function borrarAdjunto(a: MinutaAdjunto): Promise<void> {
   const { error } = await supabase.from(TABLE).delete().eq('id', a.id);
   if (error) throw error;
-  await supabase.storage.from(BUCKET).remove([a.path]).catch(() => {});
+  // La librería NO lanza: devuelve `{ error }`. Un `.catch` aquí nunca se activaría.
+  const { error: errAlmacen } = await supabase.storage.from(BUCKET).remove([a.path]);
+  if (errAlmacen) console.warn('No se pudo borrar el archivo del almacén:', a.path, errAlmacen);
+}
+
+/**
+ * Borra del almacén todo lo que cuelga de una minuta. Lista el bucket (no la
+ * tabla) para recoger también cualquier huérfano viejo. Se llama DESPUÉS de
+ * borrar la fila: la base borra los adjuntos por cascade, pero los archivos no.
+ * Un fallo se avisa por consola y no lanza: la minuta ya no existe.
+ */
+export async function borrarArchivosDeMinuta(minutaId: string): Promise<void> {
+  const { data, error } = await supabase.storage.from(BUCKET).list(minutaId, { limit: 1000 });
+  if (error) { console.warn('No se pudieron listar los archivos de la minuta:', minutaId, error); return; }
+  const rutas = (data ?? []).map((f) => `${minutaId}/${f.name}`);
+  if (rutas.length === 0) return;
+  const { error: errBorrado } = await supabase.storage.from(BUCKET).remove(rutas);
+  if (errBorrado) console.warn('No se pudieron borrar los archivos de la minuta:', rutas, errBorrado);
 }
 
 export async function urlAdjunto(path: string): Promise<string> {
