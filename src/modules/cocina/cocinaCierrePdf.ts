@@ -57,7 +57,7 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
     const quien = t?.corte_por_nombre || t?.corte_por || null;
     const texto = t?.corte_at
-      ? `Corte de inventario del ${fmt.dateTime(t.corte_at)}${quien ? ` por ${quien}` : ''}: de este ciclo se muestran solo las entradas y el mercado siguiente arrancó con el stock real.${t?.corte_motivo ? ` Motivo: ${t.corte_motivo}` : ''}`
+      ? `Corte de inventario del ${fmt.dateTime(t.corte_at)}${quien ? ` por ${quien}` : ''}: de este ciclo se muestran solo las entradas y el mercado siguiente arrancó con el saldo que había${t.corte_mercado ? ` al entrar ${t.corte_mercado}` : ''}, más lo nuevo.${t?.corte_motivo ? ` Motivo: ${t.corte_motivo}` : ''}`
       : `Ciclo anterior al corte de inventario: se muestran solo sus entradas.${descartado ? ` Mercado descartado: ${t?.motivo_descarte ?? '—'}` : ''}`;
     const lineas: string[] = doc.splitTextToSize(texto, W - MARGIN * 2);
     doc.text(lineas, MARGIN, y + 14);

@@ -197,8 +197,10 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
               )}
               <div className="muted" style={{ fontSize: '.8rem', marginTop: '.25rem' }}>
                 De este ciclo se muestran <strong>solo las entradas</strong>. {ver.totales?.corte_at
-                  ? 'El mercado siguiente arrancó con el stock real de ese momento: de ahí parte la cuenta.'
-                  : 'La cuenta de Distribución de comidas parte del stock real del corte.'}
+                  ? (ver.totales?.corte_mercado
+                    ? `El mercado siguiente arrancó con el saldo que había al entrar ${ver.totales.corte_mercado}, más lo nuevo.`
+                    : 'El mercado siguiente arrancó con el saldo que había en ese momento.')
+                  : 'La cuenta de Distribución de comidas parte del corte.'}
               </div>
             </div>
           )}
