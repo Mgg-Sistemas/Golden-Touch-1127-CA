@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { RENGLONES_EXTRA, RENGLONES_HOJA, filasConRenglones } from './minutaPdf';
+import type { Minuta } from '@/shared/lib/types';
+import {
+  RENGLONES_EXTRA, RENGLONES_HOJA, construirMinutaPdf, filasConRenglones,
+} from './minutaPdf';
 
 const vacia = () => ({ a: '' });
 
@@ -32,5 +35,50 @@ describe('RENGLONES_HOJA', () => {
     expect(RENGLONES_HOJA).toEqual({
       ordenDia: 7, participantes: 6, acuerdos: 6, avances: 4, observaciones: 7,
     });
+  });
+});
+
+const minutaBase = (parche: Partial<Minuta> = {}): Minuta => ({
+  id: 'm1', numero: 'MIN-2026-001', estado: 'borrador', lugar: 'Sala de juntas',
+  fecha: '2026-10-01', hora_inicio: '09:00', objetivo: 'Revisar avances',
+  orden_dia: ['Presupuesto', 'Cronograma'],
+  participantes: [{ personal_id: null, nombre: 'Ana Pérez', cargo: 'Gerente' }],
+  acuerdos: [{ responsable: 'Ana', actividad: 'Enviar informe', fecha_compromiso: '2026-10-10' }],
+  otros_asuntos: 'Nada más', proxima_fecha: '2026-10-15', proximos_puntos: ['Cierre'],
+  avances: [{
+    actividad: 'Obra', responsable: 'Luis', fecha_programada: '2026-10-01', revision_fecha: '2026-10-05',
+    pct_inicial: 10, revision_final: 'Ok', pct_avance: 50,
+  }],
+  observaciones: 'Sin novedad', anexar_adjuntos_pdf: false, creada_en: '2026-10-01T00:00:00Z',
+  ...parche,
+});
+
+describe('construirMinutaPdf', () => {
+  it('la hoja en blanco se construye y tiene al menos una página', async () => {
+    const doc = await construirMinutaPdf(null);
+    expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(1);
+  });
+  it('una minuta cargada normal se construye', async () => {
+    const doc = await construirMinutaPdf(minutaBase());
+    expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(1);
+  });
+  it('una minuta con 120 acuerdos y 120 avances se parte en varias páginas', async () => {
+    const acuerdos = Array.from({ length: 120 }, (_, i) => ({
+      responsable: `R${i}`, actividad: `Actividad ${i}`, fecha_compromiso: '2026-10-10',
+    }));
+    const avances = Array.from({ length: 120 }, (_, i) => ({
+      actividad: `A${i}`, responsable: `R${i}`, fecha_programada: '2026-10-01',
+      revision_fecha: '2026-10-05', pct_inicial: 10, revision_final: 'Ok', pct_avance: 50,
+    }));
+    const doc = await construirMinutaPdf(minutaBase({ acuerdos, avances }));
+    expect(doc.getNumberOfPages()).toBeGreaterThan(1);
+  });
+  it('la hoja en blanco y una minuta vacía ocupan las mismas páginas', async () => {
+    const blanca = await construirMinutaPdf(null);
+    const vacia = await construirMinutaPdf(minutaBase({
+      objetivo: null, lugar: null, hora_inicio: null, orden_dia: [], participantes: [], acuerdos: [],
+      otros_asuntos: null, proxima_fecha: null, proximos_puntos: [], avances: [], observaciones: null,
+    }));
+    expect(vacia.getNumberOfPages()).toBe(blanca.getNumberOfPages());
   });
 });

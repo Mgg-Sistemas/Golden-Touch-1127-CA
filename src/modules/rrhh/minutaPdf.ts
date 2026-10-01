@@ -47,17 +47,29 @@ const dia = (f: string | null | undefined) => {
 
 const pct = (n: number | null | undefined) => (n === null || n === undefined ? '' : `${n}%`);
 
-/** Etiqueta chica arriba y raya debajo; `y` lo maneja quien llama. */
-function campo(doc: Doc, x: number, y: number, ancho: number, etiqueta: string, valor = ''): void {
+/** Interlineado del texto de un campo. */
+const INTERLINEADO = 12;
+
+/**
+ * Etiqueta chica arriba, texto y raya debajo. El texto se mide con
+ * `splitTextToSize` y la raya se dibuja DEBAJO de la última línea, nunca encima.
+ * Devuelve cuánto espacio ocupó (hasta la raya, más un respiro), para que
+ * quien llama avance `y` sin pisar lo que sigue.
+ */
+function campo(doc: Doc, x: number, y: number, ancho: number, etiqueta: string, valor = ''): number {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(105, 105, 105);
   doc.text(pdfSafe(etiqueta).toUpperCase(), x, y);
-  doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
-  doc.line(x, y + 18, x + ancho, y + 18);
-  if (valor) {
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
-    doc.text(pdfSafe(valor), x + 2, y + 14, { maxWidth: ancho - 4 });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+  const lineas = valor ? (doc.splitTextToSize(pdfSafe(valor), ancho - 4) as string[]) : [];
+  const yRaya = y + 18 + Math.max(0, lineas.length - 1) * INTERLINEADO;
+  if (lineas.length) {
+    doc.setTextColor(20, 20, 20);
+    doc.text(lineas, x + 2, y + 14, { lineHeightFactor: INTERLINEADO / 10 / 1.15 });
   }
+  doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
+  doc.line(x, yRaya, x + ancho, yRaya);
   doc.setTextColor(20, 20, 20);
+  return yRaya - y + 12;
 }
 
 /** Título de sección con la banda de la marca. Devuelve la `y` siguiente. */
@@ -68,10 +80,16 @@ function seccion(doc: Doc, x: number, y: number, texto: string): number {
   return y + 14;
 }
 
-export async function generarMinutaPdf(
-  m: Minuta | null,
-  opciones?: { adjuntos?: { nombre: string; dataUrl: string }[] },
-): Promise<void> {
+type OpcionesMinuta = { adjuntos?: { nombre: string; dataUrl: string }[] };
+
+/** Genera la vista previa (imprimir / descargar) de la minuta, o de la hoja en blanco si `m` es null. */
+export async function generarMinutaPdf(m: Minuta | null, opciones?: OpcionesMinuta): Promise<void> {
+  const doc = await construirMinutaPdf(m, opciones);
+  previewPdf(doc, m ? `${m.numero}.pdf` : 'minuta-en-blanco.pdf');
+}
+
+/** Arma el documento y lo devuelve, sin mostrarlo. Separado para poder probarlo. */
+export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMinuta): Promise<Doc> {
   const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -121,17 +139,18 @@ export async function generarMinutaPdf(
   /* ── Encabezado: campos con raya ── */
   const MITAD = (ANCHO - 18) / 2;
   const lugarFecha = m ? [m.lugar?.trim(), dia(m.fecha)].filter(Boolean).join(', ') : '';
-  campo(doc, MARGIN, y, MITAD, 'Lugar y fecha', lugarFecha);
-  campo(doc, MARGIN + MITAD + 18, y, MITAD, 'Hora de inicio', m?.hora_inicio?.slice(0, 5) ?? '');
-  y += 30;
-  campo(doc, MARGIN, y, ANCHO, 'Objetivo', m?.objetivo?.trim() ?? '');
-  y += 36;
+  const altoLugar = campo(doc, MARGIN, y, MITAD, 'Lugar y fecha', lugarFecha);
+  const altoHora = campo(doc, MARGIN + MITAD + 18, y, MITAD, 'Hora de inicio', m?.hora_inicio?.slice(0, 5) ?? '');
+  y += Math.max(altoLugar, altoHora) + 6;
+  y += campo(doc, MARGIN, y, ANCHO, 'Objetivo', m?.objetivo?.trim() ?? '') + 10;
 
   /* ── Tabla genérica: mismo patrón en todas ── */
   const tabla = (
     head: string[],
     body: string[][],
     columnStyles: Record<number, Record<string, unknown>> = {},
+    estilos: Record<string, unknown> = {},
+    estilosHead: Record<string, unknown> = {},
   ) => {
     autoTable(doc, {
       startY: y,
@@ -139,8 +158,8 @@ export async function generarMinutaPdf(
       body,
       theme: 'grid',
       showHead: 'everyPage',
-      styles: { fontSize: 9, cellPadding: 5, minCellHeight: 18, overflow: 'linebreak' },
-      headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 5, minCellHeight: 18, overflow: 'linebreak', ...estilos },
+      headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', ...estilosHead },
       columnStyles,
       margin: MARGIN,
     });
@@ -166,6 +185,8 @@ export async function generarMinutaPdf(
       () => ({ personal_id: null, nombre: '', cargo: '' } as MinutaParticipante),
     ).map((p) => [pdfSafe(p.nombre), pdfSafe(p.cargo), '']),
     { 1: { cellWidth: 130 }, 2: { cellWidth: 120 } },
+    // 24 pt (~8,5 mm): la firma se hace a mano sobre el papel.
+    { minCellHeight: 24 },
   );
 
   /* 5. Acuerdos */
@@ -202,8 +223,7 @@ export async function generarMinutaPdf(
 
   /* 7. Próxima reunión */
   asegurar(44);
-  campo(doc, MARGIN, y, MITAD, 'Fecha de la próxima reunión', dia(m?.proxima_fecha));
-  y += 40;
+  y += campo(doc, MARGIN, y, MITAD, 'Fecha de la próxima reunión', dia(m?.proxima_fecha)) + 10;
 
   /* 8. Puntos a tratar en la próxima reunión */
   listaNumerada('PUNTOS A TRATAR EN LA PRÓXIMA REUNIÓN', m?.proximos_puntos ?? [], RENGLONES_HOJA.ordenDia);
@@ -222,10 +242,21 @@ export async function generarMinutaPdf(
       pdfSafe(a.actividad), pdfSafe(a.responsable), dia(a.fecha_programada), dia(a.revision_fecha),
       pct(a.pct_inicial), pdfSafe(a.revision_final), pct(a.pct_avance),
     ]),
+    // Solo esta tabla baja a fuente 8 y padding 3 (siete columnas). Medido con
+    // jsPDF (helvetica bold 8): PROGRAMADA 59, RESPONSABLE 60,6, REVISION 38,1,
+    // AVANCE 32,3, FECHA 27,4; fecha dd/mm/aaaa normal 39,7. Cada columna se
+    // dimensiona como texto mas largo + 2*3 de padding + holgura:
+    //   RESPONSABLE 68 | FECHA PROGRAMADA 68 | REV. FECHA 48 | REV. % 34
+    //   | REVISION FINAL 48 | % AVANCE 42            = 308
+    //   ACTIVIDAD = 532 (ancho util: 612 - 2*40) - 308 = 224 (auto)
+    // Suma total 532 <= 532. Ningun encabezado se parte a mitad de palabra ni
+    // una fecha cae en dos renglones.
     {
-      1: { cellWidth: 70 }, 2: { cellWidth: 55 }, 3: { cellWidth: 55 },
-      4: { cellWidth: 38 }, 5: { cellWidth: 70 }, 6: { cellWidth: 42 },
+      1: { cellWidth: 68 }, 2: { cellWidth: 68 }, 3: { cellWidth: 48 },
+      4: { cellWidth: 34 }, 5: { cellWidth: 48 }, 6: { cellWidth: 42 },
     },
+    { fontSize: 8, cellPadding: 3 },
+    { fontSize: 8 },
   );
 
   /* 10. Observaciones: una columna; el texto, si lo hay, en la primera fila */
@@ -262,5 +293,5 @@ export async function generarMinutaPdf(
     tabla(['ARCHIVOS PDF ADJUNTOS (NO INCLUIDOS EN ESTE DOCUMENTO)'], pdfsAdjuntos.map((n) => [pdfSafe(n)]));
   }
 
-  previewPdf(doc, m ? `${m.numero}.pdf` : 'minuta-en-blanco.pdf');
+  return doc;
 }
