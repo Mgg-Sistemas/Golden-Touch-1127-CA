@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ESCALA_MAX, ESCALA_MIN, escalaSiguiente, esImagenAdjunto, giroSiguiente, repartirTanda, anchoVisor,
+  ESCALA_MAX, ESCALA_MIN, escalaSiguiente, esImagenAdjunto, giroSiguiente, repartirTanda, dimensionesVisor,
 } from './minutaVisor';
 
 describe('escalaSiguiente', () => {
@@ -28,10 +28,24 @@ describe('giroSiguiente', () => {
   });
 });
 
-describe('anchoVisor', () => {
-  it('el zoom se expresa como porcentaje de ancho', () => {
-    expect(anchoVisor(1.5)).toBe('150%');
-    expect(anchoVisor(0.5)).toBe('50%');
+describe('dimensionesVisor', () => {
+  // Apaisada 400x200 a ancho base 300 y escala 2: imagen de 600x300.
+  const apaisada = (giro: number) => dimensionesVisor(giro, 2, 300, 400, 200);
+  it('con 0 y 180 la caja es del tamaño de la imagen', () => {
+    for (const g of [0, 180]) expect(apaisada(g).caja).toEqual({ w: 600, h: 300 });
+  });
+  it('con 90 y 270 la caja intercambia ancho y alto', () => {
+    for (const g of [90, 270]) expect(apaisada(g).caja).toEqual({ w: 300, h: 600 });
+  });
+  it('la imagen mantiene su tamaño sin girar en cualquier giro', () => {
+    for (const g of [0, 90, 180, 270]) expect(apaisada(g).img).toEqual({ w: 600, h: 300 });
+  });
+  it('vertical 200x400 a escala 1 y base 300: 300x600, y girada 600x300', () => {
+    expect(dimensionesVisor(0, 1, 300, 200, 400).caja).toEqual({ w: 300, h: 600 });
+    expect(dimensionesVisor(90, 1, 300, 200, 400).caja).toEqual({ w: 600, h: 300 });
+  });
+  it('acepta giros fuera de rango sin romperse', () => {
+    expect(dimensionesVisor(450, 1, 100, 200, 100).caja).toEqual({ w: 50, h: 100 });
   });
 });
 

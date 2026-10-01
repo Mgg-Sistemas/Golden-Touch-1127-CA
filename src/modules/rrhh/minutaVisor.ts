@@ -21,9 +21,23 @@ export function giroSiguiente(actual: number): number {
   return (actual + 90) % 360;
 }
 
-/** Ancho de la imagen del visor: el zoom va por el ancho, no por `scale()`. */
-export function anchoVisor(escala: number): string {
-  return `${escala * 100}%`;
+/**
+ * Tamaños del visor, en píxeles. `transform` no cambia el espacio que el
+ * navegador reserva, así que una imagen girada 90° sobresale de su caja y esa
+ * franja no se puede scrollear. Por eso la caja (lo que el contenedor mide) se
+ * calcula ya girada: con 0° y 180° es del tamaño de la imagen y con 90° y 270°
+ * intercambia ancho y alto. La imagen se centra dentro de la caja y gira sobre
+ * su centro, así que siempre queda adentro.
+ *
+ * `anchoBase` es el ancho de la imagen a escala 1; `nw`/`nh` su proporción natural.
+ */
+export function dimensionesVisor(
+  giro: number, escala: number, anchoBase: number, nw: number, nh: number,
+): { img: { w: number; h: number }; caja: { w: number; h: number } } {
+  const w = anchoBase * escala;
+  const h = nw > 0 ? (w * nh) / nw : w;
+  const deLado = ((giro % 180) + 180) % 180 === 90;
+  return { img: { w, h }, caja: deLado ? { w: h, h: w } : { w, h } };
 }
 
 /** ¿Se puede mostrar como imagen? Va por el tipo MIME guardado al subir. */

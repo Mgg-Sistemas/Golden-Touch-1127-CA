@@ -18,7 +18,7 @@ import {
 import { generarMinutaPdf } from './minutaPdf';
 import { borrarMinuta } from './minutas.repository';
 import {
-  anchoVisor, escalaSiguiente, esImagenAdjunto, giroSiguiente, repartirTanda,
+  dimensionesVisor, escalaSiguiente, esImagenAdjunto, giroSiguiente, repartirTanda,
 } from './minutaVisor';
 
 interface MinutaDetalleModalProps {
@@ -65,6 +65,10 @@ const pct = (n: number | null) => (n === null || n === undefined ? '—' : `${n}
 function VisorImagen({ url, nombre, onClose }: { url: string; nombre: string; onClose: () => void }) {
   const [escala, setEscala] = useState(1);
   const [giro, setGiro] = useState(0);
+  /** Proporción natural y ancho disponible, conocidos al cargar la imagen. */
+  const [medida, setMedida] = useState<{ nw: number; nh: number; base: number } | null>(null);
+  const contenedor = useRef<HTMLDivElement>(null);
+  const dim = medida ? dimensionesVisor(giro, escala, medida.base, medida.nw, medida.nh) : null;
   return (
     <Modal
       title={nombre} size="xl" onClose={onClose}
@@ -82,11 +86,24 @@ function VisorImagen({ url, nombre, onClose }: { url: string; nombre: string; on
         </>
       }
     >
-      <div style={{ overflow: 'auto', maxHeight: '70vh', display: 'grid', placeItems: 'safe center', padding: '1rem' }}>
-        {/* El zoom va por el ancho (el contenedor scrollea completo) y solo el giro
-            por transform: con scale() lo que desborda arriba/izquierda no se alcanza. */}
-        <img src={url} alt={nombre}
-          style={{ width: anchoVisor(escala), maxWidth: 'none', transform: `rotate(${giro}deg)`, transition: 'transform .15s' }} />
+      <div ref={contenedor} style={{ overflow: 'auto', maxHeight: '70vh', padding: '1rem' }}>
+        {/* La caja mide lo que ocupa la imagen YA girada y la imagen gira sobre su
+            centro dentro de ella: así el scroll llega a todas partes. Con un simple
+            transform, una foto apaisada girada 90° sobresale y se recorta. */}
+        <div style={dim ? { position: 'relative', width: dim.caja.w, height: dim.caja.h, margin: '0 auto' } : undefined}>
+          <img src={url} alt={nombre}
+            onLoad={(e) => {
+              const im = e.currentTarget;
+              const ancho = (contenedor.current?.clientWidth ?? im.naturalWidth) - 32;
+              setMedida({ nw: im.naturalWidth, nh: im.naturalHeight, base: Math.max(1, ancho) });
+            }}
+            style={dim
+              ? {
+                  position: 'absolute', left: '50%', top: '50%', width: dim.img.w, height: dim.img.h,
+                  maxWidth: 'none', transform: `translate(-50%, -50%) rotate(${giro}deg)`, transition: 'transform .15s',
+                }
+              : { maxWidth: '100%' }} />
+        </div>
       </div>
     </Modal>
   );
