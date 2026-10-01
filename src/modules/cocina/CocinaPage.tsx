@@ -23,6 +23,7 @@ import {
 } from './cocinaMercado.repository';
 import { LeyendaCocina } from './LeyendaCocina';
 import { avanceCierre } from './mercadoCierre';
+import { comidasDelCiclo, motivoCorteValido, MOTIVO_CORTE_MIN, MOTIVO_CORTE_SUGERIDO } from './mercadoCorte';
 import { EcuacionMercado, SelectorVista, TablaDisponible } from './PanelMercado';
 import { MovimientosInventario } from './MovimientosInventario';
 import { diferenciasPorViver, explicarDiferencia, guardarVista, vistaGuardada, type VistaMercado } from './mercadoPanel';
@@ -81,6 +82,14 @@ export function CocinaPage() {
   const [cerrandoId, setCerrandoId] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
   const [emailCierre, setEmailCierre] = useState('');
+  // Corte de inventario (01/10/2026): cierra el ciclo, arranca el nuevo con el stock real y
+  // deja los anteriores en el histórico mostrando solo las entradas. Se ata al mercado para
+  // el que se abrió, como el cierre.
+  const [corteId, setCorteId] = useState<string | null>(null);
+  const [motivoCorte, setMotivoCorte] = useState(MOTIVO_CORTE_SUGERIDO);
+  const [cortando, setCortando] = useState(false);
+  // Al entrar se ven las comidas del mercado en curso; las anteriores quedan a un clic.
+  const [verAnteriores, setVerAnteriores] = useState(false);
   // El modal se ata al mercado que se estaba descartando, no a un booleano: si otra
   // persona lo descarta primero y después se inicia uno nuevo, el modal no reaparece
   // solo para el mercado nuevo.
@@ -174,15 +183,26 @@ export function CocinaPage() {
   useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'cocina_mercados'], () => { void cargar(); setRecarga((v) => v + 1); });
 
   // Búsqueda general (cliente): código, tipo, nota, fecha/hora, productos.
+  // Sin filtro de fechas se parte del mercado en curso (01/10/2026): las comidas de los
+  // ciclos anteriores no se borran, quedan detrás de «Ver también las anteriores».
+  const soloCiclo = !!mercado && !verAnteriores && !fDesde && !fHasta;
+  const movsBase = useMemo(
+    () => (soloCiclo && mercado ? comidasDelCiclo(movs, mercado.inicio_at) : movs),
+    [soloCiclo, mercado, movs],
+  );
+  const anteriores = useMemo(
+    () => (mercado ? movs.length - comidasDelCiclo(movs, mercado.inicio_at).length : 0),
+    [mercado, movs],
+  );
   const movsFiltrados = useMemo(() => {
     const q = norm(fBuscar.trim());
-    if (!q) return movs;
-    return movs.filter((m) => {
+    if (!q) return movsBase;
+    return movsBase.filter((m) => {
       const campos = [m.codigo ?? '', labelTipoComida(m.tipo_comida), m.nota ?? '', dateTime(m.at),
         ...(m.items ?? []).flatMap((i) => [i.nombre, i.sku])];
       return campos.some((c) => norm(String(c)).includes(q));
     });
-  }, [movs, fBuscar]);
+  }, [movsBase, fBuscar]);
 
   // KPIs sincronizados con lo que muestra la tabla (mismos filtros: fecha, tipo y búsqueda).
   // Antes eran «de hoy» y no reflejaban un movimiento cargado con fecha de servicio desfasada.
@@ -190,7 +210,7 @@ export function CocinaPage() {
   // Etiqueta del período que resumen las tarjetas (según los filtros de fecha).
   const notaPeriodo = fDesde && fHasta
     ? (fDesde === fHasta ? (fDesde === hoyISO() ? 'hoy' : dmy(fDesde)) : `${dmy(fDesde)} – ${dmy(fHasta)}`)
-    : fDesde ? `desde ${dmy(fDesde)}` : fHasta ? `hasta ${dmy(fHasta)}` : 'todo el registro';
+    : fDesde ? `desde ${dmy(fDesde)}` : fHasta ? `hasta ${dmy(fHasta)}` : soloCiclo ? 'mercado en curso' : 'todo el registro';
   // Víveres al 20% o menos de su mínimo (se avisa a Compras y se muestra aquí).
   const bajos = useMemo(() => viveresBajos(viveres), [viveres]);
 
@@ -260,6 +280,22 @@ export function CocinaPage() {
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar el mercado', 'error'); }
     finally { setCerrando(false); }
+  }
+
+  // Corte de inventario: es un cierre que además deja los ciclos anteriores mostrando solo
+  // sus entradas. El mercado nuevo arranca con el stock real de este instante.
+  async function ejecutarCorte() {
+    if (!mercado || !motivoCorteValido(motivoCorte)) return;
+    setCortando(true);
+    try {
+      const cerrado = await cerrarMercado(mercado, actor, null, { motivo: motivoCorte, porNombre: actorName });
+      setSoloDif(false); setVerAnteriores(false);
+      toast(`Corte hecho · ${cerrado.numero ?? 'el mercado'} pasó al histórico (solo entradas) y el nuevo arranca con el stock real`, 'success');
+      notify('Corte de inventario en Cocina · el mercado nuevo arranca con el stock real', 'success', { link: '#/app/cocina' });
+      setCorteId(null); setMotivoCorte(MOTIVO_CORTE_SUGERIDO);
+      await cargar();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo hacer el corte', 'error'); }
+    finally { setCortando(false); }
   }
 
   // Inicio del mercado: lo decide una persona. La foto del stock se toma en este instante.
@@ -375,6 +411,13 @@ export function CocinaPage() {
               : `Todavía no llega el día ${CICLO_DIAS + 1}; se puede cerrar igual si hace falta`}>
             {ciclo?.vencido ? `🧾 Cerrar mercado (día ${ciclo.dia}) — el saldo pasa al siguiente` : '🧾 Cerrar mercado anticipadamente'}
           </button>
+          {/* Corte de inventario (01/10/2026): partir del stock real y dejar lo anterior en
+              el histórico mostrando solo las entradas. */}
+          <button className="btn btn-ghost" style={{ borderStyle: 'dashed' }}
+            onClick={() => { setMotivoCorte(MOTIVO_CORTE_SUGERIDO); setCorteId(mercado.id); }}
+            title="Partir del stock real: cierra este ciclo, abre uno nuevo con lo que hay hoy en el inventario y deja los anteriores en el histórico mostrando solo las entradas">
+            ✂ Corte: partir del stock real
+          </button>
         </div>
       )}
 
@@ -435,17 +478,29 @@ export function CocinaPage() {
             <button className="btn btn-ghost" onClick={() => { setFDesde(''); setFHasta(''); setFTipo(''); setFBuscar(''); }}>✕ Limpiar</button>
           )}
           <button className="btn btn-ghost" style={{ marginLeft: 'auto' }}
-            onClick={() => descargarCocinaPdf({ titulo: tituloRango(fDesde, fHasta), resumen: resumirCocina(movsFiltrados), movs: movsFiltrados }).catch(() => toast('No se pudo generar el PDF', 'error'))}>
+            onClick={() => descargarCocinaPdf({ titulo: soloCiclo && mercado ? `Consumo · mercado ${mercado.numero ?? ''} en curso` : tituloRango(fDesde, fHasta), resumen: resumirCocina(movsFiltrados), movs: movsFiltrados }).catch(() => toast('No se pudo generar el PDF', 'error'))}>
             ↓ Reporte PDF
           </button>
         </div>
       </div>
 
+      {/* Se parte del mercado en curso (01/10/2026): las comidas anteriores quedan a un clic. */}
+      {mercado && !fDesde && !fHasta && anteriores > 0 && (
+        <div className="muted" style={{ fontSize: '.8rem', margin: '-.4rem 0 .8rem' }}>
+          {verAnteriores
+            ? <>Se muestran <strong>todas</strong> las comidas registradas, también las de mercados anteriores.</>
+            : <>Se muestran las comidas del <strong>mercado en curso</strong> (desde {dateTime(mercado.inicio_at)}). Hay {num(anteriores)} de mercados anteriores.</>}
+          <button className="btn btn-sm btn-ghost" style={{ marginLeft: '.4rem' }} onClick={() => setVerAnteriores((v) => !v)}>
+            {verAnteriores ? 'Solo el mercado en curso' : 'Ver también las anteriores'}
+          </button>
+        </div>
+      )}
+
       {/* Tabla de comidas servidas, por tipo */}
       {loading ? (
         <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div>
       ) : movsFiltrados.length === 0 ? (
-        <div className="card"><EmptyState message="No hay movimientos de cocina con esos filtros." icon="🍽" /></div>
+        <div className="card"><EmptyState message={soloCiclo && !fTipo && !fBuscar ? 'Todavía no hay comidas registradas en este mercado.' : 'No hay movimientos de cocina con esos filtros.'} icon="🍽" /></div>
       ) : (
         <div className="card">
           <div className="table-wrap">
@@ -621,6 +676,37 @@ export function CocinaPage() {
               )}
             </>
           )}
+        </Modal>
+      )}
+
+      {/* Corte de inventario: partir del stock real (01/10/2026). */}
+      {corteId && mercado && mercado.id === corteId && (
+        <Modal title="✂ Corte: partir del stock real" size="md" onClose={() => !cortando && setCorteId(null)} footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setCorteId(null)} disabled={cortando}>Cancelar</button>
+            <button className="btn btn-primary" onClick={() => void ejecutarCorte()} disabled={cortando || !motivoCorteValido(motivoCorte)}>{cortando ? 'Haciendo el corte…' : '✂ Hacer el corte'}</button>
+          </>
+        }>
+          <p style={{ marginTop: 0 }}>
+            Distribución de comidas pasa a <strong>partir de lo que hay hoy en el inventario</strong>. Úsalo cuando el stock ya está
+            corregido y es el real (por ejemplo, entró el mercado y se hicieron los ajustes en Inventario).
+          </p>
+          <ul style={{ margin: '0 0 .7rem', paddingLeft: '1.1rem', lineHeight: 1.5 }}>
+            <li>Se cierra el mercado <strong>{mercado.numero ?? ''}</strong> y se abre uno nuevo <strong>en este instante</strong>, con el stock real como saldo inicial.</li>
+            <li>El mercado que cierra y los anteriores quedan en <strong>«Mercados cerrados» mostrando solo sus entradas</strong>. Su consumo y sus mermas dejan de mostrarse.</li>
+            <li><strong>No se borra nada</strong> ni se toca el inventario: las comidas anteriores siguen con «Ver también las anteriores».</li>
+          </ul>
+          <div className="card" style={{ padding: '.6rem', marginBottom: '.7rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'space-around', textAlign: 'center' }}>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Arranca con</div><div className="mono" style={{ fontWeight: 700, color: 'var(--success)' }}>{num(avance.viveresQuePasan)} víveres</div></div>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Stock real</div><div className="mono" style={{ fontWeight: 700, color: 'var(--success)' }}>{num(avance.unidadesQuePasan)} und</div></div>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Sin stock</div><div className="mono" style={{ fontWeight: 700 }}>{num(avance.viveresEnCero)} víveres</div></div>
+          </div>
+          <div className="form-row">
+            <label>Motivo del corte</label>
+            <textarea className="input" rows={2} value={motivoCorte} onChange={(e) => setMotivoCorte(e.target.value)}
+              placeholder="Por qué se parte del stock real…" />
+            <small className="muted">Queda guardado en el histórico con tu nombre y la hora. Mínimo {MOTIVO_CORTE_MIN} caracteres.</small>
+          </div>
         </Modal>
       )}
 

@@ -388,3 +388,16 @@ export function diasEntre(desde: string, hasta: string, tope = 400): string[] {
   }
   return out;
 }
+
+/* ───────── Desde cuándo se lee el kardex (01/10/2026) ─────────
+   El saldo guardado de un ciclo es el stock del INSTANTE en que abrió, no el de las
+   00:00 de ese día. Si el reporte abre con ese saldo y además suma lo movido desde la
+   medianoche, lo de esa mañana se cuenta dos veces: ya estaba dentro del saldo. Pasó
+   con el corte de inventario, que abre el ciclo a media tarde, después de los ajustes
+   del día. Con saldo guardado, el kardex se lee desde el instante del ciclo. */
+
+/** El límite inferior del kardex: el instante del ciclo si se abre con su saldo; si no, las 00:00 del día. */
+export function desdeParaKardex(desde: string, instante?: string | null): string {
+  const ms = Date.parse(instante ?? '');
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : `${desde}T00:00:00`;
+}

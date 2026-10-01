@@ -2,6 +2,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { obtenerCocinaCierreBase64 } from './cocinaCierrePdf';
 import type { Mercado } from './cocinaMercado.repository';
 import { esDescartado } from './mercadoDescarte';
+import { esSoloEntradas } from './mercadoCorte';
 
 const FUNCTION_SLUG = 'enviar-reporte';
 
@@ -22,9 +23,12 @@ export async function enviarCierreCocinaPorCorreo(
       modulo: 'cocina',
       pdf_base64: base64,
       nombre_archivo: nombre,
-      asunto: esDescartado(m) ? `Mercado descartado · Cocina · ${m.numero ?? ''}` : `Cierre de mercado · Cocina · ${m.numero ?? ''}`,
+      asunto: esDescartado(m) ? `Mercado descartado · Cocina · ${m.numero ?? ''}`
+        : esSoloEntradas(m) ? `Entradas del mercado · Cocina · ${m.numero ?? ''}` : `Cierre de mercado · Cocina · ${m.numero ?? ''}`,
       mensaje: esDescartado(m)
         ? `Reporte del mercado ${m.numero ?? ''}, descartado: no cuenta y no le pasa saldo al próximo mercado. Motivo: ${m.totales?.motivo_descarte ?? '—'}.`
+        : esSoloEntradas(m)
+        ? `Entradas del ciclo de mercado ${m.numero ?? ''}. El ciclo quedó antes del corte de inventario: se reportan solo sus entradas.`
         : `Reporte del cierre del ciclo de mercado ${m.numero ?? ''} (consumo por víver y lo que queda para el próximo mercado).`,
       to_emails: lista,
     },

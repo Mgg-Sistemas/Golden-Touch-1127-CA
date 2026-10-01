@@ -11,6 +11,7 @@ import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
 import { movimientosDeViver, saldoParaElNuevo, tieneCongelados, type MovimientosCiclo } from './mercadoCierre';
 import { reconstruirSaldo, resolverInicio } from './mercadoInicio';
+import { marcaCorte } from './mercadoCorte';
 import { esDeCocina, NO_COCINA_OR, REF_TIPOS_COCINA } from './claseMovimiento';
 import { sumarConsumoCocina, sumarMermas, type MovimientoConsumo, type MovimientoParaMerma } from './mercadoPanel';
 import { filasInventario, type FilaKardex, type MovInventario } from './movInventario';
@@ -69,6 +70,25 @@ export interface TotalesMercado {
   descartado_por_nombre?: string | null;
   /** Instante del descarte (ISO). */
   descartado_at?: string | null;
+  /* ── Corte de inventario (01/10/2026) ──
+     «Partir del stock real»: los ciclos cerrados hasta el corte muestran solo sus
+     entradas en el histórico. También vive en este jsonb, sin migración. */
+  /** true si de este ciclo se muestran solo las entradas. */
+  solo_entradas?: boolean;
+  /** Instante del corte (ISO). Solo lo trae el ciclo que se cerró con el corte. */
+  corte_at?: string | null;
+  /** Por qué se hizo el corte. */
+  corte_motivo?: string | null;
+  /** Correo de quien hizo el corte. */
+  corte_por?: string | null;
+  /** Nombre visible de quien hizo el corte. */
+  corte_por_nombre?: string | null;
+}
+
+/** Corte de inventario: lo que hay que decir para cerrar partiendo del stock real. */
+export interface CorteInventario {
+  motivo: string;
+  porNombre?: string | null;
 }
 
 export interface Mercado {
@@ -382,9 +402,14 @@ export async function computeResumen(
  *      entradas del mercado nuevo.
  *
  * Devuelve el mercado cerrado (con resumen y totales) para el reporte.
+ *
+ * CORTE DE INVENTARIO (01/10/2026). Con `corte`, el cierre es además un corte: el ciclo
+ * que cierra —y todos los cerrados antes— quedan en el histórico mostrando solo sus
+ * entradas, y el mercado nuevo arranca con el stock real de este instante. No se borra
+ * nada: el resumen y los movimientos se guardan igual. Las reglas viven en mercadoCorte.ts.
  */
 export async function cerrarMercado(
-  m: Mercado, actorEmail: string, nota?: string | null,
+  m: Mercado, actorEmail: string, nota?: string | null, corte?: CorteInventario | null,
 ): Promise<Mercado> {
   if (m.estado !== 'abierto') throw new Error('El mercado ya está cerrado.');
   const cierre = new Date().toISOString();
@@ -401,9 +426,15 @@ export async function cerrarMercado(
   // La foto de lo que se movió en el ciclo: es lo que se va al histórico.
   const movimientos = await congelarMovimientos(m, cierre, new Set(viveres.map((p) => p.id)));
 
+  const motivoCorte = corte?.motivo?.trim() || null;
+  const totalesFinal: TotalesMercado = motivoCorte
+    ? { ...totales, ...marcaCorte({ at: cierre, motivo: motivoCorte, por: actorEmail, porNombre: corte?.porNombre }) }
+    : totales;
+
   const { data, error } = await supabase.from(TABLE).update({
     estado: 'cerrado', cierre_at: cierre, cerrado_por: actorEmail,
-    saldo_final: saldoFinal, resumen: items, totales, movimientos, nota: nota?.trim() || null,
+    saldo_final: saldoFinal, resumen: items, totales: totalesFinal, movimientos,
+    nota: (motivoCorte ?? nota?.trim()) || null,
   }).eq('id', m.id).eq('estado', 'abierto').select('*').single();
   if (error) throw error;
 
@@ -424,7 +455,30 @@ export async function cerrarMercado(
       .eq('id', m.id).eq('estado', 'cerrado');
     throw e;
   }
+  // Corte: los ciclos cerrados antes también pasan a mostrar solo sus entradas. Si esto
+  // falla, el corte ya está hecho (el ciclo nuevo arrancó bien) y no se deshace por una
+  // marca: a lo sumo un ciclo viejo sigue mostrando su resumen completo.
+  if (motivoCorte) await marcarHistoricoSoloEntradas().catch(() => undefined);
   return normalizar(data as Record<string, unknown>);
+}
+
+/**
+ * Marca TODOS los ciclos cerrados como «solo entradas». Se usa en el corte de inventario:
+ * lo anterior al corte queda en el histórico mostrando únicamente lo que entró. Solo toca
+ * la marca de `totales`; el resumen y los movimientos guardados no cambian.
+ */
+export async function marcarHistoricoSoloEntradas(): Promise<number> {
+  const { data, error } = await supabase.from(TABLE).select('id, totales').eq('estado', 'cerrado');
+  if (error) throw error;
+  let marcados = 0;
+  for (const r of (data ?? []) as { id: string; totales: TotalesMercado | null }[]) {
+    if (r.totales?.solo_entradas === true) continue;
+    const { error: eUpd } = await supabase.from(TABLE)
+      .update({ totales: { ...(r.totales ?? {}), solo_entradas: true } }).eq('id', r.id);
+    if (eUpd) throw eUpd;
+    marcados++;
+  }
+  return marcados;
 }
 
 /* Descartar un mercado se quitó el 28/09/2026: tirar el saldo que quedaba generaba
@@ -478,6 +532,9 @@ export async function actualizarMercadoHistorico(
     if (previos?.descartado) {
       throw new Error('Un mercado descartado no se corrige: sus cifras quedan como estaban al descartarlo.');
     }
+    if (previos?.solo_entradas) {
+      throw new Error('Este ciclo quedó antes del corte de inventario: muestra solo sus entradas y no se corrige.');
+    }
     const items = patch.resumen.map((r) => {
       const saldo = round2(Number(r.saldo_inicial) || 0);
       const ent = round2(Number(r.entradas) || 0);
@@ -509,6 +566,9 @@ export async function eliminarMercado(id: string): Promise<void> {
   if (eActual) throw eActual;
   if ((actual as { totales?: TotalesMercado | null } | null)?.totales?.descartado) {
     throw new Error('Un mercado descartado no se elimina: es el rastro de por qué ese ciclo no cuenta.');
+  }
+  if ((actual as { totales?: TotalesMercado | null } | null)?.totales?.solo_entradas) {
+    throw new Error('Este ciclo es el rastro del corte de inventario (guarda las entradas): no se elimina.');
   }
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calcularEoq, construirDias, demandaAnualEstimada, diasEntre, estadoStock, filtrarDistribucion,
+  calcularEoq, construirDias, demandaAnualEstimada, desdeParaKardex, diasEntre, estadoStock, filtrarDistribucion,
   filtrarPorEstado, subtituloFiltro, totalizarControl, type EstadoStock,
 } from './controlDistribucion';
 
@@ -359,5 +359,18 @@ describe('el subtítulo de los recortes nuevos', () => {
   it('nombra el consumo y la merma', () => {
     expect(subtituloFiltro('con-consumo')).toBe('Solo los víveres CON CONSUMO en el período');
     expect(subtituloFiltro('con-merma')).toBe('Solo los víveres CON MERMA en el período');
+  });
+});
+
+describe('desdeParaKardex · el saldo guardado vale desde su instante', () => {
+  it('con el instante del ciclo, el kardex se lee desde ahí', () => {
+    expect(desdeParaKardex('2026-10-01', '2026-10-01T20:45:10.500Z')).toBe('2026-10-01T20:45:10.500Z');
+    // Lo normaliza a ISO aunque venga con otro formato de zona.
+    expect(desdeParaKardex('2026-10-01', '2026-10-01T16:45:10.5-04:00')).toBe('2026-10-01T20:45:10.500Z');
+  });
+  it('sin instante (rango elegido a mano), desde las 00:00 del día', () => {
+    expect(desdeParaKardex('2026-10-01')).toBe('2026-10-01T00:00:00');
+    expect(desdeParaKardex('2026-10-01', null)).toBe('2026-10-01T00:00:00');
+    expect(desdeParaKardex('2026-10-01', 'no es fecha')).toBe('2026-10-01T00:00:00');
   });
 });

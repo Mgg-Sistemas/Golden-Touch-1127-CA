@@ -8,6 +8,7 @@
 import { previewPdf } from '@/shared/lib/reportePreview';
 import type { Mercado, ResumenViver } from './cocinaMercado.repository';
 import { esDescartado } from './mercadoDescarte';
+import { entradasFechadas, entradasPorViver, esSoloEntradas, totalEntradas } from './mercadoCorte';
 
 type JsPDFDoc = import('jspdf').jsPDF;
 
@@ -36,9 +37,11 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
   const descartado = esDescartado(m);
+  // Ciclo anterior a un corte de inventario: el reporte trae solo lo que entró.
+  const solo = esSoloEntradas(m);
   if (descartado) doc.setTextColor(190, 30, 45); else doc.setTextColor(255, 138, 0);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text(descartado ? 'MERCADO DESCARTADO · COCINA' : 'CIERRE DE MERCADO · COCINA', W / 2 + 28, y + 18, { align: 'center' });
+  doc.text(descartado ? 'MERCADO DESCARTADO · COCINA' : solo ? 'ENTRADAS DEL MERCADO · COCINA' : 'CIERRE DE MERCADO · COCINA', W / 2 + 28, y + 18, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   doc.text(`${m.numero ?? ''} · ${soloFecha(m.inicio_at)} a ${soloFecha(m.cierre_at)}`, W / 2 + 28, y + 34, { align: 'center' });
   doc.setTextColor(120, 120, 120); doc.setFontSize(8);
@@ -48,6 +51,55 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
 
   // Totales del ciclo
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  if (solo) {
+    const filas = entradasPorViver(resumen);
+    doc.text(`${filas.length} víveres con entradas   ·   ${num(totalEntradas(filas))} unidades recibidas`, MARGIN, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+    const quien = t?.corte_por_nombre || t?.corte_por || null;
+    const texto = t?.corte_at
+      ? `Corte de inventario del ${fmt.dateTime(t.corte_at)}${quien ? ` por ${quien}` : ''}: de este ciclo se muestran solo las entradas y el mercado siguiente arrancó con el stock real.${t?.corte_motivo ? ` Motivo: ${t.corte_motivo}` : ''}`
+      : `Ciclo anterior al corte de inventario: se muestran solo sus entradas.${descartado ? ` Mercado descartado: ${t?.motivo_descarte ?? '—'}` : ''}`;
+    const lineas: string[] = doc.splitTextToSize(texto, W - MARGIN * 2);
+    doc.text(lineas, MARGIN, y + 14);
+    doc.setTextColor(0, 0, 0);
+    y += 14 + lineas.length * 11;
+
+    autoTable(doc, {
+      startY: y + 6,
+      head: [['VÍVER', 'CÓDIGO', 'UND', 'ENTRADAS']],
+      body: filas.map((r) => [r.nombre, r.sku, r.unidad ?? '', num(r.entradas)]),
+      foot: [['TOTAL', '', '', num(totalEntradas(filas))]],
+      styles: { fontSize: 8, cellPadding: 3.2, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: [245, 245, 245], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'right' },
+      columnStyles: {
+        0: { cellWidth: 'auto' }, 1: { cellWidth: 70 }, 2: { cellWidth: 40, halign: 'center' },
+        3: { cellWidth: 70, halign: 'right', fontStyle: 'bold', textColor: [0, 120, 60] },
+      },
+      margin: MARGIN,
+    });
+
+    // Entrada por entrada, si el ciclo guardó su foto (los cerrados desde el 28/09/2026).
+    const fechadas = entradasFechadas(resumen, m.movimientos);
+    if (fechadas.length) {
+      const fin = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      doc.text('Detalle de las entradas', MARGIN, fin + 22);
+      autoTable(doc, {
+        startY: fin + 28,
+        head: [['FECHA', 'COMPROBANTE', 'VÍVER', 'UND', 'CANTIDAD']],
+        body: fechadas.map((e) => [fmt.dateTime(e.fecha), e.ref ?? 'Entrada manual', e.nombre, e.unidad ?? '', num(e.cantidad)]),
+        styles: { fontSize: 8, cellPadding: 3, valign: 'middle', overflow: 'linebreak' },
+        headStyles: { fillColor: [90, 90, 90], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+        columnStyles: {
+          0: { cellWidth: 92 }, 1: { cellWidth: 86 }, 2: { cellWidth: 'auto' },
+          3: { cellWidth: 40, halign: 'center' }, 4: { cellWidth: 62, halign: 'right', fontStyle: 'bold' },
+        },
+        margin: MARGIN,
+      });
+    }
+    return doc;
+  }
   if (descartado) {
     // Un descartado no le pasa saldo a nadie: decir «pasa al próximo mercado» sería falso.
     doc.text(`${t?.viveres ?? resumen.length} víveres   ·   Consumo total ${money(t?.consumo_valor ?? 0)}   ·   NO pasa saldo al próximo mercado`, MARGIN, y);
@@ -91,15 +143,19 @@ async function construirDocCierre(m: Mercado): Promise<JsPDFDoc> {
   return doc;
 }
 
+function prefijoArchivo(m: Mercado): string {
+  return esDescartado(m) ? 'mercado-descartado' : esSoloEntradas(m) ? 'entradas-mercado' : 'cierre-mercado';
+}
+
 /** Abre el PDF del cierre en vista previa (se descarga al presionar Descargar). */
 export async function descargarCocinaCierrePdf(m: Mercado): Promise<void> {
   const doc = await construirDocCierre(m);
-  previewPdf(doc, `${esDescartado(m) ? 'mercado-descartado' : 'cierre-mercado'}-${(m.numero ?? 'MK')}-${soloFecha(m.cierre_at).replace(/\//g, '-')}.pdf`);
+  previewPdf(doc, `${prefijoArchivo(m)}-${(m.numero ?? 'MK')}-${soloFecha(m.cierre_at).replace(/\//g, '-')}.pdf`);
 }
 
 /** Genera el PDF del cierre y devuelve el base64 (sin prefijo) + nombre, para el correo. */
 export async function obtenerCocinaCierreBase64(m: Mercado): Promise<{ base64: string; nombre: string }> {
   const doc = await construirDocCierre(m);
   const dataUri = doc.output('datauristring');
-  return { base64: dataUri.split(',')[1] ?? '', nombre: `${esDescartado(m) ? 'mercado-descartado' : 'cierre-mercado'}-${m.numero ?? 'MK'}.pdf` };
+  return { base64: dataUri.split(',')[1] ?? '', nombre: `${prefijoArchivo(m)}-${m.numero ?? 'MK'}.pdf` };
 }
