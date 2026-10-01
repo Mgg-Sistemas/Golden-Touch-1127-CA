@@ -40,6 +40,12 @@ describe('errorPorcentaje', () => {
     expect(errorPorcentaje(-1)).toMatch(/entre 0 y 100/);
     expect(errorPorcentaje(150)).toMatch(/entre 0 y 100/);
   });
+  it('acepta la coma decimal venezolana', () => {
+    expect(errorPorcentaje('1,5')).toBeNull();
+  });
+  it('una cadena de solo espacios es vacío, no 0 %', () => {
+    expect(errorPorcentaje('   ')).toBeNull();
+  });
   it('rechaza lo que no es número (texto pegado de otro lado)', () => {
     expect(errorPorcentaje('ochenta')).toMatch(/número/);
   });
@@ -54,6 +60,10 @@ describe('errorMinuta', () => {
   });
   it('sin objetivo tampoco: una minuta sin objetivo no sirve de nada', () => {
     expect(errorMinuta({ ...base, objetivo: '   ' })).toMatch(/objetivo/i);
+  });
+  it('un pct_inicial inválido también invalida la minuta', () => {
+    const avances = [{ ...filaAvanceVacia(), actividad: 'X', pct_inicial: -5 }];
+    expect(errorMinuta({ ...base, avances })).toMatch(/entre 0 y 100/);
   });
   it('un porcentaje malo en avances invalida la minuta entera', () => {
     const avances = [{ ...filaAvanceVacia(), actividad: 'X', pct_avance: 150 }];
@@ -79,11 +89,25 @@ describe('componerBusq', () => {
 });
 
 describe('participante que ya no está en el personal', () => {
-  it('el nombre y el cargo guardados sobreviven aunque la persona se borre', () => {
-    // La minuta es un documento histórico: guarda el texto, no una referencia viva.
-    const m = { ...base, participantes: [{ personal_id: 'uuid-que-ya-no-existe', nombre: 'Ana Pérez', cargo: 'Gerente' }] };
+  // La minuta es un documento histórico: guarda el texto, no una referencia viva.
+  const ID = 'f3a9c1e2-7b44-4d0e-9a51-0c6d2e8b1a77';
+  const m: BorradorMinuta = {
+    ...base,
+    participantes: [{ personal_id: ID, nombre: 'Ximena Quintero', cargo: 'Jefa de Almacén' }],
+  };
+  it('el nombre y el cargo guardados siguen en la minuta y son buscables', () => {
+    expect(m.participantes[0]).toMatchObject({ nombre: 'Ximena Quintero', cargo: 'Jefa de Almacén' });
+    const b = componerBusq(m);
+    expect(b).toContain('ximena quintero');
+    expect(b).toContain('jefa de almacen');
+  });
+  it('el personal_id no entra al texto de búsqueda', () => {
+    const b = componerBusq(m);
+    expect(b).not.toContain(ID.toLowerCase());
+    expect(b).not.toContain('f3a9c1e2');
+  });
+  it('un participante con id inexistente no impide guardar', () => {
     expect(errorMinuta(m)).toBeNull();
-    expect(componerBusq(m)).toContain('ana perez');
   });
 });
 
@@ -100,6 +124,20 @@ describe('tieneAcuerdosPendientes', () => {
   });
   it('un acuerdo ya vencido no cuenta como pendiente', () => {
     const m = minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-09-01' }]);
+    expect(tieneAcuerdosPendientes(m, hoy)).toBe(false);
+  });
+  it('un acuerdo con fecha exactamente hoy sigue pendiente', () => {
+    const hoyVE = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(hoy);
+    const m = minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: hoyVE }]);
+    expect(tieneAcuerdosPendientes(m, hoy)).toBe(true);
+  });
+  it('a las 9 p. m. en Caracas, la fecha de ese día sigue siendo hoy', () => {
+    const noche = new Date('2026-10-02T01:00:00Z'); // 21:00 en Caracas del 1 de octubre
+    const m = minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-10-01' }]);
+    expect(tieneAcuerdosPendientes(m, noche)).toBe(true);
+  });
+  it('una fecha de compromiso null no cuenta ni rompe', () => {
+    const m = minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: null }]);
     expect(tieneAcuerdosPendientes(m, hoy)).toBe(false);
   });
   it('sin acuerdos, no hay nada pendiente', () => {

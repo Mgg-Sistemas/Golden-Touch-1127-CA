@@ -46,7 +46,8 @@ export function filaAvanceVacia(): MinutaAvance {
 
 /** Qué está mal con un porcentaje, o `null` si está bien. Vacío es válido. */
 export function errorPorcentaje(v: unknown): string | null {
-  if (v === null || v === undefined || v === '') return null;
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
   const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
   if (!Number.isFinite(n)) return 'El porcentaje tiene que ser un número.';
   if (n < 0 || n > 100) return 'El porcentaje tiene que estar entre 0 y 100.';
@@ -83,7 +84,9 @@ export function componerBusq(m: BorradorMinuta): string {
 
 /** ¿Quedó algún acuerdo con fecha de compromiso que todavía no venció? */
 export function tieneAcuerdosPendientes(m: Minuta, hoy: Date = new Date()): boolean {
-  const corte = hoy.toISOString().slice(0, 10);
+  // No usar toISOString(): da la fecha en UTC y desde las 8 p. m. en Venezuela (UTC-4)
+  // ya sería «mañana», y un acuerdo con fecha de hoy dejaría de contar como pendiente.
+  const corte = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(hoy);
   return (m.acuerdos ?? []).some((a) => !!a.fecha_compromiso && a.fecha_compromiso >= corte);
 }
 
