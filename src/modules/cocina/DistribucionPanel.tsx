@@ -81,11 +81,12 @@ export function DistribucionPanel({ inicioCiclo, saldoCiclo, onAbrirDetalle }: {
 
   const recargar = useCallback(async () => {
     try {
-      setControl(await cargarControl(desde, hasta, { aperturas }));
+      // Con el saldo guardado, el kardex cuenta desde el instante del ciclo: lo de antes ya está en el saldo.
+      setControl(await cargarControl(desde, hasta, { aperturas, desdeInstante: aperturas ? inicioCiclo : null }));
     } catch (e) {
       toast(mensajeError(e, 'No se pudo cargar la distribución'), 'error');
     }
-  }, [desde, hasta, aperturas]);
+  }, [desde, hasta, aperturas, inicioCiclo]);
 
   useEffect(() => {
     setLoading(true);

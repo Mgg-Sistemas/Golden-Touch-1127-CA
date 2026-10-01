@@ -16,7 +16,7 @@ import { claseMovimiento, type ClaseMovimiento } from './claseMovimiento';
 import { listViveres } from './cocina.repository';
 import { rotuloOrigen } from './movInventario';
 import {
-  calcularEoq, construirDias, demandaAnualEstimada, diasEntre, estadoStock, totalizarControl,
+  calcularEoq, construirDias, demandaAnualEstimada, desdeParaKardex, diasEntre, estadoStock, totalizarControl,
   type EstadoStock, type FilaDia, type MovimientoDia, type TotalesControl,
 } from './controlDistribucion';
 
@@ -279,7 +279,7 @@ export const CLASE_LABEL: Record<ClaseMovimiento, string> = {
   ajuste: 'Ajuste manual',
 };
 
-async function movimientosDesde(desde: string, ids: string[]): Promise<{
+async function movimientosDesde(desde: string, ids: string[], instante?: string | null): Promise<{
   porProducto: Map<string, MovimientoDia[]>;
   filas: FilaMovimiento[];
 }> {
@@ -295,7 +295,7 @@ async function movimientosDesde(desde: string, ids: string[]): Promise<{
   const filas = await todasLasFilas<FilaMovimiento>((a, b) => supabase.from('movimientos')
     .select('id, producto_id, at, delta, tipo, ref_tipo, ref_codigo, detalle, actor_name, actor')
     .in('producto_id', ids)
-    .gte('at', `${desde}T00:00:00`)
+    .gte('at', desdeParaKardex(desde, instante))
     .order('at', { ascending: true }).order('id').range(a, b));
   for (const r of filas) {
     const lista = porProducto.get(r.producto_id) ?? [];
@@ -356,6 +356,13 @@ export interface OpcionesControl {
    * rango elegido a mano no hay saldo guardado y hay que deducirlo.
    */
   aperturas?: Map<string, number> | null;
+  /**
+   * El instante en que se tomó ese saldo (el inicio del ciclo). Con él, el kardex se lee
+   * desde ese instante y no desde las 00:00 del día: lo movido antes ya está dentro del
+   * saldo y sumarlo otra vez lo contaría dos veces (ver `desdeParaKardex`). Solo se usa
+   * junto con `aperturas`.
+   */
+  desdeInstante?: string | null;
 }
 
 /**
@@ -375,9 +382,9 @@ export async function cargarControl(
   ]);
 
   const ids = viveres.map((p) => p.id);
-  const { porProducto: movs, filas } = await movimientosDesde(desde, ids);
-
   const guardadas = opciones?.aperturas ?? null;
+  const { porProducto: movs, filas } = await movimientosDesde(desde, ids, guardadas ? opciones?.desdeInstante : null);
+
   const porProducto = new Map(overrides.map((o) => [o.producto_id, o]));
   const conteosPorProducto = new Map<string, Map<string, number>>();
   for (const c of conteos) {

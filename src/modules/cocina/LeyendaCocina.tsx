@@ -97,6 +97,19 @@ const DUDAS: Entrada[] = [
     ),
   },
   {
+    pregunta: '¿Qué hace «Corte: partir del stock real»?',
+    respuesta: (
+      <>
+        Es un cierre para <strong>empezar de nuevo con lo que hay</strong>. Cierra el mercado en curso y abre uno
+        nuevo cuyo saldo inicial es el <strong>stock real del inventario</strong> en ese instante (por ejemplo, el
+        mercado que acaba de entrar más los ajustes hechos en Inventario). Los ciclos anteriores quedan en
+        «Mercados cerrados» mostrando <strong>solo sus entradas</strong>: su consumo y sus mermas dejan de mostrarse
+        porque ya no describen el almacén. No se borra nada, y las comidas anteriores siguen a un clic con
+        «Ver también las anteriores».
+      </>
+    ),
+  },
+  {
     pregunta: 'Quiero iniciar un mercado y el sistema no me deja.',
     respuesta: (
       <>
