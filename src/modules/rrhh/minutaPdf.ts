@@ -36,12 +36,12 @@ export function filasConRenglones<T>(filas: T[], minimo: number, vacia: () => T)
 }
 
 /**
- * Renglones que debe tener una tabla: sin filas cargadas (hoja en blanco, o
- * sección vacía) es el mínimo del formato de papel de ESA sección; con filas,
- * son las cargadas más los renglones de cortesía.
+ * Renglones que debe tener una tabla: las cargadas más los renglones de
+ * cortesía, pero nunca menos que el mínimo del formato de papel de ESA sección
+ * (cargar un dato no puede achicar la tabla).
  */
 export function minimoFilas(seccion: keyof typeof RENGLONES_HOJA, cargadas: number): number {
-  return cargadas > 0 ? cargadas + RENGLONES_EXTRA : RENGLONES_HOJA[seccion];
+  return Math.max(RENGLONES_HOJA[seccion], cargadas + RENGLONES_EXTRA);
 }
 
 type Doc = import('jspdf').jsPDF;
@@ -208,6 +208,7 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   );
 
   /* 6. Otros asuntos: texto sobre rayas */
+  y += 8; // la banda de seccion() arranca 10 pt arriba de `y`: sin esto pisa la tabla de Acuerdos
   asegurar(40);
   y = seccion(doc, MARGIN, y, 'Otros asuntos');
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);

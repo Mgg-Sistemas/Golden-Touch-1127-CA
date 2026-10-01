@@ -91,11 +91,16 @@ describe('minimoFilas', () => {
     expect(minimoFilas('avances', 0)).toBe(4);
     expect(minimoFilas('observaciones', 0)).toBe(7);
   });
-  it('con filas cargadas devuelve cargadas + RENGLONES_EXTRA, en cualquier sección', () => {
+  it('con muchas filas cargadas devuelve cargadas + RENGLONES_EXTRA, en cualquier sección', () => {
     for (const k of Object.keys(RENGLONES_HOJA) as (keyof typeof RENGLONES_HOJA)[]) {
-      expect(minimoFilas(k, 3)).toBe(3 + RENGLONES_EXTRA);
       expect(minimoFilas(k, 20)).toBe(20 + RENGLONES_EXTRA);
     }
+  });
+  it('la tabla nunca baja del mínimo del papel: 1 acuerdo sigue imprimiendo 6, no 3', () => {
+    expect(minimoFilas('acuerdos', 1)).toBe(6);
+  });
+  it('con 10 acuerdos cargados imprime 12', () => {
+    expect(minimoFilas('acuerdos', 10)).toBe(12);
   });
   it('cero filas cargadas da el mínimo del papel, no el extra', () => {
     expect(minimoFilas('acuerdos', 0)).not.toBe(RENGLONES_EXTRA);
