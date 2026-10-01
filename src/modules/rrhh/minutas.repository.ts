@@ -65,11 +65,20 @@ export function filasAGuardar(b: BorradorMinuta): Record<string, unknown> {
   };
 }
 
-export async function listMinutas(): Promise<Minuta[]> {
+/** Una minuta del histórico, con la marca de si tiene archivos adjuntos. */
+export interface MinutaConAdjuntos extends Minuta { tiene_adjuntos: boolean }
+
+export async function listMinutas(): Promise<MinutaConAdjuntos[]> {
+  // `minuta_adjuntos(count)` trae el conteo embebido en la misma consulta: sin N consultas
+  // y sin el corte de 1000 filas que tendría pedir los adjuntos por separado.
   const { data, error } = await supabase
-    .from(TABLE).select('*').order('fecha', { ascending: false }).order('numero', { ascending: false });
+    .from(TABLE).select('*, minuta_adjuntos(count)')
+    .order('fecha', { ascending: false }).order('numero', { ascending: false });
   if (error) throw error;
-  return (data ?? []) as Minuta[];
+  return ((data ?? []) as Array<Minuta & { minuta_adjuntos?: { count: number }[] }>).map((fila) => {
+    const { minuta_adjuntos, ...minuta } = fila;
+    return { ...minuta, tiene_adjuntos: (minuta_adjuntos?.[0]?.count ?? 0) > 0 };
+  });
 }
 
 export async function getMinuta(id: string): Promise<Minuta | null> {

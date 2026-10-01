@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { date } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Minuta } from '@/shared/lib/types';
-import { listMinutas } from './minutas.repository';
+import { listMinutas, type MinutaConAdjuntos } from './minutas.repository';
 import { generarMinutaPdf } from './minutaPdf';
 import { FILTROS_VACIOS, contarMinutas, filtrarMinutas, recortar, type FiltrosMinutas } from './minutaFiltros';
 import { MinutaEditorModal } from './MinutaEditorModal';
@@ -12,7 +12,7 @@ import { MinutaDetalleModal } from './MinutaDetalleModal';
 
 /** Minutas de reunión: histórico con filtros. Son de toda la organización, no de una nómina. */
 export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: string }) {
-  const [lista, setLista] = useState<Minuta[]>([]);
+  const [lista, setLista] = useState<MinutaConAdjuntos[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtros, setFiltros] = useState<FiltrosMinutas>(FILTROS_VACIOS);
   // undefined = editor cerrado, null = minuta nueva, Minuta = editando esa.
@@ -25,7 +25,20 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
-  useRealtime(['minutas'], () => { void recargar(); });
+  useRealtime(['minutas', 'minuta_adjuntos'], () => { void recargar(); });
+
+  // Si otra persona borra la minuta que tengo abierta (detalle o editor), se avisa y se cierra.
+  const idsPrevios = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const ahora = new Set(lista.map((m) => m.id));
+    const borrada = [...idsPrevios.current].some((id) => !ahora.has(id) && (id === viendoId || id === editando?.id));
+    idsPrevios.current = ahora;
+    if (borrada) {
+      toast('Otra persona borró esta minuta', 'error');
+      setViendoId(null);
+      setEditando(undefined);
+    }
+  }, [lista]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const conteos = useMemo(() => contarMinutas(lista), [lista]);
   const visibles = useMemo(() => filtrarMinutas(lista, filtros), [lista, filtros]);
@@ -87,7 +100,7 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
               <tr key={m.id}>
                 <td className="mono">{m.numero}</td>
                 <td>{date(m.fecha)}</td>
-                <td>{recortar(m.objetivo) || <span className="muted">—</span>}</td>
+                <td>{recortar(m.objetivo) || <span className="muted">—</span>}{m.tiene_adjuntos && <span title="Tiene adjuntos" style={{ marginLeft: '.4rem' }}>📎</span>}</td>
                 <td style={{ textAlign: 'center' }}>{(m.participantes ?? []).length}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: m.estado === 'borrador' ? 'var(--warning)' : 'var(--success)' }}>{m.estado === 'borrador' ? 'Borrador' : 'Finalizada'}</span></td>
                 <td style={{ textAlign: 'center' }}><button type="button" className="btn btn-sm" onClick={() => setViendoId(m.id)}>Ver</button></td>

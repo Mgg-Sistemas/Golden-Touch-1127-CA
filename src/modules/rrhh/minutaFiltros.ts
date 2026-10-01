@@ -27,7 +27,7 @@ function involucra(m: Minuta, q: string): boolean {
     || (m.acuerdos ?? []).some((a) => norm(a.responsable).includes(q));
 }
 
-export function filtrarMinutas(lista: Minuta[], f: FiltrosMinutas, hoy: Date = new Date()): Minuta[] {
+export function filtrarMinutas<T extends Minuta>(lista: T[], f: FiltrosMinutas, hoy: Date = new Date()): T[] {
   const persona = norm(f.persona).trim();
   const palabra = norm(f.palabra).trim();
   return lista.filter((m) => {
@@ -44,7 +44,8 @@ export function filtrarMinutas(lista: Minuta[], f: FiltrosMinutas, hoy: Date = n
 export interface ConteosMinutas { delAnio: number; borradores: number; pendientes: number }
 
 export function contarMinutas(lista: Minuta[], hoy: Date = new Date()): ConteosMinutas {
-  const anio = String(hoy.getFullYear());
+  // Año según Venezuela, no según el equipo: el 31 de dic. a las 8 p. m. ya es año nuevo en UTC.
+  const anio = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric' }).format(hoy);
   return {
     delAnio: lista.filter((m) => m.fecha.startsWith(anio)).length,
     borradores: lista.filter((m) => m.estado === 'borrador').length,

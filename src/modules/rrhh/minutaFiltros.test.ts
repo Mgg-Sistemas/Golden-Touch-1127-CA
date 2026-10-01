@@ -51,6 +51,14 @@ describe('contarMinutas', () => {
   });
 });
 
+describe('contarMinutas - zona horaria', () => {
+  it('31 de diciembre 23:00 en Venezuela sigue siendo el año viejo', () => {
+    // 2027-01-01T03:00Z = 31/12/2026 23:00 en Caracas (UTC-4)
+    const finDeAnio = new Date('2027-01-01T03:00:00Z');
+    expect(contarMinutas(L, finDeAnio).delAnio).toBe(2);
+  });
+});
+
 describe('recortar', () => {
   it('no toca lo corto y recorta lo largo a 60', () => {
     expect(recortar('hola')).toBe('hola');
