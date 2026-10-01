@@ -6,6 +6,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Minuta } from '@/shared/lib/types';
 import { listMinutas, type MinutaConAdjuntos } from './minutas.repository';
 import { generarMinutaPdf } from './minutaPdf';
+import { tieneAcuerdosVencidos } from './minutaModelo';
 import { FILTROS_VACIOS, contarMinutas, filtrarMinutas, recortar, type FiltrosMinutas } from './minutaFiltros';
 import { MinutaEditorModal } from './MinutaEditorModal';
 import { MinutaDetalleModal } from './MinutaDetalleModal';
@@ -100,7 +101,7 @@ export function MinutasTab({ canWrite, actor }: { canWrite: boolean; actor: stri
               <tr key={m.id}>
                 <td className="mono">{m.numero}</td>
                 <td>{date(m.fecha)}</td>
-                <td>{recortar(m.objetivo) || <span className="muted">—</span>}{m.tiene_adjuntos && <span title="Tiene adjuntos" style={{ marginLeft: '.4rem' }}>📎</span>}</td>
+                <td>{recortar(m.objetivo) || <span className="muted">—</span>}{m.tiene_adjuntos && <span title="Tiene adjuntos" style={{ marginLeft: '.4rem' }}>📎</span>}{tieneAcuerdosVencidos(m) && <span title="Tiene acuerdos con fecha de compromiso vencida" aria-label="Acuerdos vencidos" style={{ marginLeft: '.4rem', color: 'var(--warning)' }}>⚠</span>}</td>
                 <td style={{ textAlign: 'center' }}>{(m.participantes ?? []).length}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: m.estado === 'borrador' ? 'var(--warning)' : 'var(--success)' }}>{m.estado === 'borrador' ? 'Borrador' : 'Finalizada'}</span></td>
                 <td style={{ textAlign: 'center' }}><button type="button" className="btn btn-sm" onClick={() => setViendoId(m.id)}>Ver</button></td>

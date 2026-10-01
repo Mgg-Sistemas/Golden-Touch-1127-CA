@@ -82,12 +82,30 @@ export function componerBusq(m: BorradorMinuta): string {
   return norm(partes.filter(Boolean).join(' ')).trim();
 }
 
-/** ¿Quedó algún acuerdo con fecha de compromiso que todavía no venció? */
-export function tieneAcuerdosPendientes(m: Minuta, hoy: Date = new Date()): boolean {
-  // No usar toISOString(): da la fecha en UTC y desde las 8 p. m. en Venezuela (UTC-4)
-  // ya sería «mañana», y un acuerdo con fecha de hoy dejaría de contar como pendiente.
-  const corte = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(hoy);
-  return (m.acuerdos ?? []).some((a) => !!a.fecha_compromiso && a.fecha_compromiso >= corte);
+/**
+ * Hoy en Venezuela (`AAAA-MM-DD`). ÚNICA fuente de «hoy» del módulo. No usar
+ * toISOString() ni getFullYear(): dan la fecha/año en UTC o del equipo, y desde
+ * las 8 p. m. en Caracas (UTC-4) ya sería «mañana».
+ */
+export function hoyVE(ahora: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(ahora);
+}
+
+const acuerdoConContenido = (a: MinutaAcuerdo) => !!(a.actividad?.trim() || a.responsable?.trim());
+
+/**
+ * ¿Hay algún acuerdo con contenido (actividad o responsable)? Sin importar la
+ * fecha: no hay forma de marcar un acuerdo como cumplido, así que uno vencido
+ * o sin fecha sigue pendiente.
+ */
+export function tieneAcuerdosPendientes(m: Minuta, _hoy: Date = new Date()): boolean {
+  return (m.acuerdos ?? []).some(acuerdoConContenido);
+}
+
+/** ¿Algún acuerdo con contenido tiene fecha de compromiso anterior a hoy (Caracas)? */
+export function tieneAcuerdosVencidos(m: Minuta, hoy: Date = new Date()): boolean {
+  const corte = hoyVE(hoy);
+  return (m.acuerdos ?? []).some((a) => acuerdoConContenido(a) && !!a.fecha_compromiso && a.fecha_compromiso < corte);
 }
 
 export function numeroMinuta(anio: number, n: number): string {

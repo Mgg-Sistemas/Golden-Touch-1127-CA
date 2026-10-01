@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Minuta } from '@/shared/lib/types';
-import { borradorDesdeMinuta, filaTieneContenido, hoyVE, participanteDesdePersonal } from './minutaBorrador';
+import { borradorDesdeMinuta, filaTieneContenido, participanteDesdePersonal } from './minutaBorrador';
+import { hoyVE } from './minutaModelo';
 
 const minuta: Minuta = {
   id: 'm1', numero: 'MIN-2026-0001', estado: 'finalizada', lugar: null,

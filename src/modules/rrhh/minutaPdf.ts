@@ -24,6 +24,7 @@ import type {
 
 export const RENGLONES_HOJA = {
   ordenDia: 7, participantes: 6, acuerdos: 6, avances: 4, observaciones: 7,
+  proximosPuntos: 7, otrosAsuntos: 7,
 } as const;
 
 /** Renglones de cortesía que se agregan al final de cada tabla ya cargada. */
@@ -89,7 +90,8 @@ function seccion(doc: Doc, x: number, y: number, texto: string): number {
   return y + 14;
 }
 
-type OpcionesMinuta = { adjuntos?: { nombre: string; dataUrl: string }[] };
+/** Sin `dataUrl` (los PDF) el archivo solo se lista por nombre. */
+type OpcionesMinuta = { adjuntos?: { nombre: string; dataUrl?: string; tipo?: string }[] };
 
 /** Genera la vista previa (imprimir / descargar) de la minuta, o de la hoja en blanco si `m` es null. */
 export async function generarMinutaPdf(m: Minuta | null, opciones?: OpcionesMinuta): Promise<void> {
@@ -215,7 +217,7 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   const lineasOtros = m?.otros_asuntos?.trim()
     ? (doc.splitTextToSize(pdfSafe(m.otros_asuntos), ANCHO - 4) as string[])
     : [];
-  const rayas = filasConRenglones(lineasOtros, minimoFilas('observaciones', lineasOtros.length), () => '');
+  const rayas = filasConRenglones(lineasOtros, minimoFilas('otrosAsuntos', lineasOtros.length), () => '');
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.6);
   for (const linea of rayas) {
     asegurar(ALTO_RAYA);
@@ -234,7 +236,7 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   y += campo(doc, MARGIN, y, MITAD, 'Fecha de la próxima reunión', dia(m?.proxima_fecha)) + 10;
 
   /* 8. Puntos a tratar en la próxima reunión */
-  listaNumerada('PUNTOS A TRATAR EN LA PRÓXIMA REUNIÓN', m?.proximos_puntos ?? [], 'ordenDia');
+  listaNumerada('PUNTOS A TRATAR EN LA PRÓXIMA REUNIÓN', m?.proximos_puntos ?? [], 'proximosPuntos');
 
   /* 9. Avances */
   tabla(
@@ -280,8 +282,8 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   const adjuntos = opciones?.adjuntos ?? [];
   const pdfsAdjuntos: string[] = [];
   for (const a of adjuntos) {
-    const mime = /^data:([^;,]+)/.exec(a.dataUrl)?.[1]?.toLowerCase() ?? '';
-    if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/jpg') {
+    const mime = /^data:([^;,]+)/.exec(a.dataUrl ?? '')?.[1]?.toLowerCase() ?? '';
+    if (a.dataUrl && (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/jpg')) {
       doc.addPage();
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
       doc.text(pdfSafe(`ANEXO: ${a.nombre}`), MARGIN, MARGIN);
@@ -294,13 +296,14 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
         doc.text(pdfSafe('No se pudo incluir la imagen.'), MARGIN, MARGIN + 18);
       }
-    } else if (mime === 'application/pdf') {
+    } else {
+      // Todo lo que no se pueda dibujar se lista: nada desaparece en silencio.
       pdfsAdjuntos.push(a.nombre);
     }
   }
   if (pdfsAdjuntos.length) {
     doc.addPage(); y = MARGIN;
-    tabla(['ARCHIVOS PDF ADJUNTOS (NO INCLUIDOS EN ESTE DOCUMENTO)'], pdfsAdjuntos.map((n) => [pdfSafe(n)]));
+    tabla(['ARCHIVOS ADJUNTOS (NO INCLUIDOS EN ESTE DOCUMENTO)'], pdfsAdjuntos.map((n) => [pdfSafe(n)]));
   }
 
   return doc;

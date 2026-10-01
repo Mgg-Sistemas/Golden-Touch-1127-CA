@@ -6,13 +6,8 @@
    ============================================================ */
 import type { Minuta, MinutaParticipante } from '@/shared/lib/types';
 import {
-  filaAcuerdoVacia, filaAvanceVacia, filaParticipanteVacia, type BorradorMinuta,
+  filaAcuerdoVacia, filaAvanceVacia, filaParticipanteVacia, hoyVE, type BorradorMinuta,
 } from './minutaModelo';
-
-/** Hoy en Venezuela (`AAAA-MM-DD`). No usar toISOString(): da la fecha en UTC. */
-export function hoyVE(ahora: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(ahora);
-}
 
 /** Una lista nunca se muestra vacía: arranca con una fila en blanco para escribir. */
 function conUnaFila<T>(lista: T[] | null | undefined, vacia: () => T): T[] {

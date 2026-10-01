@@ -6,7 +6,7 @@
    botones de imprimir, editar y borrar. Editar abre el editor; acá no se cambia
    ningún campo de la minuta.
    ============================================================ */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { date } from '@/shared/lib/format';
@@ -122,6 +122,7 @@ export function MinutaDetalleModal({
   const [confirmaBorrar, setConfirmaBorrar] = useState(false);
   const [imprimiendo, setImprimiendo] = useState(false);
   const [borrando, setBorrando] = useState(false);
+  const [arrastrando, setArrastrando] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   const recargar = useCallback(async () => {
@@ -182,9 +183,11 @@ export function MinutaDetalleModal({
 
   async function adjuntosParaPdf() {
     if (!minuta.anexar_adjuntos_pdf) return [];
-    const out: { nombre: string; dataUrl: string }[] = [];
+    const out: { nombre: string; dataUrl?: string; tipo?: string }[] = [];
     let fallidas = 0;
-    for (const a of adjuntos.filter((x) => esImagenAdjunto(x.tipo))) {
+    for (const a of adjuntos) {
+      // Los PDF no se fusionan: el generador solo necesita el nombre para listarlos.
+      if (!esImagenAdjunto(a.tipo)) { out.push({ nombre: a.nombre, tipo: a.tipo }); continue; }
       try {
         const url = await urlAdjunto(a.path);
         const res = await fetch(url);
@@ -196,13 +199,20 @@ export function MinutaDetalleModal({
           fr.onerror = () => rej(fr.error);
           fr.readAsDataURL(blob);
         });
-        out.push({ nombre: a.nombre, dataUrl });
+        out.push({ nombre: a.nombre, dataUrl, tipo: a.tipo });
       } catch { fallidas += 1; /* esa imagen no va al PDF; el resto sí */ }
     }
     if (fallidas > 0) {
       toast(`${fallidas === 1 ? 'Una imagen no se pudo anexar' : `${fallidas} imágenes no se pudieron anexar`} al PDF y quedó fuera.`, 'error');
     }
     return out;
+  }
+
+  function alSoltar(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setArrastrando(false);
+    if (!canWrite || subiendo) return;
+    if (e.dataTransfer.files.length > 0) void subirVarios(e.dataTransfer.files);
   }
 
   async function imprimir() {
@@ -326,6 +336,20 @@ export function MinutaDetalleModal({
         <Seccion titulo="Observaciones"><Texto valor={minuta.observaciones} /></Seccion>
 
         <Seccion titulo="Adjuntos">
+          <div
+            onDragOver={(e) => { if (canWrite) { e.preventDefault(); setArrastrando(true); } }}
+            onDragLeave={() => setArrastrando(false)}
+            onDrop={alSoltar}
+            style={{
+              border: `2px dashed ${arrastrando ? 'var(--primary, #2563eb)' : 'transparent'}`,
+              borderRadius: 8, padding: '.4rem',
+              background: arrastrando ? 'rgba(37,99,235,.06)' : undefined,
+            }}>
+          {canWrite && (
+            <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .4rem' }}>
+              Arrastrá archivos acá o usá el botón para elegirlos.
+            </p>
+          )}
           {canWrite && (
             <div style={{ marginBottom: '.5rem' }}>
               <input ref={input} type="file" accept={ACEPTA_ADJUNTO} multiple style={{ display: 'none' }}
@@ -375,9 +399,10 @@ export function MinutaDetalleModal({
           </div>
           {minuta.anexar_adjuntos_pdf && (
             <small className="muted" style={{ display: 'block', marginTop: '.4rem' }}>
-              Las imágenes se anexan al PDF al imprimir.
+              Las imágenes se anexan al PDF al imprimir y los PDF se listan por nombre.
             </small>
           )}
+          </div>
         </Seccion>
       </Modal>
 

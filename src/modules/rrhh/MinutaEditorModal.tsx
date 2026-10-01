@@ -70,7 +70,7 @@ function Papelera({ onClick, campos }: { onClick: () => void; campos: unknown[] 
       {confirmando && (
         <ConfirmDialog
           title="Quitar fila" danger confirmText="Sí, quitar"
-          message="Esta fila tiene datos escritos. Si la quitas, se pierden. ¿Seguro que quieres quitarla?"
+          message="Esta fila tiene datos escritos. Si la quitás, se pierden. ¿Seguro que querés quitarla?"
           onConfirm={() => { setConfirmando(false); onClick(); }}
           onCancel={() => setConfirmando(false)}
         />
@@ -126,13 +126,14 @@ function MinutaEditorForm({ minuta, actor, onClose, onGuardada }: MinutaEditorMo
   const [anexar, setAnexar] = useState(inicial.anexar_adjuntos_pdf);
   const [personal, setPersonal] = useState<Personal[]>([]);
   const [ocupado, setOcupado] = useState(false);
+  const [confirmaSalir, setConfirmaSalir] = useState(false);
 
   useEffect(() => {
     let vivo = true;
     listPersonal(true)
       .then((l) => { if (vivo) setPersonal(l); })
       .catch(() => {
-        if (vivo) toast('No se pudo cargar el personal. Igual puedes escribir a los participantes a mano.', 'error');
+        if (vivo) toast('No se pudo cargar el personal. Igual podés escribir a los participantes a mano.', 'error');
       });
     return () => { vivo = false; };
   }, []);
@@ -145,12 +146,22 @@ function MinutaEditorForm({ minuta, actor, onClose, onGuardada }: MinutaEditorMo
     ))));
   }
 
+  const armarBorrador = (): BorradorMinuta => ({
+    fecha, lugar, hora_inicio: horaInicio, objetivo, orden_dia: ordenDia, participantes,
+    acuerdos, otros_asuntos: otrosAsuntos, proxima_fecha: proximaFecha || null,
+    proximos_puntos: proximosPuntos, avances, observaciones, estado, anexar_adjuntos_pdf: anexar,
+  });
+
+  /** Cancelar y la ✕: si hay cambios respecto al estado inicial, primero se pregunta. */
+  function intentarCerrar() {
+    if (ocupado) return;
+    const cambios = JSON.stringify(armarBorrador())
+      !== JSON.stringify({ ...inicial, proxima_fecha: inicial.proxima_fecha || null });
+    if (cambios) setConfirmaSalir(true); else onClose();
+  }
+
   async function guardar() {
-    const borrador: BorradorMinuta = {
-      fecha, lugar, hora_inicio: horaInicio, objetivo, orden_dia: ordenDia, participantes,
-      acuerdos, otros_asuntos: otrosAsuntos, proxima_fecha: proximaFecha || null,
-      proximos_puntos: proximosPuntos, avances, observaciones, estado, anexar_adjuntos_pdf: anexar,
-    };
+    const borrador = armarBorrador();
     const error = errorMinuta(borrador);
     if (error) { toast(error, 'error'); return; }
     setOcupado(true);
@@ -168,11 +179,12 @@ function MinutaEditorForm({ minuta, actor, onClose, onGuardada }: MinutaEditorMo
   const titulo = minuta ? `Minuta ${minuta.numero}` : 'Nueva minuta de reunión';
 
   return (
+    <>
     <Modal
-      size="xl" title={titulo} onClose={() => { if (!ocupado) onClose(); }}
+      size="xl" title={titulo} onClose={intentarCerrar}
       footer={
         <>
-          <button type="button" className="btn btn-ghost" disabled={ocupado} onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn btn-ghost" disabled={ocupado} onClick={intentarCerrar}>Cancelar</button>
           <button type="button" className="btn btn-primary" disabled={ocupado} onClick={() => void guardar()}>
             {ocupado ? 'Guardando…' : 'Guardar minuta'}
           </button>
@@ -366,5 +378,14 @@ function MinutaEditorForm({ minuta, actor, onClose, onGuardada }: MinutaEditorMo
         Anexar las fotos al final del PDF
       </label>
     </Modal>
+    {confirmaSalir && (
+      <ConfirmDialog
+        title="Descartar cambios" danger confirmText="Sí, descartar"
+        message="Hay datos escritos que no se han guardado. Si cerrás ahora, se pierden. ¿Seguro que querés descartarlos?"
+        onConfirm={() => { setConfirmaSalir(false); onClose(); }}
+        onCancel={() => setConfirmaSalir(false)}
+      />
+    )}
+    </>
   );
 }

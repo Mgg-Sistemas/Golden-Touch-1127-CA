@@ -6,7 +6,7 @@
    ============================================================ */
 import { norm } from '@/shared/lib/texto';
 import type { Minuta } from '@/shared/lib/types';
-import { tieneAcuerdosPendientes } from './minutaModelo';
+import { hoyVE, tieneAcuerdosPendientes } from './minutaModelo';
 
 export interface FiltrosMinutas {
   desde: string;
@@ -45,7 +45,7 @@ export interface ConteosMinutas { delAnio: number; borradores: number; pendiente
 
 export function contarMinutas(lista: Minuta[], hoy: Date = new Date()): ConteosMinutas {
   // Año según Venezuela, no según el equipo: el 31 de dic. a las 8 p. m. ya es año nuevo en UTC.
-  const anio = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric' }).format(hoy);
+  const anio = hoyVE(hoy).slice(0, 4);
   return {
     delAnio: lista.filter((m) => m.fecha.startsWith(anio)).length,
     borradores: lista.filter((m) => m.estado === 'borrador').length,

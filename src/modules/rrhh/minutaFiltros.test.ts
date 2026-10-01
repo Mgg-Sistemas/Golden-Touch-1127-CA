@@ -34,7 +34,7 @@ describe('filtrarMinutas', () => {
     expect(ids(filtrarMinutas(L, { ...FILTROS_VACIOS, persona: 'maria' }, HOY))).toEqual(['a']);
     expect(ids(filtrarMinutas(L, { ...FILTROS_VACIOS, persona: 'JOSE' }, HOY))).toEqual(['b']);
   });
-  it('solo con acuerdos pendientes', () => expect(ids(filtrarMinutas(L, { ...FILTROS_VACIOS, soloPendientes: true }, HOY))).toEqual(['b']));
+  it('solo con acuerdos pendientes (incluye los vencidos)', () => expect(ids(filtrarMinutas(L, { ...FILTROS_VACIOS, soloPendientes: true }, HOY))).toEqual(['b', 'c']));
   it('palabra contra busq, sin acentos ni mayúsculas', () => {
     expect(ids(filtrarMinutas(L, { ...FILTROS_VACIOS, palabra: 'CAMIÓN' }, HOY))).toEqual(['a']);
     expect(ids(filtrarMinutas(L, { ...FILTROS_VACIOS, palabra: '  ' }, HOY))).toHaveLength(3);
@@ -47,7 +47,7 @@ describe('filtrarMinutas', () => {
 
 describe('contarMinutas', () => {
   it('cuenta del año, borradores y pendientes', () => {
-    expect(contarMinutas(L, HOY)).toEqual({ delAnio: 2, borradores: 1, pendientes: 1 });
+    expect(contarMinutas(L, HOY)).toEqual({ delAnio: 2, borradores: 1, pendientes: 2 });
   });
 });
 

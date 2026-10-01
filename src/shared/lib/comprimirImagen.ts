@@ -25,8 +25,10 @@ export async function comprimirImagen(
   try {
     const bitmap = await createImageBitmap(file);
     const escala = Math.min(1, maxLado / Math.max(bitmap.width, bitmap.height));
-    // Ya es chica: recomprimirla solo la empeoraría.
-    if (escala >= 1) { bitmap.close?.(); return file; }
+    // Ya es chica: recomprimirla solo la empeoraría. Salvo WEBP: el PDF de la
+    // minuta no lo dibuja, así que se reexporta siempre a JPEG.
+    const esWebp = file.type === 'image/webp';
+    if (escala >= 1 && !esWebp) { bitmap.close?.(); return file; }
 
     const ancho = Math.round(bitmap.width * escala);
     const alto = Math.round(bitmap.height * escala);
@@ -39,7 +41,7 @@ export async function comprimirImagen(
     bitmap.close?.();
 
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', calidad));
-    if (!blob || blob.size >= file.size) return file; // no mejoró: queda el original
+    if (!blob || (!esWebp && blob.size >= file.size)) return file; // no mejoró: queda el original
 
     const nombre = file.name.replace(/\.[^.]+$/, '') + '.jpg';
     return new File([blob], nombre, { type: 'image/jpeg', lastModified: Date.now() });

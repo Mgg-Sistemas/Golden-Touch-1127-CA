@@ -8,7 +8,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Minuta, MinutaAcuerdo, MinutaAvance, MinutaParticipante } from '@/shared/lib/types';
 import { borrarArchivosDeMinuta } from './minutaAdjuntos.repository';
-import { componerBusq, numeroMinuta, type BorradorMinuta } from './minutaModelo';
+import { componerBusq, hoyVE, numeroMinuta, type BorradorMinuta } from './minutaModelo';
 
 const TABLE = 'minutas';
 
@@ -99,7 +99,7 @@ async function proximoNumero(anio: number): Promise<string> {
 }
 
 export async function crearMinuta(b: BorradorMinuta, actor: string): Promise<Minuta> {
-  const anio = Number((b.fecha || '').slice(0, 4)) || new Date().getFullYear();
+  const anio = Number((b.fecha || '').slice(0, 4)) || Number(hoyVE().slice(0, 4));
   const numero = await proximoNumero(anio);
   const { data, error } = await supabase
     .from(TABLE)

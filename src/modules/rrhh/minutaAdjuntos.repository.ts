@@ -96,7 +96,9 @@ export async function subirAdjunto(minutaId: string, file: File, actor: string):
 
   // Si la fila no se pudo escribir, el archivo huérfano se borra: no se deja basura.
   if (error) {
-    await supabase.storage.from(BUCKET).remove([path]).catch(() => {});
+    // La librería no lanza: devuelve `{ error }`.
+    const { error: errLimpieza } = await supabase.storage.from(BUCKET).remove([path]);
+    if (errLimpieza) console.warn('No se pudo limpiar el archivo huérfano:', path, errLimpieza);
     throw error;
   }
   return data as MinutaAdjunto;

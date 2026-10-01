@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Minuta } from '@/shared/lib/types';
 import {
   componerBusq, errorMinuta, errorPorcentaje, filaAcuerdoVacia, filaAvanceVacia,
-  filaParticipanteVacia, numeroMinuta, tieneAcuerdosPendientes, type BorradorMinuta,
+  filaParticipanteVacia, numeroMinuta, tieneAcuerdosPendientes, tieneAcuerdosVencidos, type BorradorMinuta,
 } from './minutaModelo';
 
 const base: BorradorMinuta = {
@@ -122,9 +122,9 @@ describe('tieneAcuerdosPendientes', () => {
     const m = minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-10-20' }]);
     expect(tieneAcuerdosPendientes(m, hoy)).toBe(true);
   });
-  it('un acuerdo ya vencido no cuenta como pendiente', () => {
+  it('un acuerdo ya vencido SIGUE pendiente: nada lo marca como cumplido', () => {
     const m = minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-09-01' }]);
-    expect(tieneAcuerdosPendientes(m, hoy)).toBe(false);
+    expect(tieneAcuerdosPendientes(m, hoy)).toBe(true);
   });
   it('un acuerdo con fecha exactamente hoy sigue pendiente', () => {
     const hoyVE = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(hoy);
@@ -136,12 +136,39 @@ describe('tieneAcuerdosPendientes', () => {
     const m = minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-10-01' }]);
     expect(tieneAcuerdosPendientes(m, noche)).toBe(true);
   });
-  it('una fecha de compromiso null no cuenta ni rompe', () => {
+  it('un acuerdo sin fecha pero con contenido cuenta como pendiente', () => {
     const m = minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: null }]);
+    expect(tieneAcuerdosPendientes(m, hoy)).toBe(true);
+  });
+  it('un acuerdo vacío (sin actividad ni responsable) no cuenta, aunque tenga fecha', () => {
+    const m = minutaCon([{ responsable: ' ', actividad: '', fecha_compromiso: '2026-10-20' }]);
     expect(tieneAcuerdosPendientes(m, hoy)).toBe(false);
   });
   it('sin acuerdos, no hay nada pendiente', () => {
     expect(tieneAcuerdosPendientes(minutaCon([]), hoy)).toBe(false);
+  });
+});
+
+describe('tieneAcuerdosVencidos', () => {
+  const hoy = new Date('2026-10-01T12:00:00Z');
+  const minutaCon = (acuerdos: Minuta['acuerdos']) =>
+    ({ ...base, id: '1', numero: 'MIN-2026-0001', acuerdos } as unknown as Minuta);
+
+  it('fecha anterior a hoy: vencido', () => {
+    expect(tieneAcuerdosVencidos(minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-09-30' }]), hoy)).toBe(true);
+  });
+  it('fecha de hoy o futura: no vencido', () => {
+    expect(tieneAcuerdosVencidos(minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-10-01' }]), hoy)).toBe(false);
+    expect(tieneAcuerdosVencidos(minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-10-20' }]), hoy)).toBe(false);
+  });
+  it('sin fecha, sin contenido o sin acuerdos: no vencido', () => {
+    expect(tieneAcuerdosVencidos(minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: null }]), hoy)).toBe(false);
+    expect(tieneAcuerdosVencidos(minutaCon([{ responsable: '', actividad: '', fecha_compromiso: '2020-01-01' }]), hoy)).toBe(false);
+    expect(tieneAcuerdosVencidos(minutaCon([]), hoy)).toBe(false);
+  });
+  it('a las 9 p. m. en Caracas, la fecha de ese día aún no venció', () => {
+    const noche = new Date('2026-10-02T01:00:00Z');
+    expect(tieneAcuerdosVencidos(minutaCon([{ responsable: 'A', actividad: 'X', fecha_compromiso: '2026-10-01' }]), noche)).toBe(false);
   });
 });
 

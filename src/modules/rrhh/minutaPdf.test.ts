@@ -34,7 +34,19 @@ describe('RENGLONES_HOJA', () => {
   it('coincide con el formato en papel de la empresa', () => {
     expect(RENGLONES_HOJA).toEqual({
       ordenDia: 7, participantes: 6, acuerdos: 6, avances: 4, observaciones: 7,
+      proximosPuntos: 7, otrosAsuntos: 7,
     });
+  });
+});
+
+describe('minimoFilas', () => {
+  it('es monótona en las filas cargadas y nunca baja del mínimo del papel', () => {
+    for (const k of Object.keys(RENGLONES_HOJA) as (keyof typeof RENGLONES_HOJA)[]) {
+      for (let n = 0; n <= 30; n++) {
+        expect(minimoFilas(k, n + 1)).toBeGreaterThanOrEqual(minimoFilas(k, n));
+        expect(minimoFilas(k, n)).toBeGreaterThanOrEqual(RENGLONES_HOJA[k]);
+      }
+    }
   });
 });
 
