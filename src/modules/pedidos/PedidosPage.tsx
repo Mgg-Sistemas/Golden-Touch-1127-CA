@@ -67,7 +67,7 @@ import {
 } from './pedidos.repository';
 import { descargarOrdenesPorPagarPdf } from '@/modules/tesoreria/ordenesPorPagarPdf';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl } from './ofertas.repository';
-import { baseNetaDesdeTotal, impuestosDeOrden, recomponerImpuestos } from './impuestosOrden';
+import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 import { esRecargaAgua } from './servicios.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import type { AbonoCredito, Caja } from '@/shared/lib/types';
@@ -4148,7 +4148,42 @@ function EditarOrdenModal({
   // al cambiar una cantidad, la pantalla prometía un total y se guardaba otro.
   const impPreviosOrden = impuestosDeOrden(orden);
   const baseOrdenPrev = baseNetaDesdeTotal(orden.total, impPreviosOrden);
-  const impRecalculados = recomponerImpuestos(baseOrdenPrev, totalEditado, impPreviosOrden);
+  // IVA editable en los SERVICIOS (01/10/2026, pedido del usuario): al editar la orden de
+  // un servicio con precio, el IVA se puede prender, apagar o corregir, en % o en monto.
+  // Con un % cargado, el monto sigue a la base mientras no se escriba a mano.
+  const ivaEditable = editarPrecios && orden.tipo === 'servicio';
+  const [conIva, setConIva] = useState(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0);
+  const [ivaPct, setIvaPct] = useState(String(impPreviosOrden.ivaPct > 0 ? impPreviosOrden.ivaPct : 16));
+  const [ivaMontoStr, setIvaMontoStr] = useState(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0 ? String(impPreviosOrden.ivaMonto) : '');
+  // Un monto guardado sin % se escribió a mano: no se recalcula solo.
+  const ivaManualRef = useRef(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0 && !(impPreviosOrden.ivaPct > 0));
+  // Mientras no se toque el IVA ni cambie la base, se respeta el monto guardado tal cual:
+  // abrir la orden y guardar otra cosa (una nota) no puede mover el IVA por un centavo de
+  // redondeo, porque en una OC ya firmada eso la devolvería al Gerente General.
+  const ivaTocadoRef = useRef(false);
+  useEffect(() => {
+    if (!ivaEditable || !conIva || ivaManualRef.current) return;
+    if (!ivaTocadoRef.current && Math.abs(totalEditado - baseOrdenPrev) < 0.005) return;
+    const p = Number(ivaPct) || 0;
+    setIvaMontoStr(p > 0 && totalEditado > 0 ? String(Math.round(totalEditado * p) / 100) : '');
+  }, [ivaEditable, conIva, ivaPct, totalEditado, baseOrdenPrev]);
+  const ivaPctNum = Math.max(0, Math.min(100, Math.round((Number(ivaPct) || 0) * 100) / 100));
+  const ivaMontoNum = conIva ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
+  function onConIva(activo: boolean) {
+    // Al prenderlo sin monto, se calcula con el % (no queda «marcado en cero»).
+    if (activo && !(Number(ivaMontoStr) > 0)) { ivaManualRef.current = false; ivaTocadoRef.current = true; }
+    setConIva(activo);
+  }
+  function onIvaPct(v: string) { ivaManualRef.current = false; ivaTocadoRef.current = true; setConIva(true); setIvaPct(v); }
+  function onIvaMonto(v: string) {
+    ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
+    const m = Number(v) || 0;
+    setIvaPct(m > 0 && totalEditado > 0 ? String(Math.round((m / totalEditado) * 10000) / 100) : '0');
+  }
+  const ivaEditado = ivaEditable ? { aplicado: conIva, pct: ivaPctNum, monto: ivaMontoNum } : null;
+  const impRecalculados = ivaEditado
+    ? recomponerConIva(baseOrdenPrev, totalEditado, impPreviosOrden, ivaEditado)
+    : recomponerImpuestos(baseOrdenPrev, totalEditado, impPreviosOrden);
   const impuestosOrden = impRecalculados.impuestos;
   const totalConImpuestos = impRecalculados.total;
   // Datos de cabecera editables de la OP: solicitante, unidad, clasificación, urgencia y notas.
@@ -4330,6 +4365,7 @@ function EditarOrdenModal({
         items: itemsFinal,
         total: editarPrecios ? Math.round(totalEditado * 100) / 100 : undefined,
         descuento_obtenido: editarPrecios ? descuentoObtNum : undefined,
+        iva: ivaEditado ?? undefined,
         motivo: orden.motivo ?? null,
         finalidad: orden.finalidad ?? null,
         solicitante: solicitante.trim() || null,
@@ -4531,6 +4567,32 @@ function EditarOrdenModal({
               <input className="input mono" type="number" min={0} step="any" style={{ width: 120, textAlign: 'right' }}
                 value={descuentoObt} onChange={(e) => setDescuentoObt(e.target.value)} placeholder="0,00" />
             </div>
+            {/* IVA del servicio: editable aquí (01/10/2026). Se puede prender, apagar o corregir. */}
+            {ivaEditable && (
+              <div style={{ marginTop: '.35rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.82rem' }}>
+                    <input id="editar-orden-con-iva" type="checkbox" checked={conIva} onChange={(e) => onConIva(e.target.checked)} disabled={saving} />
+                    <span>IVA</span>
+                  </label>
+                  <input id="editar-orden-iva-pct" className="input mono" type="number" min={0} max={100} step="any" style={{ width: 76, textAlign: 'right' }}
+                    value={ivaPct} onChange={(e) => onIvaPct(e.target.value)} disabled={saving} title="Porcentaje de IVA (editable)" />
+                  <span className="muted" style={{ fontSize: '.82rem' }}>%</span>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => onIvaPct('16')} disabled={saving}
+                    title="Aplicar el IVA general del 16% sobre la base (subtotal menos descuento)">16%</button>
+                  <span className="muted" style={{ fontSize: '.82rem' }}>Monto $</span>
+                  <input id="editar-orden-iva-monto" className="input mono" type="number" min={0} step="any" style={{ width: 120, textAlign: 'right' }}
+                    value={conIva ? ivaMontoStr : ''} onChange={(e) => onIvaMonto(e.target.value)} disabled={saving}
+                    title="Monto del IVA (se puede escribir a mano)" placeholder="0,00" />
+                </div>
+                <div className="muted" style={{ fontSize: '.74rem', textAlign: 'right', marginTop: '.15rem' }}>
+                  {conIva && ivaMontoNum > 0
+                    ? <>IVA sobre base {money(totalEditado)}{ivaPctNum > 0 && ivaPctNum !== 16 ? ` · estás aplicando ${ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}% en vez del 16% general` : ''}</>
+                    : 'Servicio sin IVA. Márcalo para sumarlo al total.'}
+                  {orden.estado === 'confirmada_metodo' && ' · Cambiar el IVA devuelve la orden a aprobación del Gerente General.'}
+                </div>
+              </div>
+            )}
             {(descuentoObtNum > 0 || impuestosOrden > 0) && (
               <div className="muted mono" style={{ fontSize: '.78rem', textAlign: 'right', marginTop: '.2rem' }}>
                 Subtotal {money(subtotalEditado)}
