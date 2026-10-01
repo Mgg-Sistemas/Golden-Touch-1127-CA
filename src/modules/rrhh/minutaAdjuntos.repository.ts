@@ -12,23 +12,41 @@ import type { MinutaAdjunto } from '@/shared/lib/types';
 
 const TABLE = 'minuta_adjuntos';
 const BUCKET = 'minutas-adjuntos';
+/** Máximo del archivo que se SUBE (ya comprimido): protege el almacén. */
 export const MAX_BYTES_ADJUNTO = 10 * 1024 * 1024;
+/** Tope del original ANTES de comprimir: solo protege la memoria al decodificar. */
+export const MAX_BYTES_ORIGINAL = 50 * 1024 * 1024;
 export const ACEPTA_ADJUNTO = 'image/jpeg,image/png,image/webp,application/pdf';
 
 const TIPOS_OK = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
-/** Explica por qué no se puede subir ese archivo. `null` = está bien. */
+const MENSAJE_VACIO = 'El archivo está vacío (0 bytes). Revisá que no esté dañado.';
+
+/**
+ * Controles que se pueden hacer ANTES de comprimir: tipo, vacío y un tope
+ * duro sobre el original. El límite de 10 MB NO se mide acá sino sobre lo
+ * que se sube (ver `errorArchivoSubible`): una foto de teléfono de 12 MB
+ * comprimida pesa ~300 kB y debe poder subirse. `null` = está bien.
+ */
 export function errorArchivoAdjunto(file: File): string | null {
   if (!TIPOS_OK.includes(file.type)) {
     return 'Solo se aceptan imágenes JPG, PNG o WEBP, y archivos PDF.';
   }
   // Un archivo de 0 bytes es un archivo corrupto o vacío: no tiene nada que guardar.
-  if (file.size === 0) {
-    return 'El archivo está vacío (0 bytes). Revisá que no esté dañado.';
+  if (file.size === 0) return MENSAJE_VACIO;
+  if (file.size > MAX_BYTES_ORIGINAL) {
+    const mb = (file.size / 1024 / 1024).toFixed(1);
+    return `El archivo pesa ${mb} MB y el máximo antes de comprimir es 50 MB.`;
   }
+  return null;
+}
+
+/** Control sobre el archivo que realmente se va a subir (ya comprimido). `null` = está bien. */
+export function errorArchivoSubible(file: File): string | null {
+  if (file.size === 0) return MENSAJE_VACIO;
   if (file.size > MAX_BYTES_ADJUNTO) {
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    return `El archivo pesa ${mb} MB y el máximo es 10 MB.`;
+    return `El archivo pesa ${mb} MB incluso comprimido y el máximo es 10 MB.`;
   }
   return null;
 }
@@ -44,8 +62,12 @@ export async function subirAdjunto(minutaId: string, file: File, actor: string):
   const problema = errorArchivoAdjunto(file);
   if (problema) throw new Error(problema);
 
-  // Se comprime ANTES de validar el tamaño final: una foto de 8 MB pasa a ~300 kB.
+  // Orden: (1) tope de 50 MB sobre el original, solo para no decodificar en
+  // memoria algo absurdo; (2) se comprime; (3) el límite de 10 MB se mide sobre
+  // el archivo comprimido, que es el que ocupa lugar en el almacén.
   const subir = await comprimirImagen(file);
+  const problemaFinal = errorArchivoSubible(subir);
+  if (problemaFinal) throw new Error(problemaFinal);
   const ext = (subir.name.split('.').pop() ?? 'bin').toLowerCase();
   const path = `${minutaId}/${crypto.randomUUID()}.${ext}`;
 
