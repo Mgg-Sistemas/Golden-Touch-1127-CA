@@ -20,6 +20,19 @@ export const ACEPTA_ADJUNTO = 'image/jpeg,image/png,image/webp,application/pdf';
 
 const TIPOS_OK = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
+const aMB = (bytes: number) => bytes / 1024 / 1024;
+const EXT_POR_TIPO: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'application/pdf': 'pdf',
+};
+
+/** Ruta en el almacén: `minutaId/uuid.ext`. La extensión sale del tipo, nunca del nombre. */
+export function rutaAdjunto(minutaId: string, tipo: string, uuid: string): string {
+  return `${minutaId}/${uuid}.${EXT_POR_TIPO[tipo] ?? 'bin'}`;
+}
+
 const MENSAJE_VACIO = 'El archivo está vacío (0 bytes). Revisá que no esté dañado.';
 
 /**
@@ -35,8 +48,7 @@ export function errorArchivoAdjunto(file: File): string | null {
   // Un archivo de 0 bytes es un archivo corrupto o vacío: no tiene nada que guardar.
   if (file.size === 0) return MENSAJE_VACIO;
   if (file.size > MAX_BYTES_ORIGINAL) {
-    const mb = (file.size / 1024 / 1024).toFixed(1);
-    return `El archivo pesa ${mb} MB y el máximo antes de comprimir es 50 MB.`;
+    return `El archivo pesa ${aMB(file.size).toFixed(1)} MB y el máximo antes de comprimir es ${aMB(MAX_BYTES_ORIGINAL)} MB.`;
   }
   return null;
 }
@@ -45,8 +57,7 @@ export function errorArchivoAdjunto(file: File): string | null {
 export function errorArchivoSubible(file: File): string | null {
   if (file.size === 0) return MENSAJE_VACIO;
   if (file.size > MAX_BYTES_ADJUNTO) {
-    const mb = (file.size / 1024 / 1024).toFixed(1);
-    return `El archivo pesa ${mb} MB incluso comprimido y el máximo es 10 MB.`;
+    return `El archivo, tal como se va a guardar, pesa ${aMB(file.size).toFixed(1)} MB y el máximo es ${aMB(MAX_BYTES_ADJUNTO)} MB.`;
   }
   return null;
 }
@@ -68,8 +79,7 @@ export async function subirAdjunto(minutaId: string, file: File, actor: string):
   const subir = await comprimirImagen(file);
   const problemaFinal = errorArchivoSubible(subir);
   if (problemaFinal) throw new Error(problemaFinal);
-  const ext = (subir.name.split('.').pop() ?? 'bin').toLowerCase();
-  const path = `${minutaId}/${crypto.randomUUID()}.${ext}`;
+  const path = rutaAdjunto(minutaId, subir.type, crypto.randomUUID());
 
   const { error: upErr } = await supabase.storage.from(BUCKET)
     .upload(path, subir, { contentType: subir.type, upsert: false });

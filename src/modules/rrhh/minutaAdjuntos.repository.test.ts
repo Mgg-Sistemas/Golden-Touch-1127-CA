@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { errorArchivoAdjunto, errorArchivoSubible, MAX_BYTES_ADJUNTO, MAX_BYTES_ORIGINAL } from './minutaAdjuntos.repository';
+import { errorArchivoAdjunto, errorArchivoSubible, MAX_BYTES_ADJUNTO, MAX_BYTES_ORIGINAL, rutaAdjunto } from './minutaAdjuntos.repository';
 
 function archivo(nombre: string, tipo: string, bytes: number): File {
   return new File([new Uint8Array(Math.min(bytes, 1024))], nombre, { type: tipo });
@@ -52,6 +52,7 @@ describe('errorArchivoSubible', () => {
     const e = errorArchivoSubible(conTamano(archivo('a.jpg', 'image/jpeg', 10), mb(11)));
     expect(e).toMatch(/11\.0 MB/);
     expect(e).toMatch(/10 MB/);
+    expect(e).not.toMatch(/comprimid/i);
   });
   it('acepta 9 MB', () => {
     expect(errorArchivoSubible(conTamano(archivo('a.jpg', 'image/jpeg', 10), mb(9)))).toBeNull();
@@ -61,5 +62,30 @@ describe('errorArchivoSubible', () => {
   });
   it('rechaza 0 bytes', () => {
     expect(errorArchivoSubible(archivo('a.jpg', 'image/jpeg', 0))).toMatch(/vac/i);
+  });
+});
+
+describe('rutaAdjunto', () => {
+  const U = '123e4567-e89b-12d3-a456-426614174000';
+  it('deriva la extensión del tipo, con un mapa fijo', () => {
+    expect(rutaAdjunto('m1', 'image/jpeg', U)).toBe(`m1/${U}.jpg`);
+    expect(rutaAdjunto('m1', 'image/png', U)).toBe(`m1/${U}.png`);
+    expect(rutaAdjunto('m1', 'image/webp', U)).toBe(`m1/${U}.webp`);
+    expect(rutaAdjunto('m1', 'application/pdf', U)).toBe(`m1/${U}.pdf`);
+  });
+  it('un tipo desconocido o vacío cae a bin', () => {
+    expect(rutaAdjunto('m1', 'application/zip', U)).toBe(`m1/${U}.bin`);
+    expect(rutaAdjunto('m1', '', U)).toBe(`m1/${U}.bin`);
+  });
+  it('tiene la forma minutaId/uuid.ext, con una sola barra', () => {
+    for (const t of ['image/jpeg', 'application/pdf', 'x/y']) {
+      const r = rutaAdjunto('m1', t, U);
+      expect(r.split('/')).toHaveLength(2);
+      expect(r).toMatch(/^m1\/[0-9a-f-]+\.[a-z]+$/);
+    }
+  });
+  it('no altera el minutaId', () => {
+    const id = 'a1b2c3d4-0000-4000-8000-abcdefabcdef';
+    expect(rutaAdjunto(id, 'image/png', U).startsWith(`${id}/`)).toBe(true);
   });
 });
