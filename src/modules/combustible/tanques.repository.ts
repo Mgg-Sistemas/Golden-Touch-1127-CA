@@ -8,6 +8,8 @@
    El saldo corriente (litros y USD) se acumula al listar, como en el Excel.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
+import { compararMovimientos, horaOrden } from './horaMovimiento';
 import type {
   CatalogoCombustible,
   ConciliacionCombustible,
@@ -90,7 +92,7 @@ export async function listCatalogos(): Promise<CatalogoCombustible[]> {
 
 export async function addCatalogo(tipo: TipoCatalogoCombustible, valor: string): Promise<CatalogoCombustible> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   const { data, error } = await supabase
     .from('combustible_catalogos')
     .insert({ tipo, valor: v, orden: 999 })
@@ -117,7 +119,7 @@ const COL_MOV_POR_TIPO: Record<string, string | undefined> = {
 
 export async function updateCatalogo(id: string, valor: string): Promise<void> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   // Traemos el valor viejo + tipo para propagar el cambio a los movimientos que lo usaban.
   const { data: prev } = await supabase.from('combustible_catalogos').select('tipo, valor').eq('id', id).maybeSingle();
   const { error } = await supabase.from('combustible_catalogos').update({ valor: v }).eq('id', id);
@@ -134,7 +136,7 @@ export async function updateCatalogo(id: string, valor: string): Promise<void> {
   }
 
   // GT-INT-15 · La ficha del equipo en Maquinaria TAMBIÉN guarda este texto, en
-  // `combustible_equipo`. Si no se renombra acá, el equipo queda apuntando a un valor que
+  // `combustible_equipo`. Si no se renombra aquí, el equipo queda apuntando a un valor que
   // ya no existe y pierde en silencio su horómetro y su consumo de gasoil — con lo cual la
   // alerta de mantenimiento preventivo por horas deja de dispararse y nadie se entera.
   // Pasó de verdad: cinco generadores quedaron colgados de nombres viejos con prefijo «GT».
@@ -148,7 +150,7 @@ export async function updateCatalogo(id: string, valor: string): Promise<void> {
     if (e3) {
       throw new Error(
         `El catálogo se renombró a «${v}», pero NO se pudo actualizar la ficha de los equipos ` +
-        `que lo usaban: ${e3.message}. Revisá en Maquinaria que el equipo siga vinculado, ` +
+        `que lo usaban: ${e3.message}. Revisa en Maquinaria que el equipo siga vinculado, ` +
         `o su alerta de mantenimiento dejará de sonar.`,
       );
     }
@@ -200,9 +202,9 @@ export async function eliminarCatalogo(id: string): Promise<void> {
     if (equipos > 0) partes.push(`${equipos} equipo(s) de Maquinaria`);
     throw new Error(
       `No se puede borrar «${valor}»: lo usan ${partes.join(' y ')}. ` +
-      `Si lo borrás, esos registros quedan colgados de un nombre que ya no existe y la ` +
+      `Si lo borras, esos registros quedan colgados de un nombre que ya no existe y la ` +
       `alerta de mantenimiento del equipo deja de sonar. Renombralo en vez de borrarlo, ` +
-      `o desvinculá primero el equipo desde Maquinaria.`,
+      `o desvincula primero el equipo desde Maquinaria.`,
     );
   }
   const { error } = await supabase.from('combustible_catalogos').delete().eq('id', id);
@@ -248,7 +250,7 @@ function geomDeInput(input: TanqueInput): GeometriaTanque {
 
 export async function crearTanque(input: TanqueInput & { actor: string }): Promise<TanqueCombustible> {
   const nombre = input.nombre.trim();
-  if (!nombre) throw new Error('Indicá el nombre del tanque.');
+  if (!nombre) throw new Error('Indica el nombre del tanque.');
   const saldoLitros = Math.max(0, num(input.saldoLitros));
   const tasa = Math.max(0, num(input.tasaUsdLitro));
   const geom = geomDeInput(input);
@@ -354,7 +356,7 @@ export async function eliminarTanque(id: string): Promise<void> {
   const saldoTanque = Number((tnk as { saldo_litros?: number | null } | null)?.saldo_litros) || 0;
   if (saldoTanque > 0.001) {
     const nom = (tnk as { nombre?: string | null } | null)?.nombre ?? 'el tanque';
-    throw new Error(`No se puede eliminar «${nom}»: tiene ${Math.round(saldoTanque * 100) / 100} L cargados. Vacialo primero (registrá un consumo o una merma) y luego eliminá el tanque, para no dejar esos litros sin cuadrar.`);
+    throw new Error(`No se puede eliminar «${nom}»: tiene ${Math.round(saldoTanque * 100) / 100} L cargados. Vacialo primero (registra un consumo o una merma) y luego elimina el tanque, para no dejar esos litros sin cuadrar.`);
   }
   // 1. Movimientos de este tanque que tienen contraparte en otro tanque.
   const { data: propios, error: e1 } = await supabase
@@ -408,21 +410,6 @@ async function aplicarSaldoTanque(id: string, saldoLitros: number, saldoUsd: num
 
 /* ───────────── Movimientos (libro mayor) ───────────── */
 
-/** Convierte la hora «8:02:00 AM» a segundos desde medianoche, para ordenar cronológicamente.
- *  Sin hora → -1 (queda primero en orden ascendente / más viejo). */
-function horaOrden(h: string | null | undefined): number {
-  if (!h) return -1;
-  const m = h.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?$/);
-  if (!m) return -1;
-  let hh = Number(m[1]);
-  const mm = Number(m[2]);
-  const ss = Number(m[3] ?? 0);
-  const ap = (m[4] ?? '').toUpperCase();
-  if (ap === 'PM' && hh < 12) hh += 12;
-  if (ap === 'AM' && hh === 12) hh = 0;
-  return hh * 3600 + mm * 60 + ss;
-}
-
 export async function listMovimientosTanque(tanqueId: string): Promise<MovimientoTanque[]> {
   // El saldo corrido arranca del SALDO DE APERTURA del tanque (los litros con que se
   // creó, que no son un movimiento). Así la última fila iguala el saldo del header.
@@ -437,14 +424,12 @@ export async function listMovimientosTanque(tanqueId: string): Promise<Movimient
   // Compatibilidad: si el tanque aún no tiene saldo_inicial_usd, cae a litros × tasa.
   const aperturaURaw = (tk as { saldo_inicial_usd?: number | null } | null)?.saldo_inicial_usd;
   const aperturaU = aperturaURaw != null ? num(aperturaURaw) : round(aperturaL * tasaTk, 2);
-  // Orden cronológico real por fecha + hora (+ created_at de desempate) para el saldo corrido.
-  const rows = ((data ?? []) as MovimientoTanque[]).slice().sort((a, b) => {
-    const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
-    if (f !== 0) return f;
-    const h = horaOrden(a.hora) - horaOrden(b.hora);
-    if (h !== 0) return h;
-    return (a.created_at ?? '').localeCompare(b.created_at ?? '');
-  });
+  // Orden cronológico real: fecha, hora, «orden», carga y, de última, el id. Los dos
+  // últimos son el desempate que faltaba (28/09/2026): las filas importadas de un mismo
+  // día empataban en todo y quedaban en el orden que devolviera la base, que NO es fijo;
+  // el saldo corrido y el Excel salían distintos entre una lectura y la siguiente sin que
+  // nadie tocara nada. Las reglas y sus pruebas viven en horaMovimiento.ts.
+  const rows = ((data ?? []) as MovimientoTanque[]).slice().sort(compararMovimientos);
   // Saldos corridos (litros y USD), como en el Excel, partiendo de la apertura.
   let saldoL = aperturaL;
   let saldoU = aperturaU;
@@ -509,12 +494,12 @@ export async function registrarEntrada(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const costo = Math.max(0, num(input.costoLitro));
 
-  await insertarMovimiento({
+  const mov = await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'entrada',
@@ -531,6 +516,7 @@ export async function registrarEntrada(input: {
   // El recálculo recorre todos los movimientos y rearma el PMP, así que
   // converge aunque dos personas registren a la vez.
   await recomputarTanque(input.tanqueId);
+  return mov;
 }
 
 /** USO: el equipo consume combustible del tanque (al costo promedio actual). */
@@ -540,13 +526,13 @@ export async function registrarUso(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
-  await insertarMovimiento({
+  const mov = await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'uso',
@@ -556,6 +542,7 @@ export async function registrarUso(input: {
     actor_name: input.actorName ?? null,
   });
   await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
+  return mov;
 }
 
 /** MERMA: pérdida del tanque (evaporación, fuga, descuadre). Descuenta litros
@@ -566,13 +553,13 @@ export async function registrarMerma(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
-  await insertarMovimiento({
+  const mov = await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'merma',
@@ -582,6 +569,7 @@ export async function registrarMerma(input: {
     actor_name: input.actorName ?? null,
   });
   await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
+  return mov;
 }
 
 /** RETORNO: combustible que VUELVE al tanque (entra al saldo a la tasa vigente,
@@ -621,7 +609,7 @@ export async function registrarTraslado(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   if (input.tanqueDestinoId && input.tanqueDestinoId === input.tanqueId) throw new Error('El destino debe ser un tanque distinto.');
@@ -658,6 +646,7 @@ export async function registrarTraslado(input: {
       .update({ mov_vinculado_id: movEntrada.id }).eq('id', movTraslado.id);
     if (vinErr) throw vinErr;
   }
+  return movTraslado;
 }
 
 /** TRASLADO INTER-SISTEMA → MGG (TANQUE MGG). Resta del tanque origen de ESTE
@@ -736,18 +725,18 @@ export async function registrarTrasladoMGG(input: {
 /* ═══════════════════════════════════════════════════════════════════
    GT-INT-11 · Rescate de una entrega fallida
    El combustible sale del tanque ANTES de que MGG lo acepte. Si el puente
-   falla, esos litros quedan en el limbo: ya no están acá y nunca llegaron
-   allá. Estas dos funciones son la salida de ese limbo.
+   falla, esos litros quedan en el limbo: ya no están aquí y nunca llegaron
+   allí. Estas dos funciones son la salida de ese limbo.
    ═══════════════════════════════════════════════════════════════════ */
 
 /**
  * Reintenta entregar a MGG una transferencia que quedó en `error`.
  *
- * SEGURO DE REPETIR: viaja el MISMO `transf_id`, y MGG deduplica por él. Si allá ya
+ * SEGURO DE REPETIR: viaja el MISMO `transf_id`, y MGG deduplica por él. Si allí ya
  * había entrado, contesta que ya la tenía y no acredita dos veces.
  *
  * La fila se reserva antes de tocar el puente (`.eq('estado','error')`): si otra persona
- * la está reintentando en este mismo momento, esta llamada se corta acá.
+ * la está reintentando en este mismo momento, esta llamada se corta aquí.
  */
 export async function reintentarTrasladoMGG(input: {
   id: string;
@@ -762,7 +751,7 @@ export async function reintentarTrasladoMGG(input: {
     .select('*');
   if (resErr) throw resErr;
   const t = (reservadas ?? [])[0] as TransferenciaCombustibleInter | undefined;
-  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que vos.');
+  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que tú.');
 
   try {
     const { data: res, error } = await supabase.functions.invoke('transfer-enviar', {
@@ -793,7 +782,7 @@ export async function reintentarTrasladoMGG(input: {
  * como `revertida`.
  *
  * ⚠ NO ES SEGURO DE REPETIR NI DE USAR A CIEGAS. Que el puente haya fallado no prueba
- * que MGG no lo haya recibido: pudo haber entrado allá y haberse perdido solo el acuse.
+ * que MGG no lo haya recibido: pudo haber entrado allí y haberse perdido solo el acuse.
  * En ese caso devolver los litros los DUPLICA entre las dos empresas.
  *
  * Por eso el orden correcto es: primero REINTENTAR (que es idempotente y dice la verdad
@@ -820,7 +809,7 @@ export async function revertirTrasladoMGG(input: {
     .select('*');
   if (resErr) throw resErr;
   const t = (reservadas ?? [])[0] as TransferenciaCombustibleInter | undefined;
-  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que vos.');
+  if (!t) throw new Error('Esa transferencia ya no está en error: alguien la reintentó o la revirtió antes que tú.');
 
   const liberar = async (motivo: string) => {
     await supabase.from('transferencias_combustible_inter')
@@ -830,7 +819,7 @@ export async function revertirTrasladoMGG(input: {
 
   if (!t.tanque_id) {
     await liberar('No se pudo devolver: la transferencia no guarda de qué tanque salió.');
-    throw new Error('Esta transferencia no guarda de qué tanque salió, así que no se puede devolver sola. Cargá el retorno a mano en el tanque.');
+    throw new Error('Esta transferencia no guarda de qué tanque salió, así que no se puede devolver sola. Carga el retorno a mano en el tanque.');
   }
 
   try {
@@ -943,7 +932,11 @@ async function reencadenarMedidor(rows: FilaMedidor[], iniCol: string, finCol: s
       if (f !== 0) return f;
       const h = horaOrden(a.hora) - horaOrden(b.hora);
       if (h !== 0) return h;
-      return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+      const c = (a.created_at ?? '').localeCompare(b.created_at ?? '');
+      if (c !== 0) return c;
+      // Igual que el libro mayor: sin este último desempate, dos lecturas idénticas
+      // se encadenaban en un orden distinto en cada carga.
+      return (a.id ?? '').localeCompare(b.id ?? '');
     });
   if (usables.length === 0) return 0;
   // El medidor es ABSOLUTO: la lectura FINAL de cada fila es el dato físico leído del
@@ -1089,6 +1082,8 @@ export async function eliminarMovimientoTanque(mov: MovimientoTanque): Promise<v
   // Y en vez de sumar/restar el saldo se RECALCULA cada tanque desde su libro,
   // que es convergente y no depende de un valor leído antes.
   const ids = par ? [mov.id, par.id] : [mov.id];
+  // Las fotos se borran desde aquí (Storage API): la base no puede borrar archivos.
+  for (const id of ids) await adjuntosCombustible.borrarTodos(MODULO_ADJUNTO_TANQUE, id).catch(() => {});
   const { data: borrados, error } = await supabase
     .from('combustible_tanque_movimientos').delete().in('id', ids).select('id');
   if (error) throw error;
@@ -1197,9 +1192,9 @@ export async function previewConsumoCombustibleSemana(desde: string, hasta: stri
 /**
  * Postea (IDEMPOTENTE) el consumo de combustible de GT de una semana como un gasto en la
  * caja de Peramanal abierta: suma los movimientos de tanque tipo 'uso' del rango (a su
- * costo, tasa PMP) y crea/actualiza el gasto «CONSUMO COMBUSTIBLE GT». Es el respaldo
- * MANUAL del proceso automático que corre cada domingo (por si el cron falló o para
- * re-generar una semana puntual). Devuelve el monto $ posteado (0 si no hubo consumo).
+ * costo, tasa PMP) y crea/actualiza el gasto «CONSUMO COMBUSTIBLE GT». Es el ÚNICO camino
+ * desde el 29/09/2026 (se quitó el cron de los domingos): el pase lo dispara el botón
+ * «💰 CAJA» del módulo. Devuelve el monto $ posteado (0 si no hubo consumo).
  * Fechas en 'YYYY-MM-DD' (lunes→domingo, ambos inclusive).
  */
 export async function postearConsumoCombustibleSemana(desde: string, hasta: string): Promise<number> {
@@ -1526,7 +1521,7 @@ export async function crearMedidor(input: {
   actorName?: string | null;
 }): Promise<MedidorCombustible> {
   const equipo = input.equipo.trim();
-  if (!equipo) throw new Error('Elegí el equipo.');
+  if (!equipo) throw new Error('Elige el equipo.');
   const { data, error } = await supabase
     .from('combustible_medidores')
     .insert({

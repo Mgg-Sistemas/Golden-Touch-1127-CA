@@ -46,7 +46,7 @@ export function errorFicha(v?: string | null): string | null {
   if (f === null) return null; // vacía: la asigna la base
   if (f.length < FICHA_MIN) {
     return `El número de ficha necesita al menos ${FICHA_MIN} caracteres (por ejemplo 001). `
-      + 'Si lo dejás vacío, el sistema le asigna el siguiente.';
+      + 'Si lo dejas vacío, el sistema le asigna el siguiente.';
   }
   if (f.length > FICHA_MAX) {
     return `El número de ficha no puede pasar de ${FICHA_MAX} caracteres: va impreso en el carnet.`;
@@ -90,7 +90,7 @@ export function compararFicha(a?: string | null, b?: string | null): number {
       // para que el orden sea siempre el mismo y no dependa del azar.
       if (p.length !== q.length) return p.length - q.length;
     } else {
-      const d = p.localeCompare(q, 'es');
+      const d = p.localeCompare(q, 'es-VE');
       if (d !== 0) return d;
     }
   }

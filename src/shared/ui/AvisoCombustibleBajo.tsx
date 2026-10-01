@@ -94,7 +94,7 @@ export function AvisoCombustibleBajo() {
   return (
     <div
       role="alert"
-      className="alert-pulse-warn"
+      className="alert-presione-warn"
       style={{
         display: 'flex',
         alignItems: 'center',

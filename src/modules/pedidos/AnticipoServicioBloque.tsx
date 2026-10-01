@@ -43,7 +43,7 @@ export function AnticipoServicioBloque({ orden, actorEmail, onSaved }: {
     <div className="card" style={{ marginTop: '.75rem' }}>
       <div className="card-title" style={{ fontSize: '.85rem', marginBottom: '.35rem' }}>💵 Pago anticipado</div>
       {total <= 0 ? (
-        <div className="muted" style={{ fontSize: '.8rem' }}>La orden aún no tiene monto total (aceptá una oferta primero).</div>
+        <div className="muted" style={{ fontSize: '.8rem' }}>La orden aún no tiene monto total (acepta una oferta primero).</div>
       ) : (
         <>
           {yaTiene && (

@@ -168,7 +168,7 @@ export function InventarioPage() {
 
   // Realtime multiusuario: el stock y las recepciones se reflejan al instante.
   // GT-INT-11 · `transferencias_casiterita_inter` entra a la suscripción: si a otro
-  // usuario le falla un envío a MGG, el aviso aparece acá sin recargar la página.
+  // usuario le falla un envío a MGG, el aviso aparece aquí sin recargar la página.
   useRealtime(['productos', 'movimientos', 'almacenes', 'ordenes', 'compras_directas', 'transferencias_casiterita_inter'], () => { void reload(); });
 
   async function handleFileImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -489,7 +489,7 @@ export function InventarioPage() {
           <button
             className="btn btn-ghost"
             onClick={() => setModal({ kind: 'inactivos' })}
-            title="Productos dados de baja: para el sistema no existen mientras sigan inactivos. Acá se consultan y se pueden activar."
+            title="Productos dados de baja: para el sistema no existen mientras sigan inactivos. Aquí se consultan y se pueden activar."
           >
             🗄 Productos inactivos{inactivosCount ? ` · ${inactivosCount}` : ''}
           </button>

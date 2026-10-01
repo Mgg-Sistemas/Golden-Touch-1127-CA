@@ -121,3 +121,62 @@ export function impuestosDeOrden(o: {
     igtfMonto: r2(o.igtf_monto),
   };
 }
+
+/* ───────── IVA editado a mano (01/10/2026) ─────────
+   Pedido del usuario: «permite en los servicios poder editar el IVA al momento de
+   editarlo». Al editar la orden de un servicio, el IVA deja de ser solo el que trajo
+   la oferta: se puede prender, apagar o corregir (en % o en monto). Aquí MANDA lo que
+   se escribió; el IGTF, si la orden lo tiene, se recalcula sobre base + IVA nuevo. */
+
+/** El IVA tal como quedó escrito en la pantalla de edición. */
+export interface IvaEditado {
+  aplicado: boolean;
+  /** % de referencia (queda guardado; el monto es el que manda). */
+  pct: number;
+  monto: number;
+}
+
+export interface ImpuestosConIva extends ImpuestosRecompuestos {
+  ivaAplicado: boolean;
+  ivaPct: number;
+}
+
+/**
+ * Compone el total con el IVA que se escribió a mano. Un IVA marcado pero en cero se
+ * guarda como «sin IVA»: una orden con `iva_aplicado` y monto 0 confunde al PDF y a
+ * Retenciones. El IGTF sigue la misma regla de siempre (ver `recomponerImpuestos`).
+ */
+export function recomponerConIva(
+  basePrev: number,
+  baseNueva: number,
+  prev: ImpuestosOrden,
+  iva: IvaEditado,
+): ImpuestosConIva {
+  const anterior = noNegativo(r2(basePrev));
+  const nueva = noNegativo(r2(baseNueva));
+  const ivaMonto = iva.aplicado ? noNegativo(r2(iva.monto)) : 0;
+  const ivaAplicado = ivaMonto > 0;
+
+  const ivaPrev = prev.ivaAplicado ? noNegativo(r2(prev.ivaMonto)) : 0;
+  const igtfPrev = prev.igtfAplicado ? noNegativo(r2(prev.igtfMonto)) : 0;
+  const igtfPct = pct(prev.igtfPct);
+  const baseIgtfPrev = r2(anterior + ivaPrev);
+  const baseIgtfNueva = r2(nueva + ivaMonto);
+  const escalaIgtf = baseIgtfPrev > 0 ? baseIgtfNueva / baseIgtfPrev : 1;
+  const igtfMonto = !prev.igtfAplicado ? 0
+    : igtfPct > 0 ? r2((baseIgtfNueva * igtfPct) / 100)
+    : r2(igtfPrev * escalaIgtf);
+
+  const impuestos = r2(ivaMonto + igtfMonto);
+  return {
+    ivaAplicado, ivaPct: ivaAplicado ? pct(iva.pct) : 0, ivaMonto,
+    igtfMonto, impuestos, total: r2(nueva + impuestos),
+  };
+}
+
+/** ¿El IVA escrito es distinto del que la orden tiene guardado? (cambia el total a pagar) */
+export function ivaCambio(prev: ImpuestosOrden, nuevo: { ivaAplicado: boolean; ivaMonto: number }): boolean {
+  const antes = prev.ivaAplicado ? noNegativo(r2(prev.ivaMonto)) : 0;
+  const ahora = nuevo.ivaAplicado ? noNegativo(r2(nuevo.ivaMonto)) : 0;
+  return Math.round(antes * 100) !== Math.round(ahora * 100);
+}

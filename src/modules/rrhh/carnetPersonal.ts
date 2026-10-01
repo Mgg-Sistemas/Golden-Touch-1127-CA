@@ -8,6 +8,7 @@ import QRCode from 'qrcode';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { recorteDeEncuadre, type Encuadre } from './encuadreFoto';
 import { EMPRESA_EMAIL, EMPRESA_WHATSAPP } from '@/shared/lib/empresa';
+import { lineasSaludQr } from './saludPersonal';
 import type { Personal } from '@/shared/lib/types';
 
 // 54 mm × (300 / 25.4) = 637.8 → 638 px  ·  86 mm × (300 / 25.4) = 1015.7 → 1016 px
@@ -184,6 +185,10 @@ export function textoQrPersona(p: Personal): string {
     (p.contacto_emergencia || p.telefono_emergencia)
       ? `Emergencia: ${[p.contacto_emergencia, p.telefono_emergencia].filter(Boolean).join(' · ')}`
       : '',
+    // Las condiciones de salud van aquí por lo mismo que el contacto de
+    // emergencia: quien asiste a un accidentado escanea el carnet y necesita
+    // saber a qué no puede ser alérgico ANTES de medicarlo.
+    ...lineasSaludQr(p),
   ].filter(Boolean);
   return lineas.join('\n');
 }
@@ -335,7 +340,7 @@ export async function generarCarnetPersonalDataUrl(
   // Leyenda bajo el QR.
   ctx.fillStyle = pal.tenue;
   ctx.font = "500 20px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText('Escaneá el código para ver los datos de contacto', cx, panelY + panelW + 30);
+  ctx.fillText('Escanea el código para ver los datos de contacto', cx, panelY + panelW + 30);
 
   // Pie naranja.
   const footY = CARNET_H - 62;

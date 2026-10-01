@@ -73,7 +73,7 @@ export async function registrarGasto(input: {
 }): Promise<MovimientoCaja> {
   const monto = round2(Number(input.monto) || 0);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
-  if (!input.concepto.trim()) throw new Error('Indicá el concepto del gasto.');
+  if (!input.concepto.trim()) throw new Error('Indica el concepto del gasto.');
   const caja = await getCaja(input.cajaId);
 
   // Correlativo autoincremental para RECEPCIÓN/EXPORTACIÓN: el primero lo ingresa
@@ -138,7 +138,7 @@ export async function registrarGasto(input: {
     saldoDespues = Number(res.saldo_despues) || 0;
   }
 
-  /** Devuelve la plata a la caja si el asiento en el libro no se puede escribir. */
+  /** Devuelve el dinero a la caja si el asiento en el libro no se puede escribir. */
   const revertirSaldo = async () => {
     if (usaSaldos) {
       await supabase.rpc('aplicar_saldo_divisa', {
@@ -166,7 +166,7 @@ export async function registrarGasto(input: {
     actor: input.actor, actor_name: input.actorName ?? null,
   }).select('*').single();
   if (error) {
-    // La plata ya salió de la caja pero el asiento no se pudo escribir: se
+    // El dinero ya salió de la caja pero el asiento no se pudo escribir: se
     // devuelve, para no dejar un descuento sin movimiento que lo explique.
     await revertirSaldo();
     throw error;
@@ -184,7 +184,7 @@ export async function pagarPersonal(input: {
   const pagos = input.pagos
     .map((p) => ({ ...p, monto: round2(Number(p.monto) || 0) }))
     .filter((p) => p.monto > 0);
-  if (!pagos.length) throw new Error('Indicá al menos un pago con monto.');
+  if (!pagos.length) throw new Error('Indica al menos un pago con monto.');
   const total = round2(pagos.reduce((a, p) => a + p.monto, 0));
 
   const caja = await getCaja(input.cajaId);
@@ -311,8 +311,8 @@ export async function crearRetencion(input: {
 }): Promise<Retencion> {
   const base = round2(Number(input.base) || 0);
   const porcentaje = Number(input.porcentaje) || 0;
-  if (base <= 0) throw new Error('Indicá la base imponible.');
-  if (porcentaje <= 0) throw new Error('Indicá el porcentaje de retención.');
+  if (base <= 0) throw new Error('Indica la base imponible.');
+  if (porcentaje <= 0) throw new Error('Indica el porcentaje de retención.');
   const monto = round2(base * (porcentaje / 100));
   const fecha = (input.fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const periodo = `${fecha.slice(0, 4)}${fecha.slice(5, 7)}`;

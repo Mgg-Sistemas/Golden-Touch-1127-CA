@@ -96,7 +96,7 @@ export async function crearCuentaPorPagar(input: {
   const monto = round2(input.monto);
   if (monto <= 0) throw new Error('El monto debe ser mayor que 0.');
   const contraparte = input.contraparte.trim();
-  if (!contraparte) throw new Error('Indicá el cliente o proveedor.');
+  if (!contraparte) throw new Error('Indica el cliente o proveedor.');
 
   // ¿Ya hay una cuenta ABIERTA del mismo cliente/proveedor en esta moneda?
   const { data: existentes } = await supabase.from(CXP).select('*')
@@ -205,7 +205,7 @@ export async function registrarAbonoCuenta(input: {
   // Antes era `abonado = c.abonado + aplicado`, con `c` traído de la pantalla.
   // Dos tesoreros abonando a la vez sacaban los DOS egresos de caja pero ambos
   // escribían el mismo total: salían 2.000 y la deuda bajaba 1.000, y el
-  // proveedor quedaba como acreedor de plata ya cobrada.
+  // proveedor quedaba como acreedor de dinero ya cobrada.
   // Ahora se recalcula sumando la tabla de abonos —que es la fuente de verdad y
   // ya tiene la fila recién insertada— y se escribe con `lte` para que una
   // lectura vieja nunca pueda hacer RETROCEDER el abonado.
@@ -255,7 +255,7 @@ export async function pagarCuentaConProductos(input: {
 }): Promise<{ cuenta: CuentaPorPagar; abono: AbonoCxP; valorTotal: number }> {
   const c = input.cuenta;
   const items = input.items.filter((i) => i.productoId && Number(i.cantidad) > 0);
-  if (!items.length) throw new Error('Agregá al menos un producto a entregar.');
+  if (!items.length) throw new Error('Agrega al menos un producto a entregar.');
 
   // Valor total = Σ (precio de inventario × cantidad).
   const valorTotal = round2(items.reduce((a, i) => a + Number(i.cantidad) * Number(i.precio), 0));

@@ -83,6 +83,7 @@ export function CajaView({ movimientos, clasificaciones, cajas, costoClases, can
         <div className="card"><div className="muted" style={{ fontSize: '.72rem' }}>Total gastado</div><div className="mono" style={{ fontWeight: 700 }}>{money(resumen.totalGastado)}</div></div>
         <div className="card"><div className="muted" style={{ fontSize: '.72rem' }}>Saldo de caja</div><div className="mono" style={{ fontWeight: 700 }}>{money(resumen.saldoUsd)}</div></div>
         <div className="card"><div className="muted" style={{ fontSize: '.72rem' }}>Kg cerrados</div><div className="mono" style={{ fontWeight: 700 }}>{num(resumen.kgCerrados)} Kg</div></div>
+        {resumen.inversion > 0 && <div className="card"><div className="muted" style={{ fontSize: '.72rem' }}>Inversión (fuera de la tasa)</div><div className="mono" style={{ fontWeight: 700 }}>{money(resumen.inversion)}</div></div>}
       </div>
 
       {/* Distribución por categoría */}
@@ -181,7 +182,7 @@ function NuevaCajaModal({ actor, onClose, onSaved }: { actor: string; onClose: (
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   async function guardar() {
-    if (!numero.trim()) { toast('Indicá el número de caja', 'error'); return; }
+    if (!numero.trim()) { toast('Indica el número de caja', 'error'); return; }
     setSaving(true);
     try { const c = await crearCaja({ numero, nombre, recepcion, fecha_inicio: fecha }, actor); toast('Caja creada', 'success'); onSaved(c.id); }
     catch (e) { toast(e instanceof Error ? e.message : 'Error', 'error'); setSaving(false); }

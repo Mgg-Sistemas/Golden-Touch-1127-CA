@@ -204,7 +204,7 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     // por categoría) al importar. Solo se respeta si el archivo trae la columna.
     if (!nombre) { errores.push('Nombre vacío'); sumCol('nombre'); }
     // La categoría es obligatoria y tiene que ser real: GENERAL ya no existe.
-    if (!esCategoriaReal(toStr(norm.categoria))) { errores.push('Categoría vacía o GENERAL: poné su categoría real'); sumCol('categoria'); }
+    if (!esCategoriaReal(toStr(norm.categoria))) { errores.push('Categoría vacía o GENERAL: pon su categoría real'); sumCol('categoria'); }
 
     const precio = toNum(norm.precio);
     if (norm.precio != null && norm.precio !== '' && (!Number.isFinite(precio) || isLetter(norm.precio))) {
@@ -461,7 +461,7 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     ['INSTRUCCIONES DE CARGA · PLANTILLA INVENTARIO GOLDEN TOUCH 1127 C.A.'],
     [''],
     ['1. ESTRUCTURA DEL ARCHIVO'],
-    ['• Trabajá exclusivamente sobre la hoja "Productos". No renombres columnas.'],
+    ['• Trabaja exclusivamente sobre la hoja "Productos". No renombres columnas.'],
     ['• Una fila por producto. La fila 1 es el encabezado; los datos arrancan en la fila 2.'],
     ['• El SKU NO se carga: el sistema lo asigna solo, incremental por categoría (correlativo).'],
     [''],
@@ -493,13 +493,13 @@ function buildInstruccionesSheet(XLSX: XlsxModule): WsSheet {
     [''],
     ['5. RESULTADO DE LA IMPORTACIÓN'],
     ['• VALIDADO: todas las filas pasan, importación directa.'],
-    ['• DUPLICADOS: el sistema te muestra las filas duplicadas y te pregunta si querés continuar. Los nombres existentes se ACTUALIZAN; los nuevos se insertan con un SKU nuevo.'],
-    ['• ERROR: existen filas con datos inválidos. La importación queda bloqueada hasta corregirlas. Las filas con error nunca se importan, ni siquiera si confirmás.'],
+    ['• DUPLICADOS: el sistema te muestra las filas duplicadas y te pregunta si quieres continuar. Los nombres existentes se ACTUALIZAN; los nuevos se insertan con un SKU nuevo.'],
+    ['• ERROR: existen filas con datos inválidos. La importación queda bloqueada hasta corregirlas. Las filas con error nunca se importan, ni siquiera si confirmas.'],
     [''],
     ['6. RECOMENDACIONES'],
-    ['• Usá puntos decimales (1234.56), no comas.'],
-    ['• Evitá fórmulas en columnas numéricas; pegá valores planos.'],
-    ['• Verificá categorías y almacenes con la nomenclatura ya usada en el sistema (mayúsculas).'],
+    ['• Usa puntos decimales (1234.56), no comas.'],
+    ['• Evita fórmulas en columnas numéricas; pega valores planos.'],
+    ['• Verifica categorías y almacenes con la nomenclatura ya usada en el sistema (mayúsculas).'],
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(rows.map((r) => [r[0] ?? '']));

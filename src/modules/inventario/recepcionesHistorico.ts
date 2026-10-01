@@ -5,14 +5,14 @@
    de entrada por ítem y nada más. Para responder «qué se recibió hoy, quién lo
    recibió y a qué almacén entró» había que consultar la base a mano.
 
-   Acá se agrupan esos movimientos en la operación que realmente ocurrió. La
+   Aquí se agrupan esos movimientos en la operación que realmente ocurrió. La
    asociación ya está en los datos —`ref_tipo`, `ref_id`, `ref_codigo`,
    `proveedor_id`—; lo único que faltaba era juntarlos y ponerles nombre.
 
    POR QUÉ AGRUPAR Y NO CREAR UNA ENTIDAD
    Es lo acordado: primero se prueba con lo que ya hay. Si aparecen recepciones
    parciales frecuentes o el comprobante empieza a circular en papel, conviene la
-   tabla con su correlativo propio — el código de acá es derivado y por lo tanto
+   tabla con su correlativo propio — el código de aquí es derivado y por lo tanto
    depende de que los movimientos no se editen.
    ============================================================ */
 

@@ -122,7 +122,7 @@ export async function computeReporteCierre(periodo: string, cierreId?: string): 
       if (v === 0) continue;
       saldos.push({ caja: idToNombre.get(s.caja_id) ?? '—', moneda: s.moneda, cuenta: s.cuenta, saldo: v });
     }
-    saldos.sort((a, b) => a.caja.localeCompare(b.caja, 'es') || a.moneda.localeCompare(b.moneda));
+    saldos.sort((a, b) => a.caja.localeCompare(b.caja, 'es-VE') || a.moneda.localeCompare(b.moneda));
   }
 
   return { periodo, desde, hasta, ingresos, gastos, resultado, cxc, cxp, saldos, movimientos: (movs ?? []).length };
@@ -149,7 +149,7 @@ export async function crearCierre(input: {
   periodo: string; snapshot: ReporteCierre; actor: string; actorName?: string | null;
 }): Promise<Cierre> {
   const ya = await cierreVigenteDe(input.periodo);
-  if (ya) throw new Error(`El mes ${input.periodo} ya está cerrado. Reabrilo si necesitás modificarlo.`);
+  if (ya) throw new Error(`El mes ${input.periodo} ya está cerrado. Reabrilo si necesitas modificarlo.`);
   const { desde, hasta } = rangoMes(input.periodo);
 
   // El insert es la RESERVA: el índice único (un solo cierre 'cerrado' por período) decide
@@ -162,7 +162,7 @@ export async function crearCierre(input: {
   }).select('*').single();
   if (error) {
     if ((error as { code?: string }).code === '23505') {
-      throw new Error(`El mes ${input.periodo} lo acaba de cerrar otra persona. Actualizá la pantalla.`);
+      throw new Error(`El mes ${input.periodo} lo acaba de cerrar otra persona. Actualiza la pantalla.`);
     }
     throw error;
   }
@@ -180,7 +180,7 @@ export async function crearCierre(input: {
     // RECALCULAR la foto sobre lo que quedó archivado, no sobre lo que la pantalla había
     // calculado. Entre que se arma la vista previa y se archiva pasa tiempo, y un pago que
     // entre en esa ventana se archivaba igual —desaparecía de Tesorería— pero no figuraba
-    // en el reporte del mes. Plata cerrada fuera de su propio cierre.
+    // en el reporte del mes. Dinero cerrada fuera de su propio cierre.
     const real = await computeReporteCierre(input.periodo, cierre.id);
     const { data: fin, error: sErr } = await supabase.from(TABLE)
       .update({ snapshot: real, movimientos: real.movimientos })

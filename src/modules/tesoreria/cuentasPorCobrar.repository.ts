@@ -42,7 +42,7 @@ export interface CargoCxC {
   cuenta?: string | null;
   caja_mov_id?: string | null;
   total_adeudado?: number | null;
-  /** La venta a crédito que generó ESTE cargo. Acá se ve venta por venta: la
+  /** La venta a crédito que generó ESTE cargo. Aquí se ve venta por venta: la
    *  cuenta acumula varias ventas del mismo cliente, el cargo no. */
   ref_venta_id?: string | null;
   nota?: string | null;
@@ -79,7 +79,7 @@ const CXC_ABONOS = 'cuentas_por_cobrar_abonos';
  *
  * La cuenta y su cargo son DOS escrituras que valen las dos o ninguna: si la
  * segunda falla, queda una deuda cargada sin el renglón que dice de dónde salió.
- * Por eso la regla vive en la base (`crear_o_acumular_cxc`) y acá solo se la
+ * Por eso la regla vive en la base (`crear_o_acumular_cxc`) y aquí solo se la
  * llama. Además así una venta a crédito puede confirmarse y cargarle la deuda al
  * cliente en la MISMA transacción: un corte de red en el medio ya no puede dejar
  * una venta a crédito sin deuda registrada.
@@ -117,7 +117,7 @@ export async function crearOAcumularCuentaPorCobrar(input: {
  * La usa la anulación de una venta a crédito: la cuenta del cliente es CORRIENTE
  * y la comparten otras ventas, así que anular una NO cierra la cuenta — le resta
  * lo de esa venta y nada más. Se niega si dejara la cuenta con más cobrado que
- * debido: esa plata hay que devolverla primero.
+ * debido: ese dinero hay que devolverla primero.
  */
 export async function revertirCargoCuentaPorCobrar(input: {
   cuentaId: string;

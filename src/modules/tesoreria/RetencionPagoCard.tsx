@@ -54,7 +54,7 @@ export function useRetencionPago(total: number, monedaDoc: MonedaRetencion, tasa
   const monto = activa ? conv.enMonedaOc : 0;
   const error = !activa
     ? null
-    : conv.faltaTasa ? 'Indicá la tasa (Bs por $) para convertir la retención.' : errorRetencionPago(total, monto);
+    : conv.faltaTasa ? 'Indica la tasa (Bs por $) para convertir la retención.' : errorRetencionPago(total, monto);
   return {
     activa, setActiva, montoStr, setMontoStr, moneda, setMoneda, tasaStr, setTasaStr, tasaEditada, setTasaEditada,
     conv, monto, error, neto: activa && !error ? netoAPagar(total, monto) : r2(total),
@@ -128,7 +128,7 @@ export function RetencionPagoCard({ r, total, monedaDoc, tasaBcv }: {
         </div>
       )}
       {r.error && <small style={{ color: 'var(--danger)', display: 'block', marginTop: '.3rem' }}>{r.error}</small>}
-      {!r.activa && <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>Marcalo si la factura tiene retención: el monto se resta del total a pagar.</small>}
+      {!r.activa && <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>Márcalo si la factura tiene retención: el monto se resta del total a pagar.</small>}
     </div>
   );
 }

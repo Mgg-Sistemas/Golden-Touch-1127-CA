@@ -2,7 +2,7 @@
    Golden Touch · Login con huella (WebAuthn / passkeys)
    Login rápido por dispositivo (opt-in). La contraseña sigue
    como respaldo. El navegador nunca expone la huella en crudo:
-   el sistema operativo firma un reto y acá solo manejamos esa
+   el sistema operativo firma un reto y aquí solo manejamos esa
    firma vía las Edge Functions webauthn-register / webauthn-login.
    ============================================================ */
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
@@ -74,7 +74,7 @@ export async function enrolarHuella(deviceLabel?: string): Promise<void> {
 export async function loginConHuella(email: string): Promise<void> {
   if (!isWebAuthnSupported()) throw new Error('Este equipo/navegador no soporta huella.');
   const correo = email.trim().toLowerCase();
-  if (!correo) throw new Error('Indicá el correo.');
+  if (!correo) throw new Error('Indica el correo.');
   const opciones = await invocar<PublicKeyCredentialRequestOptionsJSON>('webauthn-login', { action: 'options', email: correo });
   const authResp = await startAuthentication({ optionsJSON: opciones });
   const res = await invocar<{ token_hash: string; email: string }>('webauthn-login', { action: 'verify', email: correo, response: authResp });

@@ -108,7 +108,7 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
   // Columnas: Fecha, Descripción, Entregado, Kg, $Usd Facturados (lo gastado al comprar
   // casiterita), Gastos, Saldo $Usd, Saldo Kg, [acciones?]. Facturados es una columna
   // fija (aunque esté en $0,00), para ver siempre lo gastado en la compra de material.
-  const totalCols = 8 + (canWrite ? 1 : 0);
+  const totalCols = 9 + (canWrite ? 1 : 0);
 
   // El switch «Listar movimientos» de la página controla si se muestra la tabla.
   // Aunque esté oculta, el componente sigue montado para alimentar las tarjetas (onResumen).
@@ -162,6 +162,7 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
                 <th>Kg Cerrados</th>
                 <th title="Lo que se gastó al comprar casiterita (material facturado a mineros)">$Usd Facturados</th>
                 <th>Gastos</th>
+                <th title="Columna K del Excel: sale del saldo pero no suma a la tasa">Inversión</th>
                 <th>Saldo en moneda $ Usd</th>
                 <th title="Saldo corrido = saldo anterior + Kg Cerrados − Kg Recibidos por MGG">Saldo en Kg de casiterita ⓘ</th>
                 {canWrite && <th></th>}
@@ -196,6 +197,7 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
                   <td className="mono">{f.usdFacturados ? money(f.usdFacturados) : '—'}</td>
                   {/* Gastos = Gastos GT + Nómina GT unificados */}
                   <td className="mono">{(() => { const g = (f.gastosGt ?? 0) + (f.nominasGt ?? 0); return g === 0 && f.gastosGt == null && f.nominasGt == null ? '—' : money(g); })()}</td>
+                  <td className="mono" style={{ color: f.inversion ? 'var(--warning, #f59e0b)' : undefined }}>{f.inversion ? money(f.inversion) : '—'}</td>
                   <td className="mono"><strong>{money(f.saldoUsd)}</strong></td>
                   {/* Saldo corrido de casiterita → resaltado (permite negativo) */}
                   <td className="mono" style={{ fontWeight: 800, color: f.saldoKgCasiterita < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(f.saldoKgCasiterita)}</td>
@@ -218,7 +220,7 @@ export function MovimientosAcopioView({ onResumen, onFilas, visible = true, caja
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--primary-3)' }}>{num(totKgVista)}</td>
                 {/* Total facturado (lo gastado al comprar casiterita); Gastos + Saldo $Usd quedan vacíos */}
                 <td className="mono" style={{ fontWeight: 800, color: 'var(--danger)' }}>{totFacturadosVista ? money(totFacturadosVista) : '—'}</td>
-                <td colSpan={2}></td>
+                <td colSpan={3}></td>
                 <td className="mono" style={{ fontWeight: 800, color: saldoVista < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{num(saldoVista)}</td>
                 {canWrite && <td></td>}
               </tr>

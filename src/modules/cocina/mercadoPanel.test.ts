@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ResumenViver } from './cocinaMercado.repository';
 import {
-  costoDelCiclo, diferenciasPorViver, ecuacionDelCiclo, explicarDiferencia, filasDisponible, leerVista,
-  separarMovidos, sumarConsumoCocina, sumarMermas, vistaGuardada,
+  alternarVista, costoDelCiclo, desgloseCifra, diferenciasPorViver, ecuacionDelCiclo, explicarDiferencia,
+  filasDisponible, leerVista, separarMovidos, sumarConsumoCocina, sumarMermas, vistaEncendida, vistaGuardada,
 } from './mercadoPanel';
 
 function fila(id: string, v: { saldo?: number; ent?: number; cons?: number; mer?: number; queda?: number } = {}): ResumenViver {
@@ -238,5 +238,59 @@ describe('consumo del ciclo medido sobre el kardex', () => {
     ]);
     const consumo = porViver.get('pollo')!.cantidad;
     expect(25 - consumo - 0).toBe(20.5);
+  });
+});
+
+describe('interruptores de vista', () => {
+  it('«ambos» es Disponible y Movimientos encendidos a la vez', () => {
+    expect(vistaEncendida('ambos', 'disponible')).toBe(true);
+    expect(vistaEncendida('ambos', 'movimientos')).toBe(true);
+    expect(vistaEncendida('ambos', 'distribucion')).toBe(false);
+    expect(vistaEncendida('disponible', 'movimientos')).toBe(false);
+    expect(vistaEncendida('distribucion', 'disponible')).toBe(false);
+    expect(vistaEncendida('distribucion', 'distribucion')).toBe(true);
+  });
+
+  it('encender el segundo da «ambos»; apagar uno deja el otro', () => {
+    expect(alternarVista('disponible', 'movimientos')).toBe('ambos');
+    expect(alternarVista('movimientos', 'disponible')).toBe('ambos');
+    expect(alternarVista('ambos', 'movimientos')).toBe('disponible');
+    expect(alternarVista('ambos', 'disponible')).toBe('movimientos');
+  });
+
+  it('apagar el último encendido no deja la pantalla en blanco', () => {
+    expect(alternarVista('disponible', 'disponible')).toBe('disponible');
+    expect(alternarVista('movimientos', 'movimientos')).toBe('movimientos');
+  });
+
+  it('Distribución ocupa la pantalla y al apagarla vuelve a lo de antes', () => {
+    expect(alternarVista('ambos', 'distribucion')).toBe('distribucion');
+    expect(alternarVista('distribucion', 'distribucion', 'ambos')).toBe('ambos');
+    expect(alternarVista('distribucion', 'distribucion')).toBe('disponible');
+    // Encender otra vista con Distribución puesta la saca de la pantalla.
+    expect(alternarVista('distribucion', 'movimientos')).toBe('movimientos');
+    expect(alternarVista('distribucion', 'disponible')).toBe('disponible');
+  });
+});
+
+describe('desgloseCifra', () => {
+  const items = [fila('a', { saldo: 10, ent: 4, cons: 3, mer: 1 }), fila('b', { saldo: 2 }), fila('c')];
+
+  it('trae quién aporta a cada cifra, de mayor a menor, sin los que no aportan', () => {
+    expect(desgloseCifra(items, 'saldoInicial').map((f) => [f.producto_id, f.valor])).toEqual([['a', 10], ['b', 2]]);
+    expect(desgloseCifra(items, 'entradas').map((f) => f.producto_id)).toEqual(['a']);
+    expect(desgloseCifra(items, 'disponible').map((f) => [f.producto_id, f.valor])).toEqual([['a', 14], ['b', 2]]);
+    expect(desgloseCifra(items, 'mermas').map((f) => [f.producto_id, f.valor])).toEqual([['a', 1]]);
+    expect(desgloseCifra(items, 'queda').map((f) => [f.producto_id, f.valor])).toEqual([['a', 10], ['b', 2]]);
+  });
+
+  it('la suma del desglose es el total de la ecuación', () => {
+    const ec = ecuacionDelCiclo(items);
+    expect(desgloseCifra(items, 'consumo').reduce((a, f) => a + f.valor, 0)).toBe(ec.consumo);
+    expect(desgloseCifra(items, 'queda').reduce((a, f) => a + f.valor, 0)).toBe(ec.queda);
+  });
+
+  it('sin víveres, sin filas', () => {
+    expect(desgloseCifra([], 'consumo')).toEqual([]);
   });
 });

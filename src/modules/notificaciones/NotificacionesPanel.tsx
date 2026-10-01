@@ -43,7 +43,7 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
     let cancelled = false;
     setLoading(true);
     // Mostramos solo las 10 más recientes y, en segundo plano, borramos las viejas
-    // (DELETE es admin-only: si no sos admin simplemente no borra nada).
+    // (DELETE es admin-only: si no eres admin simplemente no borra nada).
     listLatest(10)
       .then((data) => { if (!cancelled) setItems(data); })
       .catch(() => { if (!cancelled) setItems([]); })

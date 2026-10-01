@@ -12,6 +12,8 @@ import {
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 import { TransporteFields, transporteVacio, type TransporteSeleccion } from './TransporteFields';
+import { SelectorAdjuntos } from './AdjuntosSalida';
+import { subirAdjuntosSalida } from './adjuntosSalida.repository';
 
 // Con un único inventario ("General"), el traslado interno almacén→almacén ya no
 // existe. Este formulario queda SOLO para el envío de CASITERITA al otro sistema
@@ -66,6 +68,7 @@ export function TrasladoMaterialForm({
   const [transporte, setTransporte] = useState<TransporteSeleccion>(transporteVacio);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
 
   // Unidad solicitante: mismo catálogo de OP (en vivo).
   const [unidadSolicitante, setUnidadSolicitante] = useState('');
@@ -84,7 +87,7 @@ export function TrasladoMaterialForm({
     // Leemos el valor REAL del DOM (ref), no el estado: el input es no-controlado y el
     // estado puede quedar atrás (ej. "COMPRA" tecleado rápido guardaba "COMP").
     const v = (nuevaUnidadRef.current?.value ?? nuevaUnidad).trim().toUpperCase();
-    if (!v) { toast('Escribí la unidad nueva', 'error'); return; }
+    if (!v) { toast('Escribe la unidad nueva', 'error'); return; }
     if (unidadOpciones.some((u) => u.toLowerCase() === v.toLowerCase())) {
       setUnidadSolicitante(v); setNuevaUnidad(''); if (nuevaUnidadRef.current) nuevaUnidadRef.current.value = ''; return;
     }
@@ -121,7 +124,7 @@ export function TrasladoMaterialForm({
     setError(null);
     if (!productosCasiterita.length) { setError('No hay casiterita con stock en el inventario.'); return; }
     for (const x of lineasCalc) {
-      if (!x.l.productoId) { setError('Elegí la casiterita en cada renglón.'); return; }
+      if (!x.l.productoId) { setError('Elige la casiterita en cada renglón.'); return; }
       if (x.cantNum <= 0) { setError('Cada renglón debe tener cantidad mayor que 0.'); return; }
     }
     const ids = lineasCalc.map((x) => x.l.productoId);
@@ -131,8 +134,8 @@ export function TrasladoMaterialForm({
       const resumen = lineasCalc.length === 1
         ? `${num(lineasCalc[0].cantNum)} ${lineasCalc[0].producto?.unidad ?? ''} de ${lineasCalc[0].producto?.nombre ?? ''}`
         : `${lineasCalc.length} materiales`;
-      // CASITERITA → otro sistema: pasa DIRECTO (sin aprobación), deja el registro acá.
-      await crearTrasladoCasiteritaExterno({
+      // CASITERITA → otro sistema: pasa DIRECTO (sin aprobación), deja el registro aquí.
+      const creada = await crearTrasladoCasiteritaExterno({
         lineas: lineasCalc
           .filter((x) => x.producto && x.cantNum > 0)
           .map((x) => ({ producto: x.producto!, cantidad: x.cantNum, precioUnit: x.precio })),
@@ -146,6 +149,13 @@ export function TrasladoMaterialForm({
         direccionDestino: transporte.direccionDestino || null,
         solicitante: actorName || actor, actor, actorName,
       });
+      // Los adjuntos se suben recién ahora: la carpeta del almacén lleva el id de la
+      // solicitud, que no existe hasta este momento. Si alguno falla, la solicitud ya
+      // está creada y se avisa; se puede volver a subir desde Editar.
+      if (adjuntos.length) {
+        const r = await subirAdjuntosSalida('traslado', creada.id, adjuntos, actor);
+        for (const f of r.fallos) toast(`Solicitud creada, pero un adjunto no se pudo subir: ${f}`, 'error');
+      }
       notify(`Casiterita enviada al otro sistema: ${resumen} · directo · registro creado`, 'success', { link: '#/app/salidas' });
       onSaved();
       onClose();
@@ -173,7 +183,7 @@ export function TrasladoMaterialForm({
         <div className="card" style={{ padding: '.6rem .85rem', marginBottom: '.75rem', background: 'var(--bg-1)', borderLeft: '3px solid var(--brand, #ff8a00)' }}>
           <div className="muted" style={{ fontSize: '.82rem' }}>
             Solo <strong>CASITERITA</strong>. Se envía <strong>TODA la del Inventario General → el stock queda en 0</strong>.
-            Va directo al otro sistema ({DESTINO_EXTERNO_CASITERITA_LABEL}), sin aprobación, y queda el registro acá.
+            Va directo al otro sistema ({DESTINO_EXTERNO_CASITERITA_LABEL}), sin aprobación, y queda el registro aquí.
           </div>
         </div>
 
@@ -184,7 +194,7 @@ export function TrasladoMaterialForm({
             placeholder="Departamento / unidad que solicita" />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
             <input className="input" name="tm-nueva-unidad" ref={nuevaUnidadRef} defaultValue={nuevaUnidad} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setNuevaUnidad(e.target.value); }}
-              placeholder="¿No está? Escribí la unidad nueva…"
+              placeholder="¿No está? Escribe la unidad nueva…"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void agregarUnidadNueva(); } }} />
             <button type="button" className="btn btn-ghost" onClick={() => void agregarUnidadNueva()} disabled={addingUnidad}>
               {addingUnidad ? '…' : '+ Añadir'}
@@ -257,6 +267,8 @@ export function TrasladoMaterialForm({
 
         {/* Transporte y direcciones (formato de salida en tránsito) */}
         <TransporteFields value={transporte} onChange={setTransporte} actor={actor} />
+
+        <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos} />
 
         <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: '.6rem 0 0', display: 'flex', justifyContent: 'space-between' }}>
           <span className="mono" style={{ fontSize: '.85rem' }}>{lineas.length} material(es) · Inventario General → {DESTINO_EXTERNO_CASITERITA_LABEL}</span>

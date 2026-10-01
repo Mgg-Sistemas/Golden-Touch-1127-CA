@@ -9,7 +9,7 @@
    El recibo declara el SUELDO en BOLÍVARES, a la tasa de CIERRE de la
    quincena. Al lado de cada monto va su equivalente en dólares a esa misma
    tasa, y abajo, aparte, lo que se paga en divisas: la parte sueldo más el
-   BONO, que no entra en el recibo pero sí es plata que la persona recibe.
+   BONO, que no entra en el recibo pero sí es dinero que la persona recibe.
    Un papel que muestre solo una de las dos monedas obliga a sacar la cuenta
    a mano, y ahí es donde aparecen los reclamos.
    ============================================================ */
@@ -181,7 +181,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // ── BONO ──
     // La tabla de arriba es la parte que se paga en bolívares (el porcentaje
     // que se declara como sueldo). El resto del total acordado se entrega como
-    // BONO, en dólares. Va acá, en el MISMO recibo: si el bono quedara fuera,
+    // BONO, en dólares. Va aquí, en el MISMO recibo: si el bono quedara fuera,
     // el papel diría bastante menos de lo que la persona realmente cobra.
     const bonoUsd = Number(r.bono_quincena_usd) || 0;
     const pctSueldo = Number(r.sueldo_pct);
@@ -206,7 +206,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     y = (doc.lastAutoTable?.finalY ?? y) + 8;
 
     // ── El total del recibo, en dólares ──
-    // Las dos partes se suman acá: lo cobrado en bolívares (llevado a dólares
+    // Las dos partes se suman aquí: lo cobrado en bolívares (llevado a dólares
     // con la MISMA tasa que dice el recibo) más el bono, que ya está en
     // dólares. Es la cifra que la persona quiere ver: cuánto cobró en total.
     const netoEnUsd = enUsd(netoBs);

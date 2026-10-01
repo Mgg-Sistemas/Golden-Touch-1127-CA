@@ -17,7 +17,7 @@ import { norm } from '@/shared/lib/texto';
 import type { Producto } from '@/shared/lib/types';
 
 interface Props {
-  /** TODOS los productos de la página; acá se quedan solo los inactivos. */
+  /** TODOS los productos de la página; aquí se quedan solo los inactivos. */
   productos: Producto[];
   canWrite: boolean;
   /** Reactivar. La página se encarga de recargar y avisar. */
@@ -57,17 +57,17 @@ export function ProductosInactivosModal({ productos, canWrite, onActivar, onClos
   // categoría en la que no hay ninguno dado de baja.
   const categorias = useMemo(
     () => [...new Set(inactivos.map((p) => p.categoria).filter(Boolean))]
-      .sort((a, b) => a.localeCompare(b, 'es')),
+      .sort((a, b) => a.localeCompare(b, 'es-VE')),
     [inactivos],
   );
   const unidades = useMemo(
     () => [...new Set(inactivos.map((p) => p.unidad).filter(Boolean))]
-      .sort((a, b) => a.localeCompare(b, 'es')),
+      .sort((a, b) => a.localeCompare(b, 'es-VE')),
     [inactivos],
   );
   const autores = useMemo(
     () => [...new Set(inactivos.map((p) => p.desactivado_por).filter(Boolean) as string[])]
-      .sort((a, b) => a.localeCompare(b, 'es')),
+      .sort((a, b) => a.localeCompare(b, 'es-VE')),
     [inactivos],
   );
 
@@ -159,7 +159,7 @@ export function ProductosInactivosModal({ productos, canWrite, onActivar, onClos
         {!inactivos.length ? (
           <EmptyState message="No hay productos dados de baja." icon="✓" />
         ) : !filtrados.length ? (
-          <EmptyState message="Ningún producto de baja coincide con lo que buscás." icon="◇" />
+          <EmptyState message="Ningún producto de baja coincide con lo que buscas." icon="◇" />
         ) : (
           <div style={{ maxHeight: 'min(52vh, 460px)', overflowY: 'auto' }}>
             <table className="table">

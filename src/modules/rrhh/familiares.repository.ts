@@ -1,6 +1,6 @@
 /* ============================================================
    Golden Touch · RRHH · Carga familiar
-   Quiénes dependen del trabajador. De acá sale poder agrupar la lista por
+   Quiénes dependen del trabajador. De aquí sale poder agrupar la lista por
    «con hijos / sin hijos», que antes no se podía saber porque el dato no
    existía en ningún lado.
    ============================================================ */
@@ -59,7 +59,7 @@ export async function listFamiliaresDeTodos(): Promise<Map<string, PersonalFamil
 export async function agregarFamiliar(
   personalId: string, input: FamiliarInput, actor?: string,
 ): Promise<PersonalFamiliar> {
-  if (!input.nombre.trim()) throw new Error('Indicá el nombre del familiar.');
+  if (!input.nombre.trim()) throw new Error('Indica el nombre del familiar.');
   const { data, error } = await supabase.from(TABLE)
     .insert(payload(personalId, input, actor)).select('*').single();
   if (error) throw error;
@@ -69,7 +69,7 @@ export async function agregarFamiliar(
 export async function actualizarFamiliar(
   id: string, personalId: string, input: FamiliarInput,
 ): Promise<PersonalFamiliar> {
-  if (!input.nombre.trim()) throw new Error('Indicá el nombre del familiar.');
+  if (!input.nombre.trim()) throw new Error('Indica el nombre del familiar.');
   const { created_by: _omitir, ...campos } = payload(personalId, input);
   const { data, error } = await supabase.from(TABLE)
     .update(campos).eq('id', id).select('*').single();

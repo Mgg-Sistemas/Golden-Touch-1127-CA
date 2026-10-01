@@ -2,7 +2,7 @@
    Golden Touch · Tesorería · Directos por pagar
    Lista las COMPRAS y SERVICIOS DIRECTOS en estado "por pagar"
    (el analista ya montó la factura y los montos) para que Tesorería
-   los PAGUE desde acá. Al pagar, sale de la caja correspondiente,
+   los PAGUE desde aquí. Al pagar, sale de la caja correspondiente,
    (en compras) entra al inventario, y queda FINALIZADA. Reusa los
    modales de pago de Compra/Servicio Directo.
    ============================================================ */
@@ -203,7 +203,7 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
     return (Number(cajas.find((x) => x.id === cId)?.saldo) || 0) > 0 ? [moneda] : [];
   };
   const cajasConSaldo = cajas.filter((c) => monedasDeCaja(c.id).length > 0);
-  // Al cargar los saldos, elegí por defecto la primera caja con fondos.
+  // Al cargar los saldos, elige por defecto la primera caja con fondos.
   useEffect(() => {
     if (!cajaId && cajasConSaldo.length) setCajaId(cajasConSaldo[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -224,8 +224,8 @@ function AbonosServicioModal({ servicio, cajas, actor, actorName, onClose, onSav
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!cajaId) { setError('Elegí la caja de la que sale el dinero.'); return; }
-    if (montoNum <= 0) { setError('Indicá el monto del abono.'); return; }
+    if (!cajaId) { setError('Elige la caja de la que sale el dinero.'); return; }
+    if (montoNum <= 0) { setError('Indica el monto del abono.'); return; }
     if (montoNum > saldo + 0.01) { setError(`El abono supera el saldo pendiente (${montoMoneda(saldo, moneda)}).`); return; }
     const errT = errorTasaPago(moneda, monedaPago, tasa);
     if (errT) { setError(errT); return; }

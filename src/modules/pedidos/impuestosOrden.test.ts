@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { baseNetaDesdeTotal, impuestosDeOrden, recomponerImpuestos } from './impuestosOrden';
+import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 
 const soloIva = (pct: number, monto: number) => ({
   ivaAplicado: true, ivaPct: pct, ivaMonto: monto,
@@ -178,5 +178,52 @@ describe('impuestosDeOrden', () => {
       ivaAplicado: false, ivaPct: 0, ivaMonto: 0,
       igtfAplicado: false, igtfPct: 0, igtfMonto: 0,
     });
+  });
+});
+
+describe('recomponerConIva · el IVA se edita a mano en los servicios', () => {
+  const sinImpuestos = { ivaAplicado: false, ivaPct: 0, ivaMonto: 0, igtfAplicado: false, igtfPct: 0, igtfMonto: 0 };
+
+  it('agrega el IVA a un servicio que no lo tenía', () => {
+    const r = recomponerConIva(500, 500, sinImpuestos, { aplicado: true, pct: 16, monto: 80 });
+    expect(r).toEqual({ ivaAplicado: true, ivaPct: 16, ivaMonto: 80, igtfMonto: 0, impuestos: 80, total: 580 });
+  });
+
+  it('quita el IVA y el total vuelve a la base', () => {
+    const r = recomponerConIva(500, 500, soloIva(16, 80), { aplicado: false, pct: 16, monto: 80 });
+    expect(r).toEqual({ ivaAplicado: false, ivaPct: 0, ivaMonto: 0, igtfMonto: 0, impuestos: 0, total: 500 });
+  });
+
+  it('manda el monto escrito, aunque no coincida con el %', () => {
+    const r = recomponerConIva(500, 500, soloIva(16, 80), { aplicado: true, pct: 16, monto: 79.5 });
+    expect(r.ivaMonto).toBe(79.5);
+    expect(r.total).toBe(579.5);
+  });
+
+  it('un IVA marcado pero en cero se guarda como sin IVA', () => {
+    const r = recomponerConIva(500, 500, soloIva(16, 80), { aplicado: true, pct: 16, monto: 0 });
+    expect(r.ivaAplicado).toBe(false);
+    expect(r.ivaPct).toBe(0);
+    expect(r.total).toBe(500);
+  });
+
+  it('con la base cambiada, el total sale de la base nueva más el IVA escrito', () => {
+    const r = recomponerConIva(500, 800, soloIva(16, 80), { aplicado: true, pct: 16, monto: 128 });
+    expect(r.total).toBe(928);
+  });
+
+  it('el IGTF se recalcula sobre base + IVA nuevo', () => {
+    const conIgtf = { ivaAplicado: false, ivaPct: 0, ivaMonto: 0, igtfAplicado: true, igtfPct: 3, igtfMonto: 30 };
+    const r = recomponerConIva(1000, 1000, conIgtf, { aplicado: true, pct: 16, monto: 160 });
+    expect(r.igtfMonto).toBe(34.8);
+    expect(r.total).toBe(1194.8);
+  });
+
+  it('ivaCambio compara al centavo', () => {
+    expect(ivaCambio(soloIva(16, 80), { ivaAplicado: true, ivaMonto: 80 })).toBe(false);
+    expect(ivaCambio(soloIva(16, 80), { ivaAplicado: true, ivaMonto: 80.004 })).toBe(false);
+    expect(ivaCambio(soloIva(16, 80), { ivaAplicado: true, ivaMonto: 79.5 })).toBe(true);
+    expect(ivaCambio(soloIva(16, 80), { ivaAplicado: false, ivaMonto: 80 })).toBe(true);
+    expect(ivaCambio(sinImpuestos, { ivaAplicado: false, ivaMonto: 0 })).toBe(false);
   });
 });

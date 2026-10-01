@@ -12,7 +12,7 @@ export interface ContratoReporteMeta { filtro?: string }
 
 const NOMBRE_ARCHIVO = 'datos-reporte-produccion.pdf';
 const pct = (v: number | null | undefined) =>
-  v == null || !Number.isFinite(Number(v)) ? '' : `${(Number(v) * 100).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  v == null || !Number.isFinite(Number(v)) ? '' : `${(Number(v) * 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 
 async function construirDoc(rows: ContratoAcopio[], meta: ContratoReporteMeta = {}) {
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([

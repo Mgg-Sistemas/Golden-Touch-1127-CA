@@ -41,7 +41,7 @@ describe('agruparRecibosPorFecha', () => {
   });
 
   it('un pago de la noche no se pasa al día siguiente', () => {
-    // 22:00 en Caracas es el día siguiente en UTC si se arma un Date. Acá se
+    // 22:00 en Caracas es el día siguiente en UTC si se arma un Date. Aquí se
     // corta el texto, así que el día es el que dice el dato.
     const g = agruparRecibosPorFecha([ren('1', 'ANA', '2026-09-15T22:00:00Z')]);
     expect(g[0].fecha).toBe('2026-09-15');

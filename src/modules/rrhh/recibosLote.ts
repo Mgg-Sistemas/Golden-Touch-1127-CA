@@ -5,7 +5,7 @@
    gente no cobra toda el mismo día, y quien reparte quiere los de HOY, no un
    PDF de treinta hojas con veinte que ya entregó la semana pasada.
 
-   Acá se agrupan los renglones POR FECHA DE PAGO y se resuelve qué entra en
+   Aquí se agrupan los renglones POR FECHA DE PAGO y se resuelve qué entra en
    la impresión. Es lógica pura —sin pantalla ni base— para poder probarla.
    ============================================================ */
 import type { NominaRenglon } from '@/shared/lib/types';
@@ -49,7 +49,7 @@ export function agruparRecibosPorFecha(renglones: NominaRenglon[]): GrupoRecibos
     return (a.fecha ?? '').localeCompare(b.fecha ?? '');
   });
   // Dentro de cada grupo, por nombre: así se buscan en la mano como en una lista.
-  for (const g of grupos) g.renglones.sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es'));
+  for (const g of grupos) g.renglones.sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es-VE'));
   return grupos;
 }
 

@@ -67,7 +67,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
   // Opciones para los selectores de filtro.
   const opcs = useMemo(() => {
     const uniq = (sel: (c: ContratoAcopio) => string | null | undefined) =>
-      Array.from(new Set(vigentes.map((c) => (sel(c) ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
+      Array.from(new Set(vigentes.map((c) => (sel(c) ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es-VE'));
     return { supervisores: uniq((c) => c.supervisor), lugares: uniq((c) => c.lugar_extraccion) };
   }, [vigentes]);
 
@@ -202,7 +202,7 @@ export const ContratosView = forwardRef<ContratosViewHandle, {
 
       {/* Lista */}
       {loading ? <EmptyState message="Cargando contratos…" icon="◔" />
-        : !contratos.length ? <EmptyState message="Sin contratos. Creá el primero con «Crear contrato»." icon="📜" />
+        : !contratos.length ? <EmptyState message="Sin contratos. Crea el primero con «Crear contrato»." icon="📜" />
         : (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.78rem' }}>
@@ -340,7 +340,7 @@ function ReportesContratosModal({ contratos, onClose }: { contratos: ContratoAco
       {modo === 'contrato' ? (
         <>
           <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-            Elegí el tipo de contrato y buscá el número; al verlo se abre la <strong>vista previa</strong> con todos los detalles para descargar.
+            Elige el tipo de contrato y busca el número; al verlo se abre la <strong>vista previa</strong> con todos los detalles para descargar.
           </p>
           <div className="view-toggle" role="tablist" style={{ marginBottom: '.7rem' }}>
             <button type="button" className={tipo === 'produccion' ? 'active' : ''} onClick={() => setTipo('produccion')}>⚙ Producción</button>
@@ -368,7 +368,7 @@ function ReportesContratosModal({ contratos, onClose }: { contratos: ContratoAco
       ) : (
         <>
           <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-            Resumen general de todos los contratos en una tabla (con totales). Podés acotar por tipo. Se abre en <strong>vista previa</strong> para descargar.
+            Resumen general de todos los contratos en una tabla (con totales). Puedes acotar por tipo. Se abre en <strong>vista previa</strong> para descargar.
           </p>
           <div className="form-row" style={{ maxWidth: 260 }}>
             <label>Tipo de contrato</label>
@@ -402,7 +402,7 @@ function HistoricosContratosModal({ historicos, canWrite, onVer, onRestaurar, on
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         {historicos.length} contrato(s) archivado(s) · <strong className="mono">{num(kgTotal)} Kg</strong> de casiterita.
-        No cuentan en las métricas ni en la lista principal. Hacé clic en una fila para ver el detalle.
+        No cuentan en las métricas ni en la lista principal. Haz clic en una fila para ver el detalle.
       </p>
       {!historicos.length ? (
         <EmptyState message="Sin contratos en históricos." icon="📚" />

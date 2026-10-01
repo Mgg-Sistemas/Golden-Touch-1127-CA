@@ -81,7 +81,7 @@ export async function getDepartamentos(fromUsuarios: Usuario[] = []): Promise<st
   } catch { /* falla silenciosa */ }
   fromUsuarios.forEach((u) => { if (u.departamento) set.add(u.departamento); });
   if (set.size === 0) DEPTOS_DEFAULT.forEach((d) => set.add(d));
-  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es-VE'));
 }
 
 export async function addDepartamento(nombre: string, actorEmail?: string): Promise<string | null> {

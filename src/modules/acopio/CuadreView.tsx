@@ -23,7 +23,7 @@ export function CuadreView({ cuadres, canWrite, actor, actorName, onReload }: {
       </div>
 
       {!cuadres.length ? (
-        <div className="card"><p className="muted" style={{ margin: 0 }}>Sin cuadres. Creá el primero con “+ Nuevo cuadre”.</p></div>
+        <div className="card"><p className="muted" style={{ margin: 0 }}>Sin cuadres. Crea el primero con “+ Nuevo cuadre”.</p></div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
           {cuadres.map((c) => {
@@ -96,7 +96,7 @@ function CuadreEditor({ cuadre, canWrite, actor, actorName, onClose, onSaved, on
   }
 
   async function guardarHeader(): Promise<string | null> {
-    if (!fecha) { setError('Indicá la fecha.'); return null; }
+    if (!fecha) { setError('Indica la fecha.'); return null; }
     if (esNuevo) { const c = await crearCuadre(buildInput(), actor, actorName); return c.id; }
     await actualizarCuadre(cuadre!.id, buildInput());
     return cuadre!.id;
@@ -196,7 +196,7 @@ function CuadreEditor({ cuadre, canWrite, actor, actorName, onClose, onSaved, on
           {!esNuevo && editable && <button className="btn btn-sm btn-primary" onClick={() => setMovModal('nuevo')}>+ Movimiento</button>}
         </div>
         {esNuevo ? (
-          <p className="muted" style={{ margin: 0 }}>Creá el cuadre para empezar a cargar movimientos.</p>
+          <p className="muted" style={{ margin: 0 }}>Crea el cuadre para empezar a cargar movimientos.</p>
         ) : !movs.length ? (
           <p className="muted" style={{ margin: 0 }}>Sin movimientos.</p>
         ) : (
@@ -260,7 +260,7 @@ function MovModal({ cuadreId, mov, orden, onClose, onSaved }: {
     return { fecha, tipo, categoria: categoria || null, descripcion, beneficiario, monto: Number(monto) || 0, monto_bs: Number(montoBs) || 0, es_vale: esVale, pagado: esVale ? pagado : true, nota };
   }
   async function guardar() {
-    if ((Number(monto) || 0) <= 0) { toast('Indicá el monto', 'error'); return; }
+    if ((Number(monto) || 0) <= 0) { toast('Indica el monto', 'error'); return; }
     setSaving(true);
     try {
       if (esNuevo) await agregarMovimiento(cuadreId, build(), orden);

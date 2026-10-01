@@ -84,7 +84,7 @@ export async function cargarTrazabilidadProducto(productoId: string): Promise<Tr
       const costo = Number(e.costo_promedio) || 0;
       return { almacen: e.almacen, stock, costoPromedio: costo, valor: r2(stock * costo) };
     })
-    .sort((a, b) => b.valor - a.valor || a.almacen.localeCompare(b.almacen, 'es'));
+    .sort((a, b) => b.valor - a.valor || a.almacen.localeCompare(b.almacen, 'es-VE'));
 
   const stockTotal = r3(existencias.reduce((a, e) => a + e.stock, 0));
   const valorActual = r2(existencias.reduce((a, e) => a + e.valor, 0));

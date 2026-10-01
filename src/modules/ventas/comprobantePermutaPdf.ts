@@ -15,13 +15,13 @@
    diferencia puede salir negativa: ahí el saldo queda a favor del cliente.
 
    LA REGLA FIRME
-   Igual que el comprobante de venta: acá NO se imprime lo que la empresa pagó
+   Igual que el comprobante de venta: aquí NO se imprime lo que la empresa pagó
    por la mercancía ni el margen que le dejó. Este papel sale por la puerta.
 
    Comparte el encabezado, la ficha del cliente, el bloque de cobro y las
    firmas con `comprobanteVentaPdf.ts`, para que los dos documentos no
    divergan con el tiempo. Los números llegan ya cargados en `VentaCompleta`:
-   acá no se consulta la base ni se rehace ninguna cuenta.
+   aquí no se consulta la base ni se rehace ninguna cuenta.
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
@@ -125,7 +125,7 @@ export async function descargarComprobantePermutaPdf(
   y = Math.max(finIzq, finDer) + 16;
 
   /* ─── La balanza ───────────────────────────────────────
-     El IVA se discrimina acá y no en el bloque de la izquierda porque grava el
+     El IVA se discrimina aquí y no en el bloque de la izquierda porque grava el
      documento entero, no cada renglón. `diferencia` es la última línea a
      propósito: es el único número que el cliente tiene que mirar. */
   const filas: Array<[string, string]> = [

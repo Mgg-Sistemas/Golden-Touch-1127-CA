@@ -76,7 +76,7 @@ export function ProductoParecidoModal({
           fontSize: '.86rem',
         }}
       >
-        Si es el mismo, usá el que ya está: conserva su <strong>stock, su costo y su historial</strong>.
+        Si es el mismo, usa el que ya está: conserva su <strong>stock, su costo y su historial</strong>.
         Crear uno nuevo parte el inventario en dos y después hay que unirlos a mano.
       </div>
 

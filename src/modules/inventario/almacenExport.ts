@@ -136,10 +136,10 @@ function ordenJerarquico(sedeAlmacenes: Almacen[], todos: Almacen[]): NodoAlmace
   const hijos = (parentId: string | null) =>
     sedeAlmacenes
       .filter((a) => (a.parent_id ?? null) === parentId)
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE'));
   const roots = sedeAlmacenes
     .filter((a) => !a.parent_id || !ids.has(a.parent_id))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE'));
   const out: NodoAlmacen[] = [];
   const walk = (a: Almacen, depth: number) => {
     out.push({ nombre: a.nombre, display: nombreCortoAlmacen(a, todos), depth });
@@ -178,11 +178,11 @@ export async function descargarReporteAlmacenesPdf(): Promise<void> {
 
   // Sedes en orden alfabético.
   const sedes = Array.from(new Set(almacenes.map((a) => a.sede?.trim() || SIN_SEDE)))
-    .sort((a, b) => a.localeCompare(b, 'es'));
+    .sort((a, b) => a.localeCompare(b, 'es-VE'));
 
   // Almacenes legados (nombre en existencias que no existe como entidad) → "Sin sede".
   const conocidos = new Set(almacenes.map((a) => a.nombre));
-  const huérfanos = Array.from(exPorAlmacen.keys()).filter((n) => !conocidos.has(n)).sort((a, b) => a.localeCompare(b, 'es'));
+  const huérfanos = Array.from(exPorAlmacen.keys()).filter((n) => !conocidos.has(n)).sort((a, b) => a.localeCompare(b, 'es-VE'));
   if (huérfanos.length && !sedes.includes(SIN_SEDE)) sedes.push(SIN_SEDE);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -230,7 +230,7 @@ export async function descargarReporteAlmacenesPdf(): Promise<void> {
       const exs = (exPorAlmacen.get(nodo.nombre) ?? []).slice().sort((a, b) => {
         const na = productoById.get(a.producto_id)?.nombre ?? '';
         const nb = productoById.get(b.producto_id)?.nombre ?? '';
-        return na.localeCompare(nb, 'es');
+        return na.localeCompare(nb, 'es-VE');
       });
       const subtotal = exs.reduce((acc, e) => acc + valorDeEx(e), 0);
       totalSede += subtotal;

@@ -10,10 +10,13 @@
    consultas para dibujar una tabla.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Producto } from '@/shared/lib/types';
+import { claseMovimiento, type ClaseMovimiento } from './claseMovimiento';
 import { listViveres } from './cocina.repository';
+import { rotuloOrigen } from './movInventario';
 import {
-  calcularEoq, construirDias, demandaAnualEstimada, diasEntre, estadoStock, totalizarControl,
+  calcularEoq, construirDias, demandaAnualEstimada, desdeParaKardex, diasEntre, estadoStock, totalizarControl,
   type EstadoStock, type FilaDia, type MovimientoDia, type TotalesControl,
 } from './controlDistribucion';
 
@@ -144,7 +147,7 @@ export async function guardarConteo(input: {
 }): Promise<Conteo> {
   const cantidad = Number(input.cantidad);
   if (!Number.isFinite(cantidad) || cantidad < 0) throw new Error('El conteo no puede ser negativo.');
-  if (!input.fecha) throw new Error('Indicá la fecha del conteo.');
+  if (!input.fecha) throw new Error('Indica la fecha del conteo.');
   if (input.fecha > new Date().toISOString().slice(0, 10)) {
     throw new Error('No se puede contar un día que todavía no llegó.');
   }
@@ -203,6 +206,8 @@ export interface Control {
   /** Comensales por día del período (los platos servidos por la cocina). */
   comensalesPorDia: Map<string, number>;
   conteos: Conteo[];
+  /** Movimiento por movimiento del período, de lo más nuevo a lo más viejo. */
+  detalle: MovimientoDetalle[];
 }
 
 /** Comensales (platos) servidos por día en el período. */
@@ -228,28 +233,145 @@ async function comensalesPorDia(desde: string, hasta: string): Promise<Map<strin
  * movió desde entonces, y si faltara un movimiento de ayer la cuenta entera
  * quedaría corrida.
  */
-async function movimientosDesde(desde: string, ids: string[]): Promise<Map<string, MovimientoDia[]>> {
-  const out = new Map<string, MovimientoDia[]>();
-  if (!ids.length) return out;
-  const { data, error } = await supabase.from('movimientos')
-    .select('producto_id, at, delta, ref_tipo')
+interface FilaMovimiento {
+  id: string;
+  producto_id: string;
+  at: string;
+  delta: number;
+  tipo: string | null;
+  ref_tipo: string | null;
+  ref_codigo: string | null;
+  detalle: string | null;
+  actor_name: string | null;
+  actor: string | null;
+}
+
+/**
+ * Una fila del detalle: un movimiento del kardex, con de qué cajón es y de dónde
+ * viene. Es lo que permite cotejar el resumen contra Inventario renglón por
+ * renglón, sin cambiar de pantalla.
+ */
+export interface MovimientoDetalle {
+  id: string;
+  producto_id: string;
+  sku: string;
+  nombre: string;
+  unidad: string | null;
+  /** Fecha y hora del movimiento, como la guarda el kardex. */
+  fecha: string;
+  clase: ClaseMovimiento;
+  /** Siempre positiva: el cajón ya dice si entra o sale. */
+  cantidad: number;
+  /** El `tipo` del kardex: entrada, salida, ajuste, consumo… */
+  tipo: string;
+  /** Cómo se dice el origen en pantalla («Orden de compra», «Ajuste manual»…). */
+  origen: string;
+  comprobante: string | null;
+  motivo: string | null;
+  responsable: string | null;
+}
+
+/** Cómo se dice cada cajón en pantalla y en el PDF. */
+export const CLASE_LABEL: Record<ClaseMovimiento, string> = {
+  entrada: 'Entrada',
+  consumo: 'Consumo de cocina',
+  salida: 'Salida de inventario',
+  ajuste: 'Ajuste manual',
+};
+
+async function movimientosDesde(desde: string, ids: string[], instante?: string | null): Promise<{
+  porProducto: Map<string, MovimientoDia[]>;
+  filas: FilaMovimiento[];
+}> {
+  const porProducto = new Map<string, MovimientoDia[]>();
+  if (!ids.length) return { porProducto, filas: [] };
+  // El `tipo` se trae porque es lo único que separa un ajuste de inventario de una
+  // salida de material: los dos llegan con `ref_tipo = 'manual'`. El resto de las
+  // columnas son para el detalle: comprobante, motivo y quién lo hizo.
+  //
+  // Paginado: las comidas de un mes pasan las 1.000 filas y PostgREST corta ahí sin
+  // avisar. Sin paginar, un rango largo perdía consumo por el camino y el reporte
+  // mostraba menos consumido de lo que de verdad se gastó.
+  const filas = await todasLasFilas<FilaMovimiento>((a, b) => supabase.from('movimientos')
+    .select('id, producto_id, at, delta, tipo, ref_tipo, ref_codigo, detalle, actor_name, actor')
     .in('producto_id', ids)
-    .gte('at', `${desde}T00:00:00`)
-    .order('at', { ascending: true });
-  if (error) throw error;
-  for (const r of (data ?? []) as Array<{ producto_id: string; at: string; delta: number; ref_tipo: string | null }>) {
-    const lista = out.get(r.producto_id) ?? [];
-    lista.push({ fecha: dia(r.at), delta: Number(r.delta) || 0, refTipo: r.ref_tipo });
-    out.set(r.producto_id, lista);
+    .gte('at', desdeParaKardex(desde, instante))
+    .order('at', { ascending: true }).order('id').range(a, b));
+  for (const r of filas) {
+    const lista = porProducto.get(r.producto_id) ?? [];
+    lista.push({ fecha: dia(r.at), delta: Number(r.delta) || 0, tipo: r.tipo, refTipo: r.ref_tipo });
+    porProducto.set(r.producto_id, lista);
   }
-  return out;
+  return { porProducto, filas };
+}
+
+/**
+ * El detalle del período: cada movimiento con su cajón, de lo más nuevo a lo más
+ * viejo, que es como se revisa.
+ *
+ * Los movimientos posteriores a `hasta` se dejan afuera: hacen falta para deducir
+ * el saldo de apertura, pero no son del período y en el papel confundirían.
+ */
+function armarDetalle(
+  filas: FilaMovimiento[], viveres: Producto[], desde: string, hasta: string,
+): MovimientoDetalle[] {
+  const porId = new Map(viveres.map((v) => [v.id, v]));
+  const out: MovimientoDetalle[] = [];
+  for (const r of filas) {
+    const f = dia(r.at);
+    if (f < desde || f > hasta) continue;
+    const delta = Number(r.delta) || 0;
+    if (delta === 0) continue;
+    const v = porId.get(r.producto_id);
+    if (!v) continue;
+    out.push({
+      id: String(r.id),
+      producto_id: r.producto_id,
+      sku: v.sku,
+      nombre: v.nombre,
+      unidad: v.unidad ?? null,
+      fecha: r.at,
+      clase: claseMovimiento({ delta, tipo: r.tipo, refTipo: r.ref_tipo }),
+      cantidad: r2(Math.abs(delta)),
+      tipo: r.tipo ?? '',
+      origen: rotuloOrigen(r.ref_tipo, r.tipo ?? ''),
+      comprobante: r.ref_codigo?.trim() || null,
+      motivo: r.detalle?.trim() || null,
+      responsable: r.actor_name?.trim() || r.actor?.trim() || null,
+    });
+  }
+  return out.sort((a, b) => b.fecha.localeCompare(a.fecha) || a.nombre.localeCompare(b.nombre, 'es-VE'));
+}
+
+export interface OpcionesControl {
+  /**
+   * El saldo inicial GUARDADO del ciclo, por producto.
+   *
+   * Cuando viene, es la verdad y no se reconstruye nada: es el «principio» que el
+   * mercado dejó anotado al abrirse, y que al cerrar pasa al histórico y al ciclo
+   * siguiente. Un víver que no está en él abrió en cero, porque así lo guardó el
+   * cierre (ver `reconstruirSaldo` y `saldoParaElNuevo`).
+   *
+   * Solo aplica cuando el reporte arranca justo donde arrancó el ciclo. Para un
+   * rango elegido a mano no hay saldo guardado y hay que deducirlo.
+   */
+  aperturas?: Map<string, number> | null;
+  /**
+   * El instante en que se tomó ese saldo (el inicio del ciclo). Con él, el kardex se lee
+   * desde ese instante y no desde las 00:00 del día: lo movido antes ya está dentro del
+   * saldo y sumarlo otra vez lo contaría dos veces (ver `desdeParaKardex`). Solo se usa
+   * junto con `aperturas`.
+   */
+  desdeInstante?: string | null;
 }
 
 /**
  * El control de TODO el mercado en el período indicado. Un solo viaje por cada
  * cosa que hace falta, y el armado en memoria.
  */
-export async function cargarControl(desde: string, hasta: string): Promise<Control> {
+export async function cargarControl(
+  desde: string, hasta: string, opciones?: OpcionesControl,
+): Promise<Control> {
   const dias = diasEntre(desde, hasta);
   const [viveres, generales, overrides, conteos, comensales] = await Promise.all([
     listViveres(),
@@ -260,7 +382,8 @@ export async function cargarControl(desde: string, hasta: string): Promise<Contr
   ]);
 
   const ids = viveres.map((p) => p.id);
-  const movs = await movimientosDesde(desde, ids);
+  const guardadas = opciones?.aperturas ?? null;
+  const { porProducto: movs, filas } = await movimientosDesde(desde, ids, guardadas ? opciones?.desdeInstante : null);
 
   const porProducto = new Map(overrides.map((o) => [o.producto_id, o]));
   const conteosPorProducto = new Map<string, Map<string, number>>();
@@ -273,8 +396,13 @@ export async function cargarControl(desde: string, hasta: string): Promise<Contr
   const productos = viveres.map((p: Producto) => {
     const todos = movs.get(p.id) ?? [];
     const stockActual = r2(Number(p.stock) || 0);
-    // Apertura del período: el stock de hoy menos todo lo que se movió desde el inicio.
-    const apertura = r2(stockActual - todos.reduce((a, m) => a + m.delta, 0));
+    // Apertura del período: el saldo que el ciclo dejó anotado si lo hay, y si no, el
+    // stock de hoy menos todo lo que se movió desde el inicio. Se prefiere el guardado
+    // porque es el que va al histórico al cerrar: si alguien corrige un movimiento
+    // viejo, el reporte de un ciclo tiene que seguir abriendo con lo que abrió.
+    const apertura = guardadas
+      ? r2(guardadas.get(p.id) ?? 0)
+      : r2(stockActual - todos.reduce((a, m) => a + m.delta, 0));
 
     const o = porProducto.get(p.id);
     const costoOrden = o?.costo_orden ?? generales.costoOrden;
@@ -318,7 +446,10 @@ export async function cargarControl(desde: string, hasta: string): Promise<Contr
     } satisfies ControlProducto;
   });
 
-  return { desde, hasta, generales, productos, comensalesPorDia: comensales, conteos };
+  return {
+    desde, hasta, generales, productos, comensalesPorDia: comensales, conteos,
+    detalle: armarDetalle(filas, viveres, desde, hasta),
+  };
 }
 
 /** Orden del listado: lo que hay que comprar primero, y dentro de eso lo más consumido. */
@@ -330,6 +461,6 @@ export function ordenarPorUrgencia(productos: ControlProducto[]): ControlProduct
     if (d !== 0) return d;
     const c = b.totales.consumo - a.totales.consumo;
     if (c !== 0) return c;
-    return a.nombre.localeCompare(b.nombre, 'es');
+    return a.nombre.localeCompare(b.nombre, 'es-VE');
   });
 }

@@ -686,6 +686,7 @@ export interface CajaMovimiento {
   gastos: number;          // H · Gastos GT
   nominas: number;         // I · Nóminas GT
   traslado: number;        // J · Traslado de caja
+  inversion: number;       // K · Inversión (sale del saldo; NO suma a la tasa ni a Gastos GT)
   kg_recibidos: number;    // L · Kg recibidos por MGG
   clasif_grupo?: GrupoClasificacion | null;
   clasif_valor?: string | null;
@@ -753,6 +754,10 @@ export interface CierreSnapshot {
     nominas: number;
     facturado: number;
     totalKg: number;
+    /** Columnas J, K y M del Excel (cierres viejos no las traen). */
+    traslado?: number;
+    inversion?: number;
+    kgRecibidos?: number;
   };
   /** Filas de la tabla de movimientos al cierre (para mostrarlas tal cual en el histórico). */
   filas: CierreSnapshotFila[];
@@ -777,6 +782,8 @@ export interface CierreSnapshotFila {
   usdFacturados: number;
   gastosGt: number | null;
   nominasGt: number | null;
+  trasladoCaja?: number | null;
+  inversion?: number | null;
   saldoUsd: number;
   saldoKgCasiterita: number;
 }
@@ -789,9 +796,10 @@ export interface CajaResumen {
   gastos: number;         // H3
   nominas: number;        // I3
   traslado: number;       // J3
-  saldoUsd: number;       // K3 = D - G - H - I - J
-  kgRecibidos: number;    // L3
-  saldoKg: number;        // M3 = E - L
+  inversion: number;      // K3 · Inversión (fuera de la tasa)
+  saldoUsd: number;       // L3 = D - G - H - I - J - K
+  kgRecibidos: number;    // M3
+  saldoKg: number;        // N3 = E - M
   /** Tasa del material = (facturados + gastos + nominas) / kgCerrados (F3). */
   tasa: number;
 }
@@ -951,6 +959,10 @@ export interface ItemSalida {
   almacen?: string | null;
   /** Observación por ítem (p. ej. "será trasladado para reparación"). */
   observacion?: string | null;
+  /** true = vale de entrega a Cocina: comida que va a la unidad COCINA. Sigue el
+   *  documento, la nota y las firmas, pero NO descuenta stock (lo descuenta
+   *  Distribución de comidas al servir el plato). */
+  vale_cocina?: boolean;
 }
 
 export interface SolicitudSalida {
@@ -1375,14 +1387,14 @@ export interface Personal {
   apellido: string;
   cedula?: string | null;
   /** RIF del trabajador (V-12345678-9). Es otro dato que la cédula.
-   *  El ARCHIVO del RIF no está acá: va en `personal_documentos`. */
+   *  El ARCHIVO del RIF no está aquí: va en `personal_documentos`. */
   rif?: string | null;
   cargo?: string | null;
   departamento?: string | null;
   sueldo_base: number;          // sueldo MENSUAL (USD)
   activo: boolean;
   fecha_ingreso?: string | null;
-  /** De acá sale la EDAD: no se guarda, se calcula (un número guardado envejece mal). */
+  /** De aquí sale la EDAD: no se guarda, se calcula (un número guardado envejece mal). */
   fecha_nacimiento?: string | null;
   genero?: 'M' | 'F' | 'O' | null;
   estado_civil?: 'soltero' | 'casado' | 'divorciado' | 'viudo' | 'concubinato' | null;
@@ -1394,6 +1406,34 @@ export interface Personal {
   /** Correo del TRABAJADOR (el de la empresa vive en shared/lib/empresa.ts).
    *  Se guarda en minúsculas y sin espacios; vacío se guarda como null. */
   correo?: string | null;
+  /**
+   * Condiciones de salud, de la hoja de ingreso. Los booleanos admiten NULO a
+   * propósito: son TRES estados (sí / no / no se preguntó), y mostrar «no
+   * tiene alergias» por una ficha que nadie completó es peor que no mostrar
+   * nada. El detalle solo existe si la respuesta es «sí»: la base lo borra
+   * sola si pasa a «no» (ver saludPersonal.ts).
+   */
+  tiene_alergias?: boolean | null;
+  alergias_detalle?: string | null;
+  tiene_enfermedad?: boolean | null;
+  enfermedad_detalle?: string | null;
+  /**
+   * Grado de instrucción de la hoja de ingreso y el título que obtuvo
+   * (28/09/2026). El título cuelga del grado: sin grado marcado no se guarda,
+   * porque un título suelto no se sabe si creer (ver instruccionYTrabajo.ts).
+   */
+  grado_instruccion?: 'primaria' | 'bachiller' | 'universitario' | null;
+  titulo_obtenido?: string | null;
+  /**
+   * El último trabajo, como lo cuenta la persona en la hoja de ingreso: dónde
+   * estuvo, qué cargo tenía, cuánto duró y cuánto cobraba. La DURACIÓN es
+   * texto a propósito («2 años y 3 meses», «de 2021 a 2024»): pedir dos fechas
+   * exactas deja el campo vacío cuando no las recuerda, que es lo habitual.
+   */
+  trabajo_anterior_empresa?: string | null;
+  trabajo_anterior_cargo?: string | null;
+  trabajo_anterior_duracion?: string | null;
+  trabajo_anterior_sueldo?: number | null;
   /** Contacto de emergencia: nombre, parentesco y teléfono (van al carnet y al QR). */
   contacto_emergencia?: string | null;
   contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;
@@ -1475,19 +1515,38 @@ export interface PersonalSueldo {
   created_by?: string | null;
 }
 
-/** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar. */
+/** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar.
+ *  El saldo lo mantiene la base: monto_total − Σ abonos (anticipos_pagos). */
 export interface AnticipoPrestamo {
   id: string;
   personal_id: string;
   tipo: 'anticipo' | 'prestamo';
+  /** Día en que se dio el préstamo (YYYY-MM-DD). Puede ser anterior a la carga. */
+  fecha: string;
   monto_total: number;
   saldo: number;
   cuota_sugerida?: number | null;
   estado: 'activo' | 'saldado';
   motivo?: string | null;
+  /** Cargado en modo histórico: existía antes del sistema, con lo ya abonado. */
+  historico?: boolean;
   creado_por?: string | null;
   actor_name?: string | null;
   created_at: string;
+}
+
+/** Un abono a un anticipo/préstamo: por nómina, a mano o traído del histórico. */
+export interface AnticipoPago {
+  id: string;
+  anticipo_id: string;
+  fecha: string;
+  monto: number;
+  origen: 'nomina' | 'manual' | 'historico';
+  renglon_id?: string | null;
+  nota?: string | null;
+  created_at: string;
+  created_by?: string | null;
+  actor_name?: string | null;
 }
 
 /** Período de nómina (una por quincena), cargado desde RRHH. */

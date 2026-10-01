@@ -1,0 +1,134 @@
+/* ============================================================
+   Golden Touch · Cocina · Panel del mercado
+
+   Dos piezas que el resto del sistema no tiene:
+     · .coc-kpi   — la tarjeta de una cifra del ciclo. Es un botón: se toca y
+                    abre de dónde sale ese número.
+     · .coc-vista — el interruptor de una vista (Disponible, Movimientos,
+                    Distribución). Reemplazó a los cuatro botones del selector
+                    el 28/09/2026: encender dos a la vez es lo que antes se
+                    llamaba «Ambos».
+   ============================================================ */
+
+/* ───────── Las cifras del ciclo ───────── */
+
+.coc-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: .7rem;
+}
+
+.coc-kpi {
+  display: block;
+  width: 100%;
+  padding: .6rem .75rem;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color .15s ease, transform .15s ease, background .15s ease;
+}
+
+.coc-kpi:hover,
+.coc-kpi:focus-visible {
+  border-color: var(--brand, #ff8a00);
+  transform: translateY(-1px);
+}
+
+.coc-kpi.destacado { border-color: var(--brand, #ff8a00); }
+
+.coc-kpi-rotulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .4rem;
+  color: var(--muted);
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+/* La lupa dice que la tarjeta se toca, sin gritarlo: aparece al pasar por encima. */
+.coc-kpi-lupa {
+  opacity: 0;
+  font-size: .8rem;
+  transition: opacity .15s ease;
+}
+
+.coc-kpi:hover .coc-kpi-lupa,
+.coc-kpi:focus-visible .coc-kpi-lupa { opacity: .8; }
+
+.coc-kpi-valor { font-weight: 800; line-height: 1.15; }
+.coc-kpi-nota { font-size: .7rem; }
+
+/* ───────── Los interruptores de vista ───────── */
+
+.coc-vistas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: .6rem;
+  margin-bottom: .8rem;
+}
+
+.coc-vista {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .7rem;
+  padding: .6rem .8rem;
+  border: 2px solid var(--border);
+  border-radius: var(--r-md, 10px);
+  background: var(--surface-2, var(--surface));
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+
+.coc-vista:hover { border-color: color-mix(in srgb, var(--brand, #ff8a00) 55%, var(--border)); }
+
+.coc-vista.on {
+  border-color: var(--brand, #ff8a00);
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand, #ff8a00) 7%, var(--surface-2, var(--surface)));
+}
+
+/* La única encendida no se puede apagar: se deja ver que ese clic no hace nada. */
+.coc-vista.ultimo { cursor: default; }
+
+.coc-vista-txt { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.coc-vista-titulo { font-weight: 700; font-size: .95rem; }
+.coc-vista.on .coc-vista-titulo { color: var(--text); }
+.coc-vista-que { font-size: .78rem; color: var(--muted); }
+
+/* El interruptor en sí. */
+.coc-sw {
+  flex: none;
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  transition: background .15s ease;
+}
+
+.coc-vista.on .coc-sw { background: var(--brand, #ff8a00); }
+
+.coc-sw-bola {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f4f4f5;
+  transition: transform .15s ease;
+}
+
+.coc-vista.on .coc-sw-bola { transform: translateX(20px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .coc-kpi, .coc-vista, .coc-sw, .coc-sw-bola, .coc-kpi-lupa { transition: none; }
+  .coc-kpi:hover, .coc-kpi:focus-visible { transform: none; }
+}

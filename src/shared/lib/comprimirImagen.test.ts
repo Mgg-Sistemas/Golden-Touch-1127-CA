@@ -1,45 +1,46 @@
-import { describe, expect, it, vi } from 'vitest';
-import { comprimirImagen } from './comprimirImagen';
+import { describe, it, expect } from 'vitest';
+import { convieneAchicar, debeConvertirSiempre, medidasAchicadas, nombreJpg, UMBRAL_BYTES } from './comprimirImagen';
 
-function archivo(nombre: string, tipo: string, bytes = 10): File {
-  return new File([new Uint8Array(bytes)], nombre, { type: tipo });
-}
-
-describe('comprimirImagen', () => {
-  it('un PDF se devuelve tal cual, sin tocar', async () => {
-    const pdf = archivo('acta.pdf', 'application/pdf');
-    await expect(comprimirImagen(pdf)).resolves.toBe(pdf);
+describe('convieneAchicar', () => {
+  it('solo fotos pesadas', () => {
+    expect(convieneAchicar('image/jpeg', 5 * 1024 * 1024)).toBe(true);
+    expect(convieneAchicar('image/png', UMBRAL_BYTES + 1)).toBe(true);
+    expect(convieneAchicar('image/jpeg', UMBRAL_BYTES)).toBe(false);
   });
-
-  it('si el navegador no puede procesar la imagen, devuelve el original en vez de fallar', async () => {
-    // En Node no hay canvas ni createImageBitmap: es exactamente el caso
-    // «modo privado / navegador que bloquea canvas». No debe lanzar.
-    const jpg = archivo('foto.jpg', 'image/jpeg');
-    await expect(comprimirImagen(jpg)).resolves.toBe(jpg);
+  it('ni PDF, ni GIF, ni SVG', () => {
+    expect(convieneAchicar('application/pdf', 9_000_000)).toBe(false);
+    expect(convieneAchicar('image/gif', 9_000_000)).toBe(false);
+    expect(convieneAchicar('image/svg+xml', 9_000_000)).toBe(false);
   });
-
-  it('un WEBP se reexporta siempre a JPEG, aunque sea chico y el JPEG no achique', async () => {
-    vi.stubGlobal('createImageBitmap', async () => ({ width: 100, height: 100, close: () => {} }));
-    const ctx = { drawImage: () => {} };
-    const canvas = {
-      width: 0, height: 0, getContext: () => ctx,
-      // El JPEG pesa MAS que el original: con otro formato se devolveria el original.
-      toBlob: (cb: (b: Blob | null) => void) => cb(new Blob([new Uint8Array(500)], { type: 'image/jpeg' })),
-    };
-    vi.stubGlobal('document', { createElement: () => canvas });
-    try {
-      const webp = archivo('foto.webp', 'image/webp', 50);
-      const r = await comprimirImagen(webp);
-      expect(r.type).toBe('image/jpeg');
-      expect(r.name).toBe('foto.jpg');
-      // Un JPEG chico, en cambio, se devuelve tal cual.
-      const jpg = archivo('foto.jpg', 'image/jpeg', 50);
-      await expect(comprimirImagen(jpg)).resolves.toBe(jpg);
-    } finally { vi.unstubAllGlobals(); }
+  it('un WEBP se convierte aunque sea chico: el PDF no sabe dibujarlo', () => {
+    expect(convieneAchicar('image/webp', 1024)).toBe(true);
+    expect(convieneAchicar('image/webp', UMBRAL_BYTES)).toBe(true);
   });
+});
 
-  it('un archivo que no es imagen ni PDF también pasa sin tocar', async () => {
-    const txt = archivo('nota.txt', 'text/plain');
-    await expect(comprimirImagen(txt)).resolves.toBe(txt);
+describe('debeConvertirSiempre', () => {
+  it('solo el WEBP, que jsPDF no dibuja', () => {
+    expect(debeConvertirSiempre('image/webp')).toBe(true);
+    expect(debeConvertirSiempre('image/jpeg')).toBe(false);
+    expect(debeConvertirSiempre('image/png')).toBe(false);
+    expect(debeConvertirSiempre('application/pdf')).toBe(false);
+  });
+});
+
+describe('medidasAchicadas', () => {
+  it('reduce el lado mayor a 1600 manteniendo la proporción', () => {
+    expect(medidasAchicadas(4000, 3000)).toEqual({ ancho: 1600, alto: 1200 });
+    expect(medidasAchicadas(3000, 4000)).toEqual({ ancho: 1200, alto: 1600 });
+  });
+  it('nunca agranda una foto chica', () => {
+    expect(medidasAchicadas(800, 600)).toEqual({ ancho: 800, alto: 600 });
+  });
+});
+
+describe('nombreJpg', () => {
+  it('cambia la extensión', () => {
+    expect(nombreJpg('IMG_0001.HEIC')).toBe('IMG_0001.jpg');
+    expect(nombreJpg('Screenshot.png')).toBe('Screenshot.jpg');
+    expect(nombreJpg('sinextension')).toBe('sinextension.jpg');
   });
 });

@@ -30,6 +30,7 @@ import { TrasladoDineroForm } from './TrasladoDineroForm';
 import { ConciliarMineralModal } from './ConciliarMineralModal';
 import { GestionarCajasModal } from './GestionarCajasModal';
 import { SalidaMaterialDetalle } from './SalidaMaterialDetalle';
+import { AdjuntosSalida } from './AdjuntosSalida';
 import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { norm } from '@/shared/lib/texto';
@@ -488,7 +489,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
             <div className="card-title" style={{ marginBottom: '.4rem' }}><span>Gasto por {porUnidad ? 'unidad' : 'producto'} (USD)</span></div>
             <BarChart data={data} yFormatter={(v) => money(v)} emptyMessage="Sin movimientos en el período."
               onBarClick={(p) => setDrill((d) => d === p.label ? null : p.label)} />
-            <p className="muted" style={{ fontSize: '.74rem', margin: '.4rem 0 0' }}>📊 Tocá una barra (o una fila) para ver el detalle de {porUnidad ? 'esa unidad' : 'ese producto'}.</p>
+            <p className="muted" style={{ fontSize: '.74rem', margin: '.4rem 0 0' }}>📊 Toca una barra (o una fila) para ver el detalle de {porUnidad ? 'esa unidad' : 'ese producto'}.</p>
           </div>
 
           {/* Tabla resumen (clic = drill-down) */}
@@ -549,7 +550,7 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
                   ))}
                 </tbody>
               </table>
-              <p className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0' }}>Pasá el mouse sobre «Autorizó» para ver la fecha de autorización.</p>
+              <p className="muted" style={{ fontSize: '.72rem', margin: '.35rem 0 0' }}>Pasa el mouse sobre «Autorizó» para ver la fecha de autorización.</p>
             </div>
           )}
         </>
@@ -724,7 +725,7 @@ function SolicitudesKanban({ sols, onVer, onVerHistorico, nombreDe }: {
     const n = nombreDe(s.actor);
     return n && n !== s.actor ? n : (s.actor ?? '—');
   };
-  if (!sols.length) return <EmptyState message="No hay solicitudes en esta vista. Creá una con el botón de arriba." icon="🗂" />;
+  if (!sols.length) return <EmptyState message="No hay solicitudes en esta vista. Crea una con el botón de arriba." icon="🗂" />;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.75rem' }}>
       {SOL_COLS.map((col) => {
@@ -771,7 +772,7 @@ function SolicitudesKanban({ sols, onVer, onVerHistorico, nombreDe }: {
 
 /* ───────────── Histórico de solicitudes (todo lo que el tablero ya no muestra) ─────────────
    El tablero es para lo que está en trámite: cada columna muestra las últimas
-   TOPE_COLUMNA y nada más. Acá está TODO, con filtros de verdad —incluido por QUIÉN
+   TOPE_COLUMNA y nada más. Aquí está TODO, con filtros de verdad —incluido por QUIÉN
    HIZO LA ACCIÓN, que es lo que las tarjetas nunca dijeron: la tarjeta muestra
    al solicitante, no a quien aprobó, ejecutó o canceló. */
 
@@ -926,7 +927,7 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
   const [error, setError] = useState<string | null>(null);
   // Lista de almacenes conocidos (desde las existencias) para los selectores de traslado.
   const almacenesNombres = useMemo(
-    () => [...new Set(existencias.map((e) => e.almacen).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'es')),
+    () => [...new Set(existencias.map((e) => e.almacen).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'es-VE')),
     [existencias],
   );
 
@@ -987,7 +988,7 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
 
   async function guardar() {
     setError(null);
-    if (!solicitante.trim()) { setError('Indicá quién hace la solicitud.'); return; }
+    if (!solicitante.trim()) { setError('Indica quién hace la solicitud.'); return; }
     const itemsLimpios: ItemSalida[] = items
       .filter((i) => (Number(i.cantidad) || 0) > 0)
       .map((i) => ({
@@ -1004,7 +1005,7 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
     setSaving(true);
     try {
       if (esTraslado) {
-        if (!almOrigen.trim() || !almDestino.trim()) { setError('Indicá el almacén de origen y el destino.'); setSaving(false); return; }
+        if (!almOrigen.trim() || !almDestino.trim()) { setError('Indica el almacén de origen y el destino.'); setSaving(false); return; }
         if (almOrigen === almDestino) { setError('El almacén origen y destino deben ser distintos.'); setSaving(false); return; }
       }
       if (exigeMotivoSalida(sol.scope, sol.tipo) && motivo.trim().length < MOTIVO_SALIDA_MINIMO) {
@@ -1175,6 +1176,9 @@ function SolicitudEditForm({ sol, actor, productos, existencias, onSaved }: {
         </>
       )}
 
+      {/* Las fotos y documentos se cambian aquí, mientras la solicitud sigue por aprobar. */}
+      <AdjuntosSalida modulo={sol.scope === 'traslado' ? 'traslado' : 'salida'} refId={sol.id} actor={actor} />
+
       <div className="actions" style={{ marginTop: '.75rem', justifyContent: 'flex-end' }}>
         <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void guardar()}>
           {saving ? 'Guardando…' : '💾 Guardar cambios'}
@@ -1320,6 +1324,7 @@ function SolicitudDetalleModal({
           <tr><td className="muted">Solicitante</td><td>{(() => { const s = (sol.solicitante ?? '').trim(); if (s) return s; const n = nombreDe(sol.actor); return n && n !== sol.actor ? n : (sol.actor ?? '—'); })()}</td></tr>
           {sol.sede_origen && <tr><td className="muted">Sede origen</td><td>{sol.sede_origen}</td></tr>}
           {sol.unidad_solicitante && <tr><td className="muted">Unidad solicitante</td><td>{sol.unidad_solicitante}</td></tr>}
+          {!!sol.items?.some((it) => it.vale_cocina) && <tr><td className="muted">Vale a Cocina</td><td style={{ color: 'var(--warning, #f59e0b)' }}>🍽 Los alimentos de esta salida no descuentan inventario: el consumo lo registra Distribución de comidas. Limpieza y demás sí descuentan.</td></tr>}
           {sol.tipo === 'material' ? (
             <>
               <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Inventario'}</td>
@@ -1334,6 +1339,7 @@ function SolicitudDetalleModal({
                         {sol.items.map((it, i) => (
                           <tr key={i}>
                             <td>{it.producto_nombre}{it.producto_sku ? ` · ${it.producto_sku}` : ''}
+                              {it.vale_cocina && <div style={{ fontSize: '.72rem', color: 'var(--warning, #f59e0b)' }} title="Comida entregada a Cocina: el stock lo descuenta Distribución de comidas al servir el plato">🍽 Vale de entrega · no descuenta stock</div>}
                               {it.observacion && <div className="muted" style={{ fontSize: '.72rem' }}>📝 {it.observacion}</div>}</td>
                             {sol.scope !== 'traslado' && <td>{invLabel(it.almacen ?? sol.almacen_origen)}</td>}
                             <td className="num mono">{num(Number(it.cantidad) || 0)} {it.unidad ?? ''}</td>
@@ -1372,6 +1378,8 @@ function SolicitudDetalleModal({
         </tbody>
       </table>
 
+      <AdjuntosSalida modulo={sol.scope === 'traslado' ? 'traslado' : 'salida'} refId={sol.id} actor={actor} soloLectura />
+
       {puedeEjecutar && !puedeAprobar && sol.estado === 'por_aprobar' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
           Vas a poder <strong>ejecutar</strong> esta solicitud una vez que un usuario con <strong>control full</strong> la <strong>apruebe</strong>.
@@ -1386,7 +1394,7 @@ function SolicitudDetalleModal({
       {cancelOpen && (
         <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--danger)' }}>
           <label className="muted" style={{ fontSize: '.8rem' }}>Motivo de la cancelación</label>
-          <textarea className="input" name="motivo-cancel" rows={2} defaultValue={motivoCancel} onChange={(e) => setMotivoCancel(e.target.value)} placeholder="Indicá por qué se cancela…" />
+          <textarea className="input" name="motivo-cancel" rows={2} defaultValue={motivoCancel} onChange={(e) => setMotivoCancel(e.target.value)} placeholder="Indica por qué se cancela…" />
           <div className="actions" style={{ marginTop: '.5rem' }}>
             <button className="btn btn-sm btn-ghost" onClick={() => setCancelOpen(false)} disabled={busy}>Volver</button>
             <button className="btn btn-sm btn-danger" disabled={busy || !motivoCancel.trim()}

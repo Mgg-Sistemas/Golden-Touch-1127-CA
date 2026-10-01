@@ -262,7 +262,7 @@ function VacacionDetalleModal({ evento, persona, enConflicto, canWrite, actor, a
           Pago de vacaciones = sueldo diario (mensual ÷ 30) × {dias} día(s) =
           {' '}<strong className="mono" style={{ fontSize: '1.1rem', color: 'var(--success)' }}>{money(monto)}</strong>
         </div>
-        {sueldo <= 0 && <small style={{ color: 'var(--danger)' }}>Cargá el sueldo base del trabajador en la pestaña Personal para poder procesar.</small>}
+        {sueldo <= 0 && <small style={{ color: 'var(--danger)' }}>Carga el sueldo base del trabajador en la pestaña Personal para poder procesar.</small>}
       </div>
 
       {evento.procesada ? (
@@ -325,8 +325,8 @@ function ProgramarVacacionModal({ personal, eventos, actor, actorName, onClose, 
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!persona) { setError('Elegí el trabajador.'); return; }
-    if (!desde || !hasta) { setError('Indicá las fechas.'); return; }
+    if (!persona) { setError('Elige el trabajador.'); return; }
+    if (!desde || !hasta) { setError('Indica las fechas.'); return; }
     if (dias <= 0) { setError('La fecha "hasta" debe ser posterior o igual a "desde".'); return; }
     if (conflicto) { setError(`Cruce de vacaciones: ${conflicto} (mismo departamento) ya está de vacaciones en esas fechas.`); return; }
     setSaving(true);
@@ -360,7 +360,7 @@ function ProgramarVacacionModal({ personal, eventos, actor, actorName, onClose, 
         {conflicto && (
           <div className="aviso warning sm" style={{ marginTop: '.5rem' }}>
             <span className="aviso-icono">⚠</span>
-            <div><strong>{conflicto}</strong> (mismo departamento) ya tiene vacaciones que se cruzan con esas fechas. Ajustá las fechas.</div>
+            <div><strong>{conflicto}</strong> (mismo departamento) ya tiene vacaciones que se cruzan con esas fechas. Ajusta las fechas.</div>
           </div>
         )}
       </form>

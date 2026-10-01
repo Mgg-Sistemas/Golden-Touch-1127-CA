@@ -4,14 +4,20 @@
    se saca la foto de lo que queda (stock actual de cada víver), se
    arma el reporte (saldo inicial + entradas del mercado − consumo =
    lo que queda) y el siguiente ciclo arranca con ese saldo. El
-   contador y el cierre son manuales (Cocina pulsa «Cerrar mercado»).
+   contador y el cierre son manuales (Cocina presiona «Cerrar mercado»).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Producto } from '@/shared/lib/types';
 import { listViveres } from './cocina.repository';
-import { MOTIVO_DESCARTE_MIN, motivoValido } from './mercadoDescarte';
+import { movimientosDeViver, saldoParaElNuevo, tieneCongelados, type MovimientosCiclo } from './mercadoCierre';
 import { reconstruirSaldo, resolverInicio } from './mercadoInicio';
+import {
+  agruparRecepciones, esCorteRehacible, marcaCorte, validarInicioNuevo,
+  type EntradaConComprobante, type RecepcionCiclo,
+} from './mercadoCorte';
+import { esDeCocina, NO_COCINA_OR, REF_TIPOS_COCINA } from './claseMovimiento';
 import { sumarConsumoCocina, sumarMermas, type MovimientoConsumo, type MovimientoParaMerma } from './mercadoPanel';
+import { filasInventario, type FilaKardex, type MovInventario } from './movInventario';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 
 const TABLE = 'cocina_mercados';
@@ -67,6 +73,35 @@ export interface TotalesMercado {
   descartado_por_nombre?: string | null;
   /** Instante del descarte (ISO). */
   descartado_at?: string | null;
+  /* ── Corte de inventario (01/10/2026) ──
+     «Partir del stock real»: los ciclos cerrados hasta el corte muestran solo sus
+     entradas en el histórico. También vive en este jsonb, sin migración. */
+  /** true si de este ciclo se muestran solo las entradas. */
+  solo_entradas?: boolean;
+  /** Instante del corte (ISO). Solo lo trae el ciclo que se cerró con el corte. */
+  corte_at?: string | null;
+  /** Por qué se hizo el corte. */
+  corte_motivo?: string | null;
+  /** Correo de quien hizo el corte. */
+  corte_por?: string | null;
+  /** Nombre visible de quien hizo el corte. */
+  corte_por_nombre?: string | null;
+  /** Comprobante de la compra con la que arrancó el mercado siguiente («lo nuevo»). */
+  corte_mercado?: string | null;
+}
+
+/** Corte de inventario: lo que hay que decir para cerrar partiendo del stock real. */
+export interface CorteInventario {
+  motivo: string;
+  porNombre?: string | null;
+  /**
+   * Instante en que arranca el mercado nuevo: justo antes de que entrara la compra nueva.
+   * El ciclo cierra ahí, y el nuevo abre con el saldo de ese instante más lo que entró
+   * después. Sin él, el corte es en el instante del clic (saldo = stock, sin «lo nuevo»).
+   */
+  inicioNuevo?: string | null;
+  /** Comprobante de esa compra, para dejarlo anotado en el histórico. */
+  mercadoRef?: string | null;
 }
 
 export interface Mercado {
@@ -82,6 +117,9 @@ export interface Mercado {
   cerrado_por: string | null;
   nota: string | null;
   created_at: string;
+  /** Foto de los movimientos del ciclo, congelada al cerrar (28/09/2026). Los
+   *  ciclos cerrados antes no la traen y su detalle se lee del kardex. */
+  movimientos: MovimientosCiclo | null;
 }
 
 function normalizar(r: Record<string, unknown>): Mercado {
@@ -98,6 +136,7 @@ function normalizar(r: Record<string, unknown>): Mercado {
     cerrado_por: (r.cerrado_por as string) ?? null,
     nota: (r.nota as string) ?? null,
     created_at: String(r.created_at),
+    movimientos: (r.movimientos as MovimientosCiclo) ?? null,
   };
 }
 
@@ -137,14 +176,14 @@ export async function getMercadoActivo(): Promise<Mercado | null> {
  * Empieza en el INSTANTE del clic (decisión del usuario, 14/09/2026 16:54): lo movido antes
  * queda dentro del saldo inicial y no cuenta como entrada ni consumo del ciclo. El saldo es
  * el stock de ese instante; como leer el inventario tarda, se corrige con lo movido desde el
- * clic (reconstruirSaldo). Las reglas viven en mercadoInicio.ts. La guarda está acá y no
+ * clic (reconstruirSaldo). Las reglas viven en mercadoInicio.ts. La guarda está aquí y no
  * solo en la pantalla, porque la pantalla se puede saltear.
  */
 export async function iniciarMercado(): Promise<Mercado> {
   // La hora va primero, antes de cualquier espera: es el instante en que se presionó el botón.
   const clic = new Date().toISOString();
   const actual = await getMercadoActivo();
-  if (actual) throw new Error(`Ya hay un mercado abierto (${actual.numero ?? 'sin número'}). Recargá la pantalla.`);
+  if (actual) throw new Error(`Ya hay un mercado abierto (${actual.numero ?? 'sin número'}). Recarga la pantalla.`);
   const previos = await listMercados();
   const inicio = resolverInicio(clic, previos);
   if ('error' in inicio) throw new Error(inicio.error);
@@ -193,8 +232,13 @@ async function entradasPorViver(desde: string, hasta: string, viverIds: Set<stri
   return out;
 }
 
-/** Movimientos del kardex que NO vienen de la cocina (PostgREST: `ref_tipo` nulo o distinto). */
-const NO_COCINA = 'ref_tipo.is.null,ref_tipo.neq.cocina';
+/** Movimientos del kardex que NO vienen de la cocina. Cuáles son los `ref_tipo` de
+ *  cocina lo dice `claseMovimiento`, que es la misma lista que usa el control de
+ *  distribución: de ahí sale que las dos pantallas den el mismo número. */
+const NO_COCINA = NO_COCINA_OR;
+
+/** Los `ref_tipo` que son consumo de cocina, para el `in` de PostgREST. */
+const COCINA = [...REF_TIPOS_COCINA];
 
 /**
  * Mermas y salidas por víver dentro de la ventana [desde, hasta]: todo lo que bajó el
@@ -233,7 +277,7 @@ async function consumoDelCiclo(desde: string, hasta: string): Promise<{
   // Paginado: `movimientos` pasa las 1.000 filas y PostgREST corta sin avisar.
   const movs = await todasLasFilas<MovimientoConsumo>((a, b) => supabase.from('movimientos')
     .select('producto_id, delta, costo_promedio, precio_unitario, ref_id')
-    .eq('ref_tipo', 'cocina').gte('at', desde).lte('at', hasta)
+    .in('ref_tipo', COCINA).gte('at', desde).lte('at', hasta)
     .order('at').order('id').range(a, b));
   const { porViver, comidaIds } = sumarConsumoCocina(movs);
 
@@ -248,12 +292,72 @@ async function consumoDelCiclo(desde: string, hasta: string): Promise<{
 }
 
 /**
+ * Junta TODOS los movimientos del ciclo para dejarlos congelados en el histórico
+ * (28/09/2026). Antes el detalle de un ciclo cerrado se rearmaba consultando el
+ * kardex por rango de fechas: si alguien corregía un movimiento en Inventario,
+ * un ciclo ya cerrado cambiaba solo. Ahora el ciclo cerrado es una foto fija.
+ */
+export async function congelarMovimientos(m: Mercado, hastaISO: string, viverIds: Set<string>): Promise<MovimientosCiclo> {
+  const [ent, cons, mer] = await Promise.all([
+    todasLasFilas<{ producto_id: string; delta: number; at: string; ref_codigo: string | null }>((a, b) =>
+      supabase.from('movimientos').select('producto_id, delta, at, ref_codigo')
+        .eq('tipo', 'entrada').or(NO_COCINA).gte('at', m.inicio_at).lte('at', hastaISO)
+        .order('at').order('id').range(a, b)),
+    todasLasFilas<{ producto_id: string; delta: number; at: string; costo_promedio: number | null; precio_unitario: number | null; ref_id: string | null; ref_codigo: string | null }>((a, b) =>
+      supabase.from('movimientos').select('producto_id, delta, at, costo_promedio, precio_unitario, ref_id, ref_codigo')
+        .in('ref_tipo', COCINA).gte('at', m.inicio_at).lte('at', hastaISO)
+        .order('at').order('id').range(a, b)),
+    todasLasFilas<{ producto_id: string; delta: number; at: string; tipo: string; detalle: string | null; ref_tipo: string | null }>((a, b) =>
+      supabase.from('movimientos').select('producto_id, delta, at, tipo, detalle, ref_tipo')
+        .lt('delta', 0).or(NO_COCINA).gte('at', m.inicio_at).lte('at', hastaISO)
+        .order('at').order('id').range(a, b)),
+  ]);
+
+  // El tipo de comida se trae de una sola vez para no pedirlo fila por fila.
+  const comidaIds = [...new Set(cons.map((r) => r.ref_id).filter((x): x is string => !!x))];
+  const comidas = new Map<string, { codigo: string | null; tipo_comida: string | null }>();
+  for (let i = 0; i < comidaIds.length; i += 200) {
+    const { data } = await supabase.from('cocina_movimientos').select('id, codigo, tipo_comida').in('id', comidaIds.slice(i, i + 200));
+    for (const c of (data ?? []) as { id: string; codigo: string | null; tipo_comida: string | null }[]) {
+      comidas.set(c.id, { codigo: c.codigo, tipo_comida: c.tipo_comida });
+    }
+  }
+
+  return {
+    entradas: ent.filter((r) => viverIds.has(r.producto_id)).map((r) => ({
+      producto_id: r.producto_id, fecha: r.at, cantidad: round2(Number(r.delta) || 0), ref: r.ref_codigo,
+    })),
+    consumos: cons.filter((r) => viverIds.has(r.producto_id) && (Number(r.delta) || 0) !== 0).map((r) => {
+      const cantidad = round2(-(Number(r.delta) || 0));
+      const precio = Number(r.costo_promedio) || Number(r.precio_unitario) || 0;
+      const c = r.ref_id ? comidas.get(r.ref_id) : undefined;
+      return {
+        producto_id: r.producto_id, fecha: r.at, cantidad, valor: round2(cantidad * precio),
+        ref: c?.codigo ?? r.ref_codigo ?? null, detalle: c?.tipo_comida ?? null,
+      };
+    }),
+    mermas: mer.filter((r) => viverIds.has(r.producto_id) && esMerma(r)).map((r) => ({
+      producto_id: r.producto_id, fecha: r.at, cantidad: round2(Math.abs(Number(r.delta) || 0)),
+      ref: r.tipo, detalle: r.detalle?.trim() || null,
+    })),
+    congelado_at: hastaISO,
+  };
+}
+
+/** Mismo criterio que `sumarMermas`: baja de stock que no es una comida. */
+function esMerma(r: { tipo: string; ref_tipo: string | null }): boolean {
+  return !esDeCocina(r.ref_tipo);
+}
+/**
  * Resumen del ciclo por víver: saldo inicial (del mercado anterior) + entradas (nuevo
  * mercado) = disponible; consumo de cocina; y lo que queda (stock actual). `hastaISO`
  * permite congelar la ventana al cerrar (por defecto, ahora).
  */
 export async function computeResumen(
   m: Mercado, viveres: Producto[], hastaISO?: string,
+  /** Lo que quedaba al cerrar la ventana, por víver. Sin él, «queda» es el stock de hoy.
+   *  Hace falta cuando la ventana termina en el pasado (corte con mercado nuevo). */
+  quedaAl?: Map<string, number> | null,
 ): Promise<{ items: ResumenViver[]; totales: TotalesMercado }> {
   const hasta = hastaISO ?? new Date().toISOString();
   const viverIds = new Set(viveres.map((p) => p.id));
@@ -276,7 +380,8 @@ export async function computeResumen(
     const ent = entradas.get(id) ?? 0;
     const cons = consumos.get(id)?.cantidad ?? 0;
     const mer = mermas.get(id) ?? 0;
-    const queda = p ? round2(Number(p.stock) || 0) : round2(saldoInicial + ent - cons - mer);
+    const queda = quedaAl ? round2(quedaAl.get(id) ?? 0)
+      : p ? round2(Number(p.stock) || 0) : round2(saldoInicial + ent - cons - mer);
     const disponible = round2(saldoInicial + ent);
     // Solo interesan víveres con algún movimiento/saldo en el ciclo.
     if (saldoInicial === 0 && ent === 0 && cons === 0 && mer === 0 && queda === 0) continue;
@@ -303,15 +408,41 @@ export async function computeResumen(
 }
 
 /**
- * Cierra el mercado abierto: congela el resumen y la foto del stock actual (lo que queda),
- * marca el ciclo como cerrado y ABRE el siguiente con saldo inicial = lo que quedó. Devuelve
- * el mercado cerrado (con resumen/totales) para el reporte.
+ * Cierra el mercado abierto. Desde el 28/09/2026 el cierre es la ÚNICA salida, y
+ * no descarta nada de lo que hay:
+ *
+ *   1. congela el resumen y TODOS los movimientos del ciclo (entradas, comidas y
+ *      mermas) en el histórico, para que un ciclo cerrado ya no cambie aunque
+ *      después se corrija algo en Inventario;
+ *   2. guarda la foto de lo que quedó en la despensa;
+ *   3. ABRE el mercado siguiente con ese saldo. Sobre él se van sumando las
+ *      entradas del mercado nuevo.
+ *
+ * Devuelve el mercado cerrado (con resumen y totales) para el reporte.
+ *
+ * CORTE DE INVENTARIO (01/10/2026). Con `corte`, el cierre es además un corte: el ciclo
+ * que cierra —y todos los cerrados antes— quedan en el histórico mostrando solo sus
+ * entradas, y el mercado nuevo arranca con el stock real de este instante. No se borra
+ * nada: el resumen y los movimientos se guardan igual. Las reglas viven en mercadoCorte.ts.
+ *
+ * METODOLOGÍA DEL CORTE (decisión del usuario, 01/10/2026): «el saldo que estaba será el
+ * inicio del nuevo mercado + lo nuevo». Con `corte.inicioNuevo` el ciclo cierra en el
+ * instante en que entró la compra nueva, y el mercado nuevo abre ahí con el saldo de ese
+ * instante: la compra y todo lo movido después (comidas, salidas, ajustes) cuentan dentro
+ * del ciclo nuevo, y su cuenta da el stock real.
  */
 export async function cerrarMercado(
-  m: Mercado, actorEmail: string, nota?: string | null,
+  m: Mercado, actorEmail: string, nota?: string | null, corte?: CorteInventario | null,
 ): Promise<Mercado> {
   if (m.estado !== 'abierto') throw new Error('El mercado ya está cerrado.');
-  const cierre = new Date().toISOString();
+  const ahora = new Date().toISOString();
+  let cierre = ahora;
+  if (corte?.inicioNuevo) {
+    const v = validarInicioNuevo(corte.inicioNuevo, m.inicio_at, ahora);
+    if ('error' in v) throw new Error(v.error);
+    cierre = v.inicio;
+  }
+  const conMercadoNuevo = cierre !== ahora;
 
   // GT-SIN-12 · Los víveres se releen de la BASE, no se reciben del componente.
   // Antes el `queda` y el saldo final salían del array que la pantalla tenía en
@@ -320,22 +451,37 @@ export async function cerrarMercado(
   // abierto (y la pestaña en segundo plano no refresca), el ciclo siguiente
   // arrancaba con kilos que ya no existían y el informe no cerraba su cuenta.
   const viveres = await listViveres();
-  const { items, totales } = await computeResumen(m, viveres, cierre);
-  const saldoFinal = snapshotViveres(viveres).filter((s) => s.cantidad > 0);
+  // Con mercado nuevo, lo que «quedó» en el ciclo que cierra es el saldo de ESE instante
+  // (el stock de hoy menos todo lo movido desde entonces), no el stock de hoy.
+  const saldoAl = conMercadoNuevo ? await saldoAlInstante(cierre, viveres) : null;
+  const quedaAl = saldoAl ? new Map(saldoAl.map((s) => [s.producto_id, s.cantidad])) : null;
+  const { items, totales } = await computeResumen(m, viveres, cierre, quedaAl);
+  const saldoFinal = saldoAl ?? snapshotViveres(viveres).filter((s) => s.cantidad > 0);
+  // La foto de lo que se movió en el ciclo: es lo que se va al histórico.
+  const movimientos = await congelarMovimientos(m, cierre, new Set(viveres.map((p) => p.id)));
+
+  const motivoCorte = corte?.motivo?.trim() || null;
+  const totalesFinal: TotalesMercado = motivoCorte
+    ? { ...totales, ...marcaCorte({ at: ahora, motivo: motivoCorte, por: actorEmail, porNombre: corte?.porNombre, mercado: conMercadoNuevo ? corte?.mercadoRef : null }) }
+    : totales;
 
   const { data, error } = await supabase.from(TABLE).update({
     estado: 'cerrado', cierre_at: cierre, cerrado_por: actorEmail,
-    saldo_final: saldoFinal, resumen: items, totales, nota: nota?.trim() || null,
+    saldo_final: saldoFinal, resumen: items, totales: totalesFinal, movimientos,
+    nota: (motivoCorte ?? nota?.trim()) || null,
   }).eq('id', m.id).eq('estado', 'abierto').select('*').single();
   if (error) throw error;
 
-  // Abre el siguiente ciclo arrancando con lo que quedó (saldo inicial = saldo final).
-  // Si esto falla, se reabre el ciclo anterior: quedarse sin NINGÚN mercado
-  // abierto deja la pantalla de Cocina sin ciclo y sin forma de registrar.
+  // Abre el siguiente ciclo con lo que quedó: NO se descarta nada de la despensa.
+  // El saldo sale del resumen del ciclo (la columna «Queda»), que es la misma cifra
+  // que se imprime en el reporte: así lo que dice el papel es con lo que arranca el
+  // mercado nuevo. Si esto falla, se reabre el ciclo anterior: quedarse sin NINGÚN
+  // mercado abierto deja la pantalla de Cocina sin ciclo y sin forma de registrar.
   try {
     const numero = await nextNumeroMercado();
     const { error: eIns } = await supabase.from(TABLE).insert({
-      numero, estado: 'abierto', inicio_at: cierre, saldo_inicial: saldoFinal,
+      // Con mercado nuevo: el saldo que estaba. La compra entra después y cuenta como entrada.
+      numero, estado: 'abierto', inicio_at: cierre, saldo_inicial: saldoAl ?? saldoParaElNuevo(items),
     });
     if (eIns) throw eIns;
   } catch (e) {
@@ -344,58 +490,165 @@ export async function cerrarMercado(
       .eq('id', m.id).eq('estado', 'cerrado');
     throw e;
   }
+  // Corte: los ciclos cerrados antes también pasan a mostrar solo sus entradas. Si esto
+  // falla, el corte ya está hecho (el ciclo nuevo arrancó bien) y no se deshace por una
+  // marca: a lo sumo un ciclo viejo sigue mostrando su resumen completo.
+  if (motivoCorte) await marcarHistoricoSoloEntradas().catch(() => undefined);
   return normalizar(data as Record<string, unknown>);
+}
+
+/** Lo movido desde un instante hasta ahora, en los tres cajones de la cuenta del ciclo. */
+async function movidoDesde(desdeISO: string, viveres: Producto[]) {
+  const ahora = new Date().toISOString();
+  const ids = new Set(viveres.map((p) => p.id));
+  const [entradas, { porViver: consumos }, mermas] = await Promise.all([
+    entradasPorViver(desdeISO, ahora, ids),
+    consumoDelCiclo(desdeISO, ahora),
+    mermasPorViver(desdeISO, ahora, ids),
+  ]);
+  return { ids, entradas, consumos, mermas };
 }
 
 /**
- * Descarta el mercado abierto: queda guardado y marcado, pero NO cuenta.
- *
- * Portado de MGG. Descartar no es cerrar ni borrar:
- * · no abre el mercado siguiente (lo inicia una persona con «Iniciar mercado»);
- * · no le pasa saldo a nadie (`saldo_final` queda vacío);
- * · no borra nada: comidas, movimientos de inventario y el resumen del ciclo quedan.
- *
- * El resumen se relee de la base en el instante del descarte, igual que al cerrar.
- * Lo que el ciclo movió es un hecho y se conserva; lo que se anula es su valor como
- * punto de partida. En MGG, guardar ceros hizo que el histórico dijera «0 platos»
- * sobre un ciclo que había servido 1.877.
- *
- * La reserva es el propio update con `.eq('estado','abierto')`: si otra persona cerró
- * o descartó en el medio, no pisa nada y lo dice.
+ * El saldo de cada víver en un instante pasado: el stock de hoy menos lo que entró desde
+ * entonces, más lo que se consumió y lo que salió. Son las mismas tres lecturas que usa el
+ * panel, así la cuenta del ciclo que arranca en ese instante da exactamente el stock.
  */
-export async function descartarMercado(
-  m: Mercado, input: { actor: string; actorName?: string | null; motivo: string },
-): Promise<Mercado> {
-  if (m.estado !== 'abierto') throw new Error('Solo se puede descartar un mercado abierto.');
-  const motivo = (input.motivo ?? '').trim();
-  if (!motivoValido(motivo)) {
-    throw new Error(`Explicá por qué se descarta (al menos ${MOTIVO_DESCARTE_MIN} caracteres): queda escrito en el histórico.`);
-  }
-  const instante = new Date().toISOString();
+export async function saldoAlInstante(desdeISO: string, viveres: Producto[]): Promise<SaldoViver[]> {
+  const { entradas, consumos, mermas } = await movidoDesde(desdeISO, viveres);
+  return reconstruirSaldo(viveres, entradas, consumos, mermas);
+}
+
+/** Las compras recibidas (con comprobante) después de `desdeISO` y, si se da, antes de `hastaISO`. */
+export async function listRecepcionesEntre(desdeISO: string, hastaISO?: string | null): Promise<RecepcionCiclo[]> {
   const viveres = await listViveres();
-  const { items, totales } = await computeResumen(m, viveres, instante);
-  const { data, error } = await supabase.from(TABLE).update({
-    estado: 'cerrado',
-    cierre_at: instante,
-    cerrado_por: input.actor,
-    saldo_final: null,
-    resumen: items,
-    totales: {
-      ...totales,
-      descartado: true,
-      motivo_descarte: motivo,
-      descartado_por: input.actor,
-      descartado_por_nombre: input.actorName ?? null,
-      descartado_at: instante,
-    },
-  }).eq('id', m.id).eq('estado', 'abierto').select('*').maybeSingle();
+  const ids = new Set(viveres.map((p) => p.id));
+  const filas = await todasLasFilas<EntradaConComprobante>((a, b) => {
+    let q = supabase.from('movimientos')
+      .select('producto_id, delta, at, ref_codigo')
+      .eq('tipo', 'entrada').or(NO_COCINA).not('ref_codigo', 'is', null).gt('at', desdeISO);
+    if (hastaISO) q = q.lt('at', hastaISO);
+    return q.order('at').order('id').range(a, b);
+  });
+  return agruparRecepciones(filas.filter((f) => ids.has(f.producto_id)));
+}
+
+/** Las compras recibidas dentro del ciclo abierto: las candidatas a «mercado nuevo» del corte. */
+export async function listRecepcionesDelCiclo(m: Mercado): Promise<RecepcionCiclo[]> {
+  return listRecepcionesEntre(m.inicio_at);
+}
+
+/**
+ * Rehace un corte hecho «en el instante» para aplicarle la metodología: el saldo que estaba
+ * es el inicio del mercado nuevo, más lo nuevo. No abre otro mercado: mueve la frontera
+ * entre el ciclo que cerró y el abierto al instante en que entró la compra elegida.
+ *   · El abierto pasa a empezar ahí, con el saldo de ese instante.
+ *   · El que cerró termina ahí: su resumen y su foto de movimientos se rehacen hasta ese
+ *     instante (la compra ya no es suya), y queda anotado con qué compra arrancó el nuevo.
+ * No toca el inventario. Las reglas (cuándo se puede) viven en `esCorteRehacible`.
+ */
+export async function reanclarCorte(
+  abierto: Mercado, anterior: Mercado, inicioNuevo: string, mercadoRef: string | null,
+): Promise<Mercado> {
+  if (!esCorteRehacible(abierto, anterior)) {
+    throw new Error('Este mercado no nació de un corte que se pueda rehacer. Recarga la pantalla.');
+  }
+  const v = validarInicioNuevo(inicioNuevo, anterior.inicio_at, abierto.inicio_at);
+  if ('error' in v) throw new Error(v.error);
+  const t = v.inicio;
+
+  const viveres = await listViveres();
+  const saldoAl = await saldoAlInstante(t, viveres);
+  const quedaAl = new Map(saldoAl.map((s) => [s.producto_id, s.cantidad]));
+  const { items, totales } = await computeResumen(anterior, viveres, t, quedaAl);
+  const movimientos = await congelarMovimientos(anterior, t, new Set(viveres.map((p) => p.id)));
+
+  // Primero el abierto, que es el que se usa todos los días.
+  const { data, error } = await supabase.from(TABLE)
+    .update({ inicio_at: t, saldo_inicial: saldoAl })
+    .eq('id', abierto.id).eq('estado', 'abierto').select('*').single();
   if (error) throw error;
-  if (!data) {
-    throw new Error('Este mercado ya no está abierto, o no tenés permiso para modificarlo: otra persona pudo cerrarlo o descartarlo. Recargá la pantalla.');
+
+  const previos = anterior.totales;
+  const totalesFinal: TotalesMercado = {
+    ...totales,
+    solo_entradas: true,
+    corte_at: previos?.corte_at ?? null,
+    corte_motivo: previos?.corte_motivo ?? null,
+    corte_por: previos?.corte_por ?? null,
+    corte_por_nombre: previos?.corte_por_nombre ?? null,
+    corte_mercado: mercadoRef?.trim() || null,
+  };
+  const { error: eAnt } = await supabase.from(TABLE)
+    .update({ cierre_at: t, saldo_final: saldoAl, resumen: items, totales: totalesFinal, movimientos })
+    .eq('id', anterior.id).eq('estado', 'cerrado');
+  if (eAnt) {
+    // Sin el cierre movido, los dos ciclos se pisarían: el abierto vuelve a donde estaba.
+    await supabase.from(TABLE)
+      .update({ inicio_at: abierto.inicio_at, saldo_inicial: abierto.saldo_inicial })
+      .eq('id', abierto.id).eq('estado', 'abierto');
+    throw eAnt;
   }
   return normalizar(data as Record<string, unknown>);
 }
 
+/** La cuenta con la que arrancaría el mercado nuevo, para mostrarla antes de hacer el corte. */
+export interface PreviaCorte {
+  /** Víveres con saldo al arrancar. */
+  saldoViveres: number;
+  /** El saldo que estaba (unidades). */
+  saldo: number;
+  /** Lo nuevo: lo que entró desde el arranque. */
+  entradas: number;
+  consumo: number;
+  /** Salidas y ajustes desde el arranque. */
+  mermas: number;
+  /** El stock de hoy: a lo que tiene que dar la cuenta. */
+  stock: number;
+}
+
+export async function previaCorte(inicioNuevo: string | null): Promise<PreviaCorte> {
+  const viveres = await listViveres();
+  const stock = round2(viveres.reduce((a, p) => a + (Number(p.stock) || 0), 0));
+  if (!inicioNuevo) {
+    return { saldoViveres: viveres.filter((p) => (Number(p.stock) || 0) > 0).length, saldo: stock, entradas: 0, consumo: 0, mermas: 0, stock };
+  }
+  const { ids, entradas, consumos, mermas } = await movidoDesde(inicioNuevo, viveres);
+  const saldo = reconstruirSaldo(viveres, entradas, consumos, mermas);
+  const suma = (xs: Iterable<number>) => round2([...xs].reduce((a, v) => a + v, 0));
+  return {
+    saldoViveres: saldo.length,
+    saldo: suma(saldo.map((s) => s.cantidad)),
+    entradas: suma(entradas.values()),
+    consumo: suma([...consumos].filter(([id]) => ids.has(id)).map(([, c]) => c.cantidad)),
+    mermas: suma(mermas.values()),
+    stock,
+  };
+}
+
+/**
+ * Marca TODOS los ciclos cerrados como «solo entradas». Se usa en el corte de inventario:
+ * lo anterior al corte queda en el histórico mostrando únicamente lo que entró. Solo toca
+ * la marca de `totales`; el resumen y los movimientos guardados no cambian.
+ */
+export async function marcarHistoricoSoloEntradas(): Promise<number> {
+  const { data, error } = await supabase.from(TABLE).select('id, totales').eq('estado', 'cerrado');
+  if (error) throw error;
+  let marcados = 0;
+  for (const r of (data ?? []) as { id: string; totales: TotalesMercado | null }[]) {
+    if (r.totales?.solo_entradas === true) continue;
+    const { error: eUpd } = await supabase.from(TABLE)
+      .update({ totales: { ...(r.totales ?? {}), solo_entradas: true } }).eq('id', r.id);
+    if (eUpd) throw eUpd;
+    marcados++;
+  }
+  return marcados;
+}
+
+/* Descartar un mercado se quitó el 28/09/2026: tirar el saldo que quedaba generaba
+   controversias y dejaba al ciclo siguiente arrancando en cero con la despensa llena.
+   La única salida es CERRAR, que conserva lo que hay. Los mercados descartados antes
+   de esa fecha siguen en el histórico, con su motivo y su firma: no se borró nada. */
 /** Historial de ciclos (cerrados y el abierto), más recientes primero. */
 export async function listMercados(): Promise<Mercado[]> {
   const { data, error } = await supabase.from(TABLE).select('*').order('inicio_at', { ascending: false });
@@ -443,6 +696,9 @@ export async function actualizarMercadoHistorico(
     if (previos?.descartado) {
       throw new Error('Un mercado descartado no se corrige: sus cifras quedan como estaban al descartarlo.');
     }
+    if (previos?.solo_entradas) {
+      throw new Error('Este ciclo quedó antes del corte de inventario: muestra solo sus entradas y no se corrige.');
+    }
     const items = patch.resumen.map((r) => {
       const saldo = round2(Number(r.saldo_inicial) || 0);
       const ent = round2(Number(r.entradas) || 0);
@@ -466,7 +722,7 @@ export async function actualizarMercadoHistorico(
  * Elimina un ciclo del histórico (no repone stock ni toca el ciclo abierto).
  *
  * Un mercado DESCARTADO no se elimina: es el rastro de por qué ese ciclo no cuenta.
- * La pantalla ya oculta el botón; la guarda va también acá porque la pantalla se
+ * La pantalla ya oculta el botón; la guarda va también aquí porque la pantalla se
  * puede saltear.
  */
 export async function eliminarMercado(id: string): Promise<void> {
@@ -474,6 +730,9 @@ export async function eliminarMercado(id: string): Promise<void> {
   if (eActual) throw eActual;
   if ((actual as { totales?: TotalesMercado | null } | null)?.totales?.descartado) {
     throw new Error('Un mercado descartado no se elimina: es el rastro de por qué ese ciclo no cuenta.');
+  }
+  if ((actual as { totales?: TotalesMercado | null } | null)?.totales?.solo_entradas) {
+    throw new Error('Este ciclo es el rastro del corte de inventario (guarda las entradas): no se elimina.');
   }
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
@@ -487,16 +746,31 @@ export interface DetalleViverCiclo {
   mermas: { fecha: string; cantidad: number; tipo: string; detalle: string | null; actor: string | null }[];
 }
 export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO?: string): Promise<DetalleViverCiclo> {
+  // Ciclo cerrado con su foto (28/09/2026 en adelante): se lee de ahí. Así el detalle
+  // dice lo mismo que el reporte del cierre aunque después se corrija algo en Inventario.
+  if (tieneCongelados(m)) {
+    const f = movimientosDeViver(m.movimientos, productoId);
+    return {
+      entradas: f.entradas.map((x) => ({ fecha: x.fecha, cantidad: x.cantidad, ref: x.ref ?? null })),
+      consumos: f.consumos.map((x) => ({
+        fecha: x.fecha, cantidad: x.cantidad, valor: x.valor ?? 0,
+        codigo: x.ref ?? null, tipo_comida: x.detalle ?? null,
+      })),
+      mermas: f.mermas.map((x) => ({
+        fecha: x.fecha, cantidad: x.cantidad, tipo: x.ref ?? 'salida', detalle: x.detalle ?? null, actor: null,
+      })),
+    };
+  }
   const hasta = hastaISO ?? m.cierre_at ?? new Date().toISOString();
   // Los consumos salen del KARDEX, igual que la cuenta del ciclo (ver consumoDelCiclo):
-  // así la lista que se ve acá explica exactamente el número de arriba. La comida solo
+  // así la lista que se ve aquí explica exactamente el número de arriba. La comida solo
   // aporta su código y el tipo; la fecha que se muestra es la del movimiento, que es
   // cuando el víver salió de verdad del inventario.
   const [movs, consumoMovs, salidas] = await Promise.all([
     supabase.from('movimientos').select('delta, at, ref_codigo, tipo')
       .eq('tipo', 'entrada').or(NO_COCINA).eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
     supabase.from('movimientos').select('delta, at, costo_promedio, precio_unitario, ref_id, ref_codigo')
-      .eq('ref_tipo', 'cocina').eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
+      .in('ref_tipo', COCINA).eq('producto_id', productoId).gte('at', m.inicio_at).lte('at', hasta).order('at'),
     supabase.from('movimientos').select('delta, at, tipo, detalle, actor_name, actor')
       .eq('producto_id', productoId).lt('delta', 0).or(NO_COCINA).gte('at', m.inicio_at).lte('at', hasta).order('at'),
   ]);
@@ -532,4 +806,40 @@ export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO
     };
   });
   return { entradas, consumos, mermas };
+}
+
+/* ───────── Las entradas y salidas del ciclo, para la pantalla (28/09/2026) ─────────
+   Pedido del usuario: que lo que se ve en Alimentación coincida con Inventario. Los
+   totales ya salían del mismo kardex; lo que faltaba eran las FILAS detrás. Un ciclo
+   cerrado las lee de su foto congelada, así el histórico no cambia. */
+
+/** Las entradas, salidas y ajustes de víveres del ciclo (las comidas van aparte). */
+export async function listMovInventarioCiclo(
+  m: Mercado, viveres: Producto[], hastaISO?: string,
+): Promise<MovInventario[]> {
+  const secos = viveres.map((p) => ({ id: p.id, nombre: p.nombre, unidad: p.unidad ?? null }));
+
+  // Ciclo cerrado con su foto: se lee de ahí, como el detalle del víver.
+  if (tieneCongelados(m)) {
+    const mv = m.movimientos!;
+    const crudas: FilaKardex[] = [
+      ...mv.entradas.map((x, i) => ({
+        id: `e${i}`, producto_id: x.producto_id, delta: x.cantidad, at: x.fecha,
+        tipo: 'entrada', ref_codigo: x.ref ?? null, detalle: x.detalle ?? null,
+      })),
+      ...mv.mermas.map((x, i) => ({
+        id: `m${i}`, producto_id: x.producto_id, delta: -Math.abs(x.cantidad), at: x.fecha,
+        // En la foto, `ref` guarda el tipo del kardex y `detalle` el motivo.
+        tipo: x.ref ?? 'salida', detalle: x.detalle ?? null,
+      })),
+    ];
+    return filasInventario(crudas, secos);
+  }
+
+  const hasta = hastaISO ?? m.cierre_at ?? new Date().toISOString();
+  const filas = await todasLasFilas<FilaKardex>((a, b) =>
+    supabase.from('movimientos').select('id, producto_id, delta, at, tipo, ref_tipo, ref_codigo, detalle, actor_name, actor')
+      .or(NO_COCINA).gte('at', m.inicio_at).lte('at', hasta)
+      .order('at', { ascending: false }).order('id').range(a, b));
+  return filasInventario(filas, secos);
 }

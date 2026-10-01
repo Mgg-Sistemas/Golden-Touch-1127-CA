@@ -16,7 +16,7 @@
  *
  * Sigue el patrón de los otros PDF del sistema: jsPDF + autotable con import
  * perezoso (no carga la librería hasta que alguien pide el PDF), logo opcional y
- * `previewPdf`, que abre la vista previa y descarga solo si se pulsa Descargar.
+ * `previewPdf`, que abre la vista previa y descarga solo si se presiona Descargar.
  */
 import { dateTime, num } from '@/shared/lib/format';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';

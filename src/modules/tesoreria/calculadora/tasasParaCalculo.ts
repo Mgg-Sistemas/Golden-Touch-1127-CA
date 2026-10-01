@@ -2,7 +2,7 @@
    MGG · Tesorería · las tasas que alimentan la calculadora
 
    El motor (`@/shared/lib/calculo`) no sabe de dónde salen las tasas: recibe dos
-   mapas y opera. Acá se arman esos mapas con lo que MGG ya tiene —`getTasaHoy()`
+   mapas y opera. Aquí se arman esos mapas con lo que MGG ya tiene —`getTasaHoy()`
    para BCV y `getTasasMercado()` para el paralelo— sin agregar ninguna fuente.
 
    DOS REGLAS QUE IMPORTAN:

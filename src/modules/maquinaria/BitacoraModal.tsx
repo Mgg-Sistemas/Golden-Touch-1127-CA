@@ -138,7 +138,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             ))}
           </div>
           <p className="muted" style={{ fontSize: '.7rem', margin: '.4rem 0 0' }}>
-            Vienen de <strong>Pedidos → Nuevo servicio</strong> (mantenimiento casado a este equipo). Acá registrás el seguimiento real (litros, filtros, trabajo…) en la bitácora.
+            Vienen de <strong>Pedidos → Nuevo servicio</strong> (mantenimiento casado a este equipo). Aquí registras el seguimiento real (litros, filtros, trabajo…) en la bitácora.
           </p>
         </div>
       )}

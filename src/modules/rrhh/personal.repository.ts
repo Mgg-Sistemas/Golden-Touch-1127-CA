@@ -3,7 +3,7 @@
    "Usuarios" son los del login; "Personal" engloba a TODO el personal
    a pagar (tengan o no usuario). El sueldo base es MENSUAL (USD).
 
-   OJO CON EL SUELDO: al dar de alta se carga acá, pero de ahí en adelante
+   OJO CON EL SUELDO: al dar de alta se carga aquí, pero de ahí en adelante
    NO se toca desde esta pantalla. Cambiarlo va por `cambiarSueldo` (ver
    sueldos.repository.ts), que pide el motivo y deja el renglón en el
    histórico. Por eso el payload de actualización no lleva sueldo_base: si lo
@@ -13,7 +13,9 @@ import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { compararFicha, errorFicha, normalizarFicha } from './fichaNro';
 import { errorCorreo, normalizarCorreo } from './correoPersonal';
+import { normalizarCondicion } from './saludPersonal';
 import { esNeutro, normalizarEncuadre, type Encuadre } from './encuadreFoto';
+import { normalizarInstruccion, normalizarTrabajo } from './instruccionYTrabajo';
 
 const TABLE = 'personal';
 
@@ -21,7 +23,7 @@ const TABLE = 'personal';
  * Lista el personal ORDENADO POR NÚMERO DE FICHA, que es como se lo nombra
  * en planillas y recibos: se busca «la 007», no «Pérez».
  *
- * El orden se arma acá y no en el SELECT a propósito: la ficha es TEXTO (para
+ * El orden se arma aquí y no en el SELECT a propósito: la ficha es TEXTO (para
  * que «001» se guarde «001»), y ordenar texto en la base pone «10» antes que
  * «2». `compararFicha` compara los tramos de números como números. Quien
  * todavía no tiene ficha queda al final, y entre iguales manda el nombre.
@@ -42,7 +44,17 @@ export async function listPersonal(soloActivos = false, empresa?: EmpresaRrhh): 
 export function ordenarPorFicha(lista: Personal[]): Personal[] {
   const nombreDe = (p: Personal) => `${p.nombre} ${p.apellido ?? ''}`.trim();
   return [...lista].sort((a, b) =>
-    compararFicha(a.ficha_nro, b.ficha_nro) || nombreDe(a).localeCompare(nombreDe(b), 'es'));
+    compararFicha(a.ficha_nro, b.ficha_nro) || nombreDe(a).localeCompare(nombreDe(b), 'es-VE'));
+}
+
+/** Los cuatro datos del último trabajo, como los junta el formulario. */
+function trabajoDe(input: PersonalInput) {
+  return {
+    empresa: input.trabajo_anterior_empresa,
+    cargo: input.trabajo_anterior_cargo,
+    duracion: input.trabajo_anterior_duracion,
+    sueldo: input.trabajo_anterior_sueldo,
+  };
 }
 
 export interface PersonalInput {
@@ -56,6 +68,10 @@ export interface PersonalInput {
   fecha_ingreso?: string | null;
   telefono?: string | null;
   correo?: string | null;
+  tiene_alergias?: boolean | null;
+  alergias_detalle?: string | null;
+  tiene_enfermedad?: boolean | null;
+  enfermedad_detalle?: string | null;
   contacto_emergencia?: string | null;
   contacto_emergencia_parentesco?: 'hijo' | 'conyuge' | 'padre' | 'madre' | 'hermano' | 'otro' | null;
   telefono_emergencia?: string | null;
@@ -70,13 +86,19 @@ export interface PersonalInput {
   grupo_sanguineo?: string | null;
   nacionalidad?: string | null;
   direccion?: string | null;
+  grado_instruccion?: 'primaria' | 'bachiller' | 'universitario' | null;
+  titulo_obtenido?: string | null;
+  trabajo_anterior_empresa?: string | null;
+  trabajo_anterior_cargo?: string | null;
+  trabajo_anterior_duracion?: string | null;
+  trabajo_anterior_sueldo?: number | null;
 }
 
 function payload(input: PersonalInput) {
   return {
     ...baseSinSueldo(input),
     sueldo_base: Math.round((Number(input.sueldo_base) || 0) * 100) / 100,
-    // Solo acá, que es el ALTA. A propósito NO está en `baseSinSueldo`, que es
+    // Solo aquí, que es el ALTA. A propósito NO está en `baseSinSueldo`, que es
     // lo que arma la EDICIÓN: la ficha no se cambia, y la base lo rechaza igual.
     ficha_nro: normalizarFicha(input.ficha_nro),
   };
@@ -108,6 +130,12 @@ function baseSinSueldo(input: PersonalInput, soloDefinidos = false) {
     fecha_ingreso: input.fecha_ingreso || null,
     telefono: input.telefono?.trim() || null,
     correo: normalizarCorreo(input.correo),
+    // El detalle va colgado del «sí»: si la respuesta es «no» o nadie la
+    // contestó, se guarda en null. La base hace lo mismo por su cuenta.
+    tiene_alergias: normalizarCondicion(input.tiene_alergias, input.alergias_detalle).tiene,
+    alergias_detalle: normalizarCondicion(input.tiene_alergias, input.alergias_detalle).detalle,
+    tiene_enfermedad: normalizarCondicion(input.tiene_enfermedad, input.enfermedad_detalle).tiene,
+    enfermedad_detalle: normalizarCondicion(input.tiene_enfermedad, input.enfermedad_detalle).detalle,
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
     contacto_emergencia_parentesco: input.contacto_emergencia_parentesco || null,
     telefono_emergencia: input.telefono_emergencia?.trim() || null,
@@ -117,6 +145,13 @@ function baseSinSueldo(input: PersonalInput, soloDefinidos = false) {
     grupo_sanguineo: input.grupo_sanguineo?.trim() || null,
     nacionalidad: input.nacionalidad?.trim() || null,
     direccion: input.direccion?.trim() || null,
+    // El título cuelga del grado, igual que el detalle de una alergia cuelga del «sí».
+    grado_instruccion: normalizarInstruccion(input.grado_instruccion, input.titulo_obtenido).grado,
+    titulo_obtenido: normalizarInstruccion(input.grado_instruccion, input.titulo_obtenido).titulo,
+    trabajo_anterior_empresa: normalizarTrabajo(trabajoDe(input)).empresa,
+    trabajo_anterior_cargo: normalizarTrabajo(trabajoDe(input)).cargo,
+    trabajo_anterior_duracion: normalizarTrabajo(trabajoDe(input)).duracion,
+    trabajo_anterior_sueldo: normalizarTrabajo(trabajoDe(input)).sueldo,
   };
   if (!soloDefinidos) return todo;
   // Las claves de `todo` y las de PersonalInput son las mismas, así que se
@@ -140,7 +175,7 @@ function errorDuplicado(error: { code?: string; message?: string } | null): Erro
   if (!error || error.code !== '23505') return null;
   const m = String(error.message ?? '');
   if (m.includes('personal_cedula_uk')) {
-    return new Error('Ya hay una persona registrada con esa cédula. Buscala en la lista en vez de cargarla de nuevo (si está inactiva, activala).');
+    return new Error('Ya hay una persona registrada con esa cédula. Búscala en la lista en vez de cargarla de nuevo (si está inactiva, activala).');
   }
   if (m.includes('personal_rif_uk')) {
     return new Error('Ya hay una persona registrada con ese RIF.');
@@ -149,7 +184,7 @@ function errorDuplicado(error: { code?: string; message?: string } | null): Erro
 }
 
 export async function crearPersonal(input: PersonalInput, actorEmail?: string): Promise<Personal> {
-  if (!input.nombre.trim()) throw new Error('Indicá el nombre.');
+  if (!input.nombre.trim()) throw new Error('Indica el nombre.');
   const malaFicha = errorFicha(input.ficha_nro);
   if (malaFicha) throw new Error(malaFicha);
   const malCorreo = errorCorreo(input.correo);
@@ -164,7 +199,7 @@ export async function crearPersonal(input: PersonalInput, actorEmail?: string): 
 }
 
 export async function actualizarPersonal(id: string, patch: PersonalInput): Promise<Personal> {
-  if (!patch.nombre.trim()) throw new Error('Indicá el nombre.');
+  if (!patch.nombre.trim()) throw new Error('Indica el nombre.');
   const malCorreo = errorCorreo(patch.correo);
   if (malCorreo) throw new Error(malCorreo);
   // Sin el sueldo, a propósito: ese cambio va por cambiarSueldo(), con motivo.
@@ -279,7 +314,7 @@ export async function getFotoPersonalUrl(path: string): Promise<string> {
 }
 
 /* Los ARCHIVOS del trabajador (RIF, cédula, CV) viven en su propio
-   repositorio: documentos.repository.ts. Acá quedó solo la foto, que es
+   repositorio: documentos.repository.ts. Aquí quedó solo la foto, que es
    parte de la ficha (va en el carnet) y no documentación. */
 
 /** Descarga la foto y la convierte a data URL (para dibujarla en el carnet sin CORS). */

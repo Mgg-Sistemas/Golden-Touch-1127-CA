@@ -4,6 +4,8 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { AdjuntosSalida } from '@/modules/salidas/AdjuntosSalida';
+import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -39,6 +41,7 @@ import { descargarConciliacionesExcel } from './conciliacionExcel';
 import { enviarConciliacionesPorCorreo } from './enviarConciliacion';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { norm } from '@/shared/lib/texto';
+import { horaAInput, horaDesdeInput } from './horaMovimiento';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -56,7 +59,7 @@ function mesActualVE(): string {
 function nombreMes(ym: string): string {
   if (!ym) return '';
   const [y, m] = ym.split('-').map(Number);
-  return new Intl.DateTimeFormat('es', { month: 'long', year: 'numeric' }).format(new Date(y, (m || 1) - 1, 1));
+  return new Intl.DateTimeFormat('es-VE', { month: 'long', year: 'numeric' }).format(new Date(y, (m || 1) - 1, 1));
 }
 /** Mes (YYYY-MM) de una fecha ISO. */
 const mesDe = (fecha: string | null | undefined) => (fecha ?? '').slice(0, 7);
@@ -356,7 +359,7 @@ export function TanquesView() {
           <GrupoTanques
             titulo="Combustible disponible" totales={totalGeneral} grupo={grupoGeneral}
             canWrite={canWrite} loading={loading} estiloTop="1rem"
-            vacio={reporte.length ? 'Sin tanques en este grupo.' : 'Sin tanques. Creá uno con "+ Tanque".'}
+            vacio={reporte.length ? 'Sin tanques en este grupo.' : 'Sin tanques. Crea uno con "+ Tanque".'}
             onAbrir={(id) => { setSelId(id); setAbierto(true); }}
             onEditar={(t) => { setEditTanque(t); setModal('tanque'); }} />
           <GrupoTanques
@@ -443,7 +446,7 @@ export function TanquesView() {
       )}
       {detalle && (
         <DetalleMovimientoModal mov={detalle} tanque={tanques.find((t) => t.id === detalle.tanque_id) ?? sel}
-          catalogos={catalogos} canWrite={canWrite}
+          catalogos={catalogos} canWrite={canWrite} actor={actor}
           onClose={() => setDetalle(null)}
           onSaved={async () => { setDetalle(null); await recargarTodo(); }} />
       )}
@@ -464,7 +467,7 @@ export function TanquesView() {
       {tanqueABorrar && (
         <ConfirmDialog
           title={`Eliminar ${tanqueABorrar.nombre}`}
-          message={`Vas a borrar el tanque «${tanqueABorrar.nombre}» y TODOS sus movimientos. Esta acción no se puede deshacer. Para confirmar que no es por error, escribí el nombre del tanque tal cual.`}
+          message={`Vas a borrar el tanque «${tanqueABorrar.nombre}» y TODOS sus movimientos. Esta acción no se puede deshacer. Para confirmar que no es por error, escribe el nombre del tanque tal cual.`}
           requireText={tanqueABorrar.nombre}
           confirmText={borrandoTanque ? 'Eliminando…' : 'Eliminar tanque'}
           danger
@@ -589,7 +592,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
 
   const opcs = useMemo(() => {
     const uniq = (g: (m: MovimientoTanque) => string | null | undefined) =>
-      Array.from(new Set(movs.map((m) => (g(m) ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'));
+      Array.from(new Set(movs.map((m) => (g(m) ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es-VE'));
     return { equipos: uniq((m) => m.equipo), autorizados: uniq((m) => m.autorizado_por), ubicaciones: uniq((m) => m.ubicacion) };
   }, [movs]);
 
@@ -744,7 +747,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
 
 /* ───────────── Modal: Histórico de Movimientos (por tanque y por mes) ─────────────
    Tarjetas de tanques → al elegir uno, sus movimientos de meses ANTERIORES al actual,
-   agrupados por mes, con filtros, búsqueda y reportes. El mes en curso NO aparece acá
+   agrupados por mes, con filtros, búsqueda y reportes. El mes en curso NO aparece aquí
    (ese está en la lista actual). No se reinicia saldo/horómetro/contador: solo es una
    vista segmentada por mes de los mismos movimientos. */
 function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, reloadKey, onVerDetalle, onClose }: {
@@ -789,7 +792,7 @@ function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, rel
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       {!tankId ? (
         <>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Elegí un tanque para ver sus movimientos de meses anteriores, agrupados por mes.</p>
+          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Elige un tanque para ver sus movimientos de meses anteriores, agrupados por mes.</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
             {reporte.map((r) => {
               const cap = Number(r.tanque.capacidad_litros) || 0;
@@ -905,7 +908,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   }, [tanqueId]);
   useEffect(() => { cargarCi(); }, [cargarCi]);
 
-  // En vivo: si se elimina/edita/agrega un movimiento (acá o por otro usuario), el HI del
+  // En vivo: si se elimina/edita/agrega un movimiento (aquí o por otro usuario), el HI del
   // equipo y el contador del tanque se vuelven a consultar para no quedar desfasados.
   useRealtime(['combustible_tanque_movimientos'], () => { cargarHi(); cargarCi(); });
 
@@ -917,8 +920,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     e.preventDefault();
     setError(null);
     const litrosNum = Number(litros) || 0;
-    if (litros.trim() === '' || litrosNum === 0) { setError('Indicá los litros (se admiten negativos, como en el Excel).'); return; }
-    if (tipo === 'traslado' && !destinoId) { setError('Indicá el tanque destino del traslado.'); return; }
+    if (litros.trim() === '' || litrosNum === 0) { setError('Indica los litros (se admiten negativos, como en el Excel).'); return; }
+    if (tipo === 'traslado' && !destinoId) { setError('Indica el tanque destino del traslado.'); return; }
     if (tipo === 'traslado' && destinoId === tanqueId) { setError('El tanque destino debe ser distinto.'); return; }
     const campos = {
       fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
@@ -969,7 +972,16 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
         </div>
         <div className="form-grid">
           <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required /></div>
-          <div className="form-row"><label>Hora (opcional)</label><input className="input" name="mov-hora" defaultValue={hora} onChange={(e) => setHora(e.target.value)} placeholder="8:02:00 AM" /></div>
+          {/* Selector de hora, no texto libre (28/09/2026, pedido del usuario). Escrita a
+              mano entraron horas como «6:42:08 M» —sin la A ni la P— que desordenaban el
+              libro. El campo habla en 24 h y se guarda en 12 h con AM/PM, que es como lo
+              muestra todo el sistema (ver horaMovimiento.ts). */}
+          <div className="form-row">
+            <label>Hora (opcional)</label>
+            <input className="input" type="time" step={1} name="mov-hora"
+              value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
+            <small className="muted">{hora ? `Se guarda como ${hora}` : 'Si se deja vacía, el movimiento va primero en el día.'}</small>
+          </div>
         </div>
         <div className="form-grid">
           <div className="form-row">
@@ -988,7 +1000,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
               <label>Tanque destino *</label>
               <SearchSelect value={destinoId} onChange={setDestinoId} placeholder="🔍 Buscar destino…"
                 options={[
-                  { value: '', label: '— elegí el tanque destino —' },
+                  { value: '', label: '— elige el tanque destino —' },
                   { value: DESTINO_MGG, label: `🌐 ${DESTINO_MGG_LABEL} (otro sistema)` },
                   ...tanques.filter((t) => t.id !== tanqueId).map((t) => ({ value: t.id, label: t.nombre })),
                 ]} />
@@ -1000,19 +1012,19 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           <div className="form-row">
             <label>Equipo</label>
             <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…"
-              options={[{ value: '', label: '— elegí el equipo —' }, ...opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))]} />
+              options={[{ value: '', label: '— elige el equipo —' }, ...opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))]} />
           </div>
           <div className="form-row">
             <label>Autorizado por</label>
             <SearchSelect value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscar autorizado…"
-              options={[{ value: '', label: '— elegí quién autorizó —' }, ...opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))]} />
+              options={[{ value: '', label: '— elige quién autorizó —' }, ...opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))]} />
           </div>
         </div>
         <div className="form-row">
           <label>Destino</label>
           <SearchSelect value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscar destino…"
-            options={[{ value: '', label: '— elegí el destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
-          <small className="muted">¿Falta un destino? Agregalo en 🗂 Catálogos → Ubicaciones.</small>
+            options={[{ value: '', label: '— elige el destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
+          <small className="muted">¿Falta un destino? Agrégalo en 🗂 Catálogos → Ubicaciones.</small>
         </div>
         <div className="form-row"><label>Observación</label><input className="input" name="mov-observacion" defaultValue={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" /></div>
 
@@ -1064,9 +1076,9 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
 
 /* ───────────── Modal: ver / editar detalle de un movimiento ───────────── */
 
-function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onSaved }: {
+function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClose, onSaved }: {
   mov: MovimientoTanque; tanque: TanqueCombustible | null | undefined; catalogos: CatalogoCombustible[];
-  canWrite: boolean; onClose: () => void; onSaved: () => void;
+  canWrite: boolean; actor: string; onClose: () => void; onSaved: () => void;
 }) {
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
   const s = (v: number | null | undefined) => (v == null ? '' : String(v));
@@ -1094,7 +1106,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
 
   async function guardar() {
     setError(null);
-    if (litros === '' || Number(litros) === 0) { setError('Indicá los litros (distinto de 0).'); return; }
+    if (litros === '' || Number(litros) === 0) { setError('Indica los litros (distinto de 0).'); return; }
     setSaving(true);
     try {
       await actualizarMovimientoTanque(mov.id, {
@@ -1130,6 +1142,10 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
 
       <Fila k="Tanque" v={tanque?.nombre ?? '—'} />
       <Fila k="Saldo del tanque (L · $)" v={`${num(mov.saldo_litros)} L · ${money(mov.saldo_usd)}`} />
+      {(mov.created_by || mov.actor_name) && <Fila k="Registrado por" v={mov.actor_name || mov.created_by || '—'} />}
+
+      {/* Las fotos que sacó el surtidor desde el teléfono (o las que se agreguen aquí). */}
+      <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} />
 
       {/* Datos editables (TODO). Al cambiar tipo/litros/tasa se recalcula el saldo del tanque. */}
       <div className="card-title" style={{ marginTop: '1rem' }}>✎ Datos editables</div>
@@ -1156,7 +1172,12 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, onClose, onS
       </div>
       <div className="form-grid">
         <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Hora</label><input className="input" name="det-hora" defaultValue={hora} onChange={(e) => setHora(e.target.value)} disabled={!canWrite} placeholder="8:02:00 AM" /></div>
+        <div className="form-row">
+          <label>Hora</label>
+          <input className="input" type="time" step={1} name="det-hora" disabled={!canWrite}
+            value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
+          <small className="muted">{hora ? `Se guarda como ${hora}` : 'Sin hora: el movimiento va primero en el día.'}</small>
+        </div>
       </div>
       <div className="form-grid">
         <div className="form-row">
@@ -1245,7 +1266,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!nombre.trim()) { toast('Indicá el nombre', 'error'); return; }
+    if (!nombre.trim()) { toast('Indica el nombre', 'error'); return; }
     setSaving(true);
     try {
       if (editando && tanque) {
@@ -1355,7 +1376,7 @@ function CatalogosModal({ catalogos, onClose, onChanged }: {
   ];
 
   async function agregar() {
-    if (!valor.trim()) { toast('Indicá el valor', 'error'); return; }
+    if (!valor.trim()) { toast('Indica el valor', 'error'); return; }
     setBusy(true);
     try { await addCatalogo(tab, valor); setValor(''); setValorKey((k) => k + 1); await onChanged(); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo agregar', 'error'); }
@@ -1723,7 +1744,7 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
   useEffect(() => { listCubicaciones(tanque.id).then(setHistorial).catch(() => {}); }, [tanque.id]);
 
   async function guardar() {
-    if (altura === '') { toast('Indicá la altura medida', 'error'); return; }
+    if (altura === '') { toast('Indica la altura medida', 'error'); return; }
     setBusy(true);
     try {
       await crearCubicacion({ tanqueId: tanque.id, alturaCm: Number(altura) || 0, fecha, notas: notas || null, actor });
@@ -1744,12 +1765,12 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
     <Modal title={`Cubicación · ${tanque.nombre}`} size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       {!geomOk && (
         <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '1rem' }}>
-          ⚠️ Este tanque no tiene dimensiones cargadas. Editá el tanque ({tanque.tipo === 'cilindrico_horizontal' ? 'radio y largo' : 'largo y ancho'}) para poder cubicar.
+          ⚠️ Este tanque no tiene dimensiones cargadas. Edita el tanque ({tanque.tipo === 'cilindrico_horizontal' ? 'radio y largo' : 'largo y ancho'}) para poder cubicar.
         </div>
       )}
       <div className="card" style={{ marginBottom: '1rem' }}>
         <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-          Tipo: <strong>{tanque.tipo === 'cilindrico_horizontal' ? 'Cilíndrico horizontal' : 'Rectangular'}</strong>. Meté la varilla, leé la altura del líquido en cm y el sistema calcula los litros.
+          Tipo: <strong>{tanque.tipo === 'cilindrico_horizontal' ? 'Cilíndrico horizontal' : 'Rectangular'}</strong>. Mete la varilla, leé la altura del líquido en cm y el sistema calcula los litros.
         </p>
         <div className="form-grid">
           <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
@@ -1792,8 +1813,8 @@ function fechaLocal(d: Date): string {
   return `${y}-${m}-${dd}`;
 }
 
-/** Respaldo manual del proceso automático: postea en la caja de Peramanal el consumo de
- *  combustible de GT de una semana (lunes→domingo). Idempotente: re-generar la misma
+/** Pase MANUAL (el único desde el 29/09/2026: se quitó el cron de los domingos) del consumo
+ *  de combustible de GT de una semana (lunes→domingo) a la caja de Peramanal. Idempotente: re-generar la misma
  *  semana reemplaza el gasto en vez de duplicarlo. */
 function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPosted: () => void | Promise<void> }) {
   // Por defecto, la última semana completa (lunes→domingo ya cerrada).
@@ -1862,10 +1883,9 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
         (movimientos de tanque tipo <strong>uso</strong>, a su costo por tasa PMP). Se registran
         <strong> dos movimientos</strong> por la misma cantidad: el gasto
         <strong> «CONSUMO COMBUSTIBLE GT»</strong> y una <strong>entrada de multimoneda</strong> que
-        lo compensa. Esto lo hace <strong>solo cada domingo</strong> de forma automática; este botón
-        es el <strong>respaldo</strong> para cuando <strong>no se actualizó el fin de semana</strong> y
-        se genera el lunes. Es idempotente: re-generar la misma semana <strong>reemplaza</strong> los
-        movimientos, no los duplica.
+        lo compensa. El pase se hace <strong>solo con este botón</strong> (ya no corre solo los domingos):
+        normalmente el <strong>lunes</strong>, por la semana que acaba de cerrar. Es idempotente: re-generar
+        la misma semana <strong>reemplaza</strong> los movimientos, no los duplica.
       </p>
       <div className="form-grid" style={{ marginTop: '.6rem' }}>
         <div className="form-row">

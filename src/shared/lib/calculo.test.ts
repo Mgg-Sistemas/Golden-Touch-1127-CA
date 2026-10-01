@@ -72,7 +72,7 @@ describe('los signos que escribe el teclado en pantalla', () => {
   // El teclado muestra «×» y «÷» porque se leen mejor, y los mete tal cual en la
   // expresión. El motor viejo los normalizaba antes de parsear; al portarlo se
   // perdió esa línea y multiplicar quedó IMPOSIBLE desde la interfaz. Ningún
-  // test lo vio porque todos usaban ASCII: acá se prueban los glifos de verdad.
+  // test lo vio porque todos usaban ASCII: aquí se prueban los glifos de verdad.
   it('× y ÷ valen lo mismo que * y /', () => {
     expect(calc('2 × 3')!.valor.bs).toBe(6);
     expect(calc('6 ÷ 2')!.valor.bs).toBe(3);

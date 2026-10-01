@@ -14,7 +14,7 @@
      · Dentro del recibo, el sueldo se reparte en DÍAS TRABAJADOS y DÍAS DE
        DESCANSO (11 + 4 = 15), los dos al mismo sueldo diario.
 
-   Todo acá es cálculo puro, para poder probarlo sin pantalla ni base.
+   Todo aquí es cálculo puro, para poder probarlo sin pantalla ni base.
    ============================================================ */
 
 /** El 20 % del Excel: lo que se declara como sueldo. El resto va como bono. */
@@ -88,7 +88,7 @@ export function calcularQuincena(base: BaseQuincena): QuincenaCalculada {
   const totalQuincenaUsd = r2(sueldoQuincenaUsd + bonoQuincenaUsd);
 
   const sueldoQuincenaBs = r2(sueldoQuincenaUsd * tasa);
-  // El diario NO se redondea a dos: con quince días, redondear acá se nota en
+  // El diario NO se redondea a dos: con quince días, redondear aquí se nota en
   // el total del recibo. Se redondea recién cada renglón.
   const sueldoDiarioBs = sueldoQuincenaBs / DIAS_QUINCENA;
 

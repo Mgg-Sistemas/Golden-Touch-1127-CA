@@ -10,24 +10,24 @@
      · por_autorizar → espera a LEYDIS RENGEL o JESUS LOZADA. Se edita o se cancela.
      · autorizada    → ya la aprobaron. Se confirma (o, si se edita, vuelve a
                        borrador y hay que pedir otra autorización).
-     · confirmada → YA MOVIÓ PLATA (caja o cuenta por cobrar). Falta entregar.
+     · confirmada → YA MOVIÓ Dinero (caja o cuenta por cobrar). Falta entregar.
      · entregada  → YA MOVIÓ MATERIAL (kardex). El documento está cumplido.
      · anulada    → se deshizo. Queda con su motivo, no se borra nunca.
 
    TRES COSAS QUE NO SE TOCAN
    ──────────────────────────
-   1. La GANANCIA se muestra acá (es un tablero interno) y NUNCA en el
+   1. La GANANCIA se muestra aquí (es un tablero interno) y NUNCA en el
       comprobante del cliente. Los PDF ya la excluyen: lo único que hay que
-      cuidar desde acá es no pasarles datos de más.
+      cuidar desde aquí es no pasarles datos de más.
 
    2. ANULAR una venta confirmada o entregada es solo del administrador: ya
-      movió plata o material y devolver eso no es un botón más de la fila. Una
+      movió dinero o material y devolver eso no es un botón más de la fila. Una
       venta por autorizar o autorizada todavía no movió nada: la puede CANCELAR
       (con motivo) quien tiene escritura en Ventas.
 
-   3. El cobro de una cuenta por cobrar NO se escribe acá. Se llama a
+   3. El cobro de una cuenta por cobrar NO se escribe aquí. Se llama a
       `registrarCobro` de Tesorería, que es el único camino por el que la
-      plata entra a una caja. Dos caminos = dos verdades sobre el mismo saldo.
+      dinero entra a una caja. Dos caminos = dos verdades sobre el mismo saldo.
 
    Los números de los reportes en pantalla salen de los MISMOS agrupadores
    puros que usan los PDF (`agruparGananciaPor*`, `filasCuentasPorCobrar`): si
@@ -78,7 +78,7 @@ type Vista = 'ventas' | 'permutas' | 'cobrar' | 'reportes';
 /** Orden del tablero: el trabajo pendiente primero, lo cerrado al final. */
 const COLUMNAS: { estado: EstadoVenta; label: string; ayuda: string }[] = [
   { estado: 'por_autorizar', label: 'Por autorizar', ayuda: `Esperan a ${AUTORIZADORES_VENTAS_TEXTO}. No movieron nada.` },
-  { estado: 'autorizada', label: 'Autorizadas', ayuda: 'Aprobadas. Falta confirmar: ahí se mueve la plata.' },
+  { estado: 'autorizada', label: 'Autorizadas', ayuda: 'Aprobadas. Falta confirmar: ahí se mueve el dinero.' },
   { estado: 'borrador', label: 'Borradores', ayuda: 'Todavía no se enviaron a autorizar.' },
   { estado: 'confirmada', label: 'Confirmadas', ayuda: 'Ya se cobró (o quedó a crédito). Falta entregar el material.' },
   { estado: 'entregada', label: 'Entregadas', ayuda: 'Material entregado. El documento está cumplido.' },
@@ -108,7 +108,7 @@ function DocumentoBadge({ venta }: { venta: Venta }) {
   );
 }
 
-/** Todavía no movió plata ni material: se cancela sin reversar nada. */
+/** Todavía no movió dinero ni material: se cancela sin reversar nada. */
 const SIN_MOVIMIENTO: EstadoVenta[] = ['por_autorizar', 'autorizada'];
 
 /** Texto de cada evento del historial, en el idioma de quien lo lee. */
@@ -119,7 +119,7 @@ const EVENTO_LABEL: Record<string, { icono: string; texto: string }> = {
   autorizada: { icono: '✅', texto: 'Autorizada' },
   rechazada: { icono: '✖', texto: 'Rechazada' },
   devuelta_a_borrador: { icono: '↩', texto: 'Vuelve a borrador' },
-  confirmada: { icono: '💵', texto: 'Confirmada (se movió la plata)' },
+  confirmada: { icono: '💵', texto: 'Confirmada (se movió el dinero)' },
   entregada: { icono: '📦', texto: 'Entregada (salió el material)' },
   anulada: { icono: '⊘', texto: 'Anulada / cancelada' },
 };
@@ -154,7 +154,7 @@ export function VentasPage() {
 
   // Escribir el módulo: admin o quien tenga `escritura` sobre Ventas.
   const puedeEscribir = isAdmin || can('ventas', 'escritura');
-  // Anular lo que ya movió plata o material: solo el administrador. Cancelar lo
+  // Anular lo que ya movió dinero o material: solo el administrador. Cancelar lo
   // que todavía no movió nada (por autorizar / autorizada): quien escribe Ventas.
   const puedeAnular = useCallback(
     (v: Venta) => v.estado !== 'anulada' && v.estado !== 'borrador'
@@ -301,7 +301,7 @@ export function VentasPage() {
         <div>
           <h1 style={{ margin: 0 }}>🧾 Ventas</h1>
           <p className="muted hint" style={{ margin: '.25rem 0 0' }}>
-            Al <strong>confirmar</strong> se mueve la plata; al <strong>entregar</strong>, el material.
+            Al <strong>confirmar</strong> se mueve el dinero; al <strong>entregar</strong>, el material.
           </p>
         </div>
         <div className="view-toggle" role="tablist" aria-label="Vista de ventas">
@@ -423,7 +423,7 @@ export function VentasPage() {
       {modal.kind === 'enviar' && (
         <ConfirmDialog
           title={`Enviar ${modal.venta.codigo} a autorizar`}
-          message={`${DOCUMENTO_LABEL[modal.venta.documento]} por ${montoMoneda(modal.venta.total, modal.venta.moneda)}${modal.venta.cliente_nombre ? ` a ${modal.venta.cliente_nombre}` : ''}. Le llega un aviso a ${AUTORIZADORES_VENTAS_TEXTO}. No se mueve plata ni material hasta que la autoricen y se confirme.`}
+          message={`${DOCUMENTO_LABEL[modal.venta.documento]} por ${montoMoneda(modal.venta.total, modal.venta.moneda)}${modal.venta.cliente_nombre ? ` a ${modal.venta.cliente_nombre}` : ''}. Le llega un aviso a ${AUTORIZADORES_VENTAS_TEXTO}. No se mueve dinero ni material hasta que la autoricen y se confirme.`}
           confirmText={trabajando ? 'Enviando…' : 'Sí, enviar'}
           onCancel={cerrarForm}
           onConfirm={() => void ejecutar(async () => {
@@ -494,7 +494,7 @@ export function VentasPage() {
       {modal.kind === 'borrar' && (
         <ConfirmDialog
           title={`Borrar el borrador ${modal.venta.codigo}`}
-          message="Un borrador no movió plata ni material, así que se borra de verdad. Una venta ya enviada a autorizar se CANCELA (queda con su motivo) y una confirmada o entregada se ANULA."
+          message="Un borrador no movió dinero ni material, así que se borra de verdad. Una venta ya enviada a autorizar se CANCELA (queda con su motivo) y una confirmada o entregada se ANULA."
           confirmText={trabajando ? 'Borrando…' : 'Sí, borrar'}
           danger
           onCancel={cerrarForm}
@@ -601,7 +601,7 @@ function TableroEstado({
                     </>
                   )}
                   {v.estado === 'autorizada' && puedeEscribir && (
-                    <button className="btn btn-sm btn-primary" title="Confirmar: mueve la plata" onClick={() => onConfirmar(v)}>✔ Confirmar</button>
+                    <button className="btn btn-sm btn-primary" title="Confirmar: mueve el dinero" onClick={() => onConfirmar(v)}>✔ Confirmar</button>
                   )}
                   {v.estado === 'confirmada' && puedeEscribir && (
                     <button className="btn btn-sm btn-primary" title="Entregar: mueve el material" onClick={() => onEntregar(v)}>📦 Entregar</button>
@@ -611,7 +611,7 @@ function TableroEstado({
                   )}
                   {puedeAnular(v) && (
                     SIN_MOVIMIENTO.includes(v.estado)
-                      ? <button className="btn btn-sm btn-danger" title="Cancelar: todavía no movió plata ni material" onClick={() => onAnular(v)}>⊘ Cancelar</button>
+                      ? <button className="btn btn-sm btn-danger" title="Cancelar: todavía no movió dinero ni material" onClick={() => onAnular(v)}>⊘ Cancelar</button>
                       : <button className="btn btn-sm btn-danger" title="Anular (solo administradores)" onClick={() => onAnular(v)}>⊘ Anular</button>
                   )}
                 </td>
@@ -651,7 +651,7 @@ function DetalleVentaModal({
   const [movs, setMovs] = useState<MovimientoCajaDeVenta[]>([]);
   const [cargandoMovs, setCargandoMovs] = useState(true);
 
-  // A qué cajas fue la plata de esta venta: el otro lado del vínculo con
+  // A qué cajas fue el dinero de esta venta: el otro lado del vínculo con
   // Tesorería. Incluye la reversa si la venta se anuló.
   useEffect(() => {
     let vivo = true;
@@ -753,7 +753,7 @@ function DetalleVentaModal({
       {venta.estado === 'borrador' && venta.rechazo_motivo && (
         <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.8rem' }}>
           <strong>Rechazada</strong>{venta.rechazada_por ? ` por ${venta.rechazada_por}` : ''}{venta.rechazada_at ? ` el ${dateTime(venta.rechazada_at)}` : ''}.
-          <div className="muted" style={{ marginTop: '.25rem' }}>Motivo: {venta.rechazo_motivo}. Corregila y volvé a enviarla a autorizar.</div>
+          <div className="muted" style={{ marginTop: '.25rem' }}>Motivo: {venta.rechazo_motivo}. Corrígela y vuelve a enviarla a autorizar.</div>
         </div>
       )}
       {venta.estado === 'por_autorizar' && (
@@ -841,8 +841,8 @@ function DetalleVentaModal({
         </>
       )}
 
-      {/* ── A qué cajas fue la plata ── */}
-      <strong style={{ fontSize: '.84rem' }}>A qué cajas fue la plata</strong>
+      {/* ── A qué cajas fue el dinero ── */}
+      <strong style={{ fontSize: '.84rem' }}>A qué cajas fue el dinero</strong>
       <div className="table-wrap" style={{ marginTop: '.3rem' }}>
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead>
@@ -860,7 +860,7 @@ function DetalleVentaModal({
               <tr>
                 <td colSpan={5} className="muted" style={{ textAlign: 'center' }}>
                   {venta.condicion === 'credito'
-                    ? 'A crédito: la plata no entró a caja todavía. Se cobra desde «Por cobrar».'
+                    ? 'A crédito: el dinero no entró a caja todavía. Se cobra desde «Por cobrar».'
                     : 'Sin movimientos de caja: todavía no se confirmó.'}
                 </td>
               </tr>
@@ -966,7 +966,7 @@ function MotivoModal({
       <div className="form-row">
         <label>{etiqueta} <span className="muted">(obligatorio)</span></label>
         <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
-        {!listo && motivo.length > 0 && <small className="muted">Escribí un motivo un poco más claro (al menos 4 caracteres).</small>}
+        {!listo && motivo.length > 0 && <small className="muted">Escribe un motivo un poco más claro (al menos 4 caracteres).</small>}
       </div>
     </Modal>
   );
@@ -996,11 +996,11 @@ function AnularModal({
     >
       <p style={{ marginTop: 0 }}>
         {cancelar
-          ? 'Esta venta todavía no movió plata ni material: se cancela sin reversar nada. Queda en «Anuladas» con su motivo y su historial.'
+          ? 'Esta venta todavía no movió dinero ni material: se cancela sin reversar nada. Queda en «Anuladas» con su motivo y su historial.'
           : venta.estado === 'entregada'
-            ? 'El material va a VOLVER al inventario y la plata cobrada se va a reversar en las cajas.'
-            : 'La plata cobrada se va a reversar en las cajas.'}
-        {!cancelar && venta.condicion === 'credito' && ' Si la venta quedó a crédito, se le resta a la cuenta corriente del cliente; si esa cuenta ya tiene cobros, la anulación se rechaza y primero hay que devolver esa plata.'}
+            ? 'El material va a VOLVER al inventario y el dinero cobrado se va a reversar en las cajas.'
+            : 'El dinero cobrado se va a reversar en las cajas.'}
+        {!cancelar && venta.condicion === 'credito' && ' Si la venta quedó a crédito, se le resta a la cuenta corriente del cliente; si esa cuenta ya tiene cobros, la anulación se rechaza y primero hay que devolver ese dinero.'}
         {!cancelar && venta.tipo === 'permuta' && venta.estado === 'entregada' && ' El material que entregó el cliente sale del inventario.'}
       </p>
       <div className="form-row">
@@ -1012,7 +1012,7 @@ function AnularModal({
           onChange={(e) => setMotivo(e.target.value)}
           placeholder="Por qué se anula este documento…"
         />
-        {!listo && motivo.length > 0 && <small className="muted">Escribí un motivo un poco más claro (al menos 4 caracteres).</small>}
+        {!listo && motivo.length > 0 && <small className="muted">Escribe un motivo un poco más claro (al menos 4 caracteres).</small>}
       </div>
     </Modal>
   );
@@ -1021,7 +1021,7 @@ function AnularModal({
 /* ─────────────────────────── Por cobrar ─────────────────────────── */
 
 /**
- * La plata entra por UN solo camino: `registrarCobro` de Tesorería. Acá no se
+ * El dinero entra por UN solo camino: `registrarCobro` de Tesorería. Aquí no se
  * escribe lógica de cobro nueva —ni el movimiento de caja, ni el saldo, ni el
  * estado de la cuenta—, solo se llama a esa función. La cuenta por cobrar es
  * CORRIENTE por cliente: acumula varias ventas, así que el saldo que se ve no
@@ -1075,9 +1075,9 @@ function PorCobrarPanel({
     if (!sel) return;
     setErrorCobro(null);
     const monto = Number(montoStr) || 0;
-    if (monto <= 0) { setErrorCobro('Indicá el monto a cobrar.'); return; }
-    if (!cajaId) { setErrorCobro('Elegí la caja que recibe el dinero.'); return; }
-    if (!esBs && (Number(tasaStr) || 0) <= 0) { setErrorCobro(`Indicá la tasa (Bs por ${sel.moneda}).`); return; }
+    if (monto <= 0) { setErrorCobro('Indica el monto a cobrar.'); return; }
+    if (!cajaId) { setErrorCobro('Elige la caja que recibe el dinero.'); return; }
+    if (!esBs && (Number(tasaStr) || 0) <= 0) { setErrorCobro(`Indica la tasa (Bs por ${sel.moneda}).`); return; }
     setGuardando(true);
     try {
       const r = await registrarCobro({

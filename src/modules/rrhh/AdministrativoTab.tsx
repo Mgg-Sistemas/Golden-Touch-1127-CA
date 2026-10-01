@@ -64,7 +64,7 @@ export function AdministrativoTab({ empresa, canWrite, actor, actorName }: { emp
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!form.personal_id) { setError('Elegí el trabajador.'); return; }
+    if (!form.personal_id) { setError('Elige el trabajador.'); return; }
     setGuardando(true);
     try {
       await crearEvento(form, actor, actorName);

@@ -49,7 +49,7 @@ export function AppShell() {
   const { can, role, appUser, isAdmin } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('maquinaria');
+  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('maquinaria') || can('asignaciones');
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -160,7 +160,7 @@ export function AppShell() {
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
       ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
       ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['retenciones', '/app/retenciones'],
-      ['rrhh', '/app/rrhh'], ['usuarios', '/app/usuarios'], ['ajustes', '/app/ajustes'],
+      ['rrhh', '/app/rrhh'], ['asignaciones', '/app/asignaciones'], ['usuarios', '/app/usuarios'], ['ajustes', '/app/ajustes'],
     ] as Array<[ModuleKey, string]>)
       .filter(([permiso]) => can(permiso))
       .map(([, ruta]) => ruta);
@@ -244,7 +244,7 @@ export function AppShell() {
       setRespaldoOpen(false);
     } catch (e) {
       // `mensajeError` y no `e.message`: el respaldo envuelve el error de Postgres
-      // en un Error, así que acá llegaba el texto crudo en inglés («canceling
+      // en un Error, así que aquí llegaba el texto crudo en inglés («canceling
       // statement due to statement timeout») y salía tal cual en el aviso.
       toast(mensajeError(e, 'No se pudo generar el respaldo'), 'error');
     } finally {
@@ -283,7 +283,7 @@ export function AppShell() {
       .catch((e) => {
         toast(
           `El respaldo automático no se pudo hacer · ${mensajeError(e, 'error desconocido')} · `
-          + 'Se reintenta al volver a entrar; mientras tanto podés hacerlo a mano desde Respaldo de datos.',
+          + 'Se reintenta al volver a entrar; mientras tanto puedes hacerlo a mano desde Respaldo de datos.',
           'error',
         );
       });
@@ -319,6 +319,7 @@ export function AppShell() {
           {can('ventas') && <NavItem to="/app/ventas" icon="↗" label="Ventas" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
+          {can('asignaciones') && <NavItem to="/app/asignaciones" icon="🎒" label="Asignaciones" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria/servicio-mantenimiento" icon="🔧" label="Servicio de Mantenimiento" />}
         </nav>
@@ -482,7 +483,7 @@ export function AppShell() {
           }
         >
           <p className="muted" style={{ margin: 0, fontSize: '.9rem' }}>
-            {descargandoBackup ? 'Generando el respaldo…' : <>¿Cómo querés el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>.</>}
+            {descargandoBackup ? 'Generando el respaldo…' : <>¿Cómo quieres el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>.</>}
           </p>
         </Modal>
       )}

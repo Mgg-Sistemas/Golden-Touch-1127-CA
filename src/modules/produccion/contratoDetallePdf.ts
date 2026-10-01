@@ -10,7 +10,7 @@ import type { ContratoAcopio } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
 const pct = (v: number | null | undefined) =>
-  v == null || !Number.isFinite(Number(v)) ? '—' : `${(Number(v) * 100).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
+  v == null || !Number.isFinite(Number(v)) ? '—' : `${(Number(v) * 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
 const money = (v: number | null | undefined) => `$ ${num(Number(v) || 0)}`;
 
 const nombreArchivo = (c: ContratoAcopio) => `contrato-${c.numero.replace(/[^\w-]+/g, '-')}.pdf`;

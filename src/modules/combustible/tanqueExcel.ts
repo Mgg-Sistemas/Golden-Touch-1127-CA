@@ -1,9 +1,22 @@
 /* ============================================================
    Golden Touch · Combustible · Export Excel del libro mayor de un tanque
    Exporta los movimientos recibidos (respeta el filtro aplicado).
+
+   LAS FECHAS (28/09/2026). Salían como TEXTO «2026-09-25»: no se podían
+   ordenar ni filtrar en Excel y, según cómo las interpretara la máquina que
+   abría el archivo, aparecían corridas un día. Ahora van como FECHA de verdad,
+   con formato dd/mm/aaaa. El truco está en `fechaParaExcel`: la fecha se
+   construye a MEDIODÍA UTC, porque desde medianoche cualquier huso al oeste de
+   Greenwich —el nuestro, UTC−4— la empuja al día anterior.
+
+   LA COLUMNA «#». Es el orden en que el sistema recorrió los movimientos para
+   sacar el saldo corrido. Sirve para cotejar: si una fila del Excel no está
+   donde uno la espera, el número dice en qué lugar la puso el libro y por qué
+   el saldo de esa fila es ese.
    ============================================================ */
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import { previewExcel } from '@/shared/lib/reportePreview';
+import { fechaParaExcel } from './horaMovimiento';
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const litrosDe = (m: MovimientoTanque, tipo: MovimientoTanque['tipo']) => (m.tipo === tipo ? n(m.litros) : '');
@@ -34,11 +47,13 @@ export async function descargarMovimientosTanqueExcel(tanque: TanqueCombustible,
     writeFile: (wb: unknown, name: string) => void;
   };
 
-  const head = ['Fecha', 'Hora', 'Tipo', 'Equipo', 'Autorizado', 'Ubicación', 'Observación', 'HI', 'HF', 'Hrs', 'Entrada', 'Uso', 'Traslado', 'Retorno', 'Saldo L', 'Tasa $/L', '$ Mov.', 'Saldo $'];
+  const head = ['#', 'Fecha', 'Hora', 'Tipo', 'Equipo', 'Autorizado', 'Ubicación', 'Observación', 'HI', 'HF', 'Hrs', 'Entrada', 'Uso', 'Traslado', 'Retorno', 'Saldo L', 'Tasa $/L', '$ Mov.', 'Saldo $'];
+  /** La columna de la fecha, para darle formato de fecha a sus celdas. */
+  const COL_FECHA = 1;
   const TIPO_LABEL: Record<string, string> = { entrada: 'Entrada', uso: 'Uso', traslado: 'Traslado', retorno: 'Retorno' };
 
-  const filas = movs.map((m) => [
-    m.fecha, m.hora || '', TIPO_LABEL[m.tipo] ?? m.tipo, m.equipo || '', m.autorizado_por || '', m.ubicacion || '', m.observacion || '',
+  const filas = movs.map((m, i) => [
+    i + 1, fechaParaExcel(m.fecha) ?? m.fecha, m.hora || '', TIPO_LABEL[m.tipo] ?? m.tipo, m.equipo || '', m.autorizado_por || '', m.ubicacion || '', m.observacion || '',
     m.horometro_ini != null ? n(m.horometro_ini) : '', m.horometro_fin != null ? n(m.horometro_fin) : '', m.horas_utilizadas ? n(m.horas_utilizadas) : '',
     litrosDe(m, 'entrada'), litrosDe(m, 'uso'), litrosDe(m, 'traslado'), litrosDe(m, 'retorno'),
     n(m.saldo_litros), n(m.tasa_usd_litro), n(m.monto_usd), n(m.saldo_usd),
@@ -54,7 +69,7 @@ export async function descargarMovimientosTanqueExcel(tanque: TanqueCombustible,
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   (ws as Record<string, unknown>)['!cols'] = [
-    { wch: 12 }, { wch: 11 }, { wch: 10 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 24 },
+    { wch: 5 }, { wch: 12 }, { wch: 11 }, { wch: 10 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 24 },
     { wch: 8 }, { wch: 8 }, { wch: 7 }, { wch: 10 }, { wch: 9 }, { wch: 10 }, { wch: 10 }, { wch: 11 }, { wch: 9 }, { wch: 11 }, { wch: 12 },
   ];
   (ws as Record<string, unknown>)['!merges'] = [
@@ -64,6 +79,11 @@ export async function descargarMovimientosTanqueExcel(tanque: TanqueCombustible,
   const cellAt = (r: number, c: number) => (ws as Record<string, { s?: unknown }>)[XLSX.utils.encode_cell({ r, c })];
   const tituloCell = cellAt(0, 0); if (tituloCell) tituloCell.s = TITLE_STYLE;
   head.forEach((_, c) => { const cell = cellAt(3, c); if (cell) cell.s = HEADER_STYLE; });
+  // Formato de fecha, celda por celda: sin esto Excel muestra el número de serie (46.000).
+  filas.forEach((_, f) => {
+    const cell = cellAt(4 + f, COL_FECHA) as { z?: string } | undefined;
+    if (cell) cell.z = 'dd/mm/yyyy';
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Libro mayor');

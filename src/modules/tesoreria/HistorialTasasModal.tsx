@@ -16,7 +16,7 @@ function bs(n: number | null | undefined): string {
 /** COP se cotiza como pesos por 1 USD (TRM), no en Bs. */
 function copUsdFmt(n: number | null | undefined): string {
   if (n == null) return '—';
-  return `$ 1 = COP ${Number(n).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$ 1 = COP ${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** Formatea la tasa de una fila según la moneda (COP en pesos/USD, resto en Bs). */
@@ -126,7 +126,7 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
 
   async function guardarManual() {
     const v = Number(mTasa);
-    if (!Number.isFinite(v) || v <= 0) { toast('Indicá una tasa válida', 'error'); return; }
+    if (!Number.isFinite(v) || v <= 0) { toast('Indica una tasa válida', 'error'); return; }
     setBusy(true);
     try {
       await setTasaManual({ moneda: mMoneda, tasa: v });

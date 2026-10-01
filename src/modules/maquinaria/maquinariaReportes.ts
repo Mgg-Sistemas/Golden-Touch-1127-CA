@@ -8,7 +8,7 @@ import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 
 const NOMBRE = 'control-maquinaria';
-const fmtNum = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('es', { maximumFractionDigits: 2 }));
+const fmtNum = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('es-VE', { maximumFractionDigits: 2 }));
 
 async function construirEquiposDoc(rows: MaquinariaEquipo[]) {
   const [{ dateTime }, { loadLogoDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([

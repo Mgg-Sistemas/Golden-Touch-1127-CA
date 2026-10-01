@@ -14,7 +14,7 @@
    y no en GZIP porque Brevo filtra por extensión y acepta `.zip`,
    igual que antes había que mandar `.sql` como `.sql.txt`.
 
-   La descarga manual NO pasa por acá: baja el .sql tal cual, sin
+   La descarga manual NO pasa por aquí: baja el .sql tal cual, sin
    comprimir y sin límite de tamaño, porque no cruza ningún servidor.
    ============================================================ */
 
@@ -23,7 +23,7 @@
  *
  * Es el mismo número que `MAX_ADJUNTO_BYTES` en
  * `supabase/functions/_shared/brevo.ts`: quien corta de verdad es el servidor,
- * así que el aviso de acá tiene que usar su misma vara. Si allá cambia, acá
+ * así que el aviso de aquí tiene que usar su misma vara. Si allí cambia, aquí
  * también.
  */
 export const TOPE_ADJUNTO_BYTES = 8 * 1024 * 1024;
@@ -59,6 +59,6 @@ export function avisoSiNoEntraEnCorreo(bytesZip: number): string | null {
   if (bytesZip <= TOPE_ADJUNTO_BYTES) return null;
   return `El respaldo comprimido pesa ${enMegas(bytesZip)} y el correo admite hasta `
     + `${enMegas(TOPE_ADJUNTO_BYTES)}, así que no se puede enviar por esa vía. `
-    + 'Usá «Descargar» en esta misma ventana: baja el archivo completo sin límite de tamaño. '
-    + 'Avisá que pasó esto, porque significa que la base creció y hay que darle otra salida al respaldo automático.';
+    + 'Usa «Descargar» en esta misma ventana: baja el archivo completo sin límite de tamaño. '
+    + 'Avisa que pasó esto, porque significa que la base creció y hay que darle otra salida al respaldo automático.';
 }

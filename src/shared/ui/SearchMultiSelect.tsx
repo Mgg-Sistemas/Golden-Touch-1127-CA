@@ -36,7 +36,7 @@ export function SearchMultiSelect({ options, selected, onChange, onCreate, place
     return options
       .filter((o) => !yaSeleccion.has(o.toLowerCase()))
       .filter((o) => !t || norm(o).includes(t))
-      .sort((a, b) => a.localeCompare(b, 'es'));
+      .sort((a, b) => a.localeCompare(b, 'es-VE'));
   }, [options, q, yaSeleccion]);
 
   // ¿El texto tipeado coincide EXACTO (case-insensitive) con alguna opción existente?

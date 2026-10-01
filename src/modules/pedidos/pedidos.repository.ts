@@ -1,7 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
-import { baseNetaDesdeTotal, impuestosDeOrden, recomponerImpuestos } from './impuestosOrden';
+import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, recomponerImpuestos, type IvaEditado } from './impuestosOrden';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -186,7 +186,7 @@ export async function registrarAnticipoServicio(
   if (orden.tipo !== 'servicio') throw new Error('El anticipo solo aplica a órdenes de servicio.');
   if (['pagada', 'recibida', 'finalizada'].includes(orden.estado)) throw new Error('La orden ya está pagada/cerrada: no se puede cambiar el anticipo.');
   const total = Math.round((Number(orden.total) || 0) * 100) / 100;
-  if (total <= 0) throw new Error('La orden aún no tiene monto total (aceptá una oferta primero).');
+  if (total <= 0) throw new Error('La orden aún no tiene monto total (acepta una oferta primero).');
   const monedaOrden: 'USD' | 'Bs' = orden.total_moneda === 'Bs' ? 'Bs' : 'USD';
   const raw = Math.round((Number(input.monto) || 0) * 100) / 100;
 
@@ -197,7 +197,7 @@ export async function registrarAnticipoServicio(
     else {
       const t = await getTasaHoy();
       const tasa = Number(t.usd) || 0;
-      if (!(tasa > 0)) throw new Error('No hay tasa BCV para convertir el anticipo. Cargala en Tesorería → Tasas.');
+      if (!(tasa > 0)) throw new Error('No hay tasa BCV para convertir el anticipo. Cárgala en Tesorería → Tasas.');
       anticipoOrden = input.moneda === 'Bs' ? Math.round((raw / tasa) * 100) / 100 : Math.round((raw * tasa) * 100) / 100;
     }
     anticipoOrden = Math.min(anticipoOrden, total);
@@ -351,6 +351,9 @@ export async function actualizarOrdenEditable(
     descuento_obtenido?: number;
     /** Detalle del servicio (piezas + descripción). Solo aplica a órdenes de servicio. */
     detalle_servicio?: DetalleServicioItem[];
+    /** IVA escrito a mano al editar (servicios, 01/10/2026). Manda sobre el de la oferta:
+     *  se puede prender, apagar o corregir. Solo se aplica junto con `total`. */
+    iva?: IvaEditado;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -359,7 +362,7 @@ export async function actualizarOrdenEditable(
   }
   if (patch.items && !patch.items.length) throw new Error('La OC debe tener al menos un ítem.');
   if (patch.items && !patch.items.some((i) => i.comprar !== false)) {
-    throw new Error('Marcá al menos un ítem a comprar.');
+    throw new Error('Marca al menos un ítem a comprar.');
   }
   const descCambia = patch.descuento_obtenido !== undefined;
   const descNuevo = descCambia ? Math.max(0, Math.round((Number(patch.descuento_obtenido) || 0) * 100) / 100) : null;
@@ -371,7 +374,18 @@ export async function actualizarOrdenEditable(
   );
   const itemsCambian = patch.items !== undefined && sigItems(patch.items) !== sigItems(o.items);
   const descCambiaMaterial = descCambia && Math.round((descNuevo ?? 0) * 100) !== Math.round((Number(o.descuento_obtenido) || 0) * 100);
-  const cambioMaterial = itemsCambian || descCambiaMaterial;
+  // IVA editado a mano (servicios): se compone ya, porque cambiar el IVA cambia el total a
+  // pagar y eso también es un cambio MATERIAL (una OC firmada vuelve al Gerente General).
+  const impPrevOrden = impuestosDeOrden(o);
+  const conIvaEditado = patch.iva !== undefined && patch.total !== undefined
+    ? recomponerConIva(
+      baseNetaDesdeTotal(o.total, impPrevOrden),
+      Math.round((Number(patch.total) || 0) * 100) / 100,
+      impPrevOrden, patch.iva,
+    )
+    : null;
+  const ivaCambia = !!conIvaEditado && ivaCambio(impPrevOrden, conIvaEditado);
+  const cambioMaterial = itemsCambian || descCambiaMaterial || ivaCambia;
   // Solo un cambio MATERIAL sobre una OC ya FIRMADA (confirmada_metodo) la devuelve a
   // aprobación del Gerente General (vuelve a `oc_creada`) y limpia la firma previa. Guardar
   // solo texto o sin cambios NO reabre ni borra la firma (antes cualquier guardado la borraba).
@@ -380,6 +394,7 @@ export async function actualizarOrdenEditable(
     historial: appendHistorial(o, 'orden_modificada', actorEmail, {
       ...(vuelveAGerente ? { nota: 'Modificada tras la firma · vuelve a aprobación del Gerente General' } : {}),
       ...(descCambia ? { descuento_obtenido: descNuevo } : {}),
+      ...(ivaCambia && conIvaEditado ? { iva_anterior: impPrevOrden.ivaAplicado ? impPrevOrden.ivaMonto : 0, iva_nuevo: conIvaEditado.ivaMonto } : {}),
     }),
   };
   if (descCambia) upd.descuento_obtenido = descNuevo;
@@ -404,9 +419,14 @@ export async function actualizarOrdenEditable(
     const impPrev = impuestosDeOrden(o);
     const basePrev = baseNetaDesdeTotal(o.total, impPrev);
     const baseNeta = Math.round((Number(patch.total) || 0) * 100) / 100;
-    const imp = recomponerImpuestos(basePrev, baseNeta, impPrev);
+    const imp = conIvaEditado ?? recomponerImpuestos(basePrev, baseNeta, impPrev);
     upd.total = imp.total;
-    if (o.iva_aplicado) upd.iva_monto = imp.ivaMonto;
+    if (conIvaEditado) {
+      // La pantalla puede prender o apagar el IVA: se escriben las tres columnas.
+      upd.iva_aplicado = conIvaEditado.ivaAplicado;
+      upd.iva_pct = conIvaEditado.ivaPct;
+      upd.iva_monto = conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : null;
+    } else if (o.iva_aplicado) upd.iva_monto = imp.ivaMonto;
     if (o.igtf_aplicado) upd.igtf_monto = imp.igtfMonto;
     if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = imp.total;
   }
@@ -427,7 +447,45 @@ export async function actualizarOrdenEditable(
     .select('*')
     .single();
   if (error) throw error;
+  // Cotización aceptada al día (30/09/2026): si a una OC con oferta elegida (pendiente del
+  // GG o esperando método) se le agregan/quitan productos o cambian precios, la oferta
+  // ACEPTADA toma los mismos renglones y su precio, para que la comparativa, el PDF
+  // (precio BCV / divisa) y «Reelegir» hablen de lo mismo que la OC.
+  if (patch.items && itemsCambian && (o.estado === 'oc_creada' || o.estado === 'confirmada_metodo') && Number(o.total) > 0) {
+    await sincronizarOfertaAceptada(o.id, patch.items);
+  }
+  // El IVA editado también va a la oferta aceptada: es la fuente de los impuestos de la
+  // OC, y si quedara con el IVA viejo lo volvería a imponer la próxima vez que se edite.
+  if (conIvaEditado && ivaCambia) {
+    const { error: eOf } = await supabase.from('ofertas_proveedor').update({
+      iva_aplicado: conIvaEditado.ivaAplicado,
+      iva_pct: conIvaEditado.ivaPct,
+      iva_monto: conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : 0,
+    }).eq('orden_id', o.id).eq('estado', 'aceptada');
+    if (eOf) throw eOf;
+  }
   return data as Orden;
+}
+
+/** Copia los renglones de la OC a su oferta aceptada y recalcula su precio (BCV y, si lo
+ *  tenía, en divisa: por suma de precios USD o, si no hay, proporcional al cambio). */
+async function sincronizarOfertaAceptada(ordenId: string, items: ItemOrden[]): Promise<void> {
+  const { data, error: errSel } = await supabase.from('ofertas_proveedor')
+    .select('id, precio_total, precio_divisa').eq('orden_id', ordenId).eq('estado', 'aceptada').maybeSingle();
+  if (errSel) throw errSel;
+  const of = data as { id: string; precio_total: number | null; precio_divisa: number | null } | null;
+  if (!of) return;
+  const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const comprados = items.filter((i) => i.comprar !== false);
+  const bcv = r2(comprados.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0));
+  const usd = r2(comprados.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_usd) || 0), 0));
+  const upd: Record<string, unknown> = { items, precio_total: bcv };
+  if (of.precio_divisa != null) {
+    const prevBcv = Number(of.precio_total) || 0;
+    upd.precio_divisa = usd > 0 ? usd : (prevBcv > 0 ? r2((Number(of.precio_divisa) || 0) * bcv / prevBcv) : bcv);
+  }
+  const { error } = await supabase.from('ofertas_proveedor').update(upd).eq('id', of.id);
+  if (error) throw error;
 }
 
 /**
@@ -790,7 +848,7 @@ export async function repartirOpEntreProveedores(
       return { ...g, items, total };
     })
     .filter((g) => g.proveedorId && g.items.length);
-  if (!validos.length) throw new Error('Asigná al menos un ítem con precio a un proveedor.');
+  if (!validos.length) throw new Error('Asigna al menos un ítem con precio a un proveedor.');
   const nowIso = new Date().toISOString();
   const hijos: Orden[] = [];
 
@@ -1010,7 +1068,7 @@ export async function indicarMetodoPago(
   const esReindicar = o.estado === 'oc_aprobada';
   if (o.estado !== 'confirmada_metodo' && !esContraEntregaRecibida && !esReindicar)
     throw new Error('La OC debe estar en "Confirmada (indicar método de pago)" o "Confirmada pagar".');
-  // El monto lo define Tesorería al pagar; acá solo se registran método(s), moneda(s)
+  // El monto lo define Tesorería al pagar; aquí solo se registran método(s), moneda(s)
   // y los datos del proveedor para pagarle (pago móvil / transferencia / zelle / binance).
   const limpios = (metodos ?? [])
     .map((m) => ({
@@ -1020,7 +1078,7 @@ export async function indicarMetodoPago(
       ...(m.datos && Object.keys(m.datos).length ? { datos: m.datos } : {}),
     }))
     .filter((m) => m.metodo && m.moneda);
-  if (!limpios.length) throw new Error('Indicá al menos un método de pago.');
+  if (!limpios.length) throw new Error('Indica al menos un método de pago.');
   // Soporte: Nota de entrega → directo a Tesorería (como hoy). Factura → además
   // entra a Retenciones (se marca el tipo y el modo de retención). En ambos casos
   // la OC queda "Confirmada pagar" (oc_aprobada) para que Tesorería pague.
@@ -1036,7 +1094,7 @@ export async function indicarMetodoPago(
   );
   // Base NETA: `o.total`/`total_divisa` ya pueden traer IVA/IGTF sumados desde la oferta.
   // Los restamos para no duplicarlos al re-sumar los del método de pago (que llegan
-  // precargados desde la oferta y pueden ajustarse acá). Fuente única: la oferta.
+  // precargados desde la oferta y pueden ajustarse aquí). Fuente única: la oferta.
   const ivaPrev = o.iva_aplicado ? Math.max(0, Number(o.iva_monto) || 0) : 0;
   const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
   const grossBase = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
@@ -1112,7 +1170,7 @@ export async function cambiarProveedorOrden(
   nuevoProveedorId: string,
   actorEmail: string,
 ): Promise<Orden> {
-  if (!nuevoProveedorId) throw new Error('Elegí el proveedor.');
+  if (!nuevoProveedorId) throw new Error('Elige el proveedor.');
   if (nuevoProveedorId === o.proveedor_id) return o;
   const esContraEntregaRecibida = o.estado === 'recibida' && o.condiciones_pago === 'contra_entrega';
   if (o.estado !== 'confirmada_metodo' && !esContraEntregaRecibida) {
@@ -1300,7 +1358,7 @@ async function subirAdjuntoOc(ordenId: string, file: File, tipo: 'factura' | 're
   return path;
 }
 
-/** Tope de comprobantes que admite un pago. Se valida acá y también en la base. */
+/** Tope de comprobantes que admite un pago. Se valida aquí y también en la base. */
 export const MAX_COMPROBANTES_PAGO = 6;
 
 /**
@@ -1400,7 +1458,7 @@ function mapPorPagar(orden: Orden, pm: Map<string, Proveedor>): OrdenPorPagar {
  *
  * Seguro: los movimientos `pago_oc` solo los crea el pago de una OC (que en el mismo
  * paso deja la orden en 'pagada'). Un abono a crédito usa la misma categoría pero sobre
- * órdenes en 'cuenta_abierta', que NO entran acá. Por eso, un `pago_oc` casado a una OC
+ * órdenes en 'cuenta_abierta', que NO entran aquí. Por eso, un `pago_oc` casado a una OC
  * todavía en aprobada/confirmada = pago que no terminó de cerrar → corresponde 'pagada'.
  */
 export async function reconciliarPagosOcHuerfanos(): Promise<number> {
@@ -1485,7 +1543,7 @@ export async function resumenPendientesPorPagar(): Promise<{ porPagar: number; c
 }
 
 /**
- * Cuántas OC a crédito siguen debiendo plata (total − abonado > 0). Solo el CONTEO:
+ * Cuántas OC a crédito siguen debiendo dinero (total − abonado > 0). Solo el CONTEO:
  * trae dos columnas y no toca el directorio de proveedores.
  *
  * Existe para el badge de Tesorería, que antes usaba listOrdenesEnCredito() y por
@@ -1567,11 +1625,11 @@ function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, s
  * si sigue en su estado esperado (`o.estado`), gracias al `.eq('estado', o.estado)`. Es
  * el candado de idempotencia: si dos llamadas compiten (doble clic, o un reintento tras
  * un error de red / de storage que dejó el primer intento a medias), solo UNA cambia la
- * fila; la otra recibe 0 filas y NO debe cobrar. Se llama ANTES de mover plata, así el
+ * fila; la otra recibe 0 filas y NO debe cobrar. Se llama ANTES de mover dinero, así el
  * doble clic ya no genera doble egreso. Devuelve true si esta llamada ganó la reserva.
  */
 /**
- * El pago YA se hizo (la plata salió de la caja y la OC quedó pagada) pero el
+ * El pago YA se hizo (el dinero salió de la caja y la OC quedó pagada) pero el
  * último paso —guardar en la OC los datos del pago— falló. NO es un pago fallido:
  * decirle "No se pudo pagar" al usuario lo lleva a pagar dos veces. El egreso
  * queda igual enlazado a la orden por el disparador `trg_enlazar_pago_oc` de la
@@ -1587,7 +1645,7 @@ export class PagoRegistradoSinDatos extends Error {
 
 /**
  * Escribe los datos del pago en la OC con reintentos. Es el paso que, al fallar,
- * dejaba el pago "a medias": la plata afuera, la OC pagada y la pantalla diciendo
+ * dejaba el pago "a medias": el dinero afuera, la OC pagada y la pantalla diciendo
  * que no se pudo pagar (pasó 23 veces entre el 27/07 y el 21/08/2026).
  */
 async function guardarDatosDelPago(ordenId: string, patch: Record<string, unknown>): Promise<Orden | null> {
@@ -1707,9 +1765,9 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   // al pagar varias del MISMO proveedor juntas.
   if (o.estado !== 'oc_aprobada' && o.estado !== 'confirmada_metodo')
     throw new Error('Solo se pagan órdenes de compra aprobadas por el Gerente General.');
-  if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
+  if (!input.cajaId) throw new Error('Elige la caja con la que se paga.');
   const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
-  if (monto <= 0) throw new Error('Indicá el monto a pagar.');
+  if (monto <= 0) throw new Error('Indica el monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
   // 0) TODO lo que puede rechazar el pago se valida ANTES de reservar: una
@@ -1719,8 +1777,8 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   validarRetencion(o, retencion);
   const reembolso = centavos(input.reembolsoMonto);
 
-  // 1) RESERVA ATÓMICA del cierre ANTES de mover plata. Si un doble clic o un reintento
-  //    (tras un fallo previo) llega acá con la OC ya cerrada, no cobramos de nuevo.
+  // 1) RESERVA ATÓMICA del cierre ANTES de mover dinero. Si un doble clic o un reintento
+  //    (tras un fallo previo) llega aquí con la OC ya cerrada, no cobramos de nuevo.
   if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
     throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
 
@@ -1823,12 +1881,12 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
   const { orden: o } = input;
   if (o.estado !== 'oc_aprobada')
     throw new Error('Solo se pagan órdenes de compra confirmadas (aprobadas en lote).');
-  if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
+  if (!input.cajaId) throw new Error('Elige la caja con la que se paga.');
   const legs = (input.legs ?? []).filter((l) => l.moneda && (Number(l.monto) || 0) > 0);
-  if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');
+  if (!legs.length) throw new Error('Indica al menos un monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
-  // Reserva atómica ANTES de mover plata: bloquea el doble cobro por doble clic/reintento.
+  // Reserva atómica ANTES de mover dinero: bloquea el doble cobro por doble clic/reintento.
   if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
     throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
 
@@ -1948,7 +2006,7 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
   if (o.estado !== 'oc_aprobada')
     throw new Error('Solo se pagan órdenes de compra confirmadas (aprobadas en lote).');
   const legs = (input.legs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
-  if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');
+  if (!legs.length) throw new Error('Indica al menos un monto a pagar.');
   const seriales = limpiarSeriales(input.seriales);
 
   // Lo que puede rechazar el pago se valida ANTES de reservar (si no, la OC
@@ -1958,7 +2016,7 @@ export async function pagarOrdenCompraMultiCajas(input: PagarOcMultiCajasInput):
   validarRetencion(o, retencion);
   const retTxt = textoRetencion(o, retencion, input.retencionMontoBs, input.retencionTasa);
 
-  // Reserva atómica ANTES de mover plata: bloquea el doble cobro por doble clic/reintento.
+  // Reserva atómica ANTES de mover dinero: bloquea el doble cobro por doble clic/reintento.
   if (!(await reservarCierrePagoOrden(o, input.actorEmail)))
     throw new Error('Esta OC ya fue pagada. No se realizó ningún cobro.');
   const reembolsoLegs = (input.reembolsoLegs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
@@ -2272,10 +2330,10 @@ export async function recibirOrdenParcial(
   const recMap = new Map(recepciones.map((r) => [r.sku, Math.max(0, Number(r.cantidad_recibida) || 0)]));
   for (const it of o.items) {
     const rec = recMap.get(it.sku) ?? 0;
-    if (rec > Number(it.cantidad)) throw new Error(`No podés recibir más de lo pedido en ${it.sku}.`);
+    if (rec > Number(it.cantidad)) throw new Error(`No puedes recibir más de lo pedido en ${it.sku}.`);
   }
   if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0))
-    throw new Error('Indicá al menos una cantidad recibida.');
+    throw new Error('Indica al menos una cantidad recibida.');
 
   // El despiece se revisa ANTES de mover un solo kilo: si los cortes no cuadran
   // con la canal, la recepción no empieza. Al revés quedaría la res adentro del
@@ -2371,7 +2429,7 @@ export async function recibirOrdenParcial(
     if (exErr) throw exErr;
   }));
 
-  // Las reses en canal se despiezan acá: la res sale y entran sus cortes.
+  // Las reses en canal se despiezan aquí: la res sale y entran sus cortes.
   const trazasDespiece: TrazaDespiece[] = [];
   if (afectaInventario) {
     for (const it of o.items) {
@@ -2432,9 +2490,9 @@ export async function registrarAbono(
   factura?: File | null,
 ): Promise<{ orden: Orden; abono: AbonoCredito }> {
   if (o.estado !== 'cuenta_abierta') throw new Error('Solo se abonan órdenes a crédito con cuenta abierta.');
-  if (!cajaId) throw new Error('Elegí la caja del abono.');
+  if (!cajaId) throw new Error('Elige la caja del abono.');
   const m = Math.round((Number(monto) || 0) * 100) / 100;
-  if (m <= 0) throw new Error('Indicá el monto del abono.');
+  if (m <= 0) throw new Error('Indica el monto del abono.');
 
   // Egreso real en Tesorería (valida saldo) casado con la orden.
   const mov = await pagarOrden({
@@ -2532,7 +2590,7 @@ export async function registrarAbonoMulti(input: RegistrarAbonoMultiInput): Prom
   const { orden: o } = input;
   if (o.estado !== 'cuenta_abierta') throw new Error('Solo se abonan órdenes a crédito con cuenta abierta.');
   const legs = (input.legs ?? []).filter((l) => l.cajaId && l.moneda && (Number(l.monto) || 0) > 0);
-  if (!legs.length) throw new Error('Indicá al menos un monto a abonar.');
+  if (!legs.length) throw new Error('Indica al menos un monto a abonar.');
   const abonoUsd = Math.round(legs.reduce((a, l) => a + (Number(l.montoUsd) || 0), 0) * 100) / 100;
   if (abonoUsd <= 0) throw new Error('El abono debe ser mayor que 0.');
 
@@ -2731,7 +2789,7 @@ export async function desistirProveedor(
  * nuevo en `pendiente` (las aceptadas y las descartadas) para volver a elegir entre
  * todas, y la hija queda `reasignada` — sale del tablero. Devuelve la MADRE.
  *
- * Va por RPC y no por cuatro updates desde acá a propósito: son escrituras sobre la
+ * Va por RPC y no por cuatro updates desde aquí a propósito: son escrituras sobre la
  * madre, la hija y sus ofertas que tienen que valer todas o ninguna. Una caída de red
  * en el medio dejaría la hija cerrada y sus ítems en ningún lado. La función de la base
  * además NO devuelve a la madre los ítems que otra hija VIVA ya está comprando, cosa
@@ -2813,7 +2871,7 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
 /**
  * ELIMINA una orden/OC por completo, REVIRTIENDO todo lo que llegó a mover, sea cual
  * sea su estado:
- *   1) PLATA — cada egreso de Tesorería casado a la orden (`ref_orden_id`): el pago,
+ *   1) Dinero — cada egreso de Tesorería casado a la orden (`ref_orden_id`): el pago,
  *      las patas del multipago, la comisión bancaria y los abonos a crédito. Cada uno
  *      devuelve su monto a la (caja, cuenta, moneda) de origen (deja un ingreso de
  *      auditoría 'reverso'), así ninguna caja queda descuadrada.
@@ -2825,20 +2883,20 @@ export async function getHistoricoPreciosPorSku(sku: string): Promise<PrecioHist
  *      retenciones se intentan borrar (best-effort: requiere Tesorería).
  *
  * No hay transacción única (igual que reabrir compras): el orden elegido —primero
- * revertir plata y stock, y recién al final borrar la orden— deja la base consistente
+ * revertir dinero y stock, y recién al final borrar la orden— deja la base consistente
  * aunque algo se corte antes del último paso.
  *
  * Ese orden, sin embargo, permitía correr TODO dos veces (doble clic, o dos personas
- * sobre la misma lista): la reversión de plata deja un ingreso de auditoría pero no
+ * sobre la misma lista): la reversión de dinero deja un ingreso de auditoría pero no
  * marca el egreso original, así que la segunda pasada volvía a encontrarlo y devolvía
- * el monto OTRA VEZ — plata inventada en la caja. Por eso ahora se reserva con
+ * el monto OTRA VEZ — dinero inventada en la caja. Por eso ahora se reserva con
  * `eliminando_at` antes de tocar nada (GT-INT-02).
  */
 export async function eliminarOrdenCompra(o: Orden, actorEmail: string, actorName?: string | null): Promise<void> {
   const etiqueta = o.oc_codigo ?? o.codigo ?? 'la orden';
 
   // 0) RESERVA. Toma la orden quien logre marcarla; el resto se detiene ANTES de mover
-  //    plata o stock. Se reserva con una marca y no borrando la fila porque el borrado
+  //    dinero o stock. Se reserva con una marca y no borrando la fila porque el borrado
   //    arrastra en cascada ofertas, abonos y chat: si después fallara la reversión, eso
   //    no vuelve. Con la marca, un fallo se limpia y la orden queda intacta.
   //
@@ -2853,7 +2911,7 @@ export async function eliminarOrdenCompra(o: Orden, actorEmail: string, actorNam
     .select('id');
   if (rErr) throw rErr;
   if (!reserva?.length) {
-    throw new Error(`${etiqueta} ya se está eliminando (o alguien la eliminó). Actualizá la pantalla.`);
+    throw new Error(`${etiqueta} ya se está eliminando (o alguien la eliminó). Actualiza la pantalla.`);
   }
 
   try {
@@ -2867,7 +2925,7 @@ export async function eliminarOrdenCompra(o: Orden, actorEmail: string, actorNam
 
 /** Cuerpo del borrado, con la orden ya reservada (ver `eliminarOrdenCompra`). */
 async function eliminarOrdenCompraInterno(o: Orden, etiqueta: string, actorEmail: string, actorName: string | null): Promise<void> {
-  // 1) PLATA — revertir todos los egresos de Tesorería casados a la orden.
+  // 1) Dinero — revertir todos los egresos de Tesorería casados a la orden.
   const { data: egresos, error: eErr } = await supabase
     .from('movimientos_caja')
     .select('caja_id, cuenta, moneda, monto')

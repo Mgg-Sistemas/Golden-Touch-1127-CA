@@ -290,7 +290,7 @@ function ImprimirRecibosModal({ periodo, empresa, onClose }: {
       <div className="aviso info sm" style={{ marginBottom: '.7rem' }}>
         <span className="aviso-icono">🖨</span>
         <div>Se arma <strong>un PDF con una hoja por trabajador</strong>, agrupadas por la fecha en que cobraron.
-          Destildá a quien no quieras imprimir —por ejemplo, a los que ya firmaron su recibo la semana pasada—.</div>
+          Destilda a quien no quieras imprimir —por ejemplo, a los que ya firmaron su recibo la semana pasada—.</div>
       </div>
 
       {cargando && <div className="muted">Cargando los renglones…</div>}
@@ -448,8 +448,8 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
 
   async function guardar() {
     setError(null);
-    if (!incluidas.length) { setError('Incluí al menos un trabajador.'); return; }
-    if (!periodoDesde || !periodoHasta) { setError('Indicá el período que cubre la nómina (desde y hasta).'); return; }
+    if (!incluidas.length) { setError('Incluye al menos un trabajador.'); return; }
+    if (!periodoDesde || !periodoHasta) { setError('Indica el período que cubre la nómina (desde y hasta).'); return; }
     if (diasPeriodo <= 0) { setError('El «hasta» del período es anterior al «desde».'); return; }
     setSaving(true);
     try {
@@ -515,7 +515,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <label style={{ fontSize: '.72rem' }}>
               Período hasta{' '}
               <span className="muted" style={{ textTransform: 'none' }}>
-                {diasPeriodo > 0 ? `(${diasPeriodo} días)` : '(revisá las fechas)'}
+                {diasPeriodo > 0 ? `(${diasPeriodo} días)` : '(revisa las fechas)'}
               </span>
             </label>
             <FechaInput value={periodoHasta} onChange={setPeriodoHasta} min={periodoDesde || undefined} />
@@ -550,7 +550,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$){tasaFecha ? ` · ${date(tasaFecha)}` : ''}</label>
             <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="tasa del día" />
             <small className="muted" style={{ fontSize: '.68rem' }}>
-              {tasaFecha ? 'Es la del BCV; podés ajustarla.' : 'No se pudo traer la del BCV: escribila.'} Se aplica a todos.
+              {tasaFecha ? 'Es la del BCV; puedes ajustarla.' : 'No se pudo traer la del BCV: escribila.'} Se aplica a todos.
             </small>
           </div>
           <div className="form-row" style={{ flex: 1, minWidth: 180 }}>
@@ -559,7 +559,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           </div>
         </div>
         <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
-          Marcá los trabajadores a pagar. Sueldo diario = sueldo mensual ÷ 30. Bruto = diario × días. Neto = bruto − (anticipos + préstamos). No se descuenta seguro social (IVSS/FAOV).
+          Marca los trabajadores a pagar. Sueldo diario = sueldo mensual ÷ 30. Bruto = diario × días. Neto = bruto − (anticipos + préstamos). No se descuenta seguro social (IVSS/FAOV).
         </small>
       </div>
 
@@ -575,7 +575,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
             <th style={{ textAlign: 'right' }}>≈ Bs</th>
           </tr></thead>
           <tbody>
-            {!filas.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Sin personal activo. Agregá trabajadores en la pestaña Personal.</td></tr>}
+            {!filas.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Sin personal activo. Agrega trabajadores en la pestaña Personal.</td></tr>}
             {filas.map((f, i) => {
               const { deducciones, salario_bruto, neto_usd } = calcFila(f);
               const ants = anticiposDe(f.persona.id);
@@ -658,8 +658,8 @@ function LiquidacionModal({ empresa, actor, actorName, onClose, onSaved }: {
 
   async function guardar() {
     setError(null);
-    if (!persona) { setError('Elegí el trabajador.'); return; }
-    if (monto <= 0) { setError('Indicá el monto del pago.'); return; }
+    if (!persona) { setError('Elige el trabajador.'); return; }
+    if (monto <= 0) { setError('Indica el monto del pago.'); return; }
     if (neto < 0) { setError('Las deducciones no pueden superar el monto.'); return; }
     setSaving(true);
     try {

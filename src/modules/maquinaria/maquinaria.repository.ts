@@ -42,7 +42,7 @@ export async function listActivosMaquinaria(tipo: TipoCatalogoMaquinaria): Promi
 
 export async function addCatalogoMaquinaria(tipo: TipoCatalogoMaquinaria, valor: string): Promise<CatalogoMaquinaria> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   const { data, error } = await supabase
     .from(TABLE)
     .insert({ tipo, valor: v, orden: 999 })
@@ -57,7 +57,7 @@ export async function addCatalogoMaquinaria(tipo: TipoCatalogoMaquinaria, valor:
 
 export async function updateCatalogoMaquinaria(id: string, valor: string): Promise<void> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   const { error } = await supabase.from(TABLE).update({ valor: v }).eq('id', id);
   if (error) {
     if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');

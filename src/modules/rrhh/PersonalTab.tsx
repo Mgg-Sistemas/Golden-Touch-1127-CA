@@ -39,6 +39,7 @@ import { HistorialSueldoModal } from './HistorialSueldoModal';
 import { errorFicha, etiquetaFicha, fichaEditable, FICHA_MIN } from './fichaNro';
 import { errorCorreo } from './correoPersonal';
 import { descargarHojaIngresoPdf } from './hojaIngresoPdf';
+import { GRADOS } from './instruccionYTrabajo';
 import { AjustarFoto } from './AjustarFoto';
 import type { Encuadre } from './encuadreFoto';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -46,10 +47,27 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
   fecha_ingreso: '', telefono: '', correo: '', contacto_emergencia: '', telefono_emergencia: '',
+  tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '',
   fecha_nacimiento: '', genero: null, estado_civil: null, grupo_sanguineo: null,
   nacionalidad: '', direccion: '', contacto_emergencia_parentesco: null,
+  grado_instruccion: null, titulo_obtenido: '',
+  trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '',
+  trabajo_anterior_sueldo: null,
   ficha_nro: '',
 };
+
+/**
+ * Las tres respuestas posibles de una condición de salud en un `<select>`.
+ * Un desplegable maneja cadenas, y aquí hay que distinguir «no» de «sin
+ * indicar»: con un checkbox, los dos serían lo mismo.
+ */
+const OPCIONES_SI_NO = [
+  { valor: '', label: 'Sin indicar' },
+  { valor: 'si', label: 'Sí' },
+  { valor: 'no', label: 'No' },
+];
+const siNoValor = (v?: boolean | null) => (v === true ? 'si' : v === false ? 'no' : '');
+const siNoDesde = (v: string): boolean | null => (v === 'si' ? true : v === 'no' ? false : null);
 
 /** Limita la cédula a formato venezolano: prefijo opcional (V/E/J/G/P) + hasta 8 dígitos. */
 function sanitizarCedula(v: string): string {
@@ -141,13 +159,13 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const [fichaActual, setFichaActual] = useState<string | null>(null);
   const [rif, setRif] = useState('');
   // Documentación (RIF, cédula, CV). En un registro nuevo todavía no hay id al
-  // que colgar los archivos, así que quedan acá y suben con el alta.
+  // que colgar los archivos, así que quedan aquí y suben con el alta.
   const [docsPendientes, setDocsPendientes] = useState<DocsPendientes>({});
   // Qué papeles tiene cada persona, para marcarlo en la lista sin abrir nada.
   const [docsTodos, setDocsTodos] = useState<PersonalDocumento[]>([]);
   const [docsPersona, setDocsPersona] = useState<Personal | null>(null);
   const [fichaPersona, setFichaPersona] = useState<Personal | null>(null);
-  // Carga familiar: de acá sale poder agrupar por «con hijos / sin hijos».
+  // Carga familiar: de aquí sale poder agrupar por «con hijos / sin hijos».
   const [familiares, setFamiliares] = useState<Map<string, PersonalFamiliar[]>>(new Map());
   const [famPendientes, setFamPendientes] = useState<FamiliarInput[]>([]);
   // Filtros y agrupación de la lista.
@@ -271,6 +289,16 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       estado_civil: p.estado_civil ?? null, grupo_sanguineo: p.grupo_sanguineo ?? null,
       nacionalidad: p.nacionalidad ?? '', direccion: p.direccion ?? '',
       contacto_emergencia_parentesco: p.contacto_emergencia_parentesco ?? null,
+      tiene_alergias: p.tiene_alergias ?? null,
+      alergias_detalle: p.alergias_detalle ?? '',
+      tiene_enfermedad: p.tiene_enfermedad ?? null,
+      enfermedad_detalle: p.enfermedad_detalle ?? '',
+      grado_instruccion: p.grado_instruccion ?? null,
+      titulo_obtenido: p.titulo_obtenido ?? '',
+      trabajo_anterior_empresa: p.trabajo_anterior_empresa ?? '',
+      trabajo_anterior_cargo: p.trabajo_anterior_cargo ?? '',
+      trabajo_anterior_duracion: p.trabajo_anterior_duracion ?? '',
+      trabajo_anterior_sueldo: p.trabajo_anterior_sueldo ?? null,
     });
     setCedula(p.cedula ?? '');
     setFicha(p.ficha_nro ?? '');
@@ -361,7 +389,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     // Campos de texto: se leen del DOM (no controlados). Cargo/Departamento/Fecha vienen del estado.
     const root = formRef.current;
     // Si el input NO está en el DOM, esto devolvía '' y el campo terminaba
-    // borrado en la base sin que nadie se enterara. Ahora se rompe acá, que es
+    // borrado en la base sin que nadie se enterara. Ahora se rompe aquí, que es
     // donde se puede ver, en vez de romper el dato del trabajador.
     const faltantes: string[] = [];
     const val = (name: string) => {
@@ -388,10 +416,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     };
     if (faltantes.length) {
       // No se guarda nada: es preferible un error raro a un borrado silencioso.
-      setError(`No se pudo leer ${faltantes.join(', ')} del formulario. No se guardó nada; avisá al equipo del sistema.`);
+      setError(`No se pudo leer ${faltantes.join(', ')} del formulario. No se guardó nada; avisa al equipo del sistema.`);
       return;
     }
-    if (!datos.nombre) { setError('Indicá el nombre.'); return; }
+    if (!datos.nombre) { setError('Indica el nombre.'); return; }
     const malaFicha = errorFicha(ficha);
     if (malaFicha) { setError(malaFicha); return; }
     const malCorreo = errorCorreo(datos.correo);
@@ -410,7 +438,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
         // ya quedó guardado: se avisa y la foto se carga después.
         if (fotoPendiente) {
           try { await subirFotoPersonal(creada.id, fotoPendiente); }
-          catch { toast('Se guardó el registro, pero la foto no se pudo subir. Cargala con ✎ Editar.', 'error'); }
+          catch { toast('Se guardó el registro, pero la foto no se pudo subir. Cárgala con ✎ Editar.', 'error'); }
         }
         // Los documentos elegidos antes de que existiera el registro. Si alguno
         // falla, el registro YA quedó guardado: se avisa cuál y se carga después.
@@ -418,7 +446,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
           const file = docsPendientes[tipo];
           if (!file) continue;
           try { await subirDocumentoPersonal(creada.id, tipo, file); }
-          catch { toast(`Se guardó el registro, pero el ${label} no se pudo subir. Cargalo con 📎.`, 'error'); }
+          catch { toast(`Se guardó el registro, pero el ${label} no se pudo subir. Cárgalo con 📎.`, 'error'); }
         }
         cargarDocs();
         // La carga familiar elegida antes de que el registro existiera.
@@ -636,7 +664,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
           <thead><tr><th>Persona</th><th>Departamento</th><th>Cargo</th><th style={{ textAlign: 'right' }}>Edad</th><th style={{ textAlign: 'right' }}>Sueldo base</th><th style={{ textAlign: 'center' }}>Estado</th><th style={{ textAlign: 'center' }}>Acciones</th></tr></thead>
           <tbody>
             {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !lista.length && <tr><td colSpan={7}><EmptyState message={`Sin personal en ${labelEmpresa(empresa)}. Usá “+ Ingresar Registro de Personal”.`} icon="👥" /></td></tr>}
+            {!loading && !lista.length && <tr><td colSpan={7}><EmptyState message={`Sin personal en ${labelEmpresa(empresa)}. Usa “+ Ingresar Registro de Personal”.`} icon="👥" /></td></tr>}
             {!loading && !!lista.length && !visibles.length && (
               <tr><td colSpan={7}><EmptyState message="Ninguna persona entra en ese recorte." icon="🔍" /></td></tr>
             )}
@@ -752,7 +780,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                   onChange={(e) => setFicha(e.target.value)}
                   disabled={!fichaEditable(!editId, fichaActual)}
                   maxLength={12}
-                  placeholder={editId ? '' : 'se asigna solo si lo dejás vacío'}
+                  placeholder={editId ? '' : 'se asigna solo si lo dejas vacío'}
                   style={errorFicha(ficha) ? { borderColor: 'var(--danger)' } : undefined} />
                 {!fichaEditable(!editId, fichaActual)
                   ? (
@@ -765,7 +793,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                     ? <small style={{ color: 'var(--danger)' }}>{errorFicha(ficha)}</small>
                     : (
                       <small className="muted">
-                        Mínimo {FICHA_MIN} caracteres (ej. 001). Si lo dejás vacío, el sistema le asigna
+                        Mínimo {FICHA_MIN} caracteres (ej. 001). Si lo dejas vacío, el sistema le asigna
                         el siguiente. <strong>Después no se puede cambiar.</strong>
                       </small>
                     )}
@@ -790,21 +818,21 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                   placeholder="V-12345678-9" maxLength={13}
                   style={rifMalEscrito ? { borderColor: 'var(--warning)' } : undefined} />
                 {rifMalEscrito
-                  ? <small style={{ color: 'var(--warning)' }}>Ese RIF no pasa el dígito verificador: revisalo. Igual se guarda.</small>
+                  ? <small style={{ color: 'var(--warning)' }}>Ese RIF no pasa el dígito verificador: revísalo. Igual se guarda.</small>
                   : <small className="muted">Es otro dato que la cédula. Va en la constancia y en la nómina.</small>}
               </div>
               <ComboConAgregar
                 label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
                 onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
-                hint="Elegí de la lista o agregá uno nuevo (queda guardado)." />
+                hint="Elige de la lista o agrega uno nuevo (queda guardado)." />
               <ComboConAgregar
                 label="Departamento" valor={form.departamento ?? ''} opciones={departamentos}
                 onChange={(v) => setForm((f) => ({ ...f, departamento: v }))}
-                hint="Toma los de Usuarios; podés agregar uno nuevo." />
+                hint="Toma los de Usuarios; puedes agregar uno nuevo." />
               <div className="form-row">
                 <label>Sueldo base mensual (USD)</label>
                 {editId ? (
-                  /* En un registro que ya existe el sueldo NO se toca acá: cambiarlo
+                  /* En un registro que ya existe el sueldo NO se toca aquí: cambiarlo
                      lleva motivo y queda en el historial, y eso vive en 💵. Si fuera
                      editable, el campo mentiría: lo que se escriba no se guarda. */
                   <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -840,7 +868,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 <small className="muted">
                   {form.fecha_nacimiento && edad(form.fecha_nacimiento) !== null
                     ? `${edad(form.fecha_nacimiento)} años. La edad se calcula: no se guarda un número que envejece.`
-                    : 'Se escribe DD-MM-AAAA o se elige con 📅. De acá sale la edad en la ficha y en los filtros.'}
+                    : 'Se escribe DD-MM-AAAA o se elige con 📅. De aquí sale la edad en la ficha y en los filtros.'}
                 </small>
               </div>
               <div className="form-row">
@@ -868,10 +896,46 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 </select>
                 <small className="muted">Va en la ficha y sirve en una emergencia.</small>
               </div>
+              {/* Condiciones de salud. Las tres opciones son a propósito: «sin
+                  indicar» no es «no». El detalle se habilita solo con el «sí»,
+                  y al pasar a «no» se vacía, para que no quede guardado un
+                  «alérgico a la penicilina» debajo de un «no tiene alergias». */}
+              <div className="form-row">
+                <label>¿Padece alguna alergia?</label>
+                <select className="input" value={siNoValor(form.tiene_alergias)}
+                  onChange={(e) => setForm((f) => {
+                    const tiene = siNoDesde(e.target.value);
+                    return { ...f, tiene_alergias: tiene, alergias_detalle: tiene === true ? f.alergias_detalle : '' };
+                  })}>
+                  {OPCIONES_SI_NO.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                </select>
+                <input className="input" style={{ marginTop: '.3rem' }}
+                  value={form.alergias_detalle ?? ''}
+                  disabled={form.tiene_alergias !== true}
+                  placeholder="¿A qué? Medicamentos, alimentos, picaduras…"
+                  onChange={(e) => setForm((f) => ({ ...f, alergias_detalle: e.target.value }))} />
+                <small className="muted">Sale en la ficha técnica y en el QR del carnet.</small>
+              </div>
+              <div className="form-row">
+                <label>¿Padece alguna enfermedad?</label>
+                <select className="input" value={siNoValor(form.tiene_enfermedad)}
+                  onChange={(e) => setForm((f) => {
+                    const tiene = siNoDesde(e.target.value);
+                    return { ...f, tiene_enfermedad: tiene, enfermedad_detalle: tiene === true ? f.enfermedad_detalle : '' };
+                  })}>
+                  {OPCIONES_SI_NO.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                </select>
+                <input className="input" style={{ marginTop: '.3rem' }}
+                  value={form.enfermedad_detalle ?? ''}
+                  disabled={form.tiene_enfermedad !== true}
+                  placeholder="¿Cuál? Indica tratamiento o medicación"
+                  onChange={(e) => setForm((f) => ({ ...f, enfermedad_detalle: e.target.value }))} />
+                <small className="muted">Sale en la ficha técnica y en el QR del carnet.</small>
+              </div>
               <ComboConAgregar
                 label="Nacionalidad" valor={form.nacionalidad ?? ''} opciones={nacionalidades}
                 onChange={(v) => setForm((f) => ({ ...f, nacionalidad: v.toUpperCase() }))}
-                hint="Elegí de la lista o agregá una nueva: queda guardada para la próxima." />
+                hint="Elige de la lista o agrega una nueva: queda guardada para la próxima." />
               <div className="form-row"><label>Teléfono</label><input className="input" name="p-telefono" defaultValue={form.telefono ?? ''} placeholder="0412-1234567" inputMode="tel" /></div>
               <div className="form-row">
                 <label>Correo electrónico</label>
@@ -913,7 +977,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 <small className="muted">
                   {opcionesContacto.length
                     ? 'Se busca en la carga familiar de esta persona.'
-                    : 'Cargá la carga familiar más abajo y aparecen acá para elegir.'}
+                    : 'Carga la carga familiar más abajo y aparecen aquí para elegir.'}
                 </small>
               </div>
               <div className="form-row">
@@ -933,6 +997,71 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 <label>Dirección</label>
                 <input className="input" name="p-direccion" defaultValue={form.direccion ?? ''}
                   placeholder="Ciudad, sector, calle…" />
+              </div>
+            </div>
+
+            {/* Instrucción y último trabajo: lo que pregunta la hoja de ingreso
+                (28/09/2026). El título se habilita solo con un grado marcado, como
+                el detalle de una alergia cuelga del «sí»: un título sin grado es un
+                dato a medias que después nadie sabe si creer. */}
+            <div className="divider" />
+            <div className="card-title" style={{ marginBottom: '.5rem' }}>🎓 Instrucción y experiencia</div>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Grado de instrucción</label>
+                <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', padding: '.35rem 0' }}>
+                  {GRADOS.map((g) => (
+                    <label key={g.value} style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontWeight: 400 }}>
+                      <input type="checkbox" checked={form.grado_instruccion === g.value}
+                        onChange={(e) => setForm((f) => ({
+                          ...f,
+                          // Las casillas son excluyentes: destildar la marcada deja «sin indicar».
+                          grado_instruccion: e.target.checked ? g.value : null,
+                          titulo_obtenido: e.target.checked ? f.titulo_obtenido : '',
+                        }))} />
+                      {g.label}
+                    </label>
+                  ))}
+                </div>
+                <small className="muted">Es una sola: marcar otra desmarca la anterior.</small>
+              </div>
+              <div className="form-row">
+                <label>Título obtenido</label>
+                <input className="input" value={form.titulo_obtenido ?? ''}
+                  disabled={!form.grado_instruccion}
+                  placeholder="Ej. T.S.U. EN ELECTRICIDAD"
+                  onChange={(e) => setForm((f) => ({ ...f, titulo_obtenido: e.target.value.toUpperCase() }))} />
+                <small className="muted">Se habilita al marcar un grado.</small>
+              </div>
+              <div className="form-row">
+                <label>Último trabajo (empresa)</label>
+                <input className="input" value={form.trabajo_anterior_empresa ?? ''}
+                  placeholder="Dónde estuvo antes"
+                  onChange={(e) => setForm((f) => ({ ...f, trabajo_anterior_empresa: e.target.value.toUpperCase() }))} />
+              </div>
+              <div className="form-row">
+                <label>Cargo que ocupaba</label>
+                <input className="input" value={form.trabajo_anterior_cargo ?? ''}
+                  placeholder="Ej. OPERADOR DE MAQUINARIA"
+                  onChange={(e) => setForm((f) => ({ ...f, trabajo_anterior_cargo: e.target.value.toUpperCase() }))} />
+              </div>
+              <div className="form-row">
+                <label>¿Cuánto duró?</label>
+                <input className="input" value={form.trabajo_anterior_duracion ?? ''}
+                  placeholder="Ej. 2 AÑOS Y 3 MESES"
+                  onChange={(e) => setForm((f) => ({ ...f, trabajo_anterior_duracion: e.target.value.toUpperCase() }))} />
+                <small className="muted">En palabras: es lo que la persona recuerda.</small>
+              </div>
+              <div className="form-row">
+                <label>Último sueldo (USD)</label>
+                <input className="input" type="number" min={0} step="0.01"
+                  value={form.trabajo_anterior_sueldo ?? ''}
+                  placeholder="0,00"
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    trabajo_anterior_sueldo: e.target.value === '' ? null : Number(e.target.value),
+                  }))} />
+                <small className="muted">Vacío no es lo mismo que cero: déjalo vacío si no lo dijo.</small>
               </div>
             </div>
             <small className="muted" style={{ display: 'block', marginTop: '.35rem' }}>📇 El <strong>teléfono</strong> y el <strong>contacto de emergencia</strong> se incluyen en el <strong>QR del carnet</strong> (botón 🪪 en la lista).</small>
@@ -1016,7 +1145,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
           requireText={textoParaBorrar}
           message={<>
             Esto <strong>no se puede deshacer</strong>: la ficha se borra de la base junto con todo lo que cuelga de ella.
-            Si lo que querés es que deje de aparecer en la nómina, <strong>desactivala</strong> (botón ⏸) en vez de borrarla.
+            Si lo que quieres es que deje de aparecer en la nómina, <strong>desactivala</strong> (botón ⏸) en vez de borrarla.
           </>}
           preview={
             <VistaPrevia
@@ -1360,7 +1489,7 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
       <p className="muted" style={{ fontSize: '.78rem', marginTop: '.8rem', textAlign: 'center' }}>
         54 × 86 mm · 300 DPI (638 × 1016 px) · imágenes PNG listas para imprimir.
         {' '}Cada versión baja con su nombre («…_frente_negro.png», «…_frente_blanco.png»), así que se pueden guardar las dos sin que una pise a la otra.
-        {!persona.telefono && !persona.contacto_emergencia && ' Cargá el teléfono y el contacto de emergencia (✎ Editar) para que el QR los incluya.'}
+        {!persona.telefono && !persona.contacto_emergencia && ' Carga el teléfono y el contacto de emergencia (✎ Editar) para que el QR los incluya.'}
       </p>
 
       {confirmarQuitar && (

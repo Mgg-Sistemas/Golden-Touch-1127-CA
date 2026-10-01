@@ -35,7 +35,7 @@ export function DetalleServicioEditor({
     <div className="form-row">
       <label>{titulo}</label>
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '-.15rem', marginBottom: '.4rem' }}>
-        Ej.: si es una reparación, detallá cada pieza, qué se le hará y su precio (opcional). El precio va sumando. Aparece en el PDF.
+        Ej.: si es una reparación, detalla cada pieza, qué se le hará y su precio (opcional). El precio va sumando. Aparece en el PDF.
       </div>
       {filas.length > 0 && (
         <div style={{ display: 'grid', gap: '.4rem', marginBottom: '.5rem' }}>

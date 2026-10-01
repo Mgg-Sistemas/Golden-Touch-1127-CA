@@ -18,9 +18,9 @@ export interface TenorRow {
 export interface TenorMeta { filtro?: string }
 
 const NOMBRE = 'tenor-promedio-diarios';
-const fmtNum = (v: number) => v.toLocaleString('es', { maximumFractionDigits: 2 });
+const fmtNum = (v: number) => v.toLocaleString('es-VE', { maximumFractionDigits: 2 });
 const fmtPct = (v: number | null) =>
-  v == null || !Number.isFinite(v) ? '' : `${(v * 100).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  v == null || !Number.isFinite(v) ? '' : `${(v * 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 
 async function construirDoc(rows: TenorRow[], meta: TenorMeta = {}) {
   const [{ dateTime }, { loadLogoDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([

@@ -186,6 +186,9 @@ export async function descargarOrdenSalidaPdf(
     ? sol.items
     : [{ producto_nombre: sol.producto_nombre || '—', producto_sku: null as string | null, unidad: null as string | null, cantidad: cant, precio_unit: precio, almacen: sol.almacen_origen ?? null, observacion: null as string | null }];
   const total = items.reduce((a, it) => a + (Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0), 0);
+  // Vale de entrega a Cocina: comida a la unidad COCINA. Mismo documento y firmas; no toca stock.
+  const esVale = (it: unknown) => !!(it as { vale_cocina?: boolean }).vale_cocina;
+  const conVale = items.some(esVale);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -201,7 +204,7 @@ export async function descargarOrdenSalidaPdf(
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
   doc.text(esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA', TX, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : 'Salida de material'}`, TX, y + 38);
+  doc.text(`N° ${sol.codigo}  ·  ${esTraslado ? 'Traslado de material' : (conVale ? 'Salida de material · Vale de entrega a Cocina' : 'Salida de material')}`, TX, y + 38);
   doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
   y += Math.max(LOGO, 42) + 8;
 
@@ -267,7 +270,7 @@ export async function descargarOrdenSalidaPdf(
   head.push('Cantidad', 'Precio USD', 'Total USD');
 
   const body = items.map((it, i) => {
-    const row: string[] = [String(i + 1), `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}`];
+    const row: string[] = [String(i + 1), `${it.producto_nombre}${it.producto_sku ? ` · ${it.producto_sku}` : ''}${esVale(it) ? ' · VALE (no descuenta stock)' : ''}`];
     if (conAlmacen) row.push(invLabel(it.almacen ?? sol.almacen_origen));
     if (conObs) row.push((it.observacion ?? '').trim() || '—');
     row.push(
@@ -303,27 +306,36 @@ export async function descargarOrdenSalidaPdf(
   y = lastY() + 18;
 
   // ── Observaciones / notas ──
-  const notas = [sol.motivo?.trim(), sol.nota_entrega?.trim()].filter(Boolean).join(' · ') || '—';
+  const notas = [
+    sol.motivo?.trim(), sol.nota_entrega?.trim(),
+    conVale ? 'Vale de entrega a Cocina: los alimentos de esta salida no descuentan inventario; el consumo lo registra Distribución de comidas al servir el plato.' : '',
+  ].filter(Boolean).join(' · ') || '—';
+  const notasWrap = doc.splitTextToSize(notas, PAGE_W - MARGIN * 2);
+  // Si la tabla llenó la hoja, las notas van a una hoja nueva (no se montan sobre el pie).
+  if (y + 15 + notasWrap.length * 12 > PAGE_H - MARGIN - 60) { doc.addPage(); y = MARGIN; }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(120);
   doc.text('OBSERVACIONES / NOTAS', MARGIN, y);
   doc.setTextColor(20); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  const notasWrap = doc.splitTextToSize(notas, PAGE_W - MARGIN * 2);
   doc.text(notasWrap, MARGIN, y + 15);
+  const notasFin = y + 15 + notasWrap.length * 12;
 
   // ── Firmas al pie ──
-  const fy = PAGE_H - MARGIN - 50;
+  // La firma va SOBRE la línea de «Autorizado por». Antes la línea iba fija al pie de la
+  // hoja y, con una tabla larga, la firma caía encima de los productos. Ahora el bloque
+  // arranca después de las notas dejando sitio a la firma y, si no cabe, pasa a una hoja nueva.
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
-  // Firma de LEYDIS RENGEL (autorizadora) estampada SOBRE la línea de «Autorizado por»,
-  // tamaño mediano y centrada, cuando la solicitud ya fue aprobada/ejecutada.
+  const maxW = 260, maxH = 110;
+  const ratio = firma2 ? Math.min(maxW / firma2.w, maxH / firma2.h) : 0;
+  const sw = firma2 ? firma2.w * ratio : 0;
+  const sh = firma2 ? firma2.h * ratio : 0;
+  let fy = Math.max(PAGE_H - MARGIN - 50, notasFin + sh + 16);
+  if (fy + 40 > PAGE_H - MARGIN) { doc.addPage(); fy = MARGIN + sh + 24; }
   if (firma2) {
-    // Firma grande: se centra sobre la columna de «Autorizado por» y, si crece más que
-    // la columna, se desplaza para no pasarse de los márgenes de la hoja.
-    const maxW = 300, maxH = 160;
-    const ratio = Math.min(maxW / firma2.w, maxH / firma2.h);
-    const sw = firma2.w * ratio, sh = firma2.h * ratio;
+    // Firma de LEYDIS RENGEL (autorizadora) centrada sobre la columna de «Autorizado por»;
+    // si crece más que la columna, se desplaza para no pasarse de los márgenes.
     const cx = MARGIN + colW + 40 + colW / 2;
     const sx = Math.max(MARGIN, Math.min(cx - sw / 2, PAGE_W - MARGIN - sw));
-    doc.addImage(firma2.dataUrl, 'JPEG', sx, fy - sh - 1, sw, sh);
+    doc.addImage(firma2.dataUrl, 'PNG', sx, fy - sh - 1, sw, sh);
   }
   doc.setDrawColor(120); doc.setLineWidth(0.7);
   doc.line(MARGIN, fy, MARGIN + colW, fy);

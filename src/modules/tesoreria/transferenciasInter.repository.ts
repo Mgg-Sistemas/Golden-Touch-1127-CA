@@ -164,7 +164,7 @@ export async function confirmarTransferenciaEntrante(input: {
   if (row.estado !== 'por_confirmar') throw new Error('Esta transferencia ya fue procesada.');
   if (row.aceptado_tesoreria) throw new Error('Esta transferencia ya fue aceptada en Tesorería.');
   const cajaId = row.caja_id || input.cajaId;
-  if (!cajaId) throw new Error('Elegí la caja que recibe el dinero.');
+  if (!cajaId) throw new Error('Elige la caja que recibe el dinero.');
   const legs = (row.legs ?? []).filter((l) => Number(l.monto) > 0);
   if (!legs.length) throw new Error('La transferencia no tiene montos.');
 
@@ -177,7 +177,7 @@ export async function confirmarTransferenciaEntrante(input: {
     });
   }
 
-  // El MISMO dinero externo entra por SEPARADO en cada módulo: acá solo se marca la
+  // El MISMO dinero externo entra por SEPARADO en cada módulo: aquí solo se marca la
   // parte de Tesorería. Recién cuando Acopio también lo acepte, pasa a 'recibida' + ACK.
   await supabase.from(TABLE).update({ aceptado_tesoreria: true, caja_id: cajaId }).eq('id', row.id);
   await completarSiAmbosAceptaron(row.id);

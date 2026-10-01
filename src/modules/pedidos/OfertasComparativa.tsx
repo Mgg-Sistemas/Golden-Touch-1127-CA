@@ -99,7 +99,7 @@ export function OfertasComparativa({
 
   // Órdenes HIJAS (reparto): las ofertas viven en la orden PADRE. Para mostrar la
   // comparativa igual que el padre, se cargan las del padre y se ven en SOLO LECTURA
-  // (la hija ya es una OC: no se agregan/eligen/reparten/editan ofertas desde acá).
+  // (la hija ya es una OC: no se agregan/eligen/reparten/editan ofertas desde aquí).
   const esHija = !!orden.op_padre_id;
   const ofertasOrdenId = orden.op_padre_id ?? orden.id;
 
@@ -629,7 +629,7 @@ export function OfertasComparativa({
               </div>
             </div>
             <div className="muted" style={{ fontSize: '.72rem', marginTop: '.5rem' }}>
-              El score combina precio, puntualidad, calidad y cumplimiento. Podés elegir por el criterio que prefieras.
+              El score combina precio, puntualidad, calidad y cumplimiento. Puedes elegir por el criterio que prefieras.
             </div>
           </div>
         );
@@ -637,7 +637,7 @@ export function OfertasComparativa({
 
       {enEtapaOc && canDecidir && !minOk && (
         <p className="muted" style={{ marginTop: '.6rem', fontSize: '.82rem' }}>
-          Cargá al menos {MIN_OFERTAS} cotización(es) (máximo {MAX_OFERTAS}) para poder elegir la oferta ganadora.
+          Carga al menos {MIN_OFERTAS} cotización(es) (máximo {MAX_OFERTAS}) para poder elegir la oferta ganadora.
         </p>
       )}
       {enEtapaOc && !canDecidir && (
@@ -651,13 +651,13 @@ export function OfertasComparativa({
           <p style={{ marginTop: 0 }}>
             ¿Elegir la oferta de <strong>{proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}</strong> por{' '}
             <strong className="mono">{money(totalesRepresentativos(confirmando.oferta.items ?? []).bcv || confirmando.oferta.precio_total)}</strong>?
-            {hayVariantes(confirmando.oferta.items ?? []) && ' Como hay productos con varias marcas, a continuación elegís cuál comprar.'}
+            {hayVariantes(confirmando.oferta.items ?? []) && ' Como hay productos con varias marcas, a continuación eliges cuál comprar.'}
           </p>
           <p className="muted" style={{ marginTop: '-.3rem', fontSize: '.82rem' }}>
             La orden quedará <strong>Pendiente por aprobación del Gerente General</strong> y las demás ofertas se descartarán.
           </p>
           <div className="form-row" style={{ borderTop: '1px solid var(--border)', paddingTop: '.7rem' }}>
-            <label style={{ fontWeight: 700 }}>Observación de la elección <span className="muted" style={{ fontWeight: 400 }}>(por qué elegís este proveedor)</span></label>
+            <label style={{ fontWeight: 700 }}>Observación de la elección <span className="muted" style={{ fontWeight: 400 }}>(por qué eliges este proveedor)</span></label>
             <textarea
               className="input"
               rows={3}
@@ -695,9 +695,9 @@ export function OfertasComparativa({
       )}
 
       {seleccion && (
-        <Modal title="Elegí la marca/modelo por producto" onClose={() => setSeleccion(null)} size="md">
+        <Modal title="Elige la marca/modelo por producto" onClose={() => setSeleccion(null)} size="md">
           <p className="muted" style={{ marginTop: 0 }}>
-            Este proveedor cotizó algunos productos en <strong>varias marcas/modelos</strong>. Elegí <strong>UNA por producto</strong>:
+            Este proveedor cotizó algunos productos en <strong>varias marcas/modelos</strong>. Elige <strong>UNA por producto</strong>:
             solo esa entra a la orden de compra y se paga. Las demás quedan registradas en la oferta como referencia.
           </p>
           {agruparVariantes(seleccion.s.oferta.items ?? [])

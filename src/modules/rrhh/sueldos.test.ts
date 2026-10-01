@@ -53,8 +53,8 @@ describe('errorCambioSueldo', () => {
   });
 
   it('rechaza lo que no es número', () => {
-    expect(errorCambioSueldo(300, NaN, 'Aumento')).toMatch(/Escribí/i);
-    expect(errorCambioSueldo(300, null, 'Aumento')).toMatch(/Escribí/i);
+    expect(errorCambioSueldo(300, NaN, 'Aumento')).toMatch(/Escribe/i);
+    expect(errorCambioSueldo(300, null, 'Aumento')).toMatch(/Escribe/i);
   });
 
   it('rechaza el mismo monto aunque haya motivo', () => {
@@ -62,7 +62,7 @@ describe('errorCambioSueldo', () => {
     expect(errorCambioSueldo(300, 300.004, 'Aumento')).toMatch(/mismo/i);
   });
 
-  it('se queja del monto ANTES que del motivo: no manda a llenar un campo al pedo', () => {
+  it('se queja del monto ANTES que del motivo: no manda a llenar un campo de más', () => {
     expect(errorCambioSueldo(300, 300, '')).toMatch(/mismo/i);
   });
 

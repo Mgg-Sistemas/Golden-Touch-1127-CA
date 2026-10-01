@@ -14,7 +14,7 @@ import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
 
 export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
-/** Se re-exporta para no romper a quien ya lo importaba desde acá.
+/** Se re-exporta para no romper a quien ya lo importaba desde aquí.
  *  El valor vive en `@/shared/lib/empresa`, junto al correo y el WhatsApp. */
 export { EMPRESA_RIF };
 
@@ -144,7 +144,7 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
       doc.addImage(firmaGerente, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
     } else if (input.firmante === 'leydis' && firmaLeydis) {
       const w = 150, h = Math.min(80, (w * firmaLeydis.h) / (firmaLeydis.w || 1));
-      doc.addImage(firmaLeydis.dataUrl, 'JPEG', centro - w / 2, firmaY - h + 6, w, h);
+      doc.addImage(firmaLeydis.dataUrl, 'PNG', centro - w / 2, firmaY - h + 6, w, h);
     }
   } catch { /* firma opcional */ }
 

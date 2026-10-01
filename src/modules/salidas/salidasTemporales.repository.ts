@@ -11,6 +11,7 @@
    (responsable) del módulo de Salidas.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { adjuntosSalidasRepo } from './adjuntosSalida.repository';
 import type {
   EventoHistorial, ItemSalidaTemporal, SalidaTemporal, Producto,
 } from '@/shared/lib/types';
@@ -94,7 +95,7 @@ export interface CrearSalidaTemporalInput {
  */
 async function resolverItems(items: ItemSalidaTemporalInput[]): Promise<ItemSalidaTemporal[]> {
   const limpios = (items ?? []).filter((i) => i && (i.producto_id || (i.producto_nombre ?? '').trim()) && (Number(i.cantidad) || 0) > 0);
-  if (!limpios.length) throw new Error('Agregá al menos un material con cantidad.');
+  if (!limpios.length) throw new Error('Agrega al menos un material con cantidad.');
   let productos: Producto[] | null = null;
   const out: ItemSalidaTemporal[] = [];
   for (const it of limpios) {
@@ -125,9 +126,9 @@ async function resolverItems(items: ItemSalidaTemporalInput[]): Promise<ItemSali
     } else {
       // Material NUEVO: se da de alta en inventario (stock 0, sin precio). SKU automático.
       const nombre = (it.producto_nombre ?? '').trim().toUpperCase();
-      if (!nombre) throw new Error('Indicá el nombre del material nuevo.');
+      if (!nombre) throw new Error('Indica el nombre del material nuevo.');
       const categoria = (it.categoria ?? '').trim().toUpperCase();
-      if (!esCategoriaReal(categoria)) throw new Error(`Elegí la categoría de «${nombre}». GENERAL ya no es una categoría.`);
+      if (!esCategoriaReal(categoria)) throw new Error(`Elige la categoría de «${nombre}». GENERAL ya no es una categoría.`);
       if (productos == null) productos = await listProductos().catch(() => [] as Producto[]);
       const nuevo = await createProducto({
         sku: await nextSku(categoria, productos),
@@ -152,7 +153,7 @@ async function resolverItems(items: ItemSalidaTemporalInput[]): Promise<ItemSali
 
 /** Crea la salida temporal en estado 'pendiente'. No mueve inventario todavía. */
 export async function crearSalidaTemporal(input: CrearSalidaTemporalInput): Promise<SalidaTemporal> {
-  if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+  if (!input.solicitante.trim()) throw new Error('Indica quién hace la solicitud.');
   const items = await resolverItems(input.items);
   const { codigo, n } = await nextCodigoSalidaTemporal();
   const historial = appendHistorial({ historial: [] }, 'creada', input.actor);
@@ -216,7 +217,7 @@ export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalid
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { updated_at: now };
   if (input.solicitante !== undefined) {
-    if (!input.solicitante.trim()) throw new Error('Indicá quién hace la solicitud.');
+    if (!input.solicitante.trim()) throw new Error('Indica quién hace la solicitud.');
     patch.solicitante = input.solicitante.trim();
   }
   if (input.unidadSolicitante !== undefined) patch.unidad_solicitante = input.unidadSolicitante?.trim() || null;
@@ -231,7 +232,7 @@ export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalid
   if (input.direccionDespacho !== undefined) patch.direccion_despacho = input.direccionDespacho?.trim() || null;
   if (input.direccionDestino !== undefined) patch.direccion_destino = input.direccionDestino?.trim() || null;
   if (s.estado !== 'pendiente' && input.enTransitoEn !== undefined) {
-    if (!input.enTransitoEn) throw new Error('Indicá desde cuándo está en tránsito.');
+    if (!input.enTransitoEn) throw new Error('Indica desde cuándo está en tránsito.');
     patch.en_transito_en = input.enTransitoEn;
   }
 
@@ -255,7 +256,7 @@ export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalid
   q = s.updated_at ? q.eq('updated_at', s.updated_at) : q.is('updated_at', null);
   const { data: guardada, error } = await q.select('id');
   if (error) throw error;
-  if (!guardada?.length) throw new Error('Otro usuario cambió esta salida temporal. Cerrá y volvé a abrirla para editar la versión actual.');
+  if (!guardada?.length) throw new Error('Otro usuario cambió esta salida temporal. Cierra y vuelve a abrirla para editar la versión actual.');
 
   const hechos: AjusteMovimiento[] = [];
   const mover = (aj: AjusteMovimiento, delta: number, detalle: string) => registrarMovimiento({
@@ -298,6 +299,8 @@ export async function editarSalidaTemporal(s: SalidaTemporal, input: EditarSalid
 /** Elimina una salida temporal que AÚN está 'pendiente' (antes de aprobar). */
 export async function eliminarSalidaTemporal(s: SalidaTemporal): Promise<void> {
   if (s.estado !== 'pendiente') throw new Error('Solo se puede eliminar una salida temporal que está pendiente (sin aprobar).');
+  // Las fotos se borran desde aquí (Storage API): la base no puede borrar archivos.
+  await adjuntosSalidasRepo.borrarTodos('salida_temporal', s.id).catch(() => {});
   const { error } = await supabase.from(TABLE).delete().eq('id', s.id);
   if (error) throw error;
 }
@@ -391,7 +394,7 @@ export async function finalizarSalidaTemporal(
   const items = s.items ?? [];
 
   // ── Reserva atómica (GT-SIN-18) ────────────────────────────────────────────
-  // Acá el duplicado es peor que en la salida: dos finalizaciones a la vez
+  // Aquí el duplicado es peor que en la salida: dos finalizaciones a la vez
   // hacen ENTRAR el material dos veces e inflan el stock con unidades que no
   // existen. Se marca primero, condicionado al estado real en la base.
   const now = new Date();

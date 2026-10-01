@@ -10,7 +10,7 @@
    control del lado de la pantalla, para avisar antes de guardar.
    ============================================================ */
 
-export const MENSAJE_CATEGORIA_OBLIGATORIA = 'Elegí la categoría del producto. GENERAL ya no es una categoría.';
+export const MENSAJE_CATEGORIA_OBLIGATORIA = 'Elige la categoría del producto. GENERAL ya no es una categoría.';
 
 /** `true` si la categoría sirve: no vacía y no GENERAL (sin importar mayúsculas ni espacios). */
 export function esCategoriaReal(categoria: string | null | undefined): boolean {

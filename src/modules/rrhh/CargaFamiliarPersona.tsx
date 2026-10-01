@@ -51,7 +51,7 @@ export function CargaFamiliarPersona({
 
   async function agregar() {
     setError(null);
-    if (!form.nombre.trim()) { setError('Indicá el nombre del familiar.'); return; }
+    if (!form.nombre.trim()) { setError('Indica el nombre del familiar.'); return; }
     if (!personalId) {
       onPendientes?.([...(pendientes ?? []), { ...form }]);
       setForm(VACIO); setAbierto(false);
@@ -126,7 +126,7 @@ export function CargaFamiliarPersona({
               <label>Fecha de nacimiento</label>
               <FechaInput value={form.fecha_nacimiento ?? ''} max={new Date().toISOString().slice(0, 10)}
                 onChange={(iso) => setForm((f) => ({ ...f, fecha_nacimiento: iso }))} />
-              <small className="muted">DD-MM-AAAA o con 📅. De acá sale la edad; no se guarda un número que envejece.</small>
+              <small className="muted">DD-MM-AAAA o con 📅. De aquí sale la edad; no se guarda un número que envejece.</small>
             </div>
             <div className="form-row">
               <label>Cédula (si tiene)</label>
@@ -162,13 +162,13 @@ export function CargaFamiliarPersona({
               </div>
             </div>
           </div>
-          {/* Lo tecleado acá NO es parte de la ficha hasta que se toca
+          {/* Lo tecleado aquí NO es parte de la ficha hasta que se toca
               «Agregar». Sin este aviso se perdía en silencio: se completaba el
               familiar, se guardaba la persona y nunca había llegado a existir. */}
           {form.nombre.trim() && (
             <div className="aviso warning sm" style={{ marginTop: '.5rem' }}>
               <span className="aviso-icono">⚠</span>
-              <div><strong>{form.nombre.trim()}</strong> todavía no está agregado. Tocá <strong>Agregar</strong> o se pierde.</div>
+              <div><strong>{form.nombre.trim()}</strong> todavía no está agregado. Toca <strong>Agregar</strong> o se pierde.</div>
             </div>
           )}
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem' }}>

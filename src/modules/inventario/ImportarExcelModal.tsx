@@ -92,7 +92,7 @@ export function ImportarExcelModal({ analisis, actor, actorName, onClose, onImpo
             </button>
           )}
           {!puedeImportar && (
-            <button className="btn btn-danger" disabled title="Corregí los errores en el Excel antes de subir">
+            <button className="btn btn-danger" disabled title="Corrige los errores en el Excel antes de subir">
               ✖ No se puede importar
             </button>
           )}
@@ -109,7 +109,7 @@ export function ImportarExcelModal({ analisis, actor, actorName, onClose, onImpo
             analisis.estado === 'Validado'
               ? 'Todos los registros son válidos y nuevos. Importación directa.'
               : analisis.estado === 'Duplicados'
-                ? 'El archivo trae duplicados. Confirmá si querés continuar.'
+                ? 'El archivo trae duplicados. Confirma si quieres continuar.'
                 : 'El archivo trae errores de datos. Corregilos antes de subir.'
           }
         />
@@ -125,7 +125,7 @@ export function ImportarExcelModal({ analisis, actor, actorName, onClose, onImpo
           <strong>⚠ Existen materiales que ya están en el inventario</strong>
           <p style={{ margin: '.35rem 0 0' }}>
             {analisis.yaEnInventario > 0 && <><strong>{analisis.yaEnInventario}</strong> material(es) del archivo <strong>ya existen en el inventario</strong> (se detectan por nombre —ignorando mayúsculas, acentos y espacios— o por SKU): NO se crean de nuevo, se <strong>ACTUALIZAN</strong> con los valores del Excel. </>}
-            {analisis.duplicadas} fila(s) en total coinciden (por archivo o por sistema). ¿Deseás continuar?
+            {analisis.duplicadas} fila(s) en total coinciden (por archivo o por sistema). ¿Deseas continuar?
           </p>
         </div>
       )}
@@ -188,8 +188,8 @@ export function ImportarExcelModal({ analisis, actor, actorName, onClose, onImpo
       </div>
 
       <p className="muted" style={{ fontSize: '.75rem', marginTop: '.75rem' }}>
-        Las filas con error nunca se importan, ni siquiera cuando se sube el archivo. Si necesitás
-        forzar la importación de un registro problemático, corregí los datos en el Excel y volvé a subirlo.
+        Las filas con error nunca se importan, ni siquiera cuando se sube el archivo. Si necesitas
+        forzar la importación de un registro problemático, corrige los datos en el Excel y vuelve a subirlo.
       </p>
     </Modal>
   );

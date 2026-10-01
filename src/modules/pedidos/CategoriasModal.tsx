@@ -73,7 +73,7 @@ export function CategoriasModal({ canWrite, onClose }: { canWrite: boolean; onCl
   );
 
   async function agregar() {
-    if (!valor.trim()) { toast(`Indicá la ${tabActual.singular}`, 'error'); return; }
+    if (!valor.trim()) { toast(`Indica la ${tabActual.singular}`, 'error'); return; }
     setBusy(true);
     try {
       if (esServicio) await addServicioCatalogo(servCat, valor.trim());

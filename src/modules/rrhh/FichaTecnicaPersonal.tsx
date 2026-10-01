@@ -23,6 +23,8 @@ import {
 } from './fichaPersonal';
 import { descargarFichaTecnicaPdf } from './fichaTecnicaPdf';
 import { etiquetaFicha } from './fichaNro';
+import { textoCondicion } from './saludPersonal';
+import { labelGrado } from './instruccionYTrabajo';
 
 /** Un dato de la ficha: etiqueta a la izquierda, valor a la derecha. */
 function Dato({ label, children }: { label: string; children: ReactNode }) {
@@ -158,6 +160,28 @@ export function FichaTecnicaPersonal({
             : vacio}
         </Dato>
         <Dato label="Dirección">{oVacio(persona.direccion)}</Dato>
+      </Seccion>
+
+      {/* Salud aparte del contacto: es lo que se busca primero en una
+          emergencia, y perdido entre el teléfono y la dirección no se ve. */}
+      <Seccion titulo="Condiciones de salud">
+        <Dato label="Alergias">{textoCondicion(persona.tiene_alergias, persona.alergias_detalle)}</Dato>
+        <Dato label="Enfermedad">{textoCondicion(persona.tiene_enfermedad, persona.enfermedad_detalle)}</Dato>
+      </Seccion>
+
+      {/* Lo que declaró al ingresar (28/09/2026). Va antes de los datos laborales
+          de la empresa: primero de dónde viene, después qué hace aquí. */}
+      <Seccion titulo="Instrucción y experiencia">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', columnGap: '1.2rem' }}>
+          <Dato label="Grado de instrucción">{persona.grado_instruccion ? labelGrado(persona.grado_instruccion) : vacio}</Dato>
+          <Dato label="Título obtenido">{oVacio(persona.titulo_obtenido)}</Dato>
+          <Dato label="Último trabajo">{oVacio(persona.trabajo_anterior_empresa)}</Dato>
+          <Dato label="Cargo que ocupaba">{oVacio(persona.trabajo_anterior_cargo)}</Dato>
+          <Dato label="¿Cuánto duró?">{oVacio(persona.trabajo_anterior_duracion)}</Dato>
+          <Dato label="Último sueldo">
+            {persona.trabajo_anterior_sueldo != null ? money(persona.trabajo_anterior_sueldo) : vacio}
+          </Dato>
+        </div>
       </Seccion>
 
       <Seccion titulo="Datos laborales">

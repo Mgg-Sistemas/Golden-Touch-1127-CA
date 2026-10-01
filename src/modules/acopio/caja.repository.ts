@@ -4,7 +4,7 @@
    · Cada movimiento se clasifica en uno de los 5 grupos (CLASIFICACIONES).
    · La TASA del material se deriva de los agregados:
        tasa = (Σ facturados + Σ gastos + Σ nominas) / Σ kg_cerrados
-   · Los saldos corrientes (K y M del Excel) se calculan acá al listar.
+   · Los saldos corrientes (K y M del Excel) se calculan aquí al listar.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { crearRecepcionDesdeCierre } from '@/modules/recepciones/recepciones.repository';
@@ -38,11 +38,11 @@ export async function listClasificaciones(): Promise<ClasificacionAcopio[]> {
 
 export async function addClasificacion(grupo: GrupoClasificacion, valor: string): Promise<ClasificacionAcopio> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor de la clasificación.');
+  if (!v) throw new Error('Indica el valor de la clasificación.');
   const { data, error } = await supabase
     .from('acopio_clasificaciones')
     // El número lo pone la base (disparador `acopio_clasificacion_numera`): toma el
-    // siguiente del grupo. Antes acá iba un 999 fijo y todas las categorías nuevas
+    // siguiente del grupo. Antes aquí iba un 999 fijo y todas las categorías nuevas
     // terminaban amontonadas en el mismo puesto, con lo que la numeración de la
     // lista dejaba de significar algo.
     .insert({ grupo, valor: v })
@@ -68,7 +68,7 @@ export async function listClasificacionesAll(grupo?: GrupoClasificacion): Promis
 
 export async function updateClasificacion(id: string, valor: string): Promise<void> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor de la categoría.');
+  if (!v) throw new Error('Indica el valor de la categoría.');
   const { error } = await supabase.from('acopio_clasificaciones').update({ valor: v }).eq('id', id);
   if (error) {
     if ((error as { code?: string }).code === '23505') throw new Error('Esa categoría ya existe en el grupo (los acentos no cuentan).');
@@ -92,6 +92,8 @@ export interface CajaMovimientoInput {
   gastos?: number;
   nominas?: number;
   traslado?: number;
+  /** Columna K del Excel: sale del saldo de caja, no suma a la tasa ni a Gastos GT. */
+  inversion?: number;
   kg_recibidos?: number;
   clasif_grupo?: GrupoClasificacion | null;
   clasif_valor?: string | null;
@@ -127,7 +129,7 @@ export async function listCajaMovimientos(cajaId?: string): Promise<CajaMovimien
   let saldoKg = 0;
   return (data ?? []).map((row) => {
     const m = row as CajaMovimiento;
-    saldoUsd += num(m.usd_entregado) - num(m.facturados) - num(m.gastos) - num(m.nominas) - num(m.traslado);
+    saldoUsd += num(m.usd_entregado) - num(m.facturados) - num(m.gastos) - num(m.nominas) - num(m.traslado) - num(m.inversion);
     saldoKg += num(m.kg_cerrados) - num(m.kg_recibidos);
     return { ...m, saldo_usd: saldoUsd, saldo_kg: saldoKg };
   });
@@ -159,8 +161,9 @@ export interface ResumenCajaAcopio {
   totalGastos: number;
   totalNominas: number;
   totalTraslado: number;
+  totalInversion: number;         // columna K del Excel (fuera de la tasa)
   totalGastado: number;           // gastos + nóminas
-  saldoUsd: number;               // entregado − facturados − gastos − nóminas − traslado
+  saldoUsd: number;               // entregado − facturados − gastos − nóminas − traslado − inversión
   pctGastos: number;              // gastos / total gastado
   pctNomina: number;              // nóminas / total gastado
   gastosPorCategoria: CategoriaResumen[];
@@ -200,10 +203,11 @@ export async function resumenCajaAcopio(
   const totalGastos = sum((m) => m.gastos);
   const totalNominas = sum((m) => m.nominas);
   const totalTraslado = sum((m) => m.traslado);
+  const totalInversion = sum((m) => m.inversion);
   const totalGastado = totalGastos + totalNominas;
   // Redondeo a centavos y normalización del «-0» (evita mostrar «$ -0,00»).
   const round2 = (n: number) => { const v = Math.round(n * 100) / 100; return v === 0 ? 0 : v; };
-  const saldoUsd = round2(totalEntregado - totalFacturado - totalGastos - totalNominas - totalTraslado);
+  const saldoUsd = round2(totalEntregado - totalFacturado - totalGastos - totalNominas - totalTraslado - totalInversion);
   const kgProduccion = sum((m) => m.kg_cerrados);
   const kgEnviados = sum((m) => m.kg_recibidos);
 
@@ -229,7 +233,7 @@ export async function resumenCajaAcopio(
   return {
     centro: 'PERAMANAL GT',
     fechaInicio, fechaActualizacion, dias, movimientos: movs.length,
-    totalEntregado, totalFacturado, totalGastos, totalNominas, totalTraslado, totalGastado, saldoUsd,
+    totalEntregado, totalFacturado, totalGastos, totalNominas, totalTraslado, totalInversion, totalGastado, saldoUsd,
     pctGastos: totalGastado > 0 ? totalGastos / totalGastado : 0,
     pctNomina: totalGastado > 0 ? totalNominas / totalGastado : 0,
     // La nómina entra como una categoría más dentro de los gastos: una sola tabla
@@ -254,11 +258,13 @@ export function resumirCaja(movs: CajaMovimiento[]): CajaResumen {
       gastos: a.gastos + num(m.gastos),
       nominas: a.nominas + num(m.nominas),
       traslado: a.traslado + num(m.traslado),
+      inversion: a.inversion + num(m.inversion),
       kgRecibidos: a.kgRecibidos + num(m.kg_recibidos),
     }),
-    { usdEntregado: 0, kgCerrados: 0, facturados: 0, gastos: 0, nominas: 0, traslado: 0, kgRecibidos: 0 },
+    { usdEntregado: 0, kgCerrados: 0, facturados: 0, gastos: 0, nominas: 0, traslado: 0, inversion: 0, kgRecibidos: 0 },
   );
-  const saldoUsd = r.usdEntregado - r.facturados - r.gastos - r.nominas - r.traslado;
+  // L3 = D − G − H − I − J − K: la inversión sale del saldo pero no de la tasa.
+  const saldoUsd = r.usdEntregado - r.facturados - r.gastos - r.nominas - r.traslado - r.inversion;
   const saldoKg = r.kgCerrados - r.kgRecibidos;
   // F3 = (G3 + H3 + I3) / E3
   const tasa = r.kgCerrados > 0 ? (r.facturados + r.gastos + r.nominas) / r.kgCerrados : 0;
@@ -266,7 +272,7 @@ export function resumirCaja(movs: CajaMovimiento[]): CajaResumen {
 }
 
 export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: string, actorName?: string | null, opts?: { skipDeudaMgg?: boolean }): Promise<CajaMovimiento> {
-  if (!input.fecha) throw new Error('Indicá la fecha del movimiento.');
+  if (!input.fecha) throw new Error('Indica la fecha del movimiento.');
 
   // El formulario manda el `caja_id` que la pantalla tenía cargado. Si mientras tanto
   // otra persona cerró esa caja, el movimiento corresponde a la caja NUEVA: se reapunta
@@ -291,6 +297,7 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
     gastos: num(input.gastos),
     nominas: num(input.nominas),
     traslado: num(input.traslado),
+    inversion: num(input.inversion),
     kg_recibidos: num(input.kg_recibidos),
     clasif_grupo: input.clasif_grupo ?? null,
     clasif_valor: input.clasif_valor?.trim() || null,
@@ -313,7 +320,7 @@ export async function crearMovimientoCaja(input: CajaMovimientoInput, actor: str
     // ESPEJO en el sistema MGG: la misma deuda como CUENTA POR COBRAR (GT como
     // cliente), incremental, vía el puente inter-sistema. Gateado por env: solo se
     // emite cuando MGG ya corre el receptor nuevo (si no, crearía un movimiento
-    // basura allá). `transf_id` = id del movimiento → idempotente.
+    // basura allí). `transf_id` = id del movimiento → idempotente.
     if ((import.meta.env.VITE_PUENTE_CXC_MGG as string | undefined) === 'on') {
       try {
         await supabase.functions.invoke('transfer-enviar', {
@@ -343,6 +350,7 @@ export async function actualizarMovimientoCaja(id: string, input: CajaMovimiento
       gastos: num(input.gastos),
       nominas: num(input.nominas),
       traslado: num(input.traslado),
+      inversion: num(input.inversion),
       kg_recibidos: num(input.kg_recibidos),
       clasif_grupo: input.clasif_grupo ?? null,
       clasif_valor: input.clasif_valor?.trim() || null,
@@ -486,7 +494,7 @@ export async function aceptarEntradaEnCajaAcopio(input: {
 
   // ── Reserva atómica (GT-SIN-06) ────────────────────────────────────────────
   // Los dos `if` de arriba miran el objeto que ESTE navegador tiene en la
-  // tarjeta «Dinero por entrar». Si dos personas pulsan ACEPTAR sobre la misma
+  // tarjeta «Dinero por entrar». Si dos personas presionan ACEPTAR sobre la misma
   // transferencia, las dos los pasan y el dinero se acredita DOS VECES —y el
   // trigger sync_deuda_mgg_acopio infla la deuda con MGG igual. El comentario
   // de esta función decía que el id global evitaba la doble acreditación, pero
@@ -618,7 +626,7 @@ export async function proximoNumeroCaja(): Promise<string> {
 
 /** Contratos frescos para recalcular el cierre. Se lee la tabla directo, y no con
  *  `listContratos` de Producción, para no cerrar un ciclo de imports: ese módulo ya
- *  importa `tasaActualAcopio` de acá. */
+ *  importa `tasaActualAcopio` de aquí. */
 async function listContratosParaCierre(): Promise<ContratoAcopio[]> {
   const { data, error } = await supabase
     .from('acopio_contratos')
@@ -677,10 +685,10 @@ export async function cerrarYAbrirCaja(input: {
     .select('id');
   if (eRes) throw eRes;
   if (!reserva?.length) {
-    throw new Error('La caja ' + laCaja.numero + ' ya fue cerrada por otra persona. Actualizá la pantalla antes de volver a intentar.');
+    throw new Error('La caja ' + laCaja.numero + ' ya fue cerrada por otra persona. Actualiza la pantalla antes de volver a intentar.');
   }
 
-  // A partir de acá la caja YA está cerrada. Si algo falla hay que devolverla a abierta
+  // A partir de aquí la caja YA está cerrada. Si algo falla hay que devolverla a abierta
   // y soltar los movimientos capturados, o el centro de acopio queda sin caja donde
   // registrar.
   let capturados: string[] = [];
@@ -699,7 +707,7 @@ export async function cerrarYAbrirCaja(input: {
     // 3) Congelar: los movimientos sin asignar pasan a pertenecer a la caja que se cierra,
     //    CON CORTE en `cerradaEn`. Lo que alguien registre mientras corre el cierre queda
     //    sin asignar y cae en la caja nueva. Antes se barría la tabla entera sin corte y
-    //    esos movimientos entraban a una caja ya cerrada: plata archivada fuera del
+    //    esos movimientos entraban a una caja ya cerrada: dinero archivado fuera del
     //    reporte, sin aparecer en ningún lado.
     const { data: barridos, error: eBar } = await supabase
       .from('acopio_caja_movimientos')
@@ -741,11 +749,13 @@ export async function cerrarYAbrirCaja(input: {
         nominas: recalc.resumen.nominas,
         facturado: recalc.resumen.facturado,
         totalKg: recalc.filas.reduce((a, f) => a + f.kgCerrados, 0),
+        traslado: recalc.resumen.traslado, inversion: recalc.resumen.inversion, kgRecibidos: recalc.resumen.kgRecibidos,
       },
       filas: recalc.filas.map((f) => ({
         fecha: f.fecha, descripcion: f.descripcion, usdEntregado: f.usdEntregado,
         kgCerrados: f.kgCerrados, usdFacturados: f.usdFacturados, gastosGt: f.gastosGt,
-        nominasGt: f.nominasGt, saldoUsd: f.saldoUsd, saldoKgCasiterita: f.saldoKgCasiterita,
+        nominasGt: f.nominasGt, trasladoCaja: f.trasladoCaja, inversion: f.inversion,
+        saldoUsd: f.saldoUsd, saldoKgCasiterita: f.saldoKgCasiterita,
       })),
     };
 
@@ -822,7 +832,7 @@ export async function listCostoClases(): Promise<CostoClase[]> {
 
 export async function addCostoClase(clasificacion: string, subclasificacion: string): Promise<CostoClase> {
   const cl = clasificacion.trim(), sub = subclasificacion.trim();
-  if (!cl || !sub) throw new Error('Indicá clasificación y sub-clasificación.');
+  if (!cl || !sub) throw new Error('Indica clasificación y sub-clasificación.');
   const { data, error } = await supabase
     .from('acopio_costo_clases')
     .insert({ clasificacion: cl, subclasificacion: sub, orden: 999 })

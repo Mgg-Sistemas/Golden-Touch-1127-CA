@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calcularEoq, construirDias, demandaAnualEstimada, diasEntre, estadoStock, filtrarDistribucion,
+  calcularEoq, construirDias, demandaAnualEstimada, desdeParaKardex, diasEntre, estadoStock, filtrarDistribucion,
   filtrarPorEstado, subtituloFiltro, totalizarControl, type EstadoStock,
 } from './controlDistribucion';
 
@@ -153,6 +153,111 @@ describe('control diario · lo que no es una comida', () => {
   });
 });
 
+describe('la cuenta del período: lo que había, lo consumido, lo que sacó Inventario y lo que queda', () => {
+  const armar = () => construirDias({
+    dias: ['2026-09-14', '2026-09-15', '2026-09-16'],
+    aperturaInventario: 100,
+    movimientos: [
+      { fecha: '2026-09-14', delta: 50, tipo: 'entrada', refTipo: 'orden' },
+      { fecha: '2026-09-14', delta: -20, tipo: 'consumo', refTipo: 'cocina' },
+      { fecha: '2026-09-15', delta: -30, tipo: 'salida', refTipo: 'salida_modulo' },
+      { fecha: '2026-09-15', delta: -10, tipo: 'ajuste', refTipo: 'manual' },
+      { fecha: '2026-09-16', delta: -15, tipo: 'consumo', refTipo: 'cocina' },
+    ],
+    comensalesPorDia: { '2026-09-14': 100, '2026-09-16': 100 },
+    conteosPorDia: {},
+    puntoReorden: 10,
+  });
+
+  it('el día abre con lo que cerró el anterior y «había» es ese saldo más las entradas', () => {
+    const f = armar();
+    expect(f[0].invInicial).toBe(100);
+    expect(f[0].entradas).toBe(50);
+    expect(f[0].disponible).toBe(150);
+    expect(f[1].invInicial).toBe(130);
+    expect(f[1].disponible).toBe(130);   // ese día no entró nada
+  });
+
+  it('separa la salida de inventario del ajuste manual', () => {
+    const f = armar();
+    expect(f[1].salidas).toBe(30);
+    expect(f[1].ajustes).toBe(10);
+    expect(f[1].otrasSalidas).toBe(40);  // las dos juntas, para quien las mire sumadas
+  });
+
+  it('la cuenta cierra: había − consumido − salidas − ajustes = queda', () => {
+    const t = totalizarControl(armar());
+    expect(t.invInicial).toBe(100);
+    expect(t.entradas).toBe(50);
+    expect(t.disponible).toBe(150);
+    expect(t.consumo).toBe(35);
+    expect(t.salidas).toBe(30);
+    expect(t.ajustes).toBe(10);
+    expect(t.otrasSalidas).toBe(40);
+    expect(t.invFinal).toBe(75);
+    expect(t.disponible - t.consumo - t.salidas - t.ajustes).toBe(t.invFinal);
+  });
+
+  it('un reverso de comida resta del consumo; NO suma a lo que había', () => {
+    // Es el error que hacía que este reporte y el panel del mercado dieran distinto.
+    const t = totalizarControl(construirDias({
+      dias: ['2026-09-14'],
+      aperturaInventario: 100,
+      movimientos: [
+        { fecha: '2026-09-14', delta: -20, tipo: 'consumo', refTipo: 'cocina' },
+        { fecha: '2026-09-14', delta: 8, tipo: 'consumo', refTipo: 'cocina' },
+      ],
+      comensalesPorDia: {},
+      conteosPorDia: {},
+      puntoReorden: 0,
+    }));
+    expect(t.consumo).toBe(12);
+    expect(t.entradas).toBe(0);
+    expect(t.disponible).toBe(100);
+    expect(t.invFinal).toBe(88);
+  });
+
+  it('la sincronización de cocina es consumo, no una salida de inventario', () => {
+    const t = totalizarControl(construirDias({
+      dias: ['2026-07-30'],
+      aperturaInventario: 100,
+      movimientos: [{ fecha: '2026-07-30', delta: -80, tipo: 'consumo', refTipo: 'cocina_sync' }],
+      comensalesPorDia: {},
+      conteosPorDia: {},
+      puntoReorden: 0,
+    }));
+    expect(t.consumo).toBe(80);
+    expect(t.salidas).toBe(0);
+    expect(t.ajustes).toBe(0);
+  });
+
+  it('sin días, la cuenta no inventa un saldo', () => {
+    const t = totalizarControl([]);
+    expect(t.invInicial).toBe(0);
+    expect(t.disponible).toBe(0);
+    expect(t.invFinal).toBe(0);
+  });
+
+  it('el conteo físico manda: el día siguiente abre con lo contado y «había» lo refleja', () => {
+    const f = construirDias({
+      dias: ['2026-09-14', '2026-09-15'],
+      aperturaInventario: 100,
+      movimientos: [
+        { fecha: '2026-09-14', delta: -20, tipo: 'consumo', refTipo: 'cocina' },
+        { fecha: '2026-09-15', delta: 10, tipo: 'entrada', refTipo: 'orden' },
+      ],
+      comensalesPorDia: {},
+      conteosPorDia: { '2026-09-14': 75 },
+      puntoReorden: 0,
+    });
+    expect(f[0].invTeorico).toBe(80);
+    expect(f[0].diferencia).toBe(-5);
+    expect(f[1].invInicial).toBe(75);
+    expect(f[1].disponible).toBe(85);
+    expect(totalizarControl(f).invFinal).toBe(85);
+  });
+});
+
 describe('rango de días', () => {
   it('incluye los dos extremos', () => {
     expect(diasEntre('2026-09-14', '2026-09-16')).toEqual(['2026-09-14', '2026-09-15', '2026-09-16']);
@@ -209,12 +314,13 @@ describe('subtítulo del PDF', () => {
 });
 
 describe('recorte desde las tarjetas', () => {
-  const viv = (nombre: string, estado: EstadoStock, consumo: number, merma: number) =>
-    ({ nombre, estado, totales: { consumo, merma } });
+  const viv = (nombre: string, estado: EstadoStock, consumo: number, merma: number,
+    salidas = 0, ajustes = 0) =>
+    ({ nombre, estado, totales: { consumo, salidas, ajustes, merma } });
   const lista = [
-    viv('ATUN', 'reordenar', 5, -2),
+    viv('ATUN', 'reordenar', 5, -2, 4, 0),
     viv('HUEVO', 'normal', 0, 0),
-    viv('CAFE', 'alerta', 3, 0),
+    viv('CAFE', 'alerta', 3, 0, 0, 1.25),
     viv('PASTA', 'reordenar', 0, 1.5),
   ];
 
@@ -235,6 +341,14 @@ describe('recorte desde las tarjetas', () => {
     expect(filtrarDistribucion(lista, 'normal').map((p) => p.nombre)).toEqual(['HUEVO']);
   });
 
+  it('la tarjeta de Salidas deja los que sacó Inventario', () => {
+    expect(filtrarDistribucion(lista, 'con-salidas').map((p) => p.nombre)).toEqual(['ATUN']);
+  });
+
+  it('la tarjeta de Ajustes deja los que Inventario corrigió', () => {
+    expect(filtrarDistribucion(lista, 'con-ajustes').map((p) => p.nombre)).toEqual(['CAFE']);
+  });
+
   it('un consumo o una merma de cero no cuentan', () => {
     expect(filtrarDistribucion([viv('X', 'normal', 0, 0)], 'con-consumo')).toEqual([]);
     expect(filtrarDistribucion([viv('X', 'normal', 0, 0)], 'con-merma')).toEqual([]);
@@ -245,5 +359,18 @@ describe('el subtítulo de los recortes nuevos', () => {
   it('nombra el consumo y la merma', () => {
     expect(subtituloFiltro('con-consumo')).toBe('Solo los víveres CON CONSUMO en el período');
     expect(subtituloFiltro('con-merma')).toBe('Solo los víveres CON MERMA en el período');
+  });
+});
+
+describe('desdeParaKardex · el saldo guardado vale desde su instante', () => {
+  it('con el instante del ciclo, el kardex se lee desde ahí', () => {
+    expect(desdeParaKardex('2026-10-01', '2026-10-01T20:45:10.500Z')).toBe('2026-10-01T20:45:10.500Z');
+    // Lo normaliza a ISO aunque venga con otro formato de zona.
+    expect(desdeParaKardex('2026-10-01', '2026-10-01T16:45:10.5-04:00')).toBe('2026-10-01T20:45:10.500Z');
+  });
+  it('sin instante (rango elegido a mano), desde las 00:00 del día', () => {
+    expect(desdeParaKardex('2026-10-01')).toBe('2026-10-01T00:00:00');
+    expect(desdeParaKardex('2026-10-01', null)).toBe('2026-10-01T00:00:00');
+    expect(desdeParaKardex('2026-10-01', 'no es fecha')).toBe('2026-10-01T00:00:00');
   });
 });

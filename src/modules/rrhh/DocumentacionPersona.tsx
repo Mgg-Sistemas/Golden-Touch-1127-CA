@@ -298,7 +298,7 @@ export function DocumentacionPersona({
                   if (file) elegirNuevo(file);
                 }} />
               <button type="button" className="btn btn-sm btn-ghost" disabled={!personalId || ocupado === 'nuevo'}
-                title={personalId ? 'Cargar un documento que no esté en la lista' : 'Primero guardá el registro'}
+                title={personalId ? 'Cargar un documento que no esté en la lista' : 'Primero guarda el registro'}
                 onClick={() => inputNuevo.current?.click()}>
                 {ocupado === 'nuevo' ? 'Subiendo…' : '➕ Añadir documento'}
               </button>

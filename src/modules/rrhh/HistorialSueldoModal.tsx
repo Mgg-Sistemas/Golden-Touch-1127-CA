@@ -2,7 +2,7 @@
    Golden Touch · RRHH · Historial de sueldo
 
    El sueldo de una persona era un solo número que se pisaba: cambiarlo
-   borraba el anterior y no quedaba ni cuándo ni por qué. Acá se ve la línea
+   borraba el anterior y no quedaba ni cuándo ni por qué. Aquí se ve la línea
    completa —de cuánto a cuánto, desde cuándo y con qué motivo— y es el ÚNICO
    lugar donde se cambia, justamente para que no haya cambio sin motivo.
    ============================================================ */
@@ -183,7 +183,7 @@ export function HistorialSueldoModal({
               </select>
               {motivo === 'Otro' && (
                 <input className="input" style={{ marginTop: '.35rem' }} value={otro}
-                  onChange={(e) => setOtro(e.target.value)} placeholder="Escribí el motivo" />
+                  onChange={(e) => setOtro(e.target.value)} placeholder="Escribe el motivo" />
               )}
             </div>
             <div className="form-row">

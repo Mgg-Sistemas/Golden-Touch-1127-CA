@@ -13,7 +13,7 @@
    Se usa cuando un ciclo nació mal y sus números no describen nada creíble.
 
    Doble llave, como el resto de lo destructivo del sistema: un motivo que
-   explique y el número del mercado escrito a mano. Acá viven las piezas que se
+   explique y el número del mercado escrito a mano. Aquí viven las piezas que se
    prueban sin base ni React.
    ============================================================ */
 import { norm } from '@/shared/lib/texto';

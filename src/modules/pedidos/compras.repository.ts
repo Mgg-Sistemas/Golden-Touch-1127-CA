@@ -318,13 +318,13 @@ export async function crearCompraDirecta(
   // Inventario único: la compra directa entra siempre al Inventario General ('General' en BD).
   const almacen = 'General';
   const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0);
-  if (!lineas.length) throw new Error('Agregá al menos un material con cantidad.');
+  if (!lineas.length) throw new Error('Agrega al menos un material con cantidad.');
 
   const items: CompraDirectaItem[] = [];
   for (const l of lineas) {
     const cantidad = Number(l.cantidad) || 0;
     if (l.modo === 'existente') {
-      if (!l.productoId) throw new Error('Elegí el material en cada renglón.');
+      if (!l.productoId) throw new Error('Elige el material en cada renglón.');
       const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
       // Si se cambió la medida del producto existente, se actualiza en el inventario.
       const nuevaUnidad = (l.unidad ?? '').trim();
@@ -335,7 +335,7 @@ export async function crearCompraDirecta(
       items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
     } else {
       const nom = l.nombre.trim().toUpperCase();
-      if (!nom) throw new Error('Indicá el nombre del material nuevo.');
+      if (!nom) throw new Error('Indica el nombre del material nuevo.');
       const nuevo = await createProducto({
         sku: await nextSku(l.categoria, productosExistentes),
         nombre: nom, categoria: l.categoria, unidad: l.unidad,
@@ -394,7 +394,7 @@ async function limpiarAdjuntosDeCompra(compraId: string, adjuntoPath?: string | 
  *   · «Por recibir» / «Por pagar» aún SIN pagar — montada, pero Tesorería no la pagó y
  *     el almacenista no le dio entrada, así que no hay caja ni stock que revertir.
  *
- * Las PAGADAS (`finalizada`) NO se borran acá: ya descontaron la caja. Para eliminarlas
+ * Las PAGADAS (`finalizada`) NO se borran aquí: ya descontaron la caja. Para eliminarlas
  * hay que REABRIRLAS primero (`reabrirCompraDirecta` devuelve el dinero y revierte el
  * inventario) y recién entonces borrarlas. Las ya recibidas tampoco: movieron stock.
  *
@@ -412,7 +412,7 @@ export async function eliminarCompraDirecta(compra: CompraDirecta): Promise<void
     .from('compras_directas').delete().eq('id', compra.id).neq('estado', 'finalizada').select('id');
   if (error) throw error;
   if (!data || !data.length)
-    throw new Error('No se pudo eliminar: la compra acaba de pagarse, ya no existe o no tenés permiso.');
+    throw new Error('No se pudo eliminar: la compra acaba de pagarse, ya no existe o no tienes permiso.');
   await limpiarAdjuntosDeCompra(compra.id, compra.adjunto_path).catch(() => { /* archivos huérfanos, no bloquea */ });
 }
 
@@ -462,11 +462,11 @@ export interface FinalizarCompraInput {
 export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promise<void> {
   const { compra } = input;
   if (compra.estado !== 'en_proceso') throw new Error('Esta compra ya fue completada.');
-  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  if (!input.cajaId) throw new Error('Elige la caja de la que sale el dinero.');
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
   const total = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
-  if (total <= 0) throw new Error('Indicá cuánto se gastó.');
+  if (total <= 0) throw new Error('Indica cuánto se gastó.');
 
   // 1) Egreso de la caja (valida saldo) → pasa por Tesorería.
   const concepto = `Compra directa · ${compra.producto_nombre}`;
@@ -484,7 +484,7 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
       });
       if (!primero) primero = r.id;
     }
-    if (!primero) throw new Error('Indicá cuánto pagar en al menos una moneda.');
+    if (!primero) throw new Error('Indica cuánto pagar en al menos una moneda.');
     movCajaId = primero;
   } else {
     // Caja de una sola moneda: descuenta el saldo VISIBLE de la caja (cajas.saldo) para
@@ -525,7 +525,7 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     const tasaGuardada = Number(compra.tasa_conversion) || 0;
     tasaUsd = tasaGuardada > 0 ? tasaGuardada : await tasaUsdHoy();
     if (!(tasaUsd > 0)) {
-      throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Cargá/actualizá la tasa BCV (Tesorería → Tasas) o usá el conversor "⇄ Convertir a $" de la compra, y volvé a completar. (Sin tasa, 1200 Bs se registraría como $1200 — se bloqueó a propósito.)');
+      throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Carga/actualiza la tasa BCV (Tesorería → Tasas) o usa el conversor "⇄ Convertir a $" de la compra, y vuelve a completar. (Sin tasa, 1200 Bs se registraría como $1200 — se bloqueó a propósito.)');
     }
   }
   let primerMov: string | null = null;
@@ -699,7 +699,7 @@ export async function eliminarCompraDirectaConReverso(compra: CompraDirecta, act
   const { data, error } = await supabase
     .from('compras_directas').delete().eq('id', compra.id).select('id');
   if (error) throw error;
-  if (!data || !data.length) throw new Error('No se pudo eliminar: la compra ya no existe o no tenés permiso.');
+  if (!data || !data.length) throw new Error('No se pudo eliminar: la compra ya no existe o no tienes permiso.');
   await limpiarAdjuntosDeCompra(compra.id, compra.adjunto_path).catch(() => { /* archivos huérfanos, no bloquea */ });
 }
 
@@ -728,17 +728,17 @@ export async function editarCompraDirectaEnProceso(
   productosExistentes: Producto[] = [],
 ): Promise<CompraDirecta> {
   if (input.compra.estado !== 'en_proceso')
-    throw new Error('Solo se puede editar una compra En proceso. Reabrí la compra primero.');
+    throw new Error('Solo se puede editar una compra En proceso. Reabre la compra primero.');
   // Inventario único: la compra directa entra siempre al Inventario General ('General' en BD).
   const almacen = 'General';
   const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0);
-  if (!lineas.length) throw new Error('Agregá al menos un material con cantidad.');
+  if (!lineas.length) throw new Error('Agrega al menos un material con cantidad.');
 
   const items: CompraDirectaItem[] = [];
   for (const l of lineas) {
     const cantidad = Number(l.cantidad) || 0;
     if (l.modo === 'existente') {
-      if (!l.productoId) throw new Error('Elegí el material en cada renglón.');
+      if (!l.productoId) throw new Error('Elige el material en cada renglón.');
       const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
       const nuevaUnidad = (l.unidad ?? '').trim();
       if (p && nuevaUnidad && nuevaUnidad !== (p.unidad ?? '')) {
@@ -748,7 +748,7 @@ export async function editarCompraDirectaEnProceso(
       items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
     } else {
       const nom = l.nombre.trim().toUpperCase();
-      if (!nom) throw new Error('Indicá el nombre del material nuevo.');
+      if (!nom) throw new Error('Indica el nombre del material nuevo.');
       const nuevo = await createProducto({
         sku: await nextSku(l.categoria, productosExistentes),
         nombre: nom, categoria: l.categoria, unidad: l.unidad,
@@ -816,7 +816,7 @@ export interface EnviarCompraAPagarInput {
 }
 
 /**
- * El analista MONTA la compra con la factura y los montos. Desde acá la compra queda
+ * El analista MONTA la compra con la factura y los montos. Desde aquí la compra queda
  * con DOS pendientes INDEPENDIENTES que corren en paralelo:
  *   · «Por pagar» en Tesorería (estado `por_pagar`, hasta que Tesorería la pague).
  *   · «Por recibir» en el almacén (`recepcion_pendiente=true` si afecta inventario).
@@ -830,7 +830,7 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
   const items = input.items.map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
   const subtotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
-  if (subtotal <= 0) throw new Error('Cargá los montos de los materiales.');
+  if (subtotal <= 0) throw new Error('Carga los montos de los materiales.');
   const moneda = input.moneda === 'Bs' ? 'Bs' : 'USD';
   // Descuento (resta) e IVA (suma), ambos en la moneda de la compra.
   // Total = subtotal − descuento + IVA.
@@ -840,7 +840,7 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
   const ivaPct = Math.max(0, Math.round((Number(input.ivaPct) || 0) * 100) / 100);
   const total = Math.round((subtotal - descuento + iva) * 100) / 100;
   if (total <= 0) throw new Error('El total no puede ser 0.');
-  // Retención (el registro en Retenciones se crea al PAGAR; acá solo se guarda en la compra).
+  // Retención (el registro en Retenciones se crea al PAGAR; aquí solo se guarda en la compra).
   const retencionPct = Math.max(0, Math.round((Number(input.retencionPct) || 0) * 100) / 100);
   const retencionBase = (Math.max(0, Math.round((Number(input.retencionBase) || 0) * 100) / 100)) || subtotal;
   const retencionMonto = retencionPct > 0 ? Math.round(retencionBase * (retencionPct / 100) * 100) / 100 : 0;
@@ -907,7 +907,7 @@ export interface PagarCompraInput {
 export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoCompraResultado> {
   const { compra } = input;
   if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
-  if (!input.cajaId) throw new Error('Elegí la caja de la que sale el dinero.');
+  if (!input.cajaId) throw new Error('Elige la caja de la que sale el dinero.');
   const items = (compra.items ?? []).map((i) => ({ ...i, gasto: Math.max(0, Number(i.gasto) || 0) }));
   if (!items.length) throw new Error('La compra no tiene materiales.');
   const subtotal = Math.round(items.reduce((a, i) => a + (i.gasto || 0), 0) * 100) / 100;
@@ -927,10 +927,10 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
 
   // ── Reserva atómica (GT-SIN-04) ────────────────────────────────────────────
   // El `if (compra.estado === 'finalizada')` de arriba mira el objeto que este
-  // navegador tiene en pantalla. Si dos tesoreros pulsan «Pagar» sobre la misma
+  // navegador tiene en pantalla. Si dos tesoreros presionan «Pagar» sobre la misma
   // compra, los dos lo pasan y los dos egresos DESCUENTAN LA CAJA: la factura se
   // paga dos veces y el segundo egreso queda sin contrapartida. Se marca primero,
-  // condicionado al estado real; solo el que gana mueve plata. Mismo patrón que
+  // condicionado al estado real; solo el que gana mueve dinero. Mismo patrón que
   // `reservarCierrePagoOrden` en pedidos.repository.ts.
   const estadoPrevio = compra.estado;
   const { data: reserva, error: errReserva } = await supabase
@@ -958,7 +958,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
       });
       if (!primero) primero = r.id;
     }
-    if (!primero) throw new Error('Indicá cuánto pagar en al menos una moneda.');
+    if (!primero) throw new Error('Indica cuánto pagar en al menos una moneda.');
     movCajaId = primero;
   } else {
     const movCaja = await egresarGastoCaja({
@@ -1053,7 +1053,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
     }).eq('id', compra.id);
     if (eExtra) {
       aviso = `La compra se pagó, pero no se pudo anotar la retención o el reembolso en su ficha (${eExtra.message}). `
-        + 'Si se reabre, revisá a mano lo que vuelve a la caja.';
+        + 'Si se reabre, revisa a mano lo que vuelve a la caja.';
     }
   }
 
@@ -1061,7 +1061,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
   //
   // GT-INT-09 · Antes, si esto fallaba, el error se iba a `console.error` y nadie se
   // enteraba. Es un registro FISCAL: al proveedor ya se le retuvo el monto —salió menos
-  // plata de la caja— así que la empresa se queda con un dinero que después tiene que
+  // dinero de la caja— así que la empresa se queda con un dinero que después tiene que
   // declarar, y sin la retención no queda rastro de eso en ningún lado.
   //
   // No se lanza el error porque el pago YA está hecho y revertirlo sería peor. Se
@@ -1084,7 +1084,7 @@ export async function pagarCompraDirecta(input: PagarCompraInput): Promise<PagoC
       return {
         retencionPendiente:
           `La compra se pagó, pero NO se registró la retención de ${compra.retencion_tipo || 'IVA'} `
-          + `(${retPct}% sobre ${retBase}). Cargala a mano en Retenciones → pestaña «Compras directas» `
+          + `(${retPct}% sobre ${retBase}). Cárgala a mano en Retenciones → pestaña «Compras directas» `
           + `→ botón «Cargar retención». Motivo: ${detalle}`,
         aviso,
       };
@@ -1124,10 +1124,10 @@ export interface RecepcionarCompraInput {
  */
 export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): Promise<void> {
   const { compra } = input;
-  if (compra.estado === 'en_proceso') throw new Error('La compra aún no fue montada: cargá la factura y los montos primero.');
+  if (compra.estado === 'en_proceso') throw new Error('La compra aún no fue montada: carga la factura y los montos primero.');
   if (compra.recepcion_pendiente === false) throw new Error('Esta compra ya fue recibida en el inventario.');
   const almacen = (input.almacen ?? '').trim();
-  if (!almacen) throw new Error('Elegí el almacén/sub-almacén destino.');
+  if (!almacen) throw new Error('Elige el almacén/sub-almacén destino.');
   const items = (compra.items ?? []).filter((it) => (Number(it.cantidad) || 0) > 0 && it.producto_id);
   if (!items.length) throw new Error('La compra no tiene materiales para recibir.');
 
@@ -1139,7 +1139,7 @@ export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): P
     const tasaGuardada = Number(compra.tasa_conversion) || 0;
     tasaUsd = tasaGuardada > 0 ? tasaGuardada : await tasaUsdHoy();
     if (!(tasaUsd > 0)) {
-      throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Cargá/actualizá la tasa BCV (Tesorería → Tasas) o usá el conversor de la compra, y volvé a guardar. (Sin tasa, el costo en Bs entraría como $ — se bloqueó a propósito.)');
+      throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Carga/actualiza la tasa BCV (Tesorería → Tasas) o usa el conversor de la compra, y vuelve a guardar. (Sin tasa, el costo en Bs entraría como $ — se bloqueó a propósito.)');
     }
   }
 

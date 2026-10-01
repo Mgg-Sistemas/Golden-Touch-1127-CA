@@ -6,7 +6,7 @@ import { DetalleServicioEditor, limpiarDetalleServicio } from './DetalleServicio
 /**
  * Bloque para VER y EDITAR el detalle del servicio (piezas + descripción) de un servicio
  * ya creado, desde su detalle. Disponible en cualquier estado (es descriptivo). Los
- * servicios ya creados que no tenían detalle pueden agregarlo acá. Reutilizable: recibe la
+ * servicios ya creados que no tenían detalle pueden agregarlo aquí. Reutilizable: recibe la
  * función que persiste (OC de servicio o servicio directo).
  */
 export function DetalleServicioBloque({

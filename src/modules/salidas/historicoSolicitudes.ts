@@ -7,7 +7,7 @@
    julio, y el tablero dejaba de servir para lo único que sirve un tablero:
    ver qué hay en trámite ahora.
 
-   Acá vive la regla: cada columna muestra las últimas `TOPE_COLUMNA` y el
+   Aquí vive la regla: cada columna muestra las últimas `TOPE_COLUMNA` y el
    resto se consulta en el histórico, que sí tiene filtros —incluido POR
    QUIÉN HIZO LA ACCIÓN, que es el dato que el tablero nunca mostró.
 
@@ -143,5 +143,5 @@ export function actoresDeAccion(
   });
   return Array.from(m.entries())
     .map(([email, nombre]) => ({ email, nombre }))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE'));
 }

@@ -19,6 +19,8 @@ export interface MovAcopioRow {
   gastosGt: number | null;
   nominasGt: number | null;
   trasladoCaja: number | null;
+  /** Columna K del Excel (Inversión): fuera de la tasa. */
+  inversion?: number | null;
   saldoUsd: number;
   kgRecibidosMgg: number | null;
   saldoKgCasiterita: number;
@@ -28,13 +30,13 @@ export interface MovAcopioMeta { filtro?: string }
 
 const NOMBRE = 'movimientos-centro-acopio';
 const fmtNum = (v: number | null | undefined) =>
-  v == null ? '' : v.toLocaleString('es', { maximumFractionDigits: 2 });
+  v == null ? '' : v.toLocaleString('es-VE', { maximumFractionDigits: 2 });
 const fmtUsd = (v: number | null | undefined) =>
-  v == null ? '' : `$${v.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  v == null ? '' : `$${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const HEAD = [
   'Fecha', 'Descripción', '$Usd entregado', 'Kg Cerrados', '$Usd Facturados',
-  'Gastos', 'Saldo $ Usd', 'Kg Recib. MGG', 'Saldo Kg casiterita',
+  'Gastos', 'Inversión', 'Saldo $ Usd', 'Kg Recib. MGG', 'Saldo Kg casiterita',
 ];
 /** Gastos unificado = Gastos GT + Nómina GT (null si ambos vienen vacíos). */
 const gastosUnif = (r: MovAcopioRow): number | null =>
@@ -63,12 +65,12 @@ async function construirDoc(rows: MovAcopioRow[], meta: MovAcopioMeta = {}) {
 
   const body = rows.map((r) => [
     r.fecha, r.descripcion, fmtUsd(r.usdEntregado), fmtNum(r.kgCerrados), fmtUsd(r.usdFacturados),
-    fmtUsd(gastosUnif(r)), fmtUsd(r.saldoUsd), fmtNum(r.kgRecibidosMgg), fmtNum(r.saldoKgCasiterita),
+    fmtUsd(gastosUnif(r)), fmtUsd(r.inversion ?? null), fmtUsd(r.saldoUsd), fmtNum(r.kgRecibidosMgg), fmtNum(r.saldoKgCasiterita),
   ]);
   const totKg = rows.reduce((a, r) => a + r.kgCerrados, 0);
   const totMgg = rows.reduce((a, r) => a + (r.kgRecibidosMgg ?? 0), 0);
   const saldoFinal = rows.length ? rows[rows.length - 1].saldoKgCasiterita : 0;
-  body.push(['', 'TOTALES', '', fmtNum(totKg), '', '', '', totMgg ? fmtNum(totMgg) : '', fmtNum(saldoFinal)]);
+  body.push(['', 'TOTALES', '', fmtNum(totKg), '', '', '', '', totMgg ? fmtNum(totMgg) : '', fmtNum(saldoFinal)]);
 
   autoTable(doc, {
     startY: y + 4,
@@ -79,7 +81,7 @@ async function construirDoc(rows: MovAcopioRow[], meta: MovAcopioMeta = {}) {
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     columnStyles: {
       2: { halign: 'right' }, 3: { halign: 'right', fontStyle: 'bold' }, 4: { halign: 'right' }, 5: { halign: 'right' },
-      6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right', fontStyle: 'bold' },
+      6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right', fontStyle: 'bold' },
     },
     didParseCell: (data) => { if (data.row.index === body.length - 1) { data.cell.styles.fontStyle = 'bold'; data.cell.styles.fillColor = [245, 245, 245]; } },
   });
@@ -100,15 +102,15 @@ export async function descargarMovAcopioExcel(rows: MovAcopioRow[]): Promise<voi
   const TITLE = { ...HEADER, font: { ...HEADER.font, sz: 14 }, alignment: { horizontal: 'left' } };
   const filas = rows.map((r) => [
     r.fecha, r.descripcion, r.usdEntregado ?? '', r.kgCerrados, r.usdFacturados,
-    gastosUnif(r) ?? '', r.saldoUsd, r.kgRecibidosMgg ?? '', r.saldoKgCasiterita,
+    gastosUnif(r) ?? '', r.inversion ?? '', r.saldoUsd, r.kgRecibidosMgg ?? '', r.saldoKgCasiterita,
   ]);
   const aoa: unknown[][] = [['MOVIMIENTOS DEL CENTRO DE ACOPIO · GOLDEN TOUCH 1127 C.A.'], [`${rows.length} movimiento(s) · ${dateTime(new Date().toISOString())}`], [], HEAD, ...filas];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   (ws as Record<string, unknown>)['!cols'] = [
     { wch: 12 }, { wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 14 },
-    { wch: 12 }, { wch: 13 }, { wch: 13 }, { wch: 16 },
+    { wch: 12 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 16 },
   ];
-  (ws as Record<string, unknown>)['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } }];
+  (ws as Record<string, unknown>)['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } }];
   const cellAt = (r: number, c: number) => (ws as Record<string, { s?: unknown }>)[XLSX.utils.encode_cell({ r, c })];
   const t = cellAt(0, 0); if (t) t.s = TITLE;
   HEAD.forEach((_, c) => { const cell = cellAt(3, c); if (cell) cell.s = HEADER; });

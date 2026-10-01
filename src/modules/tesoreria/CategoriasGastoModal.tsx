@@ -98,13 +98,13 @@ export function CategoriasGastoModal({ canWrite, actor, onClose }: {
         <Lista items={cats} titulo="Categorías" nuevo={nuevaCat} setNuevo={setNuevaCat} onAdd={() => void agregarCat()} onAddPlaceholder="Nueva categoría…" />
         <Lista
           items={subs}
-          titulo={selCat ? `Subcategorías de «${soloCategorias(rows).find((c) => c.id === selCat)?.nombre ?? ''}»` : 'Subcategorías (elegí una categoría)'}
+          titulo={selCat ? `Subcategorías de «${soloCategorias(rows).find((c) => c.id === selCat)?.nombre ?? ''}»` : 'Subcategorías (elige una categoría)'}
           nuevo={nuevaSub} setNuevo={setNuevaSub}
-          onAdd={() => { if (!selCat) { toast('Elegí primero una categoría', 'info'); return; } void agregarSub(); }}
-          onAddPlaceholder={selCat ? 'Nueva subcategoría…' : 'Elegí una categoría primero'}
+          onAdd={() => { if (!selCat) { toast('Elige primero una categoría', 'info'); return; } void agregarSub(); }}
+          onAddPlaceholder={selCat ? 'Nueva subcategoría…' : 'Elige una categoría primero'}
         />
       </div>
-      <p className="muted" style={{ fontSize: '.78rem', margin: '.6rem 0 0' }}>Click en una categoría para ver/editar sus subcategorías. Lo que agregás queda disponible al registrar un gasto.</p>
+      <p className="muted" style={{ fontSize: '.78rem', margin: '.6rem 0 0' }}>Click en una categoría para ver/editar sus subcategorías. Lo que agregas queda disponible al registrar un gasto.</p>
     </Modal>
   );
 }

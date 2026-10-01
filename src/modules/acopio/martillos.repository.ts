@@ -85,9 +85,9 @@ function payloadMartillo(input: MartilloInput): Record<string, unknown> {
 }
 
 export async function crearMovimientoMartillo(input: MartilloInput, actor: string, actorName?: string | null): Promise<void> {
-  if (!input.fecha) throw new Error('Indicá la fecha del movimiento.');
+  if (!input.fecha) throw new Error('Indica la fecha del movimiento.');
   // Si lleva consumo, un trigger de la BD crea el gasto «USO DE MARTILLOS» en la caja de
-  // Acopio y descuenta el inventario; acá solo guardamos el movimiento.
+  // Acopio y descuenta el inventario; aquí solo guardamos el movimiento.
   const { error } = await supabase.from('acopio_martillos_movimientos').insert({
     ...payloadMartillo(input),
     created_by: actor,
@@ -99,7 +99,7 @@ export async function crearMovimientoMartillo(input: MartilloInput, actor: strin
 /** Edita un movimiento de martillos. El trigger de la BD re-crea/actualiza el gasto
  *  ligado (si cambió el consumo) y re-sincroniza el inventario. */
 export async function actualizarMovimientoMartillo(id: string, input: MartilloInput): Promise<void> {
-  if (!input.fecha) throw new Error('Indicá la fecha del movimiento.');
+  if (!input.fecha) throw new Error('Indica la fecha del movimiento.');
   const { error } = await supabase.from('acopio_martillos_movimientos')
     .update({ ...payloadMartillo(input), updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;

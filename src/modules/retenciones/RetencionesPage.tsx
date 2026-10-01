@@ -214,7 +214,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
 
   async function handleFinalizar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!algunArchivo) { setError('Cargá al menos un comprobante (IVA, ISLR o Municipal).'); return; }
+    if (!algunArchivo) { setError('Carga al menos un comprobante (IVA, ISLR o Municipal).'); return; }
     setSaving(true);
     try {
       void actorName;
@@ -287,7 +287,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
       {!yaFinalizada && canWrite && (
         <form id="ret-form" onSubmit={handleFinalizar}>
           <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.5rem' }}>
-            Cargá <strong>al menos uno</strong> de los comprobantes (PDF o imagen). Al finalizar, la retención queda registrada y se refleja en Tesorería.
+            Carga <strong>al menos uno</strong> de los comprobantes (PDF o imagen). Al finalizar, la retención queda registrada y se refleja en Tesorería.
           </div>
           {TIPOS_RETENCION.map((t) => (
             <div key={t.key} className="form-row">

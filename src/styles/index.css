@@ -3,6 +3,10 @@
 @import './app-shell.css';
 @import './login.css';
 @import './landing.css';
+@import './surtidor.css';
+@import './descansos.css';
+@import './listado.css';
+@import './cocina.css';
 
 @tailwind utilities;
 
