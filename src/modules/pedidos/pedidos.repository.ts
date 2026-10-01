@@ -1,7 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
-import { baseNetaDesdeTotal, impuestosDeOrden, recomponerImpuestos } from './impuestosOrden';
+import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, recomponerImpuestos, type IvaEditado } from './impuestosOrden';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -351,6 +351,9 @@ export async function actualizarOrdenEditable(
     descuento_obtenido?: number;
     /** Detalle del servicio (piezas + descripción). Solo aplica a órdenes de servicio. */
     detalle_servicio?: DetalleServicioItem[];
+    /** IVA escrito a mano al editar (servicios, 01/10/2026). Manda sobre el de la oferta:
+     *  se puede prender, apagar o corregir. Solo se aplica junto con `total`. */
+    iva?: IvaEditado;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -371,7 +374,18 @@ export async function actualizarOrdenEditable(
   );
   const itemsCambian = patch.items !== undefined && sigItems(patch.items) !== sigItems(o.items);
   const descCambiaMaterial = descCambia && Math.round((descNuevo ?? 0) * 100) !== Math.round((Number(o.descuento_obtenido) || 0) * 100);
-  const cambioMaterial = itemsCambian || descCambiaMaterial;
+  // IVA editado a mano (servicios): se compone ya, porque cambiar el IVA cambia el total a
+  // pagar y eso también es un cambio MATERIAL (una OC firmada vuelve al Gerente General).
+  const impPrevOrden = impuestosDeOrden(o);
+  const conIvaEditado = patch.iva !== undefined && patch.total !== undefined
+    ? recomponerConIva(
+      baseNetaDesdeTotal(o.total, impPrevOrden),
+      Math.round((Number(patch.total) || 0) * 100) / 100,
+      impPrevOrden, patch.iva,
+    )
+    : null;
+  const ivaCambia = !!conIvaEditado && ivaCambio(impPrevOrden, conIvaEditado);
+  const cambioMaterial = itemsCambian || descCambiaMaterial || ivaCambia;
   // Solo un cambio MATERIAL sobre una OC ya FIRMADA (confirmada_metodo) la devuelve a
   // aprobación del Gerente General (vuelve a `oc_creada`) y limpia la firma previa. Guardar
   // solo texto o sin cambios NO reabre ni borra la firma (antes cualquier guardado la borraba).
@@ -380,6 +394,7 @@ export async function actualizarOrdenEditable(
     historial: appendHistorial(o, 'orden_modificada', actorEmail, {
       ...(vuelveAGerente ? { nota: 'Modificada tras la firma · vuelve a aprobación del Gerente General' } : {}),
       ...(descCambia ? { descuento_obtenido: descNuevo } : {}),
+      ...(ivaCambia && conIvaEditado ? { iva_anterior: impPrevOrden.ivaAplicado ? impPrevOrden.ivaMonto : 0, iva_nuevo: conIvaEditado.ivaMonto } : {}),
     }),
   };
   if (descCambia) upd.descuento_obtenido = descNuevo;
@@ -404,9 +419,14 @@ export async function actualizarOrdenEditable(
     const impPrev = impuestosDeOrden(o);
     const basePrev = baseNetaDesdeTotal(o.total, impPrev);
     const baseNeta = Math.round((Number(patch.total) || 0) * 100) / 100;
-    const imp = recomponerImpuestos(basePrev, baseNeta, impPrev);
+    const imp = conIvaEditado ?? recomponerImpuestos(basePrev, baseNeta, impPrev);
     upd.total = imp.total;
-    if (o.iva_aplicado) upd.iva_monto = imp.ivaMonto;
+    if (conIvaEditado) {
+      // La pantalla puede prender o apagar el IVA: se escriben las tres columnas.
+      upd.iva_aplicado = conIvaEditado.ivaAplicado;
+      upd.iva_pct = conIvaEditado.ivaPct;
+      upd.iva_monto = conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : null;
+    } else if (o.iva_aplicado) upd.iva_monto = imp.ivaMonto;
     if (o.igtf_aplicado) upd.igtf_monto = imp.igtfMonto;
     if (o.pago_en_divisa || o.total_divisa != null) upd.total_divisa = imp.total;
   }
@@ -433,6 +453,16 @@ export async function actualizarOrdenEditable(
   // (precio BCV / divisa) y «Reelegir» hablen de lo mismo que la OC.
   if (patch.items && itemsCambian && (o.estado === 'oc_creada' || o.estado === 'confirmada_metodo') && Number(o.total) > 0) {
     await sincronizarOfertaAceptada(o.id, patch.items);
+  }
+  // El IVA editado también va a la oferta aceptada: es la fuente de los impuestos de la
+  // OC, y si quedara con el IVA viejo lo volvería a imponer la próxima vez que se edite.
+  if (conIvaEditado && ivaCambia) {
+    const { error: eOf } = await supabase.from('ofertas_proveedor').update({
+      iva_aplicado: conIvaEditado.ivaAplicado,
+      iva_pct: conIvaEditado.ivaPct,
+      iva_monto: conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : 0,
+    }).eq('orden_id', o.id).eq('estado', 'aceptada');
+    if (eOf) throw eOf;
   }
   return data as Orden;
 }
