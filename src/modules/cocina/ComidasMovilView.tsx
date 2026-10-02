@@ -35,7 +35,7 @@ import { getMercadoActivo, type Mercado } from './cocinaMercado.repository';
 import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
 import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
 import {
-  diaCaracas, diasAtras, errorFechaComida, errorPersonas, etiquetaDia, hoyCaracas, instanteServicio, yaCargada,
+  diaCaracas, diasAtras, errorFechaComida, errorPersonas, etiquetaDia, hoyCaracas, instanteServicio, yaCargada, ROL_COCINA,
 } from './comidaMovil';
 import { mensajeComida } from './mensajeComida';
 
@@ -56,8 +56,10 @@ const texto = (err: unknown, respaldo: string) =>
 
 export function ComidasMovilView() {
   const { user } = useSession();
-  const { can, appUser, isAdmin } = usePermissions();
+  const { can, appUser, isAdmin, role } = usePermissions();
   const canWrite = isAdmin || can('cocina', 'escritura');
+  // El rol COCINA trabaja solo desde aquí: no tiene módulo de PC al que ir.
+  const esCocina = role === ROL_COCINA;
   const actor = appUser?.email ?? user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
@@ -102,7 +104,7 @@ export function ComidasMovilView() {
           <h1>🍽 Comidas</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
         </div>
-        <Link to="/app/cocina" className="btn btn-ghost">🖥 Módulo completo</Link>
+        {!esCocina && <Link to="/app/cocina" className="btn btn-ghost">🖥 Módulo completo</Link>}
       </header>
 
       {loading && <p className="muted">Cargando…</p>}
@@ -167,7 +169,7 @@ export function ComidasMovilView() {
             );
           })}
           {movs.length > ULTIMAS_EN_TELEFONO && (
-            <p className="muted" style={{ fontSize: '.85rem' }}>Aquí se ven las últimas {ULTIMAS_EN_TELEFONO}. El registro completo está en el módulo de Cocina en la PC.</p>
+            <p className="muted" style={{ fontSize: '.85rem' }}>Aquí se ven las últimas {ULTIMAS_EN_TELEFONO}. El registro completo lo lleva la analista en la PC.</p>
           )}
         </section>
       )}

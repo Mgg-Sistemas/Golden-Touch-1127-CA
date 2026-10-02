@@ -21,6 +21,9 @@
    ============================================================ */
 import type { CocinaMovimiento, TipoComida } from './cocina.repository';
 
+/** Clave del rol que trabaja solo desde la vista de teléfono (no ve el módulo de PC). */
+export const ROL_COCINA = 'cocina';
+
 /** Caracas no tiene horario de verano: siempre UTC−4. */
 const MS_CARACAS = 4 * 60 * 60 * 1000;
 const RX_DIA = /^\d{4}-\d{2}-\d{2}$/;
