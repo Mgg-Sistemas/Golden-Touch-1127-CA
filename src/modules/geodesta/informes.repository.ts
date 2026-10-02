@@ -100,7 +100,16 @@ export async function borrarInforme(id: string): Promise<void> {
   // Después de la fila y nunca antes: si el borrado fallara, no se pierden las
   // imágenes de un informe que sigue vivo. La base borra las filas en cascada,
   // pero los archivos del almacén no.
-  await borrarImagenesDeInforme(id);
+  try {
+    await borrarImagenesDeInforme(id);
+  } catch (causa) {
+    // El informe ya no existe: reintentar no sirve y no hay que hacer creer que sigue vivo.
+    console.warn('No se pudieron borrar las imágenes del informe:', id, causa);
+    throw new Error(
+      'El informe ya se borró, pero no se pudieron eliminar sus imágenes del almacén. Avisale a quien administra el sistema para que las limpie.',
+      { cause: causa },
+    );
+  }
 }
 
 /** Valores por defecto de los informes nuevos: una sola fila, id = 1. */

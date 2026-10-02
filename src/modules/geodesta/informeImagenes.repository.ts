@@ -103,7 +103,14 @@ export async function borrarImagen(img: ImagenGeodesta): Promise<void> {
   if (error) throw error;
   // La librería NO lanza: devuelve `{ error }`, hay que leerlo.
   const { error: errAlmacen } = await supabase.storage.from(BUCKET).remove([img.path]);
-  if (errAlmacen) throw errAlmacen;
+  if (errAlmacen) {
+    // La fila ya no existe: no se puede presentar esto como un borrado fallido.
+    console.warn('No se pudo borrar el archivo del almacén:', img.path, errAlmacen);
+    throw new Error(
+      'La imagen ya se quitó del informe, pero no se pudo eliminar su archivo del almacén. Avisale a quien administra el sistema para que lo limpie.',
+      { cause: errAlmacen },
+    );
+  }
 }
 
 /**
