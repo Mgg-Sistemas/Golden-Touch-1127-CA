@@ -11,6 +11,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { compararMovimientos, horaOrden } from './horaMovimiento';
 import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
+import { horasTrabajadas } from './horometroEquipo';
 import type {
   CatalogoCombustible,
   ConciliacionCombustible,
@@ -482,6 +483,10 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
     contador_global_fin: c.contadorGlobalFin ?? null,
     horometro_ini: c.horometroIni ?? null,
     horometro_fin: c.horometroFin ?? null,
+    // HRS = HF − HI (02/10/2026): la columna existía y se mostraba en la tabla,
+    // el Excel y el PDF, pero nadie la escribía. Se calcula acá para que valga
+    // igual desde la PC y desde el teléfono. Reglas y pruebas: horometroEquipo.ts.
+    horas_utilizadas: horasTrabajadas(c.horometroIni, c.horometroFin),
     kilometraje: c.kilometraje ?? null,
   };
 }
@@ -971,8 +976,12 @@ async function reencadenarMedidor(rows: FilaMedidor[], iniCol: string, finCol: s
     const fin = round(num(r.fin), 2);                              // dato físico: se conserva
     const ini = prevFin == null ? round(num(r.ini), 2) : round(prevFin, 2);
     if (ini !== round(num(r.ini), 2)) {
+      const upd: Record<string, unknown> = { [iniCol]: ini, [finCol]: fin, updated_at: new Date().toISOString() };
+      // Si lo que se re-encadenó es el HORÓMETRO, las horas trabajadas (HF − HI)
+      // cambiaron con el inicial: se recalculan para que la fila no quede mintiendo.
+      if (iniCol === 'horometro_ini') upd.horas_utilizadas = horasTrabajadas(ini, fin);
       const { error } = await supabase.from('combustible_tanque_movimientos')
-        .update({ [iniCol]: ini, [finCol]: fin, updated_at: new Date().toISOString() }).eq('id', r.id);
+        .update(upd).eq('id', r.id);
       if (error) throw error;
       cambios++;
     }
