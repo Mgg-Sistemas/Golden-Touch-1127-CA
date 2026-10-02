@@ -20,6 +20,7 @@ const CombustiblePage = lazy(() => import('./modules/combustible/CombustiblePage
 const SurtidorMovilView = lazy(() => import('./modules/combustible/SurtidorMovilView').then((m) => ({ default: m.SurtidorMovilView })));
 const AcopioPage = lazy(() => import('./modules/acopio/AcopioPage').then((m) => ({ default: m.AcopioPage })));
 const CocinaPage = lazy(() => import('./modules/cocina/CocinaPage').then((m) => ({ default: m.CocinaPage })));
+const ComidasMovilView = lazy(() => import('./modules/cocina/ComidasMovilView').then((m) => ({ default: m.ComidasMovilView })));
 const RrhhPage = lazy(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
 const TesoreriaPage = lazy(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
 const AsignacionesPage = lazy(() => import('./modules/asignaciones/AsignacionesPage').then((m) => ({ default: m.AsignacionesPage })));
@@ -89,6 +90,7 @@ export function App() {
           <Route path="combustible/surtidor" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><SurtidorMovilView /></Suspense></RequireModule>} />
           <Route path="acopio" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><AcopioPage /></Suspense></RequireModule>} />
           <Route path="cocina" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaPage /></Suspense></RequireModule>} />
+          <Route path="cocina/telefono" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><ComidasMovilView /></Suspense></RequireModule>} />
           <Route path="rrhh" element={<RequireModule module="rrhh"><Suspense fallback={<PageLoader />}><RrhhPage /></Suspense></RequireModule>} />
           <Route path="maquinaria" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/servicio-mantenimiento" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><ServicioMantenimientoPage /></Suspense></RequireModule>} />

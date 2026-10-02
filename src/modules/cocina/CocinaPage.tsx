@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { FechaInput } from '@/shared/ui/FechaInput';
@@ -12,7 +13,7 @@ import { BarChart, type ChartPoint } from '@/shared/ui/Chart';
 import type { Producto } from '@/shared/lib/types';
 import {
   listViveres, listMovimientosCocina, crearMovimientoCocina, actualizarMovimientoCocina, eliminarMovimientoCocina,
-  resumirCocina, TIPOS_COMIDA, labelTipoComida, viveresBajos, alertarViveresBajosACompras,
+  verificarMovimientoCocina, resumirCocina, TIPOS_COMIDA, labelTipoComida, viveresBajos, alertarViveresBajosACompras,
   type CocinaMovimiento, type CocinaItem, type TipoComida, type ResumenCocina,
 } from './cocina.repository';
 import { descargarCocinaPdf } from './cocinaPdf';
@@ -37,6 +38,8 @@ import { MercadosHistoricoModal } from './MercadosHistoricoModal';
 import { ControlDistribucionModal } from './ControlDistribucionModal';
 import { DistribucionPanel } from './DistribucionPanel';
 import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
+import { AdjuntosSalida } from '@/modules/salidas/AdjuntosSalida';
+import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 /**
@@ -75,6 +78,8 @@ export function CocinaPage() {
   const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta' | 'historico' | 'control'>('none');
   const [editando, setEditando] = useState<CocinaMovimiento | null>(null);
   const [aEliminar, setAEliminar] = useState<CocinaMovimiento | null>(null);
+  // Cuántas fotos tiene cada comida (las que se sacan desde la vista de teléfono).
+  const [fotos, setFotos] = useState<Map<string, number>>(new Map());
   const [notaAlerta, setNotaAlerta] = useState('');
   const [enviandoAlerta, setEnviandoAlerta] = useState(false);
   // Ciclo de mercado (21 días): mercado abierto + su resumen (disponible/consumo/queda).
@@ -156,6 +161,8 @@ export function CocinaPage() {
         listViveres().catch(() => [] as Producto[]),
       ]);
       setMovs(m); setViveres(v); setErrorCarga(null);
+      // El 📎 de cada comida. Es adorno: si falla, la tabla se muestra igual.
+      void adjuntosCocina.contar(MODULO_ADJUNTO_COCINA, m.map((x) => x.id)).then(setFotos).catch(() => {});
       // La tabla ya tiene lo suyo: se suelta Aquí y no al final. Antes el mismo
       // `loading` tapaba también la lectura del mercado y su resumen, que es lo
       // lento, así que quedaba un rato largo con las tarjetas llenas de números
@@ -196,7 +203,7 @@ export function CocinaPage() {
 
   useEffect(() => { void cargar(); }, [cargar]);
   useEffect(() => { setRecarga((v) => v + 1); }, [cargar]);
-  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'cocina_mercados'], () => { void cargar(); setRecarga((v) => v + 1); });
+  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'cocina_mercados', 'cocina_adjuntos'], () => { void cargar(); setRecarga((v) => v + 1); });
 
   // Búsqueda general (cliente): código, tipo, nota, fecha/hora, productos.
   // Sin filtro de fechas se parte del mercado en curso (01/10/2026): las comidas de los
@@ -229,6 +236,15 @@ export function CocinaPage() {
     : fDesde ? `desde ${dmy(fDesde)}` : fHasta ? `hasta ${dmy(fHasta)}` : soloCiclo ? 'mercado en curso' : 'todo el registro';
   // Víveres al 20% o menos de su mínimo (se avisa a Compras y se muestra aquí).
   const bajos = useMemo(() => viveresBajos(viveres), [viveres]);
+
+  /** La analista revisa lo cargado (sobre todo desde el teléfono) y lo deja marcado. */
+  async function alternarVerificada(m: CocinaMovimiento) {
+    try {
+      await verificarMovimientoCocina(m.id, !m.verificado_at, actorName ?? actor);
+      toast(m.verificado_at ? 'Se quitó la marca de verificada' : `${m.codigo ?? 'Comida'} verificada`, 'success');
+      await cargar();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo marcar', 'error'); }
+  }
 
   async function confirmarEliminar(m: CocinaMovimiento) {
     try {
@@ -383,6 +399,7 @@ export function CocinaPage() {
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           {/* El contador del ciclo, «Cerrar» y «Descartar» van en el panel del mercado, como
               en MGG: la cabecera queda para lo que se hace todos los días. */}
+          <Link to="/app/cocina/telefono" className="btn btn-ghost" title="La pantalla para cargar las comidas desde el celular, con botones grandes">📱 Vista teléfono</Link>
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
           <button className="btn btn-ghost" onClick={() => setModal('control')} title="Control diario por producto con lote óptimo de compra (EOQ) y punto de reorden">📋 Control de distribución</button>
           <button className="btn btn-ghost" onClick={() => setModal('historico')} title="Ver los mercados ya cerrados: visualizar, editar y sacar reportes">🗂 Mercados cerrados</button>
@@ -579,9 +596,19 @@ export function CocinaPage() {
                   const tc = TIPOS_COMIDA.find((t) => t.value === m.tipo_comida);
                   return (
                     <tr key={m.id}>
-                      <td className="mono">{m.codigo ?? '—'}</td>
-                      <td><span className="badge">{tc?.icono} {labelTipoComida(m.tipo_comida)}</span></td>
-                      <td>{dateTime(m.at)}</td>
+                      <td className="mono">
+                        {m.codigo ?? '—'}
+                        {m.origen === 'telefono' && <span title="Cargada desde la vista de teléfono"> 📱</span>}
+                        {(fotos.get(m.id) ?? 0) > 0 && <span className="muted" title="Fotos de la comida: se ven al editar"> 📎{fotos.get(m.id)}</span>}
+                      </td>
+                      <td>
+                        <span className="badge">{tc?.icono} {labelTipoComida(m.tipo_comida)}</span>
+                        {m.verificado_at && <span className="badge success" style={{ marginLeft: '.3rem' }} title={`Verificada por ${m.verificado_por ?? '—'} · ${dateTime(m.verificado_at)}`}>✔ Verificada</span>}
+                      </td>
+                      <td>
+                        {dateTime(m.at)}
+                        {m.actor_name ? <div className="muted" style={{ fontSize: '.74rem' }}>{m.actor_name}</div> : null}
+                      </td>
                       <td className="mono" style={{ textAlign: 'right' }}>{num(m.platos)}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{money(Number(m.valor_total))}</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{Number(m.platos) > 0 ? money(Number(m.valor_total) / Number(m.platos)) : '—'}</td>
@@ -591,7 +618,10 @@ export function CocinaPage() {
                       </td>
                       {canWrite && (
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          <button className="btn btn-sm btn-ghost" title="Editar movimiento (tipo, platos, víveres, cantidades, nota y fecha)" onClick={() => setEditando(m)}>✏</button>
+                          <button className="btn btn-sm btn-ghost" style={m.verificado_at ? { color: 'var(--success)' } : undefined}
+                            title={m.verificado_at ? 'Verificada: toca para quitar la marca' : 'Marcar como verificada (ya la revisaste)'}
+                            onClick={() => void alternarVerificada(m)}>{m.verificado_at ? '✔' : '☐'}</button>
+                          <button className="btn btn-sm btn-ghost" title="Editar movimiento (tipo, platos, víveres, cantidades, nota, fecha y fotos)" onClick={() => setEditando(m)}>✏</button>
                           <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} title="Eliminar" onClick={() => setAEliminar(m)}>🗑</button>
                         </td>
                       )}
@@ -652,7 +682,7 @@ export function CocinaPage() {
       )}
       {aEliminar && (
         <ConfirmDialog title="Eliminar movimiento de cocina"
-          message={`¿Eliminar ${aEliminar.codigo ?? 'el movimiento'} (${labelTipoComida(aEliminar.tipo_comida)})? El stock ya descontado NO se repone automáticamente.`}
+          message={`¿Eliminar ${aEliminar.codigo ?? 'el movimiento'} (${labelTipoComida(aEliminar.tipo_comida)})? Los víveres vuelven al inventario y se borran sus fotos. No se puede deshacer.`}
           confirmText="Eliminar" onCancel={() => setAEliminar(null)} onConfirm={() => confirmarEliminar(aEliminar)} />
       )}
 
@@ -1092,6 +1122,8 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
           </div>
         </div>
       </form>
+      {/* Las fotos que se sacaron desde el teléfono (o las que se agreguen aquí). */}
+      {editar && <AdjuntosSalida repo={adjuntosCocina} modulo={MODULO_ADJUNTO_COCINA} refId={editar.id} actor={actor} titulo="📷 Fotos de la comida" />}
     </Modal>
   );
 }
