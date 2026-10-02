@@ -110,6 +110,24 @@ export function etiquetaFicha(v?: string | null): string {
 }
 
 /**
+ * La ficha como se compara para saber si está REPETIDA: los números van sin los
+ * ceros de la izquierda, así «001», «01» y «0001» son la misma ficha. Un código
+ * con letras («GT-07») se compara tal cual. La base tiene la misma regla en el
+ * índice único `personal_ficha_clave_uk`.
+ */
+export function claveFicha(v?: string | null): string | null {
+  const f = normalizarFicha(v);
+  if (f === null) return null;
+  return /^\d+$/.test(f) ? f.replace(/^0+/, '') : f;
+}
+
+/** ¿Son la misma ficha? Dos vacías NO: quien no tiene ficha no repite la de nadie. */
+export function mismaFicha(a?: string | null, b?: string | null): boolean {
+  const x = claveFicha(a);
+  return x !== null && x === claveFicha(b);
+}
+
+/**
  * Qué está mal con la ficha al EDITAR a alguien, o `null` si está bien.
  *
  * La ficha se puede cambiar por otra. Lo único que no se puede es dejar sin

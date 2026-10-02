@@ -36,7 +36,7 @@ import {
 } from './carnetPersonal';
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
-import { errorFicha, errorFichaEdicion, etiquetaFicha, fichaCambia, FICHA_MIN } from './fichaNro';
+import { errorFicha, errorFichaEdicion, etiquetaFicha, fichaCambia, mismaFicha, FICHA_MIN } from './fichaNro';
 import { errorCorreo } from './correoPersonal';
 import { descargarHojaIngresoPdf } from './hojaIngresoPdf';
 import { GRADOS } from './instruccionYTrabajo';
@@ -239,6 +239,13 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     return lista.find((p) => p.id !== editId && claveCedula(p.cedula) === c) ?? null;
   }, [cedula, lista, editId]);
 
+  /** ¿Otra persona de esta nómina ya tiene esa ficha? «001» y «0001» cuentan como la misma.
+   *  Se coteja mientras se escribe, sobre la lista ya cargada; la base lo rechaza igual. */
+  const fichaRepetida = useMemo(
+    () => lista.find((p) => p.id !== editId && p.empresa === empresa && mismaFicha(p.ficha_nro, ficha)) ?? null,
+    [ficha, lista, editId, empresa],
+  );
+
   const rifMalEscrito = !!rif.trim() && !rifValido(rif);
 
   // A quién se puede elegir como contacto de emergencia: la carga familiar de
@@ -386,7 +393,13 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   }
 
   /** Qué está mal con la ficha escrita: en el alta puede ir vacía; al editar, no si ya tenía. */
-  const fichaMal = () => (editId ? errorFichaEdicion(ficha, fichaActual) : errorFicha(ficha));
+  const fichaMal = (): string | null => {
+    const mal = editId ? errorFichaEdicion(ficha, fichaActual) : errorFicha(ficha);
+    if (mal) return mal;
+    if (!fichaRepetida) return null;
+    const quien = `${fichaRepetida.nombre} ${fichaRepetida.apellido ?? ''}`.trim();
+    return `La ficha ${fichaRepetida.ficha_nro} ya es de ${quien}${fichaRepetida.activo ? '' : ' (inactiva)'}. No se puede repetir en la misma nómina.`;
+  };
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FICHA_MAX, FICHA_MIN, compararFicha, errorFicha, errorFichaEdicion, etiquetaFicha, fichaCambia, normalizarFicha,
+  FICHA_MAX, FICHA_MIN, claveFicha, compararFicha, errorFicha, errorFichaEdicion, etiquetaFicha, fichaCambia, mismaFicha,
+  normalizarFicha,
 } from './fichaNro';
 
 describe('normalizarFicha', () => {
@@ -107,6 +108,37 @@ describe('errorFichaEdicion · la ficha se puede cambiar, pero no borrar', () =>
     expect(errorFichaEdicion('', null)).toBeNull();
     expect(errorFichaEdicion('', '   ')).toBeNull();
     expect(errorFichaEdicion('015', null)).toBeNull();
+  });
+});
+
+describe('mismaFicha · que no se repita al editarla', () => {
+  it('la misma escrita igual', () => {
+    expect(mismaFicha('007', '007')).toBe(true);
+  });
+
+  it('el mismo número con más o menos ceros es la misma ficha', () => {
+    expect(mismaFicha('001', '0001')).toBe(true);
+    expect(mismaFicha('010', '10')).toBe(true);
+    expect(claveFicha('0001')).toBe('1');
+  });
+
+  it('espacios y minúsculas no la hacen distinta', () => {
+    expect(mismaFicha(' gt-07 ', 'GT-07')).toBe(true);
+  });
+
+  it('números distintos no se confunden', () => {
+    expect(mismaFicha('001', '010')).toBe(false);
+    expect(mismaFicha('100', '1')).toBe(false);
+  });
+
+  it('en un código con letras los ceros SÍ cuentan: no es un número', () => {
+    expect(mismaFicha('GT-07', 'GT-7')).toBe(false);
+  });
+
+  it('dos personas sin ficha no se repiten entre sí', () => {
+    expect(mismaFicha(null, null)).toBe(false);
+    expect(mismaFicha('', '   ')).toBe(false);
+    expect(mismaFicha('001', null)).toBe(false);
   });
 });
 

@@ -10,6 +10,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { compararMovimientos, horaOrden } from './horaMovimiento';
+import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
 import type {
   CatalogoCombustible,
   ConciliacionCombustible,
@@ -485,6 +486,22 @@ function campos(c: MovimientoTanqueCampos): Record<string, unknown> {
   };
 }
 
+/**
+ * Los campos del movimiento con el contador del surtidor ya completo (02/10/2026): el
+ * contador al terminar un surtido es donde arranca el siguiente. Si el final vino vacío
+ * se guarda inicial + litros, y si el inicial tampoco vino se toma el último del tanque.
+ * Así la cadena no se corta aunque el que surte no escriba la lectura. Las reglas y sus
+ * pruebas viven en contadorSurtidor.ts.
+ */
+async function camposConContador(
+  tanqueId: string, tipo: TipoMovTanque, litros: number, c: MovimientoTanqueCampos,
+): Promise<MovimientoTanqueCampos> {
+  if (!pasaPorSurtidor(tipo)) return c;
+  const ultimo = c.contadorGlobalIni == null ? await ultimoContadorTanque(tanqueId) : null;
+  const { ini, fin } = completarContador({ tipo, litros, ini: c.contadorGlobalIni, fin: c.contadorGlobalFin, ultimo });
+  return { ...c, contadorGlobalIni: ini, contadorGlobalFin: fin };
+}
+
 /** ENTRADA (compra): entra combustible al tanque A SU COSTO y RE-PROMEDIA la tasa del
  *  tanque (PMP = promedio ponderado por litros entre lo que venía y esta compra). */
 export async function registrarEntrada(input: {
@@ -533,7 +550,7 @@ export async function registrarUso(input: {
   const tasa = num(t.tasa_usd_litro);
 
   const mov = await insertarMovimiento({
-    ...campos(input.campos ?? {}),
+    ...campos(await camposConContador(input.tanqueId, 'uso', litros, input.campos ?? {})),
     tanque_id: input.tanqueId,
     tipo: 'uso',
     litros,
@@ -616,8 +633,10 @@ export async function registrarTraslado(input: {
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
+  // El contador es el del surtidor del tanque ORIGEN; la entrada reflejo lleva el mismo.
+  const conContador = await camposConContador(input.tanqueId, 'traslado', litros, input.campos ?? {});
   const movTraslado = await insertarMovimiento({
-    ...campos(input.campos ?? {}),
+    ...campos(conContador),
     tanque_id: input.tanqueId,
     tipo: 'traslado',
     litros,
@@ -632,7 +651,7 @@ export async function registrarTraslado(input: {
   // vinculamos ambas filas (mov_vinculado_id) para que el borrado revierta los dos tanques.
   if (input.tanqueDestinoId) {
     const movEntrada = await insertarMovimiento({
-      ...campos({ ...input.campos, observacion: `Traslado desde ${t.nombre}${input.campos?.observacion ? ' · ' + input.campos.observacion : ''}` }),
+      ...campos({ ...conContador, observacion: `Traslado desde ${t.nombre}${input.campos?.observacion ? ' · ' + input.campos.observacion : ''}` }),
       tanque_id: input.tanqueDestinoId,
       tipo: 'entrada',
       litros,
@@ -676,7 +695,7 @@ export async function registrarTrasladoMGG(input: {
 
   // 1. Sale del tanque origen (queda registrado como traslado externo).
   await insertarMovimiento({
-    ...campos({ ...(input.campos ?? {}), observacion }),
+    ...campos({ ...(await camposConContador(input.tanqueId, 'traslado', litros, input.campos ?? {})), observacion }),
     tanque_id: input.tanqueId,
     tipo: 'traslado',
     litros,
@@ -1486,11 +1505,14 @@ export async function ultimoHorometroEquipo(equipo: string): Promise<number | nu
   return v == null ? null : num(v);
 }
 
-/** Último CONTADOR FINAL registrado para UN TANQUE (su surtidor). El contador no se
- *  vincula al equipo (eso es el horómetro): el inicial del próximo movimiento de ese
- *  tanque es su último final cargado. Para un traslado, es el contador del tanque de
- *  ORIGEN (de donde sale el combustible). Se ordena por created_at (último registrado),
- *  no por fecha (que puede ser retroactiva). */
+/** Último CONTADOR FINAL de UN TANQUE (su surtidor). El contador no se vincula al equipo
+ *  (eso es el horómetro): el inicial del próximo movimiento de ese tanque es su último
+ *  final. Para un traslado, es el contador del tanque de ORIGEN (de donde sale el
+ *  combustible).
+ *
+ *  «Último» es el MAYOR (02/10/2026): el contador es un totalizador que solo sube, así que
+ *  su lectura más alta es la última. Antes se tomaba el del último movimiento CARGADO, y
+ *  cargar tarde un surtido viejo devolvía el contador hacia atrás para el siguiente. */
 export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {
   if (!tanqueId) return null;
   const { data, error } = await supabase
@@ -1501,7 +1523,7 @@ export async function ultimoContadorTanque(tanqueId: string): Promise<number | n
     // Excluimos las ENTRADAS que son reflejo de un traslado (mov_vinculado_id no nulo): su
     // contador es el del surtidor del tanque de ORIGEN, no el propio de este tanque.
     .or('tipo.neq.entrada,mov_vinculado_id.is.null')
-    .order('created_at', { ascending: false })
+    .order('contador_global_fin', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;
