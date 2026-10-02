@@ -60,6 +60,8 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
   // Solo UI efímera: miniaturas ya firmadas (id de imagen -> URL), para no firmar en cada render.
   const [urls, setUrls] = useState<Record<string, string>>({});
   const pedidas = useRef<Set<string>>(new Set());
+  // Ids que no existen en el informe (borradas): se muestran como no disponibles, no como cargando.
+  const [noDisponibles, setNoDisponibles] = useState<Set<string>>(new Set());
 
   const clave = apartado.columnas
     .filter((c) => c.tipo === 'imagen')
@@ -73,22 +75,30 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
     if (faltan.length === 0) return;
     faltan.forEach((id) => pedidas.current.add(id));
     let vivo = true;
+    const resueltas = new Set<string>();
     (async () => {
       try {
         const todas = await listImagenes(informeId);
         const nuevas: Record<string, string> = {};
+        const sinImagen: string[] = [];
         for (const id of faltan) {
           const img = todas.find((i) => i.id === id);
           if (img) nuevas[id] = await urlImagen(img.path);
+          else sinImagen.push(id);
+          resueltas.add(id);
         }
-        if (vivo) setUrls((p) => ({ ...p, ...nuevas }));
+        if (!vivo) return;
+        setUrls((p) => ({ ...p, ...nuevas }));
+        if (sinImagen.length > 0) setNoDisponibles((p) => new Set([...p, ...sinImagen]));
       } catch {
-        // Se permite reintentar en el próximo cambio.
-        faltan.forEach((id) => pedidas.current.delete(id));
         if (vivo) toast('No se pudieron cargar algunas miniaturas.', 'error');
       }
     })();
-    return () => { vivo = false; };
+    return () => {
+      vivo = false;
+      // Lo que esta pasada no alcanzó a resolver se vuelve a pedir en la próxima.
+      faltan.forEach((id) => { if (!resueltas.has(id)) pedidas.current.delete(id); });
+    };
   }, [clave, informeId]);
 
   const { columnas, filas } = apartado;
@@ -233,7 +243,7 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
                         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start' }}>
                           {urls[valor]
                             ? <img src={urls[valor]} alt="Imagen de la celda" style={{ maxWidth: '8rem', maxHeight: '6rem', borderRadius: 4 }} />
-                            : <span style={{ opacity: 0.6 }}>Cargando…</span>}
+                            : <span style={{ opacity: 0.6 }}>{noDisponibles.has(valor) ? 'Imagen no disponible' : 'Cargando…'}</span>}
                           <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
                             title="Quitar imagen" aria-label="Quitar imagen"
                             onClick={() => cambiarCelda(f.id, c.id, '')}>✕</button>
