@@ -17,10 +17,20 @@ export const CALIDAD_JPEG = 0.82;
 /** Por debajo de este peso no vale la pena tocar la foto. */
 export const UMBRAL_BYTES = 400 * 1024;
 
+/**
+ * Formatos que hay que pasar a JPEG SIEMPRE, pesen lo que pesen: jsPDF solo
+ * sabe dibujar JPEG y PNG, así que un WEBP guardado tal cual no se puede
+ * anexar a un PDF (en Minutas terminaba listado como «no incluido»).
+ */
+export function debeConvertirSiempre(tipo: string): boolean {
+  return tipo === 'image/webp';
+}
+
 /** ¿Es una imagen que conviene achicar? (GIF y SVG no: se romperían.) */
 export function convieneAchicar(tipo: string, bytes: number): boolean {
   if (!tipo.startsWith('image/')) return false;
   if (tipo === 'image/gif' || tipo === 'image/svg+xml') return false;
+  if (debeConvertirSiempre(tipo)) return true;   // por formato, no por peso
   return bytes > UMBRAL_BYTES;
 }
 
@@ -66,7 +76,10 @@ export async function comprimirImagen(file: File): Promise<File> {
     ctx.drawImage(img, 0, 0, ancho, alto);
     if ('close' in img && typeof img.close === 'function') img.close();
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', CALIDAD_JPEG));
-    if (!blob || blob.size >= file.size) return file;
+    if (!blob) return file;
+    // Un WEBP se queda en JPEG aunque pese más: acá el objetivo no es el peso,
+    // es que el PDF pueda dibujarlo.
+    if (blob.size >= file.size && !debeConvertirSiempre(file.type)) return file;
     return new File([blob], nombreJpg(file.name), { type: 'image/jpeg', lastModified: Date.now() });
   } catch {
     return file;
