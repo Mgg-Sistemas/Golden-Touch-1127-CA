@@ -34,6 +34,18 @@ export function horasTrabajadas(hi: number | null | undefined, hf: number | null
 }
 
 /**
+ * Falta el horómetro final de un surtido a un equipo que ya trae horómetro (02/10/2026).
+ * Sin el final no hay horas trabajadas, el mantenimiento no avanza y el próximo surtido
+ * del equipo arranca con un inicial viejo. En el teléfono el final quedaba escondido en
+ * «Más datos» y casi nunca se cargaba. Un equipo sin horómetro previo (bidones, apoyo)
+ * no lo exige: no hay cadena que cortar.
+ */
+export function faltaHorometroFinal(hi: number | null | undefined, hf: number | null | undefined): string | null {
+  if (numero(hi) === null || numero(hf) !== null) return null;
+  return `Escribe el horómetro final (o el kilometraje del tablero). Arrancó en ${numero(hi)}: con el final salen las horas trabajadas para el mantenimiento y de ahí arranca el próximo surtido.`;
+}
+
+/**
  * Qué impide guardar estas lecturas, o null si están bien.
  * Solo hay una causa: un final menor que el inicial. Las horas saldrían
  * negativas y el próximo surtido del equipo arrancaría con el horómetro
