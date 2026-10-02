@@ -446,32 +446,40 @@ export async function verificarMovimientoCocina(id: string, verificada: boolean,
  * sobre los registros vivos: al borrar salía del informe pero el stock no
  * volvía, y ese descuadre quedaba congelado en el resumen del ciclo.
  *
- * El borrado va primero y hace de reserva: `delete … returning` entrega la fila
- * una sola vez, así que dos personas borrando a la vez no reintegran el doble.
+ * LOS SALDOS QUEDAN SINCRONIZADOS (02/10/2026). Borrar y devolver es UNA sola
+ * operación en la base (`eliminar_comida_cocina`): o se borra la comida y vuelven
+ * todos los víveres, o no pasa nada. Antes lo hacía la app en varios pasos —borraba
+ * y después devolvía víver por víver— y con la señal del teléfono se podía cortar a
+ * mitad: la comida ya no existía y parte de lo consumido no había vuelto, sin
+ * registro con qué reintentar.
+ *
+ * Devuelve lo que REALMENTE bajó del stock. Si al servir no alcanzaba (la cocina deja
+ * la traza del faltante y el stock queda en 0), devolver la cantidad pedida completa
+ * inflaba el inventario con unidades que nunca salieron.
+ *
+ * El borrado hace de reserva: si dos personas la borran a la vez, solo una devuelve.
  */
+export interface ComidaEliminada {
+  /** `false` si ya la había borrado otro usuario. */
+  borrada: boolean;
+  /** Cuántos víveres volvieron al inventario. */
+  devueltos: number;
+  /** Cuántos víveres se habían servido sin stock suficiente (volvió solo lo que salió). */
+  conFaltante: number;
+}
+
 export async function eliminarMovimientoCocina(
   id: string, actor = 'sistema', actorName: string | null = null,
-): Promise<void> {
-  // Las fotos van primero y desde la app: Supabase no deja borrar archivos desde la base,
-  // y al borrar la comida sus filas se van en cascada y los archivos quedarían huérfanos.
-  await adjuntosCocina.borrarTodos(MODULO_ADJUNTO_COCINA, id).catch(() => {});
-  const { data, error } = await supabase.from(TABLE).delete().eq('id', id).select('*');
+): Promise<ComidaEliminada> {
+  // Las fotos se anotan ANTES: al borrar la comida sus filas se van en cascada y ya no
+  // habría de dónde saber qué archivos quitar del almacén (la base no puede borrarlos).
+  const fotos = await adjuntosCocina.list(MODULO_ADJUNTO_COCINA, id).catch(() => []);
+  const { data, error } = await supabase.rpc('eliminar_comida_cocina', { p_id: id, p_actor: actor, p_actor_name: actorName });
   if (error) throw error;
-  const mov = (data ?? [])[0] as CocinaMovimiento | undefined;
-  if (!mov) return; // ya lo había borrado otro usuario
-
-  const items = Array.isArray(mov.items) ? (mov.items as CocinaItem[]) : [];
-  for (const it of items) {
-    if (!it.producto_id || !(Number(it.cantidad) > 0)) continue;
-    await reintegrarAlInventario({
-      productoId: it.producto_id,
-      cantidad: Math.abs(Number(it.cantidad)),
-      almacenPreferido: it.almacen ?? null,
-      actor, actorName,
-      detalle: `Reverso por eliminación · cocina ${mov.codigo ?? ''} · ${it.sku} ${it.nombre}`.trim(),
-      refId: mov.id, refCodigo: mov.codigo ?? null,
-    });
-  }
+  const r = (data ?? {}) as { borrada?: boolean; devueltos?: number; con_faltante?: number };
+  // Los archivos, recién cuando la comida ya no está: si el borrado falla, las fotos siguen ahí.
+  if (r.borrada) await Promise.allSettled(fotos.map((f) => adjuntosCocina.eliminar(f)));
+  return { borrada: !!r.borrada, devueltos: Number(r.devueltos) || 0, conFaltante: Number(r.con_faltante) || 0 };
 }
 
 /* ───────────── Resumen / consumo ───────────── */

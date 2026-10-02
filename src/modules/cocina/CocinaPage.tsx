@@ -260,8 +260,8 @@ function CocinaEscritorio() {
 
   async function confirmarEliminar(m: CocinaMovimiento) {
     try {
-      await eliminarMovimientoCocina(m.id, actor, null);
-      toast('Movimiento eliminado · los víveres se devolvieron al inventario', 'success');
+      const r = await eliminarMovimientoCocina(m.id, actor, actorName);
+      toast(r.borrada ? 'Movimiento eliminado · los víveres se devolvieron al inventario' : 'Ese movimiento ya lo había eliminado otra persona', r.borrada ? 'success' : 'info');
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
     finally { setAEliminar(null); }

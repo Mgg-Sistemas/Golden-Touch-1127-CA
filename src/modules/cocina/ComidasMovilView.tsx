@@ -426,8 +426,8 @@ function DetalleComida({ mov, unidades, canWrite, actor, actorName, hoy, onClose
   async function borrar() {
     setBorrando(true);
     try {
-      await eliminarMovimientoCocina(mov.id, actor, actorName);
-      toast('Comida borrada · los víveres volvieron al inventario', 'success');
+      const r = await eliminarMovimientoCocina(mov.id, actor, actorName);
+      toast(r.borrada ? 'Comida borrada · lo consumido volvió al inventario' : 'Esa comida ya la había borrado otra persona', r.borrada ? 'success' : 'info');
       await onBorrado();
     } catch (e) {
       toast(texto(e, 'No se pudo borrar'), 'error');
@@ -469,7 +469,7 @@ function DetalleComida({ mov, unidades, canWrite, actor, actorName, hoy, onClose
           <div style={{ fontSize: '1.05rem' }}>
             <strong>¿Borrar este {labelTipoComida(mov.tipo_comida).toLowerCase()} de {num(mov.platos)} personas ({dia.toLowerCase()})?</strong>
             <div className="muted" style={{ marginTop: '.3rem', fontSize: '.9rem' }}>
-              Lo consumido vuelve al inventario y se borran sus fotos. No se puede deshacer. Se refleja al instante en la PC.
+              Lo consumido vuelve al inventario en el mismo momento y los saldos del mercado se actualizan solos. Se borran sus fotos. No se puede deshacer. Se refleja al instante en la PC.
             </div>
           </div>
           <div className="botones">
