@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { FechaInput } from '@/shared/ui/FechaInput';
@@ -40,6 +40,7 @@ import { DistribucionPanel } from './DistribucionPanel';
 import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
 import { AdjuntosSalida } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
+import { ROL_COCINA } from './comidaMovil';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 /**
@@ -66,7 +67,18 @@ function inicioSemana(iso: string): string {
 }
 function inicioMes(iso: string): string { return `${iso.slice(0, 7)}-01`; }
 
+/**
+ * Módulo Cocina. El rol COCINA (el que sirve la comida) trabaja desde el teléfono: no ve
+ * el módulo de PC, cae directo en su vista. El resto ve el módulo completo.
+ */
 export function CocinaPage() {
+  const { role, loading } = usePermissions();
+  if (loading) return null;
+  if (role === ROL_COCINA) return <Navigate to="/app/cocina/telefono" replace />;
+  return <CocinaEscritorio />;
+}
+
+function CocinaEscritorio() {
   const { appUser, can, isAdmin } = usePermissions();
   const actor = appUser?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
