@@ -42,6 +42,7 @@ import { enviarConciliacionesPorCorreo } from './enviarConciliacion';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { norm } from '@/shared/lib/texto';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
+import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -916,6 +917,9 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   // Litros usados según el contador del surtidor (final − inicial). No se modifica.
   const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
 
+  // El contador al terminar es donde arranca el siguiente: vacío se guarda inicial + litros.
+  const cfPropuesto = pasaPorSurtidor(tipo) ? contadorFinalPropuesto(ci === '' ? null : Number(ci), Number(litros) || 0) : null;
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -1061,7 +1065,19 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
                 placeholder="auto: último del tanque" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
               <small className="muted">{ciAuto ? (tipo === 'traslado' ? 'Traído del último contador final del tanque ORIGEN (se reflejará en el destino).' : 'Traído del último contador final de este tanque (no se modifica).') : 'No hay contador previo en este tanque; ingresalo.'}</small>
             </div>
-            <div className="form-row"><label>Contador global final</label><input className="input mono" type="number" step="any" name="mov-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} /></div>
+            <div className="form-row">
+              <label>Contador global final</label>
+              <input className="input mono" type="number" step="any" name="mov-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)}
+                placeholder={cfPropuesto != null ? `${cfPropuesto} (se pone solo)` : undefined} />
+              {pasaPorSurtidor(tipo) && (
+                <small className="muted">
+                  {cf === '' && cfPropuesto != null
+                    ? <>Si lo dejas vacío se guarda <strong>{num(cfPropuesto)}</strong> (inicial + litros). </>
+                    : null}
+                  Es donde arranca el siguiente movimiento del tanque.
+                </small>
+              )}
+            </div>
           </div>
           <div className="form-row">
             <label>Litros usados (según contador = final − inicial)</label>

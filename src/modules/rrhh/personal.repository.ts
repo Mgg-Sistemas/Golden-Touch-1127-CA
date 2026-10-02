@@ -181,7 +181,8 @@ function errorDuplicado(error: { code?: string; message?: string } | null): Erro
   if (m.includes('personal_rif_uk')) {
     return new Error('Ya hay una persona registrada con ese RIF.');
   }
-  if (m.includes('personal_ficha_uk')) {
+  // Dos índices: el de la ficha igual y el de «el mismo número con otros ceros» (001 / 0001).
+  if (m.includes('personal_ficha_uk') || m.includes('personal_ficha_clave_uk')) {
     return new Error('Ese número de ficha ya lo tiene otra persona de la misma nómina. Elige otro.');
   }
   return null;

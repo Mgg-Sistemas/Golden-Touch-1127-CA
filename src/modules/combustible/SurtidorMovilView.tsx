@@ -35,6 +35,7 @@ import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustibl
 import { SurtidorReporteMovil } from './SurtidorReporteMovil';
 import { enlaceWhatsapp, mensajeMovimiento } from './mensajeMovimiento';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
+import { contadorFinalPropuesto } from './contadorSurtidor';
 
 /** Clave del rol que trabaja solo desde esta pantalla. */
 export const ROL_SURTIDOR = 'combustible';
@@ -269,6 +270,9 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   const litrosNum = Number(String(litros).replace(',', '.')) || 0;
   const costoNum = Number(String(costo).replace(',', '.')) || 0;
   const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
+  // El contador al terminar es donde arranca el siguiente surtido: si se deja vacío, se
+  // guarda inicial + litros (lo completa el repositorio; aquí solo se muestra).
+  const cfPropuesto = contadorFinalPropuesto(ci === '' ? null : Number(ci), litrosNum);
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -366,7 +370,15 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         <div className="surt-campo">
           <label htmlFor="surt-cf">Contador del surtidor al terminar</label>
           <input id="surt-cf" className="input surt-input" type="number" inputMode="decimal" step="any" value={cf} onChange={(e) => setCf(e.target.value)}
-            placeholder={ciAuto ? `arrancó en ${ci}` : 'lectura final del contador'} />
+            placeholder={cfPropuesto != null ? `${cfPropuesto} (se pone solo)` : ciAuto ? `arrancó en ${ci}` : 'lectura final del contador'} />
+          {cf === '' && ci !== '' && (
+            <small className="muted">
+              Arrancó en {num(Number(ci))}.{' '}
+              {cfPropuesto != null
+                ? <>Si lo dejas vacío se guarda <strong>{num(cfPropuesto)}</strong> (el arranque más los {num(litrosNum)} L). Si el contador marca otra cosa, escríbelo.</>
+                : 'Lo que marque al terminar es donde arranca el próximo surtido.'}
+            </small>
+          )}
           {litrosContador != null && (
             <small className={Math.abs(litrosContador - litrosNum) > 1 ? 'surt-alerta' : 'muted'}>
               Según el contador salieron {num(litrosContador)} L{Math.abs(litrosContador - litrosNum) > 1 && litrosNum > 0 ? ' · no coincide con los litros' : ''}
