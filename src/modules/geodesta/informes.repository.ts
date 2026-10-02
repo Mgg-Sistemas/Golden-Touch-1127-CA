@@ -11,6 +11,7 @@ import {
   apartadoTieneContenido, codigoGeodesta, componerBusqInforme, hoyVE, partesCodigo,
   type BorradorInforme,
 } from './informeModelo';
+import { borrarImagenesDeInforme } from './informeImagenes.repository';
 
 const TABLE = 'geodesta_informes';
 const TABLE_CONFIG = 'geodesta_config';
@@ -96,6 +97,10 @@ export async function actualizarInforme(id: string, b: BorradorInforme, actor: s
 export async function borrarInforme(id: string): Promise<void> {
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
+  // Después de la fila y nunca antes: si el borrado fallara, no se pierden las
+  // imágenes de un informe que sigue vivo. La base borra las filas en cascada,
+  // pero los archivos del almacén no.
+  await borrarImagenesDeInforme(id);
 }
 
 /** Valores por defecto de los informes nuevos: una sola fila, id = 1. */
