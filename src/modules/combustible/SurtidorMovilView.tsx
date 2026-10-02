@@ -2,16 +2,16 @@
    Golden Touch · Combustible · Surtidor (vista de teléfono)
 
    La pantalla del que está al lado del tanque con el celular: elige el
-   tanque, toca «Surtir a un equipo», «Pasar a otro tanque», «Entrada» o
-   «Merma», pone los litros, a qué equipo/camión va, quién autorizó, le
-   saca fotos y guarda. Abajo ve los últimos movimientos del tanque y
+   tanque, toca «Surtir a un equipo», «Pasar a otro tanque» o «Entrada»,
+   pone los litros, a qué equipo/camión va, quién autorizó, le saca fotos
+   y guarda. La merma no se carga desde aquí (02/10/2026): es de la PC. Abajo ve los últimos movimientos del tanque y
    puede abrir cada uno para ver o agregar fotos, o borrarlo (con
    confirmación). El 📊 Reporte muestra un rango de fechas por tipo, con
    las fotos de cada movimiento.
 
    Escribe en las MISMAS tablas que el módulo de PC (registrarUso /
-   registrarTraslado / registrarEntrada / registrarMerma /
-   eliminarMovimientoTanque, con PMP y contadores encadenados), así que
+   registrarTraslado / registrarEntrada / eliminarMovimientoTanque, con
+   PMP y contadores encadenados), así que
    lo que se hace aquí aparece al instante en la PC y viceversa (realtime).
    Corregir litros, equipo u hora es tarea de la PC.
    ============================================================ */
@@ -27,7 +27,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { num, date, dateTime, money } from '@/shared/lib/format';
 import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCatalogoCombustible, TipoMovTanque } from '@/shared/lib/types';
 import {
-  listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada, registrarMerma,
+  listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada,
   eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
 } from './tanques.repository';
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
@@ -48,11 +48,11 @@ const NOMBRE_TIPO: Record<TipoMovTanque, string> = { entrada: 'Entrada', uso: 'S
 const hoyVE = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const horaVE = () => new Intl.DateTimeFormat('en-US', { timeZone: 'America/Caracas', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(new Date());
 
-/** Lo que se puede registrar desde el teléfono (el retorno queda para la PC). */
-type TipoSurtidor = 'uso' | 'traslado' | 'entrada' | 'merma';
+/** Lo que se puede registrar desde el teléfono (el retorno y la merma quedan para la PC). */
+type TipoSurtidor = 'uso' | 'traslado' | 'entrada';
 
 const TITULO: Record<TipoSurtidor, string> = {
-  uso: 'Surtir a un equipo', traslado: 'Pasar a otro tanque', entrada: 'Entrada de combustible', merma: 'Merma del tanque',
+  uso: 'Surtir a un equipo', traslado: 'Pasar a otro tanque', entrada: 'Entrada de combustible',
 };
 
 export function SurtidorMovilView() {
@@ -163,11 +163,6 @@ export function SurtidorMovilView() {
             <span>Entrada</span>
             <small>Llega combustible al tanque</small>
           </button>
-          <button type="button" className="surt-btn merma" onClick={() => abrirForm('merma')}>
-            <span className="icono" aria-hidden>🔻</span>
-            <span>Merma</span>
-            <small>Pérdida o faltante del tanque</small>
-          </button>
         </div>
       )}
       {sel && !canWrite && <div className="aviso warning sm" style={{ margin: '.75rem 0' }}><span className="aviso-icono">👁</span><div>Tu rol solo puede ver. Para registrar surtidos hace falta escritura en Combustible.</div></div>}
@@ -225,7 +220,7 @@ export function SurtidorMovilView() {
   );
 }
 
-/* ───────────── Formulario: surtido, traslado, entrada o merma ───────────── */
+/* ───────────── Formulario: surtido, traslado o entrada ───────────── */
 function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName, onCancel, onSaved }: {
   tipo: TipoSurtidor; tanque: TanqueCombustible; tanques: TanqueCombustible[]; catalogos: CatalogoCombustible[];
   actor: string; actorName: string | null; onCancel: () => void; onSaved: (movId?: string) => Promise<void>;
@@ -278,10 +273,9 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   async function guardar(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!(litrosNum > 0)) { setError(tipo === 'entrada' ? 'Indica los litros que entraron.' : tipo === 'merma' ? 'Indica los litros de la merma.' : 'Indica los litros surtidos.'); return; }
+    if (!(litrosNum > 0)) { setError(tipo === 'entrada' ? 'Indica los litros que entraron.' : 'Indica los litros surtidos.'); return; }
     if (tipo === 'uso' && !equipo) { setError('Indica a qué equipo o camión va el combustible.'); return; }
     if (tipo === 'traslado' && !destinoId) { setError('Indica a qué tanque pasa el combustible.'); return; }
-    if (tipo === 'merma' && !observacion.trim()) { setError('Indica el motivo de la merma (faltante, derrame, evaporación…).'); return; }
     if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indica el costo por litro.'); return; }
     if (sale && litrosNum > (Number(tanque.saldo_litros) || 0)) { setError(`El tanque tiene ${num(tanque.saldo_litros)} L: no alcanza para ${num(litrosNum)} L.`); return; }
     setGuardando(true); setEtapa('movimiento');
@@ -295,8 +289,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
       let movId: string;
       if (tipo === 'uso') movId = (await registrarUso({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
       else if (tipo === 'traslado') movId = (await registrarTraslado({ tanqueId: tanque.id, litros: litrosNum, tanqueDestinoId: destinoId, campos, actor, actorName })).id;
-      else if (tipo === 'entrada') movId = (await registrarEntrada({ tanqueId: tanque.id, litros: litrosNum, costoLitro: costoNum, campos, actor, actorName })).id;
-      else movId = (await registrarMerma({ tanqueId: tanque.id, litros: litrosNum, campos, actor, actorName })).id;
+      else movId = (await registrarEntrada({ tanqueId: tanque.id, litros: litrosNum, costoLitro: costoNum, campos, actor, actorName })).id;
       // Las fotos se suben recién ahora: la carpeta lleva el id del movimiento.
       if (adjuntos.length) {
         setEtapa('fotos');
@@ -327,7 +320,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
       {error && <div className="aviso danger"><span className="aviso-icono">⛔</span><div>{error}</div></div>}
 
       <div className="surt-campo">
-        <label htmlFor="surt-litros">{tipo === 'merma' ? 'Litros perdidos' : 'Litros'}</label>
+        <label htmlFor="surt-litros">Litros</label>
         <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
           value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
       </div>
@@ -351,25 +344,15 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         </div>
       )}
 
-      {tipo === 'merma' && (
-        <div className="surt-campo">
-          <label htmlFor="surt-motivo">Motivo de la merma</label>
-          <input id="surt-motivo" className="input surt-input" value={observacion} onChange={(e) => setObservacion(e.target.value)}
-            placeholder="Faltante en conteo, derrame, evaporación…" required />
+      <div className="surt-campo">
+        <label htmlFor="surt-equipo">
+          {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}
+        </label>
+        <div className="surt-buscable">
+          <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe parte del nombre o la placa…"
+            options={opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))} />
         </div>
-      )}
-
-      {tipo !== 'merma' && (
-        <div className="surt-campo">
-          <label htmlFor="surt-equipo">
-            {tipo === 'uso' ? '¿A qué equipo o camión va?' : tipo === 'entrada' ? 'Camión o cisterna que lo trajo (opcional)' : 'Equipo / camión que lo lleva (opcional)'}
-          </label>
-          <div className="surt-buscable">
-            <SearchSelect id="surt-equipo" value={equipo} onChange={setEquipo} placeholder="🔍 Escribe parte del nombre o la placa…"
-              options={opts('equipo').map((c) => ({ value: c.valor, label: c.valor }))} />
-          </div>
-        </div>
-      )}
+      </div>
 
       <div className="surt-campo">
         <label htmlFor="surt-autorizado">Autorizado por</label>
@@ -393,10 +376,10 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
       )}
 
       <SelectorAdjuntos archivos={adjuntos} onChange={setAdjuntos}
-        titulo={tipo === 'entrada' ? '📷 Fotos (guía, cisterna, medida)' : tipo === 'merma' ? '📷 Fotos (regla, conteo)' : '📷 Fotos (contador, equipo, vale)'} grande />
+        titulo={tipo === 'entrada' ? '📷 Fotos (guía, cisterna, medida)' : '📷 Fotos (contador, equipo, vale)'} grande />
 
       <button type="button" className="surt-mas" onClick={() => setMasDatos((v) => !v)}>
-        {masDatos ? '▾ Menos datos' : `▸ Más datos (${tipo === 'uso' || tipo === 'traslado' ? 'horómetro, kilometraje, ' : ''}destino, hora${tipo === 'merma' ? '' : ', observación'})`}
+        {masDatos ? '▾ Menos datos' : `▸ Más datos (${tipo === 'uso' || tipo === 'traslado' ? 'horómetro, kilometraje, ' : ''}destino, hora, observación)`}
       </button>
       {masDatos && (
         <>
@@ -445,13 +428,11 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
                 value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
             </div>
           </div>
-          {tipo !== 'merma' && (
-            <div className="surt-campo">
-              <label htmlFor="surt-obs">Observación</label>
-              <input id="surt-obs" className="input surt-input" value={observacion} onChange={(e) => setObservacion(e.target.value)}
-                placeholder={tipo === 'entrada' ? 'Compra PDVSA, guía N°…' : 'SUMINISTRO COMBUSTIBLE…'} />
-            </div>
-          )}
+          <div className="surt-campo">
+            <label htmlFor="surt-obs">Observación</label>
+            <input id="surt-obs" className="input surt-input" value={observacion} onChange={(e) => setObservacion(e.target.value)}
+              placeholder={tipo === 'entrada' ? 'Compra PDVSA, guía N°…' : 'SUMINISTRO COMBUSTIBLE…'} />
+          </div>
         </>
       )}
 
@@ -471,7 +452,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
       <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando}>
         {guardando
           ? (etapa === 'fotos' ? `Subiendo ${adjuntos.length === 1 ? 'la foto' : `${adjuntos.length} fotos`}…` : 'Guardando…')
-          : `✔ Registrar ${tipo === 'uso' ? 'surtido' : tipo === 'traslado' ? 'traslado' : tipo === 'entrada' ? 'entrada' : 'merma'}`}
+          : `✔ Registrar ${tipo === 'uso' ? 'surtido' : tipo === 'traslado' ? 'traslado' : 'entrada'}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>Cancelar</button>
     </form>
