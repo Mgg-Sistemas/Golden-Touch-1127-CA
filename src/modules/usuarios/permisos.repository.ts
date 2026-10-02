@@ -130,6 +130,60 @@ export async function loadRolePermisos(role: RoleKey): Promise<RolePermisos | nu
   return (data?.permisos as RolePermisos | undefined) ?? null;
 }
 
+/** Pantallas de teléfono de un rol (ver auth/vistasTelefono.ts). */
+export interface AccesoTelefonoRol {
+  /** Claves de las pantallas que el rol puede abrir (surtidor, comidas…). */
+  vistas: string[];
+  /** Trabaja solo desde el teléfono: no ve las pantallas de PC, salvo Ajustes. */
+  soloTelefono: boolean;
+}
+
+export const SIN_TELEFONO: AccesoTelefonoRol = { vistas: [], soloTelefono: false };
+
+interface FilaTelefono { role?: RoleKey; vistas_telefono?: unknown; solo_telefono?: unknown }
+function aAccesoTelefono(r: FilaTelefono): AccesoTelefonoRol {
+  return {
+    vistas: Array.isArray(r.vistas_telefono) ? r.vistas_telefono.filter((x): x is string => typeof x === 'string') : [],
+    soloTelefono: r.solo_telefono === true,
+  };
+}
+
+/** Lo que la sesión necesita de su rol: la matriz y sus pantallas de teléfono. `null` si no hay fila. */
+export async function loadAccesoRol(role: RoleKey): Promise<{ permisos: RolePermisos | null; telefono: AccesoTelefonoRol } | null> {
+  const { data, error } = await supabase.from(TABLE).select('permisos, vistas_telefono, solo_telefono').eq('role', role).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return { permisos: ((data as { permisos?: RolePermisos }).permisos) ?? null, telefono: aAccesoTelefono(data as FilaTelefono) };
+}
+
+/** Las pantallas de teléfono de todos los roles, para el panel de Roles y Permisos. */
+export async function loadTelefonoRoles(): Promise<Record<RoleKey, AccesoTelefonoRol>> {
+  const { data, error } = await supabase.from(TABLE).select('role, vistas_telefono, solo_telefono');
+  if (error) throw error;
+  const out: Record<RoleKey, AccesoTelefonoRol> = {};
+  for (const r of (data ?? []) as FilaTelefono[]) if (r.role) out[r.role] = aAccesoTelefono(r);
+  return out;
+}
+
+/**
+ * Guarda las pantallas de teléfono de UN rol (autoguardado). Solo toca esas dos
+ * columnas: la matriz de módulos queda como está. Si el rol todavía no tiene fila,
+ * se crea con `permisosSiFalta`.
+ */
+export async function saveTelefonoRol(
+  role: RoleKey, acceso: AccesoTelefonoRol, actorEmail: string, permisosSiFalta: RolePermisos,
+): Promise<void> {
+  const cambios = {
+    vistas_telefono: [...new Set(acceso.vistas)], solo_telefono: acceso.soloTelefono,
+    updated_at: new Date().toISOString(), updated_by: actorEmail,
+  };
+  const { data, error } = await supabase.from(TABLE).update(cambios).eq('role', role).select('role');
+  if (error) throw error;
+  if (data?.length) return;
+  const { error: eIns } = await supabase.from(TABLE).insert({ role, permisos: permisosSiFalta, ...cambios });
+  if (eIns) throw eIns;
+}
+
 /** Persiste los permisos de UN solo rol (autoguardado por celda en la matriz). */
 export async function savePermisosRole(
   role: RoleKey,

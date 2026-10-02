@@ -46,10 +46,11 @@ function conexionLenta(): boolean {
 
 export function AppShell() {
   const { user } = useSession();
-  const { can, role, appUser, isAdmin } = usePermissions();
+  const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('maquinaria') || can('asignaciones');
+  // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
+  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('maquinaria') || can('asignaciones'));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -303,8 +304,17 @@ export function AppShell() {
           </NavLink>
         </div>
 
+        {soloTelefono && (
+          <>
+            <div className="sidebar-section">Teléfono</div>
+            <nav className="nav">
+              {vistasTelefono.length > 1 && <NavItem to="/app/telefono" icon="📱" label="Mis pantallas" />}
+              {vistasTelefono.map((v) => <NavItem key={v.key} to={v.ruta} icon={v.icono} label={v.label} />)}
+            </nav>
+          </>
+        )}
         {showOperacion && <div className="sidebar-section">Operación</div>}
-        <nav className="nav">
+        {!soloTelefono && <nav className="nav">
           {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
           {can('pedidos') && <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
@@ -322,7 +332,7 @@ export function AppShell() {
           {can('asignaciones') && <NavItem to="/app/asignaciones" icon="🎒" label="Asignaciones" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria/servicio-mantenimiento" icon="🔧" label="Servicio de Mantenimiento" />}
-        </nav>
+        </nav>}
 
         {showSistema && <div className="sidebar-section">Sistema</div>}
         <nav className="nav">

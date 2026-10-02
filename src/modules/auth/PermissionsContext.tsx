@@ -3,14 +3,17 @@ import { Navigate } from 'react-router-dom';
 import { getAppUser, signOut, useSession, type AppUser } from './authStore';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
-  loadRolePermisos,
+  loadAccesoRol,
+  SIN_TELEFONO,
   defaultsFor,
   normalizeRolePermisos,
   MODULES,
   type ModuleKey,
   type ModulePermission,
   type RolePermisos,
+  type AccesoTelefonoRol,
 } from '@/modules/usuarios/permisos.repository';
+import { VISTAS_TELEFONO, inicioTelefono, vistasPermitidas, type VistaTelefono, type VistaTelefonoKey } from './vistasTelefono';
 
 export type PermLevel = keyof ModulePermission; // 'lectura' | 'escritura' | 'full'
 
@@ -25,6 +28,12 @@ interface PermissionsValue {
   can: (module: ModuleKey, level?: PermLevel) => boolean;
   /** Módulos con al menos lectura, en el orden canónico de MODULES. */
   allowedModules: ModuleKey[];
+  /** Pantallas de teléfono que puede abrir: las de su rol con lectura en su módulo. */
+  vistasTelefono: VistaTelefono[];
+  /** ¿Puede abrir esta pantalla de teléfono? */
+  puedeVista: (vista: VistaTelefonoKey) => boolean;
+  /** Su rol trabaja solo desde el teléfono: no ve las pantallas de PC, salvo Ajustes. */
+  soloTelefono: boolean;
 }
 
 const PermissionsContext = createContext<PermissionsValue | null>(null);
@@ -35,6 +44,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<string | null>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [permisos, setPermisos] = useState<RolePermisos | null>(null);
+  const [telefono, setTelefono] = useState<AccesoTelefonoRol>(SIN_TELEFONO);
 
   // Carga el rol del usuario y su matriz de permisos. Reutilizable: se llama al
   // iniciar sesión y cada vez que cambian roles/permisos/usuarios (realtime), para
@@ -53,6 +63,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       setAppUser(null);
       setRole(null);
       setPermisos(null);
+      setTelefono(SIN_TELEFONO);
       setLoading(false);
       return;
     }
@@ -61,15 +72,20 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     setRole(r);
     if (!r) {
       setPermisos(null);
+      setTelefono(SIN_TELEFONO);
       setLoading(false);
       return;
     }
     let stored: RolePermisos | null = null;
+    let tel: AccesoTelefonoRol = SIN_TELEFONO;
     try {
-      stored = await loadRolePermisos(r);
+      const acceso = await loadAccesoRol(r);
+      stored = acceso?.permisos ?? null;
+      tel = acceso?.telefono ?? SIN_TELEFONO;
     } catch {
       stored = null; // RLS/offline: caemos a los defaults del rol
     }
+    setTelefono(tel);
     // Si la matriz aún no tiene fila para el rol, usamos los defaults (mismos que el panel).
     setPermisos(stored ? normalizeRolePermisos(stored, r) : defaultsFor(r));
     setLoading(false);
@@ -87,6 +103,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       setRole(null);
       setAppUser(null);
       setPermisos(null);
+      setTelefono(SIN_TELEFONO);
       setLoading(false);
       return;
     }
@@ -111,8 +128,12 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       return p.full || p[level];
     };
     const allowedModules = MODULES.map((m) => m.key).filter((k) => can(k, 'lectura'));
-    return { loading, role, appUser, permisos, isAdmin, can, allowedModules };
-  }, [loading, role, appUser, permisos]);
+    const vistasTelefono = vistasPermitidas(telefono.vistas, (m) => can(m, 'lectura'), isAdmin);
+    const puedeVista = (vista: VistaTelefonoKey) => vistasTelefono.some((v) => v.key === vista);
+    // El administrador nunca queda encerrado en el teléfono.
+    const soloTelefono = !isAdmin && telefono.soloTelefono;
+    return { loading, role, appUser, permisos, isAdmin, can, allowedModules, vistasTelefono, puedeVista, soloTelefono };
+  }, [loading, role, appUser, permisos, telefono]);
 
   return <PermissionsContext.Provider value={value}>{children}</PermissionsContext.Provider>;
 }
@@ -123,28 +144,48 @@ export function usePermissions(): PermissionsValue {
   return ctx;
 }
 
+/** Adónde va el usuario cuando entra o cuando cae en algo que no puede ver. */
+function destinoInicial(p: Pick<PermissionsValue, 'allowedModules' | 'soloTelefono' | 'vistasTelefono'>): string {
+  if (p.soloTelefono) return inicioTelefono(p.vistasTelefono);
+  const first = p.allowedModules[0];
+  return first ? `/app/${first}` : '/app/sin-acceso';
+}
+
 /** Envuelve una página: si el rol no tiene lectura sobre `module`, redirige al primer módulo permitido. */
 export function RequireModule({ module, children }: { module: ModuleKey; children: ReactNode }) {
-  const { loading, can, allowedModules } = usePermissions();
-  if (loading) return <div className="p-8 muted">Cargando…</div>;
-  if (can(module, 'lectura')) return <>{children}</>;
-  const fallback = allowedModules[0];
-  return <Navigate to={fallback ? `/app/${fallback}` : '/app/sin-acceso'} replace />;
+  const p = usePermissions();
+  if (p.loading) return <div className="p-8 muted">Cargando…</div>;
+  // Solo teléfono: de las pantallas de PC solo queda Ajustes (para cambiar la clave).
+  if (p.soloTelefono && module !== 'ajustes') return <Navigate to={inicioTelefono(p.vistasTelefono)} replace />;
+  if (p.can(module, 'lectura')) return <>{children}</>;
+  return <Navigate to={destinoInicial(p)} replace />;
+}
+
+/**
+ * Envuelve una pantalla de teléfono: hace falta la pantalla en el rol y lectura en su módulo.
+ * Quien tiene el módulo pero no la pantalla va a la versión de PC del módulo.
+ */
+export function RequireVistaTelefono({ vista, children }: { vista: VistaTelefonoKey; children: ReactNode }) {
+  const p = usePermissions();
+  if (p.loading) return <div className="p-8 muted">Cargando…</div>;
+  if (p.puedeVista(vista)) return <>{children}</>;
+  const v = VISTAS_TELEFONO.find((x) => x.key === vista);
+  if (!p.soloTelefono && v && p.can(v.modulo, 'lectura')) return <Navigate to={`/app/${v.modulo}`} replace />;
+  return <Navigate to={destinoInicial(p)} replace />;
 }
 
 /** Envuelve una página SOLO para administradores; a los demás los redirige a su primer módulo. */
 export function RequireAdmin({ children }: { children: ReactNode }) {
-  const { loading, isAdmin, allowedModules } = usePermissions();
-  if (loading) return <div className="p-8 muted">Cargando…</div>;
-  if (isAdmin) return <>{children}</>;
-  const fallback = allowedModules[0];
-  return <Navigate to={fallback ? `/app/${fallback}` : '/app/sin-acceso'} replace />;
+  const p = usePermissions();
+  if (p.loading) return <div className="p-8 muted">Cargando…</div>;
+  if (p.isAdmin) return <>{children}</>;
+  return <Navigate to={destinoInicial(p)} replace />;
 }
 
-/** Redirige al primer módulo al que el usuario tiene acceso (usado como índice de /app). */
+/** Redirige al primer módulo al que el usuario tiene acceso (usado como índice de /app).
+ *  Un rol solo teléfono va a su pantalla, o a «Mis pantallas» si tiene varias. */
 export function HomeRedirect() {
-  const { loading, allowedModules } = usePermissions();
-  if (loading) return <div className="p-8 muted">Cargando…</div>;
-  const first = allowedModules[0];
-  return <Navigate to={first ? `/app/${first}` : '/app/sin-acceso'} replace />;
+  const p = usePermissions();
+  if (p.loading) return <div className="p-8 muted">Cargando…</div>;
+  return <Navigate to={destinoInicial(p)} replace />;
 }
