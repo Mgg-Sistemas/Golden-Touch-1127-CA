@@ -215,7 +215,8 @@ function CocinaEscritorio() {
 
   useEffect(() => { void cargar(); }, [cargar]);
   useEffect(() => { setRecarga((v) => v + 1); }, [cargar]);
-  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'cocina_mercados', 'cocina_adjuntos'], () => { void cargar(); setRecarga((v) => v + 1); });
+  // `productos`: al desactivar uno en Inventario sale de las listas sin recargar (no mueve existencias).
+  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'productos', 'cocina_mercados', 'cocina_adjuntos'], () => { void cargar(); setRecarga((v) => v + 1); });
 
   // Búsqueda general (cliente): código, tipo, nota, fecha/hora, productos.
   // Sin filtro de fechas se parte del mercado en curso (01/10/2026): las comidas de los
@@ -945,6 +946,8 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
   const [busqueda, setBusqueda] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Lo marcado en esta pantalla, para poder nombrarlo si se desactiva con el formulario abierto.
+  const [marcados, setMarcados] = useState<Record<string, { sku: string; nombre: string; precio: number; almacen: string | null }>>({});
   const prodMap = useMemo(() => new Map(viveres.map((p) => [p.id, p])), [viveres]);
   const searchRef = useRef<HTMLInputElement>(null);
   // Stock disponible para un víver: al editar, se suma lo que este movimiento ya había
@@ -952,6 +955,8 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
   const dispDe = (p: Producto) => Number(p.stock) + (esEdicion ? (oldQty.get(p.id) ?? 0) : 0);
 
   function toggle(pid: string) {
+    const p = prodMap.get(pid);
+    if (p) setMarcados((m) => ({ ...m, [pid]: { sku: p.sku, nombre: p.nombre, precio: Number(p.precio) || 0, almacen: p.almacen ?? null } }));
     setSel((s) => {
       if (pid in s) { const { [pid]: _drop, ...rest } = s; return rest; }
       return { ...s, [pid]: '1' };
@@ -976,7 +981,7 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
   // Líneas seleccionadas (para el resumen/validación/submit).
   const lineas = useMemo(() => Object.entries(sel).map(([pid, cantStr]) => {
     const p = prodMap.get(pid) ?? null;
-    const fb = itemFallback.get(pid) ?? null;
+    const fb = itemFallback.get(pid) ?? marcados[pid] ?? null;
     const cant = Number(cantStr) || 0;
     const precio = Number(p?.precio ?? fb?.precio) || 0;
     // Disponible = stock actual + (al editar) lo que este movimiento ya consumía (se reintegra).
@@ -984,13 +989,23 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
     const info = p
       ? { id: p.id, sku: p.sku, nombre: p.nombre, almacen: p.almacen ?? null }
       : fb ? { id: pid, sku: fb.sku, nombre: fb.nombre, almacen: fb.almacen } : null;
-    return { pid, info, cant, precio, subtotal: cant * precio, excede: cant > disponible };
-  }), [sel, prodMap, itemFallback, esEdicion, oldQty]);
+    // Desactivado en el inventario y la comida le saca más de lo que ya traía: no se puede guardar.
+    const inactivo = !p && cant > (oldQty.get(pid) ?? 0);
+    return { pid, info, cant, precio, subtotal: cant * precio, excede: cant > disponible, inactivo };
+  }), [sel, prodMap, itemFallback, marcados, esEdicion, oldQty]);
   const total = lineas.reduce((a, l) => a + l.subtotal, 0);
   const nSeleccionados = lineas.length;
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
+    // Desactivado en el inventario con el formulario abierto: ya no está en la lista para
+    // desmarcarlo, así que se quita solo y se avisa antes de guardar nada.
+    const deBaja = lineas.filter((l) => l.inactivo);
+    if (deBaja.length) {
+      setSel((s) => Object.fromEntries(Object.entries(s).filter(([pid]) => !deBaja.some((l) => l.pid === pid))));
+      setError(`${deBaja.map((l) => l.info?.nombre ?? 'Un producto').join(', ')}: desactivado en el inventario. Se quitó de la selección. Revisa el total y vuelve a guardar.`);
+      return;
+    }
     const items: CocinaItem[] = lineas.filter((l) => l.info && l.cant > 0).map((l) => ({
       producto_id: l.info!.id, sku: l.info!.sku, nombre: l.info!.nombre, cantidad: l.cant, precio: l.precio, almacen: l.info!.almacen ?? null,
     }));

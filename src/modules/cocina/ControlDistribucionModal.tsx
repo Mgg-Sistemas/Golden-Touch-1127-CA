@@ -77,7 +77,8 @@ export function ControlDistribucionModal({ onClose }: { onClose: () => void }) {
   }, [recargar]);
 
   // Lo que mueve el control: las comidas, el kardex y los conteos de otros usuarios.
-  useRealtime(['cocina_movimientos', 'movimientos', 'cocina_conteos', 'cocina_eoq'], () => { void recargar(); });
+  // `productos`: al desactivar uno en Inventario sale de la tabla sin recargar.
+  useRealtime(['cocina_movimientos', 'movimientos', 'productos', 'cocina_conteos', 'cocina_eoq'], () => { void recargar(); });
 
   // Lo que se ve es lo que sale en el PDF: primero el recorte, después la búsqueda.
   const productos = useMemo(() => {
