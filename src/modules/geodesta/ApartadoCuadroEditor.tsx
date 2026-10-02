@@ -76,6 +76,7 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
     faltan.forEach((id) => pedidas.current.add(id));
     let vivo = true;
     const resueltas = new Set<string>();
+    const cache = pedidas.current;
     (async () => {
       try {
         const todas = await listImagenes(informeId);
@@ -97,7 +98,7 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
     return () => {
       vivo = false;
       // Lo que esta pasada no alcanzó a resolver se vuelve a pedir en la próxima.
-      faltan.forEach((id) => { if (!resueltas.has(id)) pedidas.current.delete(id); });
+      faltan.forEach((id) => { if (!resueltas.has(id)) cache.delete(id); });
     };
   }, [clave, informeId]);
 
