@@ -1870,3 +1870,94 @@ export interface MinutaAdjunto {
   subido_por?: string | null;
   subido_en: string;
 }
+
+/* ───────────── Geodesta · Informes ───────────── */
+
+export type EstadoInforme = 'borrador' | 'finalizado';
+export type TipoColumna = 'texto' | 'imagen';
+
+export interface ColumnaCuadro {
+  id: string;
+  nombre: string;
+  tipo: TipoColumna;
+}
+
+export interface FilaCuadro {
+  id: string;
+  /** clave = id de columna. Si la columna es de imagen, el valor es el id de una `ImagenGeodesta`. */
+  celdas: Record<string, string>;
+}
+
+export interface ApartadoCuadro {
+  id: string;
+  tipo: 'cuadro';
+  titulo: string;
+  columnas: ColumnaCuadro[];
+  filas: FilaCuadro[];
+}
+
+export interface ImagenEnTexto {
+  imagen_id: string;
+  pie: string;
+}
+
+export interface ApartadoTexto {
+  id: string;
+  tipo: 'texto';
+  titulo: string;
+  texto: string;
+  imagenes: ImagenEnTexto[];
+}
+
+export type Apartado = ApartadoCuadro | ApartadoTexto;
+
+export interface InformeGeodesta {
+  id: string;
+  codigo: string;
+  codigo_anio: number | null;
+  codigo_nro: number | null;
+  fecha: string;
+  estado: EstadoInforme;
+  ciudad: string | null;
+  para_nombre: string | null;
+  para_cargo: string | null;
+  de_nombre: string | null;
+  de_cargo: string | null;
+  firma_nombre: string | null;
+  firma_cargo: string | null;
+  direccion_pie: string | null;
+  logo_gt: boolean;
+  logo_cvm: boolean;
+  apartados: Apartado[];
+  busq?: string | null;
+  creado_por?: string | null;
+  creado_en: string;
+  modificado_por?: string | null;
+  modificado_en?: string | null;
+}
+
+export interface ImagenGeodesta {
+  id: string;
+  informe_id: string;
+  nombre: string;
+  path: string;
+  tipo: string;
+  bytes: number;
+  subido_por?: string | null;
+  subido_en: string;
+}
+
+export interface GeodestaConfig {
+  id: number;
+  ciudad: string;
+  para_nombre: string | null;
+  para_cargo: string | null;
+  de_nombre: string | null;
+  de_cargo: string | null;
+  firma_nombre: string | null;
+  firma_cargo: string | null;
+  direccion_pie: string | null;
+  logo_gt: boolean;
+  logo_cvm: boolean;
+  actualizado_en: string;
+}
