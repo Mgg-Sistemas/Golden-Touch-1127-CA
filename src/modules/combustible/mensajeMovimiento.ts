@@ -92,18 +92,6 @@ export function mensajeMovimiento(d: DatosMensaje): string {
   return lineas.join('\n');
 }
 
-/**
- * Enlace de WhatsApp con el mensaje ya escrito (abre la app o WhatsApp Web).
- *
- * Se limpia el selector invisible U+FE0F por si alguna vez se cuela: WhatsApp
- * lo descarta igual y, cuando queda a medias, el emoji llega como cuadrito.
- * Mejor mandar el carácter solo, que es lo que el teléfono sabe pintar.
- */
-export function enlaceWhatsapp(texto: string): string {
-  return `https://wa.me/?text=${encodeURIComponent(sinSelectorDeEmoji(texto))}`;
-}
-
-/** Quita el selector de presentación de emoji (U+FE0F), que WhatsApp pierde. */
-export function sinSelectorDeEmoji(texto: string): string {
-  return texto.replace(/\uFE0F/g, '');
-}
+// El enlace y la limpieza del selector de emoji los usa también el aviso de comidas:
+// viven en shared y se re-exportan aquí para quien ya los importaba de este archivo.
+export { enlaceWhatsapp, sinSelectorDeEmoji } from '@/shared/lib/whatsapp';

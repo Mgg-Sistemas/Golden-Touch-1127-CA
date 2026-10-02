@@ -10,6 +10,7 @@ import type { Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { push } from '@/modules/notificaciones/notif.repository';
+import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
 
 const TABLE = 'cocina_movimientos';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -31,7 +32,12 @@ export interface CocinaItem {
   cantidad: number;
   precio: number;          // precio unitario tomado del inventario (PMP)
   almacen?: string | null;
+  /** Unidad del víver al momento de cargarlo (KG, UND…). La guarda la vista de teléfono. */
+  unidad?: string | null;
 }
+
+/** Desde dónde se cargó la comida. */
+export type OrigenComida = 'pc' | 'telefono';
 
 export interface CocinaMovimiento {
   id: string;
@@ -45,6 +51,11 @@ export interface CocinaMovimiento {
   actor_name?: string | null;
   at: string;
   created_at: string;
+  /** Desde dónde se cargó: la PC o la vista de teléfono. */
+  origen?: OrigenComida | null;
+  /** Cuándo y quién la revisó desde la PC. Vacío = pendiente de revisión. */
+  verificado_at?: string | null;
+  verificado_por?: string | null;
 }
 
 /** ¿La categoría del producto entra en Distribución de comidas? La regla (comida +
@@ -177,6 +188,8 @@ export interface CrearMovimientoCocinaInput {
   at?: string | null;
   actor: string;
   actorName?: string | null;
+  /** Desde dónde se carga. Por defecto, la PC. */
+  origen?: OrigenComida;
 }
 
 /**
@@ -267,6 +280,7 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
     ...(input.at ? { at: input.at } : {}),
     actor: input.actor,
     actor_name: input.actorName ?? null,
+    origen: input.origen ?? 'pc',
   }).select('*').single();
   if (error) throw error;
   const mov = data as CocinaMovimiento;
@@ -331,6 +345,9 @@ export interface ActualizarMovimientoCocinaInput {
   at?: string | null;
   actor: string;
   actorName?: string | null;
+  /** Corregida desde el teléfono: se le quita la marca de verificada, para que la analista
+   *  la vuelva a mirar. Desde la PC no se manda y la marca queda como estaba. */
+  quitarVerificacion?: boolean;
 }
 
 /**
@@ -400,7 +417,22 @@ export async function actualizarMovimientoCocina(id: string, input: ActualizarMo
     nota: input.nota?.trim() || null,
   };
   if (input.at) patch.at = input.at;
+  if (input.quitarVerificacion) { patch.verificado_at = null; patch.verificado_por = null; }
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as CocinaMovimiento;
+}
+
+/**
+ * Marca (o desmarca) una comida como VERIFICADA por la analista desde la PC. Lo cargado
+ * en el teléfono llega pendiente de revisión; al verificarlo queda quién y cuándo.
+ */
+export async function verificarMovimientoCocina(id: string, verificada: boolean, quien: string | null): Promise<CocinaMovimiento> {
+  const { data, error } = await supabase.from(TABLE)
+    .update(verificada
+      ? { verificado_at: new Date().toISOString(), verificado_por: quien?.trim() || null }
+      : { verificado_at: null, verificado_por: null })
+    .eq('id', id).select('*').single();
   if (error) throw error;
   return data as CocinaMovimiento;
 }
@@ -420,6 +452,9 @@ export async function actualizarMovimientoCocina(id: string, input: ActualizarMo
 export async function eliminarMovimientoCocina(
   id: string, actor = 'sistema', actorName: string | null = null,
 ): Promise<void> {
+  // Las fotos van primero y desde la app: Supabase no deja borrar archivos desde la base,
+  // y al borrar la comida sus filas se van en cascada y los archivos quedarían huérfanos.
+  await adjuntosCocina.borrarTodos(MODULO_ADJUNTO_COCINA, id).catch(() => {});
   const { data, error } = await supabase.from(TABLE).delete().eq('id', id).select('*');
   if (error) throw error;
   const mov = (data ?? [])[0] as CocinaMovimiento | undefined;

@@ -33,7 +33,8 @@ import {
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { SurtidorReporteMovil } from './SurtidorReporteMovil';
-import { enlaceWhatsapp, mensajeMovimiento } from './mensajeMovimiento';
+import { mensajeMovimiento } from './mensajeMovimiento';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto } from './contadorSurtidor';
 
@@ -502,8 +503,8 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost btn-grande" onClick={onClose}>🖥 Corregir en la PC</Link>}
         <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
       </>}>
-      <CompartirMovimiento mov={mov} tanque={tanque?.nombre} tanqueDestino={destino}
-        registradoPor={mov.actor_name || mov.created_by} />
+      {/* El que surte manda el aviso al grupo apenas carga el surtido. */}
+      <CompartirWhatsapp texto={mensajeMovimiento({ mov, tanque: tanque?.nombre, tanqueDestino: destino, registradoPor: mov.actor_name || mov.created_by })} />
 
       <div className="surt-detalle">
         <Fila k="Tanque" v={tanque?.nombre} />
@@ -541,79 +542,5 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         Aquí se agregan o quitan fotos, o se borra el movimiento completo. Los litros, el equipo, la hora y los medidores se corrigen desde el módulo de Combustible en la PC; el cambio se ve aquí al instante.
       </small>
     </Modal>
-  );
-}
-
-/* ───────────── Pasar el movimiento por WhatsApp ─────────────
-   El que surte manda el aviso al grupo apenas carga el surtido.
-
-   POR QUÉ SE COMPARTE Y NO SE ABRE UN ENLACE (29/09/2026). El botón abría
-   `wa.me/?text=…`, que mete el mensaje ENTERO dentro de una dirección web.
-   El enlace se arma bien —se comprobó: el texto vuelve idéntico al
-   decodificarlo—, pero WhatsApp muestra antes una pantalla propia,
-   «Compartir en WhatsApp», y ahí los emojis salían como ◆? y los renglones
-   quedaban pegados en un párrafo corrido. Eso ya no es algo que se arregle
-   de este lado: el mensaje viaja bien, lo pinta mal la página del medio.
-
-   La salida es no meterlo en una dirección: `navigator.share` le pasa el
-   TEXTO al menú de compartir del teléfono, que se lo entrega a WhatsApp tal
-   cual. Emojis y saltos de línea llegan enteros y se elige el chat de una.
-   Donde ese menú no existe —una PC— se sigue usando el enlace, que para eso
-   abre WhatsApp Web y ahí el texto sí entra bien en la caja del mensaje. */
-function CompartirMovimiento({ mov, tanque, tanqueDestino, registradoPor }: {
-  mov: MovimientoTanque; tanque?: string | null; tanqueDestino?: string | null; registradoPor?: string | null;
-}) {
-  const [copiado, setCopiado] = useState(false);
-  const texto = mensajeMovimiento({ mov, tanque, tanqueDestino, registradoPor });
-  // El menú de compartir del teléfono. En una PC no existe y se cae al enlace.
-  const puedeCompartir = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-
-  async function compartir(e: React.MouseEvent<HTMLAnchorElement>) {
-    if (!puedeCompartir) return;   // sin menú nativo, que siga el href de siempre
-    e.preventDefault();
-    try {
-      await navigator.share({ text: texto });
-    } catch (err) {
-      // Cancelar el menú NO es un error: no se le avisa nada a nadie. Cualquier
-      // otra falla cae al enlace de siempre, que es lo que había antes.
-      if ((err as { name?: string })?.name === 'AbortError') return;
-      window.open(enlaceWhatsapp(texto), '_blank', 'noopener,noreferrer');
-    }
-  }
-
-  async function copiar() {
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(texto);
-      else {
-        // Navegador viejo o sin permiso: se copia con un textarea escondido.
-        const ta = document.createElement('textarea');
-        ta.value = texto; ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
-      }
-      setCopiado(true);
-      toast('Mensaje copiado', 'success');
-      setTimeout(() => setCopiado(false), 2500);
-    } catch { toast('No se pudo copiar. Mantén el dedo sobre el texto para copiarlo.', 'error'); }
-  }
-
-  return (
-    <div className="surt-compartir">
-      <div className="surt-compartir-txt">{texto}</div>
-      <div className="surt-compartir-btns">
-        <a className="btn btn-wsp btn-grande" href={enlaceWhatsapp(texto)} target="_blank" rel="noopener noreferrer"
-          onClick={(e) => void compartir(e)}>
-          📲 Enviar por WhatsApp
-        </a>
-        <button type="button" className="btn btn-ghost btn-grande" onClick={() => void copiar()}>
-          {copiado ? '✅ Copiado' : '📋 Copiar'}
-        </button>
-      </div>
-      {puedeCompartir && (
-        <small className="muted" style={{ display: 'block', marginTop: '.45rem' }}>
-          Se abre el menú de compartir del teléfono: elige WhatsApp y el chat. Así el mensaje
-          llega con los emojis y los renglones enteros.
-        </small>
-      )}
-    </div>
   );
 }
