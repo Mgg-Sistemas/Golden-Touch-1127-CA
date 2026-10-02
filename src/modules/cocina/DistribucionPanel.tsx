@@ -93,7 +93,8 @@ export function DistribucionPanel({ inicioCiclo, saldoCiclo, onAbrirDetalle }: {
     void recargar().finally(() => setLoading(false));
   }, [recargar]);
 
-  useRealtime(['cocina_movimientos', 'movimientos', 'cocina_conteos', 'cocina_eoq'], () => { void recargar(); });
+  // `productos`: al desactivar uno en Inventario sale de la tabla sin recargar.
+  useRealtime(['cocina_movimientos', 'movimientos', 'productos', 'cocina_conteos', 'cocina_eoq'], () => { void recargar(); });
 
   // Lo que se ve es exactamente lo que sale en el PDF: primero el recorte, después
   // la búsqueda. El orden sigue siendo el de urgencia dentro de lo que quede.

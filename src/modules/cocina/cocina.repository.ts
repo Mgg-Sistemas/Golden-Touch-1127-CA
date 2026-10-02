@@ -11,6 +11,7 @@ import { listProductos } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { push } from '@/modules/notificaciones/notif.repository';
 import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
+import { consumenDeMas, mensajeViveresInactivos } from './viveresActivos';
 
 const TABLE = 'cocina_movimientos';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -252,6 +253,21 @@ async function consumirDeInventario(o: {
 }
 
 /**
+ * Un producto desactivado en el inventario no se carga en una comida. Se lee de la base
+ * en el momento de guardar: la pantalla puede haber quedado abierta sin señal y seguir
+ * mostrándolo. Va ANTES de tocar el inventario, para no descontar nada de una comida
+ * que no se va a guardar. La base repite la regla (trg_cocina_comida_solo_viveres_activos).
+ */
+async function exigirViveresActivos(ids: string[]): Promise<void> {
+  const unicos = [...new Set(ids.filter(Boolean))];
+  if (!unicos.length) return;
+  const { data, error } = await supabase.from('productos').select('nombre, estado').in('id', unicos);
+  if (error) throw error;
+  const baja = ((data ?? []) as Pick<Producto, 'nombre' | 'estado'>[]).filter((p) => p.estado !== 'activo');
+  if (baja.length) throw new Error(mensajeViveresInactivos(baja.map((p) => p.nombre)));
+}
+
+/**
  * Registra un movimiento de cocina: descuenta cada víver del inventario (consumo)
  * y guarda el registro con su correlativo, valor (Σ cantidad×precio) y nº de platos.
  */
@@ -259,6 +275,8 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
   const items = (input.items ?? []).filter((i) => i.producto_id && Number(i.cantidad) > 0);
   if (!items.length) throw new Error('Agrega al menos un víver con cantidad.');
   if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indica cuántos platos se realizaron (mayor que 0).');
+
+  await exigirViveresActivos(items.map((i) => i.producto_id));
 
   // ── GT-SIN-13 · El REGISTRO va primero, el descuento después ────────────────
   // Antes se descontaban los N víveres y recién al final se insertaba el
@@ -366,6 +384,8 @@ export async function actualizarMovimientoCocina(id: string, input: ActualizarMo
   const { data: cur, error: eCur } = await supabase.from(TABLE).select('*').eq('id', id).single();
   if (eCur) throw eCur;
   const prev = cur as CocinaMovimiento;
+  // Solo lo que consume de más: una comida vieja con un producto hoy inactivo se puede corregir.
+  await exigirViveresActivos(consumenDeMas(Array.isArray(prev.items) ? prev.items : [], items));
 
   type Info = { cant: number; sku: string; nombre: string; almacen: string | null };
   const acumular = (arr: CocinaItem[]) => {

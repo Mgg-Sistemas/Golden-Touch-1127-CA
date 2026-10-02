@@ -89,7 +89,8 @@ export function ComidasMovilView() {
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [cargar]);
-  useRealtime(['cocina_movimientos', 'existencias', 'cocina_adjuntos'], () => { void cargar().catch(() => {}); });
+  // `productos`: al desactivar uno en Inventario sale de la lista sin recargar (no mueve existencias).
+  useRealtime(['cocina_movimientos', 'existencias', 'productos', 'cocina_adjuntos'], () => { void cargar().catch(() => {}); });
 
   const hoy = hoyCaracas();
   const unidades = useMemo(() => Object.fromEntries(viveres.map((p) => [p.id, p.unidad ?? null])), [viveres]);
@@ -217,6 +218,8 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
   // comida ya está guardada, para que nadie la vuelva a cargar.
   const [demorado, setDemorado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Lo elegido en esta pantalla, para no perder el nombre si el producto se desactiva con el formulario abierto.
+  const [elegidos, setElegidos] = useState<Record<string, CocinaItem>>({});
   useEffect(() => {
     if (!guardando) { setDemorado(false); return; }
     const t = setTimeout(() => setDemorado(true), 12_000);
@@ -226,7 +229,7 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
   const disponible = (pid: string) => Number(porId.get(pid)?.stock ?? 0) + (yaConsumido.get(pid) ?? 0);
   const lineas = Object.entries(sel).map(([pid, cantStr]) => {
     const p = porId.get(pid);
-    const fb = respaldo.get(pid);
+    const fb = respaldo.get(pid) ?? elegidos[pid];
     const cant = Number(String(cantStr).replace(',', '.')) || 0;
     return {
       pid, cant,
@@ -237,6 +240,8 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
       almacen: p?.almacen ?? fb?.almacen ?? null,
       hay: p ? disponible(pid) : null,
       excede: !!p && cant > disponible(pid),
+      // Desactivado en el inventario y la comida le saca más de lo que ya traía: no se puede guardar.
+      inactivo: !p && cant > (yaConsumido.get(pid) ?? 0),
     };
   });
 
@@ -249,6 +254,12 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
   const avisoCiclo = avisoFueraDelCiclo(fueraDelCiclo(fecha, mercado), mercado);
 
   function agregar(pid: string) {
+    const p = porId.get(pid);
+    if (p) {
+      setElegidos((m) => ({ ...m, [pid]: {
+        producto_id: pid, sku: p.sku, nombre: p.nombre, cantidad: 0, precio: Number(p.precio) || 0, almacen: p.almacen ?? null, unidad: p.unidad ?? null,
+      } }));
+    }
     setSel((s) => ({ ...s, [pid]: '' }));
     setRecien(pid);
     setBusqueda('');
@@ -265,6 +276,8 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
     if (!lineas.length) { setError('Agrega al menos un producto de lo que se consumió.'); return; }
     const sinCantidad = lineas.find((l) => !(l.cant > 0));
     if (sinCantidad) { setError(`Indica la cantidad de ${sinCantidad.nombre}, o quítalo de la lista.`); return; }
+    const deBaja = lineas.find((l) => l.inactivo);
+    if (deBaja) { setError(`${deBaja.nombre} fue desactivado en el inventario. Quítalo de la lista con la ✕ y vuelve a guardar.`); return; }
     const pasada = lineas.find((l) => l.excede);
     if (pasada) { setError(`No hay tanto ${pasada.nombre}: quedan ${num(pasada.hay)} ${pasada.unidad}.`.trim()); return; }
 
@@ -349,11 +362,12 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
         {lineas.length > 0 && (
           <div className="comida-sel">
             {lineas.map((l) => (
-              <div key={l.pid} className={`comida-linea${l.excede ? ' excede' : ''}`}>
+              <div key={l.pid} className={`comida-linea${l.excede || l.inactivo ? ' excede' : ''}`}>
                 <div style={{ minWidth: 0 }}>
                   <div className="nombre">{l.nombre}</div>
                   <div className="sub">
-                    {l.hay == null ? 'Ya no está activo en el inventario' : `Hay ${num(l.hay)} ${l.unidad}`}
+                    {l.hay != null ? `Hay ${num(l.hay)} ${l.unidad}`
+                      : l.inactivo ? 'Desactivado en el inventario · quítalo con la ✕' : 'Ya no está activo en el inventario'}
                     {l.excede ? ' · no alcanza' : ''}
                   </div>
                 </div>

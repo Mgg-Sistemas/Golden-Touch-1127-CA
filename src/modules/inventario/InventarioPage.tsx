@@ -624,7 +624,7 @@ export function InventarioPage() {
           // Desactivar saca al producto de la lista y ya no hay filtro para
           // volver a verlo, así que el aviso lo dice antes, no después.
           message={modal.producto.estado === 'activo'
-            ? `¿Confirmas desactivar "${modal.producto.nombre}" (${modal.producto.sku})? Sale del inventario, de los almacenes y del buscador. Para volver a verlo o reactivarlo está el botón «Productos inactivos».`
+            ? `¿Confirmas desactivar "${modal.producto.nombre}" (${modal.producto.sku})? Sale del inventario, de los almacenes, del buscador y de las listas de Cocina. Para volver a verlo o reactivarlo está el botón «Productos inactivos».`
             : `¿Confirmas activar "${modal.producto.nombre}" (${modal.producto.sku})?`}
           confirmText={modal.producto.estado === 'activo' ? 'Desactivar' : 'Activar'}
           danger={modal.producto.estado === 'activo'}
