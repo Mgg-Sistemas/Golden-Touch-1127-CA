@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FICHA_MAX, FICHA_MIN, compararFicha, errorFicha, etiquetaFicha, fichaEditable, normalizarFicha,
+  FICHA_MAX, FICHA_MIN, compararFicha, errorFicha, errorFichaEdicion, etiquetaFicha, fichaCambia, normalizarFicha,
 } from './fichaNro';
 
 describe('normalizarFicha', () => {
@@ -82,19 +82,51 @@ describe('etiquetaFicha', () => {
   });
 });
 
-describe('fichaEditable · se escribe una vez y queda quieta', () => {
-  it('en el alta se puede escribir', () => {
-    expect(fichaEditable(true, null)).toBe(true);
+describe('errorFichaEdicion · la ficha se puede cambiar, pero no borrar', () => {
+  it('cambiarla por otra válida está bien', () => {
+    expect(errorFichaEdicion('007', '001')).toBeNull();
+    expect(errorFichaEdicion('gt-07', '001')).toBeNull();
   });
 
-  it('editando a alguien que YA tiene ficha, no', () => {
-    expect(fichaEditable(false, '001')).toBe(false);
+  it('dejarla igual está bien', () => {
+    expect(errorFichaEdicion('001', '001')).toBeNull();
   });
 
-  it('editando a alguien que quedó SIN ficha, sí: es la forma de ponérsela', () => {
-    expect(fichaEditable(false, null)).toBe(true);
-    expect(fichaEditable(false, '')).toBe(true);
-    expect(fichaEditable(false, '   ')).toBe(true);
+  it('la nueva tiene que cumplir las mismas reglas del alta', () => {
+    expect(errorFichaEdicion('7', '001')).toMatch(/al menos 3/);
+    expect(errorFichaEdicion('00/1', '001')).toMatch(/letras, números y guiones/);
+  });
+
+  it('vaciarla a quien YA tiene ficha, no: se avisa cuál tiene', () => {
+    expect(errorFichaEdicion('', '001')).toMatch(/no puede quedar vacío.*001/);
+    expect(errorFichaEdicion('   ', '001')).toMatch(/no puede quedar vacío/);
+    expect(errorFichaEdicion(null, 'gt-07')).toMatch(/GT-07/);
+  });
+
+  it('a quien quedó SIN ficha, vacío lo deja como está y escribirla se la pone', () => {
+    expect(errorFichaEdicion('', null)).toBeNull();
+    expect(errorFichaEdicion('', '   ')).toBeNull();
+    expect(errorFichaEdicion('015', null)).toBeNull();
+  });
+});
+
+describe('fichaCambia · avisar antes de guardar', () => {
+  it('sí cuando ya tenía una y se escribe otra', () => {
+    expect(fichaCambia('007', '001')).toBe(true);
+  });
+
+  it('no cuando es la misma escrita distinto (espacios, minúsculas)', () => {
+    expect(fichaCambia(' gt-07 ', 'GT-07')).toBe(false);
+    expect(fichaCambia('001', '001')).toBe(false);
+  });
+
+  it('no cuando no tenía: ponérsela no es cambiarla', () => {
+    expect(fichaCambia('015', null)).toBe(false);
+    expect(fichaCambia('015', '')).toBe(false);
+  });
+
+  it('no cuando se deja vacía: eso es un error, no un cambio', () => {
+    expect(fichaCambia('', '001')).toBe(false);
   });
 });
 

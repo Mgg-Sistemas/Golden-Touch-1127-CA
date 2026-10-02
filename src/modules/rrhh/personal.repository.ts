@@ -77,8 +77,8 @@ export interface PersonalInput {
   telefono_emergencia?: string | null;
   /** A qué nómina entra. Solo se define al dar de alta. */
   empresa?: EmpresaRrhh;
-  /** Número de ficha. Igual que la empresa: solo se define al dar de alta.
-   *  Vacío = que lo asigne la base. */
+  /** Número de ficha. En el alta, vacío = que lo asigne la base. Al editar se
+   *  puede cambiar por otro (02/10/2026); vacío = no tocarla. */
   ficha_nro?: string | null;
   fecha_nacimiento?: string | null;
   genero?: 'M' | 'F' | 'O' | null;
@@ -98,8 +98,9 @@ function payload(input: PersonalInput) {
   return {
     ...baseSinSueldo(input),
     sueldo_base: Math.round((Number(input.sueldo_base) || 0) * 100) / 100,
-    // Solo aquí, que es el ALTA. A propósito NO está en `baseSinSueldo`, que es
-    // lo que arma la EDICIÓN: la ficha no se cambia, y la base lo rechaza igual.
+    // En el ALTA va siempre: vacía es «que la asigne la base». A propósito NO
+    // está en `baseSinSueldo`: en la EDICIÓN la agrega `actualizarPersonal`, y
+    // solo si viene escrita, para que un campo vacío no le borre la ficha a nadie.
     ficha_nro: normalizarFicha(input.ficha_nro),
   };
 }
@@ -180,6 +181,9 @@ function errorDuplicado(error: { code?: string; message?: string } | null): Erro
   if (m.includes('personal_rif_uk')) {
     return new Error('Ya hay una persona registrada con ese RIF.');
   }
+  if (m.includes('personal_ficha_uk')) {
+    return new Error('Ese número de ficha ya lo tiene otra persona de la misma nómina. Elige otro.');
+  }
   return null;
 }
 
@@ -204,7 +208,16 @@ export async function actualizarPersonal(id: string, patch: PersonalInput): Prom
   if (malCorreo) throw new Error(malCorreo);
   // Sin el sueldo, a propósito: ese cambio va por cambiarSueldo(), con motivo.
   // Y solo con los campos que vinieron: un campo ausente NO se borra.
-  const { data, error } = await supabase.from(TABLE).update(baseSinSueldo(patch, true)).eq('id', id).select('*').single();
+  const row = baseSinSueldo(patch, true) as Record<string, unknown>;
+  // La ficha se puede cambiar (02/10/2026). Vacía NO se manda: no se le borra a
+  // quien ya tiene. Que no se repita en la nómina lo cuida el índice único.
+  const ficha = normalizarFicha(patch.ficha_nro);
+  if (ficha !== null) {
+    const malaFicha = errorFicha(ficha);
+    if (malaFicha) throw new Error(malaFicha);
+    row.ficha_nro = ficha;
+  }
+  const { data, error } = await supabase.from(TABLE).update(row).eq('id', id).select('*').single();
   if (error) throw errorDuplicado(error) ?? error;
   return data as Personal;
 }
