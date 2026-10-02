@@ -37,6 +37,7 @@ import { mensajeMovimiento } from './mensajeMovimiento';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto } from './contadorSurtidor';
+import { errorHorometro, horasTrabajadas } from './horometroEquipo';
 
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMOS_EN_TELEFONO = 10;
@@ -270,6 +271,8 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   const litrosNum = Number(String(litros).replace(',', '.')) || 0;
   const costoNum = Number(String(costo).replace(',', '.')) || 0;
   const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
+  // HRS = HF − HI, igual que en la PC: se calcula solo y se muestra al que surte.
+  const hrs = horasTrabajadas(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
   // El contador al terminar es donde arranca el siguiente surtido: si se deja vacío, se
   // guarda inicial + litros (lo completa el repositorio; aquí solo se muestra).
   const cfPropuesto = contadorFinalPropuesto(ci === '' ? null : Number(ci), litrosNum);
@@ -282,6 +285,9 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
     if (tipo === 'traslado' && !destinoId) { setError('Indica a qué tanque pasa el combustible.'); return; }
     if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indica el costo por litro.'); return; }
     if (sale && litrosNum > (Number(tanque.saldo_litros) || 0)) { setError(`El tanque tiene ${num(tanque.saldo_litros)} L: no alcanza para ${num(litrosNum)} L.`); return; }
+    // HF < HI dejaría horas negativas y el próximo surtido del equipo arrancaría mal.
+    const errHor = errorHorometro(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
+    if (errHor) { setError(errHor); setMasDatos(true); return; }
     setGuardando(true); setEtapa('movimiento');
     try {
       const campos = {
@@ -408,6 +414,11 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
                   <input id="surt-hf" className="input surt-input" type="number" inputMode="decimal" step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
                 </div>
               </div>
+              <div className="surt-campo">
+                <label htmlFor="surt-hrs">Horas trabajadas (HF − HI)</label>
+                <input id="surt-hrs" className="input surt-input" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula sola"
+                  style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
+              </div>
               <div className="surt-grid2">
                 <div className="surt-campo">
                   <label htmlFor="surt-km">Kilometraje</label>
@@ -516,6 +527,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
         {mov.tipo === 'entrada' && <Fila k="Costo por litro" v={money(mov.tasa_usd_litro)} />}
         <Fila k="Contador" v={mov.contador_global_ini != null || mov.contador_global_fin != null ? `${mov.contador_global_ini ?? '—'} → ${mov.contador_global_fin ?? '—'}` : null} />
         <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
+        <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
         <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
         <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.created_by ? ` · ${mov.actor_name || mov.created_by}` : ''}`} />
       </div>

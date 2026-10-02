@@ -43,6 +43,7 @@ import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { norm } from '@/shared/lib/texto';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
+import { errorHorometro } from './horometroEquipo';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -927,6 +928,9 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     if (litros.trim() === '' || litrosNum === 0) { setError('Indica los litros (se admiten negativos, como en el Excel).'); return; }
     if (tipo === 'traslado' && !destinoId) { setError('Indica el tanque destino del traslado.'); return; }
     if (tipo === 'traslado' && destinoId === tanqueId) { setError('El tanque destino debe ser distinto.'); return; }
+    // HF < HI dejaría horas negativas y el próximo surtido del equipo arrancaría mal.
+    const errHor = errorHorometro(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
+    if (errHor) { setError(errHor); return; }
     const campos = {
       fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
       horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
@@ -1123,6 +1127,9 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   async function guardar() {
     setError(null);
     if (litros === '' || Number(litros) === 0) { setError('Indica los litros (distinto de 0).'); return; }
+    // La misma regla que al registrar: un final menor que el inicial no se guarda.
+    const errHor = errorHorometro(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
+    if (errHor) { setError(errHor); return; }
     setSaving(true);
     try {
       await actualizarMovimientoTanque(mov.id, {
