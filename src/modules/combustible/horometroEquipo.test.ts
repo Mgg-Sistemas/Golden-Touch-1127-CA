@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { errorHorometro, horasTrabajadas } from './horometroEquipo';
+import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
+
+describe('faltaHorometroFinal · el final es obligatorio si el equipo ya trae horómetro', () => {
+  it('con inicial y sin final, avisa', () => {
+    expect(faltaHorometroFinal(91678, null)).toMatch(/Arrancó en 91678/);
+  });
+
+  it('con final, o sin horómetro previo, no exige nada', () => {
+    expect(faltaHorometroFinal(91678, 91700)).toBeNull();
+    expect(faltaHorometroFinal(91678, 91678)).toBeNull();
+    expect(faltaHorometroFinal(null, null)).toBeNull();
+    expect(faltaHorometroFinal(undefined, 50)).toBeNull();
+  });
+});
 
 describe('horasTrabajadas · HF − HI', () => {
   it('el caso normal: la máquina trabajó entre surtido y surtido', () => {

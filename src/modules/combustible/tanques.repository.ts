@@ -1498,15 +1498,17 @@ export async function listMedidores(): Promise<MedidorCombustible[]> {
 export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
-  // El HI del próximo movimiento del equipo = HF del ÚLTIMO REGISTRADO de ese equipo
-  // (orden por created_at desc, igual que el contador). No por fecha: así un registro
-  // con fecha más vieja no "pisa" el horómetro vigente.
+  // El HI del próximo surtido del equipo = su MAYOR HF (02/10/2026), como el contador
+  // del surtidor: el horómetro es un totalizador que solo sube, así que la lectura más
+  // alta es la vigente. Antes era el HF del último CARGADO, y cargar tarde un surtido de
+  // un día anterior devolvía el horómetro hacia atrás: el próximo surtido arrancaba mal
+  // y el mantenimiento (que lee de aquí) contaba horas de menos.
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('horometro_fin, created_at')
+    .select('horometro_fin')
     .eq('equipo', e)
     .not('horometro_fin', 'is', null)
-    .order('created_at', { ascending: false })
+    .order('horometro_fin', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;

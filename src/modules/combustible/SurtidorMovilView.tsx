@@ -37,7 +37,7 @@ import { mensajeMovimiento } from './mensajeMovimiento';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto } from './contadorSurtidor';
-import { errorHorometro, horasTrabajadas } from './horometroEquipo';
+import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
 
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMOS_EN_TELEFONO = 10;
@@ -260,8 +260,9 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   // Igual que en la PC: el horómetro inicial es del equipo y el contador inicial es del
   // tanque; se traen del último final para que la cadena no se corte.
   useEffect(() => {
-    if (!equipo) { setHiAuto(false); return; }
-    ultimoHorometroEquipo(equipo).then((u) => { if (u != null) { setHi(String(u)); setHiAuto(true); } else setHiAuto(false); }).catch(() => {});
+    if (!equipo) { setHi(''); setHiAuto(false); return; }
+    // Si el equipo nuevo no trae horómetro, no se queda el inicial del equipo anterior.
+    ultimoHorometroEquipo(equipo).then((u) => { if (u != null) { setHi(String(u)); setHiAuto(true); } else { setHi(''); setHiAuto(false); } }).catch(() => {});
     ultimoKilometrajeEquipo(equipo).then((u) => { if (u != null) setKm(String(u)); }).catch(() => {});
   }, [equipo]);
   useEffect(() => {
@@ -286,8 +287,10 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
     if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indica el costo por litro.'); return; }
     if (sale && litrosNum > (Number(tanque.saldo_litros) || 0)) { setError(`El tanque tiene ${num(tanque.saldo_litros)} L: no alcanza para ${num(litrosNum)} L.`); return; }
     // HF < HI dejaría horas negativas y el próximo surtido del equipo arrancaría mal.
-    const errHor = errorHorometro(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
-    if (errHor) { setError(errHor); setMasDatos(true); return; }
+    const hiNum = hi === '' ? null : Number(hi); const hfNum = hf === '' ? null : Number(hf);
+    // Surtido a un equipo que ya trae horómetro: sin el final no hay horas para el mantenimiento.
+    const errHor = errorHorometro(hiNum, hfNum) ?? (tipo === 'uso' ? faltaHorometroFinal(hiNum, hfNum) : null);
+    if (errHor) { setError(errHor); return; }
     setGuardando(true); setEtapa('movimiento');
     try {
       const campos = {
@@ -364,6 +367,34 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         </div>
       </div>
 
+      {tipo === 'uso' && equipo && (
+        <>
+          {/* HF − HI = horas trabajadas para el mantenimiento, y el HF es el HI del próximo
+              surtido del equipo. Antes estaba escondido en «Más datos» y casi nunca se cargaba. */}
+          <div className="surt-grid2">
+            <div className="surt-campo">
+              <label htmlFor="surt-hi">Horómetro inicial</label>
+              <input id="surt-hi" className="input surt-input" type="number" inputMode="decimal" step="any" value={hi} readOnly={hiAuto}
+                onChange={(e) => setHi(e.target.value)} placeholder="primera lectura" />
+            </div>
+            <div className="surt-campo">
+              <label htmlFor="surt-hf">Horómetro final{hi !== '' ? ' *' : ''}</label>
+              <input id="surt-hf" className="input surt-input" type="number" inputMode="decimal" step="any" value={hf} onChange={(e) => setHf(e.target.value)}
+                placeholder="lo que marca hoy" required={hi !== ''} />
+            </div>
+          </div>
+          <div className="surt-campo">
+            <label htmlFor="surt-hrs">Horas trabajadas (HF − HI)</label>
+            <input id="surt-hrs" className="input surt-input" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula sola"
+              style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
+            <small className="muted">
+              {hiAuto ? 'El inicial es el último final de este equipo. ' : 'Este equipo no tiene horómetro cargado: si lo tiene, escribe las dos lecturas. '}
+              En vehículos va el kilometraje del tablero. Las horas van al mantenimiento y el final es donde arranca el próximo surtido.
+            </small>
+          </div>
+        </>
+      )}
+
       <div className="surt-campo">
         <label htmlFor="surt-autorizado">Autorizado por</label>
         <div className="surt-buscable">
@@ -397,13 +428,13 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         titulo={tipo === 'entrada' ? '📷 Fotos (guía, cisterna, medida)' : '📷 Fotos (contador, equipo, vale)'} grande />
 
       <button type="button" className="surt-mas" onClick={() => setMasDatos((v) => !v)}>
-        {masDatos ? '▾ Menos datos' : `▸ Más datos (${tipo === 'uso' || tipo === 'traslado' ? 'horómetro, kilometraje, ' : ''}destino, hora, observación)`}
+        {masDatos ? '▾ Menos datos' : `▸ Más datos (${tipo === 'uso' ? 'kilometraje, ' : tipo === 'traslado' ? 'horómetro, kilometraje, ' : ''}destino, hora, observación)`}
       </button>
       {masDatos && (
         <>
           {(tipo === 'uso' || tipo === 'traslado') && (
             <>
-              <div className="surt-grid2">
+              {tipo === 'traslado' && <div className="surt-grid2">
                 <div className="surt-campo">
                   <label htmlFor="surt-hi">Horómetro inicial</label>
                   <input id="surt-hi" className="input surt-input" type="number" inputMode="decimal" step="any" value={hi} readOnly={hiAuto}
@@ -413,12 +444,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
                   <label htmlFor="surt-hf">Horómetro final</label>
                   <input id="surt-hf" className="input surt-input" type="number" inputMode="decimal" step="any" value={hf} onChange={(e) => setHf(e.target.value)} />
                 </div>
-              </div>
-              <div className="surt-campo">
-                <label htmlFor="surt-hrs">Horas trabajadas (HF − HI)</label>
-                <input id="surt-hrs" className="input surt-input" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula sola"
-                  style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
-              </div>
+              </div>}
               <div className="surt-grid2">
                 <div className="surt-campo">
                   <label htmlFor="surt-km">Kilometraje</label>
