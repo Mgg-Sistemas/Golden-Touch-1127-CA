@@ -4,7 +4,7 @@ import { LandingPage } from './modules/landing/LandingPage';
 import { LoginPage } from './modules/auth/LoginPage';
 import { AppShell } from './shared/ui/AppShell';
 import { ProtectedRoute } from './modules/auth/ProtectedRoute';
-import { PermissionsProvider, RequireModule, RequireAdmin, HomeRedirect } from './modules/auth/PermissionsContext';
+import { PermissionsProvider, RequireModule, RequireAdmin, RequireVistaTelefono, HomeRedirect } from './modules/auth/PermissionsContext';
 import { ToastHost } from './shared/ui/Toast';
 import { PasswordChangeGate } from './modules/usuarios/PasswordChangeGate';
 
@@ -32,6 +32,7 @@ const AjustesPage = lazy(() => import('./modules/ajustes/AjustesPage').then((m) 
 const AuditoriaPage = lazy(() => import('./modules/auditoria/AuditoriaPage').then((m) => ({ default: m.AuditoriaPage })));
 const MaquinariaPage = lazy(() => import('./modules/maquinaria/MaquinariaPage').then((m) => ({ default: m.MaquinariaPage })));
 const ServicioMantenimientoPage = lazy(() => import('./modules/maquinaria/ServicioMantenimientoPage').then((m) => ({ default: m.ServicioMantenimientoPage })));
+const TelefonoInicioPage = lazy(() => import('./modules/auth/TelefonoInicioPage').then((m) => ({ default: m.TelefonoInicioPage })));
 const CambiarClavePage = lazy(() => import('./modules/usuarios/CambiarClavePage').then((m) => ({ default: m.CambiarClavePage })));
 
 function PageLoader() {
@@ -87,10 +88,10 @@ export function App() {
           <Route path="produccion" element={<RequireModule module="produccion"><Suspense fallback={<PageLoader />}><ProduccionPage /></Suspense></RequireModule>} />
           <Route path="salidas" element={<RequireModule module="salidas"><Suspense fallback={<PageLoader />}><SalidasPage /></Suspense></RequireModule>} />
           <Route path="combustible" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><CombustiblePage /></Suspense></RequireModule>} />
-          <Route path="combustible/surtidor" element={<RequireModule module="combustible"><Suspense fallback={<PageLoader />}><SurtidorMovilView /></Suspense></RequireModule>} />
+          <Route path="combustible/surtidor" element={<RequireVistaTelefono vista="surtidor"><Suspense fallback={<PageLoader />}><SurtidorMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="acopio" element={<RequireModule module="acopio"><Suspense fallback={<PageLoader />}><AcopioPage /></Suspense></RequireModule>} />
           <Route path="cocina" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaPage /></Suspense></RequireModule>} />
-          <Route path="cocina/telefono" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><ComidasMovilView /></Suspense></RequireModule>} />
+          <Route path="cocina/telefono" element={<RequireVistaTelefono vista="comidas"><Suspense fallback={<PageLoader />}><ComidasMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="rrhh" element={<RequireModule module="rrhh"><Suspense fallback={<PageLoader />}><RrhhPage /></Suspense></RequireModule>} />
           <Route path="maquinaria" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/servicio-mantenimiento" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><ServicioMantenimientoPage /></Suspense></RequireModule>} />
@@ -102,6 +103,7 @@ export function App() {
           <Route path="usuarios" element={<RequireModule module="usuarios"><Suspense fallback={<PageLoader />}><UsuariosPage /></Suspense></RequireModule>} />
           <Route path="ajustes" element={<RequireModule module="ajustes"><Suspense fallback={<PageLoader />}><AjustesPage /></Suspense></RequireModule>} />
           <Route path="auditoria" element={<RequireAdmin><Suspense fallback={<PageLoader />}><AuditoriaPage /></Suspense></RequireAdmin>} />
+          <Route path="telefono" element={<Suspense fallback={<PageLoader />}><TelefonoInicioPage /></Suspense>} />
           <Route path="sin-acceso" element={<SinAccesoPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

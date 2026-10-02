@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { FechaInput } from '@/shared/ui/FechaInput';
@@ -40,7 +40,6 @@ import { DistribucionPanel } from './DistribucionPanel';
 import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
 import { AdjuntosSalida } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
-import { ROL_COCINA } from './comidaMovil';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 /**
@@ -67,19 +66,9 @@ function inicioSemana(iso: string): string {
 }
 function inicioMes(iso: string): string { return `${iso.slice(0, 7)}-01`; }
 
-/**
- * Módulo Cocina. El rol COCINA (el que sirve la comida) trabaja desde el teléfono: no ve
- * el módulo de PC, cae directo en su vista. El resto ve el módulo completo.
- */
+/** Módulo Cocina. Un rol solo teléfono no llega aquí: RequireModule lo manda a su pantalla. */
 export function CocinaPage() {
-  const { role, loading } = usePermissions();
-  if (loading) return null;
-  if (role === ROL_COCINA) return <Navigate to="/app/cocina/telefono" replace />;
-  return <CocinaEscritorio />;
-}
-
-function CocinaEscritorio() {
-  const { appUser, can, isAdmin } = usePermissions();
+  const { appUser, can, isAdmin, puedeVista } = usePermissions();
   const actor = appUser?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
   const canWrite = isAdmin || can('cocina', 'escritura');
@@ -412,7 +401,7 @@ function CocinaEscritorio() {
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           {/* El contador del ciclo, «Cerrar» y «Descartar» van en el panel del mercado, como
               en MGG: la cabecera queda para lo que se hace todos los días. */}
-          <Link to="/app/cocina/telefono" className="btn btn-ghost" title="La pantalla para cargar las comidas desde el celular, con botones grandes">📱 Vista teléfono</Link>
+          {puedeVista('comidas') && <Link to="/app/cocina/telefono" className="btn btn-ghost" title="La pantalla para cargar las comidas desde el celular, con botones grandes">📱 Vista teléfono</Link>}
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
           <button className="btn btn-ghost" onClick={() => setModal('control')} title="Control diario por producto con lote óptimo de compra (EOQ) y punto de reorden">📋 Control de distribución</button>
           <button className="btn btn-ghost" onClick={() => setModal('historico')} title="Ver los mercados ya cerrados: visualizar, editar y sacar reportes">🗂 Mercados cerrados</button>

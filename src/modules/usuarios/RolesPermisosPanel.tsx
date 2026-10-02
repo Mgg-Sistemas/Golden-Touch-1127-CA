@@ -12,6 +12,10 @@ import {
   MODULES,
   emptyPermission as empty,
   defaultsFor,
+  loadTelefonoRoles,
+  saveTelefonoRol,
+  SIN_TELEFONO,
+  type AccesoTelefonoRol,
   type AllPermisos,
   type ModuleKey,
   type ModulePermission,
@@ -26,6 +30,7 @@ import {
 } from './roles.repository';
 import { setRolesCache } from './usuarios.repository';
 import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
+import { VISTAS_TELEFONO } from '@/modules/auth/vistasTelefono';
 
 function normalize(stored: Partial<AllPermisos>, roles: CustomRole[]): AllPermisos {
   return roles.reduce<AllPermisos>((acc, r) => {
@@ -49,6 +54,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [permisos, setPermisos] = useState<AllPermisos>({} as AllPermisos);
+  const [telefono, setTelefono] = useState<Record<RoleKey, AccesoTelefonoRol>>({});
   const [loading, setLoading] = useState(true);
   const [autoEstado, setAutoEstado] = useState<'idle' | 'guardando' | 'guardado' | 'error'>('idle');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
@@ -56,14 +62,16 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   async function refresh() {
     setLoading(true);
     try {
-      const [rolesList, remote, c] = await Promise.all([
+      const [rolesList, remote, c, tel] = await Promise.all([
         listRoles(),
         loadPermisos(),
         contarUsuariosPorRol(),
+        loadTelefonoRoles().catch(() => ({} as Record<RoleKey, AccesoTelefonoRol>)),
       ]);
       setRolesCache(rolesList);
       setRoles(rolesList);
       setCounts(c);
+      setTelefono(tel);
       if (remote) {
         setPermisos(normalize(remote, rolesList));
       } else {
@@ -122,6 +130,24 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
     } catch (e) {
       setAutoEstado('error');
       toast(e instanceof Error ? e.message : 'No se pudo guardar el permiso', 'error');
+    }
+  }
+
+  // Pantallas de teléfono del rol: también se guardan solas, sin tocar la matriz de módulos.
+  function cambiarTelefono(role: RoleKey, cambio: Partial<AccesoTelefonoRol>) {
+    const next = { ...(telefono[role] ?? SIN_TELEFONO), ...cambio };
+    setTelefono((prev) => ({ ...prev, [role]: next }));
+    void persistirTelefono(role, next);
+  }
+
+  async function persistirTelefono(role: RoleKey, acceso: AccesoTelefonoRol) {
+    setAutoEstado('guardando');
+    try {
+      await saveTelefonoRol(role, acceso, user?.email ?? 'sistema', permisos[role] ?? defaultsFor(role));
+      setAutoEstado('guardado');
+    } catch (e) {
+      setAutoEstado('error');
+      toast(e instanceof Error ? e.message : 'No se pudo guardar la pantalla de teléfono', 'error');
     }
   }
 
@@ -262,6 +288,49 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                   </tbody>
                 </table>
                 </div>
+
+                {/* El administrador ve todas las pantallas: no hay nada que elegir. */}
+                {rc.key !== 'admin' && (() => {
+                  const t = telefono[rc.key] ?? SIN_TELEFONO;
+                  return (
+                    <div style={{ marginTop: '.9rem', paddingTop: '.75rem', borderTop: '1px solid var(--border)', display: 'grid', gap: '.4rem' }}>
+                      <div style={{ fontWeight: 700, fontSize: '.85rem' }}>📱 Pantallas de teléfono</div>
+                      {VISTAS_TELEFONO.map((v) => {
+                        const marcada = t.vistas.includes(v.key);
+                        const mod = permisos[rc.key]?.[v.modulo];
+                        const sinModulo = !(mod?.lectura || mod?.full);
+                        const modLabel = MODULES.find((m) => m.key === v.modulo)?.label ?? v.modulo;
+                        return (
+                          <label key={v.key} htmlFor={`tel-${rc.key}-${v.key}`} style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: '.82rem', cursor: readOnly ? 'default' : 'pointer' }}>
+                            <input id={`tel-${rc.key}-${v.key}`} type="checkbox" disabled={readOnly} checked={marcada}
+                              onChange={() => cambiarTelefono(rc.key, { vistas: marcada ? t.vistas.filter((x) => x !== v.key) : [...t.vistas, v.key] })} />
+                            <span>
+                              {v.icono} {v.label}
+                              {marcada && sinModulo && (
+                                <small style={{ display: 'block', color: 'var(--warning, #b8860b)' }}>
+                                  No se abre: falta lectura en {modLabel}.
+                                </small>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                      <label htmlFor={`tel-${rc.key}-solo`} style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: '.82rem', marginTop: '.2rem', cursor: readOnly ? 'default' : 'pointer' }}>
+                        <input id={`tel-${rc.key}-solo`} type="checkbox" disabled={readOnly} checked={t.soloTelefono}
+                          onChange={() => cambiarTelefono(rc.key, { soloTelefono: !t.soloTelefono })} />
+                        <span>
+                          <strong>Solo teléfono</strong>
+                          <small className="muted" style={{ display: 'block' }}>
+                            Entra directo a sus pantallas de teléfono y no ve las de PC, salvo Ajustes.
+                          </small>
+                          {t.soloTelefono && !t.vistas.length && (
+                            <small style={{ display: 'block', color: 'var(--danger)' }}>Sin pantallas marcadas, este rol no tiene nada que abrir.</small>
+                          )}
+                        </span>
+                      </label>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}

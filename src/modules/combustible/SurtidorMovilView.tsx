@@ -38,9 +38,6 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto } from './contadorSurtidor';
 
-/** Clave del rol que trabaja solo desde esta pantalla. */
-export const ROL_SURTIDOR = 'combustible';
-
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMOS_EN_TELEFONO = 10;
 
@@ -59,9 +56,10 @@ const TITULO: Record<TipoSurtidor, string> = {
 
 export function SurtidorMovilView() {
   const { user } = useSession();
-  const { can, appUser, role } = usePermissions();
+  const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
   const canWrite = can('combustible', 'escritura');
-  const esSurtidor = role === ROL_SURTIDOR;
+  // Rol solo teléfono: no tiene módulo de PC al que ir.
+  const esSurtidor = soloTelefono;
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
@@ -126,6 +124,7 @@ export function SurtidorMovilView() {
           <button type="button" className="btn btn-ghost" onClick={() => setReporte(true)} disabled={!tanques.length}
             title="Movimientos por rango de fechas, agrupados por tipo, con sus fotos">📊 Reporte</button>
           {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost">🖥 Módulo completo</Link>}
+          {esSurtidor && vistasTelefono.length > 1 && <Link to="/app/telefono" className="btn btn-ghost">📱 Mis pantallas</Link>}
         </div>
       </header>
 
