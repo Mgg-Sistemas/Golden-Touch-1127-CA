@@ -11,12 +11,18 @@
    dejaba afuera justo la forma en que se suelen escribir las fichas. Como
    texto, «001» se guarda «001» y también entra un código como «GT-07».
 
-   POR QUÉ NO SE PUEDE MODIFICAR. El número de ficha es con lo que se identifica
+   POR QUÉ NO SE PODÍA MODIFICAR. El número de ficha es con lo que se identifica
    a la persona en planillas, recibos y carnets ya impresos. Si se cambia, todo
    ese papel pasa a apuntar a nadie, y el número viejo queda libre para otra
    persona: dos personas distintas con el mismo número en papeles de fechas
-   distintas. Por eso se fija en el alta y después queda quieto, igual que la
-   nómina a la que pertenece.
+   distintas. Por eso se fijaba en el alta y después quedaba quieto.
+
+   QUÉ CAMBIÓ EL 02/10/2026. Se pidió poder editarlo: hay fichas cargadas con
+   el número equivocado y no había forma de corregirlas. Ahora se cambia desde
+   ✎ Editar, con las mismas reglas del alta (3 a 12 caracteres, letras, números
+   y guiones). Lo que sigue sin poderse: dejar SIN ficha a quien ya tiene, y
+   repetirla dentro de la misma nómina. El riesgo de arriba sigue siendo cierto,
+   así que la pantalla avisa que el papel ya impreso queda con el número viejo.
    ============================================================ */
 
 /** Mínimo de caracteres del número de ficha. */
@@ -104,12 +110,22 @@ export function etiquetaFicha(v?: string | null): string {
 }
 
 /**
- * ¿Se puede escribir la ficha de esta persona?
+ * Qué está mal con la ficha al EDITAR a alguien, o `null` si está bien.
  *
- * Solo en el alta, o si por lo que sea quedó sin número. Una vez que tiene, no.
- * La base rechaza el cambio igual: esto es para que el campo se vea bloqueado
- * en vez de dejar escribir algo que después va a fallar al guardar.
+ * La ficha se puede cambiar por otra. Lo único que no se puede es dejar sin
+ * número a quien ya tiene: la base lo rechaza igual, esto es para avisarlo
+ * antes de guardar. A quien todavía no tiene, vacío lo deja como está.
  */
-export function fichaEditable(esAlta: boolean, fichaActual?: string | null): boolean {
-  return esAlta || normalizarFicha(fichaActual) === null;
+export function errorFichaEdicion(nueva?: string | null, actual?: string | null): string | null {
+  if (normalizarFicha(nueva) !== null) return errorFicha(nueva);
+  const antes = normalizarFicha(actual);
+  if (antes === null) return null;
+  return `El número de ficha no puede quedar vacío: esta persona tiene la ${antes}. Se puede cambiar por otro, pero no borrar.`;
+}
+
+/** ¿Se le está cambiando la ficha a alguien que ya tenía una? Es para avisar antes de guardar. */
+export function fichaCambia(nueva?: string | null, actual?: string | null): boolean {
+  const antes = normalizarFicha(actual);
+  const ahora = normalizarFicha(nueva);
+  return antes !== null && ahora !== null && antes !== ahora;
 }

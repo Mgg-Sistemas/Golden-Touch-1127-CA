@@ -36,7 +36,7 @@ import {
 } from './carnetPersonal';
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
-import { errorFicha, etiquetaFicha, fichaEditable, FICHA_MIN } from './fichaNro';
+import { errorFicha, errorFichaEdicion, etiquetaFicha, fichaCambia, FICHA_MIN } from './fichaNro';
 import { errorCorreo } from './correoPersonal';
 import { descargarHojaIngresoPdf } from './hojaIngresoPdf';
 import { GRADOS } from './instruccionYTrabajo';
@@ -153,8 +153,9 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   // hacen falta en el render para avisar de un duplicado o de un RIF mal escrito
   // ANTES de guardar, no después del rechazo de la base.
   const [cedula, setCedula] = useState('');
-  // La ficha es un input controlado aparte porque su habilitación depende de si
-  // la persona YA tiene una: puesta, no se cambia.
+  // La ficha es un input controlado aparte: al editar se compara contra la que
+  // la persona YA tiene, para avisar que se la están cambiando (se puede desde
+  // el 02/10/2026) y para no dejar que se la vacíen.
   const [ficha, setFicha] = useState('');
   const [fichaActual, setFichaActual] = useState<string | null>(null);
   const [rif, setRif] = useState('');
@@ -384,6 +385,9 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     } finally { setFotoOcupada(false); }
   }
 
+  /** Qué está mal con la ficha escrita: en el alta puede ir vacía; al editar, no si ya tenía. */
+  const fichaMal = () => (editId ? errorFichaEdicion(ficha, fichaActual) : errorFicha(ficha));
+
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
     // Campos de texto: se leen del DOM (no controlados). Cargo/Departamento/Fecha vienen del estado.
@@ -420,7 +424,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       return;
     }
     if (!datos.nombre) { setError('Indica el nombre.'); return; }
-    const malaFicha = errorFicha(ficha);
+    const malaFicha = fichaMal();
     if (malaFicha) { setError(malaFicha); return; }
     const malCorreo = errorCorreo(datos.correo);
     if (malCorreo) { setError(malCorreo); return; }
@@ -778,23 +782,24 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 <label>N° de ficha</label>
                 <input className="input" name="p-ficha" value={ficha}
                   onChange={(e) => setFicha(e.target.value)}
-                  disabled={!fichaEditable(!editId, fichaActual)}
                   maxLength={12}
                   placeholder={editId ? '' : 'se asigna solo si lo dejas vacío'}
-                  style={errorFicha(ficha) ? { borderColor: 'var(--danger)' } : undefined} />
-                {!fichaEditable(!editId, fichaActual)
-                  ? (
-                    <small className="muted">
-                      La ficha <strong>no se cambia</strong>: con ella se identifica a la persona en
-                      planillas, recibos y carnets ya impresos.
-                    </small>
-                  )
-                  : errorFicha(ficha)
-                    ? <small style={{ color: 'var(--danger)' }}>{errorFicha(ficha)}</small>
+                  style={fichaMal() ? { borderColor: 'var(--danger)' } : undefined} />
+                {fichaMal()
+                  ? <small style={{ color: 'var(--danger)' }}>{fichaMal()}</small>
+                  : editId && fichaCambia(ficha, fichaActual)
+                    ? (
+                      <small style={{ color: 'var(--warning)' }}>
+                        Le estás cambiando la ficha (tenía la <strong>{fichaActual}</strong>). Los carnets, recibos y
+                        planillas ya impresos quedan con el número anterior: hay que volver a imprimirlos.
+                      </small>
+                    )
                     : (
                       <small className="muted">
-                        Mínimo {FICHA_MIN} caracteres (ej. 001). Si lo dejas vacío, el sistema le asigna
-                        el siguiente. <strong>Después no se puede cambiar.</strong>
+                        Mínimo {FICHA_MIN} caracteres (ej. 001).{' '}
+                        {editId
+                          ? 'Se puede corregir; no se puede repetir dentro de la misma nómina.'
+                          : 'Si lo dejas vacío, el sistema le asigna el siguiente.'}
                       </small>
                     )}
               </div>
