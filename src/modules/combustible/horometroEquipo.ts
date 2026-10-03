@@ -6,14 +6,13 @@
    y el final de un surtido es donde arranca el inicial del siguiente surtido
    del mismo equipo. La cadena no se puede cortar ni retroceder.
 
-   QUÉ PASABA. La columna horas_utilizadas existía en la base y se mostraba
-   en la tabla, el Excel y el PDF, pero NADIE la escribía: salía siempre
-   vacía. Y en la vista del teléfono se podía guardar un final menor que el
-   inicial, que dejaba horas negativas y arrancaba mal el surtido siguiente.
+   LAS HORAS LAS GUARDA LA BASE. horas_utilizadas es una columna GENERADA
+   (horometro_fin − horometro_ini): la base la calcula sola y rechaza que se
+   le mande un valor. Aquí se calcula igual, pero solo para MOSTRARLA en la
+   pantalla mientras se escribe. Nunca se envía al guardar.
 
-   QUÉ SE HACE AHORA. Las horas se calculan acá y se guardan con el
-   movimiento (y se recalculan cuando el re-encadenado corrige el inicial).
-   Un final menor que el inicial no se deja guardar.
+   Un final menor que el inicial no se deja guardar: dejaría horas negativas
+   y el surtido siguiente arrancaría mal.
    ============================================================ */
 
 const numero = (v: number | null | undefined): number | null =>
@@ -31,6 +30,18 @@ export function horasTrabajadas(hi: number | null | undefined, hf: number | null
   const f = numero(hf);
   if (i === null || f === null) return null;
   return redondear(f - i);
+}
+
+/**
+ * Falta el horómetro final de un surtido a un equipo que ya trae horómetro (02/10/2026).
+ * Sin el final no hay horas trabajadas, el mantenimiento no avanza y el próximo surtido
+ * del equipo arranca con un inicial viejo. En el teléfono el final quedaba escondido en
+ * «Más datos» y casi nunca se cargaba. Un equipo sin horómetro previo (bidones, apoyo)
+ * no lo exige: no hay cadena que cortar.
+ */
+export function faltaHorometroFinal(hi: number | null | undefined, hf: number | null | undefined): string | null {
+  if (numero(hi) === null || numero(hf) !== null) return null;
+  return `Escribe el horómetro final (o el kilometraje del tablero). Arrancó en ${numero(hi)}: con el final salen las horas trabajadas para el mantenimiento y de ahí arranca el próximo surtido.`;
 }
 
 /**
