@@ -67,6 +67,14 @@ export async function listInformesDelDia(dia: string): Promise<InformeGeodesta[]
   return (data ?? []) as InformeGeodesta[];
 }
 
+/** Las fechas de los informes de un rango, solo la columna: el calendario las cuenta por día. */
+export async function listFechasInformes(ini: string, fin: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from(TABLE).select('fecha').gte('fecha', ini).lte('fecha', fin);
+  if (error) throw error;
+  return (data ?? []).map((r) => (r as { fecha: string }).fecha);
+}
+
 export async function getInforme(id: string): Promise<InformeGeodesta | null> {
   const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).maybeSingle();
   if (error) throw error;

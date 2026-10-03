@@ -44,3 +44,10 @@ button.geo-cab-dia:focus-visible { outline: 2px solid var(--primary); outline-of
 .geo-vacio-dias { display: flex; flex-wrap: wrap; gap: .25rem; justify-content: center; }
 .geo-vacio-dia { min-width: 2.2rem; }
 .geo-vacio-dia.hoy { border-color: var(--primary); color: var(--primary); }
+
+/* Pestaña Calendario */
+.geo-cal-barra { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+.geo-cal-nav, .geo-cal-modos { display: flex; align-items: center; gap: .35rem; }
+.geo-cal-titulo { margin: 0 .25rem; font-size: 1.1rem; min-width: 9.5rem; text-align: center; }
+.geo-cal-cuerpo { transition: opacity .15s; }
+.geo-cal-cuerpo.cargando { opacity: .55; }

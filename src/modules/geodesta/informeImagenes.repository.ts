@@ -82,6 +82,14 @@ export async function listImagenesDelDia(dia: string): Promise<ImagenGeodesta[]>
   return (data ?? []) as ImagenGeodesta[];
 }
 
+/** Los días venezolanos de subida de las imágenes de un rango, solo la columna `subido_dia`. */
+export async function listDiasDeImagenes(ini: string, fin: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from(TABLE).select('subido_dia').gte('subido_dia', ini).lte('subido_dia', fin);
+  if (error) throw error;
+  return (data ?? []).map((r) => (r as { subido_dia: string }).subido_dia);
+}
+
 export async function subirImagen(informeId: string, file: File, actor: string): Promise<ImagenGeodesta> {
   const problema = errorArchivoImagen(file);
   if (problema) throw new Error(problema);

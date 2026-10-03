@@ -17,6 +17,8 @@ interface CalendarioBarraProps {
   actividades: PlanificacionGeodesta[];
   onActividad: (p: PlanificacionGeodesta) => void;
   onDiaVacio: (fecha: string) => void;
+  /** `false` (solo lectura): no se ofrece ningún control para cargar una actividad. Por defecto `true`. */
+  puedeCrear?: boolean;
   onDia: (fecha: string) => void;
 }
 
@@ -25,7 +27,7 @@ function diaYMes(iso: string): string {
   return `${Number(iso.slice(8, 10))} de ${MESES[Number(iso.slice(5, 7)) - 1].toLowerCase()}`;
 }
 
-export function CalendarioBarra({ anio, mes, hoy, actividades, onActividad, onDiaVacio, onDia }: CalendarioBarraProps) {
+export function CalendarioBarra({ anio, mes, hoy, actividades, onActividad, onDiaVacio, puedeCrear = true, onDia }: CalendarioBarraProps) {
   const { ini, fin } = limitesDelMes(anio, mes);
   const dias = fechasEntre(ini, fin);
   const D = dias.length;
@@ -39,15 +41,19 @@ export function CalendarioBarra({ anio, mes, hoy, actividades, onActividad, onDi
     return (
       <div className="card geo-vacio">
         <strong>No hay actividades planificadas en {MESES[mes - 1].toLowerCase()}.</strong>
-        <span className="muted">Tocá un día para cargar la primera.</span>
-        <div className="geo-vacio-dias">
-          {dias.map((f) => (
-            <button key={f} type="button" className={`btn btn-ghost geo-vacio-dia${f === hoy ? ' hoy' : ''}`}
-              onClick={() => onDiaVacio(f)} aria-label={`Cargar una actividad el ${diaYMes(f)}`}>
-              {Number(f.slice(8))}
-            </button>
-          ))}
-        </div>
+        {puedeCrear && (
+          <>
+            <span className="muted">Tocá un día para cargar la primera.</span>
+            <div className="geo-vacio-dias">
+              {dias.map((f) => (
+                <button key={f} type="button" className={`btn btn-ghost geo-vacio-dia${f === hoy ? ' hoy' : ''}`}
+                  onClick={() => onDiaVacio(f)} aria-label={`Cargar una actividad el ${diaYMes(f)}`}>
+                  {Number(f.slice(8))}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -81,11 +87,14 @@ export function CalendarioBarra({ anio, mes, hoy, actividades, onActividad, onDi
                 <span className="desc-nombre-txt">{a.titulo}</span>
                 {a.lugar && <small className="muted">{a.lugar}</small>}
               </div>
-              {dias.map((f, d) => (
+              {dias.map((f, d) => (puedeCrear ? (
                 <button key={f} type="button" className={`desc-celda${f === hoy ? ' hoy' : ''}`}
                   style={{ gridColumn: d + 2, gridRow: row }}
                   onClick={() => onDiaVacio(f)} aria-label={`Cargar una actividad el ${diaYMes(f)}`} />
-              ))}
+              ) : (
+                <div key={f} className={`desc-celda${f === hoy ? ' hoy' : ''}`}
+                  style={{ gridColumn: d + 2, gridRow: row }} aria-hidden="true" />
+              )))}
               <button type="button" className={`desc-bar geo-bar ${a.estado}`}
                 style={{ gridColumn: `${t.col0 + 2} / ${t.col1 + 3}`, gridRow: row }}
                 onClick={() => onActividad(a)} title={title}
