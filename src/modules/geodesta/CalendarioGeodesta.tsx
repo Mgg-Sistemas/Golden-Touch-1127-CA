@@ -131,7 +131,7 @@ export function CalendarioGeodesta({ canWrite, actor, onVerDia }: CalendarioGeod
         ) : (
           <CalendarioBarra anio={anio} mes={mes} hoy={hoy} actividades={actividades}
             puedeCrear={canWrite}
-            onActividad={(p) => { if (canWrite) setEditor({ plan: p }); }}
+            onActividad={(p) => { if (canWrite) setEditor({ plan: p }); else onVerDia(p.desde); }}
             onDiaVacio={(f) => { if (canWrite) setEditor({ plan: null, dia: f }); }}
             onDia={onVerDia} />
         )}

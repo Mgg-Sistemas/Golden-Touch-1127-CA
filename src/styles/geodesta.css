@@ -51,3 +51,22 @@ button.geo-cab-dia:focus-visible { outline: 2px solid var(--primary); outline-of
 .geo-cal-titulo { margin: 0 .25rem; font-size: 1.1rem; min-width: 9.5rem; text-align: center; }
 .geo-cal-cuerpo { transition: opacity .15s; }
 .geo-cal-cuerpo.cargando { opacity: .55; }
+
+/* Panel del día */
+.geo-dia { display: flex; flex-direction: column; gap: 1rem; }
+.geo-dia-cab { display: flex; align-items: center; gap: .35rem; }
+.geo-dia-titulo { margin: 0 .25rem; font-size: 1.1rem; flex: 1; text-align: center; }
+.geo-dia-bloque h3 { margin: 0 0 .4rem; font-size: .95rem; }
+.geo-dia-vacio { margin: 0; opacity: .7; font-size: .9rem; }
+.geo-dia-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.geo-dia-item { display: flex; flex-wrap: wrap; gap: .35rem .75rem; justify-content: space-between; }
+.geo-dia-acciones { display: flex; flex-wrap: wrap; gap: .25rem; }
+.geo-dia-meta { font-size: .8rem; opacity: .7; }
+.geo-dia-estado { font-size: .75rem; padding: .05rem .4rem; border-radius: 999px; border: 1px solid currentColor; }
+.geo-dia-estado-cumplida { color: var(--success, #16a34a); }
+.geo-dia-estado-no_se_hizo { color: var(--danger, #dc2626); }
+.geo-dia-informe { all: unset; cursor: pointer; padding: .25rem 0; }
+.geo-dia-informe:hover { text-decoration: underline; }
+.geo-dia-miniaturas { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: .5rem; }
+.geo-dia-miniatura { display: flex; flex-direction: column; gap: .2rem; }
+.geo-dia-miniatura img { width: 100%; height: 5.5rem; object-fit: cover; border-radius: 4px; }
