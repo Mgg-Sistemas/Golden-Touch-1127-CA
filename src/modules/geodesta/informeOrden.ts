@@ -55,3 +55,14 @@ export function agregarColumna(a: ApartadoCuadro, nombre = '', tipo: TipoColumna
     filas: a.filas.map((f) => ({ ...f, celdas: { ...f.celdas, [col.id]: '' } })),
   };
 }
+
+/** Cambia el tipo de una columna VACIANDO sus celdas: el dato de un tipo no significa nada en el otro. */
+export function cambiarTipoColumna(a: ApartadoCuadro, colId: string, tipo: TipoColumna): ApartadoCuadro {
+  // Mismo tipo: nada que cambiar ni vaciar. Se devuelve el mismo objeto.
+  if (a.columnas.find((c) => c.id === colId)?.tipo === tipo) return a;
+  return {
+    ...a,
+    columnas: a.columnas.map((c) => (c.id === colId ? { ...c, tipo } : c)),
+    filas: a.filas.map((f) => ({ ...f, celdas: { ...f.celdas, [colId]: '' } })),
+  };
+}

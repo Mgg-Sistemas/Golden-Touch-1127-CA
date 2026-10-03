@@ -54,4 +54,10 @@ describe('filaAGuardar', () => {
     const f = filaAGuardar(base) as { busq: string };
     expect(f.busq).toContain('ender mejias');
   });
+  it('el texto de búsqueda no incluye apartados fantasma descartados', () => {
+    // Las columnas por defecto de un cuadro sin tocar no deben ensuciar la búsqueda.
+    const f = filaAGuardar({ ...base, apartados: [apartadoCuadroVacio()] }) as { busq: string };
+    expect(f.busq).not.toContain('actividad');
+    expect(f.busq).not.toContain('observaciones');
+  });
 });

@@ -15,7 +15,9 @@ import {
 } from './informeModelo';
 import { borradorDesdeInforme } from './informeBorrador';
 import { mover } from './informeOrden';
-import { actualizarInforme, crearInforme, getConfig, proximoCodigo } from './informes.repository';
+import {
+  actualizarInforme, crearInforme, existeCodigo, getConfig, guardarConfig, proximoCodigo,
+} from './informes.repository';
 import { ApartadoCuadroEditor } from './ApartadoCuadroEditor';
 import { ApartadoTextoEditor } from './ApartadoTextoEditor';
 
@@ -62,12 +64,28 @@ function InformeEditorForm({ informe, actor, onClose, onGuardado }: InformeEdito
   const [confirmaSalir, setConfirmaSalir] = useState(false);
   const [aBorrar, setABorrar] = useState<string | null>(null);
   const [arrastrando, setArrastrando] = useState<number | null>(null);
+  const [guardandoDefectos, setGuardandoDefectos] = useState(false);
+
+  // Un archivo soltado fuera de una zona de carga haría que el navegador abra la
+  // foto y se pierda el informe sin guardar. Las zonas legítimas ya atienden su
+  // propio drop (y detienen la propagación); todo lo demás se ignora.
+  useEffect(() => {
+    const frenar = (e: globalThis.DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', frenar);
+    window.addEventListener('drop', frenar);
+    return () => {
+      window.removeEventListener('dragover', frenar);
+      window.removeEventListener('drop', frenar);
+    };
+  }, []);
 
   /** Pide el código sugerido. Si falla, avisa y el campo sigue editable: nunca bloquea el alta. */
   async function pedirCodigo(soloSiVacio: boolean, vivo: () => boolean = () => true) {
     setPidiendoCodigo(true);
     try {
-      const codigo = await proximoCodigo();
+      const codigo = await proximoCodigo(b.fecha);
       if (!vivo()) return;
       const poner = (x: BorradorInforme) => (soloSiVacio && x.codigo !== '' ? x : { ...x, codigo });
       setEst((s) => ({ b: poner(s.b), base: soloSiVacio ? poner(s.base) : s.base }));
@@ -135,9 +153,30 @@ function InformeEditorForm({ informe, actor, onClose, onGuardado }: InformeEdito
         toast('Informe guardado: ya podés subir imágenes.', 'success');
       }
       onGuardado(inf);
+      // Aviso, nunca bloqueo: el código repetido se guardó igual.
+      void existeCodigo(guardado.codigo, inf.id).then((repetido) => {
+        if (repetido) {
+          toast(`Ojo: ya existe otro informe con el código ${guardado.codigo.trim()}. Se guardó igual; si fue sin querer, cambialo.`, 'warning');
+        }
+      });
     } catch (e) {
       toast(mensaje(e, 'No se pudo guardar el informe.'), 'error');
     } finally { setOcupado(false); }
+  }
+
+  async function guardarComoDefecto() {
+    setGuardandoDefectos(true);
+    try {
+      await guardarConfig({
+        ciudad: b.ciudad, para_nombre: b.para_nombre, para_cargo: b.para_cargo,
+        de_nombre: b.de_nombre, de_cargo: b.de_cargo, firma_nombre: b.firma_nombre,
+        firma_cargo: b.firma_cargo, direccion_pie: b.direccion_pie,
+        logo_gt: b.logo_gt, logo_cvm: b.logo_cvm,
+      });
+      toast('Listo: los próximos informes nuevos arrancan con estos datos.', 'success');
+    } catch (e) {
+      toast(`No se pudieron guardar los valores por defecto: ${mensaje(e, 'error de conexión')}`, 'error');
+    } finally { setGuardandoDefectos(false); }
   }
 
   const reemplazar = (a: Apartado) =>
@@ -196,9 +235,11 @@ function InformeEditorForm({ informe, actor, onClose, onGuardado }: InformeEdito
               <label>Código del documento *</label>
               <div style={{ display: 'flex', gap: '.3rem' }}>
                 <input className="input" value={b.codigo} onChange={(e) => cambiar({ codigo: e.target.value })} />
-                <button type="button" className="btn btn-sm btn-ghost" disabled={pidiendoCodigo}
-                  title="Pedir otro código sugerido" aria-label="Pedir otro código sugerido"
-                  onClick={() => void pedirCodigo(false)}>🔄</button>
+                {!informe && (
+                  <button type="button" className="btn btn-sm btn-ghost" disabled={pidiendoCodigo}
+                    title="Pedir otro código sugerido" aria-label="Pedir otro código sugerido"
+                    onClick={() => void pedirCodigo(false)}>🔄</button>
+                )}
               </div>
             </div>
             <div className="form-row">
@@ -240,6 +281,10 @@ function InformeEditorForm({ informe, actor, onClose, onGuardado }: InformeEdito
             {campo('Firma (cargo)', 'firma_cargo')}
           </div>
           <div style={{ marginTop: '.5rem' }}>{campo('Dirección del pie de página', 'direccion_pie')}</div>
+          <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }}
+            disabled={ocupado || guardandoDefectos} onClick={() => void guardarComoDefecto()}>
+            Guardar como valores por defecto
+          </button>
         </section>
 
         <section>

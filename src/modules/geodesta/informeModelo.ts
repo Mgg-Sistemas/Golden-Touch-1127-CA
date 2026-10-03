@@ -55,17 +55,17 @@ export function filaVaciaDe(cols: ColumnaCuadro[]): FilaCuadro {
   return { id: nuevoId(), celdas };
 }
 
+const NOMBRES_COLUMNAS_DEFECTO = ['Fecha', 'Actividad', 'Observaciones'];
+
 /** Un cuadro nuevo arranca con las tres columnas del formato en papel. */
 export function apartadoCuadroVacio(): ApartadoCuadro {
-  const columnas = [columnaVacia('Fecha'), columnaVacia('Actividad'), columnaVacia('Observaciones')];
+  const columnas = NOMBRES_COLUMNAS_DEFECTO.map((n) => columnaVacia(n));
   return { id: nuevoId(), tipo: 'cuadro', titulo: '', columnas, filas: [filaVaciaDe(columnas)] };
 }
 
 export function apartadoTextoVacio(): ApartadoTexto {
   return { id: nuevoId(), tipo: 'texto', titulo: '', texto: '', imagenes: [] };
 }
-
-const NOMBRES_POR_DEFECTO = ['Fecha', 'Actividad', 'Observaciones'];
 
 /**
  * ¿Hay algo escrito en el apartado? Sirve para avisar antes de descartar uno.
@@ -76,8 +76,8 @@ export function apartadoTieneContenido(a: Apartado): boolean {
   if (a.titulo.trim()) return true;
   if (a.tipo === 'texto') return a.texto.trim() !== '' || a.imagenes.length > 0;
   const columnasPorDefecto =
-    a.columnas.length === NOMBRES_POR_DEFECTO.length &&
-    a.columnas.every((c, i) => c.nombre.trim() === NOMBRES_POR_DEFECTO[i] && c.tipo === 'texto');
+    a.columnas.length === NOMBRES_COLUMNAS_DEFECTO.length &&
+    a.columnas.every((c, i) => c.nombre.trim() === NOMBRES_COLUMNAS_DEFECTO[i] && c.tipo === 'texto');
   if (!columnasPorDefecto) return true;
   return a.filas.some((f) => Object.values(f.celdas).some((v) => v.trim() !== ''));
 }

@@ -86,13 +86,19 @@ function dibujarImagen(
 }
 
 /** Genera la vista previa (imprimir / descargar) del informe. */
-export async function generarInformePdf(inf: InformeGeodesta, imgs: Record<string, string> = {}): Promise<void> {
-  const doc = await construirInformePdf(inf, imgs);
+export async function generarInformePdf(
+  inf: InformeGeodesta, imgs: Record<string, string> = {}, fallidas?: Set<string>,
+): Promise<void> {
+  const doc = await construirInformePdf(inf, imgs, fallidas);
   previewPdf(doc, `${inf.codigo}.pdf`);
 }
 
 /** Arma el documento y lo devuelve, sin mostrarlo. Separado para poder probarlo. */
-export async function construirInformePdf(inf: InformeGeodesta, imgs: Record<string, string> = {}): Promise<Doc> {
+export async function construirInformePdf(
+  inf: InformeGeodesta, imgs: Record<string, string> = {},
+  /** Recoge los ids que SÍ llegaron pero no se pudieron dibujar (archivo dañado). */
+  fallidas?: Set<string>,
+): Promise<Doc> {
   const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -200,7 +206,10 @@ export async function construirInformePdf(inf: InformeGeodesta, imgs: Record<str
         if (d.section !== 'body' || !esImagen(d.column.index)) return;
         const url = imgs[idCelda(d.row.index, d.column.index)];
         if (!url) return;   // id ausente: la celda queda vacía
-        dibujarImagen(doc, url, d.cell.x + 3, d.cell.y + 3, d.cell.width - 6, d.cell.height - 6, true);
+        const idImg = idCelda(d.row.index, d.column.index);
+        if (!dibujarImagen(doc, url, d.cell.x + 3, d.cell.y + 3, d.cell.width - 6, d.cell.height - 6, true)) {
+          fallidas?.add(idImg);
+        }
       },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin
@@ -222,7 +231,7 @@ export async function construirInformePdf(inf: InformeGeodesta, imgs: Record<str
       if (!url) continue;   // imagen borrada: se omite
       asegurar(ALTO_IMG_TEXTO + 26);
       const r = dibujarImagen(doc, url, MARGIN, y, ANCHO_UTIL, ALTO_IMG_TEXTO, true);
-      if (!r) continue;
+      if (!r) { fallidas?.add(im.imagen_id); continue; }
       y += r.h + 12;
       if (im.pie.trim()) {
         doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(90, 90, 90);

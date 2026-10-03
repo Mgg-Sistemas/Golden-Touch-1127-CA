@@ -69,7 +69,8 @@ export function ApartadoTextoEditor({ apartado, informeId, actor, onCambio }: Ap
           else sinImagen.push(id);
           resueltas.add(id);
         }
-        if (!vivo) return;
+        // Se aplica aunque el efecto ya se haya limpiado: esos ids quedaron como
+        // resueltos y no se volverían a pedir. (Actualizar estado tras desmontar es inocuo.)
         setUrls((p) => ({ ...p, ...nuevas }));
         if (sinImagen.length > 0) setNoDisponibles((p) => new Set([...p, ...sinImagen]));
       } catch {
@@ -131,6 +132,7 @@ export function ApartadoTextoEditor({ apartado, informeId, actor, onCambio }: Ap
   };
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setEncima(false);
     if (!informeId) { toast(TITULO_SIN_INFORME, 'error'); return; }
     void subirTanda(Array.from(e.dataTransfer.files));

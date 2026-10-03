@@ -27,6 +27,7 @@ const textoONull = (s: string | null | undefined) => {
  * guardados. Exportada para poder probarla sin tocar la red.
  */
 export function filaAGuardar(b: BorradorInforme): Record<string, unknown> {
+  const apartados = b.apartados.filter(apartadoTieneContenido);
   const codigo = b.codigo.trim();
   const partes = partesCodigo(codigo);
   return {
@@ -45,8 +46,8 @@ export function filaAGuardar(b: BorradorInforme): Record<string, unknown> {
     direccion_pie: textoONull(b.direccion_pie),
     logo_gt: b.logo_gt,
     logo_cvm: b.logo_cvm,
-    apartados: b.apartados.filter(apartadoTieneContenido),
-    busq: componerBusqInforme(b),
+    apartados,
+    busq: componerBusqInforme({ ...b, apartados }),
   };
 }
 
@@ -64,15 +65,33 @@ export async function getInforme(id: string): Promise<InformeGeodesta | null> {
   return (data ?? null) as InformeGeodesta | null;
 }
 
-/** Código sugerido con número correlativo atómico por año. Dos personas a la vez nunca reciben el mismo. */
-export async function proximoCodigo(anio: number = Number(hoyVE().slice(0, 4))): Promise<string> {
-  const { data, error } = await supabase.rpc('next_correlativo', { p_clave: `geodesta-${anio}` });
+/**
+ * Código sugerido: el siguiente al mayor número ya usado en el año de la fecha.
+ * Solo lee (no gasta números) y se corrige solo; una colisión rara la avisa
+ * `existeCodigo` al guardar.
+ */
+export async function proximoCodigo(fecha?: string): Promise<string> {
+  const anio = Number((fecha || hoyVE()).slice(0, 4));
+  const { data, error } = await supabase
+    .from(TABLE).select('codigo_nro').eq('codigo_anio', anio)
+    .not('codigo_nro', 'is', null)
+    .order('codigo_nro', { ascending: false }).limit(1);
   if (error) throw error;
-  const n = Number(data);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw new Error('El correlativo de informes devolvió un valor inválido.');
+  const max = Number((data?.[0] as { codigo_nro: number | null } | undefined)?.codigo_nro ?? 0);
+  return codigoGeodesta(anio, (Number.isFinite(max) ? max : 0) + 1);
+}
+
+/** ¿Existe otro informe con este código? Para avisar, nunca para bloquear. */
+export async function existeCodigo(codigo: string, exceptoId?: string): Promise<boolean> {
+  try {
+    let q = supabase.from(TABLE).select('id').eq('codigo', codigo.trim());
+    if (exceptoId) q = q.neq('id', exceptoId);
+    const { data, error } = await q.limit(1);
+    if (error) return false;
+    return (data?.length ?? 0) > 0;
+  } catch {
+    return false;
   }
-  return codigoGeodesta(anio, n);
 }
 
 export async function crearInforme(b: BorradorInforme, actor: string): Promise<InformeGeodesta> {
@@ -105,10 +124,13 @@ export async function borrarInforme(id: string): Promise<void> {
   } catch (causa) {
     // El informe ya no existe: reintentar no sirve y no hay que hacer creer que sigue vivo.
     console.warn('No se pudieron borrar las imágenes del informe:', id, causa);
-    throw new Error(
+    const err = new Error(
       'El informe ya se borró, pero no se pudieron eliminar sus imágenes del almacén. Avisale a quien administra el sistema para que las limpie.',
       { cause: causa },
     );
+    // El informe ya no existe: quien llama debe cerrar la pantalla de detalle.
+    (err as Error & { informeBorrado?: boolean }).informeBorrado = true;
+    throw err;
   }
 }
 
@@ -119,10 +141,28 @@ export async function getConfig(): Promise<GeodestaConfig | null> {
   return (data ?? null) as GeodestaConfig | null;
 }
 
-export async function guardarConfig(c: Partial<GeodestaConfig>): Promise<void> {
+export type ValoresPorDefecto = Pick<
+  GeodestaConfig,
+  'ciudad' | 'para_nombre' | 'para_cargo' | 'de_nombre' | 'de_cargo'
+  | 'firma_nombre' | 'firma_cargo' | 'direccion_pie' | 'logo_gt' | 'logo_cvm'
+>;
+
+export async function guardarConfig(c: ValoresPorDefecto): Promise<void> {
   const { error } = await supabase
     .from(TABLE_CONFIG)
-    .update({ ...c, actualizado_en: new Date().toISOString() })
+    .update({
+      ciudad: c.ciudad.trim(),
+      para_nombre: textoONull(c.para_nombre),
+      para_cargo: textoONull(c.para_cargo),
+      de_nombre: textoONull(c.de_nombre),
+      de_cargo: textoONull(c.de_cargo),
+      firma_nombre: textoONull(c.firma_nombre),
+      firma_cargo: textoONull(c.firma_cargo),
+      direccion_pie: textoONull(c.direccion_pie),
+      logo_gt: c.logo_gt,
+      logo_cvm: c.logo_cvm,
+      actualizado_en: new Date().toISOString(),
+    })
     .eq('id', 1);
   if (error) throw error;
 }

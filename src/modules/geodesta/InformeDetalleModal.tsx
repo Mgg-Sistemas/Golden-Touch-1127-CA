@@ -175,10 +175,13 @@ export function InformeDetalleModal({
           imgs[id] = await aDataUrl(await res.blob());
         } catch { fallidas += 1; }
       }
-      if (fallidas > 0) {
-        toast(`${fallidas} ${fallidas === 1 ? 'imagen no entró' : 'imágenes no entraron'} en el PDF`, 'error');
+      // Las que no bajaron y las que bajaron pero no se pudieron dibujar: un solo aviso, tras armar el PDF.
+      const noDibujadas = new Set<string>();
+      await generarInformePdf(informe, imgs, noDibujadas);
+      const total = fallidas + noDibujadas.size;
+      if (total > 0) {
+        toast(`${total} ${total === 1 ? 'imagen no entró' : 'imágenes no entraron'} en el PDF`, 'error');
       }
-      await generarInformePdf(informe, imgs);
     } catch (e) {
       toast(msg(e, 'No se pudo generar el PDF'), 'error');
     } finally {
@@ -196,6 +199,8 @@ export function InformeDetalleModal({
       onBorrado();
     } catch (e) {
       toast(msg(e, 'No se pudo borrar el informe'), 'error');
+      // Borrado a medias: la fila ya no existe, así que el detalle no puede seguir abierto.
+      if ((e as { informeBorrado?: boolean } | null)?.informeBorrado) { onBorrado(); return; }
       setBorrando(false);
     }
   }

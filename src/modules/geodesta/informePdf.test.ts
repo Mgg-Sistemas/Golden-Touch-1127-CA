@@ -74,7 +74,10 @@ describe('construirInformePdf', () => {
     c.filas[0].celdas[c.columnas[0].id] = 'ok';
     c.filas[0].celdas[c.columnas[1].id] = 'mala';
     const t = { ...apartadoTextoVacio(), texto: 'x', imagenes: [{ imagen_id: 'ok', pie: 'Foto' }, { imagen_id: 'mala', pie: '' }] };
-    const doc = await construirInformePdf(informe([c, t]), { ok: png, mala: 'data:image/png;base64,@@@' });
+    const fallidas = new Set<string>();
+    const doc = await construirInformePdf(informe([c, t]), { ok: png, mala: 'data:image/png;base64,@@@' }, fallidas);
     expect(doc.getNumberOfPages()).toBeGreaterThan(0);
+    expect(fallidas.has('mala')).toBe(true);
+    expect(fallidas.has('ok')).toBe(false);
   });
 });

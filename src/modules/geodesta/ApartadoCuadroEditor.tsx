@@ -12,7 +12,7 @@ import { toast } from '@/shared/ui/Toast';
 import type { ApartadoCuadro, FilaCuadro, TipoColumna } from '@/shared/lib/types';
 import { filaVaciaDe } from './informeModelo';
 import {
-  MAX_COLUMNAS_COMODAS, agregarColumna, celdasConDatoEnColumna, mover, quitarColumna,
+  MAX_COLUMNAS_COMODAS, agregarColumna, cambiarTipoColumna, celdasConDatoEnColumna, mover, quitarColumna,
 } from './informeOrden';
 import { ACEPTA_IMAGEN, listImagenes, subirImagen, urlImagen } from './informeImagenes.repository';
 
@@ -25,7 +25,9 @@ interface ApartadoCuadroEditorProps {
 }
 
 type Arrastre = { tipo: 'columna' | 'fila'; desde: number };
-type Pendiente = { tipo: 'columna' | 'fila'; id: string };
+type Pendiente =
+  | { tipo: 'columna' | 'fila'; id: string }
+  | { tipo: 'tipo'; id: string; nuevo: TipoColumna };
 
 const TITULO_SIN_INFORME = 'Guardá el informe primero para poder subir imágenes';
 
@@ -88,7 +90,8 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
           else sinImagen.push(id);
           resueltas.add(id);
         }
-        if (!vivo) return;
+        // Se aplica aunque el efecto ya se haya limpiado: esos ids quedaron como
+        // resueltos y no se volverían a pedir. (Actualizar estado tras desmontar es inocuo.)
         setUrls((p) => ({ ...p, ...nuevas }));
         if (sinImagen.length > 0) setNoDisponibles((p) => new Set([...p, ...sinImagen]));
       } catch {
@@ -109,7 +112,7 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
     return columnas[i]?.nombre.trim() || `columna ${i + 1}`;
   };
 
-  const cambiarColumna = (id: string, parche: { nombre?: string; tipo?: TipoColumna }) =>
+  const cambiarColumna = (id: string, parche: { nombre?: string }) =>
     onCambio({ ...apartado, columnas: columnas.map((c) => (c.id === id ? { ...c, ...parche } : c)) });
 
   const cambiarCelda = (filaId: string, colId: string, valor: string) =>
@@ -123,6 +126,10 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
   const moverFila = (desde: number, hacia: number) =>
     onCambio({ ...apartado, filas: mover(filas, desde, hacia) });
 
+  const pedirCambiarTipo = (id: string, nuevo: TipoColumna) => {
+    if (celdasConDatoEnColumna(apartado, id) > 0) setPendiente({ tipo: 'tipo', id, nuevo });
+    else onCambio(cambiarTipoColumna(apartado, id, nuevo));
+  };
   const pedirQuitarColumna = (id: string) => {
     if (celdasConDatoEnColumna(apartado, id) > 0) setPendiente({ tipo: 'columna', id });
     else onCambio(quitarColumna(apartado, id));
@@ -176,7 +183,7 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
 
   const estiloAsa = { cursor: 'grab', userSelect: 'none' as const, padding: '0 .25rem' };
   const estiloFlecha = { padding: '0 .35rem' };
-  const nPerdidas = pendiente?.tipo === 'columna' ? celdasConDatoEnColumna(apartado, pendiente.id) : 0;
+  const nPerdidas = pendiente && pendiente.tipo !== 'fila' ? celdasConDatoEnColumna(apartado, pendiente.id) : 0;
 
   return (
     <div>
@@ -210,7 +217,7 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
                     onChange={(e) => cambiarColumna(c.id, { nombre: e.target.value })} />
                   <select className="input" value={c.tipo} style={{ marginTop: '.25rem' }}
                     aria-label={`Tipo de la columna ${nombreCol(c.id)}`}
-                    onChange={(e) => cambiarColumna(c.id, { tipo: e.target.value as TipoColumna })}>
+                    onChange={(e) => pedirCambiarTipo(c.id, e.target.value as TipoColumna)}>
                     <option value="texto">Texto</option>
                     <option value="imagen">Imagen</option>
                   </select>
@@ -290,6 +297,14 @@ export function ApartadoCuadroEditor({ apartado, informeId, actor, onCambio }: A
           title="Quitar columna" danger confirmText="Sí, quitar"
           message={`La columna «${nombreCol(pendiente.id)}» tiene ${nPerdidas} ${nPerdidas === 1 ? 'celda con contenido' : 'celdas con contenido'}. Si la quitás, ${nPerdidas === 1 ? 'se pierde' : 'se pierden'}. ¿Seguro que querés quitarla?`}
           onConfirm={() => { onCambio(quitarColumna(apartado, pendiente.id)); setPendiente(null); }}
+          onCancel={() => setPendiente(null)}
+        />
+      )}
+      {pendiente?.tipo === 'tipo' && (
+        <ConfirmDialog
+          title="Cambiar tipo de columna" confirmText="Sí, cambiar"
+          message={`La columna «${nombreCol(pendiente.id)}» tiene ${nPerdidas} ${nPerdidas === 1 ? 'celda con contenido' : 'celdas con contenido'}. Al cambiar el tipo se vacían, porque un texto no sirve como imagen ni al revés. ¿Cambiar igual?`}
+          onConfirm={() => { onCambio(cambiarTipoColumna(apartado, pendiente.id, pendiente.nuevo)); setPendiente(null); }}
           onCancel={() => setPendiente(null)}
         />
       )}
