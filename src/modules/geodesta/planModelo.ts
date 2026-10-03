@@ -57,5 +57,5 @@ export function errorPlan(b: BorradorPlan): string | null {
 
 /** Texto plano buscable, en minúsculas y sin acentos. */
 export function componerBusqPlan(b: BorradorPlan): string {
-  return norm([b.titulo, b.lugar, b.nota, b.estado_nota].filter(Boolean).join(' ')).trim();
+  return norm([b.titulo, b.lugar, b.nota].filter(Boolean).join(' ')).trim();
 }
