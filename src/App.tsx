@@ -22,6 +22,7 @@ const AcopioPage = lazy(() => import('./modules/acopio/AcopioPage').then((m) => 
 const CocinaPage = lazy(() => import('./modules/cocina/CocinaPage').then((m) => ({ default: m.CocinaPage })));
 const ComidasMovilView = lazy(() => import('./modules/cocina/ComidasMovilView').then((m) => ({ default: m.ComidasMovilView })));
 const RrhhPage = lazy(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
+const GeodestaPage = lazy(() => import('./modules/geodesta/GeodestaPage').then((m) => ({ default: m.GeodestaPage })));
 const TesoreriaPage = lazy(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
 const AsignacionesPage = lazy(() => import('./modules/asignaciones/AsignacionesPage').then((m) => ({ default: m.AsignacionesPage })));
 const VentasPage = lazy(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
@@ -93,6 +94,7 @@ export function App() {
           <Route path="cocina" element={<RequireModule module="cocina"><Suspense fallback={<PageLoader />}><CocinaPage /></Suspense></RequireModule>} />
           <Route path="cocina/telefono" element={<RequireVistaTelefono vista="comidas"><Suspense fallback={<PageLoader />}><ComidasMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="rrhh" element={<RequireModule module="rrhh"><Suspense fallback={<PageLoader />}><RrhhPage /></Suspense></RequireModule>} />
+          <Route path="geodesta" element={<RequireModule module="geodesta"><Suspense fallback={<PageLoader />}><GeodestaPage /></Suspense></RequireModule>} />
           <Route path="maquinaria" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/servicio-mantenimiento" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><ServicioMantenimientoPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apartadoCuadroVacio, filaVaciaDe } from './informeModelo';
 import {
-  MAX_COLUMNAS_COMODAS, agregarColumna, celdasConDatoEnColumna, mover, quitarColumna,
+  MAX_COLUMNAS_COMODAS, agregarColumna, cambiarTipoColumna, celdasConDatoEnColumna, mover, quitarColumna,
 } from './informeOrden';
 
 describe('mover', () => {
@@ -91,5 +91,48 @@ describe('MAX_COLUMNAS_COMODAS', () => {
     // Review Focus 1: con demasiadas columnas el PDF queda ilegible.
     expect(MAX_COLUMNAS_COMODAS).toBeGreaterThan(3);
     expect(MAX_COLUMNAS_COMODAS).toBeLessThan(12);
+  });
+});
+
+describe('cambiarTipoColumna', () => {
+  const armar = () => {
+    const a = apartadoCuadroVacio();
+    a.filas = [filaVaciaDe(a.columnas), filaVaciaDe(a.columnas)];
+    a.columnas.forEach((c, i) => a.filas.forEach((f, j) => { f.celdas[c.id] = `c${i}f${j}`; }));
+    return a;
+  };
+  it('cambia el tipo de la columna', () => {
+    const a = armar();
+    const r = cambiarTipoColumna(a, a.columnas[1].id, 'imagen');
+    expect(r.columnas[1].tipo).toBe('imagen');
+    expect(r.columnas[0].tipo).toBe('texto');
+  });
+  it('vacía solo las celdas de esa columna', () => {
+    const a = armar();
+    const col = a.columnas[1].id;
+    const r = cambiarTipoColumna(a, col, 'imagen');
+    r.filas.forEach((f) => expect(f.celdas[col]).toBe(''));
+  });
+  it('deja intactas las demás columnas', () => {
+    const a = armar();
+    const [c0, , c2] = a.columnas;
+    const r = cambiarTipoColumna(a, a.columnas[1].id, 'imagen');
+    r.filas.forEach((f, j) => {
+      expect(f.celdas[c0.id]).toBe(`c0f${j}`);
+      expect(f.celdas[c2.id]).toBe(`c2f${j}`);
+    });
+  });
+  it('no modifica el apartado original', () => {
+    const a = armar();
+    const col = a.columnas[1].id;
+    cambiarTipoColumna(a, col, 'imagen');
+    expect(a.columnas[1].tipo).toBe('texto');
+    expect(a.filas[0].celdas[col]).toBe('c1f0');
+  });
+  it('el mismo tipo no cambia nada ni vacía las celdas (devuelve el mismo objeto)', () => {
+    const a = armar();
+    const r = cambiarTipoColumna(a, a.columnas[1].id, 'texto');
+    expect(r).toBe(a);
+    expect(r.filas[0].celdas[a.columnas[1].id]).toBe('c1f0');
   });
 });
