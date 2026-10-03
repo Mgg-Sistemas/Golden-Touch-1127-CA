@@ -59,6 +59,14 @@ export async function listInformes(): Promise<InformeGeodesta[]> {
   return (data ?? []) as InformeGeodesta[];
 }
 
+/** Los informes fechados un día, el de número más alto primero. */
+export async function listInformesDelDia(dia: string): Promise<InformeGeodesta[]> {
+  const { data, error } = await supabase
+    .from(TABLE).select('*').eq('fecha', dia).order('codigo_nro', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as InformeGeodesta[];
+}
+
 export async function getInforme(id: string): Promise<InformeGeodesta | null> {
   const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).maybeSingle();
   if (error) throw error;
