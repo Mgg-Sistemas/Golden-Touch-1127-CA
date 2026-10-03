@@ -47,6 +47,14 @@ export function borradorDesdePlan(p: PlanificacionGeodesta | null, dia: string =
   };
 }
 
+/** El motivo solo tiene sentido cuando la actividad NO se hizo. En cualquier otro
+ *  estado se descarta: si no, queda un «Llovió» colgando de una actividad cumplida. */
+export function notaDeEstado(estado: EstadoPlan, nota: string | null | undefined): string | null {
+  if (estado !== 'no_se_hizo') return null;
+  const t = (nota ?? '').trim();
+  return t ? t : null;
+}
+
 /** Qué impide guardar, o null. */
 export function errorPlan(b: BorradorPlan): string | null {
   if (!b.titulo.trim()) return 'Escribí el título de la actividad.';

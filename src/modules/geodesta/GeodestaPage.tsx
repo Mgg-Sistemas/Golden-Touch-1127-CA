@@ -76,7 +76,7 @@ export function GeodestaPage() {
       {/* Siempre montado (oculto fuera de su pestaña): así ve los pedidos del tablero y del panel
           del día aunque lleguen justo antes de cambiar de pestaña; montado de cero los tomaría
           por su valor inicial y los ignoraría. */}
-      <div hidden={vista !== 'historico'}><HistoricoTab canWrite={canWrite} actor={actor} pedirNuevo={pedidoNuevoInforme} pedirEditar={pedidoEditarInforme} /></div>
+      <div hidden={vista !== 'historico'}><HistoricoTab visible={vista === 'historico'} canWrite={canWrite} actor={actor} pedirNuevo={pedidoNuevoInforme} pedirEditar={pedidoEditarInforme} /></div>
 
       {informeAbierto && (
         <InformeDetalleModal

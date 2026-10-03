@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ESTADOS_PLAN, borradorDesdePlan, componerBusqPlan, errorPlan, etiquetaEstado, planVacio,
+  ESTADOS_PLAN, borradorDesdePlan, componerBusqPlan, errorPlan, etiquetaEstado, notaDeEstado, planVacio,
 } from './planModelo';
 import type { PlanificacionGeodesta } from '@/shared/lib/types';
 
@@ -81,5 +81,21 @@ describe('ESTADOS_PLAN y etiquetaEstado', () => {
   it('cada estado tiene su etiqueta legible', () => {
     expect(etiquetaEstado('no_se_hizo')).toMatch(/no se hizo/i);
     expect(etiquetaEstado('planificada')).toBeTruthy();
+  });
+});
+
+describe('notaDeEstado', () => {
+  it('conserva el motivo (recortado) cuando no se hizo', () => {
+    expect(notaDeEstado('no_se_hizo', '  Llovió  ')).toBe('Llovió');
+  });
+  it('lo descarta en cumplida y en planificada', () => {
+    expect(notaDeEstado('cumplida', 'Llovió')).toBeNull();
+    expect(notaDeEstado('planificada', 'Llovió')).toBeNull();
+  });
+  it('vacío, en blanco o ausente es null', () => {
+    expect(notaDeEstado('no_se_hizo', '')).toBeNull();
+    expect(notaDeEstado('no_se_hizo', '   ')).toBeNull();
+    expect(notaDeEstado('no_se_hizo', null)).toBeNull();
+    expect(notaDeEstado('no_se_hizo', undefined)).toBeNull();
   });
 });

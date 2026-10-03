@@ -3,7 +3,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { EstadoPlan, PlanificacionGeodesta } from '@/shared/lib/types';
-import { componerBusqPlan, type BorradorPlan } from './planModelo';
+import { componerBusqPlan, notaDeEstado, type BorradorPlan } from './planModelo';
 
 const TABLE = 'geodesta_planificacion';
 
@@ -24,7 +24,7 @@ export function filaPlanAGuardar(b: BorradorPlan): Record<string, unknown> {
     lugar: textoONull(b.lugar),
     nota: textoONull(b.nota),
     estado: b.estado,
-    estado_nota: b.estado === 'no_se_hizo' ? textoONull(b.estado_nota) : null,
+    estado_nota: notaDeEstado(b.estado, b.estado_nota),
     busq: componerBusqPlan(b),
   };
 }
@@ -78,7 +78,7 @@ export async function marcarPlan(
     .from(TABLE)
     .update({
       estado,
-      estado_nota: textoONull(nota),
+      estado_nota: notaDeEstado(estado, nota),
       modificado_por: actor,
       modificado_en: new Date().toISOString(),
     })

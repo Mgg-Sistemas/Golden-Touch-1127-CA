@@ -35,7 +35,8 @@ export function CalendarioBarra({ anio, mes, hoy, actividades, onActividad, onDi
   const filas = actividades
     .map((a) => ({ a, t: tramoEnElMes(a, ini, fin) }))
     .flatMap((f) => (f.t ? [{ a: f.a, t: f.t }] : []))
-    .sort((x, y) => x.a.desde.localeCompare(y.a.desde));
+    .sort((x, y) => x.a.desde.localeCompare(y.a.desde)
+      || x.a.hasta.localeCompare(y.a.hasta) || x.a.titulo.localeCompare(y.a.titulo));
 
   if (!filas.length) {
     return (

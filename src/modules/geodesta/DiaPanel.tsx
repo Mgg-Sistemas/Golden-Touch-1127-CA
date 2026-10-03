@@ -6,6 +6,8 @@
    ============================================================ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MESES, diaDeLaSemana, sumarDias } from '@/shared/lib/dias';
+import { date } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import type { EstadoPlan, ImagenGeodesta, InformeGeodesta, PlanificacionGeodesta } from '@/shared/lib/types';
 import { actividadesDelDia } from './geodestaCalendario';
@@ -86,6 +88,20 @@ export function DiaPanel({ fecha, canWrite, actor, onCerrar, onCambiarDia, onVer
     return () => { cargaRef.current += 1; cargaActRef.current += 1; };
   }, [fecha, cargar]);
 
+  // Igual que el tablero de abajo: si algo cambia (acá o en otra sesión) el día se vuelve a leer.
+  useRealtime(['geodesta_planificacion', 'geodesta_informes', 'geodesta_imagenes'], () => { void cargar(fechaRef.current); });
+
+  // Al abrir o cambiar de día el panel se trae a la vista (en el celular suele montarse
+  // por encima de lo que se está mirando). Si ya está arriba, no se pelea con el usuario.
+  const seccionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = seccionRef.current;
+    if (!el || typeof el.scrollIntoView !== 'function') return;
+    const { top } = el.getBoundingClientRect();
+    if (top >= 0 && top < 120) return;
+    el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [fecha]);
+
   /** Tras marcar solo se vuelve a leer lo que cambia: las actividades. */
   const recargarActividades = useCallback(async (dia: string) => {
     const mia = ++cargaActRef.current;
@@ -161,7 +177,7 @@ export function DiaPanel({ fecha, canWrite, actor, onCerrar, onCambiarDia, onVer
   const d = datos && datos.fecha === fecha ? datos : null;
 
   return (
-    <section className="geo-dia-panel" aria-label={`Panel del ${fechaLarga(fecha)}`}>
+    <section ref={seccionRef} className="geo-dia-panel" aria-label={`Panel del ${fechaLarga(fecha)}`}>
       <header className="geo-dia-cab">
         <button type="button" className="btn btn-ghost btn-sm" aria-label="Día anterior"
           onClick={() => onCambiarDia(sumarDias(fecha, -1))}>‹</button>
@@ -192,7 +208,7 @@ export function DiaPanel({ fecha, canWrite, actor, onCerrar, onCambiarDia, onVer
                       <strong>{p.titulo}</strong>{' '}
                       <span className={`geo-dia-estado geo-dia-estado-${p.estado}`}>{etiquetaEstado(p.estado)}</span>
                       <div className="geo-dia-meta">
-                        {p.desde === p.hasta ? p.desde : `${p.desde} al ${p.hasta}`}{p.lugar ? ` · ${p.lugar}` : ''}
+                        {p.desde === p.hasta ? date(p.desde) : `${date(p.desde)} al ${date(p.hasta)}`}{p.lugar ? ` · ${p.lugar}` : ''}
                       </div>
                       {p.estado_nota && <div className="geo-dia-meta">{p.estado_nota}</div>}
                     </div>

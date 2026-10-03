@@ -25,9 +25,11 @@ interface HistoricoTabProps {
   pedirNuevo?: number;
   /** Cada vez que cambia `n` (no al montar) se abre el editor sobre ese informe. */
   pedirEditar?: { n: number; informe: InformeGeodesta } | null;
+  /** ¿Es la pestaña a la vista? Oculta no escucha el realtime; al mostrarse se vuelve a leer. */
+  visible?: boolean;
 }
 
-export function HistoricoTab({ canWrite, actor, pedirNuevo, pedirEditar }: HistoricoTabProps) {
+export function HistoricoTab({ canWrite, actor, pedirNuevo, pedirEditar, visible = true }: HistoricoTabProps) {
   const [informes, setInformes] = useState<InformeGeodesta[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtros, setFiltros] = useState<FiltrosInforme>(FILTROS_VACIOS);
@@ -58,7 +60,13 @@ export function HistoricoTab({ canWrite, actor, pedirNuevo, pedirEditar }: Histo
     pedirEditarPrevio.current = pedirEditar?.n;
     if (canWrite && pedirEditar) setEditor({ abierto: true, informe: pedirEditar.informe });
   }, [pedirEditar, canWrite]);
-  useRealtime(['geodesta_informes', 'geodesta_imagenes'], () => { void recargar(); });
+  useRealtime(['geodesta_informes', 'geodesta_imagenes'], () => { void recargar(); }, { enabled: visible });
+  // Al volver a la pestaña se relee (los cambios de mientras estuvo oculta no se oyeron).
+  const visiblePrevio = useRef(visible);
+  useEffect(() => {
+    if (visible && !visiblePrevio.current) void recargar();
+    visiblePrevio.current = visible;
+  }, [visible, recargar]);
 
   const lista = useMemo(() => filtrarInformes(informes, filtros), [informes, filtros]);
   const hayFiltros = !!(filtros.desde || filtros.hasta || filtros.estado || filtros.palabra.trim());
@@ -66,15 +74,15 @@ export function HistoricoTab({ canWrite, actor, pedirNuevo, pedirEditar }: Histo
 
   return (
     <div>
-      <div className="page-head">
-        <div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {canWrite && (
+      {canWrite && (
+        <div className="page-head">
+          <div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={() => setEditor({ abierto: true, informe: null })}>
               + Nuevo informe
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="card" style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '.75rem', padding: '.6rem .85rem' }}>
         <label style={{ display: 'grid', gap: '.2rem', fontSize: '.8rem' }}>

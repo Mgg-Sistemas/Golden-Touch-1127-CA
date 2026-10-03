@@ -55,6 +55,8 @@ export function CalendarioGeodesta({ canWrite, actor, onVerDia }: CalendarioGeod
   const [fechasInformes, setFechasInformes] = useState<string[]>([]);
   const [diasImagenes, setDiasImagenes] = useState<string[]>([]);
   const [cargando, setCargando] = useState(true);
+  /** Mes que no se pudo cargar: se dice en pantalla en vez de dejar el anterior bajo el título nuevo. */
+  const [fallo, setFallo] = useState<{ anio: number; mes: number } | null>(null);
   const [editor, setEditor] = useState<Editor>(null);
 
   // El mes que se ve AHORA: el realtime recarga ese y no el que había al montar.
@@ -67,6 +69,7 @@ export function CalendarioGeodesta({ canWrite, actor, onVerDia }: CalendarioGeod
     const { anio: a, mes: m } = mesRef.current;
     const { ini, fin } = limitesDelMes(a, m);
     const mia = ++cargaRef.current;
+    setFallo(null);
     try {
       const [plan, informes, imagenes] = await Promise.all([
         listPlanDelMes(ini, fin), listFechasInformes(ini, fin), listDiasDeImagenes(ini, fin),
@@ -77,6 +80,10 @@ export function CalendarioGeodesta({ canWrite, actor, onVerDia }: CalendarioGeod
       setDiasImagenes(imagenes);
     } catch (err) {
       if (mia !== cargaRef.current) return;
+      setActividades([]);
+      setFechasInformes([]);
+      setDiasImagenes([]);
+      setFallo({ anio: a, mes: m });
       toast(err instanceof Error ? err.message : 'No se pudo cargar el calendario', 'error');
     } finally {
       if (mia === cargaRef.current) setCargando(false);
@@ -125,7 +132,13 @@ export function CalendarioGeodesta({ canWrite, actor, onVerDia }: CalendarioGeod
       </div>
 
       <div className={cargando ? 'geo-cal-cuerpo cargando' : 'geo-cal-cuerpo'} aria-busy={cargando}>
-        {modo === 'rejilla' ? (
+        {fallo ? (
+          <div className="card geo-vacio" role="alert">
+            <strong>No se pudo cargar {MESES[fallo.mes - 1].toLowerCase()} de {fallo.anio}.</strong>
+            <span className="muted">Revisá la conexión y probá de nuevo.</span>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => { setCargando(true); void recargar(); }}>Reintentar</button>
+          </div>
+        ) : modo === 'rejilla' ? (
           <CalendarioRejilla anio={anio} mes={mes} hoy={hoy} actividades={actividades}
             informesPorDia={informesPorDia} imagenesPorDia={imagenesPorDia} onDia={onVerDia} />
         ) : (
