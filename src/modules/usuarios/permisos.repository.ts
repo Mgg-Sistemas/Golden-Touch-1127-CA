@@ -16,6 +16,7 @@ export type ModuleKey =
   | 'retenciones'
   | 'recepciones'
   | 'rrhh'
+  | 'geodesta'
   | 'asignaciones'
   | 'maquinaria'
   | 'usuarios'
@@ -46,6 +47,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'retenciones', label: 'Retenciones' },
   { key: 'recepciones', label: 'Recepciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
+  { key: 'geodesta',    label: 'Geodesta' },
   { key: 'asignaciones', label: 'Asignaciones' },
   { key: 'maquinaria',  label: 'Control de Maquinaria y Vehículos' },
   { key: 'usuarios',    label: 'Usuarios' },
