@@ -6,14 +6,13 @@
    y el final de un surtido es donde arranca el inicial del siguiente surtido
    del mismo equipo. La cadena no se puede cortar ni retroceder.
 
-   QUÉ PASABA. La columna horas_utilizadas existía en la base y se mostraba
-   en la tabla, el Excel y el PDF, pero NADIE la escribía: salía siempre
-   vacía. Y en la vista del teléfono se podía guardar un final menor que el
-   inicial, que dejaba horas negativas y arrancaba mal el surtido siguiente.
+   LAS HORAS LAS GUARDA LA BASE. horas_utilizadas es una columna GENERADA
+   (horometro_fin − horometro_ini): la base la calcula sola y rechaza que se
+   le mande un valor. Aquí se calcula igual, pero solo para MOSTRARLA en la
+   pantalla mientras se escribe. Nunca se envía al guardar.
 
-   QUÉ SE HACE AHORA. Las horas se calculan acá y se guardan con el
-   movimiento (y se recalculan cuando el re-encadenado corrige el inicial).
-   Un final menor que el inicial no se deja guardar.
+   Un final menor que el inicial no se deja guardar: dejaría horas negativas
+   y el surtido siguiente arrancaría mal.
    ============================================================ */
 
 const numero = (v: number | null | undefined): number | null =>
