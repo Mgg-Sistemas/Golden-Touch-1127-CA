@@ -287,7 +287,13 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
     if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indica el costo por litro.'); return; }
     if (sale && litrosNum > (Number(tanque.saldo_litros) || 0)) { setError(`El tanque tiene ${num(tanque.saldo_litros)} L: no alcanza para ${num(litrosNum)} L.`); return; }
     // HF < HI dejaría horas negativas y el próximo surtido del equipo arrancaría mal.
-    const hiNum = hi === '' ? null : Number(hi); const hfNum = hf === '' ? null : Number(hf);
+    let hiNum = hi === '' ? null : Number(hi); const hfNum = hf === '' ? null : Number(hf);
+    // Con mala señal el inicial puede no haber llegado todavía: se pide ahora, antes de guardar,
+    // para que el surtido no quede sin HI ni horas trabajadas.
+    if (tipo === 'uso' && equipo && hiNum == null) {
+      const u = await ultimoHorometroEquipo(equipo).catch(() => null);
+      if (u != null) { hiNum = u; setHi(String(u)); setHiAuto(true); }
+    }
     // Surtido a un equipo que ya trae horómetro: sin el final no hay horas para el mantenimiento.
     const errHor = errorHorometro(hiNum, hfNum) ?? (tipo === 'uso' ? faltaHorometroFinal(hiNum, hfNum) : null);
     if (errHor) { setError(errHor); return; }
@@ -295,7 +301,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
     try {
       const campos = {
         fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
-        horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
+        horometroIni: hiNum, horometroFin: hfNum,
         kilometraje: km === '' ? null : Number(km),
         contadorGlobalIni: ci === '' ? null : Number(ci), contadorGlobalFin: cf === '' ? null : Number(cf),
       };
@@ -375,7 +381,8 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
             <div className="surt-campo">
               <label htmlFor="surt-hi">Horómetro inicial</label>
               <input id="surt-hi" className="input surt-input" type="number" inputMode="decimal" step="any" value={hi} readOnly={hiAuto}
-                onChange={(e) => setHi(e.target.value)} placeholder="primera lectura" />
+                onChange={(e) => setHi(e.target.value)} placeholder="primera lectura" title={hiAuto ? 'Es el último horómetro final de este equipo: no se cambia aquí' : undefined} />
+              {hiAuto && <small className="muted">🔒 Último final del equipo</small>}
             </div>
             <div className="surt-campo">
               <label htmlFor="surt-hf">Horómetro final{hi !== '' ? ' *' : ''}</label>

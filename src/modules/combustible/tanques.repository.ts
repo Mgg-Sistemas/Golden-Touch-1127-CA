@@ -504,7 +504,12 @@ async function camposConContador(
   if (!pasaPorSurtidor(tipo)) return c;
   const ultimo = c.contadorGlobalIni == null ? await ultimoContadorTanque(tanqueId) : null;
   const { ini, fin } = completarContador({ tipo, litros, ini: c.contadorGlobalIni, fin: c.contadorGlobalFin, ultimo });
-  return { ...c, contadorGlobalIni: ini, contadorGlobalFin: fin };
+  // El HI del equipo es su mayor HF (02/10/2026). La pantalla lo trae al elegir el equipo,
+  // pero con mala señal se podía guardar antes de que llegara y el surtido quedaba sin HI
+  // ni horas trabajadas. Si viene vacío, se completa aquí, al guardar.
+  const equipo = (c.equipo ?? '').trim();
+  const horometroIni = c.horometroIni == null && equipo ? await ultimoHorometroEquipo(equipo) : c.horometroIni;
+  return { ...c, contadorGlobalIni: ini, contadorGlobalFin: fin, horometroIni };
 }
 
 /** ENTRADA (compra): entra combustible al tanque A SU COSTO y RE-PROMEDIA la tasa del

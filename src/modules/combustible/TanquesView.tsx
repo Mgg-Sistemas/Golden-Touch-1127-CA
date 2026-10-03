@@ -691,7 +691,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
             <thead>
               <tr>
                 <th>Fecha</th><th>Equipo</th><th>Autorizado</th><th>Destino</th><th>Observación</th>
-                <th>HF</th><th>Hrs</th>
+                <th>HI</th><th>HF</th><th>Hrs</th>
                 <th>Cont. fin</th><th>Lt usados (cont.)</th>
                 <th>Entrada</th><th>Uso</th><th>Traslado</th><th>Retorno</th><th>Merma</th><th>Saldo ltrs</th>
                 <th>$ Mov.</th><th>Saldo $</th><th></th>
@@ -699,7 +699,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
             </thead>
             <tbody>
               {!movsFiltrados.length && (
-                <tr><td colSpan={18} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr><td colSpan={19} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
               )}
               {movsFiltrados.map((m) => (
                 <tr key={m.id}>
@@ -708,6 +708,8 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
                   <td className="muted">{m.autorizado_por || '—'}</td>
                   <td className="muted">{m.ubicacion || '—'}</td>
                   <td className="muted" style={{ maxWidth: 180 }}>{m.observacion || '—'}</td>
+                  {/* HI a la vista para cotejar: es el HF del surtido anterior del mismo equipo. */}
+                  <td className="mono muted">{m.horometro_ini != null ? num(m.horometro_ini) : '—'}</td>
                   <td className="mono muted">{m.horometro_fin != null ? num(m.horometro_fin) : '—'}</td>
                   <td className="mono muted">{m.horas_utilizadas ? num(m.horas_utilizadas) : '—'}</td>
                   <td className="mono muted">{m.contador_global_fin != null ? num(m.contador_global_fin) : '—'}</td>
