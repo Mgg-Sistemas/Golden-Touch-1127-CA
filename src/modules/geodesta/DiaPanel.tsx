@@ -27,7 +27,7 @@ interface DiaPanelProps {
 /** `DIAS_SEMANA` de la librería son iniciales (D, L, M…): para el título hacen falta los nombres. */
 const NOMBRES_DIA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'] as const;
 
-/** «Viernes 3 de Octubre de 2026», armada con las partes del ISO (nunca `new Date(fecha)`). */
+/** «Sábado 3 de Octubre de 2026», armada con las partes del ISO (nunca `new Date(fecha)`). */
 function fechaLarga(fecha: string): string {
   const [anio, mes, dia] = fecha.slice(0, 10).split('-').map(Number);
   return `${NOMBRES_DIA[diaDeLaSemana(fecha)]} ${dia} de ${MESES[mes - 1]} de ${anio}`;
@@ -132,14 +132,16 @@ export function DiaPanel({ fecha, canWrite, actor, onCerrar, onCambiarDia, onVer
     (async () => {
       const nuevas: Record<string, string> = {};
       const sinImagen: string[] = [];
-      for (const img of faltan) {
+      // En paralelo: con veinte fotos no van llegando de a una. Solo se da por
+      // resuelta la que firmó; si falla (una caída de red) se reintenta en la próxima pasada.
+      await Promise.all(faltan.map(async (img) => {
         try {
           nuevas[img.id] = await urlImagen(img.path);
+          resueltas.add(img.id);
         } catch {
           sinImagen.push(img.id);
         }
-        resueltas.add(img.id);
-      }
+      }));
       // Se aplica aunque el efecto ya se haya limpiado: esos ids quedaron como
       // resueltos y no se volverían a pedir. (Actualizar estado tras desmontar es inocuo.)
       setUrls((p) => ({ ...p, ...nuevas }));
@@ -159,7 +161,7 @@ export function DiaPanel({ fecha, canWrite, actor, onCerrar, onCambiarDia, onVer
   const d = datos && datos.fecha === fecha ? datos : null;
 
   return (
-    <section className="geo-dia" aria-label={`Panel del ${fechaLarga(fecha)}`}>
+    <section className="geo-dia-panel" aria-label={`Panel del ${fechaLarga(fecha)}`}>
       <header className="geo-dia-cab">
         <button type="button" className="btn btn-ghost btn-sm" aria-label="Día anterior"
           onClick={() => onCambiarDia(sumarDias(fecha, -1))}>‹</button>
