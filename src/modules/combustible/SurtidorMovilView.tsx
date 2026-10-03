@@ -294,8 +294,10 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
       const u = await ultimoHorometroEquipo(equipo).catch(() => null);
       if (u != null) { hiNum = u; setHi(String(u)); setHiAuto(true); }
     }
-    // Surtido a un equipo que ya trae horómetro: sin el final no hay horas para el mantenimiento.
-    const errHor = errorHorometro(hiNum, hfNum) ?? (tipo === 'uso' ? faltaHorometroFinal(hiNum, hfNum) : null);
+    // El final que retrocede sí se frena; que FALTE no (03/10/2026, decisión del dueño):
+    // hay vehículos que llevan kilometraje y no horómetro, y exigir el final los trababa.
+    // El recordatorio de cargarlo se muestra en el campo, sin bloquear el guardado.
+    const errHor = errorHorometro(hiNum, hfNum);
     if (errHor) { setError(errHor); return; }
     setGuardando(true); setEtapa('movimiento');
     try {
@@ -385,9 +387,13 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
               {hiAuto && <small className="muted">🔒 Último final del equipo</small>}
             </div>
             <div className="surt-campo">
-              <label htmlFor="surt-hf">Horómetro final{hi !== '' ? ' *' : ''}</label>
+              <label htmlFor="surt-hf">Horómetro final</label>
               <input id="surt-hf" className="input surt-input" type="number" inputMode="decimal" step="any" value={hf} onChange={(e) => setHf(e.target.value)}
-                placeholder="lo que marca hoy" required={hi !== ''} />
+                placeholder="lo que marca hoy" />
+              {/* Recordatorio, no bloqueo: un camión lleva kilometraje y puede no tener final de horómetro. */}
+              {tipo === 'uso' && faltaHorometroFinal(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf)) && (
+                <small className="muted">⏱ Si este equipo lleva horómetro, carga el final: de ahí salen las horas del mantenimiento. Si es un vehículo, con el kilometraje basta.</small>
+              )}
             </div>
           </div>
           <div className="surt-campo">
