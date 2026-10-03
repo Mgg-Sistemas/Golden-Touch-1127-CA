@@ -16,6 +16,11 @@ export function pdfSafe(s: string | null | undefined): string {
     .replace(/[\u{2600}-\u{27BF}]/gu, '')              // símbolos misceláneos y dingbats
     .replace(/[\u{2B00}-\u{2BFF}]/gu, '')              // flechas/estrellas suplementarias
     .replace(/[\u{2190}-\u{21FF}]/gu, '')              // flechas (las usadas ya se pasaron a ASCII)
+    // El linter avisa por tener el ZWJ (‍) y el combinador de teclado (⃣) dentro de
+    // una lista de caracteres, porque casi siempre es un descuido: parten un emoji al medio.
+    // Acá es a propósito: lo que queremos es justamente arrancarle a la cadena esos
+    // caracteres invisibles que pegan los emojis, uno por uno. (03/10/2026)
+    // eslint-disable-next-line no-misleading-character-class
     .replace(/[\u{FE00}-\u{FE0F}\u{200D}\u{20E3}]/gu, '') // selectores de variación / ZWJ / keycap
     .replace(/[\u{E000}-\u{F8FF}]/gu, '')              // uso privado (íconos de fuentes)
     .replace(/�/g, '')                            // carácter de reemplazo

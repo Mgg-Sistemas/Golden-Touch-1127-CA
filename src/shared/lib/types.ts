@@ -1967,3 +1967,21 @@ export interface GeodestaConfig {
   logo_cvm: boolean;
   actualizado_en: string;
 }
+
+export type EstadoPlan = 'planificada' | 'cumplida' | 'no_se_hizo';
+
+export interface PlanificacionGeodesta {
+  id: string;
+  titulo: string;
+  desde: string;
+  hasta: string;
+  lugar: string | null;
+  nota: string | null;
+  estado: EstadoPlan;
+  estado_nota: string | null;
+  busq?: string | null;
+  creado_por?: string | null;
+  creado_en: string;
+  modificado_por?: string | null;
+  modificado_en?: string | null;
+}

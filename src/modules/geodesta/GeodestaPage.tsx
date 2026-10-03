@@ -1,24 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
-import { useRealtime } from '@/shared/lib/useRealtime';
-import { date } from '@/shared/lib/format';
-import type { Apartado, InformeGeodesta } from '@/shared/lib/types';
-import { EmptyState } from '@/shared/ui/EmptyState';
-import { toast } from '@/shared/ui/Toast';
-import { listInformes } from './informes.repository';
-import { FILTROS_VACIOS, filtrarInformes, type FiltrosInforme } from './informeFiltros';
+import type { InformeGeodesta } from '@/shared/lib/types';
+import { TableroGeodesta } from './TableroGeodesta';
+import { CalendarioGeodesta } from './CalendarioGeodesta';
+import { HistoricoTab } from './HistoricoTab';
+import { DiaPanel } from './DiaPanel';
 import { InformeDetalleModal } from './InformeDetalleModal';
-import { InformeEditorModal } from './InformeEditorModal';
 
-/** ¿Algún apartado referencia al menos una imagen (tira de texto o celda de imagen)? */
-function llevaImagenes(apartados: Apartado[]): boolean {
-  return apartados.some((a) => {
-    if (a.tipo === 'texto') return a.imagenes.length > 0;
-    const colsImg = a.columnas.filter((c) => c.tipo === 'imagen');
-    return a.filas.some((f) => colsImg.some((c) => !!f.celdas[c.id]));
-  });
-}
+type Vista = 'tablero' | 'calendario' | 'historico';
+
+const TABS: { key: Vista; label: string; icon: string }[] = [
+  { key: 'tablero', label: 'Tablero', icon: '📊' },
+  { key: 'calendario', label: 'Calendario', icon: '📅' },
+  { key: 'historico', label: 'Histórico', icon: '🗂' },
+];
 
 export function GeodestaPage() {
   const { can } = usePermissions();
@@ -26,118 +22,74 @@ export function GeodestaPage() {
   const canWrite = can('geodesta', 'escritura');
   const actor = user?.email ?? 'sistema';
 
-  const [informes, setInformes] = useState<InformeGeodesta[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filtros, setFiltros] = useState<FiltrosInforme>(FILTROS_VACIOS);
-  const [detalle, setDetalle] = useState<InformeGeodesta | null>(null);
-  // `informe: null` con `abierto` = alta.
-  const [editor, setEditor] = useState<{ abierto: boolean; informe: InformeGeodesta | null }>({ abierto: false, informe: null });
-
-  const recargar = useCallback(async () => {
-    try {
-      setInformes(await listInformes());
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'No se pudieron cargar los informes', 'error');
-    } finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void recargar(); }, [recargar]);
-  useRealtime(['geodesta_informes', 'geodesta_imagenes'], () => { void recargar(); });
-
-  const lista = useMemo(() => filtrarInformes(informes, filtros), [informes, filtros]);
-  const hayFiltros = !!(filtros.desde || filtros.hasta || filtros.estado || filtros.palabra.trim());
-  const set = (p: Partial<FiltrosInforme>) => setFiltros((f) => ({ ...f, ...p }));
+  const [vista, setVista] = useState<Vista>('tablero');
+  // El panel del día vive acá y no en una pestaña: se abre desde el tablero o el
+  // calendario, existe una sola vez y sobrevive al cambio de pestaña (se cierra con ✕).
+  const [diaAbierto, setDiaAbierto] = useState<string | null>(null);
+  const [informeAbierto, setInformeAbierto] = useState<InformeGeodesta | null>(null);
+  // El editor de informes vive en el histórico: el tablero lo pide con un contador
+  // (y no un booleano) para que pedirlo dos veces seguidas funcione.
+  const [pedidoNuevoInforme, setPedidoNuevoInforme] = useState(0);
+  const [pedidoEditarInforme, setPedidoEditarInforme] = useState<{ n: number; informe: InformeGeodesta } | null>(null);
+  // Tras borrar un informe se vuelve a montar el panel para que se vuelva a leer el día.
+  const [refrescoDia, setRefrescoDia] = useState(0);
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <h1>🧭 Geodesta · Informes</h1>
-        </div>
-        <div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {canWrite && (
-            <button className="btn btn-primary" onClick={() => setEditor({ abierto: true, informe: null })}>
-              + Nuevo informe
-            </button>
-          )}
+          <h1>🧭 Geodesta</h1>
         </div>
       </div>
 
-      <div className="card" style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '.75rem', padding: '.6rem .85rem' }}>
-        <label style={{ display: 'grid', gap: '.2rem', fontSize: '.8rem' }}>
-          Desde
-          <input type="date" className="input" value={filtros.desde} onChange={(e) => set({ desde: e.target.value })} />
-        </label>
-        <label style={{ display: 'grid', gap: '.2rem', fontSize: '.8rem' }}>
-          Hasta
-          <input type="date" className="input" value={filtros.hasta} onChange={(e) => set({ hasta: e.target.value })} />
-        </label>
-        <label style={{ display: 'grid', gap: '.2rem', fontSize: '.8rem' }}>
-          Estado
-          <select className="input" value={filtros.estado} onChange={(e) => set({ estado: e.target.value as FiltrosInforme['estado'] })}>
-            <option value="">Todos</option>
-            <option value="borrador">Borrador</option>
-            <option value="finalizado">Finalizado</option>
-          </select>
-        </label>
-        <label style={{ display: 'grid', gap: '.2rem', fontSize: '.8rem', flex: '1 1 200px' }}>
-          Buscar
-          <input className="input" placeholder="Palabra en el contenido del informe" value={filtros.palabra} onChange={(e) => set({ palabra: e.target.value })} />
-        </label>
-        {hayFiltros && <button className="btn btn-ghost" onClick={() => setFiltros(FILTROS_VACIOS)}>Limpiar</button>}
+      <div className="view-toggle" role="tablist" aria-label="Vista de Geodesta" style={{ marginBottom: '1rem', flexWrap: 'wrap' }}>
+        {TABS.map((t) => (
+          <button key={t.key} className={vista === t.key ? 'active' : ''} onClick={() => setVista(t.key)}>{t.icon} {t.label}</button>
+        ))}
       </div>
 
-      {loading ? (
-        <div className="muted">Cargando…</div>
-      ) : lista.length === 0 ? (
-        <EmptyState message={informes.length === 0 ? 'Todavía no hay informes.' : 'Ningún informe coincide con los filtros.'} />
-      ) : (
-        <div className="table-wrap">
-          <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead>
-              <tr>
-                <th>Código</th><th>Fecha</th><th>Para</th><th>Apartados</th><th>Estado</th><th aria-label="Imágenes" />
-              </tr>
-            </thead>
-            <tbody>
-              {lista.map((i) => (
-                <tr key={i.id} onClick={() => setDetalle(i)} style={{ cursor: 'pointer' }}>
-                  <td><strong>{i.codigo}</strong></td>
-                  <td>{date(i.fecha)}</td>
-                  <td>{i.para_nombre || '—'}</td>
-                  <td>{i.apartados.length}</td>
-                  <td><span className="badge" style={{ color: i.estado === 'finalizado' ? 'var(--success)' : 'var(--warning)' }}>
-                    {i.estado === 'finalizado' ? 'Finalizado' : 'Borrador'}
-                  </span></td>
-                  <td title="Lleva imágenes">{llevaImagenes(i.apartados) ? '🖼' : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {diaAbierto && (
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <DiaPanel
+            key={refrescoDia}
+            fecha={diaAbierto}
+            canWrite={canWrite}
+            actor={actor}
+            onCerrar={() => setDiaAbierto(null)}
+            onCambiarDia={setDiaAbierto}
+            onVerInforme={setInformeAbierto}
+          />
         </div>
       )}
 
-      {detalle && (
-        <InformeDetalleModal
-          informe={detalle}
+      {vista === 'tablero' && (
+        <TableroGeodesta
           canWrite={canWrite}
           actor={actor}
-          onClose={() => setDetalle(null)}
-          onEditar={() => { setEditor({ abierto: true, informe: detalle }); setDetalle(null); }}
-          onBorrado={() => { setDetalle(null); void recargar(); }}
+          onVerDia={setDiaAbierto}
+          onIrACalendario={() => setVista('calendario')}
+          onIrAHistorico={() => setVista('historico')}
+          onNuevoInforme={() => { setPedidoNuevoInforme((n) => n + 1); setVista('historico'); }}
         />
       )}
+      {vista === 'calendario' && <CalendarioGeodesta canWrite={canWrite} actor={actor} onVerDia={setDiaAbierto} />}
+      {/* Siempre montado (oculto fuera de su pestaña): así ve los pedidos del tablero y del panel
+          del día aunque lleguen justo antes de cambiar de pestaña; montado de cero los tomaría
+          por su valor inicial y los ignoraría. */}
+      <div hidden={vista !== 'historico'}><HistoricoTab visible={vista === 'historico'} canWrite={canWrite} actor={actor} pedirNuevo={pedidoNuevoInforme} pedirEditar={pedidoEditarInforme} /></div>
 
-      {editor.abierto && (
-        <InformeEditorModal
-          informe={editor.informe}
+      {informeAbierto && (
+        <InformeDetalleModal
+          informe={informeAbierto}
+          canWrite={canWrite}
           actor={actor}
-          onClose={() => setEditor({ abierto: false, informe: null })}
-          onGuardado={() => {
-            void recargar();
-            // Alta: el editor sigue abierto (pasó solo a modo edición para subir
-            // imágenes) y NO se le cambia el `informe`: remontaría el formulario.
-            if (editor.informe) setEditor({ abierto: false, informe: null });
+          onClose={() => setInformeAbierto(null)}
+          onEditar={() => {
+            setPedidoEditarInforme((p) => ({ n: (p?.n ?? 0) + 1, informe: informeAbierto }));
+            setInformeAbierto(null);
+            setVista('historico');
           }}
+          onBorrado={() => { setInformeAbierto(null); setRefrescoDia((n) => n + 1); }}
         />
       )}
     </div>

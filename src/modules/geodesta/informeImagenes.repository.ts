@@ -9,6 +9,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import type { ImagenGeodesta } from '@/shared/lib/types';
+import { hoyVE } from './informeModelo';
 
 const TABLE = 'geodesta_imagenes';
 const BUCKET = 'geodesta-imagenes';
@@ -64,6 +65,31 @@ export async function listImagenes(informeId: string): Promise<ImagenGeodesta[]>
   return (data ?? []) as ImagenGeodesta[];
 }
 
+/**
+ * El día VENEZOLANO de una subida. `subido_en` guarda el instante con zona:
+ * una foto de las 9 de la noche ya es del día siguiente en hora universal y
+ * aparecería en el día equivocado del calendario.
+ */
+export function diaDeSubida(d: Date = new Date()): string {
+  return hoyVE(d);
+}
+
+/** Las imágenes subidas un día venezolano (columna `subido_dia`, no `subido_en`). */
+export async function listImagenesDelDia(dia: string): Promise<ImagenGeodesta[]> {
+  const { data, error } = await supabase
+    .from(TABLE).select('*').eq('subido_dia', dia).order('subido_en', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as ImagenGeodesta[];
+}
+
+/** Los días venezolanos de subida de las imágenes de un rango, solo la columna `subido_dia`. */
+export async function listDiasDeImagenes(ini: string, fin: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from(TABLE).select('subido_dia').gte('subido_dia', ini).lte('subido_dia', fin);
+  if (error) throw error;
+  return (data ?? []).map((r) => (r as { subido_dia: string }).subido_dia);
+}
+
 export async function subirImagen(informeId: string, file: File, actor: string): Promise<ImagenGeodesta> {
   const problema = errorArchivoImagen(file);
   if (problema) throw new Error(problema);
@@ -86,6 +112,7 @@ export async function subirImagen(informeId: string, file: File, actor: string):
     tipo: subir.type,
     bytes: subir.size,
     subido_por: actor,
+    subido_dia: diaDeSubida(),
   }).select('*').single();
 
   // Si la fila no se pudo escribir, el archivo huérfano se borra y se relanza el error original.
