@@ -11,6 +11,8 @@ import { supabase } from '@/shared/lib/supabase';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { compararMovimientos, horaOrden } from './horaMovimiento';
 import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
+import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion, observacionMerma, type MermaRecepcion } from './mermaRecepcion';
+import { push } from '@/modules/notificaciones/notif.repository';
 import type {
   CatalogoCombustible,
   ConciliacionCombustible,
@@ -236,6 +238,8 @@ export interface TanqueInput {
   saldoLitros?: number;
   tasaUsdLitro?: number;
   ubicacion?: string | null;
+  /** Margen de merma al recibir (en %). Vacío = se queda como está (10 al crear). */
+  margenMermaPct?: number | null;
 }
 
 /** Geometría a partir del input del formulario (para cubicar/capacidad). */
@@ -275,6 +279,7 @@ export async function crearTanque(input: TanqueInput & { actor: string }): Promi
       saldo_inicial_usd: round(saldoLitros * tasa, 2),
       tasa_usd_litro: tasa,
       ubicacion: input.ubicacion?.trim() || null,
+      margen_merma_pct: input.margenMermaPct ?? MARGEN_MERMA_DEFECTO,
       created_by: input.actor,
     })
     .select('*')
@@ -301,6 +306,7 @@ export async function actualizarTanque(id: string, input: TanqueInput): Promise<
     ubicacion: input.ubicacion?.trim() || null,
     updated_at: new Date().toISOString(),
   };
+  if (input.margenMermaPct != null) patch.margen_merma_pct = Math.min(100, Math.max(0, num(input.margenMermaPct)));
   // Tasa USD/L editable: OVERRIDE MANUAL. Normalmente la tasa es el PMP (se deriva sola de
   // las compras), pero editar la tasa del tanque permite "aplanar" todo a un valor puntual
   // (corrección). Al hacerlo, se re-valoriza el saldo y la APERTURA a esa tasa, y todos los
@@ -511,8 +517,69 @@ async function camposConContador(
   return { ...c, contadorGlobalIni: ini, contadorGlobalFin: fin, horometroIni };
 }
 
+/** Lo que se midió al recibir una entrada o un traslado (ver mermaRecepcion.ts). */
+export interface RecepcionMedida {
+  /** Litros que llegaron de verdad. Vacío = no se midió y no hay merma. */
+  recibidos: number | null;
+  /** Obligatorio si la merma pasa el margen del tanque. */
+  motivo?: string | null;
+}
+
+/**
+ * Revisa la merma de una recepción ANTES de tocar el libro: si los números no cierran o
+ * pasa el margen sin motivo o sin administrador, no se guarda nada (ni la entrada).
+ * Devuelve la merma a registrar, o null si no hay.
+ */
+async function prepararMerma(tanqueId: string, enviados: number, rec?: RecepcionMedida | null): Promise<MermaRecepcion | null> {
+  if (!rec || rec.recibidos == null) return null;
+  const t = await getTanque(tanqueId);
+  const margen = t.margen_merma_pct ?? MARGEN_MERMA_DEFECTO;
+  const { ok, error } = mermaDeRecepcion(enviados, rec.recibidos, margen);
+  if (error) throw new Error(error);
+  if (!ok || !(ok.merma > 0)) return null;
+  if (ok.excede) {
+    if (!rec.motivo?.trim()) throw new Error(`La merma es ${ok.pct}% de lo enviado y pasa el margen de ${margen}% de ${t.nombre}: indica el motivo.`);
+    const { data: esAdmin } = await supabase.rpc('is_admin');
+    if (esAdmin !== true) throw new Error(`La merma es ${ok.pct}% de lo enviado y pasa el margen de ${margen}% de ${t.nombre}: solo un administrador puede guardarla.`);
+  }
+  return ok;
+}
+
+/** Registra la merma de recepción ligada a su entrada o traslado, en el tanque que recibió. */
+async function registrarMermaDe(o: {
+  deId: string; tanqueId: string; origen: 'entrada' | 'traslado'; ref: string; merma: MermaRecepcion;
+  motivo?: string | null; campos: MovimientoTanqueCampos; actor: string; actorName?: string | null;
+}): Promise<void> {
+  const t = await getTanque(o.tanqueId);
+  await insertarMovimiento({
+    ...campos({
+      fecha: o.campos.fecha, hora: o.campos.hora, autorizado_por: o.campos.autorizado_por, ubicacion: o.campos.ubicacion,
+      observacion: observacionMerma(o.origen, o.ref, o.merma, o.motivo),
+    }),
+    tanque_id: o.tanqueId,
+    tipo: 'merma',
+    litros: o.merma.merma,
+    // Al costo vigente del tanque, ya con la entrada: la pérdida queda valorizada como merma.
+    tasa_usd_litro: round(num(t.tasa_usd_litro), 4),
+    merma_de_id: o.deId,
+    merma_motivo: o.motivo?.trim() || null,
+    created_by: o.actor,
+    actor_name: o.actorName ?? null,
+  });
+  await recomputarTanque(o.tanqueId);
+  if (o.merma.excede) {
+    await push({
+      destino: 'admin', kind: 'warning',
+      title: `⛽ Merma sobre el margen en ${t.nombre}`,
+      message: `${num(o.merma.merma)} L (${o.merma.pct}%) en ${o.origen === 'entrada' ? 'la entrada' : 'el traslado'} ${o.ref}. Margen: ${t.margen_merma_pct ?? MARGEN_MERMA_DEFECTO}%. Motivo: ${o.motivo?.trim() ?? '—'}.`,
+      link: '#/app/combustible',
+    }).catch(() => undefined);
+  }
+}
+
 /** ENTRADA (compra): entra combustible al tanque A SU COSTO y RE-PROMEDIA la tasa del
- *  tanque (PMP = promedio ponderado por litros entre lo que venía y esta compra). */
+ *  tanque (PMP = promedio ponderado por litros entre lo que venía y esta compra).
+ *  Con `recepcion`, lo que llegó de menos queda como merma ligada a la entrada. */
 export async function registrarEntrada(input: {
   tanqueId: string;
   litros: number;
@@ -520,10 +587,12 @@ export async function registrarEntrada(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
+  recepcion?: RecepcionMedida | null;
 }): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const costo = Math.max(0, num(input.costoLitro));
+  const merma = await prepararMerma(input.tanqueId, litros, input.recepcion);
 
   const mov = await insertarMovimiento({
     ...campos(input.campos ?? {}),
@@ -542,6 +611,12 @@ export async function registrarEntrada(input: {
   // El recálculo recorre todos los movimientos y rearma el PMP, así que
   // converge aunque dos personas registren a la vez.
   await recomputarTanque(input.tanqueId);
+  if (merma) {
+    await registrarMermaDe({
+      deId: mov.id, tanqueId: input.tanqueId, origen: 'entrada', ref: `del ${input.campos?.fecha ?? mov.fecha}`,
+      merma, motivo: input.recepcion?.motivo, campos: input.campos ?? {}, actor: input.actor, actorName: input.actorName,
+    });
+  }
   return mov;
 }
 
@@ -635,10 +710,14 @@ export async function registrarTraslado(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
+  /** Lo que llegó al tanque destino: la diferencia queda como merma del destino. */
+  recepcion?: RecepcionMedida | null;
 }): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   if (input.tanqueDestinoId && input.tanqueDestinoId === input.tanqueId) throw new Error('El destino debe ser un tanque distinto.');
+  // El margen es el del tanque que RECIBE. Se revisa antes de mover nada.
+  const merma = input.tanqueDestinoId ? await prepararMerma(input.tanqueDestinoId, litros, input.recepcion) : null;
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
@@ -673,6 +752,13 @@ export async function registrarTraslado(input: {
     const { error: vinErr } = await supabase.from('combustible_tanque_movimientos')
       .update({ mov_vinculado_id: movEntrada.id }).eq('id', movTraslado.id);
     if (vinErr) throw vinErr;
+    // La merma va al destino y cuelga del traslado: si se borra el traslado, se va con él.
+    if (merma) {
+      await registrarMermaDe({
+        deId: movTraslado.id, tanqueId: input.tanqueDestinoId, origen: 'traslado', ref: `desde ${t.nombre}`,
+        merma, motivo: input.recepcion?.motivo, campos: input.campos ?? {}, actor: input.actor, actorName: input.actorName,
+      });
+    }
   }
   return movTraslado;
 }

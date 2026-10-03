@@ -44,6 +44,7 @@ import { norm } from '@/shared/lib/texto';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
 import { errorHorometro } from './horometroEquipo';
+import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion } from './mermaRecepcion';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -886,6 +887,10 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const [ciAuto, setCiAuto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Merma de recepción (02/10/2026): lo que llegó de verdad en una entrada o un traslado.
+  const [recibidos, setRecibidos] = useState('');
+  const [motivoMerma, setMotivoMerma] = useState('');
+  const { isAdmin } = usePermissions();
 
   const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
 
@@ -923,6 +928,14 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   // El contador al terminar es donde arranca el siguiente: vacío se guarda inicial + litros.
   const cfPropuesto = pasaPorSurtidor(tipo) ? contadorFinalPropuesto(ci === '' ? null : Number(ci), Number(litros) || 0) : null;
 
+  // Merma de recepción: en una entrada mide el tanque elegido; en un traslado, el que recibe.
+  const tanqueRecibe = tipo === 'entrada' ? tanques.find((t) => t.id === tanqueId)
+    : tipo === 'traslado' && destinoId && destinoId !== DESTINO_MGG ? tanques.find((t) => t.id === destinoId) : undefined;
+  const margenRecibe = tanqueRecibe?.margen_merma_pct ?? MARGEN_MERMA_DEFECTO;
+  const recepcion = tanqueRecibe
+    ? mermaDeRecepcion(Number(litros) || 0, recibidos.trim() === '' ? null : Number(recibidos.replace(',', '.')), margenRecibe)
+    : { ok: null, error: null };
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -933,6 +946,10 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     // HF < HI dejaría horas negativas y el próximo surtido del equipo arrancaría mal.
     const errHor = errorHorometro(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
     if (errHor) { setError(errHor); return; }
+    if (recepcion.error) { setError(recepcion.error); return; }
+    if (recepcion.ok?.excede && !motivoMerma.trim()) { setError(`La merma pasa el margen de ${margenRecibe}%: indica el motivo.`); return; }
+    if (recepcion.ok?.excede && !isAdmin) { setError(`La merma pasa el margen de ${margenRecibe}%: solo un administrador puede guardarla.`); return; }
+    const rec = tanqueRecibe && recibidos.trim() !== '' ? { recibidos: Number(recibidos.replace(',', '.')), motivo: motivoMerma } : null;
     const campos = {
       fecha, hora, equipo, autorizado_por: autorizado, ubicacion, observacion,
       horometroIni: hi === '' ? null : Number(hi), horometroFin: hf === '' ? null : Number(hf),
@@ -941,12 +958,12 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     };
     setSaving(true);
     try {
-      if (tipo === 'entrada') await registrarEntrada({ tanqueId, litros: litrosNum, costoLitro: Number(costo) || 0, campos, actor, actorName });
+      if (tipo === 'entrada') await registrarEntrada({ tanqueId, litros: litrosNum, costoLitro: Number(costo) || 0, campos, actor, actorName, recepcion: rec });
       else if (tipo === 'uso') await registrarUso({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else if (tipo === 'retorno') await registrarRetorno({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else if (tipo === 'merma') await registrarMerma({ tanqueId, litros: litrosNum, campos, actor, actorName });
       else if (destinoId === DESTINO_MGG) await registrarTrasladoMGG({ tanqueId, litros: litrosNum, campos, actor, actorName });
-      else await registrarTraslado({ tanqueId, litros: litrosNum, tanqueDestinoId: destinoId || null, campos, actor, actorName });
+      else await registrarTraslado({ tanqueId, litros: litrosNum, tanqueDestinoId: destinoId || null, campos, actor, actorName, recepcion: rec });
       toast('Movimiento registrado', 'success');
       onSaved();
     } catch (err) { setError((err as { message?: string })?.message || 'No se pudo registrar.'); }
@@ -1018,6 +1035,39 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
             </div>
           )}
         </div>
+        {tanqueRecibe && (
+          <div className="card" style={{ padding: '.75rem .9rem', marginBottom: '.75rem', borderColor: recepcion.ok?.excede ? 'var(--danger)' : undefined }}>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Litros recibidos (medido) <span className="muted">· opcional</span></label>
+                <input className="input mono" type="number" min={0} step="any" name="mov-recibidos" value={recibidos}
+                  onChange={(e) => setRecibidos(e.target.value)} placeholder={tipo === 'entrada' ? 'lo que llegó al tanque' : `lo que llegó a ${tanqueRecibe.nombre}`} />
+                <small className="muted">
+                  {tipo === 'entrada' ? 'Los litros de arriba son los de la guía.' : 'Los litros de arriba son los que salieron del origen.'}{' '}
+                  Si llegó menos, la diferencia queda como merma de este movimiento. Vacío = llegó todo.
+                </small>
+              </div>
+              <div className="form-row">
+                <label>Merma</label>
+                <input className="input mono" readOnly
+                  value={recepcion.ok ? `${num(recepcion.ok.merma)} L · ${num(recepcion.ok.pct)}% de ${num(margenRecibe)}% permitido` : '—'}
+                  style={{ color: recepcion.ok?.excede ? 'var(--danger)' : recepcion.ok?.merma ? 'var(--warning)' : undefined, fontWeight: 700 }} />
+                <small className="muted">Margen de {tanqueRecibe.nombre}: {num(margenRecibe)}% (se cambia al editar el tanque).</small>
+              </div>
+            </div>
+            {recepcion.error && <small style={{ color: 'var(--danger)' }}>{recepcion.error}</small>}
+            {recepcion.ok?.excede && (
+              <div className="form-row" style={{ marginTop: '.5rem' }}>
+                <label>Motivo de la merma *</label>
+                <input className="input" name="mov-motivo-merma" value={motivoMerma} onChange={(e) => setMotivoMerma(e.target.value)}
+                  placeholder="Por qué se perdió más de lo permitido" />
+                <small style={{ color: 'var(--danger)' }}>
+                  Pasa el margen del tanque. {isAdmin ? 'Se avisa a administración al guardar.' : 'Solo un administrador puede guardarla.'}
+                </small>
+              </div>
+            )}
+          </div>
+        )}
         <div className="form-grid">
           <div className="form-row">
             <label>Equipo</label>
@@ -1265,6 +1315,7 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
   const [saldo, setSaldo] = useState('');
   const [tasa, setTasa] = useState(tanque?.tasa_usd_litro != null ? String(tanque.tasa_usd_litro) : '');
   const [ubicacion, setUbicacion] = useState(tanque?.ubicacion ?? '');
+  const [margen, setMargen] = useState(String(tanque?.margen_merma_pct ?? MARGEN_MERMA_DEFECTO));
   const [saving, setSaving] = useState(false);
 
   // Capacidad calculada por fórmula con las dimensiones actuales (preview en vivo).
@@ -1286,12 +1337,15 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
       altoM: alto === '' ? null : Number(alto),
       capacidadLitros: Number(capacidad) || 0,
       ubicacion: ubicacion || null,
+      margenMermaPct: margen.trim() === '' ? MARGEN_MERMA_DEFECTO : Number(margen.replace(',', '.')),
     };
   }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!nombre.trim()) { toast('Indica el nombre', 'error'); return; }
+    const m = Number(margen.replace(',', '.'));
+    if (margen.trim() !== '' && !(m >= 0 && m <= 100)) { toast('El margen de merma va de 0 a 100 %', 'error'); return; }
     setSaving(true);
     try {
       if (editando && tanque) {
@@ -1376,6 +1430,11 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
           <label>Ubicación</label>
           <input className="input" list="cat-ubic-new" name="tnk-ubicacion" defaultValue={ubicacion} onChange={(e) => setUbicacion(e.target.value)} placeholder="Mina Golden touch" />
           <datalist id="cat-ubic-new">{catalogos.filter((c) => c.tipo === 'ubicacion' && c.activo).map((c) => <option key={c.id} value={c.valor} />)}</datalist>
+        </div>
+        <div className="form-row">
+          <label>Margen de merma al recibir (%)</label>
+          <input className="input mono" type="number" min={0} max={100} step="any" name="tnk-margen" value={margen} onChange={(e) => setMargen(e.target.value)} />
+          <small className="muted">En una entrada o un traslado a este tanque, si llega menos de lo enviado la diferencia es merma. Hasta este % se guarda normal; más, pide motivo y solo un administrador la guarda.</small>
         </div>
       </form>
     </Modal>

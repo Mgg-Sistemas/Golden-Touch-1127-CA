@@ -340,6 +340,8 @@ export interface TanqueCombustible {
   /** Tasa $/L del tanque: es el PROMEDIO PONDERADO (PMP) = saldo_usd / saldo_litros. */
   tasa_usd_litro: number;
   ubicacion?: string | null;
+  /** Merma máxima admitida al recibir una entrada o un traslado, en % de lo enviado (10 por defecto). */
+  margen_merma_pct?: number | null;
   estado: 'activo' | 'inactivo';
   orden: number;
   created_by?: string | null;
@@ -427,6 +429,10 @@ export interface MovimientoTanque {
   tanque_destino_id?: string | null;
   /** Par del traslado entre tanques (la entrada del destino ↔ el traslado del origen). */
   mov_vinculado_id?: string | null;
+  /** Merma de recepción: la entrada o el traslado del que sale esta merma. */
+  merma_de_id?: string | null;
+  /** Por qué la merma pasó el margen del tanque (obligatorio en ese caso). */
+  merma_motivo?: string | null;
   contador_global_ini?: number | null;
   contador_global_fin?: number | null;
   contador_global_dif?: number | null;
