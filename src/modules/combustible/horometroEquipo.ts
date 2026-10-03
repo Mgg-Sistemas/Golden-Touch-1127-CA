@@ -33,7 +33,10 @@ export function horasTrabajadas(hi: number | null | undefined, hf: number | null
 }
 
 /**
- * Falta el horómetro final de un surtido a un equipo que ya trae horómetro (02/10/2026).
+ * Falta el horómetro final de un surtido a un equipo que ya trae horómetro.
+ * Desde el 03/10/2026 esto es un RECORDATORIO en pantalla, no un bloqueo: hay
+ * vehículos que llevan kilometraje y no horómetro, y exigir el final los trababa
+ * (decisión del dueño). Historia original (02/10/2026):
  * Sin el final no hay horas trabajadas, el mantenimiento no avanza y el próximo surtido
  * del equipo arranca con un inicial viejo. En el teléfono el final quedaba escondido en
  * «Más datos» y casi nunca se cargaba. Un equipo sin horómetro previo (bidones, apoyo)

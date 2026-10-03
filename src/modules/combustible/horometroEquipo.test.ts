@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
 
-describe('faltaHorometroFinal · el final es obligatorio si el equipo ya trae horómetro', () => {
+describe('faltaHorometroFinal · recordatorio (no bloqueo) si el equipo ya trae horómetro', () => {
   it('con inicial y sin final, avisa', () => {
     expect(faltaHorometroFinal(91678, null)).toMatch(/Arrancó en 91678/);
   });
