@@ -23,9 +23,11 @@ interface HistoricoTabProps {
   actor: string;
   /** Contador: cada vez que cambia (no al montar) se abre el editor en alta. */
   pedirNuevo?: number;
+  /** Cada vez que cambia `n` (no al montar) se abre el editor sobre ese informe. */
+  pedirEditar?: { n: number; informe: InformeGeodesta } | null;
 }
 
-export function HistoricoTab({ canWrite, actor, pedirNuevo }: HistoricoTabProps) {
+export function HistoricoTab({ canWrite, actor, pedirNuevo, pedirEditar }: HistoricoTabProps) {
   const [informes, setInformes] = useState<InformeGeodesta[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtros, setFiltros] = useState<FiltrosInforme>(FILTROS_VACIOS);
@@ -49,6 +51,13 @@ export function HistoricoTab({ canWrite, actor, pedirNuevo }: HistoricoTabProps)
     pedirNuevoPrevio.current = pedirNuevo;
     if (canWrite) setEditor({ abierto: true, informe: null });
   }, [pedirNuevo, canWrite]);
+
+  const pedirEditarPrevio = useRef(pedirEditar?.n);
+  useEffect(() => {
+    if (pedirEditar?.n === pedirEditarPrevio.current) return;
+    pedirEditarPrevio.current = pedirEditar?.n;
+    if (canWrite && pedirEditar) setEditor({ abierto: true, informe: pedirEditar.informe });
+  }, [pedirEditar, canWrite]);
   useRealtime(['geodesta_informes', 'geodesta_imagenes'], () => { void recargar(); });
 
   const lista = useMemo(() => filtrarInformes(informes, filtros), [informes, filtros]);

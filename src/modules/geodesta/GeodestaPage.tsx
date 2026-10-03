@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { toast } from '@/shared/ui/Toast';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
 import type { InformeGeodesta } from '@/shared/lib/types';
@@ -31,6 +30,7 @@ export function GeodestaPage() {
   // El editor de informes vive en el histórico: el tablero lo pide con un contador
   // (y no un booleano) para que pedirlo dos veces seguidas funcione.
   const [pedidoNuevoInforme, setPedidoNuevoInforme] = useState(0);
+  const [pedidoEditarInforme, setPedidoEditarInforme] = useState<{ n: number; informe: InformeGeodesta } | null>(null);
   // Tras borrar un informe se vuelve a montar el panel para que se vuelva a leer el día.
   const [refrescoDia, setRefrescoDia] = useState(0);
 
@@ -73,7 +73,10 @@ export function GeodestaPage() {
         />
       )}
       {vista === 'calendario' && <CalendarioGeodesta canWrite={canWrite} actor={actor} onVerDia={setDiaAbierto} />}
-      {vista === 'historico' && <HistoricoTab canWrite={canWrite} actor={actor} pedirNuevo={pedidoNuevoInforme} />}
+      {/* Siempre montado (oculto fuera de su pestaña): así ve los pedidos del tablero y del panel
+          del día aunque lleguen justo antes de cambiar de pestaña; montado de cero los tomaría
+          por su valor inicial y los ignoraría. */}
+      <div hidden={vista !== 'historico'}><HistoricoTab canWrite={canWrite} actor={actor} pedirNuevo={pedidoNuevoInforme} pedirEditar={pedidoEditarInforme} /></div>
 
       {informeAbierto && (
         <InformeDetalleModal
@@ -82,9 +85,9 @@ export function GeodestaPage() {
           actor={actor}
           onClose={() => setInformeAbierto(null)}
           onEditar={() => {
+            setPedidoEditarInforme((p) => ({ n: (p?.n ?? 0) + 1, informe: informeAbierto }));
             setInformeAbierto(null);
             setVista('historico');
-            toast('Buscá el informe en el histórico para editarlo.', 'info');
           }}
           onBorrado={() => { setInformeAbierto(null); setRefrescoDia((n) => n + 1); }}
         />
