@@ -14,6 +14,14 @@ describe('filaPlanAGuardar', () => {
     expect(f.nota).toBeNull();
     expect(f.estado_nota).toBeNull();
   });
+  it('el motivo solo se guarda cuando el estado es «no se hizo»', () => {
+    const conMotivo = { ...base, estado_nota: 'Se dañó la camioneta' };
+    expect(filaPlanAGuardar({ ...conMotivo, estado: 'no_se_hizo' }).estado_nota).toBe('Se dañó la camioneta');
+    // Si cambia de idea y la marca cumplida, el motivo viejo NO puede quedar guardado
+    // contradiciendo al estado.
+    expect(filaPlanAGuardar({ ...conMotivo, estado: 'cumplida' }).estado_nota).toBeNull();
+    expect(filaPlanAGuardar({ ...conMotivo, estado: 'planificada' }).estado_nota).toBeNull();
+  });
   it('devuelve exactamente las columnas de la tabla', () => {
     expect(Object.keys(filaPlanAGuardar(base)).sort()).toEqual(
       ['busq', 'desde', 'estado', 'estado_nota', 'hasta', 'lugar', 'nota', 'titulo'].sort(),

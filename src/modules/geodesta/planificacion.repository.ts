@@ -24,7 +24,7 @@ export function filaPlanAGuardar(b: BorradorPlan): Record<string, unknown> {
     lugar: textoONull(b.lugar),
     nota: textoONull(b.nota),
     estado: b.estado,
-    estado_nota: textoONull(b.estado_nota),
+    estado_nota: b.estado === 'no_se_hizo' ? textoONull(b.estado_nota) : null,
     busq: componerBusqPlan(b),
   };
 }
