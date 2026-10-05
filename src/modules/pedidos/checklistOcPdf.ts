@@ -4,20 +4,21 @@
    ============================================================ */
 import type { OcLoteRow } from './ocLote.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 async function construir(rows: OcLoteRow[], codigo: string) {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 44); }
 
   // Título (colores del sistema, sin fondo).
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);

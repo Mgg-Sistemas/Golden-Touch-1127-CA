@@ -1,7 +1,7 @@
 import type { jsPDF as jsPDFType } from 'jspdf';
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type {
   EvaluacionRecepcion,
   OfertaProveedor,
@@ -74,7 +74,7 @@ interface BuildResult {
 async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   const [data, logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarTrazabilidad(ordenId),
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -94,10 +94,10 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 
   // ─── Header ────────────────────────────────────────────
   const LOGO_SIZE = 56;
-  const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
+  const TEXT_X = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO_SIZE) + 14 : MARGIN;
   if (logoDataUrl) {
     try {
-      doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO_SIZE, LOGO_SIZE);
+      dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO_SIZE);
     } catch {
       /* logo opcional: ignorar si falla */
     }

@@ -3,6 +3,7 @@
 // con logo, título naranja, listado con su valor y total(es) por moneda, y vista
 // previa antes de descargar.
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 export interface ResumenCuentaRow {
   /** Código u origen (N° OC, tipo, etc.). */
@@ -22,18 +23,18 @@ function n2(n: number): string {
 }
 
 async function construir(titulo: string, rows: ResumenCuentaRow[], etiquetaPagado: string) {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 44); }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(titulo.toUpperCase(), W / 2 + 28, y + 20, { align: 'center' });

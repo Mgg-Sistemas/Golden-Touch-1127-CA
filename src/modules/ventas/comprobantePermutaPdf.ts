@@ -23,7 +23,7 @@
    divergan con el tiempo. Los números llegan ya cargados en `VentaCompleta`:
    aquí no se consulta la base ni se rehace ninguna cuenta.
    ============================================================ */
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl } from '@/shared/lib/pdfLogo';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import {
@@ -43,7 +43,7 @@ export async function descargarComprobantePermutaPdf(
   datos: VentaCompleta, opciones: OpcionesComprobante = {},
 ): Promise<void> {
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);

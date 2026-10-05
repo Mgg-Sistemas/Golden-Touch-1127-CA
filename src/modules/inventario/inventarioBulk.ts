@@ -6,6 +6,7 @@ import { esCategoriaReal } from './categoriaReal';
 import { DEPOSITOS, esDelDeposito, type Deposito } from './depositos';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 import { norm } from '@/shared/lib/texto';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 /* ──────────── Estilos compartidos para los Excel ──────────── */
 const HEADER_STYLE = {
@@ -619,7 +620,7 @@ export async function exportarInventarioExcel(productos: Producto[], titulo = 'I
 }
 
 export async function exportarInventarioPdf(productos: Producto[], titulo = 'Inventario'): Promise<void> {
-  const [logoDataUrl, { jsPDF }, { default: autoTable }, { dateTime, money, num }, { loadLogoDataUrl }] = await Promise.all([
+  const [logoDataUrl, { jsPDF }, { default: autoTable }, { dateTime, money, num }, { loadLogoPdfDataUrl }] = await Promise.all([
     Promise.resolve(null),
     import('jspdf'),
     import('jspdf-autotable'),
@@ -627,7 +628,7 @@ export async function exportarInventarioPdf(productos: Producto[], titulo = 'Inv
     import('@/shared/lib/pdfLogo'),
   ]);
   void logoDataUrl;
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
@@ -635,8 +636,8 @@ export async function exportarInventarioPdf(productos: Producto[], titulo = 'Inv
   let y = MARGIN;
 
   const LOGO_SIZE = 50;
-  const TEXT_X = logo ? MARGIN + LOGO_SIZE + 14 : MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO_SIZE, LOGO_SIZE); } catch { /* opcional */ } }
+  const TEXT_X = logo ? MARGIN + anchoLogoPdf(LOGO_SIZE) + 14 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, LOGO_SIZE); }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.text(`${titulo} · Reporte filtrado`, TEXT_X, y + 18);

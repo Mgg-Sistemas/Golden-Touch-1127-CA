@@ -5,7 +5,7 @@
    Se descarga SOLO cuando el usuario hace clic en el menú.
    ============================================================ */
 import { dateTime } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { LOGO_PDF_PROPORCION, loadLogoPdfDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
@@ -410,6 +410,7 @@ const SECCIONES: Seccion[] = [
       'Clasificación de costos (2 niveles): cada gasto puede etiquetarse con una Clasificación y una Sub-clasificación (ej. "Costos de Extracción y acarreo" → "Gastos de Combustible") para el análisis de costos del cierre.',
       'Cuadre Efectivo: cuadre de caja en efectivo (lo que entrega el proveedor de caja). Se cuenta el efectivo por billetes para verificarlo, se cargan las salidas categorizadas (nómina, compras, adelantos), se lleva el saldo corriente y se controlan los vales/deudas pendientes.',
       'Procesos: las demás hojas del Excel (resúmenes, registros de cuadrillas, mesa seca, consumo de martillos) se muestran como vistas del sistema y se van convirtiendo en módulos interactivos.',
+      'SISTEMA - NUEVO LOGO EN TODOS LOS PDF (05/10/2026): los documentos PDF (ordenes de compra, comprobantes, reportes, constancias, recibos, informes y este manual) llevan el logo horizontal GOLDEN TOUCH 1127 C.A con el RIF. Se dibuja a su proporcion y el titulo del encabezado se corrio para dejarle lugar. Solo en los PDF: la pantalla, el carnet y los Excel siguen con el logo de siempre.',
       'RRHH - EL QR DEL CARNET ABRE UNA PAGINA; SI LA PERSONA ESTA DESACTIVADA SOLO MUESTRA EL LOGO (05/10/2026): antes el QR llevaba los datos escritos. Ahora lleva un enlace del sistema (no pide iniciar sesion). Persona activa: nombre, cedula, cargo, contacto, emergencia, salud y vigencia del carnet. Persona desactivada: solo el logo de la empresa, sin datos. Los carnets impresos antes de este cambio traen el QR viejo: hay que volver a generarlos e imprimirlos. El telefono que escanea necesita internet.',
       'RRHH - DESCARGAR DATOS DEL PERSONAL CON LOGO, N° Y TABLA (05/10/2026): el Excel trae el logo, una columna N° para contar, filas mas altas con bordes y columnas mas anchas. El PDF sale como tabla con todas sus lineas, con mas espacio en cada celda.',
       'RRHH - EL CARNET TRAE FECHA DE VENCIMIENTO (05/10/2026): al cargar o editar a una persona esta el campo Carnet vence. Se elige la fecha, o se indica cuanto vale (N dias, semanas, meses o anos desde hoy) y con Calcular se pone la fecha. Debajo dice si esta vigente, por vencer (30 dias o menos) o vencido. Sale impresa en el frente del carnet (VIGENCIA: 31/12/2026) y como columna en Descargar datos. Por ahora todos los carnets valen hasta el 31/12/2026, y una persona nueva arranca con esa fecha. Ademas el reverso dice grupo de alianzas, y el correo de la empresa en los documentos pasa a ser info@goldentouch1127.com.',
@@ -636,7 +637,7 @@ const CONSEJOS: string[] = [
 
 export async function descargarManualUsuario(capturas: CapturasManual = {}): Promise<void> {
   const [logoDataUrl, { jsPDF }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
   ]);
 
@@ -712,9 +713,9 @@ export async function descargarManualUsuario(capturas: CapturasManual = {}): Pro
   }
 
   // ───────── Portada / bienvenida ─────────
-  const LOGO = 92;
+  const LOGO_W = 240; const LOGO = LOGO_W / LOGO_PDF_PROPORCION;
   if (logoDataUrl) {
-    try { doc.addImage(logoDataUrl, 'JPEG', (PAGE_W - LOGO) / 2, y, LOGO, LOGO); } catch { /* logo opcional */ }
+    try { doc.addImage(logoDataUrl, 'JPEG', (PAGE_W - LOGO_W) / 2, y, LOGO_W, LOGO); } catch { /* logo opcional */ }
   }
   y += LOGO + 30;
 

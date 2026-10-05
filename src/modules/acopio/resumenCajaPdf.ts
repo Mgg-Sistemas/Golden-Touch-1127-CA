@@ -5,6 +5,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { ResumenCajaAcopio } from './caja.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const NOMBRE = 'resumen-caja-acopio';
 const fmtUsd = (v: number) => `$${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -12,18 +13,18 @@ const fmtNum = (v: number) => v.toLocaleString('es-VE', { maximumFractionDigits:
 const fmtPct = (v: number) => `${(v * 100).toLocaleString('es-VE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 
 async function construirResumenDoc(r: ResumenCajaAcopio) {
-  const [{ dateTime }, { loadLogoDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ dateTime }, { loadLogoPdfDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([
     import('@/shared/lib/format'), import('@/shared/lib/pdfLogo'), import('jspdf'), import('jspdf-autotable'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 58 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 46); }
+  const tx = logo ? MARGIN + anchoLogoPdf(46) + 12 : MARGIN;
   // ENCABEZADO SIN PISARSE. Esta hoja es CARTA VERTICAL (612 pt): el título a 15 pt
   // y la empresa con la fecha en un solo renglón a la derecha no entran juntos, y se
   // montaban uno sobre otro. Dos medidas: la derecha se parte en dos renglones (la

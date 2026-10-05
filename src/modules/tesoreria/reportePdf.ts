@@ -6,7 +6,7 @@
    o el base64 para enviarlo por correo (Edge Function enviar-reporte).
    ============================================================ */
 import { dateTime } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type { MovimientoCaja } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
@@ -32,7 +32,7 @@ function montoStr(n: number | null | undefined, moneda: string): string {
 
 async function construirDoc(movs: MovimientoCaja[], meta: ReporteMeta) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -43,8 +43,8 @@ async function construirDoc(movs: MovimientoCaja[], meta: ReporteMeta) {
   let y = MARGIN;
 
   const LOGO_SIZE = 60;
-  const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
-  if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO_SIZE, LOGO_SIZE); } catch { /* logo opcional */ } }
+  const TEXT_X = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO_SIZE) + 14 : MARGIN;
+  if (logoDataUrl) { dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO_SIZE); }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);

@@ -1,5 +1,5 @@
 import { dateTime, money, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
 export interface DemandaRow {
@@ -29,7 +29,7 @@ function truncar(s: string, n: number): string {
  */
 export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta): Promise<void> {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -41,9 +41,9 @@ export async function descargarDemandaPdf(rows: DemandaRow[], meta: DemandaMeta)
 
   // ─── Header ────────────────────────────────────────────
   const LOGO_SIZE = 56;
-  const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
+  const TEXT_X = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO_SIZE) + 14 : MARGIN;
   if (logoDataUrl) {
-    try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO_SIZE, LOGO_SIZE); } catch { /* logo opcional */ }
+    dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO_SIZE);
   }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);

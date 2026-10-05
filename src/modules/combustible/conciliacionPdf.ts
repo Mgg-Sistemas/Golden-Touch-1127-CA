@@ -4,7 +4,7 @@
    Exporta las conciliaciones que recibe (respeta el filtro aplicado).
    ============================================================ */
 import { dateTime, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type { ConciliacionCombustible } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
@@ -21,7 +21,7 @@ const NOMBRE_ARCHIVO = 'combustible-conciliaciones.pdf';
 
 async function construirDoc(rows: ConciliacionRow[], meta: ConciliacionReporteMeta = {}) {
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -31,8 +31,8 @@ async function construirDoc(rows: ConciliacionRow[], meta: ConciliacionReporteMe
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 62 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 50); }
+  const tx = logo ? MARGIN + anchoLogoPdf(50) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
   doc.text('Combustible · Conciliaciones', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

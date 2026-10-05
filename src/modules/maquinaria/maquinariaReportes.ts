@@ -6,22 +6,23 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const NOMBRE = 'control-maquinaria';
 const fmtNum = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('es-VE', { maximumFractionDigits: 2 }));
 
 async function construirEquiposDoc(rows: MaquinariaEquipo[]) {
-  const [{ dateTime }, { loadLogoDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ dateTime }, { loadLogoPdfDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([
     import('@/shared/lib/format'), import('@/shared/lib/pdfLogo'), import('jspdf'), import('jspdf-autotable'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 58 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 46); }
+  const tx = logo ? MARGIN + anchoLogoPdf(46) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Control de Maquinaria y Vehículos · Equipos', tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

@@ -5,6 +5,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 export interface TenorRow {
   numero: string;
@@ -23,17 +24,17 @@ const fmtPct = (v: number | null) =>
   v == null || !Number.isFinite(v) ? '' : `${(v * 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 
 async function construirDoc(rows: TenorRow[], meta: TenorMeta = {}) {
-  const [{ dateTime }, { loadLogoDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ dateTime }, { loadLogoPdfDataUrl }, { jsPDF }, { default: autoTable }] = await Promise.all([
     import('@/shared/lib/format'), import('@/shared/lib/pdfLogo'), import('jspdf'), import('jspdf-autotable'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 62 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 50); }
+  const tx = logo ? MARGIN + anchoLogoPdf(50) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Tenor Promedio Diarios', tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

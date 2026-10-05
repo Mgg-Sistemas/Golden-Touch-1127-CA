@@ -18,6 +18,7 @@ import { labelGrado } from './instruccionYTrabajo';
 import {
   antiguedad, edad, labelEmpresa, labelEstadoCivil, labelGenero, labelParentesco,
 } from './fichaPersonal';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const dia = (f: string | null | undefined) => {
   const d = String(f ?? '').slice(0, 10);
@@ -30,12 +31,12 @@ export async function descargarFichaTecnicaPdf(
   persona: Personal,
   familiares: PersonalFamiliar[],
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   // La foto es opcional: si falla la descarga, la ficha sale igual.
   const foto = persona.foto_path
     ? await fotoPersonalDataUrl(persona.foto_path).catch(() => null)
@@ -46,7 +47,7 @@ export async function descargarFichaTecnicaPdf(
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 38, 38); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 38); }
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe('FICHA TECNICA DEL TRABAJADOR'), W / 2, y + 15, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

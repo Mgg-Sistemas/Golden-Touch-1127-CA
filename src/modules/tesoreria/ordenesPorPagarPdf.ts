@@ -44,6 +44,7 @@ import type { PagoMetodo } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { getTasaHoy } from './tasas.repository';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 /** Bs con separador de miles VE y 2 decimales (sin prefijo). */
 function bsNum(n: number): string {
@@ -80,7 +81,7 @@ export async function descargarOrdenesPorPagarPdf(
   opts?: { creditos?: OrdenPorPagar[] },
 ): Promise<void> {
   const creditos = opts?.creditos ?? [];
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, tasaHoy, comprasDir, serviciosDir] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl }, tasaHoy, comprasDir, serviciosDir] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
@@ -226,13 +227,13 @@ export async function descargarOrdenesPorPagarPdf(
   const segCredito = creditos.length ? mkSeg('CUENTAS A CRÉDITO (CUENTA ABIERTA)', creditos.map(filaCredito)) : null;
 
   // ── Documento ──
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 44); }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text('PENDIENTES POR PAGAR', W / 2 + 28, y + 20, { align: 'center' });

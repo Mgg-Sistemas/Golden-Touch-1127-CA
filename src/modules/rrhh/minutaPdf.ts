@@ -21,6 +21,7 @@ import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
 import type {
   Minuta, MinutaAcuerdo, MinutaAvance, MinutaParticipante,
 } from '@/shared/lib/types';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 export const RENGLONES_HOJA = {
   ordenDia: 7, participantes: 6, acuerdos: 6, avances: 4, observaciones: 7,
@@ -101,12 +102,12 @@ export async function generarMinutaPdf(m: Minuta | null, opciones?: OpcionesMinu
 
 /** Arma el documento y lo devuelve, sin mostrarlo. Separado para poder probarlo. */
 export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMinuta): Promise<Doc> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
@@ -121,8 +122,8 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   };
 
   /* ── Membrete y título ── */
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 38, 38); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 48 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 38); }
+  const tx = logo ? MARGIN + anchoLogoPdf(38) + 12 : MARGIN;
   doc.setTextColor(20, 20, 20); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
   doc.text(pdfSafe('GOLDEN TOUCH 1127 C.A.'), tx, y + 13);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(90, 90, 90);

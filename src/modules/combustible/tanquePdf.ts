@@ -4,7 +4,7 @@
    Exporta los movimientos que recibe (respeta el filtro aplicado).
    ============================================================ */
 import { dateTime, money, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type { MovimientoTanque, TanqueCombustible } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
@@ -22,7 +22,7 @@ async function construirDoc(
   tanque: TanqueCombustible, movs: MovimientoTanque[], meta: TanqueReporteMeta = {},
 ) {
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -32,8 +32,8 @@ async function construirDoc(
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 50, 50); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 62 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 50); }
+  const tx = logo ? MARGIN + anchoLogoPdf(50) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
   doc.text(`Combustible · ${tanque.nombre}`, tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

@@ -9,6 +9,7 @@
 import type { SalidaTemporal } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { formatDuracion } from './salidasTemporales.repository';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 /** Inventario único: el almacén guardado es `'General'`; se imprime «Inventario General». */
 const invLabel = (a?: string | null): string => (a && a.trim().toLowerCase() === 'general' ? 'Inventario General' : (a || '—'));
@@ -19,13 +20,13 @@ export async function descargarSalidaTemporalPdf(
    *  o si el email no se encuentra, se usa el valor tal cual. */
   resolverNombre?: (email?: string | null) => string,
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl, loadFirmaDataUrl, loadFirma2DataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
 
   // Nombre completo (no el email): resuelve del directorio de usuarios.
   const nombre = (email?: string | null): string => {
@@ -62,8 +63,8 @@ export async function descargarSalidaTemporalPdf(
 
   // ── Encabezado: logo + título + N° ──
   const LOGO = 60;
-  const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* opcional */ } }
+  const TX = logo ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, LOGO); }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
   doc.text('ORDEN DE SALIDA TEMPORAL', TX, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);

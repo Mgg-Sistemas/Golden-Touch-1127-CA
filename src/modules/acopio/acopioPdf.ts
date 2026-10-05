@@ -6,27 +6,28 @@
 import type { RecepcionAcopio } from '@/shared/lib/types';
 import { totalesRecepcion } from './acopio.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const ESTADO_LABEL: Record<string, string> = {
   abierta: 'Abierta', cerrada: 'Cerrada', anulada: 'Anulada',
 };
 
 async function construir(r: RecepcionAcopio) {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   // Apaisado: la tabla tiene muchas columnas (igual que el Excel).
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 58 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 46); }
+  const tx = logo ? MARGIN + anchoLogoPdf(46) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text('Control de Recepción de Mineral por Centro de Acopio', tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);

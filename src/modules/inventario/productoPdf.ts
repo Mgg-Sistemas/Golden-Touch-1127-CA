@@ -1,6 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type { Movimiento, Producto } from '@/shared/lib/types';
 import { TIPOS_MOVIMIENTO } from './movimientos.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -23,7 +23,7 @@ async function cargar(productoId: string): Promise<Data> {
 export async function descargarProductoPdf(productoId: string): Promise<void> {
   const [{ producto, movimientos }, logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargar(productoId),
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -50,9 +50,9 @@ export async function descargarProductoPdf(productoId: string): Promise<void> {
   let y = MARGIN;
 
   const LOGO_SIZE = 56;
-  const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
+  const TEXT_X = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO_SIZE) + 14 : MARGIN;
   if (logoDataUrl) {
-    try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO_SIZE, LOGO_SIZE); } catch { /* logo opcional */ }
+    dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO_SIZE);
   }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);

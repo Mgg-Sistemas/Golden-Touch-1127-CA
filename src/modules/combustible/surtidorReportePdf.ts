@@ -16,6 +16,7 @@ import { cargarImagenDesdeBlob } from '@/shared/lib/comprimirImagen';
 import { esImagenAdjunto } from '@/modules/salidas/adjuntosSalidaReglas';
 import type { AdjuntoSalida } from '@/modules/salidas/adjuntosSalida.repository';
 import type { MovimientoTanque, TanqueCombustible, TipoMovTanque } from '@/shared/lib/types';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 export const ORDEN_TIPOS: TipoMovTanque[] = ['uso', 'traslado', 'entrada', 'merma', 'retorno'];
 export const TITULO_TIPO: Record<TipoMovTanque, string> = {
@@ -109,12 +110,12 @@ const nombreArchivo = (base: string) =>
   `${base.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}.pdf`;
 
 export async function descargarSurtidorReportePdf(op: OpcionesSurtidorReportePdf): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
 
   // Las fotos se bajan todas juntas antes de dibujar: es lo que más tarda.
   const fotosImagen = op.fotos.filter((a) => esImagenAdjunto(a.content_type, a.nombre) && op.urls.get(a.path));
@@ -134,7 +135,7 @@ export async function descargarSurtidorReportePdf(op: OpcionesSurtidorReportePdf
   const nombreTanque = (id: string) => op.tanques.find((t) => t.id === id)?.nombre ?? '—';
   const tanqueTxt = op.tanqueId ? nombreTanque(op.tanqueId) : 'Todos los tanques';
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 40, 40); } catch { /* el logo es opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 40); }
   doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe('REPORTE DEL SURTIDOR'), W / 2, y + 16, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
