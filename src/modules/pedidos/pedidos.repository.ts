@@ -10,6 +10,7 @@ import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaE
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { rotuloMarcaModelo, descripcionConMarcaModelo } from '@/shared/lib/marcaModelo';
 import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 import {
   calcularDespiece, erroresDespiece, resumenDespiece,
   type CorteListo, type DespiecePorItem, type TrazaDespiece,
@@ -101,6 +102,7 @@ export async function listProductosActivos(): Promise<Producto[]> {
     .from('productos')
     .select('*')
     .eq('estado', 'activo')
+    .neq('almacen', ALMACEN_MINA)   // Depósito Mina: independiente, no entra aquí.
     .order('nombre', { ascending: true });
   if (error) throw error;
   // Orden alfabético A→Z real (español) en el cliente, igual que el inventario,
@@ -2214,7 +2216,7 @@ async function productoDelCorte(
   if (corte.productoId) return { id: corte.productoId, creado: false };
   // `ilike` sin comodines = igualdad sin distinguir mayúsculas: si «CARNE MOLIDA»
   // ya está cargada, se le suma stock en vez de crear un duplicado.
-  const { data, error } = await supabase.from('productos').select('id').ilike('nombre', corte.nombre).limit(1);
+  const { data, error } = await supabase.from('productos').select('id').ilike('nombre', corte.nombre).neq('almacen', ALMACEN_MINA).limit(1);
   if (error) throw error;
   const existente = (data ?? [])[0] as { id: string } | undefined;
   if (existente) return { id: existente.id, creado: false };

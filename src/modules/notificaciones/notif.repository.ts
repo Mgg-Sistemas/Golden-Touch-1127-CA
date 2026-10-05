@@ -1,5 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Notificacion, NotifKind } from '@/shared/lib/types';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 
 export async function listLatest(limit = 50): Promise<Notificacion[]> {
   const { data, error } = await supabase
@@ -116,7 +117,8 @@ export async function scanStockAndNotify(): Promise<number> {
     supabase
       .from('productos')
       .select('id, sku, nombre, stock, stock_min, estado')
-      .eq('estado', 'activo'),
+      .eq('estado', 'activo')
+      .neq('almacen', ALMACEN_MINA),   // Depósito Mina: independiente, no entra aquí. Sus alertas se ven en su pantalla.
     supabase
       .from('notificaciones')
       .select('dedup_key')

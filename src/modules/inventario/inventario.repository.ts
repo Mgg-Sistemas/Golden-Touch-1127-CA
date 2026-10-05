@@ -6,6 +6,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { EstadoGenerico, Orden, Producto, RecetaFundicion } from '@/shared/lib/types';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from './categoriaReal';
+import { esDelDeposito, type Deposito } from './depositos';
 
 export interface ProductoInput {
   sku: string;
@@ -316,14 +317,17 @@ async function cargarProductos(): Promise<Producto[]> {
  *  Si ya hay un pedido en viaje, se comparte ese mismo. NO es caché: apenas llega la
  *  respuesta se olvida, y el siguiente pedido vuelve a la base (el stock cambia todo
  *  el tiempo). Cada quien recibe su propia copia del arreglo. */
-export function listProductos(): Promise<Producto[]> {
+export function listProductos(deposito: Deposito = 'general'): Promise<Producto[]> {
   if (!productosEnCurso) {
     const pedido = cargarProductos();
     productosEnCurso = pedido;
     const soltar = () => { if (productosEnCurso === pedido) productosEnCurso = null; };
     pedido.then(soltar, soltar);
   }
-  return productosEnCurso.then((ps) => ps.slice());
+  // Depósito Mina (05/10/2026): es independiente. Por defecto se devuelve solo el
+  // Inventario General, así compras, salidas, cocina, ventas… nunca ven ni mueven lo
+  // de la Mina. Su pantalla lo pide con `listProductos('mina')`.
+  return productosEnCurso.then((ps) => ps.filter((p) => esDelDeposito(p, deposito)));
 }
 
 export async function findProducto(id: string): Promise<Producto | null> {

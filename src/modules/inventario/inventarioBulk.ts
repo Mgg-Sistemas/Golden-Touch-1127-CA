@@ -3,6 +3,7 @@ import type { Producto, RecetaFundicion } from '@/shared/lib/types';
 import { RECETAS_FUNDICION } from '@/shared/lib/types';
 import { getCategorias, getUnidades, nextSku } from './inventario.repository';
 import { esCategoriaReal } from './categoriaReal';
+import { DEPOSITOS, esDelDeposito, type Deposito } from './depositos';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 import { norm } from '@/shared/lib/texto';
 
@@ -144,6 +145,8 @@ export interface FilaAnalizada {
 }
 
 export interface AnalisisImport {
+  /** Depósito desde el que se importa: todo entra ahí. */
+  deposito?: Deposito;
   total: number;
   validas: number;
   conError: number;
@@ -155,7 +158,7 @@ export interface AnalisisImport {
   estado: 'Validado' | 'Duplicados' | 'Error';
 }
 
-export async function analizarExcel(file: File): Promise<AnalisisImport> {
+export async function analizarExcel(file: File, deposito: Deposito = 'general'): Promise<AnalisisImport> {
   const XLSX = await import('xlsx-js-style');
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array' });
@@ -170,11 +173,12 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
   if (!raw.length) throw new Error('La hoja "Productos" está vacía.');
 
   // Cargar SKUs y nombres existentes para detección de duplicados contra BD.
-  const { data: existentes } = await supabase.from('productos').select('sku, nombre');
+  const { data: existentes } = await supabase.from('productos').select('sku, nombre, almacen');
   const skuSetBd = new Set<string>((existentes ?? []).map((p) => String(p.sku).toUpperCase()));
   // El nombre se coteja NORMALIZADO (sin acentos/espacios repetidos) para reconocer
   // materiales que ya existen aunque el Excel los traiga con otra forma → no duplicar.
-  const nombreSetBd = new Set<string>((existentes ?? []).map((p) => normNombre(p.nombre)));
+  // Solo dentro del MISMO depósito: el Depósito Mina tiene su propio catálogo.
+  const nombreSetBd = new Set<string>((existentes ?? []).filter((p) => esDelDeposito(p, deposito)).map((p) => normNombre(p.nombre)));
 
   // Conteo por SKU/nombre dentro del archivo (nombre por su clave normalizada).
   const skuCount = new Map<string, number>();
@@ -274,6 +278,7 @@ export async function analizarExcel(file: File): Promise<AnalisisImport> {
     conError > 0 ? 'Error' : duplicadas > 0 ? 'Duplicados' : 'Validado';
 
   return {
+    deposito,
     total: filas.length,
     validas,
     conError,
@@ -320,11 +325,14 @@ export async function aplicarImportacion(analisis: AnalisisImport, actor = 'impo
   // SKU automático e incremental: la plantilla ya NO pide SKU. Para asignarlo,
   // cargamos los productos existentes (para el correlativo por categoría y para
   // reconocer por NOMBRE los que ya están, y así actualizarlos en vez de duplicar).
-  const { data: existentesFull } = await supabase.from('productos').select('sku, nombre, categoria');
+  // Depósito de la pantalla desde donde se importa: todo entra ahí (el Depósito Mina es
+  // independiente) y solo se reconocen por nombre los productos de ese mismo depósito.
+  const deposito: Deposito = analisis.deposito ?? 'general';
+  const { data: existentesFull } = await supabase.from('productos').select('sku, nombre, categoria, almacen');
   const skuPorNombre = new Map<string, string>();   // nombre NORMALIZADO → sku ya existente
   const runningProd: Array<{ sku: string; categoria: string }> = [];
   (existentesFull ?? []).forEach((p) => {
-    if (p.nombre) skuPorNombre.set(normNombre(p.nombre), String(p.sku));
+    if (p.nombre && esDelDeposito(p, deposito)) skuPorNombre.set(normNombre(p.nombre), String(p.sku));
     runningProd.push({ sku: String(p.sku), categoria: String(p.categoria ?? '') });
   });
   // Resuelve el SKU de una fila: 1) el del Excel si lo trae; 2) el del producto con
@@ -366,7 +374,7 @@ export async function aplicarImportacion(analisis: AnalisisImport, actor = 'impo
     // No forzar mayúsculas: los nombres de almacén deben respetar la forma
     // canónica de la tabla `almacenes` (ej. "General", "Almacén 1") para que
     // coincidan con las existencias y la vista de producción.
-    const almacen = toStr(r.almacen).trim() || 'General';
+    const almacen = DEPOSITOS[deposito].almacen;
     const categoria = canon(canonCat, toStr(r.categoria).toUpperCase());
     // SKU: incremental por categoría desde el sistema (o el del Excel si viene).
     const sku = await resolverSku(f.nombre, categoria, toStr(r.sku).toUpperCase());
@@ -583,7 +591,7 @@ export function filtrarParaExport(productos: Producto[], f: ExportFiltros): Prod
   });
 }
 
-export async function exportarInventarioExcel(productos: Producto[]): Promise<void> {
+export async function exportarInventarioExcel(productos: Producto[], titulo = 'Inventario'): Promise<void> {
   const XLSX = await import('xlsx-js-style');
   const XLSXMod = XLSX as unknown as XlsxModule;
   const rows = productos.map((p) => ({
@@ -605,12 +613,12 @@ export async function exportarInventarioExcel(productos: Producto[]): Promise<vo
   const ws = XLSXMod.utils.json_to_sheet(rows);
   stylize(ws as WsSheet, XLSXMod, [14, 32, 18, 12, 16, 10, 12, 18, 16, 14, 12, 18, 18, 14]);
   const wb = XLSXMod.utils.book_new();
-  XLSXMod.utils.book_append_sheet(wb, ws, 'Inventario');
+  XLSXMod.utils.book_append_sheet(wb, ws, titulo.slice(0, 31));
   const stamp = new Date().toISOString().slice(0, 10);
-  previewExcel(wb, `inventario-${stamp}.xlsx`);
+  previewExcel(wb, `${titulo.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '-')}-${stamp}.xlsx`);
 }
 
-export async function exportarInventarioPdf(productos: Producto[]): Promise<void> {
+export async function exportarInventarioPdf(productos: Producto[], titulo = 'Inventario'): Promise<void> {
   const [logoDataUrl, { jsPDF }, { default: autoTable }, { dateTime, money, num }, { loadLogoDataUrl }] = await Promise.all([
     Promise.resolve(null),
     import('jspdf'),
@@ -631,7 +639,7 @@ export async function exportarInventarioPdf(productos: Producto[]): Promise<void
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO_SIZE, LOGO_SIZE); } catch { /* opcional */ } }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
-  doc.text('Inventario · Reporte filtrado', TEXT_X, y + 18);
+  doc.text(`${titulo} · Reporte filtrado`, TEXT_X, y + 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.text(`GOLDEN TOUCH 1127 C.A. · ${productos.length} productos · ${dateTime(new Date().toISOString())}`, TEXT_X, y + 34);

@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Movimiento, Producto } from '@/shared/lib/types';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 
 export type BucketKind = 'day' | 'week' | 'month';
 
@@ -105,7 +106,7 @@ export async function getSerieValorInventario(rango: RangoFechas): Promise<Serie
   // `movimientos` se lee paginado: para rangos largos supera 1.000 filas y PostgREST
   // cortaría en silencio, dando una curva de valor de inventario errónea.
   const [{ data: prods, error: pErr }, movs] = await Promise.all([
-    supabase.from('productos').select('id, stock, precio, precio_promedio'),
+    supabase.from('productos').select('id, stock, precio, precio_promedio').neq('almacen', ALMACEN_MINA),   // Depósito Mina: independiente, no entra aquí.
     todasLasFilas<Pick<Movimiento, 'producto_id' | 'delta' | 'at'>>((desde, hasta) =>
       supabase
         .from('movimientos')

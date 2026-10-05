@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { money, num } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -60,6 +60,7 @@ import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
 import { norm } from '@/shared/lib/texto';
+import { DEPOSITOS, type Deposito } from './depositos';
 import {
   listAlmacenes,
   listExistencias,
@@ -127,7 +128,15 @@ type ModalState =
   | { kind: 'transferencias' }
   | { kind: 'import'; analisis: AnalisisImport };
 
-export function InventarioPage() {
+/**
+ * Inventario General y Depósito Mina (05/10/2026) son la MISMA pantalla sobre dos
+ * catálogos independientes: `deposito` decide qué productos se ven y a cuál entra lo
+ * que se agrega (botón «+ Nuevo producto», importación de Excel). Lo que es propio del
+ * General (recepciones de compras, casiterita a MGG) no aparece en la Mina.
+ */
+export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito } = {}) {
+  const dep = DEPOSITOS[deposito];
+  const esMina = deposito === 'mina';
   const { user } = useSession();
   const { can, appUser } = usePermissions();
   const canWrite = can('inventario', 'escritura');
@@ -176,7 +185,7 @@ export function InventarioPage() {
     if (!file) return;
     setImporting(true);
     try {
-      const analisis = await analizarExcel(file);
+      const analisis = await analizarExcel(file, deposito);
       setModal({ kind: 'import', analisis });
     } catch (err) {
       toast(err instanceof Error ? err.message : 'No se pudo leer el archivo', 'error');
@@ -191,7 +200,7 @@ export function InventarioPage() {
     setError(null);
     try {
       const [prods, ords, pendientes, porMarcar, alms, exs, nEnProduccion, cRecep, resContratos, transfCas] = await Promise.all([
-        listProductos(),
+        listProductos(deposito),
         listRecepcionesFinalizadas().catch(() => [] as Orden[]),
         listRecepcionesPorMarcar().catch(() => [] as Orden[]),
         contarRecepcionesPorMarcar().catch(() => 0),
@@ -223,8 +232,9 @@ export function InventarioPage() {
 
   useEffect(() => {
     reload();
-    // Carga única al montar. La recarga se dispara tras cada mutación exitosa.
-  }, []);
+    // Carga al montar y al cambiar de depósito (General ↔ Mina comparten la página).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deposito]);
 
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
@@ -333,6 +343,8 @@ export function InventarioPage() {
       const dup = await findBySku(data.sku);
       if (dup) throw new Error('Ya existe un producto con ese SKU.');
       const stockInicial = data.stock;
+      // El botón es dinámico: el producto entra al depósito que se está viendo.
+      data = { ...data, almacen: dep.almacen };
       const created = await createProducto({ ...data, stock: 0 });
       if (stockInicial > 0) {
         await registrarMovimiento({
@@ -342,12 +354,12 @@ export function InventarioPage() {
           almacen: data.almacen,
           actor: productoActor,
           actor_name: actorName,
-          detalle: 'Stock inicial al dar de alta el producto · Inventario General',
+          detalle: `Stock inicial al dar de alta el producto · ${dep.nombre}`,
           // Costo inicial: fija la línea base del PMP del inventario y queda en la traza.
           precio_unitario: data.precio,
         });
       }
-      notify(`Producto creado: ${data.sku} · ${data.nombre}`, 'success', { link: '#/app/inventario' });
+      notify(`Producto creado en ${dep.nombre}: ${data.sku} · ${data.nombre}`, 'success', { link: dep.hash });
       await reload();
       return;
     }
@@ -359,14 +371,14 @@ export function InventarioPage() {
       const rest: Partial<ProductoInput> = { ...data };
       delete (rest as Partial<ProductoInput>).stock;
       await updateProducto(previo.id, rest);
-      notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: '#/app/inventario' });
+      notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: dep.hash });
       await reload();
     }
   }
 
   async function handleRegistrarMovimiento(input: MovimientoInput) {
     await registrarMovimiento(input);
-    notify(`Movimiento de inventario registrado (${input.tipo})`, 'success', { link: '#/app/inventario' });
+    notify(`Movimiento registrado en ${dep.nombre} (${input.tipo})`, 'success', { link: dep.hash });
     await reload();
   }
 
@@ -374,7 +386,7 @@ export function InventarioPage() {
     const nuevo = p.estado === 'activo' ? 'inactivo' : 'activo';
     try {
       await setEstadoProducto(p.id, nuevo);
-      notify(`Producto ${nuevo === 'activo' ? 'activado' : 'desactivado'}: ${p.sku}`, 'success', { link: '#/app/inventario' });
+      notify(`Producto ${nuevo === 'activo' ? 'activado' : 'desactivado'}: ${p.sku}`, 'success', { link: dep.hash });
       await reload();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'No se pudo cambiar el estado', 'error');
@@ -389,7 +401,7 @@ export function InventarioPage() {
   async function handleActivarDesdeBaja(p: Producto) {
     try {
       await setEstadoProducto(p.id, 'activo');
-      notify(`Producto activado: ${p.sku} · ${p.nombre}`, 'success', { link: '#/app/inventario' });
+      notify(`Producto activado: ${p.sku} · ${p.nombre}`, 'success', { link: dep.hash });
       await reload();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'No se pudo activar el producto', 'error');
@@ -407,24 +419,34 @@ export function InventarioPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>Inventario</h1>
+          <h1>{esMina ? '⛏ Depósito Mina' : 'Inventario'}</h1>
           <p className="hint">
-            Catálogo de productos del <strong>Inventario General</strong>. <span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
+            {esMina
+              ? <>Catálogo del <strong>Depósito Mina</strong>: independiente del Inventario General, con su propio stock y kardex.</>
+              : <>Catálogo de productos del <strong>Inventario General</strong>.</>}
+            {' '}<span className="muted">Política ABC · A 120% · B 100% · C 80% del stock mínimo</span>
           </p>
         </div>
         <div className="actions">
-          <button
-            className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}
-          >
-            Inventario general
-          </button>
-          <button
-            className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setUi((prev) => ({ ...prev, view: 'recepciones' }))}
-          >
-            Recepciones {(recepcionesPorMarcar + comprasRecep.length) > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepcionesPorMarcar + comprasRecep.length}</span>}
-          </button>
+          {esMina ? (
+            <Link className="btn btn-ghost" to={DEPOSITOS.general.ruta}>← Inventario General</Link>
+          ) : (
+            <>
+              <button
+                className={`btn ${ui.view === 'productos' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setUi((prev) => ({ ...prev, view: 'productos' }))}
+              >
+                Inventario general
+              </button>
+              <button
+                className={`btn ${ui.view === 'recepciones' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setUi((prev) => ({ ...prev, view: 'recepciones' }))}
+              >
+                Recepciones {(recepcionesPorMarcar + comprasRecep.length) > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{recepcionesPorMarcar + comprasRecep.length}</span>}
+              </button>
+              <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Depósito independiente de la mina">⛏ Depósito Mina</Link>
+            </>
+          )}
           {canWrite && (
             <button
               className="btn btn-ghost"
@@ -477,13 +499,13 @@ export function InventarioPage() {
           {/* Qué entró, quién lo recibió y a qué almacén. El kardex del producto muestra
               la entrada pero no lleva a la orden, y el histórico de pedidos lista órdenes,
               no recepciones. */}
-          <button
+          {!esMina && <button
             className="btn btn-ghost"
             onClick={() => setModal({ kind: 'recepciones' })}
             title="Histórico de recepciones: qué se recibió, cuándo, quién lo recibió y a qué almacén entró"
           >
             📦 Histórico de recepciones
-          </button>
+          </button>}
           {/* Única puerta a los productos dados de baja: el inventario ya no los
               muestra. Desde ahí se consultan, se filtran y se pueden reactivar. */}
           <button
@@ -493,7 +515,7 @@ export function InventarioPage() {
           >
             🗄 Productos inactivos{inactivosCount ? ` · ${inactivosCount}` : ''}
           </button>
-          <button
+          {!esMina && <button
             className={`btn ${casiteritaEnError ? 'btn-danger' : 'btn-ghost'}`}
             onClick={() => setModal({ kind: 'transferencias' })}
             title={casiteritaEnError
@@ -501,10 +523,11 @@ export function InventarioPage() {
               : 'Casiterita enviada a MGG y su estado'}
           >
             🌐 Casiterita a MGG{casiteritaEnError ? ` · ${casiteritaEnError}` : ''}
-          </button>
+          </button>}
           {canWrite && (
-            <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ kind: 'crear' })}>
-              + Nuevo producto
+            <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ kind: 'crear' })}
+              title={`El producto se agrega al ${dep.nombre}`}>
+              + Nuevo producto{esMina ? ' (Mina)' : ''}
             </button>
           )}
         </div>
@@ -537,7 +560,7 @@ export function InventarioPage() {
             {kpis.criticos > 0 ? 'requieren atención' : 'todo en orden'}
           </div>
         </div>
-        <a
+        {!esMina && <a
           className="kpi"
           href="#/app/produccion"
           style={{ cursor: 'pointer', textDecoration: 'none', color: 'inherit' }}
@@ -551,12 +574,12 @@ export function InventarioPage() {
               ? `ingresada · ${num(contratosCerrados)} contrato${contratosCerrados !== 1 ? 's' : ''} finalizado${contratosCerrados !== 1 ? 's' : ''}${enProduccion > 0 ? ` · ${num(enProduccion)} en producción` : ''}`
               : (enProduccion > 0 ? `${num(enProduccion)} en producción` : 'sin contratos finalizados')}
           </div>
-        </a>
+        </a>}
       </div>
 
       <AlertasStock productos={decorated} onVerProducto={openVer} />
 
-      {ui.view === 'recepciones' ? (
+      {ui.view === 'recepciones' && !esMina ? (
         <RecepcionesPendientes
           ordenes={recepciones}
           pendientes={recepcionesPendientes}
@@ -653,6 +676,7 @@ export function InventarioPage() {
       {modal.kind === 'export' && (
         <ExportInventarioModal
           productos={productos}
+          titulo={dep.nombre}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}

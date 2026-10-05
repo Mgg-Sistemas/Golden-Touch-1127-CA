@@ -13,12 +13,14 @@ import { getCategorias } from './inventario.repository';
 
 interface Props {
   productos: Producto[];
+  /** Nombre del depósito para el título del reporte (Inventario General / Depósito Mina). */
+  titulo?: string;
   onClose: () => void;
 }
 
 type RecetaFiltro = '' | 'con_receta' | 'sin_receta' | 'en_proceso' | RecetaFundicion;
 
-export function ExportInventarioModal({ productos, onClose }: Props) {
+export function ExportInventarioModal({ productos, titulo = 'Inventario', onClose }: Props) {
   const [f, setF] = useState<ExportFiltros>({
     categoria: '',
     categorias: [],
@@ -64,10 +66,10 @@ export function ExportInventarioModal({ productos, onClose }: Props) {
     setBusy(formato);
     try {
       if (formato === 'xlsx') {
-        await exportarInventarioExcel(filtrados);
+        await exportarInventarioExcel(filtrados, titulo);
         toast(`Excel exportado · ${filtrados.length} productos`, 'success');
       } else {
-        await exportarInventarioPdf(filtrados);
+        await exportarInventarioPdf(filtrados, titulo);
         toast(`PDF exportado · ${filtrados.length} productos`, 'success');
       }
       onClose();
