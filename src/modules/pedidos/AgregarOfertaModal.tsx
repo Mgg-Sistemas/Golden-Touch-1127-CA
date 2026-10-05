@@ -13,6 +13,9 @@ import { hayVariantes, totalesRepresentativos } from './variantesOferta';
 import { esRecargaAgua } from './servicios.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { aplicarPresentacion, nombrePresentacion, precioEnUso, presentacionesPara, rotuloConversion, tienePresentacion, type Presentacion } from '@/modules/inventario/presentaciones';
+import { listPresentaciones, crearPresentacion } from '@/modules/inventario/presentaciones.repository';
 
 /** Tope de imágenes/adjuntos por cotización (oferta de proveedor). */
 const MAX_ADJ_OFERTA = 4;
@@ -280,6 +283,55 @@ export function AgregarOfertaModal({
       next.precio_usd = Math.max(0, next.precio_usd);
       return next;
     }));
+  }
+
+  // Presentaciones de compra (SACO de 25 KG…): cada proveedor puede vender el producto
+  // en otra unidad. Se elige por renglón; cantidad y precio pasan a esa unidad y al
+  // recibir entra al inventario en la unidad de uso (ver inventario/presentaciones.ts).
+  const [presentaciones, setPresentaciones] = useState<Presentacion[]>([]);
+  const idsProductos = useMemo(() => [...new Set(items.map((i) => i.productoId).filter(Boolean) as string[])].sort().join(','), [items]);
+  const cargarPresentaciones = useMemo(() => () => {
+    const ids = idsProductos ? idsProductos.split(',') : [];
+    if (!ids.length) { setPresentaciones([]); return; }
+    listPresentaciones(ids).then(setPresentaciones).catch(() => setPresentaciones([]));
+  }, [idsProductos]);
+  useEffect(() => { cargarPresentaciones(); }, [cargarPresentaciones]);
+  useRealtime(['producto_presentaciones'], () => { cargarPresentaciones(); });
+  const proveedorPres = nuevoProveedor ? null : (proveedorId || null);
+  const [nuevaPres, setNuevaPres] = useState<{ idx: number; unidad: string; factor: string; soloProveedor: boolean } | null>(null);
+  const [guardandoPres, setGuardandoPres] = useState(false);
+
+  function elegirPresentacion(idx: number, valor: string) {
+    if (valor === '__actual') return;
+    if (valor === '__nueva') {
+      setNuevaPres({ idx, unidad: '', factor: '', soloProveedor: !!proveedorPres });
+      return;
+    }
+    const p = valor ? presentaciones.find((x) => x.id === valor) ?? null : null;
+    setItems((prev) => prev.map((it, k) => (k === idx ? aplicarPresentacion(it, p) : it)));
+  }
+
+  async function guardarNuevaPresentacion() {
+    if (!nuevaPres) return;
+    const it = items[nuevaPres.idx];
+    if (!it?.productoId) return;
+    setGuardandoPres(true);
+    try {
+      const p = await crearPresentacion({
+        producto_id: it.productoId,
+        proveedor_id: nuevaPres.soloProveedor ? proveedorPres : null,
+        unidad: nuevaPres.unidad.toUpperCase(),
+        factor: Number(nuevaPres.factor.replace(',', '.')),
+      }, registradoPorEmail);
+      setPresentaciones((prev) => [...prev, p]);
+      const idx = nuevaPres.idx;
+      setItems((prev) => prev.map((x, k) => (k === idx ? aplicarPresentacion(x, p) : x)));
+      setNuevaPres(null);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo guardar la presentación', 'error');
+    } finally {
+      setGuardandoPres(false);
+    }
   }
 
   // Agrega otra variante (misma producto, otra marca/modelo) justo debajo de la fila.
@@ -731,20 +783,48 @@ export function AgregarOfertaModal({
                       </div>
                     </td>
                     <td className="num">
-                      <input className="input mono" inputMode="decimal" style={{ width: 70, textAlign: 'right' }} aria-label={`Cantidad de ${it.nombre}`}
+                      {/* La key cambia con el factor: al elegir otra presentación la cantidad y el
+                          precio se convierten, y el input no controlado tiene que mostrarlos. */}
+                      <input key={`c-${it.factor ?? 1}`} className="input mono" inputMode="decimal" style={{ width: 70, textAlign: 'right' }} aria-label={`Cantidad de ${it.nombre}`}
                         defaultValue={it.cantidad ? String(it.cantidad) : ''} onFocus={(e) => e.target.select()}
                         onChange={(e) => { const v = e.target.value.replace(/[^0-9.,]/g, ''); if (v !== e.target.value) e.target.value = v; updateItem(idx, { cantidad: Number(v.replace(',', '.')) || 0 }); }} />
-                      {it.unidad && <div className="muted" style={{ fontSize: '.66rem' }}>{it.unidad}</div>}
+                      {it.productoId && !it.es_servicio ? (() => {
+                        const opciones = presentacionesPara(presentaciones, it.productoId, proveedorPres);
+                        const unidadUso = it.unidad_uso ?? it.unidad ?? 'unidad de uso';
+                        const actual = tienePresentacion(it)
+                          ? opciones.find((p) => p.unidad.trim().toLowerCase() === (it.unidad ?? '').trim().toLowerCase() && p.factor === Number(it.factor))
+                          : null;
+                        const conversion = rotuloConversion(it, it.cantidad);
+                        return (
+                          <>
+                            <select className="input" aria-label={`Unidad de compra de ${it.nombre}`} title="En qué unidad lo vende este proveedor"
+                              style={{ fontSize: '.7rem', padding: '.1rem .2rem', height: 'auto', marginTop: '.2rem', maxWidth: 130 }}
+                              value={tienePresentacion(it) ? (actual?.id ?? '__actual') : ''}
+                              onChange={(e) => elegirPresentacion(idx, e.target.value)}>
+                              <option value="">{unidadUso}</option>
+                              {tienePresentacion(it) && !actual && <option value="__actual">{nombrePresentacion({ unidad: it.unidad ?? '', factor: Number(it.factor) }, unidadUso)}</option>}
+                              {opciones.map((p) => (
+                                <option key={p.id} value={p.id}>{nombrePresentacion(p, unidadUso)}{p.proveedor_id ? ' ★' : ''}</option>
+                              ))}
+                              <option value="__nueva">＋ Otra presentación…</option>
+                            </select>
+                            {conversion && (
+                              <div className="muted mono" style={{ fontSize: '.64rem' }} title="Lo que entra al inventario">{conversion}</div>
+                            )}
+                          </>
+                        );
+                      })() : it.unidad && <div className="muted" style={{ fontSize: '.66rem' }}>{it.unidad}</div>}
                     </td>
                     <td className="num">
-                      <input className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}
+                      <input key={`p-${it.factor ?? 1}`} className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}
                         defaultValue={it.precio ? String(it.precio) : ''} onFocus={(e) => e.target.select()}
                         onChange={(e) => { const v = e.target.value.replace(/[^0-9.,]/g, ''); if (v !== e.target.value) e.target.value = v; updateItem(idx, { precio: Number(v.replace(',', '.')) || 0 }); }} />
                       {tasa > 0 && it.precio > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
+                      {tienePresentacion(it) && it.precio > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }} title="Precio por unidad de uso, para comparar con otros proveedores">{money(precioEnUso(it, it.precio))} / {it.unidad_uso}</div>}
                     </td>
                     <td className="num mono">{money(totalBs)}</td>
                     <td className="num">
-                      <input className="input mono" inputMode="decimal" placeholder="—" style={{ width: 90, textAlign: 'right' }}
+                      <input key={`u-${it.factor ?? 1}`} className="input mono" inputMode="decimal" placeholder="—" style={{ width: 90, textAlign: 'right' }}
                         defaultValue={it.precio_usd ? String(it.precio_usd) : ''} onFocus={(e) => e.target.select()}
                         onChange={(e) => { const v = e.target.value.replace(/[^0-9.,]/g, ''); if (v !== e.target.value) e.target.value = v; updateItem(idx, { precio_usd: Number(v.replace(',', '.')) || 0 }); }} />
                       {tasa > 0 && it.precio_usd > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio_usd * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
@@ -982,6 +1062,59 @@ export function AgregarOfertaModal({
           PDF o imágenes · máximo 10 MB c/u · hasta {MAX_ADJ_OFERTA} por cotización. El jefe podrá verlas todas antes de aprobar.
         </div>
       </div>
+
+      {nuevaPres && (() => {
+        const it = items[nuevaPres.idx];
+        const unidadUso = it?.unidad_uso ?? it?.unidad ?? '';
+        const f = Number(nuevaPres.factor.replace(',', '.')) || 0;
+        const provNombre = proveedores.find((p) => p.id === proveedorPres)?.razon_social;
+        return (
+          <Modal
+            title={`Presentación de compra · ${it?.nombre ?? ''}`}
+            onClose={() => setNuevaPres(null)}
+            footer={
+              <>
+                <button type="button" className="btn btn-ghost" onClick={() => setNuevaPres(null)} disabled={guardandoPres}>Cancelar</button>
+                <button type="button" className="btn btn-primary" onClick={() => void guardarNuevaPresentacion()}
+                  disabled={guardandoPres || !nuevaPres.unidad.trim() || !(f > 0)}>
+                  {guardandoPres ? 'Guardando…' : 'Guardar y usar'}
+                </button>
+              </>
+            }
+          >
+            <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.6rem' }}>
+              En el inventario este producto se lleva en <strong>{unidadUso || 'su unidad'}</strong> y eso no cambia.
+              Aquí se indica cómo lo vende el proveedor.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.6rem' }}>
+              <div className="form-row">
+                <label htmlFor="pres-unidad">Se compra en</label>
+                <input id="pres-unidad" className="input" placeholder="SACO, CAJA, TAMBOR…" value={nuevaPres.unidad}
+                  onChange={(e) => setNuevaPres({ ...nuevaPres, unidad: e.target.value })} />
+              </div>
+              <div className="form-row">
+                <label htmlFor="pres-factor">Trae ({unidadUso || 'unidades de uso'})</label>
+                <input id="pres-factor" className="input mono" inputMode="decimal" placeholder="25" value={nuevaPres.factor}
+                  onChange={(e) => setNuevaPres({ ...nuevaPres, factor: e.target.value.replace(/[^0-9.,]/g, '') })} />
+              </div>
+            </div>
+            {nuevaPres.unidad.trim() && f > 0 && (
+              <div className="mono" style={{ fontSize: '.84rem', margin: '.4rem 0' }}>
+                1 {nuevaPres.unidad.trim().toUpperCase()} = {f.toLocaleString('es-VE', { maximumFractionDigits: 3 })} {unidadUso}
+              </div>
+            )}
+            {proveedorPres ? (
+              <label style={{ display: 'flex', gap: '.45rem', alignItems: 'center', fontSize: '.84rem', marginTop: '.4rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={nuevaPres.soloProveedor}
+                  onChange={(e) => setNuevaPres({ ...nuevaPres, soloProveedor: e.target.checked })} />
+                Solo para {provNombre ?? 'este proveedor'} (otro proveedor puede traerlo en otro tamaño)
+              </label>
+            ) : (
+              <div className="muted" style={{ fontSize: '.76rem', marginTop: '.4rem' }}>Quedará para todos los proveedores.</div>
+            )}
+          </Modal>
+        );
+      })()}
     </Modal>
   );
 }

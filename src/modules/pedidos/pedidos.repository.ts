@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
 import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, recomponerImpuestos, type IvaEditado } from './impuestosOrden';
@@ -2369,19 +2370,23 @@ export async function recibirOrdenParcial(
     // Productos genéricos/surtidos (p. ej. "MONTE SURTIDO") NO se stockean: la OC los
     // paga pero no aumentan existencias. Se marcan con no_inventariable en el inventario.
     if (prod?.no_inventariable) return;
+    // Presentación de compra (SACO de 25 KG…): la OC va en la unidad de compra y al
+    // inventario entra en la de USO. Sin presentación el factor es 1 y nada cambia.
+    const recUso = cantidadEnUso(it, rec);
+    const conversion = rotuloConversion(it, rec);
     const stockAntes = Number(prod?.stock ?? 0);
-    const stockDespues = stockAntes + rec;
+    const stockDespues = stockAntes + recUso;
     const almacenProd = destinoFinal || (prod?.almacen as string) || 'General';
     const precioActual = Number(prod?.precio_promedio ?? prod?.precio ?? 0);
-    const precioCompra = Number(it.precio);
+    const precioCompra = precioEnUso(it, Number(it.precio));
     const precioPromedio = stockDespues > 0
-      ? Number(((stockAntes * precioActual + rec * precioCompra) / stockDespues).toFixed(4))
+      ? Number(((stockAntes * precioActual + recUso * precioCompra) / stockDespues).toFixed(4))
       : precioCompra;
 
     const { error: mErr } = await supabase.from('movimientos').insert({
       producto_id: it.productoId,
       tipo: 'entrada',
-      delta: rec,
+      delta: recUso,
       almacen: almacenProd,   // el kardex debe saber a QUÉ almacén entró (antes quedaba nulo)
       stock_antes: stockAntes,
       stock_despues: stockDespues,
@@ -2395,6 +2400,7 @@ export async function recibirOrdenParcial(
       // varias marcas y, sin esto, el historial no distinguía una entrada de la otra.
       detalle: [
         `Recepción de ${rec}/${it.cantidad} ${it.sku} @ $${precioCompra.toFixed(2)} (promedio: $${precioPromedio.toFixed(2)}) → ${almacenProd}`,
+        conversion ? `${conversion} (a $${Number(it.precio).toFixed(2)} el ${it.unidad})` : null,
         rotuloMarcaModelo(it),
       ].filter(Boolean).join(' · '),
       // Sin esto la columna «Valor» del histórico de recepciones quedaba siempre vacía:
@@ -2423,7 +2429,7 @@ export async function recibirOrdenParcial(
       .eq('almacen', almacenProd)
       .maybeSingle();
     if (exReadErr) throw exReadErr;
-    const exStockNuevo = (Number(exRow?.stock) || 0) + rec;
+    const exStockNuevo = (Number(exRow?.stock) || 0) + recUso;
     const { error: exErr } = await supabase
       .from('existencias')
       .upsert(

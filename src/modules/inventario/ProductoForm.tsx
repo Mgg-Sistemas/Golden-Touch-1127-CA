@@ -13,6 +13,7 @@ import {
   nextSku,
   type ProductoInput,
 } from './inventario.repository';
+import { PresentacionesProducto } from './PresentacionesProducto';
 
 interface ProductoFormProps {
   producto: Producto | null; // null => crear
@@ -555,6 +556,9 @@ export function ProductoForm({ producto, productos = [], onClose, onSubmit }: Pr
             </div>
           </div>
         </details>
+
+        {/* Presentaciones de compra: solo con el producto ya creado (necesitan su id). */}
+        {producto && <PresentacionesProducto productoId={producto.id} unidadUso={producto.unidad} />}
       </form>
     </Modal>
   );
