@@ -5,6 +5,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { norm } from '@/shared/lib/texto';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 
 export type TipoResultado = 'producto' | 'proveedor' | 'orden' | 'usuario';
 
@@ -53,6 +54,7 @@ export async function buscarGlobal(qRaw: string): Promise<ResultadoBusqueda[]> {
     // productos donde queda uno solo.
     supabase.from('productos').select('id, sku, nombre, categoria')
       .eq('estado', 'activo')
+      .neq('almacen', ALMACEN_MINA)   // Depósito Mina: independiente, no entra aquí.
       .or(`nombre_busq.ilike.${likeSinAcentos},sku.ilike.${like}`).limit(6),
     supabase.from('proveedores').select('id, razon_social, rif')
       .or(`razon_social_busq.ilike.${likeSinAcentos},rif.ilike.${like}`).limit(6),

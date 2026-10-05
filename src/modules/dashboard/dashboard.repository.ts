@@ -1,5 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Movimiento, Producto } from '@/shared/lib/types';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 
 export interface DashboardKpis {
   totalProductosActivos: number;
@@ -21,7 +22,8 @@ export async function getProductosActivos(): Promise<Producto[]> {
   const { data, error } = await supabase
     .from('productos')
     .select('*')
-    .eq('estado', 'activo');
+    .eq('estado', 'activo')
+    .neq('almacen', ALMACEN_MINA);   // Depósito Mina: independiente, no entra aquí.
 
   if (error) throw error;
   return (data ?? []) as Producto[];

@@ -7,6 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Asignacion, CondicionDevolucion } from './asignacionesReglas';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 
 export interface ProductoAsignable {
   id: string;
@@ -35,7 +36,7 @@ export async function listAsignaciones(): Promise<Asignacion[]> {
 export async function listProductosAsignables(): Promise<ProductoAsignable[]> {
   const { data, error: e } = await supabase.from('productos')
     .select('id, sku, nombre, unidad, stock, precio, categoria, marca, modelo, serial, no_inventariable')
-    .eq('estado', 'activo').order('nombre');
+    .eq('estado', 'activo').neq('almacen', ALMACEN_MINA).order('nombre');   // Depósito Mina: independiente, no entra aquí.
   if (e) throw e;
   return ((data ?? []) as (ProductoAsignable & { no_inventariable?: boolean })[]).filter((p) => !p.no_inventariable);
 }

@@ -8,6 +8,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 
 const TABLE = 'recepciones_lab';
 
@@ -1065,7 +1066,7 @@ async function productoCasiterita(): Promise<{ id: string } | null> {
   const porSku = await supabase.from('productos').select('id').eq('sku', 'CASITERITA').maybeSingle();
   if (porSku.data) return porSku.data as { id: string };
   const { data } = await supabase.from('productos').select('id')
-    .ilike('categoria', '%mineral%').order('created_at', { ascending: true }).limit(1).maybeSingle();
+    .ilike('categoria', '%mineral%').neq('almacen', ALMACEN_MINA).order('created_at', { ascending: true }).limit(1).maybeSingle();
   return (data as { id: string } | null) ?? null;
 }
 

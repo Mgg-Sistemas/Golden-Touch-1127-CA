@@ -155,7 +155,7 @@ export function AppShell() {
     // datos de la pantalla que se está usando. El menú igual precarga al pasar el mouse.
     if (!user || conexionLenta()) return;
     const rutas = ([
-      ['dashboard', '/app/dashboard'], ['pedidos', '/app/pedidos'], ['inventario', '/app/inventario'],
+      ['dashboard', '/app/dashboard'], ['pedidos', '/app/pedidos'], ['inventario', '/app/inventario'], ['inventario', '/app/inventario/deposito-mina'],
       ['salidas', '/app/salidas'], ['produccion', '/app/produccion'], ['tesoreria', '/app/tesoreria'],
       ['ventas', '/app/ventas'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
@@ -320,6 +320,7 @@ export function AppShell() {
           {can('pedidos') && <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
           {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario" />}
+          {can('inventario') && <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" />}
           {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Producción" />}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
