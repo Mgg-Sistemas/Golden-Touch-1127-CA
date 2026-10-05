@@ -1,5 +1,27 @@
-import { describe, expect, it } from 'vitest';
-import { esCategoriaComida, esCategoriaViveres, esUnidadCocina, esValeCocina } from './categoriasCocina';
+import { afterEach, describe, expect, it } from 'vitest';
+import { esCategoriaComida, esCategoriaViveres, esUnidadCocina, esValeCocina, fijarCategoriasCocina, tipoCategoriaCocina } from './categoriasCocina';
+
+describe('categorías de cocina gestionadas (cocina_categorias)', () => {
+  afterEach(() => fijarCategoriasCocina(null));
+
+  it('con configuración manda la tabla, no las raíces', () => {
+    fijarCategoriasCocina([
+      { categoria: 'VÍVERES', tipo: 'comida' },
+      { categoria: 'COCINA', tipo: 'limpieza' },
+    ]);
+    expect(esCategoriaComida('viveres')).toBe(true);           // sin acentos ni mayúsculas
+    expect(esCategoriaViveres('COCINA')).toBe(true);           // agregada a mano
+    expect(esCategoriaComida('COCINA')).toBe(false);           // limpieza no es comida
+    expect(esCategoriaViveres('PROTEINA')).toBe(false);        // quitada: ya no entra
+    expect(tipoCategoriaCocina('REPUESTOS')).toBeNull();
+  });
+
+  it('una salida a COCINA es vale solo con las categorías de comida configuradas', () => {
+    fijarCategoriasCocina([{ categoria: 'PROTEINA', tipo: 'comida' }]);
+    expect(esValeCocina({ unidadSolicitante: 'COCINA', categoria: 'PROTEINA' })).toBe(true);
+    expect(esValeCocina({ unidadSolicitante: 'COCINA', categoria: 'VÍVERES' })).toBe(false);
+  });
+});
 
 describe('categorías de cocina', () => {
   it('reconoce la comida sin acentos ni mayúsculas, incluidas frutas y jugos', () => {

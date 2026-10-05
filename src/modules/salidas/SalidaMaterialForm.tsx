@@ -14,6 +14,7 @@ import { TransporteFields, transporteVacio, type TransporteSeleccion } from './T
 import { SelectorAdjuntos } from './AdjuntosSalida';
 import { subirAdjuntosSalida } from './adjuntosSalida.repository';
 import { esValeCocina, MSG_VALE_COCINA } from '@/modules/cocina/categoriasCocina';
+import { asegurarCategoriasCocina } from '@/modules/cocina/categoriasCocina.repository';
 
 // `key` = `${producto_id}|${almacen}` (identifica una existencia concreta).
 // `precio` = costo unitario EDITABLE (si se deja vacío usa el PMP/costo del inventario).
@@ -99,6 +100,11 @@ export function SalidaMaterialForm({
     setSedeOrigen((prev) => prev || (sedes.length === 1 ? sedes[0] : ''));
   }, []);
   useEffect(() => { void cargarUnidades(); }, [cargarUnidades]);
+  // Categorías de comida gestionadas por Cocina: al llegar, se vuelve a pintar el aviso de vale.
+  const [, setCatsCocina] = useState(0);
+  const cargarCatsCocina = useCallback(() => { void asegurarCategoriasCocina().then(() => setCatsCocina((n) => n + 1)); }, []);
+  useEffect(() => { cargarCatsCocina(); }, [cargarCatsCocina]);
+  useRealtime(['cocina_categorias'], cargarCatsCocina);
   useRealtime(['pedido_catalogos'], () => { void cargarUnidades(); });
 
   async function agregarSedeNueva() {
