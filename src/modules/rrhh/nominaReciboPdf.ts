@@ -13,7 +13,7 @@
    Un papel que muestre solo una de las dos monedas obliga a sacar la cuenta
    a mano, y ahí es donde aparecen los reclamos.
    ============================================================ */
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { date as fmtDate } from '@/shared/lib/format';
 import type { NominaPeriodo, NominaRenglon } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -43,7 +43,7 @@ const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 
 async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -59,8 +59,8 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     // Encabezado: logo + empresa + título.
     const LOGO = 56;
-    if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* logo opcional */ } }
-    const tx = logoDataUrl ? MARGIN + LOGO + 14 : MARGIN;
+    if (logoDataUrl) { dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO); }
+    const tx = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
     doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

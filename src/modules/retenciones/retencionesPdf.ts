@@ -19,6 +19,7 @@ import {
   etiquetaQuincena, formatearRif, limiteEntregaComprobante, ROL_LABEL, TIPO_RETENCION_LABEL,
 } from './calculosRetenciones';
 import type { ParametrosFiscales, RetencionLibro } from './libroRetenciones.repository';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const num = (v: number | null | undefined, dec = 2) =>
   Number(v ?? 0).toLocaleString('es-VE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -37,17 +38,17 @@ export async function descargarComprobanteRetencionPdf(
   r: RetencionLibro,
   params: ParametrosFiscales | null,
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 44); }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe(`COMPROBANTE DE ${TIPO_RETENCION_LABEL[r.tipo].toUpperCase()}`), W / 2, y + 16, { align: 'center' });
@@ -177,17 +178,17 @@ export async function descargarLibroRetencionesPdf(
   filas: RetencionLibro[],
   opciones: { desde: string; hasta: string; params: ParametrosFiscales | null },
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 40, 40); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 40); }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe('LIBRO DE RETENCIONES E IMPUESTOS'), W / 2, y + 16, { align: 'center' });

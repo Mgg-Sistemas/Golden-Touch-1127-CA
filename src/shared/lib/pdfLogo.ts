@@ -1,4 +1,60 @@
+import type { jsPDF } from 'jspdf';
+
 let cachedDataUrl: string | null = null;
+let cachedPdfDataUrl: string | null = null;
+
+/**
+ * Logo de los DOCUMENTOS PDF (05/10/2026): «Logo Golden Touch.jpg», el
+ * horizontal con el nombre y el RIF. Solo los PDF: la pantalla, el carnet y
+ * el Excel siguen con LOGO.jpg.
+ *
+ * Es casi tres veces más ancho que alto, así que NO se dibuja en el cuadrado
+ * del logo anterior (saldría aplastado): `dibujarLogoPdf` lo pone a su
+ * proporción y `anchoLogoPdf` dice cuánto ocupa, para correr el título.
+ */
+export const LOGO_PDF_PROPORCION = 1696 / 608;
+/** Alto del logo respecto del cuadrado que ocupaba el anterior. */
+const LOGO_PDF_ALTO = 0.7;
+
+export function anchoLogoPdf(caja: number): number {
+  return caja * LOGO_PDF_ALTO * LOGO_PDF_PROPORCION;
+}
+
+/** Dibuja el logo de PDF centrado en el alto de `caja`, a su proporción. Nunca falla. */
+export function dibujarLogoPdf(doc: jsPDF, dataUrl: string, x: number, y: number, caja: number): void {
+  const h = caja * LOGO_PDF_ALTO;
+  try { doc.addImage(dataUrl, 'JPEG', x, y + (caja - h) / 2, h * LOGO_PDF_PROPORCION, h); } catch { /* el logo es opcional */ }
+}
+
+export async function loadLogoPdfDataUrl(): Promise<string> {
+  if (cachedPdfDataUrl) return cachedPdfDataUrl;
+  const resp = await fetch(`${import.meta.env.BASE_URL}${encodeURIComponent('Logo Golden Touch.jpg')}`);
+  if (!resp.ok) throw new Error(`No se pudo cargar el logo (${resp.status})`);
+  const objectUrl = URL.createObjectURL(await resp.blob());
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('No se pudo decodificar el logo'));
+      el.src = objectUrl;
+    });
+    // El original pesa ~320 KB; a 1000 px de ancho se ve igual de nítido
+    // impreso y no engorda cada PDF.
+    const ancho = Math.min(1000, img.naturalWidth || 1000);
+    const canvas = document.createElement('canvas');
+    canvas.width = ancho;
+    canvas.height = Math.round(ancho / LOGO_PDF_PROPORCION);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D no disponible');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    cachedPdfDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    return cachedPdfDataUrl;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 let cachedFirmaDataUrl: string | null | undefined; // undefined = aún no intentado; null = no existe
 let cachedFirma2: { dataUrl: string; w: number; h: number } | null | undefined;
 

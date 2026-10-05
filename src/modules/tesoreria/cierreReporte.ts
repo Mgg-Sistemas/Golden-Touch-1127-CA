@@ -3,9 +3,9 @@
    Toma el snapshot del cierre (ingresos, gastos, resultado, CxC,
    CxP y saldos disponibles) y arma un reporte descargable. Solo
    se descarga cuando el usuario aprieta el botón (nunca automático).
-   El logo del PDF es el de Golden Touch (loadLogoDataUrl).
+   El logo del PDF es el de Golden Touch (loadLogoPdfDataUrl).
    ============================================================ */
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { LOGO_PDF_PROPORCION, loadLogoPdfDataUrl } from '@/shared/lib/pdfLogo';
 import type { CellHookData } from 'jspdf-autotable';
 import type { ReporteCierre } from './cierres.repository';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
@@ -30,7 +30,7 @@ export function periodoLargo(periodo: string): string {
 
 async function construirDoc(r: ReporteCierre) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -39,7 +39,7 @@ async function construirDoc(r: ReporteCierre) {
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'PNG', MARGIN, y, 90, 36); } catch { /* logo opcional */ } }
+  if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, 36 * LOGO_PDF_PROPORCION, 36); } catch { /* logo opcional */ } }
   doc.setFontSize(16); doc.setFont('helvetica', 'bold');
   doc.text('CIERRE DE MES', PAGE_W - MARGIN, y + 14, { align: 'right' });
   doc.setFontSize(11); doc.setFont('helvetica', 'normal');

@@ -13,6 +13,7 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { etiquetaVariacion, variacionSueldo } from './sueldos';
 import type { Personal, PersonalSueldo } from '@/shared/lib/types';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const usd = (v: number | null | undefined) =>
   `$ ${Number(v ?? 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -26,17 +27,17 @@ export async function descargarHistorialSueldoPdf(
   persona: Personal,
   filas: PersonalSueldo[],
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 40, 40); } catch { /* el logo es opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 40); }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe('HISTORIAL DE SUELDO'), W / 2, y + 16, { align: 'center' });

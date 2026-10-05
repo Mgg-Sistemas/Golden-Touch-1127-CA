@@ -8,6 +8,7 @@ import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
 import { previewPdf, previewExcel } from '@/shared/lib/reportePreview';
 import { listAlmacenes, listExistencias, nombreCortoAlmacen } from './almacenes.repository';
 import { supabase } from '@/shared/lib/supabase';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 interface FilaAlmacen extends Producto { _valor?: number }
 
@@ -73,18 +74,18 @@ export async function descargarAlmacenExcel(almacen: string, rows: Producto[]): 
 }
 
 export async function descargarAlmacenPdf(almacen: string, rows: Producto[]): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { money, num, dateTime }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { money, num, dateTime }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 60 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 46); }
+  const tx = logo ? MARGIN + anchoLogoPdf(46) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text(`Inventario · Almacén ${almacen}`, tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
@@ -150,7 +151,7 @@ function ordenJerarquico(sedeAlmacenes: Almacen[], todos: Almacen[]): NodoAlmace
 }
 
 export async function descargarReporteAlmacenesPdf(): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { money, num, dateTime }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { money, num, dateTime }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
@@ -191,9 +192,9 @@ export async function descargarReporteAlmacenesPdf(): Promise<void> {
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  const logo = await loadLogoDataUrl().catch(() => null);
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 60 : MARGIN;
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 46); }
+  const tx = logo ? MARGIN + anchoLogoPdf(46) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Inventario · Reporte por almacenes y subalmacenes', tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

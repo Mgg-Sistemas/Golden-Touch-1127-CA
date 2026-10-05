@@ -5,23 +5,24 @@
    ============================================================ */
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 /** Inventario único: el almacén guardado es `'General'`; se imprime «Inventario General». */
 const invLabel = (a?: string | null): string => (a && a.trim().toLowerCase() === 'general' ? 'Inventario General' : (a || '—'));
 
 async function nuevoDoc(titulo: string) {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 60 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 46); }
+  const tx = logo ? MARGIN + anchoLogoPdf(46) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text(titulo, tx, y + 18);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
@@ -155,13 +156,13 @@ export async function descargarOrdenSalidaPdf(
    *  o si el email no se encuentra, se usa el valor tal cual. */
   resolverNombre?: (email?: string | null) => string,
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl, loadFirma2DataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl, loadFirma2DataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
 
   const esTraslado = sol.scope === 'traslado';
   const cant = Number(sol.cantidad) || 0;
@@ -199,8 +200,8 @@ export async function descargarOrdenSalidaPdf(
 
   // ── Encabezado: logo + título + N° ──
   const LOGO = 60;
-  const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* opcional */ } }
+  const TX = logo ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, LOGO); }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
   doc.text(esTraslado ? 'ORDEN DE TRASLADO' : 'ORDEN DE SALIDA', TX, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);

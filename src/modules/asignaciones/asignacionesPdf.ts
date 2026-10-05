@@ -13,6 +13,7 @@ import {
   CATEGORIA, CONDICION_LABEL, ESTADO_LABEL, detalleCorto, nombreDe, ordenarAsignaciones, porCategoria,
   resumenAsignaciones, valorTotal, type Asignacion, type PersonaMin,
 } from './asignacionesReglas';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 const usd = (v: number) => `$ ${Number(v || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -37,10 +38,10 @@ export const nombreArchivoPdf = (base: string) =>
   `${base.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}.pdf`;
 
 export async function descargarAsignacionesPdf(op: OpcionesAsignacionesPdf): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'), import('jspdf-autotable'), import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
@@ -48,7 +49,7 @@ export async function descargarAsignacionesPdf(op: OpcionesAsignacionesPdf): Pro
   let y = M;
   const fin = () => (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', M, y, 40, 40); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, M, y, 40); }
   doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe(op.titulo.toUpperCase()), W / 2, y + 16, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

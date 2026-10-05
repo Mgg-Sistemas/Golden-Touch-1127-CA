@@ -7,7 +7,7 @@
      · Kg neto finales seco y limpio · Tenor Sn (lecturas) · Kg Neto de Sn.
    Vista previa embebida + descarga (previewPdf).
    ============================================================ */
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 
 export interface ResumenRecepcionData {
@@ -43,7 +43,7 @@ const pct = (n: number) => `${(Number.isFinite(n) ? Number(n) : 0).toLocaleStrin
 
 async function construirDoc(d: ResumenRecepcionData) {
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -53,8 +53,8 @@ async function construirDoc(d: ResumenRecepcionData) {
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 58 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 46); }
+  const tx = logo ? MARGIN + anchoLogoPdf(46) + 12 : MARGIN;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('Recepción de mineral · Resumen', tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

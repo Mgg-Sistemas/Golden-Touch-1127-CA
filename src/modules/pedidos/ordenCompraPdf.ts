@@ -1,6 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
-import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, loadFirmaDataUrl, loadFirma2DataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
@@ -107,7 +107,7 @@ function nombrePersona(email: string | null | undefined, map: Map<string, string
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personasMap }, logoDataUrl, firmaGerente, firmaLeydis, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     loadFirmaDataUrl().catch(() => null),     // JESUS LOZADA (admin/gerente) · firma.png
     loadFirma2DataUrl().catch(() => null),    // LEYDIS RENGEL (jefa de administración) · firma2.jpeg
     import('jspdf'),
@@ -144,10 +144,10 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   let y = MARGIN;
 
   const LOGO_SIZE = 60;
-  const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
+  const TEXT_X = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO_SIZE) + 14 : MARGIN;
   if (logoDataUrl) {
     try {
-      doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO_SIZE, LOGO_SIZE);
+      dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO_SIZE);
     } catch {
       /* logo opcional */
     }

@@ -15,6 +15,7 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
 import type { ApartadoCuadro, ApartadoTexto, ColumnaCuadro, InformeGeodesta } from '@/shared/lib/types';
+import { LOGO_PDF_PROPORCION, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 
 export const ANCHO_UTIL = 532;   // 612 (carta) − 2 × 40 de margen
 const ANCHO_MINIMO_COL = 36;
@@ -99,12 +100,12 @@ export async function construirInformePdf(
   /** Recoge los ids que SÍ llegaron pero no se pudieron dibujar (archivo dañado). */
   fallidas?: Set<string>,
 ): Promise<Doc> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logoGt = inf.logo_gt ? await loadLogoDataUrl().catch(() => null) : null;
+  const logoGt = inf.logo_gt ? await loadLogoPdfDataUrl().catch(() => null) : null;
   const logoCvm = inf.logo_cvm ? await cargarLogoCvm() : null;
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -122,9 +123,10 @@ export async function construirInformePdf(
 
   /* 1. Membrete: logos a los lados y el bloque de texto entre ellos */
   const LOGO = 46;
-  const margenIzq = inf.logo_gt ? LOGO + 10 : 0;
+  const LOGO_GT_W = anchoLogoPdf(LOGO); // el de los PDF es horizontal
+  const margenIzq = inf.logo_gt ? LOGO_GT_W + 10 : 0;
   const margenDer = inf.logo_cvm ? LOGO + 10 : 0;
-  if (logoGt) dibujarImagen(doc, logoGt, MARGIN, y, LOGO, LOGO);
+  if (logoGt) dibujarImagen(doc, logoGt, MARGIN, y + (LOGO - LOGO_GT_W / LOGO_PDF_PROPORCION) / 2, LOGO_GT_W, LOGO);
   if (inf.logo_cvm) {
     const xCvm = W - MARGIN - LOGO;
     if (!(logoCvm && dibujarImagen(doc, logoCvm, xCvm, y, LOGO, LOGO))) {

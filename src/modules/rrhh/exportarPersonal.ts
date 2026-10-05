@@ -161,19 +161,19 @@ export async function descargarPersonalPdf(personas: Personal[], claves: string[
   validar(personas, claves);
   const { encabezados, filas } = tablaPersonal(personas, claves);
   const campos = camposElegidos(claves);
-  const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl, dibujarLogoPdf }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   // Pocas columnas caben en vertical; muchas, en horizontal.
   const anchoTotal = campos.reduce((a, c) => a + c.ancho, 0);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: anchoTotal > 90 ? 'landscape' : 'portrait' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 52, 52); } catch { /* el logo es opcional */ } }
+  if (logo) dibujarLogoPdf(doc, logo, MARGIN, y, 52);
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe(titulo.toUpperCase()), W / 2, y + 20, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

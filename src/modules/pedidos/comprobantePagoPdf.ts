@@ -7,7 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, montoMoneda } from '@/shared/lib/format';
-import { loadLogoDataUrl, loadFirmaDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, loadFirmaDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type { AbonoCredito, Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
@@ -47,7 +47,7 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
       }
       return map;
     })(),
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     loadFirmaDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
@@ -67,8 +67,8 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
 
   // ─── Cabecera ───
   const LOGO_SIZE = 56;
-  const TEXT_X = logoDataUrl ? MARGIN + LOGO_SIZE + 14 : MARGIN;
-  if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'JPEG', MARGIN, y, LOGO_SIZE, LOGO_SIZE); } catch { /* opcional */ } }
+  const TEXT_X = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO_SIZE) + 14 : MARGIN;
+  if (logoDataUrl) { dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO_SIZE); }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(19);
   doc.text('COMPROBANTE DE PAGO', TEXT_X, y + 20);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);

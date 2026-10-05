@@ -21,6 +21,7 @@ import { calcular } from '@/shared/lib/calculo';
 import {
   aceptaLetra, borrarUltimo, desdeBolivares, mapasDeCalculo, nombreDeCalculo, simboloDeCalculo,
 } from './tasasParaCalculo';
+import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 /* Aquí vivía `evalExpr`, un shunting-yard sobre números planos, hasta el
    04/09/2026. Hacía `replace(/,/g, '.')` sobre toda la expresión y leía con
    `parseFloat`, así que «2.000» —dos mil, con el separador de miles de aquí—
@@ -252,12 +253,12 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
         import('jspdf'), import('jspdf-autotable'), import('@/shared/lib/pdfLogo'),
       ]);
       const autoTable = autoTableMod.default;
-      const logo = await logoMod.loadLogoDataUrl().catch(() => null);
+      const logo = await logoMod.loadLogoPdfDataUrl().catch(() => null);
       const doc = new jsPDF({ unit: 'pt', format: 'letter' });
       const PAGE_W = doc.internal.pageSize.getWidth();
       const MARGIN = 56.69; let y = MARGIN; // 2 cm por lado
-      const LOGO = 60; const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
-      if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* logo opcional */ } }
+      const LOGO = 60; const TX = logo ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
+      if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, LOGO); }
       doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
       doc.text('CALCULADORA · OPERACIONES', TX, y + 18);
       doc.setFontSize(10); doc.setFont('helvetica', 'normal');

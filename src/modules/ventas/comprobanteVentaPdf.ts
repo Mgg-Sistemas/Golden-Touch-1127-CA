@@ -26,7 +26,7 @@
    ============================================================ */
 import type { jsPDF as JsPdf } from 'jspdf';
 import { dateTime, montoMoneda, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import {
@@ -83,9 +83,9 @@ export function encabezado(doc: JsPdf, logo: string | null, titulo: string, codi
   const PAGE_W = doc.internal.pageSize.getWidth();
   const y = MARGIN;
   const LOGO = 52;
-  const tx = logo ? MARGIN + LOGO + 12 : MARGIN;
+  const tx = logo ? MARGIN + anchoLogoPdf(LOGO) + 12 : MARGIN;
   if (logo) {
-    try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* el logo es opcional */ }
+    dibujarLogoPdf(doc, logo, MARGIN, y, LOGO);
   }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
@@ -305,7 +305,7 @@ export async function descargarComprobanteVentaPdf(
   datos: VentaCompleta, opciones: OpcionesComprobante = {},
 ): Promise<void> {
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);

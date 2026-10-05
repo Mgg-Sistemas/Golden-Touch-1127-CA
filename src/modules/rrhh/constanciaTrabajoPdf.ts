@@ -7,7 +7,7 @@
    ============================================================ */
 import type { Personal } from '@/shared/lib/types';
 import { money } from '@/shared/lib/format';
-import { loadLogoDataUrl, loadFirmaDataUrl, loadFirma2DataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, loadFirmaDataUrl, loadFirma2DataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
@@ -49,7 +49,7 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   const { persona: p } = input;
   const [{ jsPDF }, logo, firmaGerente, firmaLeydis] = await Promise.all([
     import('jspdf'),
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     input.firmante === 'gerente' ? loadFirmaDataUrl().catch(() => null) : Promise.resolve(null),
     input.firmante === 'leydis' ? loadFirma2DataUrl().catch(() => null) : Promise.resolve(null),
   ]);
@@ -62,8 +62,8 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   let y = MARGIN;
 
   // ─── Membrete ───
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 54, 54); } catch { /* opcional */ } }
-  const tx = logo ? MARGIN + 68 : MARGIN;
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 54); }
+  const tx = logo ? MARGIN + anchoLogoPdf(54) + 12 : MARGIN;
   doc.setTextColor(20, 20, 20);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 20);

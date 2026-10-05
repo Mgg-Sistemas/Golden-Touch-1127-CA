@@ -22,6 +22,7 @@ import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { ESTADO_STOCK_LABEL } from './controlDistribucion';
 import { CLASE_LABEL, type Control, type ControlProducto, type MovimientoDetalle } from './controlDistribucion.repository';
 import { totalesDetalle } from './detalleDistribucion';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 const num = (v: number, dec = 2) =>
   Number(v ?? 0).toLocaleString('es-VE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -51,18 +52,18 @@ export async function descargarControlDistribucionPdf(
     detalle?: MovimientoDetalle[];
   },
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 44); }
 
   const titulo = pdfSafe(producto ? `CONTROL DE DISTRIBUCIÓN · ${producto.nombre}` : 'CONTROL DE DISTRIBUCIÓN DEL MERCADO');
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);

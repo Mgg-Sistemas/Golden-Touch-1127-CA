@@ -37,7 +37,7 @@
    agregue de aquí en más va en la hoja 2, que sí tiene aire. Un campo de más en
    la hoja 1 empuja el contenido fuera del papel sin que nadie lo note.
    ============================================================ */
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { SEGMENTOS_DOCUMENTOS } from './documentosAConsignar';
@@ -110,7 +110,7 @@ function siNo(doc: Doc, x: number, y: number): number {
 export async function descargarHojaIngresoPdf(): Promise<void> {
   const [{ jsPDF }, logo] = await Promise.all([
     import('jspdf'),
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -128,8 +128,8 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   /** El membrete, igual en las dos hojas. Devuelve dónde sigue el contenido. */
   function membrete(y0: number): number {
     let y = y0;
-    if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
-    const tx = logo ? MARGIN + 56 : MARGIN;
+    if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 44); }
+    const tx = logo ? MARGIN + anchoLogoPdf(44) + 12 : MARGIN;
     doc.setTextColor(20, 20, 20);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
     doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 16);

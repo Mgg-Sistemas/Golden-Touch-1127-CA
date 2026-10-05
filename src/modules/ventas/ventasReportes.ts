@@ -25,7 +25,7 @@
    ============================================================ */
 import type { jsPDF as JsPDFType } from 'jspdf';
 import { date, dateTime, money, montoMoneda, num } from '@/shared/lib/format';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { listProductos } from '@/modules/inventario/inventario.repository';
@@ -175,7 +175,7 @@ async function nuevoDoc(
   orientation: 'portrait' | 'landscape' = 'portrait',
 ) {
   const [logo, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoDataUrl().catch(() => null),
+    loadLogoPdfDataUrl().catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
@@ -186,9 +186,9 @@ async function nuevoDoc(
 
   const LOGO = 48;
   if (logo) {
-    try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* logo opcional */ }
+    dibujarLogoPdf(doc, logo, MARGIN, y, LOGO);
   }
-  const tx = logo ? MARGIN + LOGO + 14 : MARGIN;
+  const tx = logo ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(20);
