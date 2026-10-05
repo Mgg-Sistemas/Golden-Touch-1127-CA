@@ -185,6 +185,7 @@ function eventLabel(ev: string): string {
       op_repartida_parcial: 'Repartida en parte (quedaron ítems sin asignar)',
       oc_creada_reparto: 'OC creada por reparto',
       reparto_revertido: 'Reparto revertido (vuelve a la orden madre)',
+      iva_restituido: 'IVA de la oferta restituido (el total ya lo incluía)',
       // Escritos así antes de corregir el nombre del evento; se siguen traduciendo.
       confirmada_confirmada_metodo: 'OC confirmada · indicar método de pago',
       confirmada_confirmada_por_recibir: 'OC confirmada · pendiente por recepción',
@@ -223,6 +224,7 @@ function eventClass(ev: string): string {
       op_repartida_parcial: 'warn',
       oc_creada_reparto: 'info',
       reparto_revertido: 'warn',
+      iva_restituido: 'info',
       confirmada_confirmada_metodo: 'info',
       confirmada_confirmada_por_recibir: 'info',
       confirmada_confirmada_cuenta_abierta: 'warn',
@@ -1417,15 +1419,13 @@ function MetodoPagoModal({
     const p = Number(ivaPct) || 0;
     setIvaMontoStr(p > 0 && baseNum > 0 ? String(Math.round(baseNum * (p / 100) * 100) / 100) : '');
   }, [ivaPct, baseNum]);
-  // El IVA solo entra si el comprobante es FACTURA. Esto tiene que estar aquí y no
-  // solo en el payload: hasta el 10/09/2026 la pantalla calculaba (y mostraba) el
-  // total CON IVA aunque el comprobante fuera nota de entrega, y recién al enviar
-  // lo descartaba. La OC quedaba por menos de lo cotizado sin que nadie lo viera, y
-  // el IGTF se guardaba calculado sobre una base que incluía ese IVA fantasma.
-  const ivaActivo = conIva && comprobanteTipo === 'factura';
+  // El IVA NO depende del comprobante (05/10/2026): con nota de entrega el proveedor
+  // también cobra el IVA de su oferta y Tesorería lo paga. Antes, elegir nota de entrega
+  // lo borraba de la OC mientras el total lo seguía trayendo, y el kanban/PDF/Tesorería
+  // mostraban un total sin IVA desglosado. Llega precargado desde la oferta; se quita a
+  // mano con «Sin IVA» si el proveedor de verdad no lo cobra.
+  const ivaActivo = conIva;
   const ivaMonto = ivaActivo ? Math.max(0, Math.round((Number(ivaMontoStr) || 0) * 100) / 100) : 0;
-  // La oferta traía IVA y el comprobante elegido lo deja fuera: hay que decirlo.
-  const ivaOfertaPerdido = !ivaActivo ? ivaPrevOc : 0;
   function onIvaPct(v: string) { ivaManualRef.current = false; setConIva(true); setIvaPct(v); }
   function onIvaMonto(v: string) {
     ivaManualRef.current = true; setConIva(true); setIvaMontoStr(v);
@@ -1613,19 +1613,8 @@ function MetodoPagoModal({
             <span style={{ fontSize: '.86rem' }}><strong>Factura</strong></span>
           </label>
         </div>
-        {/* La nota de entrega no es documento fiscal: no lleva IVA. Si la oferta del
-            proveedor SÍ lo traía, el total a pagar baja, y eso hay que verlo antes
-            de firmar, no descubrirlo después en el kanban. */}
-        {ivaOfertaPerdido > 0 && (
-          <div className="badge warning" style={{ display: 'block', padding: '.55rem .7rem', marginTop: '.6rem', fontSize: '.8rem' }}>
-            ⚠ La oferta aceptada trae <strong>IVA de {mm(ivaOfertaPerdido)}</strong> y la <strong>nota de entrega no lleva IVA</strong>.
-            Si sigues así, la OC se confirma por <strong>{mm(totalConImp - descuentoMonto)}</strong> en vez de{' '}
-            <strong>{mm(baseNum + ivaPrevOc + igtfMonto - descuentoMonto)}</strong>.
-            Si el proveedor te va a cobrar el IVA, elige <strong>Factura</strong>.
-          </div>
-        )}
-        {comprobanteTipo === 'factura' && (
-          <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
+        {/* IVA: con nota de entrega o con factura (la oferta lo trae precargado). */}
+        <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
             <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>IVA</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.5rem', marginBottom: '.6rem' }}>
               <label className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .7rem', cursor: 'pointer', borderColor: !conIva ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
@@ -1657,6 +1646,15 @@ function MetodoPagoModal({
                 ⚠ Estás aplicando <strong>{ivaPctNum.toLocaleString('es-VE', { maximumFractionDigits: 2 })}%</strong> en vez del 16% general — verifica que coincida con la factura.
               </div>
             )}
+            {!conIva && ivaPrevOc > 0 && (
+              <div className="badge warning" style={{ display: 'block', padding: '.55rem .7rem', marginBottom: '.6rem', fontSize: '.8rem' }}>
+                ⚠ La oferta aceptada trae <strong>IVA de {mm(ivaPrevOc)}</strong>. Con «Sin IVA» la OC baja a{' '}
+                <strong>{mm(totalConImp - descuentoMonto)}</strong>. Déjalo solo si el proveedor no cobra el IVA.
+              </div>
+            )}
+        </div>
+        {comprobanteTipo === 'factura' && (
+          <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
             <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención</div>
             <div style={{ display: 'grid', gap: '.35rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
@@ -2275,6 +2273,11 @@ const KanbanCard = memo(function KanbanCard({
         <span className="total">{montoMoneda(orden.total, orden.total_moneda)}</span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
       </div>
+      {orden.iva_aplicado && (Number(orden.iva_monto) || 0) > 0 && (
+        <div className="muted mono" style={{ fontSize: '.7rem', marginTop: '.15rem' }} title="El total ya incluye el IVA">
+          incl. IVA{Number(orden.iva_pct) > 0 ? ` ${Number(orden.iva_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%` : ''} · {montoMoneda(Number(orden.iva_monto), orden.total_moneda)}
+        </div>
+      )}
       {orden.tipo === 'servicio' && (Number(orden.anticipo_monto) || 0) > 0 && orden.estado !== 'finalizada' && (
         <div className="muted mono" style={{ fontSize: '.7rem', marginTop: '.2rem', textAlign: 'right' }}>
           💵 anticipo −{montoMoneda(Number(orden.abonado_total) || 0, orden.total_moneda)} · <strong style={{ color: 'var(--brand, #ff8a00)' }}>pendiente {montoMoneda(Math.max(0, (Number(orden.total) || 0) - (Number(orden.abonado_total) || 0)), orden.total_moneda)}</strong>

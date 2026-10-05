@@ -1099,9 +1099,12 @@ export async function indicarMetodoPago(
   const igtfPrev = o.igtf_aplicado ? Math.max(0, Number(o.igtf_monto) || 0) : 0;
   const grossBase = pagaEnDivisa ? totalDivisa : (Number(o.total) || 0);
   const baseTotal = Math.max(0, Math.round((grossBase - ivaPrev - igtfPrev) * 100) / 100);
-  // OC por factura con IVA: suma al total. El % es de referencia (16 por defecto) y el
-  // MONTO manda (se puede indicar por % o a mano), tal cual lo calculó/ajustó la UI.
-  const aplicaIva = comprobanteTipo === 'factura' && !!soporte?.conIva;
+  // IVA: suma al total. El % es de referencia (16 por defecto) y el MONTO manda (se puede
+  // indicar por % o a mano), tal cual lo calculó/ajustó la UI. NO depende del comprobante
+  // (05/10/2026): con nota de entrega el proveedor también cobra el IVA de su oferta, y
+  // Tesorería lo pagaba, pero aquí se borraba el IVA dejando el total con él adentro
+  // (OC-2026-0134/0135/0136 y 9 más). Llega precargado desde la oferta.
+  const aplicaIva = !!soporte?.conIva;
   const ivaPct = aplicaIva
     ? Math.max(0, Math.min(100, Math.round((Number(soporte?.ivaPct ?? 16) || 0) * 100) / 100))
     : 0;
@@ -1141,8 +1144,9 @@ export async function indicarMetodoPago(
     descuento_pago_aplicado: aplicaDescuento,
     descuento_pago_monto: aplicaDescuento ? descuentoMonto : null,
     pago_en_divisa: pagaEnDivisa,
-    // Al pagar en divisa o al aplicar IVA/IGTF/descuento, el `total` de la OC pasa a ser el monto final.
-    ...(pagaEnDivisa || aplicaIva || aplicaIgtf || aplicaDescuento ? { total: totalFinal } : {}),
+    // El `total` SIEMPRE se reescribe con base + IVA + IGTF − descuento: si solo se escribiera
+    // al aplicar algo, quitar un impuesto dejaba el total viejo con el impuesto adentro.
+    total: totalFinal,
     historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, iva_aplicado: aplicaIva, iva_pct: ivaPct, iva_monto: ivaMonto, igtf_aplicado: aplicaIgtf, igtf_pct: igtfPct, igtf_monto: igtfMonto, descuento_pago_aplicado: aplicaDescuento, descuento_pago_monto: descuentoMonto, pago_en_divisa: pagaEnDivisa }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
