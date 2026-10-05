@@ -6,7 +6,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { EstadoGenerico, Orden, Producto, RecetaFundicion } from '@/shared/lib/types';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from './categoriaReal';
-import { esDelDeposito, type Deposito } from './depositos';
+import { ALMACEN_MINA, esDelDeposito, type Deposito } from './depositos';
 
 export interface ProductoInput {
   sku: string;
@@ -362,10 +362,13 @@ export async function createProducto(input: ProductoInput): Promise<Producto> {
     // Sin este mensaje el usuario solo vería el error crudo de Postgres y no
     // entendería por qué le rechaza un nombre que en pantalla "no existe":
     // el que ya está cargado puede tener otra tilde u otras mayúsculas.
-    if ((error as { code?: string }).code === '23505' && /nombre_sin_acentos/.test(error.message ?? '')) {
+    // Desde el 05/10/2026 el índice es por depósito (productos_nombre_unico_por_deposito):
+    // el Depósito Mina puede repetir un nombre del General, pero no dentro de sí mismo.
+    if ((error as { code?: string }).code === '23505' && /nombre_sin_acentos|nombre_unico_por_deposito/.test(error.message ?? '')) {
+      const donde = input.almacen === ALMACEN_MINA ? 'el Depósito Mina' : 'el inventario';
       throw new Error(
-        `Ya existe un producto llamado «${input.nombre}» (los acentos y las mayúsculas no cuentan: ` +
-        'si está cargado como «PLÁTANO», no se puede crear «PLATANO»). Búscalo en el inventario y usa ese.',
+        `Ya existe un producto llamado «${input.nombre}» en ${donde} (los acentos y las mayúsculas no cuentan: ` +
+        `si está cargado como «PLÁTANO», no se puede crear «PLATANO»). Búscalo en ${donde} y usa ese.`,
       );
     }
     throw error;
@@ -583,7 +586,8 @@ export async function buscarProductosParecidos(
   // Si la consulta falla NO se bloquea la creación: esto es una ayuda, no un
   // control. Un aviso que no se pudo calcular no puede impedir trabajar.
   if (error) return [];
-  return ((data ?? []) as ProductoParecido[]).map((r) => ({
+  // Lo de la Mina no se ofrece: este aviso es de Pedidos, que compra para el General.
+  return ((data ?? []) as ProductoParecido[]).filter((r) => r.almacen !== ALMACEN_MINA).map((r) => ({
     ...r,
     stock: Number(r.stock) || 0,
     parecido: Number(r.parecido) || 0,
