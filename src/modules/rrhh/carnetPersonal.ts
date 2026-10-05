@@ -172,7 +172,18 @@ export function nombreParaCarnet(p: { nombre?: string | null; apellido?: string 
   return [primeraParte(p.nombre), primeraParte(p.apellido)].filter(Boolean).join(' ');
 }
 
-/** Texto que va DENTRO del QR: datos de la persona en texto legible al escanear. */
+/**
+ * Lo que va DENTRO del QR (05/10/2026): el enlace a /c/<token>. Al escanearlo,
+ * la página le pregunta a la base cómo está la persona: activa muestra sus datos,
+ * desactivada muestra solo el logo de la empresa (CarnetPublicoPage).
+ * Sin token (no debería pasar: la base lo pone sola) queda el texto de antes.
+ */
+export function contenidoQrPersona(p: Personal, origen = typeof window !== 'undefined' ? window.location.origin : ''): string {
+  if (p.carnet_token && origen) return `${origen}${import.meta.env.BASE_URL.replace(/\/$/, '')}/c/${p.carnet_token}`;
+  return textoQrPersona(p);
+}
+
+/** Texto con los datos de la persona (el QR de antes; queda de respaldo). */
 export function textoQrPersona(p: Personal): string {
   const nombre = `${p.nombre} ${p.apellido ?? ''}`.trim();
   const lineas = [
@@ -335,7 +346,7 @@ export async function generarCarnetPersonalDataUrl(
     ctx.stroke();
   }
 
-  const qrDataUrl = await QRCode.toDataURL(textoQrPersona(p), {
+  const qrDataUrl = await QRCode.toDataURL(contenidoQrPersona(p), {
     errorCorrectionLevel: 'M',
     margin: 1,
     width: 280,

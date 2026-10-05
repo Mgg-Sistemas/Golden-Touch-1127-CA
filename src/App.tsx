@@ -29,6 +29,7 @@ const VentasPage = lazy(() => import('./modules/ventas/VentasPage').then((m) => 
 const RetencionesPage = lazy(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
 const RecepcionesPage = lazy(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
 const UsuariosPage = lazy(() => import('./modules/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
+const CarnetPublicoPage = lazy(() => import('./modules/rrhh/CarnetPublicoPage').then((m) => ({ default: m.CarnetPublicoPage })));
 const AjustesPage = lazy(() => import('./modules/ajustes/AjustesPage').then((m) => ({ default: m.AjustesPage })));
 const AuditoriaPage = lazy(() => import('./modules/auditoria/AuditoriaPage').then((m) => ({ default: m.AuditoriaPage })));
 const MaquinariaPage = lazy(() => import('./modules/maquinaria/MaquinariaPage').then((m) => ({ default: m.MaquinariaPage })));
@@ -58,6 +59,8 @@ export function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        {/* Lo que abre el QR del carnet: público, sin sesión. */}
+        <Route path="/c/:token" element={<Suspense fallback={<PageLoader />}><CarnetPublicoPage /></Suspense>} />
         <Route
           path="/cambiar-clave"
           element={

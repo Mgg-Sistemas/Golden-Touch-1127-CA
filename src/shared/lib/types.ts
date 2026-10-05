@@ -1416,6 +1416,8 @@ export interface Personal {
   direccion?: string | null;
   /** Hasta cuándo vale el carnet (va impreso en el frente). Ver vigenciaCarnet.ts. */
   carnet_vence?: string | null;
+  /** Lo que lleva el QR del carnet (/c/<token>). Lo pone la base. */
+  carnet_token?: string | null;
   /** Contacto de la persona (para el carnet y el QR). */
   telefono?: string | null;
   /** Correo del TRABAJADOR (el de la empresa vive en shared/lib/empresa.ts).
