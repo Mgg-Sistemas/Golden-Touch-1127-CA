@@ -20,7 +20,24 @@ export const MAX_ADJUNTOS_SALIDA = 4;
 export const TOPE_ADJUNTO_BYTES = 10 * 1024 * 1024;
 
 /** A qué tipo de solicitud pertenece el adjunto. */
-export type ModuloAdjuntoSalida = 'salida' | 'traslado' | 'salida_temporal' | 'tanque_mov' | 'cocina_mov';
+export type ModuloAdjuntoSalida = 'salida' | 'traslado' | 'salida_temporal' | 'tanque_mov' | 'cocina_mov' | 'cocina_mercado';
+
+/** Lo que una regla propia necesita de cada archivo: su tipo y su nombre. */
+export interface ArchivoDeRegla { tipo: string; nombre: string }
+
+/**
+ * Una regla de cupo distinta de «hasta 4 de cualquier cosa». La usa, por ejemplo, la
+ * lista física del mercado de Cocina: 4 fotos o 1 PDF, no las dos cosas.
+ */
+export interface ReglaAdjuntos {
+  max: number;
+  /** Qué está mal si a los actuales se les suman los nuevos, o null si entran. */
+  error: (actuales: ArchivoDeRegla[], nuevos: ArchivoDeRegla[]) => string | null;
+  /** Cuántos más se pueden agregar. */
+  libres: (actuales: ArchivoDeRegla[]) => number;
+  /** El texto de ayuda cuando no hay ninguno. */
+  ayuda: string;
+}
 
 /** Lo mínimo de un archivo que hace falta para decidir si sirve. */
 export interface ArchivoCandidato {
