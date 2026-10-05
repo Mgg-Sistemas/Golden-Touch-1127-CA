@@ -196,8 +196,25 @@ export function previewArchivo(url: string, filename = 'archivo'): void {
   };
 }
 
+/**
+ * Igual que `previewExcel`, pero para un .xlsx YA ARMADO (bytes), p. ej. uno
+ * hecho con ExcelJS para poder llevar el logo. La vista previa lo lee con
+ * SheetJS (sin imágenes); lo que se descarga es el archivo tal cual, con logo.
+ */
+export async function previewExcelArchivo(bytes: ArrayBuffer, filename: string): Promise<void> {
+  const XLSX = await import('xlsx-js-style');
+  const wb = XLSX.read(bytes, { type: 'array' });
+  await previewExcel(wb, filename, () => {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  });
+}
+
 /** Muestra una vista previa (primera hoja como tabla) del Excel; descarga solo si el usuario lo pide. */
-export async function previewExcel(wbInput: WorkBook | unknown, filename: string): Promise<void> {
+export async function previewExcel(wbInput: WorkBook | unknown, filename: string, descargar?: () => void): Promise<void> {
   // Los generadores castean su instancia de xlsx-js-style a un tipo local, por lo que
   // el `wb` llega como `unknown`; aquí lo normalizamos a WorkBook (mismo objeto real).
   const wb = wbInput as WorkBook;
@@ -218,5 +235,5 @@ export async function previewExcel(wbInput: WorkBook | unknown, filename: string
     });
   });
   ui.body.appendChild(wrap);
-  ui.btnDl.onclick = () => XLSX.writeFile(wb, filename);
+  ui.btnDl.onclick = descargar ?? (() => XLSX.writeFile(wb, filename));
 }

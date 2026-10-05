@@ -9,7 +9,7 @@
    escribe Windows-1252).
    ============================================================ */
 import type { Personal } from '@/shared/lib/types';
-import { previewExcel, previewPdf } from '@/shared/lib/reportePreview';
+import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { EMPRESAS, ESTADOS_CIVILES, GENEROS, PARENTESCOS, edad } from './fichaPersonal';
 import { GRADOS } from './instruccionYTrabajo';
@@ -87,32 +87,74 @@ function validar(personas: Personal[], claves: string[]) {
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * Excel con el LOGO arriba a la izquierda, columna «N°» para contar y filas
+ * con aire y bordes (05/10/2026). Se arma con ExcelJS porque SheetJS no
+ * escribe imágenes.
+ */
 export async function descargarPersonalExcel(personas: Personal[], claves: string[], titulo = 'Personal'): Promise<void> {
   validar(personas, claves);
   const { encabezados, filas } = tablaPersonal(personas, claves);
   const campos = camposElegidos(claves);
-  const XLSX = (await import('xlsx-js-style')) as unknown as {
-    utils: { aoa_to_sheet: (d: unknown[][]) => Record<string, unknown>; encode_cell: (c: { r: number; c: number }) => string; book_new: () => unknown; book_append_sheet: (wb: unknown, ws: unknown, name: string) => void };
-  };
-  const HEADER = { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: 'FF8A00' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
-  const TITLE = { font: { name: 'Arial', sz: 14, bold: true }, alignment: { horizontal: 'left' } };
-  const aoa: unknown[][] = [
-    [`${titulo.toUpperCase()} · GOLDEN TOUCH 1127 C.A.`],
-    [`${filas.length} persona(s) · ${new Date().toLocaleString('es-VE')}`],
-    [],
-    encabezados,
-    ...filas,
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = campos.map((c) => ({ wch: Math.max(c.ancho, c.etiqueta.length + 2) }));
-  const ultima = Math.max(0, campos.length - 1);
-  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: ultima } }, { s: { r: 1, c: 0 }, e: { r: 1, c: ultima } }];
-  const cellAt = (r: number, c: number) => (ws as Record<string, { s?: unknown }>)[XLSX.utils.encode_cell({ r, c })];
-  const t = cellAt(0, 0); if (t) t.s = TITLE;
-  encabezados.forEach((_, c) => { const cell = cellAt(3, c); if (cell) cell.s = HEADER; });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Personal');
-  await previewExcel(wb, `personal-${hoy()}.xlsx`);
+  const [{ default: ExcelJS }, { loadLogoDataUrl }] = await Promise.all([
+    import('exceljs'),
+    import('@/shared/lib/pdfLogo'),
+  ]);
+  const logo = await loadLogoDataUrl().catch(() => null);
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Personal', {
+    pageSetup: { orientation: campos.length > 5 ? 'landscape' : 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    views: [{ state: 'frozen', ySplit: 5 }],
+  });
+  ws.columns = [{ width: 7 }, ...campos.map((c) => ({ width: Math.max(c.ancho, c.etiqueta.length) + 6 }))];
+  const ultima = campos.length + 1;
+  const borde = { style: 'thin' as const, color: { argb: 'FFBFC5CC' } };
+  const bordes = { top: borde, left: borde, bottom: borde, right: borde };
+
+  // Encabezado: logo en la columna A (filas 1-3) y el título a su derecha.
+  ws.getRow(1).height = 26; ws.getRow(2).height = 20; ws.getRow(3).height = 14;
+  if (logo) {
+    const id = wb.addImage({ base64: logo, extension: 'jpeg' });
+    ws.addImage(id, { tl: { col: 0.1, row: 0.1 }, ext: { width: 54, height: 54 } });
+  }
+  const desde = Math.min(2, ultima);
+  ws.mergeCells(1, desde, 1, Math.max(desde, ultima));
+  ws.mergeCells(2, desde, 2, Math.max(desde, ultima));
+  const t = ws.getCell(1, desde);
+  t.value = `${titulo.toUpperCase()} · GOLDEN TOUCH 1127 C.A.`;
+  t.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFF8A00' } };
+  t.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+  const sub = ws.getCell(2, desde);
+  sub.value = `${filas.length} persona(s) · ${new Date().toLocaleString('es-VE')}`;
+  sub.font = { name: 'Arial', size: 10, color: { argb: 'FF5C6673' } };
+  sub.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+  const cab = ws.getRow(5);
+  cab.values = ['N°', ...encabezados];
+  cab.height = 26;
+  cab.eachCell((c) => {
+    c.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF8A00' } };
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    c.border = bordes;
+  });
+
+  filas.forEach((f, i) => {
+    const r = ws.getRow(6 + i);
+    r.values = [i + 1, ...f];
+    r.height = 22;
+    r.eachCell({ includeEmpty: true }, (c, col) => {
+      c.font = { name: 'Arial', size: 10 };
+      c.border = bordes;
+      c.alignment = { vertical: 'middle', horizontal: col === 1 ? 'center' : 'left', indent: col === 1 ? 0 : 1, wrapText: true };
+      if (i % 2 === 1) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAF6F0' } };
+      if (campos[col - 2]?.clave === 'sueldo_base') { c.numFmt = '#,##0.00'; c.alignment = { ...c.alignment, horizontal: 'right' }; }
+    });
+  });
+
+  const bytes = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+  await previewExcelArchivo(bytes, `personal-${hoy()}.xlsx`);
 }
 
 export async function descargarPersonalPdf(personas: Personal[], claves: string[], titulo = 'Personal'): Promise<void> {
@@ -131,27 +173,29 @@ export async function descargarPersonalPdf(personas: Personal[], claves: string[
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 40, 40); } catch { /* el logo es opcional */ } }
+  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 52, 52); } catch { /* el logo es opcional */ } }
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text(pdfSafe(titulo.toUpperCase()), W / 2, y + 16, { align: 'center' });
+  doc.text(pdfSafe(titulo.toUpperCase()), W / 2, y + 20, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(pdfSafe(`GOLDEN TOUCH 1127 C.A. · ${filas.length} persona(s) · ${new Date().toLocaleString('es-VE')}`), W / 2, y + 31, { align: 'center' });
+  doc.text(pdfSafe(`GOLDEN TOUCH 1127 C.A. · ${filas.length} persona(s) · ${new Date().toLocaleString('es-VE')}`), W / 2, y + 36, { align: 'center' });
   doc.setTextColor(0, 0, 0);
-  y += 52;
+  y += 70; // aire entre el encabezado y la tabla
 
   // Columna «N°» para contar al imprimir; el resto reparte el ancho útil según su peso.
-  const util = W - MARGIN * 2 - 24;
-  const columnStyles: Record<number, { cellWidth: number; halign?: 'right' | 'center' }> = { 0: { cellWidth: 24, halign: 'center' } };
+  const util = W - MARGIN * 2 - 30;
+  const columnStyles: Record<number, { cellWidth: number; halign?: 'right' | 'center' }> = { 0: { cellWidth: 30, halign: 'center' } };
   campos.forEach((c, i) => {
     columnStyles[i + 1] = { cellWidth: (util * c.ancho) / anchoTotal, ...(c.clave === 'sueldo_base' || c.clave === 'edad' ? { halign: 'right' as const } : {}) };
   });
+  // Tabla con todas sus líneas (theme «grid»): se lee como planilla al imprimirla.
   autoTable(doc, {
+    theme: 'grid',
     startY: y,
     head: [['N°', ...encabezados.map((e) => pdfSafe(e.toUpperCase()))]],
     body: filas.map((f, i) => [String(i + 1), ...f.map((v, k) =>
       campos[k].clave === 'sueldo_base' ? `$ ${Number(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : pdfSafe(String(v)))]),
-    styles: { fontSize: campos.length > 8 ? 7 : 9, cellPadding: 3.5, overflow: 'linebreak' },
-    headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: campos.length > 8 ? 7 : 8 },
+    styles: { fontSize: campos.length > 8 ? 7 : 10, cellPadding: campos.length > 8 ? 4 : 6, overflow: 'linebreak', valign: 'middle', lineColor: [150, 156, 164], lineWidth: 0.6, textColor: [20, 24, 30] },
+    headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', valign: 'middle', fontSize: campos.length > 8 ? 7 : 9, lineColor: [150, 156, 164], lineWidth: 0.6 },
     alternateRowStyles: { fillColor: [250, 246, 240] },
     columnStyles,
     margin: MARGIN,
