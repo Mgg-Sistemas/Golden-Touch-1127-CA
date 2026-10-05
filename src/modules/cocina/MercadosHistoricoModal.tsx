@@ -14,6 +14,8 @@ import { esDescartado } from './mercadoDescarte';
 import { contarMovimientos, tieneCongelados } from './mercadoCierre';
 import { EcuacionMercado, TablaDisponible } from './PanelMercado';
 import { entradasFechadas, entradasPorViver, esSoloEntradas, totalEntradas } from './mercadoCorte';
+import { AdjuntosSalida } from '@/modules/salidas/AdjuntosSalida';
+import { adjuntosMercado, MODULO_LISTA_MERCADO, REGLA_LISTA_MERCADO } from './listaMercado';
 
 const dmy = (iso?: string | null): string => {
   if (!iso) return '—';
@@ -170,6 +172,9 @@ export function MercadosHistoricoModal({ canWrite, onClose }: { canWrite: boolea
             {!esSoloEntradas(ver) && <> · consumo total <strong className="mono">{money(consumoValor)}</strong></>}
             {!esSoloEntradas(ver) && tieneCongelados(ver) && <> · <strong>{contarMovimientos(ver.movimientos)}</strong> movimientos guardados en el histórico</>}
           </div>
+
+          <AdjuntosSalida repo={adjuntosMercado} modulo={MODULO_LISTA_MERCADO} refId={ver.id}
+            titulo="📋 Lista física del mercado" regla={REGLA_LISTA_MERCADO} soloLectura={!canWrite} />
 
           {esDescartado(ver) && (
             <div className="card" style={{ borderColor: 'var(--danger)', padding: '.6rem .8rem' }}>

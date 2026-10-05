@@ -38,7 +38,8 @@ import { MercadosHistoricoModal } from './MercadosHistoricoModal';
 import { ControlDistribucionModal } from './ControlDistribucionModal';
 import { DistribucionPanel } from './DistribucionPanel';
 import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
-import { AdjuntosSalida } from '@/modules/salidas/AdjuntosSalida';
+import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
+import { adjuntosMercado, MODULO_LISTA_MERCADO, REGLA_LISTA_MERCADO } from './listaMercado';
 import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -94,6 +95,8 @@ export function CocinaPage() {
   const [cerrandoId, setCerrandoId] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
   const [emailCierre, setEmailCierre] = useState('');
+  // Lista física (en papel) del mercado nuevo: hasta 4 fotos o 1 PDF, se sube al abrirlo.
+  const [listaNueva, setListaNueva] = useState<File[]>([]);
   // Corte de inventario (01/10/2026): cierra el ciclo, arranca el nuevo con el stock real y
   // deja los anteriores en el histórico mostrando solo las entradas. Se ata al mercado para
   // el que se abrió, como el cierre.
@@ -301,6 +304,15 @@ export function CocinaPage() {
     setCerrando(true);
     try {
       const cerrado = await cerrarMercado(mercado, actor);
+      // La lista física va al mercado que se acaba de abrir. Si falla, el cierre ya está
+      // hecho: se avisa y se puede subir después desde el panel del mercado.
+      if (listaNueva.length) {
+        const nuevo = await getMercadoActivo().catch(() => null);
+        if (nuevo) {
+          const r = await adjuntosMercado.subir(MODULO_LISTA_MERCADO, nuevo.id, listaNueva, actor);
+          for (const f of r.fallos) toast(`Lista del mercado: ${f}`, 'error');
+        } else toast('El mercado se cerró, pero la lista no se pudo subir: súbela desde el panel del mercado nuevo.', 'error');
+      }
       await descargarCocinaCierrePdf(cerrado);
       const destinos = emailCierre.split(/[;,]/).map((s) => s.trim()).filter(Boolean);
       if (destinos.length) {
@@ -310,7 +322,7 @@ export function CocinaPage() {
         toast(`Mercado ${cerrado.numero ?? ''} cerrado · reporte PDF generado`, 'success');
       }
       notify(`Cierre de mercado ${cerrado.numero ?? ''} · el nuevo ciclo arranca con lo que quedó`, 'success', { link: '#/app/cocina' });
-      setCerrandoId(null); setEmailCierre('');
+      setCerrandoId(null); setEmailCierre(''); setListaNueva([]);
       await cargar();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cerrar el mercado', 'error'); }
     finally { setCerrando(false); }
@@ -533,6 +545,10 @@ export function CocinaPage() {
           después qué se sirvió. Los dos totales de su cabecera son los mismos que las
           tarjetas «+ Entradas» y «− Mermas / salidas» del panel. */}
       {mercado && <MovimientosInventario mercado={mercado} viveres={viveres} recargar={recarga} />}
+      {mercado && (
+        <AdjuntosSalida repo={adjuntosMercado} modulo={MODULO_LISTA_MERCADO} refId={mercado.id} actor={actor}
+          titulo={`📋 Lista física del mercado ${mercado.numero ?? ''}`} regla={REGLA_LISTA_MERCADO} soloLectura={!canWrite} />
+      )}
 
       {/* Filtros de la tabla de comidas */}
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -850,9 +866,9 @@ export function CocinaPage() {
 
       {/* Cierre del mercado: reporte PDF (descargable / por correo) + arranca el próximo ciclo. */}
       {cerrandoId && mercado && mercado.id === cerrandoId && (
-        <Modal title="🧾 Cerrar mercado" size="md" onClose={() => !cerrando && setCerrandoId(null)} footer={
+        <Modal title="🧾 Cerrar mercado" size="md" onClose={() => { if (!cerrando) { setCerrandoId(null); setListaNueva([]); } }} footer={
           <>
-            <button className="btn btn-ghost" onClick={() => setCerrandoId(null)} disabled={cerrando}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => { setCerrandoId(null); setListaNueva([]); }} disabled={cerrando}>Cancelar</button>
             <button className="btn btn-primary" onClick={() => void ejecutarCierre()} disabled={cerrando}>{cerrando ? 'Cerrando…' : '🧾 Cerrar mercado'}</button>
           </>
         }>
@@ -870,6 +886,9 @@ export function CocinaPage() {
             <input className="input" value={emailCierre} onChange={(e) => setEmailCierre(e.target.value)} placeholder="correo@empresa.com, otro@empresa.com" />
             <small className="muted">Opcional: si cargas uno o más correos, además de descargar el PDF <strong>se envía por correo</strong>. Si lo dejas vacío, solo se genera el PDF.</small>
           </div>
+          <SelectorAdjuntos archivos={listaNueva} onChange={setListaNueva} regla={REGLA_LISTA_MERCADO}
+            titulo="📋 Lista física del mercado nuevo" />
+          <small className="muted">La lista en papel de lo que entró. Queda en el mercado que se abre ahora y se puede cambiar después desde su panel.</small>
         </Modal>
       )}
 
