@@ -9,6 +9,7 @@ import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { recorteDeEncuadre, type Encuadre } from './encuadreFoto';
 import { EMPRESA_EMAIL, EMPRESA_WHATSAPP } from '@/shared/lib/empresa';
 import { lineasSaludQr } from './saludPersonal';
+import { fechaCarnet } from './vigenciaCarnet';
 import type { Personal } from '@/shared/lib/types';
 
 // 54 mm × (300 / 25.4) = 637.8 → 638 px  ·  86 mm × (300 / 25.4) = 1015.7 → 1016 px
@@ -313,6 +314,13 @@ export async function generarCarnetPersonalDataUrl(
     fuenteQueQuepa(ctx, sub, 22, 15, '500', CARNET_W - 90);
     ctx.fillText(sub, cx, fy + fh + 132);
   }
+  // Vencimiento: entre el cargo y el panel del QR.
+  const vence = fechaCarnet(p.carnet_vence);
+  if (vence) {
+    ctx.fillStyle = pal.texto;
+    ctx.font = "700 20px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(`VÁLIDO HASTA: ${vence}`, cx, fy + fh + 158);
+  }
 
   // Panel blanco con el QR.
   const panelW = 316;
@@ -392,7 +400,7 @@ function textoJustificado(ctx: CanvasRenderingContext2D, texto: string, x: numbe
 
 /** Texto legal fijo del reverso del carnet. */
 const REVERSO_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
-const REVERSO_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianza de minerales estratégicos de la Corporación Venezolana de Minería.';
+const REVERSO_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianzas de minerales estratégicos de la Corporación Venezolana de Minería.';
 const REVERSO_EMAIL = EMPRESA_EMAIL;
 const REVERSO_WHATSAPP = `WhatsApp ${EMPRESA_WHATSAPP}`;
 

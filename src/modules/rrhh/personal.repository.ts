@@ -86,6 +86,7 @@ export interface PersonalInput {
   grupo_sanguineo?: string | null;
   nacionalidad?: string | null;
   direccion?: string | null;
+  carnet_vence?: string | null;
   grado_instruccion?: 'primaria' | 'bachiller' | 'universitario' | null;
   titulo_obtenido?: string | null;
   trabajo_anterior_empresa?: string | null;
@@ -146,6 +147,7 @@ function baseSinSueldo(input: PersonalInput, soloDefinidos = false) {
     grupo_sanguineo: input.grupo_sanguineo?.trim() || null,
     nacionalidad: input.nacionalidad?.trim() || null,
     direccion: input.direccion?.trim() || null,
+    carnet_vence: input.carnet_vence || null,
     // El título cuelga del grado, igual que el detalle de una alergia cuelga del «sí».
     grado_instruccion: normalizarInstruccion(input.grado_instruccion, input.titulo_obtenido).grado,
     titulo_obtenido: normalizarInstruccion(input.grado_instruccion, input.titulo_obtenido).titulo,

@@ -1414,6 +1414,8 @@ export interface Personal {
   grupo_sanguineo?: string | null;
   nacionalidad?: string | null;
   direccion?: string | null;
+  /** Hasta cuándo vale el carnet (va impreso en el frente). Ver vigenciaCarnet.ts. */
+  carnet_vence?: string | null;
   /** Contacto de la persona (para el carnet y el QR). */
   telefono?: string | null;
   /** Correo del TRABAJADOR (el de la empresa vive en shared/lib/empresa.ts).
