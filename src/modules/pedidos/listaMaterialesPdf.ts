@@ -46,7 +46,7 @@ export async function descargarListaMaterialesPdf(orden: Orden): Promise<void> {
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1.5 cm
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
   // ─── Encabezado ────────────────────────────────────────

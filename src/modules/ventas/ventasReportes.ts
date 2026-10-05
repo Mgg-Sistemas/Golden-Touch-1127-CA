@@ -109,7 +109,7 @@ export interface FilaCuentaPorCobrar {
 
 /* ─────────────────────────── Utilidades ─────────────────────────── */
 
-const MARGIN = 42.52; // 1.5 cm, como el resto de los PDF de la casa
+const MARGIN = 56.69; // 2 cm por lado
 const NARANJA: [number, number, number] = [255, 138, 0];
 const PIZARRA: [number, number, number] = [30, 41, 59];
 

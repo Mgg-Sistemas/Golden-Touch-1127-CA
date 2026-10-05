@@ -51,7 +51,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 42.52; // 1.5 cm
+  const MARGIN = 56.69; // 2 cm por lado
 
   renglones.forEach((r, idx) => {
     if (idx > 0) doc.addPage();

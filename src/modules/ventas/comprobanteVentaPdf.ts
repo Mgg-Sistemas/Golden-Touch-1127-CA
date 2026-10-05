@@ -53,7 +53,7 @@ export interface OpcionesComprobante {
    documentos llevan el mismo encabezado, la misma ficha de cliente y el
    mismo bloque de cobro, y no pueden divergir con el tiempo. */
 
-export const MARGIN = 42.52; // 1.5 cm
+export const MARGIN = 56.69; // 2 cm por lado
 const GRIS = 120;
 
 /** `finalY` de la última tabla, que autotable cuelga del doc sin tiparlo. */

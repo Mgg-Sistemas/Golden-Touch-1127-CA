@@ -111,7 +111,7 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const MARGIN = 40;
+  const MARGIN = 56.69; // 2 cm por lado
   const ANCHO = W - MARGIN * 2;
   let y = MARGIN;
 

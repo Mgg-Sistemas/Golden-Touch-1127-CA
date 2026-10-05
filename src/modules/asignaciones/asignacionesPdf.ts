@@ -44,7 +44,7 @@ export async function descargarAsignacionesPdf(op: OpcionesAsignacionesPdf): Pro
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 36;
+  const M = 56.69; // 2 cm por lado
   let y = M;
   const fin = () => (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
 
