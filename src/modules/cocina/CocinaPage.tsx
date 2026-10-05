@@ -41,6 +41,7 @@ import { avisoFueraDelCiclo, fueraDelCiclo } from './fechaComida';
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosMercado, MODULO_LISTA_MERCADO, REGLA_LISTA_MERCADO } from './listaMercado';
 import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
+import { CategoriasCocinaModal } from './CategoriasCocinaModal';
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 /**
@@ -77,7 +78,7 @@ export function CocinaPage() {
   const [movs, setMovs] = useState<CocinaMovimiento[]>([]);
   const [viveres, setViveres] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta' | 'historico' | 'control'>('none');
+  const [modal, setModal] = useState<'none' | 'add' | 'resumen' | 'alerta' | 'historico' | 'control' | 'categorias'>('none');
   const [editando, setEditando] = useState<CocinaMovimiento | null>(null);
   const [aEliminar, setAEliminar] = useState<CocinaMovimiento | null>(null);
   // Cuántas fotos tiene cada comida (las que se sacan desde la vista de teléfono).
@@ -208,7 +209,7 @@ export function CocinaPage() {
   useEffect(() => { void cargar(); }, [cargar]);
   useEffect(() => { setRecarga((v) => v + 1); }, [cargar]);
   // `productos`: al desactivar uno en Inventario sale de las listas sin recargar (no mueve existencias).
-  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'productos', 'cocina_mercados', 'cocina_adjuntos'], () => { void cargar(); setRecarga((v) => v + 1); });
+  useRealtime(['cocina_movimientos', 'movimientos', 'existencias', 'productos', 'cocina_mercados', 'cocina_adjuntos', 'cocina_categorias'], () => { void cargar(); setRecarga((v) => v + 1); });
 
   // Búsqueda general (cliente): código, tipo, nota, fecha/hora, productos.
   // Sin filtro de fechas se parte del mercado en curso (01/10/2026): las comidas de los
@@ -417,6 +418,7 @@ export function CocinaPage() {
           <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Consumo / Resumen</button>
           <button className="btn btn-ghost" onClick={() => setModal('control')} title="Control diario por producto con lote óptimo de compra (EOQ) y punto de reorden">📋 Control de distribución</button>
           <button className="btn btn-ghost" onClick={() => setModal('historico')} title="Ver los mercados ya cerrados: visualizar, editar y sacar reportes">🗂 Mercados cerrados</button>
+          <button className="btn btn-ghost" onClick={() => setModal('categorias')} title="Qué categorías del inventario entran a Cocina (comida o limpieza)">⚙ Categorías de cocina</button>
           {canWrite && <button className="btn btn-warning" onClick={() => setModal('alerta')} title="Avisar a Compras que hay que montar el mercado">🔔 Alerta a Restablecer</button>}
           {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>➕ Añadir Movimiento</button>}
         </div>
@@ -679,6 +681,10 @@ export function CocinaPage() {
         <ResumenModal viveres={viveres} onClose={() => setModal('none')} />
       )}
       {modal === 'control' && <ControlDistribucionModal onClose={() => setModal('none')} />}
+      {modal === 'categorias' && (
+        <CategoriasCocinaModal canWrite={canWrite} actor={actor} onClose={() => setModal('none')}
+          onCambio={() => { void cargar(); setRecarga((v) => v + 1); }} />
+      )}
       {modal === 'historico' && (
         <MercadosHistoricoModal canWrite={canWrite} onClose={() => setModal('none')} />
       )}

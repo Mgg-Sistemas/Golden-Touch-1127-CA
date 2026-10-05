@@ -12,6 +12,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { findProducto } from '@/modules/inventario/inventario.repository';
 import { esValeCocina } from '@/modules/cocina/categoriasCocina';
+import { asegurarCategoriasCocina } from '@/modules/cocina/categoriasCocina.repository';
 import {
   registrarTrasladoCasiteritaExterno, esCasiterita, DESTINO_EXTERNO_CASITERITA_LABEL,
 } from '@/modules/inventario/casiteritaInter.repository';
@@ -311,6 +312,7 @@ const motivoCorto = (m: string | null | undefined) => (m ?? '').trim().length < 
  * renglón, para que nadie la pueda falsear desde el navegador.
  */
 async function marcarValesCocina(unidadSolicitante: string | null | undefined, items: ItemSalida[]): Promise<ItemSalida[]> {
+  await asegurarCategoriasCocina();   // las categorías de comida las gestiona Cocina
   const out: ItemSalida[] = [];
   for (const it of items) {
     const p = await findProducto(it.producto_id).catch(() => null);

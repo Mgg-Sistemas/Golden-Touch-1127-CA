@@ -64,11 +64,13 @@ export interface CocinaMovimiento {
  *  Salidas (vale de entrega a Cocina). */
 export { esCategoriaViveres } from './categoriasCocina';
 import { esCategoriaViveres } from './categoriasCocina';
+import { asegurarCategoriasCocina } from './categoriasCocina.repository';
 
 /** TODOS los víveres del inventario GENERAL (activos), sin importar el almacén donde
  *  estén ubicados. El stock y el precio (PMP) salen del inventario. */
 export async function listViveres(): Promise<Producto[]> {
-  const prods = await listProductos();
+  // Las categorías que entran las gestiona Cocina (cocina_categorias).
+  const [prods] = await Promise.all([listProductos(), asegurarCategoriasCocina()]);
   return prods
     .filter((p) => p.estado === 'activo' && esCategoriaViveres(p.categoria))
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-VE'));
