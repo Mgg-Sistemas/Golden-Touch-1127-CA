@@ -45,16 +45,6 @@ function SoloLogo() {
   );
 }
 
-function Fila({ label, valor }: { label: string; valor?: string | null }) {
-  if (!valor) return null;
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderBottom: '1px solid #262a31' }}>
-      <span style={{ color: '#9aa6b5', fontSize: 14 }}>{label}</span>
-      <span style={{ fontWeight: 600, textAlign: 'right', wordBreak: 'break-word' }}>{valor}</span>
-    </div>
-  );
-}
-
 export function CarnetPublicoPage() {
   const { token = '' } = useParams();
   const [dato, setDato] = useState<CarnetPublico | null | undefined>(undefined);
@@ -72,50 +62,53 @@ export function CarnetPublicoPage() {
   // Inactivo, o un QR que no es de nadie: solo el logo.
   if (!dato || !dato.activo) return <SoloLogo />;
 
-  const estado = estadoCarnet(dato.carnet_vence);
+  const nombre = `${dato.nombre ?? ''} ${dato.apellido ?? ''}`.trim();
+  const vencido = estadoCarnet(dato.carnet_vence) === 'vencido';
   const parentesco = PARENTESCOS.find((x) => x.valor === dato.contacto_emergencia_parentesco)?.label;
   const emergencia = [dato.contacto_emergencia, parentesco ? `(${parentesco})` : '', dato.telefono_emergencia].filter(Boolean).join(' ');
   const salud = lineasSaludQr(dato);
+  const filas: [string, string | null | undefined][] = [
+    ['Cédula', dato.cedula],
+    ['Cargo', dato.cargo],
+    ['Departamento', dato.departamento],
+    ['Teléfono', dato.telefono],
+    ['Grupo sanguíneo', dato.grupo_sanguineo],
+    ['Emergencia', emergencia],
+    ['Vigencia', fechaCarnet(dato.carnet_vence)],
+  ];
 
   return (
-    <div style={fondo}>
-      <div style={{ width: '100%', maxWidth: 420, background: '#1c1f24', border: '2px solid rgba(255,138,0,.45)', borderRadius: 18, overflow: 'hidden' }}>
-        <div style={{ background: 'linear-gradient(90deg,#ff8a00,#ffa733)', color: '#1a0e00', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src={LOGO} alt="" style={{ width: 48, height: 48, borderRadius: '50%', background: '#fff' }} />
+    <div style={{ ...fondo, alignItems: 'flex-start', background: '#14110d', color: '#f4efe6' }}>
+      <div style={{ width: '100%', maxWidth: 440 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+          <img src={LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover', background: '#fff' }} />
           <div>
-            <div style={{ fontWeight: 800, fontSize: 18 }}>GOLDEN TOUCH 1127 C.A.</div>
-            <div style={{ fontWeight: 600, fontSize: 13 }}>CARNET DE PERSONAL</div>
+            <div style={{ fontWeight: 800, color: '#ff9f2e', letterSpacing: '.02em', fontSize: 17 }}>GOLDEN TOUCH 1127 C.A.</div>
+            <div style={{ fontSize: 13, opacity: 0.75 }}>Carnet de identificación · verificado en línea</div>
           </div>
         </div>
-        <div style={{ padding: '18px 16px' }}>
-          <div style={{ fontSize: 22, fontWeight: 800, textAlign: 'center' }}>{`${dato.nombre ?? ''} ${dato.apellido ?? ''}`.trim()}</div>
-          {dato.cedula && <div style={{ textAlign: 'center', color: '#ffd54a', fontFamily: 'Consolas, monospace', fontSize: 20, fontWeight: 700, marginTop: 4 }}>{dato.cedula}</div>}
-          {(dato.cargo || dato.departamento) && (
-            <div style={{ textAlign: 'center', color: '#9aa6b5', marginTop: 4 }}>{[dato.cargo, dato.departamento].filter(Boolean).join(' · ')}</div>
-          )}
-          {dato.carnet_vence && (
-            <div style={{
-              margin: '14px auto 6px', width: 'fit-content', padding: '6px 14px', borderRadius: 999, fontWeight: 700, fontSize: 14,
-              background: estado === 'vencido' ? '#5c1a1a' : estado === 'por_vencer' ? '#5a4310' : '#1f4a2a',
-              color: estado === 'vencido' ? '#ffb4b4' : estado === 'por_vencer' ? '#ffe08a' : '#a6f0b8',
-            }}>
-              {estado === 'vencido' ? 'CARNET VENCIDO' : 'VIGENCIA'}: {fechaCarnet(dato.carnet_vence)}
+        <div style={{
+          padding: '11px 13px', borderRadius: 10, marginBottom: 16, fontWeight: 700, fontSize: 15,
+          background: vencido ? 'rgba(220,60,60,.18)' : 'rgba(60,180,100,.18)',
+          border: `1px solid ${vencido ? '#dc3c3c' : '#3cb464'}`,
+        }}>
+          {vencido ? `⚠ Trabajador activo · CARNET VENCIDO desde el ${fechaCarnet(dato.carnet_vence)}` : '✓ Trabajador activo · carnet vigente'}
+        </div>
+        <h1 style={{ fontSize: 26, margin: '0 0 14px', lineHeight: 1.2 }}>{nombre || '—'}</h1>
+        <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '9px 16px', fontSize: 16 }}>
+          {filas.filter(([, v]) => v).map(([k, v]) => (
+            <div key={k} style={{ display: 'contents' }}>
+              <dt style={{ opacity: 0.65 }}>{k}</dt>
+              <dd style={{ margin: 0, fontWeight: 600, wordBreak: 'break-word' }}>{v}</dd>
             </div>
-          )}
-          <div style={{ marginTop: 10 }}>
-            <Fila label="Teléfono" valor={dato.telefono} />
-            <Fila label="Correo" valor={dato.correo} />
-            <Fila label="Emergencia" valor={emergencia} />
-            <Fila label="Grupo sanguíneo" valor={dato.grupo_sanguineo} />
-            {salud.map((l) => {
-              const [k, ...v] = l.split(': ');
-              return <Fila key={k} label={k} valor={v.join(': ')} />;
-            })}
+          ))}
+        </dl>
+        {salud.length > 0 && (
+          <div style={{ marginTop: 16, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,138,0,.14)', border: '1px solid #ff8a00' }}>
+            {salud.map((l) => <div key={l} style={{ fontWeight: 700 }}>{l}</div>)}
           </div>
-          <div style={{ marginTop: 16, textAlign: 'center', color: '#9aa6b5', fontSize: 13 }}>
-            {EMPRESA_EMAIL} · WhatsApp {EMPRESA_WHATSAPP}
-          </div>
-        </div>
+        )}
+        <div style={{ marginTop: 22, fontSize: 13, opacity: 0.6 }}>{EMPRESA_EMAIL} · WhatsApp {EMPRESA_WHATSAPP}</div>
       </div>
     </div>
   );
