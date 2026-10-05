@@ -319,7 +319,7 @@ export async function generarCarnetPersonalDataUrl(
   if (vence) {
     ctx.fillStyle = pal.texto;
     ctx.font = "700 20px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(`VÁLIDO HASTA: ${vence}`, cx, fy + fh + 158);
+    ctx.fillText(`VIGENCIA: ${vence}`, cx, fy + fh + 158);
   }
 
   // Panel blanco con el QR.
