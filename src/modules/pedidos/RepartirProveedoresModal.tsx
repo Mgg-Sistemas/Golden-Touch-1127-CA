@@ -6,6 +6,7 @@ import { money } from '@/shared/lib/format';
 import type { ItemOrden, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { repartirOpEntreProveedores, type GrupoReparto } from './pedidos.repository';
 import { rotuloMarcaModelo } from '@/shared/lib/marcaModelo';
+import { precioEnUso } from '@/modules/inventario/presentaciones';
 
 /** Clave estable de un ítem (para casar el mismo producto entre la OP y las ofertas). */
 const keyItem = (it: ItemOrden) => it.productoId ?? it.sku ?? it.nombre;
@@ -42,7 +43,12 @@ export function RepartirProveedoresModal({
     for (const it of itemsCompra) {
       const ofs = ofertasDe(it);
       if (ofs.length) {
-        const mejor = ofs.slice().sort((a, b) => precioEn(it, a) - precioEn(it, b))[0];
+        // Se compara por unidad de USO: un SACO de 25 KG no es «más caro» que un KG.
+        const precioUsoEn = (of: OfertaProveedor) => {
+          const x = of.items.find((y) => keyItem(y) === keyItem(it));
+          return x ? precioEnUso(x, Number(x.precio) || 0) : 0;
+        };
+        const mejor = ofs.slice().sort((a, b) => precioUsoEn(a) - precioUsoEn(b))[0];
         m[keyItem(it)] = mejor.id;
       }
     }
@@ -64,8 +70,14 @@ export function RepartirProveedoresModal({
       // Antes solo se copiaba el precio y la OC hija salía sin marca, aunque la oferta
       // la dijera. Si la oferta no la aclara, queda la que pidió la solicitud.
       const ofertado = of.items.find((x) => keyItem(x) === keyItem(it));
+      // Presentación de compra (SACO de 25 KG…): el precio de la oferta es por SACO, así
+      // que la cantidad y la unidad también tienen que ser las que cotizó ese proveedor.
+      const presentacion = ofertado && Number(ofertado.factor) > 0 && Number(ofertado.factor) !== 1
+        ? { cantidad: ofertado.cantidad, unidad: ofertado.unidad, unidad_uso: ofertado.unidad_uso ?? null, factor: Number(ofertado.factor) }
+        : {};
       cur.items.push({
         ...it,
+        ...presentacion,
         precio: precioEn(it, of),
         marca: ofertado?.marca?.trim() || it.marca || null,
         modelo: ofertado?.modelo?.trim() || it.modelo || null,

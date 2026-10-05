@@ -76,6 +76,7 @@ import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { createProducto, updateProducto, getUnidades, nextSku, buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
 import { ProductoParecidoModal } from '@/modules/inventario/ProductoParecidoModal';
+import { rotuloConversion } from '@/modules/inventario/presentaciones';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from '@/modules/inventario/categoriaReal';
 import { CategoriaProductoSelect, asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
@@ -1927,11 +1928,17 @@ function RecepcionParcialModal({
                 <tr key={it.sku}>
                   <td className="mono">{it.sku}</td>
                   <td>{it.nombre}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)} {it.unidad ?? ''}</td>
                   <td style={{ textAlign: 'right' }}>
                     <input className="input mono" type="number" min={0} max={it.cantidad} step="any"
                       value={recs[it.sku]} onChange={(e) => setRec(it.sku, Number(it.cantidad), e.target.value)}
                       style={{ width: 90, textAlign: 'right', borderColor: falta ? 'var(--warning)' : undefined }} />
+                    {/* Presentación de compra: al inventario entra en la unidad de uso. */}
+                    {rotuloConversion(it, rec) && (
+                      <div className="muted mono" style={{ fontSize: '.72rem', marginTop: '.15rem' }} title="Lo que entra al inventario">
+                        → {rotuloConversion(it, rec)}
+                      </div>
+                    )}
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(rec * Number(it.precio))}</td>
                 </tr>
@@ -2952,6 +2959,11 @@ function OrdenDetailModal({
                 {tieneMarcaModelo(it) && (
                   <div className="muted" style={{ fontSize: '.74rem', marginTop: '.1rem' }}>
                     🏷 {rotuloMarcaModelo(it)}
+                  </div>
+                )}
+                {rotuloConversion(it, Number(it.cantidad)) && (
+                  <div className="muted mono" style={{ fontSize: '.74rem', marginTop: '.1rem' }} title="Se compra en una presentación; al inventario entra en la unidad de uso">
+                    📦 {rotuloConversion(it, Number(it.cantidad))}
                   </div>
                 )}
                 {(it.bombonas || it.kg_recarga) && (() => {

@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
+import { precioEnUso, rotuloConversion, tienePresentacion } from '@/modules/inventario/presentaciones';
 import type {
   AdjuntoOferta,
   ItemOrden,
@@ -507,8 +508,14 @@ export function OfertasComparativa({
                                       )}
                                       <div className="muted mono" style={{ fontSize: '.7rem' }}>{it.sku ?? ''}</div>
                                     </td>
-                                    <td className="num mono">{cant}{it.unidad ? ` ${it.unidad}` : ''}</td>
-                                    <td className="num mono">{money(precio)}</td>
+                                    <td className="num mono">
+                                      {cant}{it.unidad ? ` ${it.unidad}` : ''}
+                                      {rotuloConversion(it, cant) && <div className="muted" style={{ fontSize: '.68rem' }}>{rotuloConversion(it, cant)}</div>}
+                                    </td>
+                                    <td className="num mono">
+                                      {money(precio)}
+                                      {tienePresentacion(it) && precio > 0 && <div className="muted" style={{ fontSize: '.68rem' }} title="Precio por unidad de uso, para comparar">{money(precioEnUso(it, precio))} / {it.unidad_uso}</div>}
+                                    </td>
                                     <td className="num mono">{money(cant * precio)}</td>
                                     <td className="num mono">{precioU > 0 ? money(precioU) : '—'}</td>
                                     <td className="num mono">{precioU > 0 ? money(cant * precioU) : '—'}</td>
