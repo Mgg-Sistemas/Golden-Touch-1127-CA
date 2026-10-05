@@ -46,8 +46,11 @@ export function precioEnUso(it: Pick<ItemOrden, 'factor'>, precio: number): numb
 
 const fmt = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 3 });
 
+/** Lo mínimo de un renglón (OC o compra directa) para hablar de su presentación. */
+export interface ConPresentacion { unidad?: string | null; factor?: number | null; unidad_uso?: string | null }
+
 /** «4 SACO = 100 KG» o null si el renglón no tiene presentación. */
-export function rotuloConversion(it: Pick<ItemOrden, 'factor' | 'unidad' | 'unidad_uso'>, cantidad: number): string | null {
+export function rotuloConversion(it: ConPresentacion, cantidad: number): string | null {
   if (!tienePresentacion(it)) return null;
   return `${fmt(Number(cantidad) || 0)} ${it.unidad ?? ''} = ${fmt(cantidadEnUso(it, cantidad))} ${it.unidad_uso ?? ''}`.replace(/\s+/g, ' ').trim();
 }
