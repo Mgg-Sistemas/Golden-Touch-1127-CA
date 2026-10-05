@@ -51,7 +51,7 @@ export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<v
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const MARGIN = 40;
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 40, 40); } catch { /* el logo es opcional */ } }
 

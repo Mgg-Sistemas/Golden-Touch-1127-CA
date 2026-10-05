@@ -36,7 +36,7 @@ async function construirDoc(r: ReporteCierre) {
   ]);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
   if (logoDataUrl) { try { doc.addImage(logoDataUrl, 'PNG', MARGIN, y, 90, 36); } catch { /* logo opcional */ } }

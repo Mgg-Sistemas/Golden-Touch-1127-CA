@@ -42,7 +42,7 @@ async function nuevoDoc(orientacion: 'portrait' | 'landscape', titulo: string, s
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);

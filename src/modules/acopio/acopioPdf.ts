@@ -22,7 +22,7 @@ async function construir(r: RecepcionAcopio) {
   // Apaisado: la tabla tiene muchas columnas (igual que el Excel).
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1.5 cm
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
 
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }

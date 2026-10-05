@@ -33,7 +33,7 @@ export async function descargarResumenMantenimientoPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1,5 cm
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -80,15 +80,16 @@ export async function descargarResumenMantenimientoPdf(
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right' },
     columnStyles: {
+      // Con 2 cm por lado el área útil apaisada es 679 pt: las columnas suman 662.
       0: { halign: 'center', cellWidth: 32 },
-      1: { cellWidth: 200 },
-      2: { cellWidth: 95 },
-      3: { halign: 'right', cellWidth: 75 },
-      4: { halign: 'right', cellWidth: 70 },
-      5: { halign: 'right', cellWidth: 65 },
-      6: { halign: 'right', cellWidth: 65 },
-      7: { halign: 'right', cellWidth: 65 },
-      8: { halign: 'right', cellWidth: 55 },
+      1: { cellWidth: 180 },
+      2: { cellWidth: 85 },
+      3: { halign: 'right', cellWidth: 70 },
+      4: { halign: 'right', cellWidth: 65 },
+      5: { halign: 'right', cellWidth: 60 },
+      6: { halign: 'right', cellWidth: 60 },
+      7: { halign: 'right', cellWidth: 60 },
+      8: { halign: 'right', cellWidth: 50 },
     },
     margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
   });
@@ -130,7 +131,7 @@ export async function descargarMovimientosEquipoPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 

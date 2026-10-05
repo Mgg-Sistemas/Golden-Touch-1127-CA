@@ -116,7 +116,7 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 38; // 1,34 cm: la planilla necesita ancho para escribir
+  const MARGIN = 56.69; // 2 cm por lado
   const ANCHO = PAGE_W - MARGIN * 2;
   const COL = (ANCHO - 18) / 2; // dos columnas con aire en el medio
   const COL2_X = MARGIN + COL + 18;

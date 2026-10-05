@@ -255,7 +255,7 @@ export function CalculadoraModal({ actor, onClose }: { actor: string; onClose: (
       const logo = await logoMod.loadLogoDataUrl().catch(() => null);
       const doc = new jsPDF({ unit: 'pt', format: 'letter' });
       const PAGE_W = doc.internal.pageSize.getWidth();
-      const MARGIN = 42.52; let y = MARGIN;
+      const MARGIN = 56.69; let y = MARGIN; // 2 cm por lado
       const LOGO = 60; const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
       if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* logo opcional */ } }
       doc.setFont('helvetica', 'bold'); doc.setFontSize(18);

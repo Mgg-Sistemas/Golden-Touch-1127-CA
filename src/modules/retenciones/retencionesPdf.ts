@@ -45,7 +45,7 @@ export async function descargarComprobanteRetencionPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52;
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
 
@@ -185,7 +185,7 @@ export async function descargarLibroRetencionesPdf(
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = 36;
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 40, 40); } catch { /* opcional */ } }
 
@@ -234,11 +234,12 @@ export async function descargarLibroRetencionesPdf(
     styles: { fontSize: 7, cellPadding: 2.5, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7 },
     columnStyles: {
-      0: { cellWidth: 48 }, 1: { cellWidth: 42 }, 2: { cellWidth: 58 }, 3: { cellWidth: 78 },
-      4: { cellWidth: 'auto' }, 5: { cellWidth: 74 }, 6: { cellWidth: 56 },
-      7: { cellWidth: 60, halign: 'right' }, 8: { cellWidth: 56, halign: 'right' },
-      9: { cellWidth: 28, halign: 'right' }, 10: { cellWidth: 62, halign: 'right' },
-      11: { cellWidth: 62, halign: 'right' }, 12: { cellWidth: 52 },
+      // Con 2 cm por lado el área útil apaisada es 679 pt: fijas suman 636 y la 4 toma el resto.
+      0: { cellWidth: 48 }, 1: { cellWidth: 42 }, 2: { cellWidth: 56 }, 3: { cellWidth: 72 },
+      4: { cellWidth: 'auto' }, 5: { cellWidth: 68 }, 6: { cellWidth: 52 },
+      7: { cellWidth: 56, halign: 'right' }, 8: { cellWidth: 52, halign: 'right' },
+      9: { cellWidth: 26, halign: 'right' }, 10: { cellWidth: 58, halign: 'right' },
+      11: { cellWidth: 58, halign: 'right' }, 12: { cellWidth: 48 },
     },
     margin: MARGIN,
   });

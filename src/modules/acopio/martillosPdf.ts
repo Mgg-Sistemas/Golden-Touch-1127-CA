@@ -22,7 +22,7 @@ async function construirDoc(movs: MartilloMovimiento[]) {
   const logo = await loadLogoDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const PAGE_W = doc.internal.pageSize.getWidth();
-  const MARGIN = 42.52; // 1.5 cm
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 46, 46); } catch { /* opcional */ } }
   const tx = logo ? MARGIN + 58 : MARGIN;
