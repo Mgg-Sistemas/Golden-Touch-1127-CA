@@ -698,7 +698,9 @@ function Historial({
 
 function resumenSolicitud(s: SolicitudSalida): string {
   if (s.tipo === 'material') {
-    const cant = num(Number(s.cantidad) || 0);
+    // Con un solo material, la cantidad lleva su unidad (05/10/2026), como en el detalle.
+    const unidad = s.items?.length === 1 ? (s.items[0].unidad ?? '').trim() : '';
+    const cant = `${num(Number(s.cantidad) || 0)}${unidad ? ` ${unidad}` : ''}`;
     if (s.scope === 'traslado') return `${cant} · ${invLabel(s.almacen_origen)} → ${s.almacen_destino ?? '—'}`;
     const origen = s.almacen_origen ? invLabel(s.almacen_origen) : 'Inventario General';
     return s.destino ? `${cant} · ${origen} → ${s.destino}` : `${cant} · ${origen}`;
@@ -1329,7 +1331,9 @@ function SolicitudDetalleModal({
             <>
               <tr><td className="muted">{sol.scope === 'traslado' ? 'Origen → Destino' : 'Inventario'}</td>
                 <td>{sol.scope === 'traslado' ? `${invLabel(sol.almacen_origen)} → ${sol.almacen_destino}` : invLabel(sol.almacen_origen)}</td></tr>
-              {sol.items && sol.items.length > 1 ? (
+              {/* La tabla va SIEMPRE que haya renglones, aunque sea uno solo (05/10/2026): antes con
+                  un solo material se mostraba «Producto / Cantidad» sin unidad ni precio. */}
+              {sol.items && sol.items.length > 0 ? (
                 <tr>
                   <td className="muted">Materiales</td>
                   <td>
