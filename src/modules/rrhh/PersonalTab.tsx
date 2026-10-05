@@ -43,6 +43,7 @@ import { GRADOS } from './instruccionYTrabajo';
 import { AjustarFoto } from './AjustarFoto';
 import type { Encuadre } from './encuadreFoto';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { ExportarPersonalModal } from './ExportarPersonalModal';
 
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
@@ -172,6 +173,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   // Filtros y agrupación de la lista.
   const [filtros, setFiltros] = useState<FiltrosPersonal>(FILTROS_VACIOS);
   const [grupo, setGrupo] = useState<CriterioGrupo>('ninguno');
+  const [exportando, setExportando] = useState(false);
   const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
   // Campos de texto NO controlados (DOM = fuente de verdad): inmunes a re-renders
   // que de otro modo "cortan" lo tecleado. Se leen del DOM al guardar.
@@ -545,6 +547,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
           <button className="btn btn-ghost" onClick={() => { void descargarHojaIngresoPdf(); }}
             title="Planilla en blanco para que la complete quien ingresa">
             📋 Hoja de ingreso (PDF)
+          </button>
+          <button className="btn btn-ghost" onClick={() => setExportando(true)} disabled={!visibles.length}
+            title="Descargar en Excel o PDF los datos que elijas (p. ej. solo nombre y cédula)">
+            ⬇ Descargar datos
           </button>
           {canWrite && <button className="btn btn-primary" onClick={abrirNuevo}>+ Ingresar Registro de Personal</button>}
         </div>
@@ -1131,6 +1137,10 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
           onClose={() => setSueldoPersona(null)}
           onCambio={() => { void recargar(); }}
         />
+      )}
+      {exportando && (
+        <ExportarPersonalModal personas={visibles} total={lista.length}
+          titulo={`Personal · ${labelEmpresa(empresa)}`} onClose={() => setExportando(false)} />
       )}
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
       {carnetPersona && <CarnetModal persona={carnetPersona} canWrite={canWrite} onClose={() => setCarnetPersona(null)} onFotoCambio={() => void recargar()} />}
