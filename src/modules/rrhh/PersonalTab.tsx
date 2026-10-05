@@ -44,6 +44,8 @@ import { AjustarFoto } from './AjustarFoto';
 import type { Encuadre } from './encuadreFoto';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { ExportarPersonalModal } from './ExportarPersonalModal';
+import { VigenciaCarnetCampo } from './VigenciaCarnetCampo';
+import { CARNET_VENCE_POR_DEFECTO } from './vigenciaCarnet';
 
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
@@ -55,6 +57,7 @@ const VACIO: PersonalInput = {
   trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '',
   trabajo_anterior_sueldo: null,
   ficha_nro: '',
+  carnet_vence: CARNET_VENCE_POR_DEFECTO,
 };
 
 /**
@@ -309,6 +312,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
       trabajo_anterior_cargo: p.trabajo_anterior_cargo ?? '',
       trabajo_anterior_duracion: p.trabajo_anterior_duracion ?? '',
       trabajo_anterior_sueldo: p.trabajo_anterior_sueldo ?? null,
+      carnet_vence: p.carnet_vence ?? '',
     });
     setCedula(p.cedula ?? '');
     setFicha(p.ficha_nro ?? '');
@@ -884,6 +888,8 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                 <FechaInput value={form.fecha_ingreso ?? ''}
                   onChange={(iso) => setForm((f) => ({ ...f, fecha_ingreso: iso }))} />
               </div>
+              <VigenciaCarnetCampo value={form.carnet_vence ?? ''}
+                onChange={(iso) => setForm((f) => ({ ...f, carnet_vence: iso }))} />
               <div className="form-row">
                 <label>Fecha de nacimiento</label>
                 {/* Nadie nació mañana: el calendario no deja pasar de hoy. */}

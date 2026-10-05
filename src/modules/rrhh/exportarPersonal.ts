@@ -42,6 +42,7 @@ export const CAMPOS_PERSONAL: CampoPersonal[] = [
   { clave: 'departamento', etiqueta: 'Departamento', ancho: 20, valor: (p) => txt(p.departamento) },
   { clave: 'estado', etiqueta: 'Estado', ancho: 9, valor: (p) => (p.activo ? 'Activo' : 'Inactivo') },
   { clave: 'fecha_ingreso', etiqueta: 'Fecha de ingreso', ancho: 12, valor: (p) => dia(p.fecha_ingreso) },
+  { clave: 'carnet_vence', etiqueta: 'Carnet vence', ancho: 12, valor: (p) => dia(p.carnet_vence) },
   { clave: 'fecha_nacimiento', etiqueta: 'Fecha de nacimiento', ancho: 12, valor: (p) => dia(p.fecha_nacimiento) },
   { clave: 'edad', etiqueta: 'Edad', ancho: 6, valor: (p) => edad(p.fecha_nacimiento) ?? '' },
   { clave: 'genero', etiqueta: 'Género', ancho: 10, valor: (p) => de(GENEROS, p.genero) },

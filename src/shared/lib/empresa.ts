@@ -12,7 +12,7 @@
 export const EMPRESA_RIF = 'J-50129993-5';
 
 /** Correo de contacto que va impreso en los documentos. */
-export const EMPRESA_EMAIL = 'touchgolden1127@gmail.com';
+export const EMPRESA_EMAIL = 'info@goldentouch1127.com';
 
 /** WhatsApp de contacto que va impreso en los documentos. */
 export const EMPRESA_WHATSAPP = '+58 424-9349731';
