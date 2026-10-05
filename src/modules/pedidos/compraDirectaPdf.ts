@@ -4,6 +4,7 @@
    ============================================================ */
 import type { CompraDirecta } from './compras.repository';
 import { previewPdf } from '@/shared/lib/reportePreview';
+import { rotuloConversion } from '@/modules/inventario/presentaciones';
 
 export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
@@ -62,7 +63,8 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
     return [
       String(i + 1),
       it.producto_sku ? `${it.producto_nombre} · ${it.producto_sku}` : it.producto_nombre,
-      fmt.num(cant),
+      // Presentación de compra: «4 SACO» y lo que entró al inventario («= 100 KG»).
+      [fmt.num(cant) + (it.unidad ? ` ${it.unidad}` : ''), rotuloConversion(it, cant)?.split(' = ')[1]].filter(Boolean).join('\n= '),
       cu != null ? mon(cu) : '—',
       g != null ? mon(g) : '—',
     ];

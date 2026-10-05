@@ -25,9 +25,11 @@ import { repartirPagoYReembolso } from '@/modules/tesoreria/reembolsoPago';
 import {
   crearCompraDirecta, enviarCompraAPagar, pagarCompraDirecta,
   eliminarCompraDirecta, eliminarCompraDirectaConReverso, listComprasDirectas, reabrirCompraDirecta, editarCompraDirectaEnProceso,
-  urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg,
+  urlAdjuntoCompra, type CompraDirecta, type CompraDirectaItem, type LineaCompra, type PagoLeg, type PresentacionLinea,
 } from './compras.repository';
 import { agregarAdjuntoDirecto } from './adjuntosDirectos.repository';
+import { nombrePresentacion, presentacionesPara, rotuloConversion, type Presentacion } from '@/modules/inventario/presentaciones';
+import { listPresentaciones, crearPresentacion } from '@/modules/inventario/presentaciones.repository';
 import { FacturasDirectas } from './FacturasDirectas';
 import { PagoExternoFields, PAGO_EXTERNO_VACIO, pagoExternoDesdeRow, pagoExternoAInput, type PagoExternoState } from './PagoExternoFields';
 import { mensajeError } from '@/shared/lib/errores';
@@ -442,7 +444,10 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
               return (
                 <tr key={i}>
                   <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{num(cant)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>
+                    {num(cant)}{it.unidad ? ` ${it.unidad}` : ''}
+                    {rotuloConversion(it, cant) && <div className="muted" style={{ fontSize: '.72rem' }}>📦 {rotuloConversion(it, cant)}</div>}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{cu != null ? montoCD(cu, compra.moneda) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{g != null ? montoCD(g, compra.moneda) : '—'}</td>
                 </tr>
@@ -467,7 +472,8 @@ function CompraDetalleModal({ compra, actor, onClose, onPdf, onReabrir, onEditar
 
 /* ───────── Modal: nueva compra (varios materiales) ───────── */
 
-interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string }
+/** `pres`: presentación de compra del renglón (SACO de 25 KG…); null = en la unidad de uso. */
+interface LineaUI { id: number; modo: 'existente' | 'nuevo'; productoId: string; nombre: string; categoria: string; unidad: string; cantidad: string; pres: PresentacionLinea | null }
 
 function CrearCompraModal({ productos, categorias, unidades, proveedores, editCompra, actor, actorName, onClose, onSaved }: {
   productos: Producto[]; categorias: string[]; unidades: string[]; proveedores: Proveedor[];
@@ -484,14 +490,15 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
   const [unis] = useState<string[]>(unidades);
   const nuevaLinea = (id: number): LineaUI => ({
     id, modo: activos.length ? 'existente' : 'nuevo', productoId: activos[0]?.id ?? '',
-    nombre: '', categoria: cats[0] ?? '', unidad: activos[0]?.unidad || unis[0] || 'und', cantidad: '1',
+    nombre: '', categoria: cats[0] ?? '', unidad: activos[0]?.unidad || unis[0] || 'und', cantidad: '1', pres: null,
   });
   // Al editar: precarga los renglones existentes de la compra (todos materiales del inventario).
   const lineasIniciales = (): LineaUI[] => {
     if (!editCompra || !editCompra.items.length) return [nuevaLinea(1)];
     return editCompra.items.map((it, i) => {
       const p = productos.find((x) => x.id === it.producto_id) ?? null;
-      return { id: i + 1, modo: 'existente' as const, productoId: it.producto_id, nombre: '', categoria: cats[0] ?? '', unidad: p?.unidad || unis[0] || 'und', cantidad: String(it.cantidad) };
+      const pres = Number(it.factor) > 0 && Number(it.factor) !== 1 && it.unidad ? { unidad: it.unidad, factor: Number(it.factor) } : null;
+      return { id: i + 1, modo: 'existente' as const, productoId: it.producto_id, nombre: '', categoria: cats[0] ?? '', unidad: p?.unidad || unis[0] || 'und', cantidad: String(it.cantidad), pres };
     });
   };
   const [lineas, setLineas] = useState<LineaUI[]>(lineasIniciales);
@@ -521,6 +528,35 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
   const [pagoExterno, setPagoExterno] = useState<PagoExternoState>(() => pagoExternoDesdeRow(editCompra) ?? PAGO_EXTERNO_VACIO);
 
   function set(id: number, patch: Partial<LineaUI>) { setLineas((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l))); }
+
+  // Presentaciones de compra (SACO de 25 KG…): la unidad del producto (la de USO) no se
+  // cambia desde aquí; si el proveedor lo vende en otra presentación, el renglón la lleva
+  // y al recibir entra convertido (ver inventario/presentaciones.ts).
+  const [presentaciones, setPresentaciones] = useState<Presentacion[]>([]);
+  const cargarPresentaciones = useCallback(() => { listPresentaciones().then(setPresentaciones).catch(() => setPresentaciones([])); }, []);
+  useEffect(() => { cargarPresentaciones(); }, [cargarPresentaciones]);
+  useRealtime(['producto_presentaciones'], cargarPresentaciones);
+  const proveedorPres = nuevoProveedor ? null : (proveedorId || null);
+  const [nuevaPres, setNuevaPres] = useState<Record<number, { unidad: string; factor: string; soloProveedor: boolean } | undefined>>({});
+  function elegirPresentacion(l: LineaUI, valor: string) {
+    if (valor === '__actual') return;
+    if (valor === '__nueva') { setNuevaPres((m) => ({ ...m, [l.id]: { unidad: '', factor: '', soloProveedor: !!proveedorPres } })); return; }
+    const p = valor ? presentaciones.find((x) => x.id === valor) : null;
+    set(l.id, { pres: p ? { unidad: p.unidad, factor: p.factor } : null });
+  }
+  async function guardarNuevaPresentacion(l: LineaUI) {
+    const np = nuevaPres[l.id];
+    if (!np) return;
+    try {
+      const p = await crearPresentacion({
+        producto_id: l.productoId, proveedor_id: np.soloProveedor ? proveedorPres : null,
+        unidad: np.unidad.toUpperCase(), factor: Number(np.factor.replace(',', '.')),
+      }, actor);
+      setPresentaciones((prev) => [...prev, p]);
+      set(l.id, { pres: { unidad: p.unidad, factor: p.factor } });
+      setNuevaPres((m) => ({ ...m, [l.id]: undefined }));
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar la presentación', 'error'); }
+  }
   // Id garantizado único (max + 1): evita colisiones de key que podrían fusionar/perder renglones.
   function add() { setLineas((ls) => [...ls, nuevaLinea(ls.reduce((m, l) => Math.max(m, l.id), 0) + 1)]); }
   function quitar(id: number) { setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls)); }
@@ -554,7 +590,7 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
       if (cant <= 0) { setError('Cada material debe tener cantidad mayor que 0.'); return; }
       if (l.modo === 'existente') {
         if (!l.productoId) { setError('Elige el material en cada renglón.'); return; }
-        payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant, unidad: l.unidad });
+        payload.push({ modo: 'existente', productoId: l.productoId, cantidad: cant, presentacion: l.pres });
       } else {
         // Se lee del DOM (ref) para no perder la última letra por un re-render.
         const nombre = (nombreRefs.current[l.id]?.value ?? l.nombre).trim().toUpperCase();
@@ -706,17 +742,53 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
               <div className="form-grid">
                 <div className="form-row">
                   <label>Material #{idx + 1}</label>
-                  <SearchSelect value={l.productoId} onChange={(v) => { const p = activos.find((x) => x.id === v); set(l.id, { productoId: v, unidad: p?.unidad || l.unidad }); }} disabled={!activos.length}
+                  <SearchSelect value={l.productoId} onChange={(v) => { const p = activos.find((x) => x.id === v); set(l.id, { productoId: v, unidad: p?.unidad || l.unidad, pres: null }); }} disabled={!activos.length}
                     placeholder={activos.length ? '🔍 Buscar material…' : '— sin materiales —'}
                     options={activos.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}` }))} />
                 </div>
+                {(() => {
+                  const prod = activos.find((x) => x.id === l.productoId);
+                  const unidadUso = prod?.unidad || l.unidad;
+                  const opciones = presentacionesPara(presentaciones, l.productoId || undefined, proveedorPres);
+                  const actual = l.pres ? opciones.find((p) => p.unidad.trim().toLowerCase() === l.pres!.unidad.trim().toLowerCase() && p.factor === l.pres!.factor) : null;
+                  const np = nuevaPres[l.id];
+                  const conversion = l.pres ? rotuloConversion({ unidad: l.pres.unidad, factor: l.pres.factor, unidad_uso: unidadUso }, Number(l.cantidad) || 0) : null;
+                  return (
+                    <div className="form-row">
+                      <label>Se compra en</label>
+                      <select className="select" value={l.pres ? (actual?.id ?? '__actual') : ''} onChange={(e) => elegirPresentacion(l, e.target.value)} disabled={!l.productoId}>
+                        <option value="">{unidadUso} (unidad del inventario)</option>
+                        {l.pres && !actual && <option value="__actual">{nombrePresentacion(l.pres, unidadUso)}</option>}
+                        {opciones.map((p) => <option key={p.id} value={p.id}>{nombrePresentacion(p, unidadUso)}{p.proveedor_id ? ' ★' : ''}</option>)}
+                        <option value="__nueva">＋ Otra presentación…</option>
+                      </select>
+                      {np ? (
+                        <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.35rem' }}>
+                          <input className="input" style={{ width: 90 }} placeholder="SACO" aria-label="Se compra en" value={np.unidad}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                            onChange={(e) => setNuevaPres((m) => ({ ...m, [l.id]: { ...np, unidad: e.target.value.toUpperCase() } }))} />
+                          <span className="muted">de</span>
+                          <input className="input mono" style={{ width: 70 }} inputMode="decimal" placeholder="25" aria-label={`Cuántos ${unidadUso} trae`} value={np.factor}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                            onChange={(e) => setNuevaPres((m) => ({ ...m, [l.id]: { ...np, factor: e.target.value.replace(/[^0-9.,]/g, '') } }))} />
+                          <span className="muted">{unidadUso}</span>
+                          {proveedorPres && (
+                            <label style={{ fontSize: '.76rem', display: 'flex', gap: '.25rem', alignItems: 'center' }}>
+                              <input type="checkbox" checked={np.soloProveedor} onChange={(e) => setNuevaPres((m) => ({ ...m, [l.id]: { ...np, soloProveedor: e.target.checked } }))} />
+                              solo este proveedor
+                            </label>
+                          )}
+                          <button type="button" className="btn btn-sm" disabled={!np.unidad.trim() || !(Number(np.factor.replace(',', '.')) > 0)} onClick={() => void guardarNuevaPresentacion(l)}>Guardar</button>
+                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevaPres((m) => ({ ...m, [l.id]: undefined }))}>✕</button>
+                        </div>
+                      ) : (
+                        <small className="muted">{conversion ? <>Al inventario entran <strong>{conversion.split(' = ')[1]}</strong> ({conversion}).</> : 'La unidad del producto no cambia. Si el proveedor lo vende en saco, caja… elige la presentación.'}</small>
+                      )}
+                    </div>
+                  );
+                })()}
                 <div className="form-row">
-                  <label>Unidad / medida</label>
-                  <select className="select" value={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })} disabled={!l.productoId}>{unis.map((u) => <option key={u} value={u}>{u}</option>)}</select>
-                  <small className="muted">Si cambia, se actualiza la medida del producto en inventario. Solo medidas existentes (nuevas: <strong>📏 Medidas</strong> en Inventario).</small>
-                </div>
-                <div className="form-row">
-                  <label>Cantidad</label>
+                  <label>Cantidad{l.pres ? ` (${l.pres.unidad})` : ''}</label>
                   <input className="input mono" name={`linea-cant-${l.id}`} type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required />
                 </div>
               </div>
@@ -1168,7 +1240,10 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
                 return (
                   <tr key={i}>
                     <td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      {num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}
+                      {rotuloConversion(it, Number(it.cantidad) || 0) && <div className="muted" style={{ fontSize: '.72rem' }}>{rotuloConversion(it, Number(it.cantidad) || 0)}</div>}
+                    </td>
                     <td><input key={`g-${i}-${convKey}`} className="input mono" name={`gasto-${i}`} type="number" min={0} step="any" disabled={esPago} defaultValue={gastos[i] ?? ''} onChange={(e) => { e.target.value = dosDecimales(e.target.value); setGastos((m) => ({ ...m, [i]: e.target.value })); }} placeholder="0,00" /></td>
                     <td className="mono" style={{ textAlign: 'right' }}>{montoCaja(cu, monedaCompra)}</td>
                   </tr>

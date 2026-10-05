@@ -8,8 +8,9 @@
    (costo = gasto/cant → PMP).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { createProducto, nextSku, updateProducto } from '@/modules/inventario/inventario.repository';
+import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
+import { cantidadEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { crearRetencion, borrarRetencionesDeCompra } from '@/modules/tesoreria/tesoreria.repository';
@@ -73,9 +74,15 @@ export interface CompraDirectaItem {
   producto_id: string;
   producto_nombre: string;
   producto_sku: string | null;
+  /** En la unidad de compra (`unidad`) cuando el renglón trae presentación (`factor`). */
   cantidad: number;
   /** Gasto del renglón (se carga al finalizar). */
   gasto?: number | null;
+  /** Presentación de compra (SACO de 25 KG…): unidad en que se compró, cuántas unidades de
+   *  uso trae y la unidad de uso del inventario. Sin `factor` = se compró en la de uso. */
+  unidad?: string | null;
+  factor?: number | null;
+  unidad_uso?: string | null;
 }
 
 export interface CompraDirecta {
@@ -288,7 +295,9 @@ export async function getCompraDirectaByCajaMovId(movId: string): Promise<Compra
 
 /* ───────── Alta (varios materiales) ───────── */
 
-export interface LineaExistente { modo: 'existente'; productoId: string; cantidad: number; unidad?: string }
+/** Presentación de compra elegida para el renglón (null = se compra en la unidad de uso). */
+export interface PresentacionLinea { unidad: string; factor: number }
+export interface LineaExistente { modo: 'existente'; productoId: string; cantidad: number; presentacion?: PresentacionLinea | null }
 export interface LineaNueva { modo: 'nuevo'; nombre: string; categoria: string; unidad: string; cantidad: number }
 export type LineaCompra = LineaExistente | LineaNueva;
 
@@ -311,6 +320,13 @@ export interface CrearCompraInput {
  * Crea una compra directa EN PROCESO con uno o varios materiales. Los materiales
  * nuevos se dan de alta en el inventario (stock 0, sin precio) y se usan sus ids.
  */
+/** Campos de presentación del renglón (vacío si se compra en la unidad de uso). */
+function itemPresentacion(pres: PresentacionLinea | null | undefined, unidadUso: string | null | undefined): Partial<CompraDirectaItem> {
+  const f = Number(pres?.factor);
+  if (!pres || !(f > 0) || f === 1 || !pres.unidad.trim()) return {};
+  return { unidad: pres.unidad.trim(), factor: f, unidad_uso: unidadUso ?? null };
+}
+
 export async function crearCompraDirecta(
   input: CrearCompraInput,
   productosExistentes: Producto[] = [],
@@ -326,13 +342,9 @@ export async function crearCompraDirecta(
     if (l.modo === 'existente') {
       if (!l.productoId) throw new Error('Elige el material en cada renglón.');
       const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
-      // Si se cambió la medida del producto existente, se actualiza en el inventario.
-      const nuevaUnidad = (l.unidad ?? '').trim();
-      if (p && nuevaUnidad && nuevaUnidad !== (p.unidad ?? '')) {
-        await updateProducto(p.id, { unidad: nuevaUnidad });
-        p.unidad = nuevaUnidad;
-      }
-      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
+      // La unidad del producto (la de USO) ya no se cambia desde una compra (05/10/2026):
+      // si el proveedor lo vende en otra presentación, el renglón la guarda con su factor.
+      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad, ...itemPresentacion(l.presentacion, p?.unidad) });
     } else {
       const nom = l.nombre.trim().toUpperCase();
       if (!nom) throw new Error('Indica el nombre del material nuevo.');
@@ -530,15 +542,18 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
   }
   let primerMov: string | null = null;
   for (const it of items) {
-    const cantidad = Number(it.cantidad) || 0;
+    // Presentación de compra: al inventario entra en la unidad de USO (4 SACO → 100 KG)
+    // y el costo es por esa unidad. Sin presentación el factor es 1.
+    const cantidad = cantidadEnUso(it, Number(it.cantidad) || 0);
     if (cantidad <= 0 || !it.producto_id || noInventariables.has(it.producto_id)) continue;
     const gastoUsd = gastoRenglonUsd(it.gasto, compra.moneda, tasaUsd);
     const costoUnit = gastoUsd > 0 ? Math.round((gastoUsd / cantidad) * 10000) / 10000 : 0;
+    const conversion = rotuloConversion(it, Number(it.cantidad) || 0);
     const mov = await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
       ref_tipo: 'compra_directa', ref_id: compra.id,
-      detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
+      detalle: `Compra directa · ${it.producto_nombre}${conversion ? ` · ${conversion}` : ''}`, precio_unitario: costoUnit,
     });
     if (!primerMov) primerMov = mov.id;
   }
@@ -629,7 +644,7 @@ export async function reabrirCompraDirecta(compra: CompraDirecta, actor: string,
       for (const p of flags ?? []) if (p.no_inventariable) noInvRev.add(p.id);
     }
     for (const it of compra.items) {
-      const cantidad = Number(it.cantidad) || 0;
+      const cantidad = cantidadEnUso(it, Number(it.cantidad) || 0);   // lo que entró, en unidad de uso
       if (cantidad <= 0 || !it.producto_id || noInvRev.has(it.producto_id)) continue;
       await registrarMovimiento({
         producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.almacen,
@@ -685,7 +700,7 @@ export async function eliminarCompraDirectaConReverso(compra: CompraDirecta, act
       for (const p of flags ?? []) if (p.no_inventariable) noInvRev.add(p.id);
     }
     for (const it of compra.items) {
-      const cantidad = Number(it.cantidad) || 0;
+      const cantidad = cantidadEnUso(it, Number(it.cantidad) || 0);   // lo que entró, en unidad de uso
       if (cantidad <= 0 || !it.producto_id || noInvRev.has(it.producto_id)) continue;
       await registrarMovimiento({
         producto_id: it.producto_id, tipo: 'salida', delta: -cantidad, almacen: compra.recepcion_almacen || compra.almacen,
@@ -740,12 +755,9 @@ export async function editarCompraDirectaEnProceso(
     if (l.modo === 'existente') {
       if (!l.productoId) throw new Error('Elige el material en cada renglón.');
       const p = productosExistentes.find((x) => x.id === l.productoId) ?? null;
-      const nuevaUnidad = (l.unidad ?? '').trim();
-      if (p && nuevaUnidad && nuevaUnidad !== (p.unidad ?? '')) {
-        await updateProducto(p.id, { unidad: nuevaUnidad });
-        p.unidad = nuevaUnidad;
-      }
-      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad });
+      // La unidad del producto (la de USO) ya no se cambia desde una compra (05/10/2026):
+      // si el proveedor lo vende en otra presentación, el renglón la guarda con su factor.
+      items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad, ...itemPresentacion(l.presentacion, p?.unidad) });
     } else {
       const nom = l.nombre.trim().toUpperCase();
       if (!nom) throw new Error('Indica el nombre del material nuevo.');
@@ -1145,14 +1157,16 @@ export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): P
 
   let primerMov: string | null = null;
   for (const it of items) {
-    const cantidad = Number(it.cantidad) || 0;
+    // Presentación de compra: entra en la unidad de USO, a costo por esa unidad.
+    const cantidad = cantidadEnUso(it, Number(it.cantidad) || 0);
     const gastoUsd = gastoRenglonUsd(it.gasto, compra.moneda, tasaUsd);
     const costoUnit = gastoUsd > 0 ? Math.round((gastoUsd / cantidad) * 10000) / 10000 : 0;
+    const conversion = rotuloConversion(it, Number(it.cantidad) || 0);
     const mov = await registrarMovimiento({
       producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
       actor: input.actor, actor_name: input.actorName ?? null,
       ref_tipo: 'compra_directa', ref_id: compra.id,
-      detalle: `Compra directa · ${it.producto_nombre}`, precio_unitario: costoUnit,
+      detalle: `Compra directa · ${it.producto_nombre}${conversion ? ` · ${conversion}` : ''}`, precio_unitario: costoUnit,
     });
     if (!primerMov) primerMov = mov.id;
   }
