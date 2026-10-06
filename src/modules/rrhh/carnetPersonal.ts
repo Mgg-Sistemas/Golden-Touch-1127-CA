@@ -1,11 +1,20 @@
 /* ============================================================
    Golden Touch · RRHH · Carnet de personal (imagen PNG)
    Tamaño 54 × 86 mm a 300 DPI = 638 × 1016 px (formato vertical).
-   Muestra logo, FOTO de la persona, nombre y apellido, cédula y un
-   QR con los datos de contacto. Colores del sistema (naranja/oscuro).
+
+   Formato del 06/10/2026, el del carnet que se venía imprimiendo a mano
+   (HECTOR ALAGAL - GT - 2026.pdf), que es el que le gusta a la empresa:
+   · Frente: fondo blanco con marco dorado, logo de la CVM arriba a la
+     izquierda y de Motor Minero a la derecha, la FOTO con borde naranja,
+     nombre y cédula, el logo de Golden Touch con su RIF, cargo, vigencia
+     y el QR (que abre /c/<token>: activo = datos, inactivo = solo logo).
+   · Reverso: el sello «CVM Aliados» sobre un recuadro punteado con el
+     texto legal y el contacto, la firma y el sello de Golden Touch, y el
+     logo del Ministerio del Poder Popular de Desarrollo Minero Ecológico.
+   Antes había dos versiones (fondo negro y blanco); este formato es uno solo.
+   Los logos viven en public/carnet/ (sacados del PDF de muestra).
    ============================================================ */
 import QRCode from 'qrcode';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { recorteDeEncuadre, type Encuadre } from './encuadreFoto';
 import { EMPRESA_EMAIL, EMPRESA_WHATSAPP } from '@/shared/lib/empresa';
 import { lineasSaludQr } from './saludPersonal';
@@ -16,83 +25,49 @@ import type { Personal } from '@/shared/lib/types';
 export const CARNET_W = 638;
 export const CARNET_H = 1016;
 
-// El naranja de la marca no depende del tema: la banda de arriba y el pie son
-// los mismos en las dos versiones, que es lo que hace que se reconozca el carnet.
-const COL = {
-  primary: '#ff8a00',
-  primary2: '#ffa733',
-  qrDark: '#161a20',
+/** Colores del formato. Todo va sobre blanco (ver carnetPersonal.test.ts). */
+export const COLORES_CARNET = {
+  fondo: '#ffffff',
+  /** Marco exterior, dorado como el del carnet impreso. */
+  marco: '#c49a1c',
+  /** Borde de la foto y raya de abajo del reverso. */
+  naranja: '#f28c00',
+  texto: '#111111',
+  /** Puntos del recuadro del reverso. */
+  puntos: '#2b2b2b',
+  qr: '#111111',
+} as const;
+
+const img = (archivo: string) => `${import.meta.env.BASE_URL}carnet/${archivo}`;
+const LOGOS = {
+  cvm: img('cvm.jpg'),
+  motorMinero: img('motor-minero.jpg'),
+  cvmAliados: img('cvm-aliados.jpg'),
+  gobierno: img('gobierno.jpg'),
+  firma: img('firma.jpg'),
+  goldenSello: img('golden-sello.jpg'),
+  golden: `${import.meta.env.BASE_URL}${encodeURIComponent('Logo Golden Touch.jpg')}`,
 };
 
-/** Las dos versiones del carnet: fondo negro o fondo blanco. */
-export type TemaCarnet = 'oscuro' | 'claro';
+const FUENTE = "Arial, 'Helvetica Neue', Helvetica, sans-serif";
 
-export const TEMAS_CARNET: { valor: TemaCarnet; etiqueta: string; sufijo: string }[] = [
-  { valor: 'oscuro', etiqueta: 'Fondo negro', sufijo: 'negro' },
-  { valor: 'claro', etiqueta: 'Fondo blanco', sufijo: 'blanco' },
-];
-
-export interface PaletaCarnet {
-  /** Fondo de la tarjeta (degradado de fondo0 a fondo1). */
-  fondo0: string;
-  fondo1: string;
-  /** Borde interior de la tarjeta. */
-  borde: string;
-  /** Relleno del marco de la foto y color de la silueta cuando no hay foto. */
-  marcoFoto: string;
-  silueta: string;
-  /** Nombre y apellido. */
-  texto: string;
-  /** Cargo, departamento y leyendas. */
-  tenue: string;
-  /** La cédula, que va resaltada. */
-  cedula: string;
-  /** Panel del QR. Siempre claro (un QR oscuro sobre oscuro no se lee), con
-   *  borde propio cuando el fondo del carnet también es claro. */
-  panelQr: string;
-  bordePanelQr: string | null;
-  /** El correo del reverso, que va en el verde del logo de la CVM. */
-  emailReverso: string;
+/** «HECTOR LUIS ALAGAL» → «Hector Luis Alagal», como en el carnet impreso. Las partículas van en minúscula. */
+export function enTitulo(texto?: string | null): string {
+  const menores = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'da', 'do', 'dos']);
+  return String(texto ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean)
+    .map((w, i) => (i > 0 && menores.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
 }
 
-/**
- * Cada tema define TODOS los colores que no son el naranja de la marca.
- *
- * Los del tema claro no son los del oscuro aclarados: se eligieron para que se
- * lean sobre blanco. El caso más claro es la cédula, que en el oscuro va en
- * dorado (#ffd54a) y sobre blanco sería ilegible; en el claro va en ámbar
- * quemado, que conserva el tono cálido de la marca y sí contrasta.
- * `carnetPersonal.test.ts` verifica los contrastes.
- */
-export const PALETA_CARNET: Record<TemaCarnet, PaletaCarnet> = {
-  oscuro: {
-    fondo0: '#1c1f24',
-    fondo1: '#12151a',
-    borde: 'rgba(255,138,0,0.35)',
-    marcoFoto: '#262a31',
-    silueta: 'rgba(154,166,181,0.45)',
-    texto: '#e7ecf3',
-    tenue: '#9aa6b5',
-    cedula: '#ffd54a',
-    panelQr: '#ffffff',
-    bordePanelQr: null,
-    emailReverso: '#b5c94e',
-  },
-  claro: {
-    fondo0: '#ffffff',
-    fondo1: '#ffffff',
-    borde: 'rgba(255,138,0,0.55)',
-    marcoFoto: '#eef1f5',
-    silueta: 'rgba(90,102,117,0.40)',
-    texto: '#151a21',
-    tenue: '#5c6673',
-    cedula: '#9a5b00',
-    panelQr: '#ffffff',
-    // Sobre blanco el panel del QR no se distingue del fondo: necesita borde.
-    bordePanelQr: '#d7dce3',
-    emailReverso: '#6b7a1b',
-  },
-};
+/** «V-26830892» → «V-26.830.892» (los puntos de miles, como se imprime). */
+export function cedulaConPuntos(cedula?: string | null): string {
+  const t = String(cedula ?? '').trim().toUpperCase();
+  const m = /^([VEJGP])?\s*-?\s*([\d.]+)$/.exec(t);
+  if (!m) return t;
+  const num = m[2].replace(/\./g, '');
+  const conPuntos = num.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return m[1] ? `${m[1]}-${conPuntos}` : conPuntos;
+}
 
 function cargarImg(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -205,171 +180,133 @@ export function textoQrPersona(p: Personal): string {
   return lineas.join('\n');
 }
 
-/** Ajusta el tamaño de fuente para que el texto quepa en `maxW` (baja hasta `min`). */
-function fuenteQueQuepa(ctx: CanvasRenderingContext2D, texto: string, base: number, min: number, peso: string, maxW: number): number {
-  let size = base;
-  for (; size > min; size -= 2) {
-    ctx.font = `${peso} ${size}px 'Segoe UI', Arial, sans-serif`;
-    if (ctx.measureText(texto).width <= maxW) break;
-  }
-  ctx.font = `${peso} ${size}px 'Segoe UI', Arial, sans-serif`;
-  return size;
+/** Dibuja una imagen ENTERA dentro de la caja (object-fit: contain), centrada. Nunca falla. */
+async function dibujarContain(ctx: CanvasRenderingContext2D, src: string, x: number, y: number, w: number, h: number) {
+  try {
+    const im = await cargarImg(src);
+    const k = Math.min(w / im.width, h / im.height);
+    const dw = im.width * k; const dh = im.height * k;
+    ctx.drawImage(im, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  } catch { /* un logo que no carga no impide el carnet */ }
 }
 
-/**
- * Genera el carnet de una persona y devuelve un PNG (data URL) de 638×1016 px
- * (54×86 mm a 300 DPI). Incluye logo, foto (si hay), nombre/apellido, cédula y QR.
- * @param fotoDataUrl foto de la persona ya resuelta como data URL (opcional).
- */
-export async function generarCarnetPersonalDataUrl(
-  p: Personal,
-  fotoDataUrl?: string | null,
-  tema: TemaCarnet = 'oscuro',
-): Promise<string> {
-  const pal = PALETA_CARNET[tema];
+/** Pone la letra (negrita) más grande, entre `base` y `min`, con la que el texto entra en `maxW`. Dice si entró. */
+function letraQueQuepa(ctx: CanvasRenderingContext2D, texto: string, base: number, min: number, maxW: number): boolean {
+  for (let size = base; size >= min; size -= 1) {
+    ctx.font = `700 ${size}px ${FUENTE}`;
+    if (ctx.measureText(texto).width <= maxW) return true;
+  }
+  return false;
+}
+
+/** Fondo blanco y marco dorado redondeado: igual en las dos caras. */
+function fondoYMarco(ctx: CanvasRenderingContext2D) {
+  ctx.fillStyle = COLORES_CARNET.fondo;
+  ctx.fillRect(0, 0, CARNET_W, CARNET_H);
+  ctx.strokeStyle = COLORES_CARNET.marco;
+  ctx.lineWidth = 10;
+  roundRect(ctx, 9, 9, CARNET_W - 18, CARNET_H - 18, 34);
+  ctx.stroke();
+}
+
+function lienzo(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
   const canvas = document.createElement('canvas');
   canvas.width = CARNET_W;
   canvas.height = CARNET_H;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('No se pudo crear el lienzo del carnet.');
   ctx.textBaseline = 'middle';
+  return { canvas, ctx };
+}
 
-  // Fondo de la tarjeta, según el tema.
-  const bg = ctx.createLinearGradient(0, 0, 0, CARNET_H);
-  bg.addColorStop(0, pal.fondo0);
-  bg.addColorStop(1, pal.fondo1);
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, CARNET_W, CARNET_H);
-
-  // Borde interior sutil.
-  ctx.strokeStyle = pal.borde;
-  ctx.lineWidth = 4;
-  roundRect(ctx, 10, 10, CARNET_W - 20, CARNET_H - 20, 26);
-  ctx.stroke();
-
-  // Banda superior naranja (encabezado) con el logo a la izquierda.
-  const head = ctx.createLinearGradient(0, 0, CARNET_W, 0);
-  head.addColorStop(0, COL.primary);
-  head.addColorStop(1, COL.primary2);
-  ctx.fillStyle = head;
-  roundRect(ctx, 10, 10, CARNET_W - 20, 122, 24);
-  ctx.fill();
-  ctx.fillRect(10, 96, CARNET_W - 20, 36);
-
-  ctx.fillStyle = '#1a0e00';
-  ctx.textAlign = 'center';
-  ctx.font = "700 32px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText('GOLDEN TOUCH 1127 C.A.', CARNET_W / 2 + 24, 58);
-  ctx.font = "600 19px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText('CARNET DE PERSONAL', CARNET_W / 2 + 24, 92);
-
-  // Logo (círculo blanco) en el encabezado.
+/**
+ * Genera el FRENTE del carnet (PNG, 638×1016 px = 54×86 mm a 300 DPI).
+ * @param fotoDataUrl foto de la persona ya resuelta como data URL (opcional).
+ */
+export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: string | null): Promise<string> {
+  const { canvas, ctx } = lienzo();
   const cx = CARNET_W / 2;
-  try {
-    const logo = await loadLogoDataUrl();
-    const img = await cargarImg(logo);
-    const lx = 74, ly = 71, lr = 40;
-    ctx.save();
-    ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff'; ctx.fill();
-    ctx.clip();
-    ctx.drawImage(img, lx - lr, ly - lr, lr * 2, lr * 2);
-    ctx.restore();
-  } catch { /* sin logo, sigue */ }
+  fondoYMarco(ctx);
 
-  // Marco de la FOTO (rectángulo redondeado, centrado).
-  const fw = 260, fh = 312;
+  // Logos de arriba: CVM a la izquierda, Motor Minero a la derecha.
+  await dibujarContain(ctx, LOGOS.cvm, 34, 30, 214, 132);
+  await dibujarContain(ctx, LOGOS.motorMinero, CARNET_W - 34 - 132, 26, 132, 140);
+
+  // Foto con borde naranja.
+  const fw = 262, fh = 322;
   const fx = (CARNET_W - fw) / 2;
-  const fy = 156;
+  const fy = 182;
   ctx.save();
-  roundRect(ctx, fx, fy, fw, fh, 18);
-  ctx.fillStyle = pal.marcoFoto;
+  roundRect(ctx, fx, fy, fw, fh, 6);
+  ctx.fillStyle = '#eef1f5';
   ctx.fill();
   ctx.clip();
   if (fotoDataUrl) {
     try {
       const foto = await cargarImg(fotoDataUrl);
       dibujarCover(ctx, foto, fx, fy, fw, fh, p.foto_encuadre);
-    } catch { /* si falla, queda el placeholder */ }
+    } catch { /* si falla, queda el fondo gris */ }
   } else {
-    // Silueta placeholder (cabeza + hombros).
-    ctx.fillStyle = pal.silueta;
-    const pcx = fx + fw / 2;
-    ctx.beginPath(); ctx.arc(pcx, fy + fh * 0.4, 56, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(pcx, fy + fh * 1.02, 100, Math.PI, 0); ctx.fill();
+    // Silueta (cabeza + hombros) mientras no haya foto.
+    ctx.fillStyle = 'rgba(90,102,117,0.40)';
+    ctx.beginPath(); ctx.arc(cx, fy + fh * 0.4, 56, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, fy + fh * 1.02, 100, Math.PI, 0); ctx.fill();
   }
   ctx.restore();
-  // Borde naranja del marco de la foto.
-  roundRect(ctx, fx, fy, fw, fh, 18);
-  ctx.strokeStyle = COL.primary;
-  ctx.lineWidth = 5;
+  ctx.strokeStyle = COLORES_CARNET.naranja;
+  ctx.lineWidth = 7;
+  roundRect(ctx, fx, fy, fw, fh, 6);
   ctx.stroke();
 
-  // Nombre y apellido (grande, blanco) + cédula (dorado) + cargo/depto (tenue).
-  // Primer nombre y primer apellido: el completo no entra sin achicar la letra
-  // hasta que deja de leerse. En el QR sí va el nombre entero.
-  const nombre = nombreParaCarnet(p);
+  // Nombre COMPLETO, como en el carnet impreso. Si no entra ni con la letra más
+  // chica, va en dos renglones (nombres / apellidos).
   ctx.textAlign = 'center';
-  ctx.fillStyle = pal.texto;
-  fuenteQueQuepa(ctx, nombre, 42, 24, '700', CARNET_W - 80);
-  ctx.fillText(nombre, cx, fy + fh + 52);
-
+  ctx.fillStyle = COLORES_CARNET.texto;
+  const completo = enTitulo(`${p.nombre ?? ''} ${p.apellido ?? ''}`);
+  const maxW = CARNET_W - 70;
+  let y = fy + fh + 40;
+  if (letraQueQuepa(ctx, completo, 34, 24, maxW)) {
+    ctx.fillText(completo, cx, y);
+  } else {
+    for (const linea of [enTitulo(p.nombre), enTitulo(p.apellido)].filter(Boolean)) {
+      letraQueQuepa(ctx, linea, 30, 18, maxW);
+      ctx.fillText(linea, cx, y);
+      y += 32;
+    }
+    y -= 32;
+  }
   if (p.cedula) {
-    ctx.fillStyle = pal.cedula;
-    ctx.font = "700 32px 'Consolas', 'Courier New', monospace";
-    ctx.fillText(p.cedula, cx, fy + fh + 96);
+    ctx.font = `700 30px ${FUENTE}`;
+    ctx.fillText(`C.I. ${cedulaConPuntos(p.cedula)}`, cx, y + 36);
   }
-  if (p.cargo || p.departamento) {
-    ctx.fillStyle = pal.tenue;
-    const sub = [p.cargo, p.departamento].filter(Boolean).join(' · ');
-    fuenteQueQuepa(ctx, sub, 22, 15, '500', CARNET_W - 90);
-    ctx.fillText(sub, cx, fy + fh + 132);
+
+  // Logo de Golden Touch con su RIF.
+  const gw = 372, gh = gw * (608 / 1696);
+  const gy = 612;
+  await dibujarContain(ctx, LOGOS.golden, (CARNET_W - gw) / 2, gy, gw, gh);
+
+  // Cargo y vigencia.
+  ctx.fillStyle = COLORES_CARNET.texto;
+  if (p.cargo) {
+    const cargo = enTitulo(p.cargo);
+    letraQueQuepa(ctx, cargo, 28, 16, maxW);
+    ctx.fillText(cargo, cx, gy + gh + 36);
   }
-  // Vencimiento: entre el cargo y el panel del QR.
   const vence = fechaCarnet(p.carnet_vence);
   if (vence) {
-    ctx.fillStyle = pal.texto;
-    ctx.font = "700 20px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(`VIGENCIA: ${vence}`, cx, fy + fh + 158);
+    ctx.font = `700 28px ${FUENTE}`;
+    ctx.fillText(`Vigencia ${vence}`, cx, gy + gh + 72);
   }
 
-  // Panel blanco con el QR.
-  const panelW = 316;
-  const panelX = (CARNET_W - panelW) / 2;
-  const panelY = 646;
-  ctx.fillStyle = pal.panelQr;
-  roundRect(ctx, panelX, panelY, panelW, panelW, 20);
-  ctx.fill();
-  if (pal.bordePanelQr) {
-    ctx.strokeStyle = pal.bordePanelQr;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-
+  // QR abajo, al centro: abre /c/<token> (activo = datos, inactivo = solo el logo).
+  const qrSize = 116;
   const qrDataUrl = await QRCode.toDataURL(contenidoQrPersona(p), {
-    errorCorrectionLevel: 'M',
-    margin: 1,
-    width: 280,
-    color: { dark: COL.qrDark, light: '#ffffff' },
+    errorCorrectionLevel: 'M', margin: 1, width: qrSize * 2,
+    color: { dark: COLORES_CARNET.qr, light: '#ffffff' },
   });
-  const qrImg = await cargarImg(qrDataUrl);
-  const qrSize = 280;
-  ctx.drawImage(qrImg, cx - qrSize / 2, panelY + (panelW - qrSize) / 2, qrSize, qrSize);
-
-  // Leyenda bajo el QR.
-  ctx.fillStyle = pal.tenue;
-  ctx.font = "500 20px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText('Escanea el código para ver los datos de contacto', cx, panelY + panelW + 30);
-
-  // Pie naranja.
-  const footY = CARNET_H - 62;
-  ctx.fillStyle = COL.primary;
-  roundRect(ctx, 10, footY, CARNET_W - 20, 52, 20);
-  ctx.fill();
-  ctx.fillRect(10, footY, CARNET_W - 20, 28);
-  ctx.fillStyle = '#1a0e00';
-  ctx.font = "700 21px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText('IDENTIFICACIÓN OFICIAL · GOLDEN TOUCH 1127 C.A.', cx, footY + 29);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(await cargarImg(qrDataUrl), cx - qrSize / 2, CARNET_H - 30 - qrSize, qrSize, qrSize);
+  ctx.imageSmoothingEnabled = true;
 
   return canvas.toDataURL('image/png');
 }
@@ -388,161 +325,63 @@ function partirLineas(ctx: CanvasRenderingContext2D, texto: string, maxW: number
   return lineas;
 }
 
-/** Dibuja un párrafo JUSTIFICADO (ambos márgenes alineados; la última línea al ras
- *  izquierdo). Devuelve la Y siguiente. */
-function textoJustificado(ctx: CanvasRenderingContext2D, texto: string, x: number, y: number, maxW: number, lh: number): number {
-  const lineas = partirLineas(ctx, texto, maxW);
-  let yy = y;
-  lineas.forEach((linea, i) => {
-    const palabras = linea.split(' ');
-    const ultima = i === lineas.length - 1;
-    if (ultima || palabras.length === 1) {
-      ctx.fillText(linea, x, yy);
-    } else {
-      const anchoPalabras = palabras.reduce((a, w) => a + ctx.measureText(w).width, 0);
-      const hueco = (maxW - anchoPalabras) / (palabras.length - 1);
-      let cursor = x;
-      for (const w of palabras) { ctx.fillText(w, cursor, yy); cursor += ctx.measureText(w).width + hueco; }
-    }
-    yy += lh;
-  });
-  return yy;
-}
 
 /** Texto legal fijo del reverso del carnet. */
 const REVERSO_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
 const REVERSO_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianzas de minerales estratégicos de la Corporación Venezolana de Minería.';
-const REVERSO_EMAIL = EMPRESA_EMAIL;
-const REVERSO_WHATSAPP = `WhatsApp ${EMPRESA_WHATSAPP}`;
 
-/** Ruta del asset con la imagen institucional del reverso (Corporación Venezolana de Minería). */
-const REVERSO_IMG_URL = `${import.meta.env.BASE_URL}cvm.jpg`;
+/** Párrafo CENTRADO (como en el carnet impreso). Devuelve la Y siguiente. */
+function textoCentrado(ctx: CanvasRenderingContext2D, texto: string, cx: number, y: number, maxW: number, lh: number): number {
+  let yy = y;
+  for (const linea of partirLineas(ctx, texto, maxW)) { ctx.fillText(linea, cx, yy); yy += lh; }
+  return yy;
+}
 
-/**
- * Genera el REVERSO del carnet (638×1016 px): imagen institucional, texto legal de
- * la credencial y datos de contacto. La imagen se toma de `public/carnet-reverso.png`
- * (si no existe, se dibuja un marcador).
- */
-export async function generarCarnetReversoDataUrl(
-  imagenInstitucionalDataUrl?: string | null,
-  tema: TemaCarnet = 'oscuro',
-): Promise<string> {
-  const pal = PALETA_CARNET[tema];
-  const canvas = document.createElement('canvas');
-  canvas.width = CARNET_W;
-  canvas.height = CARNET_H;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('No se pudo crear el lienzo del carnet.');
-  ctx.textBaseline = 'middle';
-
-  // Fondo según el tema.
-  const cardText = pal.texto;
-  const cardEmail = pal.emailReverso; // verde del logo CVM, ajustado al fondo
-  const bg = ctx.createLinearGradient(0, 0, 0, CARNET_H);
-  bg.addColorStop(0, pal.fondo0);
-  bg.addColorStop(1, pal.fondo1);
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, CARNET_W, CARNET_H);
-
-  ctx.strokeStyle = pal.borde;
-  ctx.lineWidth = 4;
-  roundRect(ctx, 10, 10, CARNET_W - 20, CARNET_H - 20, 26);
-  ctx.stroke();
-
-  // Encabezado naranja.
-  const head = ctx.createLinearGradient(0, 0, CARNET_W, 0);
-  head.addColorStop(0, COL.primary);
-  head.addColorStop(1, COL.primary2);
-  ctx.fillStyle = head;
-  roundRect(ctx, 10, 10, CARNET_W - 20, 100, 24);
-  ctx.fill();
-  ctx.fillRect(10, 74, CARNET_W - 20, 36);
-  ctx.fillStyle = '#1a0e00';
-  ctx.textAlign = 'center';
-  ctx.font = "700 28px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText('GOLDEN TOUCH 1127 C.A.', CARNET_W / 2, 60);
-
+/** Genera el REVERSO del carnet (PNG, 638×1016 px). Es igual para todos. */
+export async function generarCarnetReversoDataUrl(): Promise<string> {
+  const { canvas, ctx } = lienzo();
   const cx = CARNET_W / 2;
+  fondoYMarco(ctx);
 
-  // Logo institucional REDONDO: el cvm.jpg ya es un logo circular; se dibuja COVER y se
-  // recorta al círculo (sus esquinas negras quedan fuera). Anillo naranja alrededor.
-  const rImg = 112;
-  const cyImg = 132 + rImg;
+  // Recuadro punteado con el texto legal y el contacto.
+  const bx = 44, by = 130, bw = CARNET_W - 88, bh = 560;
   ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cyImg, rImg, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.clip();
-  let imgOk = false;
-  try {
-    const src = imagenInstitucionalDataUrl || REVERSO_IMG_URL;
-    const img = await cargarImg(src);
-    dibujarCover(ctx, img, cx - rImg, cyImg - rImg, rImg * 2, rImg * 2);
-    imgOk = true;
-  } catch { /* sin imagen: marcador */ }
+  ctx.strokeStyle = COLORES_CARNET.puntos;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([0.1, 10]);
+  ctx.strokeRect(bx, by, bw, bh);
   ctx.restore();
-  if (!imgOk) {
-    ctx.fillStyle = pal.tenue;
-    ctx.font = "500 18px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('Imagen institucional', cx, cyImg);
-  }
-  // Anillo naranja del disco.
-  ctx.beginPath();
-  ctx.arc(cx, cyImg, rImg, 0, Math.PI * 2);
-  ctx.strokeStyle = COL.primary;
-  ctx.lineWidth = 5;
-  ctx.stroke();
 
-  // Texto legal JUSTIFICADO, en el color que contrasta con el fondo del tema.
-  const margin = 46;
-  const maxW = CARNET_W - margin * 2;
-  let y = cyImg + rImg + 46;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = cardText;
-  ctx.font = "400 21px 'Segoe UI', Arial, sans-serif";
-  y = textoJustificado(ctx, REVERSO_P1, margin, y, maxW, 31);
+  // Sello «CVM Aliados» encima del borde de arriba (lo interrumpe, como en el impreso).
+  await dibujarContain(ctx, LOGOS.cvmAliados, cx - 96, 14, 192, 196);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COLORES_CARNET.texto;
+  ctx.font = `400 23px ${FUENTE}`;
+  let y = 236;
+  y = textoCentrado(ctx, REVERSO_P1, cx, y, bw - 44, 32);
   y += 20;
-  ctx.font = "600 21px 'Segoe UI', Arial, sans-serif";
-  y = textoJustificado(ctx, REVERSO_P2, margin, y, maxW, 31);
+  y = textoCentrado(ctx, REVERSO_P2, cx, y, bw - 44, 32);
+  y += 22;
+  ctx.fillText(EMPRESA_EMAIL, cx, y);
+  ctx.fillText(`WhatsApp ${EMPRESA_WHATSAPP}`, cx, y + 32);
 
-  // Contacto (resaltado).
-  const contY = CARNET_H - 150;
-  ctx.textAlign = 'center';
-  ctx.fillStyle = cardEmail;
-  ctx.font = "700 22px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText(REVERSO_EMAIL, cx, contY);
-  ctx.fillStyle = cardText;
-  ctx.font = "600 22px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText(REVERSO_WHATSAPP, cx, contY + 34);
+  // Firma a la izquierda y sello de Golden Touch a la derecha.
+  await dibujarContain(ctx, LOGOS.firma, 64, 708, 250, 136);
+  await dibujarContain(ctx, LOGOS.goldenSello, 336, 730, 238, 86);
 
-  // Pie naranja.
-  const footY = CARNET_H - 62;
-  ctx.fillStyle = COL.primary;
-  roundRect(ctx, 10, footY, CARNET_W - 20, 52, 20);
-  ctx.fill();
-  ctx.fillRect(10, footY, CARNET_W - 20, 28);
-  ctx.fillStyle = '#1a0e00';
-  ctx.textAlign = 'center';
-  ctx.font = "700 20px 'Segoe UI', Arial, sans-serif";
-  ctx.fillText('CORPORACIÓN VENEZOLANA DE MINERÍA', cx, footY + 29);
+  // Raya naranja y logo del Ministerio.
+  ctx.strokeStyle = COLORES_CARNET.naranja;
+  ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(92, 858); ctx.lineTo(CARNET_W - 92, 858); ctx.stroke();
+  await dibujarContain(ctx, LOGOS.gobierno, cx - 98, 870, 196, 125);
 
   return canvas.toDataURL('image/png');
 }
 
-/**
- * Nombre de archivo sugerido para el carnet.
- *
- * Lleva la versión en el nombre a propósito: si no, bajar el frente negro y
- * después el blanco deja dos archivos con el mismo nombre y el segundo queda
- * como «(1)», sin forma de saber cuál es cuál al momento de mandarlos a imprimir.
- */
-export function nombreArchivoCarnet(
-  p: Personal,
-  cara: 'frente' | 'reverso' = 'frente',
-  tema: TemaCarnet = 'oscuro',
-): string {
+/** Nombre de archivo sugerido para el carnet (la cara va en el nombre, para no confundirlas al imprimir). */
+export function nombreArchivoCarnet(p: Personal, cara: 'frente' | 'reverso' = 'frente'): string {
   const base = `${p.nombre}_${p.apellido ?? ''}`.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  const sufijo = TEMAS_CARNET.find((t) => t.valor === tema)?.sufijo ?? tema;
-  return `carnet_${base || 'personal'}_${cara}_${sufijo}.png`;
+  return `carnet_${base || 'personal'}_${cara}.png`;
 }

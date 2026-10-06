@@ -32,7 +32,6 @@ import {
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import {
   generarCarnetPersonalDataUrl, generarCarnetReversoDataUrl, nombreArchivoCarnet,
-  TEMAS_CARNET, type TemaCarnet,
 } from './carnetPersonal';
 import { descargarConstanciaTrabajoPdf, type FirmanteConstancia } from './constanciaTrabajoPdf';
 import { HistorialSueldoModal } from './HistorialSueldoModal';
@@ -1397,9 +1396,6 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
   persona: Personal; canWrite: boolean; onClose: () => void; onFotoCambio: () => void;
 }) {
   const [fotoPath, setFotoPath] = useState<string | null>(persona.foto_path ?? null);
-  // Las dos versiones del carnet. Arranca en negro porque es la que se venía
-  // usando; la blanca gasta muchísima menos tinta al imprimir.
-  const [tema, setTema] = useState<TemaCarnet>('oscuro');
   const [frente, setFrente] = useState<string | null>(null);
   const [reverso, setReverso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1419,8 +1415,8 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
         const foto = fotoPath ? await fotoPersonalDataUrl(fotoPath).catch(() => null) : null;
         if (!cancel) setFotoData(foto);
         const [f, r] = await Promise.all([
-          generarCarnetPersonalDataUrl({ ...persona, foto_path: fotoPath }, foto, tema),
-          generarCarnetReversoDataUrl(null, tema),
+          generarCarnetPersonalDataUrl({ ...persona, foto_path: fotoPath }, foto),
+          generarCarnetReversoDataUrl(),
         ]);
         if (!cancel) { setFrente(f); setReverso(r); }
       } catch (e) {
@@ -1428,13 +1424,13 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
       }
     })();
     return () => { cancel = true; };
-  }, [persona, fotoPath, tema]);
+  }, [persona, fotoPath]);
 
   function descargar(dataUrl: string | null, cara: 'frente' | 'reverso') {
     if (!dataUrl) return;
     const a = document.createElement('a');
     a.href = dataUrl;
-    a.download = nombreArchivoCarnet(persona, cara, tema);
+    a.download = nombreArchivoCarnet(persona, cara);
     document.body.appendChild(a); a.click(); a.remove();
   }
 
@@ -1489,19 +1485,6 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
           <span className="muted" style={{ fontSize: '.76rem' }}>La foto va en el frente del carnet. Máx. 5 MB.</span>
         </div>
       )}
-
-      <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '.8rem' }}>
-        <span className="muted" style={{ fontSize: '.76rem', fontWeight: 700 }}>VERSIÓN</span>
-        {TEMAS_CARNET.map((t) => (
-          <button
-            key={t.valor}
-            className={`btn btn-sm ${tema === t.valor ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setTema(t.valor)}
-          >
-            {t.valor === 'oscuro' ? '⬛' : '⬜'} {t.etiqueta}
-          </button>
-        ))}
-      </div>
 
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>

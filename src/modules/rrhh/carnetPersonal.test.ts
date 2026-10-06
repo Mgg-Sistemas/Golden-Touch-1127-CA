@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  PALETA_CARNET, TEMAS_CARNET, nombreArchivoCarnet, nombreParaCarnet, primeraParte,
-  textoQrPersona, type TemaCarnet,
+  COLORES_CARNET, cedulaConPuntos, enTitulo, nombreArchivoCarnet, nombreParaCarnet, primeraParte,
+  textoQrPersona,
 } from './carnetPersonal';
 import type { Personal } from '@/shared/lib/types';
 
@@ -35,103 +35,51 @@ function contraste(a: string, b: string): number {
   return (claro + 0.05) / (oscuro + 0.05);
 }
 
-const TEMAS: TemaCarnet[] = ['oscuro', 'claro'];
-
-describe('las dos versiones del carnet', () => {
-  it('son exactamente dos: fondo negro y fondo blanco', () => {
-    expect(TEMAS_CARNET.map((t) => t.valor)).toEqual(['oscuro', 'claro']);
-    expect(TEMAS_CARNET.map((t) => t.sufijo)).toEqual(['negro', 'blanco']);
+describe('el formato del carnet · todo va sobre blanco', () => {
+  const { fondo, texto, qr, marco, naranja } = COLORES_CARNET;
+  it('el fondo es blanco de verdad', () => { expect(fondo).toBe('#ffffff'); });
+  it('el nombre, la cédula y el texto legal se leen de lejos (≥ 7:1)', () => {
+    expect(contraste(texto, fondo)).toBeGreaterThanOrEqual(7);
   });
-
-  it('cada tema define todos los colores, sin heredar del otro', () => {
-    for (const tema of TEMAS) {
-      const p = PALETA_CARNET[tema];
-      for (const [clave, valor] of Object.entries(p)) {
-        if (clave === 'bordePanelQr') continue; // puede ser null a propósito
-        expect(valor, `${tema}.${clave}`).toBeTruthy();
-      }
-    }
-  });
-
-  it('el fondo claro es blanco de verdad, no gris', () => {
-    expect(PALETA_CARNET.claro.fondo0).toBe('#ffffff');
-    expect(PALETA_CARNET.claro.fondo1).toBe('#ffffff');
-  });
-
-  it('el fondo oscuro es oscuro de verdad en los dos extremos del degradado', () => {
-    expect(luminancia(PALETA_CARNET.oscuro.fondo0)).toBeLessThan(0.05);
-    expect(luminancia(PALETA_CARNET.oscuro.fondo1)).toBeLessThan(0.05);
+  it('el QR va oscuro sobre blanco (≥ 7:1)', () => { expect(contraste(qr, fondo)).toBeGreaterThanOrEqual(7); });
+  it('el marco dorado y el borde naranja se distinguen del blanco', () => {
+    expect(contraste(marco, fondo)).toBeGreaterThanOrEqual(2);
+    expect(contraste(naranja, fondo)).toBeGreaterThanOrEqual(2);
   });
 });
 
-describe('contraste · lo que se imprime se tiene que poder leer', () => {
-  // El peor caso de un degradado es su extremo más parecido al texto.
-  const peorFondo = (tema: TemaCarnet) => {
-    const p = PALETA_CARNET[tema];
-    return luminancia(p.fondo0) > luminancia(p.fondo1) ? p.fondo0 : p.fondo1;
-  };
-
-  for (const tema of TEMAS) {
-    it(`${tema}: el nombre se lee de lejos (≥ 7:1)`, () => {
-      expect(contraste(PALETA_CARNET[tema].texto, peorFondo(tema))).toBeGreaterThanOrEqual(7);
-    });
-
-    it(`${tema}: cargo y leyendas se leen (≥ 4.5:1)`, () => {
-      expect(contraste(PALETA_CARNET[tema].tenue, peorFondo(tema))).toBeGreaterThanOrEqual(4.5);
-    });
-
-    it(`${tema}: la cédula se lee (≥ 4.5:1)`, () => {
-      expect(contraste(PALETA_CARNET[tema].cedula, peorFondo(tema))).toBeGreaterThanOrEqual(4.5);
-    });
-
-    it(`${tema}: el correo del reverso se lee (≥ 4.5:1)`, () => {
-      expect(contraste(PALETA_CARNET[tema].emailReverso, peorFondo(tema))).toBeGreaterThanOrEqual(4.5);
-    });
-  }
-
-  it('el dorado del tema oscuro NO se usa en el claro: sobre blanco sería ilegible', () => {
-    expect(contraste('#ffd54a', '#ffffff')).toBeLessThan(4.5);
-    expect(PALETA_CARNET.claro.cedula).not.toBe('#ffd54a');
+describe('cedulaConPuntos · como se imprime', () => {
+  it('pone los puntos de miles', () => {
+    expect(cedulaConPuntos('V-26830892')).toBe('V-26.830.892');
+    expect(cedulaConPuntos('v26830892')).toBe('V-26.830.892');
+    expect(cedulaConPuntos('E-1234567')).toBe('E-1.234.567');
   });
-
-  it('el panel del QR se distingue del fondo en las dos versiones', () => {
-    // En el oscuro el panel blanco ya resalta solo; en el claro, como el fondo
-    // también es blanco, hace falta borde o el panel desaparece.
-    expect(PALETA_CARNET.oscuro.bordePanelQr).toBeNull();
-    expect(PALETA_CARNET.claro.bordePanelQr).toBeTruthy();
-  });
-
-  it('el QR siempre va oscuro sobre panel claro, en los dos temas', () => {
-    for (const tema of TEMAS) {
-      expect(contraste('#161a20', PALETA_CARNET[tema].panelQr)).toBeGreaterThanOrEqual(7);
-    }
-  });
+  it('si ya los tiene, no los duplica', () => { expect(cedulaConPuntos('V-26.830.892')).toBe('V-26.830.892'); });
+  it('lo que no reconoce lo deja como está', () => { expect(cedulaConPuntos('PASAPORTE X1')).toBe('PASAPORTE X1'); });
 });
 
-describe('nombreArchivoCarnet · una versión no pisa a la otra', () => {
+describe('enTitulo · nombre y cargo como en el carnet impreso', () => {
+  it('primera letra en mayúscula', () => {
+    expect(enTitulo('HECTOR LUIS ALAGAL SANCHEZ')).toBe('Hector Luis Alagal Sanchez');
+    expect(enTitulo('AUXILIAR MOTORIZADO')).toBe('Auxiliar Motorizado');
+  });
+  it('las partículas del medio van en minúscula', () => { expect(enTitulo('MARIA DE LOS ANGELES')).toBe('Maria de los Angeles'); });
+  it('vacío no rompe', () => { expect(enTitulo(null)).toBe(''); });
+});
+
+describe('nombreArchivoCarnet · frente y reverso no se pisan', () => {
   const p = { nombre: 'PRUEBA', apellido: 'PRUEBA' } as Personal;
-
-  it('el nombre dice la cara y la versión', () => {
-    expect(nombreArchivoCarnet(p, 'frente', 'oscuro')).toBe('carnet_PRUEBA_PRUEBA_frente_negro.png');
-    expect(nombreArchivoCarnet(p, 'reverso', 'claro')).toBe('carnet_PRUEBA_PRUEBA_reverso_blanco.png');
+  it('el nombre dice la cara', () => {
+    expect(nombreArchivoCarnet(p, 'frente')).toBe('carnet_PRUEBA_PRUEBA_frente.png');
+    expect(nombreArchivoCarnet(p, 'reverso')).toBe('carnet_PRUEBA_PRUEBA_reverso.png');
   });
-
-  it('las cuatro combinaciones dan cuatro archivos distintos', () => {
-    const nombres = new Set<string>();
-    for (const cara of ['frente', 'reverso'] as const) {
-      for (const tema of TEMAS) nombres.add(nombreArchivoCarnet(p, cara, tema));
-    }
-    expect(nombres.size).toBe(4);
-  });
-
   it('sin nombre no queda un archivo sin nombre', () => {
-    expect(nombreArchivoCarnet({ nombre: '', apellido: '' } as Personal, 'frente', 'claro'))
-      .toBe('carnet_personal_frente_blanco.png');
+    expect(nombreArchivoCarnet({ nombre: '', apellido: '' } as Personal, 'frente')).toBe('carnet_personal_frente.png');
   });
 });
 
-describe('textoQrPersona · el QR no depende del tema', () => {
-  it('el mismo contenido en las dos versiones', () => {
+describe('textoQrPersona · el texto de respaldo del QR', () => {
+  it('lleva empresa y cédula', () => {
     const p = { nombre: 'ANA', apellido: 'PÉREZ', cedula: 'V-12345678', cargo: 'ASISTENTE' } as Personal;
     expect(textoQrPersona(p)).toContain('GOLDEN TOUCH 1127 C.A.');
     expect(textoQrPersona(p)).toContain('Cédula: V-12345678');
