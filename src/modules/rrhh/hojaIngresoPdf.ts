@@ -37,9 +37,9 @@
    agregue de aquí en más va en la hoja 2, que sí tiene aire. Un campo de más en
    la hoja 1 empuja el contenido fuera del papel sin que nadie lo note.
    ============================================================ */
-import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfEmpresa, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
-import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
+import { identidadEmpresa } from '@/shared/lib/empresa';
 import { SEGMENTOS_DOCUMENTOS } from './documentosAConsignar';
 
 /** Alto de un renglón de campo: lo que queda para escribir a mano arriba de la raya. */
@@ -107,10 +107,12 @@ function siNo(doc: Doc, x: number, y: number): number {
   return casilla(doc, fin + 10, y, 'No');
 }
 
-export async function descargarHojaIngresoPdf(): Promise<void> {
+/** `empresa`: nómina desde la que se imprime (GT o MTO = Minería Tin Oxide). */
+export async function descargarHojaIngresoPdf(empresa: string | null = 'GT'): Promise<void> {
+  const emp = identidadEmpresa(empresa);
   const [{ jsPDF }, logo] = await Promise.all([
     import('jspdf'),
-    loadLogoPdfDataUrl().catch(() => null),
+    loadLogoPdfEmpresa(empresa).catch(() => null),
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -132,14 +134,17 @@ export async function descargarHojaIngresoPdf(): Promise<void> {
     const tx = logo ? MARGIN + anchoLogoPdf(44) + 12 : MARGIN;
     doc.setTextColor(20, 20, 20);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-    doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 16);
+    doc.text(emp.nombre, tx, y + 16);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
     doc.setTextColor(90, 90, 90);
-    doc.text(`RIF: ${EMPRESA_RIF}`, tx, y + 30);
+    doc.text(`RIF: ${emp.rif}`, tx, y + 30);
     doc.setFont('helvetica', 'normal');
-    doc.text(EMPRESA_CONTACTO, tx, y + 42);
+    doc.text(emp.contacto, tx, y + 42);
+    doc.setFontSize(7.5);
+    const dom = doc.splitTextToSize(`Domicilio fiscal: ${emp.domicilio}`, PAGE_W - MARGIN - tx) as string[];
+    doc.text(dom, tx, y + 53);
     doc.setTextColor(20, 20, 20);
-    y += 52;
+    y += 52 + dom.length * 9;
     doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
     doc.line(MARGIN, y, PAGE_W - MARGIN, y);
     return y + 18;

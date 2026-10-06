@@ -96,6 +96,14 @@ const hoy = () => new Date().toISOString().slice(0, 10);
  */
 export type OrientacionHoja = 'auto' | 'vertical' | 'horizontal';
 
+/**
+ * De qué empresa es la lista: si TODOS son de MTO (Minería Tin Oxide) sale con
+ * su nombre y su logo; si son de GT o están mezclados, con los de GT.
+ */
+export function empresaDeLista(personas: Pick<Personal, 'empresa'>[]): 'GT' | 'MTO' {
+  return personas.length > 0 && personas.every((p) => p.empresa === 'MTO') ? 'MTO' : 'GT';
+}
+
 export function orientacionFinal(claves: string[], elegida: OrientacionHoja = 'auto'): 'portrait' | 'landscape' {
   if (elegida === 'vertical') return 'portrait';
   if (elegida === 'horizontal') return 'landscape';
@@ -118,11 +126,15 @@ export async function descargarPersonalExcel(personas: Personal[], claves: strin
   validar(personas, claves);
   const { encabezados, filas } = tablaPersonal(personas, claves);
   const campos = camposElegidos(claves);
-  const [{ default: ExcelJS }, { loadLogoDataUrl }] = await Promise.all([
+  const [{ default: ExcelJS }, { loadLogoDataUrl, loadLogoPdfEmpresa, LOGO_PDF_PROPORCION }, { identidadEmpresa }] = await Promise.all([
     import('exceljs'),
     import('@/shared/lib/pdfLogo'),
+    import('@/shared/lib/empresa'),
   ]);
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const empresa = empresaDeLista(personas);
+  const emp = identidadEmpresa(empresa);
+  // GT: el logo cuadrado de siempre. MTO: su logo horizontal (no tiene versión cuadrada).
+  const logo = await (empresa === 'MTO' ? loadLogoPdfEmpresa('MTO') : loadLogoDataUrl()).catch(() => null);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Personal', {
@@ -136,19 +148,24 @@ export async function descargarPersonalExcel(personas: Personal[], claves: strin
 
   // Encabezado: logo en la columna A (filas 1-3) y el título a su derecha.
   ws.getRow(1).height = 26; ws.getRow(2).height = 20; ws.getRow(3).height = 14;
+  const logoAlto = 54;
+  const logoAncho = empresa === 'MTO' ? Math.round(logoAlto * LOGO_PDF_PROPORCION) : logoAlto;
   if (logo) {
     const id = wb.addImage({ base64: logo, extension: 'jpeg' });
-    ws.addImage(id, { tl: { col: 0.1, row: 0.1 }, ext: { width: 54, height: 54 } });
+    ws.addImage(id, { tl: { col: 0.1, row: 0.1 }, ext: { width: logoAncho, height: logoAlto } });
   }
-  const desde = Math.min(2, ultima);
+  // El título empieza en la primera columna que queda libre a la derecha del logo.
+  let desde = 1, ocupado = 0;
+  while (desde < ultima && ocupado < logoAncho + 8) { ocupado += (Number(ws.getColumn(desde).width) || 10) * 7; desde += 1; }
+  desde = Math.min(Math.max(desde, 2), ultima);
   ws.mergeCells(1, desde, 1, Math.max(desde, ultima));
   ws.mergeCells(2, desde, 2, Math.max(desde, ultima));
   const t = ws.getCell(1, desde);
-  t.value = `${titulo.toUpperCase()} · GOLDEN TOUCH 1127 C.A.`;
+  t.value = `${titulo.toUpperCase()} · ${emp.nombre}`;
   t.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFF8A00' } };
   t.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   const sub = ws.getCell(2, desde);
-  sub.value = `${filas.length} persona(s) · ${new Date().toLocaleString('es-VE')}`;
+  sub.value = `RIF ${emp.rif} · ${filas.length} persona(s) · ${new Date().toLocaleString('es-VE')}`;
   sub.font = { name: 'Arial', size: 10, color: { argb: 'FF5C6673' } };
   sub.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 
@@ -183,12 +200,15 @@ export async function descargarPersonalPdf(personas: Personal[], claves: string[
   validar(personas, claves);
   const { encabezados, filas } = tablaPersonal(personas, claves);
   const campos = camposElegidos(claves);
-  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl, dibujarLogoPdf }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfEmpresa, dibujarLogoPdf }, { identidadEmpresa }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
+    import('@/shared/lib/empresa'),
   ]);
-  const logo = await loadLogoPdfDataUrl().catch(() => null);
+  const empresa = empresaDeLista(personas);
+  const emp = identidadEmpresa(empresa);
+  const logo = await loadLogoPdfEmpresa(empresa).catch(() => null);
   const anchoTotal = campos.reduce((a, c) => a + c.ancho, 0);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacionFinal(claves, orientacion) });
   const W = doc.internal.pageSize.getWidth();
@@ -198,7 +218,7 @@ export async function descargarPersonalPdf(personas: Personal[], claves: string[
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe(titulo.toUpperCase()), W / 2, y + 20, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(pdfSafe(`GOLDEN TOUCH 1127 C.A. · ${filas.length} persona(s) · ${new Date().toLocaleString('es-VE')}`), W / 2, y + 36, { align: 'center' });
+  doc.text(pdfSafe(`${emp.nombre} · RIF ${emp.rif} · ${filas.length} persona(s) · ${new Date().toLocaleString('es-VE')}`), W / 2, y + 36, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 70; // aire entre el encabezado y la tabla
 

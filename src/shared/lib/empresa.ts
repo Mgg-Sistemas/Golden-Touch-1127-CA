@@ -25,3 +25,58 @@ export const EMPRESA_WHATSAPP = '+58 424-9349731';
 
 /** La línea de contacto tal como aparece en el membrete. */
 export const EMPRESA_CONTACTO = `${EMPRESA_EMAIL}  ·  WhatsApp ${EMPRESA_WHATSAPP}`;
+
+/* ───────── Las dos empresas del grupo (06/10/2026) ─────────
+   RRHH lleva dos nóminas: GT (Golden Touch) y MTO, que es OTRA empresa:
+   Minería Tin Oxide, C.A. Todo papel de una persona de la nómina MTO
+   (carnet, ficha, constancia, hoja de ingreso, recibo, préstamos…) sale
+   con el nombre, el RIF, el domicilio y el logo de MTO, no los de GT. */
+
+export interface IdentidadEmpresa {
+  clave: 'GT' | 'MTO';
+  /** Razón social, como va en el membrete y en el texto de los documentos. */
+  nombre: string;
+  rif: string;
+  domicilio: string;
+  /** Ciudad de expedición por defecto de constancias y cartas. */
+  ciudad: string;
+  email: string;
+  whatsapp: string;
+  contacto: string;
+  /** Logo horizontal de los PDF (archivo en `public/`). */
+  logoPdf: string;
+  /** Logo para pantalla y Excel (archivo en `public/`). */
+  logoPantalla: string;
+}
+
+export const IDENTIDAD_GT: IdentidadEmpresa = {
+  clave: 'GT',
+  nombre: 'GOLDEN TOUCH 1127 C.A.',
+  rif: EMPRESA_RIF,
+  domicilio: EMPRESA_DOMICILIO,
+  ciudad: 'Puerto Ordaz, Estado Bolívar',
+  email: EMPRESA_EMAIL,
+  whatsapp: EMPRESA_WHATSAPP,
+  contacto: EMPRESA_CONTACTO,
+  logoPdf: 'Logo Golden Touch.jpg',
+  logoPantalla: 'LOGO.jpg',
+};
+
+/** Datos del RIF de MTO (SENIAT, actualizado el 20/08/2026). El contacto es el del grupo. */
+export const IDENTIDAD_MTO: IdentidadEmpresa = {
+  clave: 'MTO',
+  nombre: 'MINERÍA TIN OXIDE, C.A.',
+  rif: 'J-50319019-1',
+  domicilio: 'Calle Urdaneta, Local Nro S/N, Sector Maturín, Upata, Bolívar, Zona Postal 8052',
+  ciudad: 'Upata, Estado Bolívar',
+  email: EMPRESA_EMAIL,
+  whatsapp: EMPRESA_WHATSAPP,
+  contacto: EMPRESA_CONTACTO,
+  logoPdf: 'Logo MTO.png',
+  logoPantalla: 'Logo MTO.png',
+};
+
+/** Identidad de la empresa de una nómina ('GT' | 'MTO'). Sin dato o desconocida → GT. */
+export function identidadEmpresa(empresa?: string | null): IdentidadEmpresa {
+  return empresa === 'MTO' ? IDENTIDAD_MTO : IDENTIDAD_GT;
+}
