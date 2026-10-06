@@ -88,11 +88,33 @@ function validar(personas: Personal[], claves: string[]) {
 const hoy = () => new Date().toISOString().slice(0, 10);
 
 /**
+ * Orientación de la hoja (06/10/2026). Antes se ponía sola en horizontal al
+ * marcar muchas columnas, y si al imprimir se elegía «vertical» la impresora
+ * achicaba la hoja apaisada y quedaba en blanco arriba y abajo. Ahora se
+ * elige en el diálogo y el PDF se ARMA en esa orientación: la tabla ocupa
+ * todo el ancho de la hoja y la letra se ajusta a lo que entra.
+ */
+export type OrientacionHoja = 'auto' | 'vertical' | 'horizontal';
+
+export function orientacionFinal(claves: string[], elegida: OrientacionHoja = 'auto'): 'portrait' | 'landscape' {
+  if (elegida === 'vertical') return 'portrait';
+  if (elegida === 'horizontal') return 'landscape';
+  const anchoTotal = camposElegidos(claves).reduce((a, c) => a + c.ancho, 0);
+  return anchoTotal > 90 ? 'landscape' : 'portrait';
+}
+
+/** Tamaño de letra para que las columnas entren en `util` puntos de ancho (entre 6 y 10). */
+export function letraQueEntra(util: number, anchoTotal: number): number {
+  if (anchoTotal <= 0) return 10;
+  return Math.max(6, Math.min(10, Math.floor((util / anchoTotal) * 2 * 2) / 2));
+}
+
+/**
  * Excel con el LOGO arriba a la izquierda, columna «N°» para contar y filas
  * con aire y bordes (05/10/2026). Se arma con ExcelJS porque SheetJS no
  * escribe imágenes.
  */
-export async function descargarPersonalExcel(personas: Personal[], claves: string[], titulo = 'Personal'): Promise<void> {
+export async function descargarPersonalExcel(personas: Personal[], claves: string[], titulo = 'Personal', orientacion: OrientacionHoja = 'auto'): Promise<void> {
   validar(personas, claves);
   const { encabezados, filas } = tablaPersonal(personas, claves);
   const campos = camposElegidos(claves);
@@ -104,7 +126,7 @@ export async function descargarPersonalExcel(personas: Personal[], claves: strin
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Personal', {
-    pageSetup: { orientation: campos.length > 5 ? 'landscape' : 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    pageSetup: { orientation: orientacionFinal(claves, orientacion), fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
     views: [{ state: 'frozen', ySplit: 5 }],
   });
   ws.columns = [{ width: 7 }, ...campos.map((c) => ({ width: Math.max(c.ancho, c.etiqueta.length) + 6 }))];
@@ -157,7 +179,7 @@ export async function descargarPersonalExcel(personas: Personal[], claves: strin
   await previewExcelArchivo(bytes, `personal-${hoy()}.xlsx`);
 }
 
-export async function descargarPersonalPdf(personas: Personal[], claves: string[], titulo = 'Personal'): Promise<void> {
+export async function descargarPersonalPdf(personas: Personal[], claves: string[], titulo = 'Personal', orientacion: OrientacionHoja = 'auto'): Promise<void> {
   validar(personas, claves);
   const { encabezados, filas } = tablaPersonal(personas, claves);
   const campos = camposElegidos(claves);
@@ -167,9 +189,8 @@ export async function descargarPersonalPdf(personas: Personal[], claves: string[
     import('@/shared/lib/pdfLogo'),
   ]);
   const logo = await loadLogoPdfDataUrl().catch(() => null);
-  // Pocas columnas caben en vertical; muchas, en horizontal.
   const anchoTotal = campos.reduce((a, c) => a + c.ancho, 0);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: anchoTotal > 90 ? 'landscape' : 'portrait' });
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacionFinal(claves, orientacion) });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
@@ -184,6 +205,7 @@ export async function descargarPersonalPdf(personas: Personal[], claves: string[
   // Columna «N°» para contar al imprimir; el resto reparte el ancho útil según su peso.
   const util = W - MARGIN * 2 - 30;
   const columnStyles: Record<number, { cellWidth: number; halign?: 'right' | 'center' }> = { 0: { cellWidth: 30, halign: 'center' } };
+  const letra = letraQueEntra(util, anchoTotal);
   campos.forEach((c, i) => {
     columnStyles[i + 1] = { cellWidth: (util * c.ancho) / anchoTotal, ...(c.clave === 'sueldo_base' || c.clave === 'edad' ? { halign: 'right' as const } : {}) };
   });
@@ -194,8 +216,8 @@ export async function descargarPersonalPdf(personas: Personal[], claves: string[
     head: [['N°', ...encabezados.map((e) => pdfSafe(e.toUpperCase()))]],
     body: filas.map((f, i) => [String(i + 1), ...f.map((v, k) =>
       campos[k].clave === 'sueldo_base' ? `$ ${Number(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : pdfSafe(String(v)))]),
-    styles: { fontSize: campos.length > 8 ? 7 : 10, cellPadding: campos.length > 8 ? 4 : 6, overflow: 'linebreak', valign: 'middle', lineColor: [150, 156, 164], lineWidth: 0.6, textColor: [20, 24, 30] },
-    headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', valign: 'middle', fontSize: campos.length > 8 ? 7 : 9, lineColor: [150, 156, 164], lineWidth: 0.6 },
+    styles: { fontSize: letra, cellPadding: letra < 8 ? 3.5 : 6, overflow: 'linebreak', valign: 'middle', lineColor: [150, 156, 164], lineWidth: 0.6, textColor: [20, 24, 30] },
+    headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', valign: 'middle', fontSize: Math.min(9, letra), lineColor: [150, 156, 164], lineWidth: 0.6 },
     alternateRowStyles: { fillColor: [250, 246, 240] },
     columnStyles,
     margin: MARGIN,
