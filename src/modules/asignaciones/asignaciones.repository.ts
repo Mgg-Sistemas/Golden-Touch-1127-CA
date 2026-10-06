@@ -74,3 +74,32 @@ export async function eliminarAsignacion(id: string, actor: string, actorName: s
   const { error: e } = await supabase.rpc('asignacion_eliminar', { p_id: id, p_actor: actor, p_actor_name: actorName });
   if (e) throw error(e, 'No se pudo eliminar la asignación');
 }
+
+/* ───────── Vehículos (apartado «Asignación de vehículos») ───────── */
+
+/** Unidad de la flota tomada de la ficha de Control de Maquinaria. */
+export interface VehiculoFlota {
+  id: string;
+  equipo: string;
+  tipo: string | null;
+  marca: string | null;
+  modelo: string | null;
+  placa: string | null;
+  serial: string | null;
+  status: string | null;
+}
+
+export async function listVehiculosFlota(): Promise<VehiculoFlota[]> {
+  const { data, error: e } = await supabase.from('maquinaria_equipos')
+    .select('id, equipo, tipo, marca, modelo, placa, serial, status')
+    .eq('activo', true).order('equipo');
+  if (e) throw e;
+  return (data ?? []) as VehiculoFlota[];
+}
+
+/** Guarda el kilometraje con que se devolvió el vehículo (va después de devolver). */
+export async function guardarKmDevolucion(id: string, km: number | null, actor: string): Promise<Asignacion> {
+  const { data, error: e } = await supabase.rpc('asignacion_km_devolucion', { p_id: id, p_km: km, p_actor: actor });
+  if (e) throw error(e, 'No se pudo guardar el kilometraje de devolución');
+  return data as Asignacion;
+}

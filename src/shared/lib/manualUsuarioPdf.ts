@@ -590,6 +590,18 @@ const SECCIONES: Seccion[] = [
     ],
   },
   {
+    icono: '🎒',
+    titulo: 'Asignaciones',
+    intro:
+      'Qué le entregó la empresa a cada trabajador y si lo devolvió. Desde el 06/10/2026 tiene tres apartados (pestañas): Asignación de bienes y equipo, Dotación al personal y Asignación de vehículos.',
+    puntos: [
+      'Bienes y equipo: líneas telefónicas, laptops y equipos, herramientas, material de oficina y otros. Pueden salir del inventario (descuenta stock y queda en el kardex) y lo que retorna queda pendiente hasta registrar la devolución.',
+      'Dotación al personal: uniformes, botas, EPP, con su talla. No retorna, pero queda en el historial del trabajador.',
+      'Vehículos: se elige la unidad de la flota (fichas de Control de Maquinaria, por nombre o placa) y se traen la placa, marca/modelo y serial; se anota el kilometraje al entregar y al devolver. Un vehículo no puede estar asignado a dos personas a la vez: el sistema avisa a quién lo tiene. La pestaña muestra cuántas unidades de la flota están libres.',
+      'Cada pestaña filtra la lista, las tarjetas y el reporte PDF. Todo en tiempo real y con auditoría.',
+    ],
+  },
+  {
     icono: '👤',
     titulo: 'Usuarios',
     captura: 'usuarios',

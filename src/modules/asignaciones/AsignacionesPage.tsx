@@ -1,8 +1,9 @@
 /* ============================================================
    Golden Touch · Asignaciones
 
-   Qué se le dio a cada trabajador: dotación, líneas telefónicas, laptops,
-   material de oficina, herramientas. Puede salir del inventario (descuenta
+   Qué se le dio a cada trabajador, en tres apartados (pestañas):
+   📦 bienes y equipo (líneas, laptops, oficina, herramientas), 🦺 dotación
+   al personal (uniformes / EPP con talla) y 🚙 vehículos de la flota. Puede salir del inventario (descuenta
    stock) o ser algo de afuera. Lo que RETORNA queda pendiente hasta que se
    registre la devolución; la dotación y el material de oficina no retornan,
    pero igual quedan en el historial de la persona.
@@ -18,11 +19,11 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RANGOS_RAPIDOS, hoyVenezuela, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 import { listPersonal } from '@/modules/rrhh/personal.repository';
 import {
-  CATEGORIA, CATEGORIAS, ESTADO_LABEL, FILTROS_VACIOS, detalleCorto, filtrarAsignaciones, filtrosActivos,
+  CATEGORIA, CATEGORIAS, ESTADO_LABEL, FILTROS_VACIOS, TIPO, TIPOS, detalleCorto, filtrarAsignaciones, filtrosActivos,
   nombreDe, normalizar, ordenarAsignaciones, resumenAsignaciones, valorTotal,
   type Asignacion, type FiltrosAsignacion, type PersonaMin,
 } from './asignacionesReglas';
-import { listAsignaciones, listProductosAsignables, type ProductoAsignable } from './asignaciones.repository';
+import { listAsignaciones, listProductosAsignables, listVehiculosFlota, type ProductoAsignable, type VehiculoFlota } from './asignaciones.repository';
 import { AsignacionModal } from './AsignacionModal';
 import { descargarAsignacionesPdf, nombreArchivoPdf } from './asignacionesPdf';
 
@@ -39,6 +40,7 @@ export function AsignacionesPage() {
   const [lista, setLista] = useState<Asignacion[]>([]);
   const [personal, setPersonal] = useState<PersonaMin[]>([]);
   const [productos, setProductos] = useState<ProductoAsignable[]>([]);
+  const [vehiculos, setVehiculos] = useState<VehiculoFlota[]>([]);
   const [loading, setLoading] = useState(true);
   const [f, setF] = useState<FiltrosAsignacion>(FILTROS_VACIOS);
   const [masFiltros, setMasFiltros] = useState(false);
@@ -48,24 +50,35 @@ export function AsignacionesPage() {
 
   const recargar = useCallback(async () => {
     try {
-      const [as, ps, pr] = await Promise.all([
+      const [as, ps, pr, vs] = await Promise.all([
         listAsignaciones(),
         listPersonal(false).catch(() => []),
         listProductosAsignables().catch(() => [] as ProductoAsignable[]),
+        listVehiculosFlota().catch(() => [] as VehiculoFlota[]),
       ]);
       setLista(as);
       setPersonal(ps as PersonaMin[]);
       setProductos(pr);
+      setVehiculos(vs);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las asignaciones', 'error'); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
-  useRealtime(['asignaciones', 'personal', 'productos'], () => { void recargar(); });
+  useRealtime(['asignaciones', 'personal', 'productos', 'maquinaria_equipos'], () => { void recargar(); });
 
   const personas = useMemo(() => new Map(personal.map((p) => [p.id, p])), [personal]);
   const filtradas = useMemo(() => ordenarAsignaciones(filtrarAsignaciones(lista, f, personas)), [lista, f, personas]);
   const r = useMemo(() => resumenAsignaciones(filtradas, personas), [filtradas, personas]);
-  const pendientesTodas = useMemo(() => lista.filter((a) => a.estado === 'asignado'), [lista]);
+  const pendientesTodas = useMemo(
+    () => lista.filter((a) => a.estado === 'asignado' && (!f.tipo || filtrarAsignaciones([a], { ...FILTROS_VACIOS, tipo: f.tipo }, personas).length > 0)),
+    [lista, f.tipo, personas],
+  );
+  // Vehículo de la flota → a quién está asignado hoy.
+  const vehiculosEnUso = useMemo(() => new Map(
+    lista.filter((a) => a.equipo_id && a.estado === 'asignado')
+      .map((a) => [a.equipo_id as string, `${nombreDe(personas.get(a.personal_id))} (${a.codigo})`]),
+  ), [lista, personas]);
+  const flotaLibre = vehiculos.filter((v) => !vehiculosEnUso.has(v.id)).length;
   const activo = rangoActivo(f.desde, f.hasta, hoy);
   const nActivos = filtrosActivos(f);
 
@@ -75,6 +88,7 @@ export function AsignacionesPage() {
     const p = [];
     if (f.desde || f.hasta) p.push(`Del ${f.desde ? fmtDate(f.desde) : 'inicio'} al ${f.hasta ? fmtDate(f.hasta) : hoy && fmtDate(hoy)}`);
     if (f.personalId) p.push(nombreDe(personas.get(f.personalId)));
+    if (f.tipo) p.push(TIPO[f.tipo].label);
     if (f.categoria) p.push(CATEGORIA[f.categoria].label);
     if (f.estado) p.push(f.estado === 'pendientes' ? 'Solo lo que está en su poder' : ESTADO_LABEL[f.estado as Asignacion['estado']]);
     if (f.empresa) p.push(`Nómina ${f.empresa}`);
@@ -86,7 +100,7 @@ export function AsignacionesPage() {
   async function pdfListado() {
     try {
       await descargarAsignacionesPdf({
-        titulo: 'Reporte de asignaciones', detalle: detalleFiltros(), lista: filtradas, personas,
+        titulo: f.tipo ? `Reporte · ${TIPO[f.tipo].label}` : 'Reporte de asignaciones', detalle: detalleFiltros(), lista: filtradas, personas,
         archivo: nombreArchivoPdf(`asignaciones-${f.desde || 'inicio'}-${f.hasta || hoy}`),
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
@@ -97,8 +111,18 @@ export function AsignacionesPage() {
       <div className="page-head">
         <div>
           <h1>🎒 Asignaciones</h1>
-          <p className="muted">Dotación, líneas telefónicas, equipos y materiales entregados al personal.</p>
+          <p className="muted">Bienes y equipo, dotación al personal y vehículos asignados.</p>
         </div>
+      </div>
+
+      <div className="view-toggle" role="tablist" aria-label="Apartado de asignaciones" style={{ marginBottom: '.9rem', flexWrap: 'wrap' }}>
+        <button className={!f.tipo ? 'active' : ''} onClick={() => setF((x) => ({ ...x, tipo: '', categoria: '' }))}>Todas</button>
+        {TIPOS.map((t) => (
+          <button key={t.valor} className={f.tipo === t.valor ? 'active' : ''}
+            onClick={() => setF((x) => ({ ...x, tipo: t.valor, categoria: x.categoria && TIPO[t.valor].categorias.includes(x.categoria) ? x.categoria : '' }))}>
+            {t.icono} {t.label}
+          </button>
+        ))}
       </div>
 
       <div className="lt-kpis">
@@ -117,6 +141,13 @@ export function AsignacionesPage() {
           <span className="lt-kpi-valor">{r.pendientesInactivos}</span>
           <span className="lt-kpi-sub">{r.pendientesInactivos ? 'hay que recuperarlos' : 'nada pendiente de quien ya no está'}</span>
         </div>
+        {f.tipo === 'vehiculo' && (
+          <div className="lt-kpi verde">
+            <span className="lt-kpi-label">Vehículos de la flota libres</span>
+            <span className="lt-kpi-valor">{flotaLibre}</span>
+            <span className="lt-kpi-sub">de {vehiculos.length} en Control de Maquinaria · {vehiculosEnUso.size} asignado(s)</span>
+          </div>
+        )}
         <div className="lt-kpi azul">
           <span className="lt-kpi-label">Asignado en lo filtrado</span>
           <span className="lt-kpi-valor">{money(r.valor)}</span>
@@ -144,7 +175,7 @@ export function AsignacionesPage() {
             <label htmlFor="asg-cat">Categoría</label>
             <select id="asg-cat" className="select" value={f.categoria} onChange={(e) => set('categoria', e.target.value as FiltrosAsignacion['categoria'])}>
               <option value="">Todas</option>
-              {CATEGORIAS.map((c) => <option key={c.valor} value={c.valor}>{c.label}</option>)}
+              {CATEGORIAS.filter((c) => !f.tipo || TIPO[f.tipo].categorias.includes(c.valor)).map((c) => <option key={c.valor} value={c.valor}>{c.label}</option>)}
             </select>
           </div>
           <div className="lt-campo">
@@ -176,7 +207,7 @@ export function AsignacionesPage() {
           <button type="button" className={`lt-chip${masFiltros ? ' activo' : ''}`} onClick={() => setMasFiltros((m) => !m)}>
             ▾ Más filtros
           </button>
-          {nActivos > 0 && <button type="button" className="lt-chip" onClick={() => setF(FILTROS_VACIOS)}>✕ Limpiar ({nActivos})</button>}
+          {nActivos > 0 && <button type="button" className="lt-chip" onClick={() => setF({ ...FILTROS_VACIOS, tipo: f.tipo })}>✕ Limpiar ({nActivos})</button>}
           <span className="lt-contador">{filtradas.length} de {lista.length} · {r.pendientes} en su poder</span>
         </div>
 
@@ -205,7 +236,11 @@ export function AsignacionesPage() {
       </div>
 
       <div className="lt-acciones">
-        {canWrite && <button className="btn btn-primary" onClick={() => setModal({ abierto: true, asignacion: null })}>+ Nueva asignación</button>}
+        {canWrite && (
+          <button className="btn btn-primary" onClick={() => setModal({ abierto: true, asignacion: null })}>
+            {f.tipo === 'vehiculo' ? '+ Asignar vehículo' : f.tipo === 'dotacion' ? '+ Nueva dotación' : f.tipo === 'bienes' ? '+ Asignar bien o equipo' : '+ Nueva asignación'}
+          </button>
+        )}
         <button className="btn btn-ghost" onClick={() => void pdfListado()} disabled={!filtradas.length}>📄 Reporte en PDF</button>
         {f.personalId && (
           <button className="btn btn-ghost" onClick={() => setHistorial(personas.get(f.personalId) ?? null)}>🧾 Historial del trabajador</button>
@@ -259,7 +294,8 @@ export function AsignacionesPage() {
         )}
 
       {modal?.abierto && (
-        <AsignacionModal asignacion={modal.asignacion} personal={personal} productos={productos} canWrite={canWrite}
+        <AsignacionModal asignacion={modal.asignacion} tipo={f.tipo} personal={personal} productos={productos}
+          vehiculos={vehiculos} vehiculosEnUso={vehiculosEnUso} canWrite={canWrite}
           actor={actor} actorName={actorName} onClose={() => setModal(null)}
           onSaved={async () => { setModal(null); await recargar(); }} />
       )}

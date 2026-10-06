@@ -12,21 +12,35 @@ import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate } from '@/shared/lib/format';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import {
-  CATEGORIA, CATEGORIAS, CONDICION_LABEL, ESTADO_LABEL, comprometido, detalleCorto, erroresForm, formDesde,
-  formVacio, itemVacio, limpiarItem, nombreDe, payloadDe, totalRenglones, valorTotal,
-  type Asignacion, type CondicionDevolucion, type FormAsignacion, type PersonaMin,
+  CATEGORIA, CATEGORIAS, CONDICION_LABEL, ESTADO_LABEL, TIPO, aNumero, comprometido, detalleCorto, erroresForm, formDesde,
+  formVacio, itemVacio, limpiarItem, nombreDe, payloadDe, tipoDeCategoria, totalRenglones, valorTotal,
+  type Asignacion, type CondicionDevolucion, type FormAsignacion, type PersonaMin, type TipoAsignacion,
 } from './asignacionesReglas';
 import {
-  anularDevolucion, crearAsignacion, devolverAsignacion, editarAsignacion, eliminarAsignacion,
-  type ProductoAsignable,
+  anularDevolucion, crearAsignacion, devolverAsignacion, editarAsignacion, eliminarAsignacion, guardarKmDevolucion,
+  type ProductoAsignable, type VehiculoFlota,
 } from './asignaciones.repository';
+
+/** Ejemplo del campo «¿Qué se asigna?» según la categoría. */
+const EJEMPLO: Partial<Record<FormAsignacion['categoria'], string>> = {
+  dotacion: 'Camisa, pantalón, botas de seguridad, casco, guantes…',
+  vehiculo: 'Se completa al elegir el vehículo de la flota',
+  linea: 'Línea corporativa',
+  equipo: 'Laptop, teléfono, radio…',
+};
 
 type Modo = 'ver' | 'editar' | 'devolver';
 
-export function AsignacionModal({ asignacion, personal, productos, canWrite, actor, actorName, onClose, onSaved }: {
+export function AsignacionModal({ asignacion, tipo = '', personal, productos, vehiculos = [], vehiculosEnUso, canWrite, actor, actorName, onClose, onSaved }: {
   asignacion: Asignacion | null;
+  /** Apartado desde el que se abrió (limita las categorías). Vacío = todas. */
+  tipo?: TipoAsignacion | '';
   personal: PersonaMin[];
   productos: ProductoAsignable[];
+  /** Flota (fichas de Control de Maquinaria) para el apartado Vehículos. */
+  vehiculos?: VehiculoFlota[];
+  /** equipo_id → a quién está asignado hoy (para avisar antes de guardar). */
+  vehiculosEnUso?: Map<string, string>;
   canWrite: boolean;
   actor: string;
   actorName: string | null;
@@ -35,7 +49,12 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
 }) {
   const esNueva = !asignacion;
   const [modo, setModo] = useState<Modo>(esNueva ? 'editar' : 'ver');
-  const [f, setF] = useState<FormAsignacion>(() => (asignacion ? formDesde(asignacion) : formVacio(hoyVenezuela())));
+  const [f, setF] = useState<FormAsignacion>(() => (asignacion ? formDesde(asignacion) : formVacio(hoyVenezuela(), tipo)));
+  // Categorías que se ofrecen: las del apartado (al editar, las del apartado de la asignación).
+  const tipoForm: TipoAsignacion | '' = asignacion ? tipoDeCategoria(asignacion.categoria) : tipo;
+  const categoriasForm = tipoForm ? CATEGORIAS.filter((c) => TIPO[tipoForm].categorias.includes(c.valor)) : CATEGORIAS;
+  const esVehiculo = f.categoria === 'vehiculo';
+  const [kmDev, setKmDev] = useState('');
   const [saving, setSaving] = useState(false);
   const [errores, setErrores] = useState<string[]>([]);
   const [borrar, setBorrar] = useState(false);
@@ -54,9 +73,24 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
   const set = <K extends keyof FormAsignacion>(k: K, v: FormAsignacion[K]) => setF((x) => ({ ...x, [k]: v }));
 
   // Al cambiar de categoría se propone si retorna o no (dotación y oficina no).
+  // Un vehículo no sale del inventario: es una unidad de la flota.
   function cambiarCategoria(c: FormAsignacion['categoria']) {
-    setF((x) => ({ ...x, categoria: c, retornable: CATEGORIA[c].retorna }));
+    setF((x) => ({ ...x, categoria: c, retornable: CATEGORIA[c].retorna, ...(c === 'vehiculo' ? { desdeInventario: false, producto_id: '' } : {}) }));
   }
+
+  // Al elegir un vehículo de la flota se traen su nombre, placa, marca/modelo y serial.
+  function elegirVehiculo(id: string) {
+    const v = vehiculos.find((x) => x.id === id);
+    setF((x) => ({
+      ...x,
+      equipo_id: id,
+      descripcion: v ? v.equipo : x.descripcion,
+      placa: v?.placa ?? x.placa,
+      marca_modelo: v ? [v.marca, v.modelo].filter(Boolean).join(' ') : x.marca_modelo,
+      serial: v?.serial ?? x.serial,
+    }));
+  }
+  const enUsoPor = f.equipo_id && f.equipo_id !== asignacion?.equipo_id ? vehiculosEnUso?.get(f.equipo_id) : undefined;
 
   // Al elegir un producto del inventario se traen nombre, unidad y costo.
   useEffect(() => {
@@ -114,6 +148,7 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
     setSaving(true);
     try {
       await devolverAsignacion(asignacion.id, dev, actor, actorName);
+      if (asignacion.categoria === 'vehiculo' && kmDev.trim()) await guardarKmDevolucion(asignacion.id, aNumero(kmDev), actor);
       toast('Devolución registrada', 'success');
       onSaved();
     } catch (err) { setErrores([err instanceof Error ? err.message : 'No se pudo registrar la devolución']); setSaving(false); }
@@ -133,7 +168,7 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
     catch (err) { setErrores([err instanceof Error ? err.message : 'No se pudo eliminar']); setSaving(false); }
   }
 
-  const titulo = esNueva ? '🎒 Nueva asignación'
+  const titulo = esNueva ? (tipo ? `${TIPO[tipo].icono} Nueva · ${TIPO[tipo].label}` : '🎒 Nueva asignación')
     : modo === 'devolver' ? '↩ Registrar devolución'
     : modo === 'editar' ? `✏ ${asignacion?.codigo}` : `🎒 ${asignacion?.codigo}`;
 
@@ -207,6 +242,13 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
                 {(Object.keys(CONDICION_LABEL) as CondicionDevolucion[]).map((c) => <option key={c} value={c}>{CONDICION_LABEL[c]}</option>)}
               </select>
             </div>
+            {asignacion.categoria === 'vehiculo' && (
+              <div className="form-row">
+                <label htmlFor="dev-km">Kilometraje al devolver</label>
+                <input id="dev-km" className="input mono" inputMode="decimal" value={kmDev} onChange={(e) => setKmDev(e.target.value)}
+                  placeholder={asignacion.km_entrega != null ? `Se entregó con ${asignacion.km_entrega} km` : 'km'} />
+              </div>
+            )}
             <div className="form-row" style={{ gridColumn: '1 / -1' }}>
               <label htmlFor="dev-nota">Nota (opcional)</label>
               <input id="dev-nota" className="input" value={dev.nota} onChange={(e) => setDev((d) => ({ ...d, nota: e.target.value }))}
@@ -272,17 +314,50 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
             </div>
             <div className="form-row">
               <label htmlFor="asig-cat">Categoría *</label>
-              <select id="asig-cat" className="select" value={f.categoria} onChange={(e) => cambiarCategoria(e.target.value as FormAsignacion['categoria'])}>
-                {CATEGORIAS.map((c) => <option key={c.valor} value={c.valor}>{c.icono} {c.label}</option>)}
+              <select id="asig-cat" className="select" value={f.categoria} disabled={categoriasForm.length === 1}
+                onChange={(e) => cambiarCategoria(e.target.value as FormAsignacion['categoria'])}>
+                {categoriasForm.map((c) => <option key={c.valor} value={c.valor}>{c.icono} {c.label}</option>)}
               </select>
             </div>
           </div>
 
-          <label style={{ display: 'flex', gap: '.5rem', alignItems: 'center', margin: '.8rem 0 .4rem' }}>
+          {esVehiculo && (
+            <div className="form-grid" style={{ marginTop: '.6rem' }}>
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label htmlFor="asig-vehiculo">Vehículo de la flota</label>
+                <SearchSelect id="asig-vehiculo" value={f.equipo_id} onChange={elegirVehiculo} placeholder="🔍 Buscar por nombre o placa…"
+                  options={vehiculos.map((v) => {
+                    const uso = v.id !== asignacion?.equipo_id ? vehiculosEnUso?.get(v.id) : undefined;
+                    const mm = [v.marca, v.modelo].filter(Boolean).join(' ');
+                    return {
+                      value: v.id,
+                      label: `${v.equipo}${v.placa ? ` · ${v.placa}` : ''}${mm ? ` · ${mm}` : ''}${uso ? ` · (asignado a ${uso})` : ''}`,
+                    };
+                  })} />
+                <small className="muted">Sale de las fichas de Control de Maquinaria. Si no está registrado, escribe la placa abajo.</small>
+                {enUsoPor && (
+                  <div className="aviso warning sm" style={{ marginTop: '.4rem' }}>
+                    <span className="aviso-icono">⚠</span>
+                    <div>Este vehículo ya está asignado a <strong>{enUsoPor}</strong>. Registra primero su devolución.</div>
+                  </div>
+                )}
+              </div>
+              <div className="form-row">
+                <label htmlFor="asig-placa">Placa *</label>
+                <input id="asig-placa" className="input mono" value={f.placa} onChange={(e) => set('placa', e.target.value.toUpperCase())} placeholder="A12BC3D" />
+              </div>
+              <div className="form-row">
+                <label htmlFor="asig-km">Kilometraje al entregar</label>
+                <input id="asig-km" className="input mono" inputMode="decimal" value={f.km_entrega} onChange={(e) => set('km_entrega', e.target.value)} placeholder="km" />
+              </div>
+            </div>
+          )}
+
+          {!esVehiculo && <label style={{ display: 'flex', gap: '.5rem', alignItems: 'center', margin: '.8rem 0 .4rem' }}>
             <input type="checkbox" checked={f.desdeInventario}
               onChange={(e) => setF((x) => ({ ...x, desdeInventario: e.target.checked, producto_id: e.target.checked ? x.producto_id : '' }))} />
             <span><strong>Sale del inventario</strong> (descuenta stock y queda en el kardex)</span>
-          </label>
+          </label>}
 
           <div className="form-grid">
             {f.desdeInventario && (
@@ -296,8 +371,14 @@ export function AsignacionModal({ asignacion, personal, productos, canWrite, act
             <div className="form-row" style={{ gridColumn: '1 / -1' }}>
               <label htmlFor="asig-desc">¿Qué se asigna? *</label>
               <input id="asig-desc" className="input" value={f.descripcion} onChange={(e) => set('descripcion', e.target.value)}
-                placeholder="Laptop Dell Latitude, uniforme completo, resma de papel…" required />
+                placeholder={EJEMPLO[f.categoria] ?? 'Laptop Dell Latitude, uniforme completo, resma de papel…'} required />
             </div>
+            {f.categoria === 'dotacion' && (
+              <div className="form-row">
+                <label htmlFor="asig-talla">Talla</label>
+                <input id="asig-talla" className="input" value={f.talla} onChange={(e) => set('talla', e.target.value)} placeholder="S, M, L, 42…" />
+              </div>
+            )}
             <div className="form-row">
               <label htmlFor="asig-cant">Cantidad *</label>
               <input id="asig-cant" className="input" inputMode="decimal" value={f.cantidad} onChange={(e) => set('cantidad', e.target.value)} />
