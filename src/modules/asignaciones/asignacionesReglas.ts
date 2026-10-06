@@ -11,11 +11,18 @@
      · asignado  → retorna y todavía lo tiene;
      · devuelto  → retornaba y ya lo devolvió;
      · entregado → no retorna: se le dio y queda en el historial.
+
+   Desde el 06/10/2026 el módulo se divide en TRES APARTADOS, que la base
+   deriva de la categoría (columna generada `tipo`):
+     · 📦 Bienes y equipo  → línea, equipo electrónico, oficina, herramienta, otro;
+     · 🦺 Dotación al personal → dotación / uniformes / EPP (con talla);
+     · 🚙 Vehículos → vehículo de la flota (ficha de Maquinaria), placa y km.
    ============================================================ */
 
 export type CategoriaAsignacion = 'dotacion' | 'linea' | 'equipo' | 'oficina' | 'herramienta' | 'vehiculo' | 'otro';
 export type EstadoAsignacion = 'asignado' | 'devuelto' | 'entregado';
 export type CondicionDevolucion = 'bueno' | 'danado' | 'perdido';
+export type TipoAsignacion = 'bienes' | 'dotacion' | 'vehiculo';
 
 export interface Asignacion {
   id: string;
@@ -39,6 +46,15 @@ export interface Asignacion {
   reingresa_inventario: boolean;
   nota_devolucion?: string | null;
   observacion?: string | null;
+  /** Apartado (lo calcula la base a partir de la categoría). */
+  tipo?: TipoAsignacion | null;
+  /** Vehículo de la flota (ficha de Control de Maquinaria). */
+  equipo_id?: string | null;
+  placa?: string | null;
+  km_entrega?: number | null;
+  km_devolucion?: number | null;
+  /** Talla de la dotación (camisa, pantalón, botas…). */
+  talla?: string | null;
   created_at: string;
   created_by?: string | null;
   actor_name?: string | null;
@@ -46,7 +62,7 @@ export interface Asignacion {
 }
 
 export const CATEGORIAS: { valor: CategoriaAsignacion; label: string; icono: string; retorna: boolean }[] = [
-  { valor: 'dotacion', label: 'Dotación / uniformes', icono: '🦺', retorna: false },
+  { valor: 'dotacion', label: 'Dotación / uniformes / EPP', icono: '🦺', retorna: false },
   { valor: 'linea', label: 'Línea telefónica', icono: '📱', retorna: true },
   { valor: 'equipo', label: 'Equipo electrónico', icono: '💻', retorna: true },
   { valor: 'oficina', label: 'Material de oficina', icono: '📎', retorna: false },
@@ -56,6 +72,19 @@ export const CATEGORIAS: { valor: CategoriaAsignacion; label: string; icono: str
 ];
 export const CATEGORIA = Object.fromEntries(CATEGORIAS.map((c) => [c.valor, c])) as unknown as
   Record<CategoriaAsignacion, { valor: CategoriaAsignacion; label: string; icono: string; retorna: boolean }>;
+
+/** Los tres apartados del módulo y qué categorías caben en cada uno. */
+export const TIPOS: { valor: TipoAsignacion; label: string; corto: string; icono: string; categorias: CategoriaAsignacion[] }[] = [
+  { valor: 'bienes', label: 'Asignación de bienes y equipo', corto: 'Bienes y equipo', icono: '📦', categorias: ['equipo', 'linea', 'herramienta', 'oficina', 'otro'] },
+  { valor: 'dotacion', label: 'Dotación al personal', corto: 'Dotación', icono: '🦺', categorias: ['dotacion'] },
+  { valor: 'vehiculo', label: 'Asignación de vehículos', corto: 'Vehículos', icono: '🚙', categorias: ['vehiculo'] },
+];
+export const TIPO = Object.fromEntries(TIPOS.map((t) => [t.valor, t])) as unknown as Record<TipoAsignacion, (typeof TIPOS)[number]>;
+
+/** Apartado de una categoría (igual que la columna generada `tipo` de la base). */
+export function tipoDeCategoria(c: CategoriaAsignacion): TipoAsignacion {
+  return c === 'dotacion' ? 'dotacion' : c === 'vehiculo' ? 'vehiculo' : 'bienes';
+}
 
 export const ESTADO_LABEL: Record<EstadoAsignacion, string> = {
   asignado: 'En su poder',
@@ -89,6 +118,7 @@ export interface PersonaMin {
 export const nombreDe = (p?: PersonaMin | null) => (p ? `${p.nombre} ${p.apellido}`.trim() : '—');
 
 export interface FiltrosAsignacion {
+  tipo: '' | TipoAsignacion;
   texto: string;
   personalId: string;
   categoria: '' | CategoriaAsignacion;
@@ -101,11 +131,12 @@ export interface FiltrosAsignacion {
 }
 
 export const FILTROS_VACIOS: FiltrosAsignacion = {
-  texto: '', personalId: '', categoria: '', estado: '', desde: '', hasta: '', empresa: '', origen: '', retorna: '',
+  tipo: '', texto: '', personalId: '', categoria: '', estado: '', desde: '', hasta: '', empresa: '', origen: '', retorna: '',
 };
 
 export function filtrosActivos(f: FiltrosAsignacion): number {
-  return (Object.keys(FILTROS_VACIOS) as (keyof FiltrosAsignacion)[]).filter((k) => f[k] !== FILTROS_VACIOS[k]).length;
+  // El apartado (pestaña) no cuenta como filtro: «Limpiar» no saca de la pestaña.
+  return (Object.keys(FILTROS_VACIOS) as (keyof FiltrosAsignacion)[]).filter((k) => k !== 'tipo' && f[k] !== FILTROS_VACIOS[k]).length;
 }
 
 /**
@@ -117,6 +148,7 @@ export function filtrarAsignaciones(lista: Asignacion[], f: FiltrosAsignacion, p
   const t = normalizar(f.texto);
   return lista.filter((a) => {
     const p = personas.get(a.personal_id);
+    if (f.tipo && tipoDeCategoria(a.categoria) !== f.tipo) return false;
     if (f.personalId && a.personal_id !== f.personalId) return false;
     if (f.categoria && a.categoria !== f.categoria) return false;
     if (f.estado === 'pendientes') { if (a.estado !== 'asignado') return false; }
@@ -130,7 +162,7 @@ export function filtrarAsignaciones(lista: Asignacion[], f: FiltrosAsignacion, p
     if (f.retorna === 'no' && a.retornable) return false;
     if (t) {
       const heno = normalizar([
-        a.codigo, a.descripcion, a.serial, a.marca_modelo, a.numero_linea, a.operador, a.observacion,
+        a.codigo, a.descripcion, a.serial, a.marca_modelo, a.numero_linea, a.operador, a.observacion, a.placa, a.talla,
         CATEGORIA[a.categoria]?.label, p ? nombreDe(p) : '', p?.cedula, p?.cargo, p?.ficha_nro, p?.departamento,
       ].filter(Boolean).join(' '));
       if (!heno.includes(t)) return false;
@@ -193,13 +225,19 @@ export interface FormAsignacion {
   operador: string;
   retornable: boolean;
   observacion: string;
+  equipo_id: string;
+  placa: string;
+  km_entrega: string;
+  talla: string;
 }
 
-export function formVacio(hoy: string): FormAsignacion {
+/** Formulario en blanco; la categoría inicial es la primera del apartado elegido. */
+export function formVacio(hoy: string, tipo: TipoAsignacion | '' = ''): FormAsignacion {
+  const categoria: CategoriaAsignacion = tipo ? TIPO[tipo].categorias[0] : 'dotacion';
   return {
-    personal_id: '', fecha: hoy, categoria: 'dotacion', descripcion: '', desdeInventario: false, producto_id: '',
+    personal_id: '', fecha: hoy, categoria, descripcion: '', desdeInventario: false, producto_id: '',
     cantidad: '1', unidad: '', valor_unitario: '', serial: '', marca_modelo: '', numero_linea: '', operador: '',
-    retornable: CATEGORIA.dotacion.retorna, observacion: '',
+    retornable: CATEGORIA[categoria].retorna, observacion: '', equipo_id: '', placa: '', km_entrega: '', talla: '',
   };
 }
 
@@ -223,6 +261,10 @@ export function erroresForm(f: FormAsignacion, stock?: number | null): string[] 
     else if (stock != null && cant > stock) e.push(`No alcanza el stock: hay ${stock} y se quieren asignar ${cant}.`);
   }
   if (f.categoria === 'linea' && !f.numero_linea.trim()) e.push('Indica el número de la línea.');
+  if (f.categoria === 'vehiculo') {
+    if (!f.equipo_id && !f.placa.trim()) e.push('Elige el vehículo de la flota o escribe su placa.');
+    if (f.km_entrega.trim() && !(aNumero(f.km_entrega) >= 0)) e.push('El kilometraje de entrega no es un número válido.');
+  }
   return e;
 }
 
@@ -243,6 +285,10 @@ export function payloadDe(f: FormAsignacion): Record<string, unknown> {
     operador: f.operador.trim() || null,
     retornable: f.retornable,
     observacion: f.observacion.trim() || null,
+    equipo_id: f.categoria === 'vehiculo' ? f.equipo_id || null : null,
+    placa: f.categoria === 'vehiculo' ? f.placa.trim().toUpperCase() || null : null,
+    km_entrega: f.categoria === 'vehiculo' && f.km_entrega.trim() ? aNumero(f.km_entrega) : null,
+    talla: f.categoria === 'dotacion' ? f.talla.trim() || null : null,
   };
 }
 
@@ -253,12 +299,16 @@ export function formDesde(a: Asignacion): FormAsignacion {
     unidad: a.unidad ?? '', valor_unitario: a.valor_unitario ? String(a.valor_unitario) : '',
     serial: a.serial ?? '', marca_modelo: a.marca_modelo ?? '', numero_linea: a.numero_linea ?? '', operador: a.operador ?? '',
     retornable: a.retornable, observacion: a.observacion ?? '',
+    equipo_id: a.equipo_id ?? '', placa: a.placa ?? '', km_entrega: a.km_entrega != null ? String(a.km_entrega) : '', talla: a.talla ?? '',
   };
 }
 
 /** Detalle corto de lo asignado: serial, marca/modelo o línea. */
 export function detalleCorto(a: Asignacion): string {
   return [
+    a.placa ? `Placa ${a.placa}` : null,
+    a.km_entrega != null ? `${a.km_entrega} km al entregar${a.km_devolucion != null ? ` · ${a.km_devolucion} km al devolver` : ''}` : null,
+    a.talla ? `Talla ${a.talla}` : null,
     a.marca_modelo, a.serial ? `S/N ${a.serial}` : null,
     a.numero_linea ? `Línea ${a.numero_linea}${a.operador ? ` (${a.operador})` : ''}` : null,
   ].filter(Boolean).join(' · ');
@@ -284,7 +334,7 @@ export function comprometido(renglones: FormAsignacion[], productoId: string): n
 
 /** Deja el trabajador, la fecha y la categoría; limpia lo del artículo. */
 export function limpiarItem(f: FormAsignacion): FormAsignacion {
-  return { ...formVacio(f.fecha), personal_id: f.personal_id, categoria: f.categoria, retornable: f.retornable };
+  return { ...formVacio(f.fecha), personal_id: f.personal_id, categoria: f.categoria, retornable: f.retornable, talla: f.categoria === 'dotacion' ? f.talla : '' };
 }
 
 /** Total en dólares de los renglones cargados. */

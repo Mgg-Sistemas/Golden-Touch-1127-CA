@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   FILTROS_VACIOS, detalleCorto, erroresForm, filtrarAsignaciones, filtrosActivos, formDesde, formVacio,
-  comprometido, itemVacio, limpiarItem, payloadDe, porCategoria, resumenAsignaciones, totalRenglones, valorTotal,
+  comprometido, itemVacio, limpiarItem, payloadDe, porCategoria, resumenAsignaciones, totalRenglones, valorTotal, tipoDeCategoria,
   type Asignacion, type PersonaMin,
 } from './asignacionesReglas';
 
@@ -97,5 +97,44 @@ describe('varios artículos', () => {
   it('suma el total de los renglones', () => {
     expect(totalRenglones([uno, { ...uno, cantidad: '1', valor_unitario: '10,5' }])).toBe(1010.5);
     expect(totalRenglones([{ ...uno, valor_unitario: '' }])).toBe(0);
+  });
+});
+
+describe('tres apartados: bienes y equipo · dotación · vehículos', () => {
+  it('cada categoría cae en su apartado', () => {
+    expect(tipoDeCategoria('dotacion')).toBe('dotacion');
+    expect(tipoDeCategoria('vehiculo')).toBe('vehiculo');
+    expect(tipoDeCategoria('equipo')).toBe('bienes');
+    expect(tipoDeCategoria('linea')).toBe('bienes');
+  });
+  it('filtra por apartado y la pestaña no cuenta como filtro', () => {
+    const conVehiculo = [...lista, base({ id: 'v', categoria: 'vehiculo', descripcion: 'Toyota Hilux', placa: 'A12BC3D' })];
+    expect(filtrarAsignaciones(conVehiculo, { ...FILTROS_VACIOS, tipo: 'vehiculo' }, personas).map((a) => a.id)).toEqual(['v']);
+    expect(filtrarAsignaciones(conVehiculo, { ...FILTROS_VACIOS, tipo: 'dotacion' }, personas).map((a) => a.id)).toEqual(['b']);
+    expect(filtrarAsignaciones(conVehiculo, { ...FILTROS_VACIOS, tipo: 'bienes' }, personas).map((a) => a.id)).toEqual(['a', 'c', 'd']);
+    expect(filtrarAsignaciones(conVehiculo, { ...FILTROS_VACIOS, texto: 'a12bc' }, personas).map((a) => a.id)).toEqual(['v']);
+    expect(filtrosActivos({ ...FILTROS_VACIOS, tipo: 'vehiculo' })).toBe(0);
+  });
+  it('el formulario arranca en la categoría del apartado', () => {
+    expect(formVacio('2026-10-06', 'vehiculo').categoria).toBe('vehiculo');
+    expect(formVacio('2026-10-06', 'dotacion').retornable).toBe(false);
+    expect(formVacio('2026-10-06', 'bienes').categoria).toBe('equipo');
+  });
+  it('un vehículo pide la ficha o la placa y manda placa y km', () => {
+    const f = { ...formVacio('2026-10-06', 'vehiculo'), personal_id: 'p1', descripcion: 'Hilux' };
+    expect(erroresForm(f)).toContain('Elige el vehículo de la flota o escribe su placa.');
+    const ok = { ...f, placa: ' a12bc3d ', km_entrega: '15000' };
+    expect(erroresForm(ok)).toEqual([]);
+    const p = payloadDe(ok);
+    expect(p.placa).toBe('A12BC3D');
+    expect(p.km_entrega).toBe(15000);
+    expect(p.talla).toBeNull();
+  });
+  it('la talla solo viaja en la dotación y sale en el detalle', () => {
+    const f = { ...formVacio('2026-10-06', 'dotacion'), personal_id: 'p1', descripcion: 'Botas', talla: '42' };
+    expect(payloadDe(f).talla).toBe('42');
+    expect(payloadDe({ ...f, categoria: 'equipo' }).talla).toBeNull();
+    expect(detalleCorto(base({ categoria: 'dotacion', talla: '42' }))).toContain('Talla 42');
+    expect(detalleCorto(base({ categoria: 'vehiculo', placa: 'A12BC3D', km_entrega: 100 }))).toContain('Placa A12BC3D');
   });
 });
