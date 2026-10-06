@@ -5,6 +5,38 @@ import { cambiarMiClave } from './usuarios.repository';
 import { toast } from '@/shared/ui/Toast';
 import { pistaClaveDebil } from './mensajesClave';
 
+/** Cuánto se espera al servidor antes de soltar la pantalla (06/10/2026). */
+const LIMITE_GUARDAR_MS = 25_000;
+const LIMITE_SALIR_MS = 3_000;
+
+/** La promesa, o un error si no responde a tiempo (no la cancela: solo deja de esperarla). */
+function conLimite<T>(p: Promise<T>, ms: number, mensaje: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(mensaje)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+/**
+ * Cierra la sesión SIN quedarse esperando (06/10/2026): «Volver» llegó a tardar
+ * casi dos minutos porque el cierre de sesión esperaba al navegador. Se cierra
+ * solo en este navegador, con un tope de 3 s; si no respondió, se borra la
+ * sesión guardada a mano y se recarga la página, que suelta cualquier espera
+ * colgada.
+ */
+async function salirYa(destino: string) {
+  try {
+    await conLimite(signOut({ scope: 'local' }), LIMITE_SALIR_MS, 'sin respuesta');
+    return false;
+  } catch {
+    try {
+      for (const k of Object.keys(localStorage)) if (/^sb-.*-auth-token/.test(k)) localStorage.removeItem(k);
+    } catch { /* sin almacenamiento: la recarga igual sirve */ }
+    window.location.assign(destino);
+    return true;
+  }
+}
+
 export function CambiarClavePage() {
   const { user, loading } = useSession();
   const navigate = useNavigate();
@@ -49,11 +81,12 @@ export function CambiarClavePage() {
     }
     setSubmitting(true);
     try {
-      await cambiarMiClave(c);
+      await conLimite(cambiarMiClave(c), LIMITE_GUARDAR_MS,
+        'El servidor no respondió a tiempo. Revisa la conexión y toca «Aceptar» de nuevo (si sigue igual, recarga la página).');
       // Independientemente de cómo se llegó, tras cambiar la clave se cierra
       // sesión y se manda al landing para que el usuario reingrese.
       toast('Clave cambiada · debes iniciar sesión nuevamente', 'success');
-      await signOut();
+      if (await salirYa('/')) return;
       navigate('/', { replace: true });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo cambiar la clave', 'error');
@@ -71,7 +104,7 @@ export function CambiarClavePage() {
     // Cambio forzado: cancelar cierra la sesión y vuelve al landing. El flag
     // must_change_password queda intacto, por lo que la próxima vez que el
     // usuario entre se le volverá a forzar el cambio.
-    try { await signOut(); } catch { /* opcional */ }
+    if (await salirYa('/')) return;
     navigate('/', { replace: true });
   }
 
@@ -183,8 +216,7 @@ export function CambiarClavePage() {
         <div style={{ display: 'flex', gap: '.75rem', marginTop: '1.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
           <button
             className="btn btn-ghost"
-            onClick={handleVolver}
-            disabled={submitting}
+            onClick={() => void handleVolver()}
             style={{ minWidth: 120, justifyContent: 'center', textAlign: 'center' }}
           >
             Volver
