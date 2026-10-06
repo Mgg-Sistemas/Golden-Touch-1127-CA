@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import { previewArchivo } from '@/shared/lib/reportePreview';
@@ -257,7 +258,19 @@ function NotaDetalle({ n, canWrite, actor, pdfBusy, onImprimir, onEditar, onClos
       )}
       {modo === 'anular' && (
         <div className="card" style={{ marginTop: '.75rem', borderColor: 'var(--danger)' }}>
-          <div className="form-row">
+          <div className="aviso danger" style={{ marginBottom: '.6rem' }}>
+            <span className="aviso-icono">⛔</span>
+            <div>Se va a <strong>anular</strong> esta nota. No se borra: queda en el histórico marcada como anulada.</div>
+          </div>
+          <VistaPrevia titulo="Se va a anular">
+            <Dato label="N°">{numeroEnvio(n.numero)}</Dato>
+            <Dato label="Fecha">{fechaVe(n.fecha)}</Dato>
+            <Dato label="Cliente / departamento">{n.razon_social}</Dato>
+            <Dato label="Atención a">{n.atencion_a}</Dato>
+            <Dato label="Renglones">{String(n.items.length)}</Dato>
+            <Dato label="Total">{`${cantidadTexto(n.total ?? totalRenglones(n.items))} ${n.total_etiqueta}`}</Dato>
+          </VistaPrevia>
+          <div className="form-row" style={{ marginTop: '.6rem' }}>
             <label htmlFor="ne-motivo">Motivo de la anulación *</label>
             <textarea id="ne-motivo" className="input" rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
             <small className="muted">La nota queda en el histórico marcada como anulada; su N° no se vuelve a usar.</small>
