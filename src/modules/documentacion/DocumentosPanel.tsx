@@ -2,10 +2,15 @@
    Golden Touch · Documentación · Documentos de la empresa
    Archivo buscable (nombre, categoría, descripción) con el PDF o
    imagen de cada documento y su vencimiento opcional (avisa ≤ 30 días).
+   Las categorías son un CATÁLOGO (taxonomias · documento.categoria): la
+   que se escribe al cargar queda guardada, y se gestionan con «🏷».
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
+import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { FechaInput } from '@/shared/ui/FechaInput';
 import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
@@ -14,7 +19,8 @@ import { norm } from '@/shared/lib/texto';
 import { estadoCarnet, fechaCarnet } from '@/modules/rrhh/vigenciaCarnet';
 import {
   listDocumentos, guardarDocumento, eliminarDocumento, urlArchivoDocumentacion,
-  CATEGORIAS_DOCUMENTO, type DocumentoEmpresa,
+  listCategoriasDocumento, agregarCategoriaDocumento, renombrarCategoriaDocumento,
+  eliminarCategoriaDocumento, contarDocumentosPorCategoria, type DocumentoEmpresa,
 } from './documentacion.repository';
 
 export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor: { email: string; nombre: string | null } }) {
@@ -24,19 +30,21 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
   const [cat, setCat] = useState('');
   const [editar, setEditar] = useState<DocumentoEmpresa | 'nuevo' | null>(null);
   const [borrar, setBorrar] = useState<DocumentoEmpresa | null>(null);
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const [gestionarCats, setGestionarCats] = useState(false);
 
   const cargar = useCallback(async () => {
-    try { setDocs(await listDocumentos()); }
+    try {
+      const ds = await listDocumentos();
+      setDocs(ds);
+      setCategorias(await listCategoriasDocumento(ds));
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los documentos', 'error'); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['documentos_empresa'], () => { void cargar(); });
-
-  const categorias = useMemo(
-    () => Array.from(new Set([...CATEGORIAS_DOCUMENTO, ...docs.map((d) => d.categoria)])).sort((a, b) => a.localeCompare(b, 'es')),
-    [docs],
-  );
+  useRealtime(['documentos_empresa', 'taxonomias'], () => { void cargar(); });
+  const conteoCats = useMemo(() => contarDocumentosPorCategoria(docs), [docs]);
   const filtrados = useMemo(() => {
     const t = norm(q);
     return docs.filter((d) => (!cat || d.categoria === cat)
@@ -67,11 +75,12 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
           </div>
           <div className="form-row" style={{ margin: 0 }}>
             <label htmlFor="doc-cat">Categoría</label>
-            <select id="doc-cat" className="select" value={cat} onChange={(e) => setCat(e.target.value)}>
-              <option value="">Todas</option>
-              {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <SearchSelect id="doc-cat" value={cat} onChange={setCat} placeholder="🔍 Todas las categorías" style={{ minWidth: 220 }}
+              options={[{ value: '', label: 'Todas las categorías' }, ...categorias.map((c) => ({ value: c, label: `${c}${conteoCats[c] ? ` (${conteoCats[c]})` : ''}` }))]} />
           </div>
+          {canWrite && (
+            <button type="button" className="btn btn-ghost" onClick={() => setGestionarCats(true)} title="Agregar, renombrar o eliminar categorías">🏷 Categorías</button>
+          )}
           {(porVencer > 0 || vencidos > 0) && (
             <span style={{ fontSize: '.82rem' }}>
               {vencidos > 0 && <span className="badge" style={{ color: 'var(--danger)' }}>⚠ {vencidos} vencido(s)</span>}{' '}
@@ -132,9 +141,32 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
       {borrar && (
         <ConfirmDialog
           title="Eliminar documento"
-          message={`¿Eliminar «${borrar.titulo}» y su archivo? No se puede deshacer.`}
-          confirmText="Eliminar" danger
-          onConfirm={confirmarBorrar} onCancel={() => setBorrar(null)}
+          message={<>Se borra el registro <strong>y su archivo</strong>. Esta acción no se puede deshacer.</>}
+          confirmText="Sí, eliminar" danger
+          preview={
+            <VistaPrevia titulo="Se va a eliminar">
+              <Dato label="Documento">{borrar.titulo}</Dato>
+              <Dato label="Categoría">{borrar.categoria}</Dato>
+              <Dato label="Descripción">{borrar.descripcion}</Dato>
+              <Dato label="Vence">{borrar.vence ? fechaCarnet(borrar.vence) : null}</Dato>
+              <Dato label="Archivo">{borrar.archivo_nombre}</Dato>
+              <Dato label="Cargado por">{borrar.created_by_name ?? borrar.created_by}</Dato>
+            </VistaPrevia>
+          }
+          onConfirm={() => { void confirmarBorrar(); }} onCancel={() => setBorrar(null)}
+        />
+      )}
+      {gestionarCats && (
+        <GestionarCategoriasModal
+          titulo="Categorías de documentos"
+          categorias={categorias}
+          conteoUso={conteoCats}
+          entidadLabel="documento"
+          onAgregar={(n) => agregarCategoriaDocumento(n, actor.email)}
+          onRenombrar={(o, n) => renombrarCategoriaDocumento(o, n, actor.email)}
+          onEliminar={(n) => eliminarCategoriaDocumento(n)}
+          onCambioAplicado={cargar}
+          onClose={() => setGestionarCats(false)}
         />
       )}
     </>
@@ -178,8 +210,9 @@ function DocumentoForm({ doc, categorias, actor, onClose, onSaved }: {
         </div>
         <div className="form-row">
           <label htmlFor="doc-categoria">Categoría</label>
-          <input id="doc-categoria" className="input" list="doc-categorias" value={categoria} onChange={(e) => setCategoria(e.target.value)} />
-          <datalist id="doc-categorias">{categorias.map((c) => <option key={c} value={c} />)}</datalist>
+          <SearchCreateSelect id="doc-categoria" value={categoria} onChange={setCategoria} options={categorias}
+            placeholder="🔍 Busca una categoría o escribe una nueva…" emptyText="Sin coincidencias: escribe el nombre para crearla" />
+          <small className="muted">Si escribes una nueva, queda guardada en el catálogo de categorías.</small>
         </div>
         <div className="form-row">
           <label htmlFor="doc-desc">Descripción</label>

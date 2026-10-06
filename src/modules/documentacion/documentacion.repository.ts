@@ -11,6 +11,7 @@
    RLS: lee puede_leer('documentacion'); escribe is_admin() or puede('documentacion').
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { addTaxonomia, deleteTaxonomia, invalidateTaxonomia, listTaxonomia, renameTaxonomia } from '@/shared/lib/taxonomias';
 import { renglonesValidos, type EstadoEnvio, type RenglonEnvio } from './notaEnvio';
 
 const T_DOCS = 'documentos_empresa';
@@ -40,10 +41,53 @@ export interface DocumentoInput {
   vence?: string | null;
 }
 
-/** Categorías sugeridas (se puede escribir otra). */
+/** Categorías de arranque (la base las siembra en el catálogo `documento.categoria`). */
 export const CATEGORIAS_DOCUMENTO = [
   'Legal', 'Fiscal / SENIAT', 'Permisos y licencias', 'Contratos', 'Seguros', 'Bancos', 'Personal', 'General',
 ];
+
+/* ───────── Catálogo de categorías (tabla `taxonomias`, scope documento.categoria) ─────────
+   Una categoría escrita al cargar un documento queda guardada en el catálogo
+   para la próxima vez; se agregan, renombran y eliminan desde «🏷 Categorías». */
+const SCOPE_CAT = 'documento.categoria' as const;
+
+export async function listCategoriasDocumento(docs: DocumentoEmpresa[] = []): Promise<string[]> {
+  invalidateTaxonomia(SCOPE_CAT);
+  const set = new Set<string>();
+  try { (await listTaxonomia(SCOPE_CAT)).forEach((c) => set.add(c)); }
+  catch { CATEGORIAS_DOCUMENTO.forEach((c) => set.add(c)); }
+  docs.forEach((d) => d.categoria && set.add(d.categoria));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+export async function agregarCategoriaDocumento(nombre: string, actorEmail?: string): Promise<string | null> {
+  return addTaxonomia(SCOPE_CAT, nombre, actorEmail);
+}
+
+export function contarDocumentosPorCategoria(docs: DocumentoEmpresa[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  docs.forEach((d) => { out[d.categoria] = (out[d.categoria] ?? 0) + 1; });
+  return out;
+}
+
+/** Renombra en el catálogo y en los documentos que la usan. Devuelve cuántos se movieron. */
+export async function renombrarCategoriaDocumento(viejo: string, nuevo: string, actorEmail?: string): Promise<number> {
+  const v = viejo.trim(), n = nuevo.trim();
+  if (!v || !n) throw new Error('El nombre no puede quedar vacío.');
+  if (v === n) return 0;
+  await renameTaxonomia(SCOPE_CAT, v, n, actorEmail);
+  const { data, error } = await supabase.from(T_DOCS).update({ categoria: n }).eq('categoria', v).select('id');
+  if (error) throw error;
+  return data?.length ?? 0;
+}
+
+/** Solo se elimina si ningún documento la usa (si no, se renombra o se cambia en esos documentos). */
+export async function eliminarCategoriaDocumento(nombre: string): Promise<void> {
+  const { count, error } = await supabase.from(T_DOCS).select('id', { count: 'exact', head: true }).eq('categoria', nombre);
+  if (error) throw error;
+  if ((count ?? 0) > 0) throw new Error(`No se puede eliminar: ${count} documento(s) usan «${nombre}». Renómbrala o cambia esos documentos primero.`);
+  await deleteTaxonomia(SCOPE_CAT, nombre);
+}
 
 const nombreSeguro = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '_');
 
@@ -87,6 +131,8 @@ export async function guardarDocumento(
     : supabase.from(T_DOCS).insert({ ...fila, created_by: actor.email, created_by_name: actor.nombre });
   const { data, error } = await q.select('*').single();
   if (error) throw error;
+  // La categoría (nueva o no) queda en el catálogo para la próxima vez.
+  await agregarCategoriaDocumento(fila.categoria, actor.email).catch(() => null);
   // Si se reemplazó el archivo, el anterior ya no lo usa nadie.
   if (archivo && existente?.archivo_path && existente.archivo_path !== archivo_path) {
     await supabase.storage.from(BUCKET).remove([existente.archivo_path]).catch(() => undefined);
