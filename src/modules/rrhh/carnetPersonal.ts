@@ -11,7 +11,8 @@
    · Reverso: el sello «CVM Aliados» sobre un recuadro punteado con el
      texto legal y el contacto, la firma y el sello de Golden Touch, y el
      logo del Ministerio del Poder Popular de Desarrollo Minero Ecológico.
-   Antes había dos versiones (fondo negro y blanco); este formato es uno solo.
+   Dos versiones: fondo BLANCO (la del impreso) y fondo NEGRO. En la negra cada
+   logo va sobre una placa blanca redondeada, igual que el QR.
    Los logos viven en public/carnet/ (sacados del PDF de muestra).
    ============================================================ */
 import QRCode from 'qrcode';
@@ -25,18 +26,35 @@ import type { Personal } from '@/shared/lib/types';
 export const CARNET_W = 638;
 export const CARNET_H = 1016;
 
-/** Colores del formato. Todo va sobre blanco (ver carnetPersonal.test.ts). */
-export const COLORES_CARNET = {
-  fondo: '#ffffff',
+/** Las dos versiones del carnet. La blanca es la del carnet impreso. */
+export type TemaCarnet = 'claro' | 'oscuro';
+
+export const TEMAS_CARNET: { valor: TemaCarnet; etiqueta: string; sufijo: string }[] = [
+  { valor: 'claro', etiqueta: 'Fondo blanco', sufijo: 'blanco' },
+  { valor: 'oscuro', etiqueta: 'Fondo negro', sufijo: 'negro' },
+];
+
+export interface PaletaCarnet {
+  fondo: string;
   /** Marco exterior, dorado como el del carnet impreso. */
-  marco: '#c49a1c',
+  marco: string;
   /** Borde de la foto y raya de abajo del reverso. */
-  naranja: '#f28c00',
-  texto: '#111111',
+  naranja: string;
+  texto: string;
   /** Puntos del recuadro del reverso. */
-  puntos: '#2b2b2b',
-  qr: '#111111',
-} as const;
+  puntos: string;
+  /** Relleno del marco de la foto cuando no hay foto. */
+  fotoVacia: string;
+}
+
+/** Colores de cada versión (los contrastes los verifica carnetPersonal.test.ts). */
+export const PALETA_CARNET: Record<TemaCarnet, PaletaCarnet> = {
+  claro: { fondo: '#ffffff', marco: '#c49a1c', naranja: '#f28c00', texto: '#111111', puntos: '#2b2b2b', fotoVacia: '#eef1f5' },
+  oscuro: { fondo: '#15171b', marco: '#d4a72c', naranja: '#f28c00', texto: '#f3f3f3', puntos: '#d0d0d0', fotoVacia: '#262a31' },
+};
+
+/** El QR va SIEMPRE oscuro sobre blanco: al revés, muchos lectores no lo leen. */
+export const QR_OSCURO = '#111111';
 
 const img = (archivo: string) => `${import.meta.env.BASE_URL}carnet/${archivo}`;
 const LOGOS = {
@@ -180,13 +198,28 @@ export function textoQrPersona(p: Personal): string {
   return lineas.join('\n');
 }
 
-/** Dibuja una imagen ENTERA dentro de la caja (object-fit: contain), centrada. Nunca falla. */
-async function dibujarContain(ctx: CanvasRenderingContext2D, src: string, x: number, y: number, w: number, h: number) {
+/**
+ * Dibuja una imagen ENTERA dentro de la caja (object-fit: contain), centrada. Nunca falla.
+ *
+ * En la versión NEGRA el logo va sobre una placa blanca redondeada (como el QR):
+ * los logos son JPG con fondo blanco y pasarlos a negro los ensucia (bordes
+ * grises, cajas alrededor). Sobre la placa se ven con sus colores de siempre.
+ */
+async function dibujarContain(
+  ctx: CanvasRenderingContext2D, src: string, x: number, y: number, w: number, h: number, tema: TemaCarnet = 'claro',
+) {
   try {
     const im = await cargarImg(src);
-    const k = Math.min(w / im.width, h / im.height);
+    const pad = tema === 'oscuro' ? 8 : 0;
+    const k = Math.min((w - pad * 2) / im.width, (h - pad * 2) / im.height);
     const dw = im.width * k; const dh = im.height * k;
-    ctx.drawImage(im, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    const dx = x + (w - dw) / 2; const dy = y + (h - dh) / 2;
+    if (pad) {
+      ctx.fillStyle = '#ffffff';
+      roundRect(ctx, dx - pad, dy - pad, dw + pad * 2, dh + pad * 2, 12);
+      ctx.fill();
+    }
+    ctx.drawImage(im, dx, dy, dw, dh);
   } catch { /* un logo que no carga no impide el carnet */ }
 }
 
@@ -199,11 +232,11 @@ function letraQueQuepa(ctx: CanvasRenderingContext2D, texto: string, base: numbe
   return false;
 }
 
-/** Fondo blanco y marco dorado redondeado: igual en las dos caras. */
-function fondoYMarco(ctx: CanvasRenderingContext2D) {
-  ctx.fillStyle = COLORES_CARNET.fondo;
+/** Fondo y marco dorado redondeado: igual en las dos caras. */
+function fondoYMarco(ctx: CanvasRenderingContext2D, pal: PaletaCarnet) {
+  ctx.fillStyle = pal.fondo;
   ctx.fillRect(0, 0, CARNET_W, CARNET_H);
-  ctx.strokeStyle = COLORES_CARNET.marco;
+  ctx.strokeStyle = pal.marco;
   ctx.lineWidth = 10;
   roundRect(ctx, 9, 9, CARNET_W - 18, CARNET_H - 18, 34);
   ctx.stroke();
@@ -223,14 +256,17 @@ function lienzo(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } 
  * Genera el FRENTE del carnet (PNG, 638×1016 px = 54×86 mm a 300 DPI).
  * @param fotoDataUrl foto de la persona ya resuelta como data URL (opcional).
  */
-export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: string | null): Promise<string> {
+export async function generarCarnetPersonalDataUrl(
+  p: Personal, fotoDataUrl?: string | null, tema: TemaCarnet = 'claro',
+): Promise<string> {
+  const pal = PALETA_CARNET[tema];
   const { canvas, ctx } = lienzo();
   const cx = CARNET_W / 2;
-  fondoYMarco(ctx);
+  fondoYMarco(ctx, pal);
 
   // Logos de arriba: CVM a la izquierda, Motor Minero a la derecha.
-  await dibujarContain(ctx, LOGOS.cvm, 34, 30, 214, 132);
-  await dibujarContain(ctx, LOGOS.motorMinero, CARNET_W - 34 - 132, 26, 132, 140);
+  await dibujarContain(ctx, LOGOS.cvm, 34, 30, 214, 132, tema);
+  await dibujarContain(ctx, LOGOS.motorMinero, CARNET_W - 34 - 132, 26, 132, 140, tema);
 
   // Foto con borde naranja.
   const fw = 262, fh = 322;
@@ -238,7 +274,7 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   const fy = 182;
   ctx.save();
   roundRect(ctx, fx, fy, fw, fh, 6);
-  ctx.fillStyle = '#eef1f5';
+  ctx.fillStyle = pal.fotoVacia;
   ctx.fill();
   ctx.clip();
   if (fotoDataUrl) {
@@ -253,7 +289,7 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
     ctx.beginPath(); ctx.arc(cx, fy + fh * 1.02, 100, Math.PI, 0); ctx.fill();
   }
   ctx.restore();
-  ctx.strokeStyle = COLORES_CARNET.naranja;
+  ctx.strokeStyle = pal.naranja;
   ctx.lineWidth = 7;
   roundRect(ctx, fx, fy, fw, fh, 6);
   ctx.stroke();
@@ -261,7 +297,7 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   // Nombre COMPLETO, como en el carnet impreso. Si no entra ni con la letra más
   // chica, va en dos renglones (nombres / apellidos).
   ctx.textAlign = 'center';
-  ctx.fillStyle = COLORES_CARNET.texto;
+  ctx.fillStyle = pal.texto;
   const completo = enTitulo(`${p.nombre ?? ''} ${p.apellido ?? ''}`);
   const maxW = CARNET_W - 70;
   let y = fy + fh + 40;
@@ -283,10 +319,10 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   // Logo de Golden Touch con su RIF.
   const gw = 372, gh = gw * (608 / 1696);
   const gy = 612;
-  await dibujarContain(ctx, LOGOS.golden, (CARNET_W - gw) / 2, gy, gw, gh);
+  await dibujarContain(ctx, LOGOS.golden, (CARNET_W - gw) / 2, gy, gw, gh, tema);
 
   // Cargo y vigencia.
-  ctx.fillStyle = COLORES_CARNET.texto;
+  ctx.fillStyle = pal.texto;
   if (p.cargo) {
     const cargo = enTitulo(p.cargo);
     letraQueQuepa(ctx, cargo, 28, 16, maxW);
@@ -302,8 +338,14 @@ export async function generarCarnetPersonalDataUrl(p: Personal, fotoDataUrl?: st
   const qrSize = 116;
   const qrDataUrl = await QRCode.toDataURL(contenidoQrPersona(p), {
     errorCorrectionLevel: 'M', margin: 1, width: qrSize * 2,
-    color: { dark: COLORES_CARNET.qr, light: '#ffffff' },
+    color: { dark: QR_OSCURO, light: '#ffffff' },
   });
+  if (tema === 'oscuro') {
+    // Sobre negro el QR va en un recuadro blanco: claro sobre oscuro no lo lee cualquier teléfono.
+    ctx.fillStyle = '#ffffff';
+    roundRect(ctx, cx - qrSize / 2 - 7, CARNET_H - 30 - qrSize - 7, qrSize + 14, qrSize + 14, 8);
+    ctx.fill();
+  }
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(await cargarImg(qrDataUrl), cx - qrSize / 2, CARNET_H - 30 - qrSize, qrSize, qrSize);
   ctx.imageSmoothingEnabled = true;
@@ -338,15 +380,16 @@ function textoCentrado(ctx: CanvasRenderingContext2D, texto: string, cx: number,
 }
 
 /** Genera el REVERSO del carnet (PNG, 638×1016 px). Es igual para todos. */
-export async function generarCarnetReversoDataUrl(): Promise<string> {
+export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro'): Promise<string> {
+  const pal = PALETA_CARNET[tema];
   const { canvas, ctx } = lienzo();
   const cx = CARNET_W / 2;
-  fondoYMarco(ctx);
+  fondoYMarco(ctx, pal);
 
   // Recuadro punteado con el texto legal y el contacto.
   const bx = 44, by = 130, bw = CARNET_W - 88, bh = 560;
   ctx.save();
-  ctx.strokeStyle = COLORES_CARNET.puntos;
+  ctx.strokeStyle = pal.puntos;
   ctx.lineWidth = 4;
   ctx.lineCap = 'round';
   ctx.setLineDash([0.1, 10]);
@@ -354,10 +397,13 @@ export async function generarCarnetReversoDataUrl(): Promise<string> {
   ctx.restore();
 
   // Sello «CVM Aliados» encima del borde de arriba (lo interrumpe, como en el impreso).
-  await dibujarContain(ctx, LOGOS.cvmAliados, cx - 96, 14, 192, 196);
+  // En el negro el blanco del sello se vuelve transparente: se tapa la raya con el fondo.
+  ctx.fillStyle = pal.fondo;
+  ctx.fillRect(cx - 96, by - 6, 192, 12);
+  await dibujarContain(ctx, LOGOS.cvmAliados, cx - 96, 14, 192, 196, tema);
 
   ctx.textAlign = 'center';
-  ctx.fillStyle = COLORES_CARNET.texto;
+  ctx.fillStyle = pal.texto;
   ctx.font = `400 23px ${FUENTE}`;
   let y = 236;
   y = textoCentrado(ctx, REVERSO_P1, cx, y, bw - 44, 32);
@@ -368,20 +414,24 @@ export async function generarCarnetReversoDataUrl(): Promise<string> {
   ctx.fillText(`WhatsApp ${EMPRESA_WHATSAPP}`, cx, y + 32);
 
   // Firma a la izquierda y sello de Golden Touch a la derecha.
-  await dibujarContain(ctx, LOGOS.firma, 64, 708, 250, 136);
-  await dibujarContain(ctx, LOGOS.goldenSello, 336, 730, 238, 86);
+  await dibujarContain(ctx, LOGOS.firma, 64, 708, 250, 136, tema);
+  await dibujarContain(ctx, LOGOS.goldenSello, 336, 730, 238, 86, tema);
 
   // Raya naranja y logo del Ministerio.
-  ctx.strokeStyle = COLORES_CARNET.naranja;
+  ctx.strokeStyle = pal.naranja;
   ctx.lineWidth = 7;
   ctx.beginPath(); ctx.moveTo(92, 858); ctx.lineTo(CARNET_W - 92, 858); ctx.stroke();
-  await dibujarContain(ctx, LOGOS.gobierno, cx - 98, 870, 196, 125);
+  await dibujarContain(ctx, LOGOS.gobierno, cx - 98, 870, 196, 125, tema);
 
   return canvas.toDataURL('image/png');
 }
 
-/** Nombre de archivo sugerido para el carnet (la cara va en el nombre, para no confundirlas al imprimir). */
-export function nombreArchivoCarnet(p: Personal, cara: 'frente' | 'reverso' = 'frente'): string {
+/**
+ * Nombre de archivo sugerido. Lleva la cara y la versión: si no, bajar el frente
+ * blanco y después el negro deja dos archivos iguales y el segundo queda «(1)».
+ */
+export function nombreArchivoCarnet(p: Personal, cara: 'frente' | 'reverso' = 'frente', tema: TemaCarnet = 'claro'): string {
   const base = `${p.nombre}_${p.apellido ?? ''}`.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  return `carnet_${base || 'personal'}_${cara}.png`;
+  const sufijo = TEMAS_CARNET.find((t) => t.valor === tema)?.sufijo ?? tema;
+  return `carnet_${base || 'personal'}_${cara}_${sufijo}.png`;
 }

@@ -7,10 +7,10 @@
    ============================================================ */
 import type { Personal } from '@/shared/lib/types';
 import { money } from '@/shared/lib/format';
-import { loadLogoPdfDataUrl, loadFirmaDataUrl, loadFirma2DataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfDataUrl, loadFirmaDataUrl, loadFirma2DataUrl, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
+import { EMPRESA_EMAIL, EMPRESA_RIF, EMPRESA_WHATSAPP } from '@/shared/lib/empresa';
 
 export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
@@ -61,21 +61,25 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   const CONTENT_W = PAGE_W - MARGIN * 2;
   let y = MARGIN;
 
-  // ─── Membrete ───
-  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 54); }
-  const tx = logo ? MARGIN + anchoLogoPdf(54) + 12 : MARGIN;
+  // ─── Membrete (06/10/2026) ───
+  // El logo horizontal ya dice GOLDEN TOUCH 1127 C.A. y el RIF: el nombre no se
+  // repite al lado (salía dos veces). Logo a la izquierda, contacto alineado al
+  // margen DERECHO, así el membrete ocupa justo el ancho entre los dos márgenes.
+  const CAJA_LOGO = 78; // el logo sale de ~55 pt de alto y ~152 pt de ancho
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, CAJA_LOGO); }
+  const derecha = PAGE_W - MARGIN;
   doc.setTextColor(20, 20, 20);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 20);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-  doc.setTextColor(90, 90, 90);
-  doc.text('Sistema de Gestión de Inventarios', tx, y + 36);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`RIF: ${EMPRESA_RIF}`, tx, y + 50);
-  doc.setFont('helvetica', 'normal');
-  doc.text(EMPRESA_CONTACTO, tx, y + 64);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+  doc.text(`RIF: ${EMPRESA_RIF}`, derecha, y + 26, { align: 'right' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90, 90, 90);
+  doc.text(EMPRESA_EMAIL, derecha, y + 41, { align: 'right' });
+  doc.text(`WhatsApp ${EMPRESA_WHATSAPP}`, derecha, y + 55, { align: 'right' });
+  if (!logo) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(20, 20, 20);
+    doc.text('GOLDEN TOUCH 1127 C.A.', MARGIN, y + 34);
+  }
   doc.setTextColor(20, 20, 20);
-  y += 88;
+  y += CAJA_LOGO + 8;
 
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
