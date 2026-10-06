@@ -9,7 +9,9 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
 import type { EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
-import { listOrdenes, listProveedoresActivos, eliminarOrdenCompra } from './pedidos.repository';
+import { listOrdenes, listProveedoresActivos, eliminarOrdenCompra, listAbonos, urlAdjuntoOc } from './pedidos.repository';
+import { adjuntosDePago, comprobantesDeLaOrden, type AdjuntoPago } from './adjuntosPago';
+import { previewArchivo } from '@/shared/lib/reportePreview';
 import { descargarTrazabilidadPdf } from './trazabilidadPdf';
 import { descargarOrdenCompraPdf } from './ordenCompraPdf';
 import { descargarComprobantePagoPdf } from './comprobantePagoPdf';
@@ -58,6 +60,31 @@ export function HistoricoPage() {
   const { user } = useSession();
   const puedeEliminar = isAdmin || can('pedidos', 'escritura');
   const [eliminar, setEliminar] = useState<Orden | null>(null);
+  // Adjuntos del pago de la OC abierta en el detalle (comprobantes, abonos, retención, factura).
+  const [adjuntos, setAdjuntos] = useState<AdjuntoPago[]>([]);
+  const [abriendoAdjunto, setAbriendoAdjunto] = useState(false);
+  useEffect(() => {
+    if (!detalle) { setAdjuntos([]); return; }
+    const propios = adjuntosDePago(detalle);
+    setAdjuntos(propios);
+    if (detalle.estado !== 'cuenta_abierta' && (detalle.abonado_total ?? 0) <= 0) return;
+    let vivo = true;
+    listAbonos(detalle.id)
+      .then((abonos) => { if (vivo) setAdjuntos(adjuntosDePago(detalle, abonos)); })
+      .catch(() => { /* sin abonos: quedan los adjuntos de la OC */ });
+    return () => { vivo = false; };
+  }, [detalle]);
+
+  async function verAdjunto(a: AdjuntoPago) {
+    setAbriendoAdjunto(true);
+    try {
+      previewArchivo(await urlAdjuntoOc(a.path), a.nombre);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir el adjunto', 'error');
+    } finally {
+      setAbriendoAdjunto(false);
+    }
+  }
   const [borrando, setBorrando] = useState(false);
 
   async function imprimirPdf(o: Orden, tipo: 'trazabilidad' | 'oc' | 'pago') {
@@ -323,6 +350,14 @@ export function HistoricoPage() {
                           onClick={() => void imprimirPdf(o, 'pago')}
                           title="Descargar el comprobante de pago de la OC (vista previa)">💳 Pago</button>
                       )}
+                      {(() => {
+                        const c = comprobantesDeLaOrden(o)[0];
+                        return c ? (
+                          <button className="btn btn-sm btn-ghost" disabled={abriendoAdjunto}
+                            onClick={() => void verAdjunto(c)}
+                            title={`Ver el adjunto del pago: ${c.nombre}`}>📎 Adjunto</button>
+                        ) : null;
+                      })()}
                     </td>
                   </tr>
                 );
@@ -392,6 +427,16 @@ export function HistoricoPage() {
               {o.oc_aprobada_en && fila('OC firmada', dateTime(o.oc_aprobada_en))}
               {o.recibida_en && fila('Recibida', dateTime(o.recibida_en))}
               {o.finalizada_en && fila('Finalizada', dateTime(o.finalizada_en))}
+              {fila('Adjuntos del pago', adjuntos.length ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem' }}>
+                  {adjuntos.map((a) => (
+                    <button key={a.path} className="btn btn-sm btn-ghost" disabled={abriendoAdjunto}
+                      onClick={() => void verAdjunto(a)} title={a.nombre}>
+                      📎 Ver {a.etiqueta.toLowerCase()}
+                    </button>
+                  ))}
+                </div>
+              ) : <span className="muted" style={{ fontSize: '.84rem' }}>No se subió ningún adjunto (pago en efectivo o aún sin pagar).</span>)}
             </div>
 
             <div className="table-wrap">
