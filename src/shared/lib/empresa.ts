@@ -8,6 +8,12 @@
    mañana cambia cualquiera de estos datos, se edita este archivo y listo.
    ============================================================ */
 
+/** Razón social tal como va en los documentos formales. */
+export const EMPRESA_NOMBRE = 'GOLDEN TOUCH 1127, C.A.';
+
+/** Domicilio fiscal (membrete de la nota de envío y documentos formales). */
+export const EMPRESA_DOMICILIO = 'Calle Manzana 19 Casa Parcela N° 11 Urb. Villa Granada UD 208, Puerto Ordaz, Ciudad Guayana, Bolívar, Zona Postal 8050';
+
 /** RIF fiscal, para el membrete de los documentos formales. */
 export const EMPRESA_RIF = 'J-50129993-5';
 
