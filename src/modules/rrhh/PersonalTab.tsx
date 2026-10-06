@@ -43,6 +43,7 @@ import { AjustarFoto } from './AjustarFoto';
 import type { Encuadre } from './encuadreFoto';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { ExportarPersonalModal } from './ExportarPersonalModal';
+import { descargarCarnetPdf } from './carnetPdf';
 import { VigenciaCarnetCampo } from './VigenciaCarnetCampo';
 import { CARNET_VENCE_POR_DEFECTO } from './vigenciaCarnet';
 
@@ -1503,9 +1504,15 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
         </div>
       </div>
 
-      <p className="muted" style={{ fontSize: '.78rem', marginTop: '.8rem', textAlign: 'center' }}>
-        54 × 86 mm · 300 DPI (638 × 1016 px) · imágenes PNG listas para imprimir.
-        {' '}Cada versión baja con su nombre («…_frente_negro.png», «…_frente_blanco.png»), así que se pueden guardar las dos sin que una pise a la otra.
+      <div style={{ textAlign: 'center', marginTop: '.9rem' }}>
+        <button className="btn btn-primary" disabled={!frente || !reverso}
+          onClick={() => { if (frente) void descargarCarnetPdf(frente, reverso, nombreArchivoCarnet(persona, 'frente').replace('_frente.png', '.pdf')); }}>
+          🖨 PDF para imprimir (54 × 86 mm)
+        </button>
+      </div>
+      <p className="muted" style={{ fontSize: '.78rem', marginTop: '.6rem', textAlign: 'center' }}>
+        Medida real del carnet: 54 × 86 mm · 300 DPI (638 × 1016 px). El PDF trae una hoja por cara, ya a esa medida:
+        {' '}al imprimir, elige <strong>«Tamaño real» / escala 100 %</strong> (no «Ajustar a la página»).
         {!persona.telefono && !persona.contacto_emergencia && ' Carga el teléfono y el contacto de emergencia (✎ Editar) para que el QR los incluya.'}
       </p>
 
