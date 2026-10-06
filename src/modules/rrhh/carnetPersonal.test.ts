@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  COLORES_CARNET, cedulaConPuntos, enTitulo, nombreArchivoCarnet, nombreParaCarnet, primeraParte,
-  textoQrPersona,
+  PALETA_CARNET, QR_OSCURO, TEMAS_CARNET, cedulaConPuntos, enTitulo, nombreArchivoCarnet, nombreParaCarnet,
+  primeraParte, textoQrPersona, type TemaCarnet,
 } from './carnetPersonal';
 import type { Personal } from '@/shared/lib/types';
 
@@ -35,16 +35,32 @@ function contraste(a: string, b: string): number {
   return (claro + 0.05) / (oscuro + 0.05);
 }
 
-describe('el formato del carnet · todo va sobre blanco', () => {
-  const { fondo, texto, qr, marco, naranja } = COLORES_CARNET;
-  it('el fondo es blanco de verdad', () => { expect(fondo).toBe('#ffffff'); });
-  it('el nombre, la cédula y el texto legal se leen de lejos (≥ 7:1)', () => {
-    expect(contraste(texto, fondo)).toBeGreaterThanOrEqual(7);
+const TEMAS: TemaCarnet[] = ['claro', 'oscuro'];
+
+describe('las dos versiones del carnet', () => {
+  it('son blanca (la del impreso, primero) y negra', () => {
+    expect(TEMAS_CARNET.map((t) => t.valor)).toEqual(['claro', 'oscuro']);
+    expect(TEMAS_CARNET.map((t) => t.sufijo)).toEqual(['blanco', 'negro']);
   });
-  it('el QR va oscuro sobre blanco (≥ 7:1)', () => { expect(contraste(qr, fondo)).toBeGreaterThanOrEqual(7); });
-  it('el marco dorado y el borde naranja se distinguen del blanco', () => {
-    expect(contraste(marco, fondo)).toBeGreaterThanOrEqual(2);
-    expect(contraste(naranja, fondo)).toBeGreaterThanOrEqual(2);
+  it('la blanca es blanca de verdad y la negra oscura de verdad', () => {
+    expect(PALETA_CARNET.claro.fondo).toBe('#ffffff');
+    expect(luminancia(PALETA_CARNET.oscuro.fondo)).toBeLessThan(0.05);
+  });
+  for (const tema of TEMAS) {
+    const p = PALETA_CARNET[tema];
+    it(`${tema}: nombre, cédula y texto legal se leen de lejos (≥ 7:1)`, () => {
+      expect(contraste(p.texto, p.fondo)).toBeGreaterThanOrEqual(7);
+    });
+    it(`${tema}: el marco dorado y el borde naranja se distinguen del fondo`, () => {
+      expect(contraste(p.marco, p.fondo)).toBeGreaterThanOrEqual(2);
+      expect(contraste(p.naranja, p.fondo)).toBeGreaterThanOrEqual(2);
+    });
+    it(`${tema}: los puntos del recuadro se ven`, () => {
+      expect(contraste(p.puntos, p.fondo)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+  it('el QR va siempre oscuro sobre blanco', () => {
+    expect(contraste(QR_OSCURO, '#ffffff')).toBeGreaterThanOrEqual(7);
   });
 });
 
@@ -67,14 +83,19 @@ describe('enTitulo · nombre y cargo como en el carnet impreso', () => {
   it('vacío no rompe', () => { expect(enTitulo(null)).toBe(''); });
 });
 
-describe('nombreArchivoCarnet · frente y reverso no se pisan', () => {
+describe('nombreArchivoCarnet · una cara o versión no pisa a la otra', () => {
   const p = { nombre: 'PRUEBA', apellido: 'PRUEBA' } as Personal;
-  it('el nombre dice la cara', () => {
-    expect(nombreArchivoCarnet(p, 'frente')).toBe('carnet_PRUEBA_PRUEBA_frente.png');
-    expect(nombreArchivoCarnet(p, 'reverso')).toBe('carnet_PRUEBA_PRUEBA_reverso.png');
+  it('el nombre dice la cara y la versión', () => {
+    expect(nombreArchivoCarnet(p, 'frente', 'claro')).toBe('carnet_PRUEBA_PRUEBA_frente_blanco.png');
+    expect(nombreArchivoCarnet(p, 'reverso', 'oscuro')).toBe('carnet_PRUEBA_PRUEBA_reverso_negro.png');
+  });
+  it('las cuatro combinaciones dan cuatro archivos distintos', () => {
+    const nombres = new Set<string>();
+    for (const cara of ['frente', 'reverso'] as const) for (const tema of TEMAS) nombres.add(nombreArchivoCarnet(p, cara, tema));
+    expect(nombres.size).toBe(4);
   });
   it('sin nombre no queda un archivo sin nombre', () => {
-    expect(nombreArchivoCarnet({ nombre: '', apellido: '' } as Personal, 'frente')).toBe('carnet_personal_frente.png');
+    expect(nombreArchivoCarnet({ nombre: '', apellido: '' } as Personal, 'frente')).toBe('carnet_personal_frente_blanco.png');
   });
 });
 
