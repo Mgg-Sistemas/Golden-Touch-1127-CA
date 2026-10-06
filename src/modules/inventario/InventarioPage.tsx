@@ -138,7 +138,7 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
   const dep = DEPOSITOS[deposito];
   const esMina = deposito === 'mina';
   const { user } = useSession();
-  const { can, appUser } = usePermissions();
+  const { can, appUser, puedeVista } = usePermissions();
   const canWrite = can('inventario', 'escritura');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [recepciones, setRecepciones] = useState<Orden[]>([]);
@@ -429,7 +429,10 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
         </div>
         <div className="actions">
           {esMina ? (
-            <Link className="btn btn-ghost" to={DEPOSITOS.general.ruta}>← Inventario General</Link>
+            <>
+              <Link className="btn btn-ghost" to={DEPOSITOS.general.ruta}>← Inventario General</Link>
+              {puedeVista('deposito_mina') && <Link className="btn btn-ghost" to="/app/inventario/deposito-mina/telefono" title="La pantalla del depósito con botones grandes para el teléfono">📱 Vista teléfono</Link>}
+            </>
           ) : (
             <>
               <button
