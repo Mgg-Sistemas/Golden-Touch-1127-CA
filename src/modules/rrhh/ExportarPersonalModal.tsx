@@ -7,7 +7,9 @@ import { useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import type { Personal } from '@/shared/lib/types';
-import { CAMPOS_PERSONAL, CAMPOS_POR_DEFECTO, descargarPersonalExcel, descargarPersonalPdf } from './exportarPersonal';
+import {
+  CAMPOS_PERSONAL, CAMPOS_POR_DEFECTO, descargarPersonalExcel, descargarPersonalPdf, orientacionFinal, type OrientacionHoja,
+} from './exportarPersonal';
 
 const CLAVE_LOCAL = 'rrhh.exportar-personal.campos';
 
@@ -34,6 +36,7 @@ interface Props {
 export function ExportarPersonalModal({ personas, total, titulo, onClose }: Props) {
   const [marcados, setMarcados] = useState<string[]>(seleccionGuardada);
   const [ocupado, setOcupado] = useState<'xlsx' | 'pdf' | null>(null);
+  const [orientacion, setOrientacion] = useState<OrientacionHoja>('auto');
 
   const alternar = (clave: string) =>
     setMarcados((m) => (m.includes(clave) ? m.filter((x) => x !== clave) : [...m, clave]));
@@ -42,8 +45,8 @@ export function ExportarPersonalModal({ personas, total, titulo, onClose }: Prop
     setOcupado(formato);
     try {
       guardarSeleccion(marcados);
-      if (formato === 'xlsx') await descargarPersonalExcel(personas, marcados, titulo);
-      else await descargarPersonalPdf(personas, marcados, titulo);
+      if (formato === 'xlsx') await descargarPersonalExcel(personas, marcados, titulo, orientacion);
+      else await descargarPersonalPdf(personas, marcados, titulo, orientacion);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el archivo', 'error');
     } finally {
@@ -81,6 +84,18 @@ export function ExportarPersonalModal({ personas, total, titulo, onClose }: Prop
             {c.etiqueta}
           </label>
         ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginTop: '.9rem' }}>
+        <label htmlFor="exp-personal-orientacion" style={{ fontSize: '.86rem', fontWeight: 600 }}>Hoja</label>
+        <select id="exp-personal-orientacion" className="input" style={{ width: 'auto' }} value={orientacion}
+          onChange={(e) => setOrientacion(e.target.value as OrientacionHoja)}>
+          <option value="auto">Automática (según las columnas)</option>
+          <option value="vertical">Vertical</option>
+          <option value="horizontal">Horizontal</option>
+        </select>
+        <small className="muted">
+          Sale en {orientacionFinal(marcados, orientacion) === 'portrait' ? 'vertical' : 'horizontal'}. Al imprimir, elige la misma orientación.
+        </small>
       </div>
       {nada && <p className="muted" style={{ fontSize: '.78rem', color: 'var(--warning)' }}>Marca al menos un dato.</p>}
     </Modal>

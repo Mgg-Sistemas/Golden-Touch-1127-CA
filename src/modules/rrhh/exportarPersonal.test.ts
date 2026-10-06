@@ -34,3 +34,22 @@ describe('descargar datos del personal', () => {
     expect(tablaPersonal(lista, ['no-existe']).encabezados).toEqual([]);
   });
 });
+
+describe('orientación de la hoja', () => {
+  it('automática: pocas columnas vertical, muchas horizontal', async () => {
+    const { orientacionFinal } = await import('./exportarPersonal');
+    expect(orientacionFinal(['nombre', 'apellido', 'cedula'])).toBe('portrait');
+    expect(orientacionFinal(['nombre', 'apellido', 'cedula', 'cargo', 'departamento', 'direccion'])).toBe('landscape');
+  });
+  it('lo elegido manda sobre la cantidad de columnas', async () => {
+    const { orientacionFinal } = await import('./exportarPersonal');
+    expect(orientacionFinal(['nombre', 'apellido', 'cedula', 'cargo', 'departamento', 'direccion'], 'vertical')).toBe('portrait');
+    expect(orientacionFinal(['nombre'], 'horizontal')).toBe('landscape');
+  });
+  it('la letra se achica para que entren las columnas, sin bajar de 6', async () => {
+    const { letraQueEntra } = await import('./exportarPersonal');
+    expect(letraQueEntra(469, 53)).toBe(10);
+    expect(letraQueEntra(469, 150)).toBe(6);
+    expect(letraQueEntra(469, 1000)).toBe(6);
+  });
+});
