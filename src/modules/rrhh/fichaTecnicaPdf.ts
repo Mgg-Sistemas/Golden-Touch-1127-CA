@@ -31,12 +31,15 @@ export async function descargarFichaTecnicaPdf(
   persona: Personal,
   familiares: PersonalFamiliar[],
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfEmpresa }, { identidadEmpresa }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
+    import('@/shared/lib/empresa'),
   ]);
-  const logo = await loadLogoPdfDataUrl().catch(() => null);
+  // GT o MTO (Minería Tin Oxide): cada uno con su logo, nombre y RIF.
+  const emp = identidadEmpresa(persona.empresa);
+  const logo = await loadLogoPdfEmpresa(persona.empresa).catch(() => null);
   // La foto es opcional: si falla la descarga, la ficha sale igual.
   const foto = persona.foto_path
     ? await fotoPersonalDataUrl(persona.foto_path).catch(() => null)
@@ -51,7 +54,7 @@ export async function descargarFichaTecnicaPdf(
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe('FICHA TECNICA DEL TRABAJADOR'), W / 2, y + 15, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(pdfSafe(`GOLDEN TOUCH 1127 C.A.  ·  ${labelEmpresa(persona.empresa)}`), W / 2, y + 30, { align: 'center' });
+  doc.text(pdfSafe(`${emp.nombre}  ·  RIF ${emp.rif}  ·  ${labelEmpresa(persona.empresa)}`), W / 2, y + 30, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 48;
 

@@ -27,12 +27,14 @@ export async function descargarHistorialSueldoPdf(
   persona: Personal,
   filas: PersonalSueldo[],
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfEmpresa }, { identidadEmpresa }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
+    import('@/shared/lib/empresa'),
   ]);
-  const logo = await loadLogoPdfDataUrl().catch(() => null);
+  const emp = identidadEmpresa(persona.empresa);
+  const logo = await loadLogoPdfEmpresa(persona.empresa).catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
   const MARGIN = 56.69; // 2 cm por lado
@@ -42,7 +44,7 @@ export async function descargarHistorialSueldoPdf(
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe('HISTORIAL DE SUELDO'), W / 2, y + 16, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(pdfSafe('GOLDEN TOUCH 1127 C.A.'), W / 2, y + 31, { align: 'center' });
+  doc.text(pdfSafe(`${emp.nombre}  ·  RIF ${emp.rif}`), W / 2, y + 31, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 52;
 

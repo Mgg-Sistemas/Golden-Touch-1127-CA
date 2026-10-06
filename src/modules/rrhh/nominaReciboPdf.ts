@@ -13,7 +13,8 @@
    Un papel que muestre solo una de las dos monedas obliga a sacar la cuenta
    a mano, y ahí es donde aparecen los reclamos.
    ============================================================ */
-import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfEmpresa, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { identidadEmpresa } from '@/shared/lib/empresa';
 import { date as fmtDate } from '@/shared/lib/format';
 import type { NominaPeriodo, NominaRenglon } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
@@ -34,7 +35,8 @@ function labelMotivo(tipo?: string | null): string {
 }
 
 export interface ReciboMeta {
-  periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv' | 'nombre'>;
+  /** `empresa`: de qué nómina es (GT o MTO) → con qué logo, nombre y RIF sale el recibo. */
+  periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv' | 'nombre'> & { empresa?: string | null };
   cedulas?: Record<string, string | null | undefined>;   // personal_id -> cédula
 }
 
@@ -43,11 +45,12 @@ const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 
 async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
-    loadLogoPdfDataUrl().catch(() => null),
+    loadLogoPdfEmpresa(meta.periodo.empresa).catch(() => null),
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
 
+  const emp = identidadEmpresa(meta.periodo.empresa);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
@@ -62,9 +65,12 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     if (logoDataUrl) { dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO); }
     const tx = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-    doc.text('GOLDEN TOUCH 1127 C.A.', tx, y + 16);
+    doc.text(emp.nombre, tx, y + 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text('Recibo de Pago de Personal', tx, y + 32);
+    doc.text(`RIF ${emp.rif}  ·  Recibo de Pago de Personal`, tx, y + 32);
+    doc.setFontSize(7.5); doc.setTextColor(110);
+    doc.text(doc.splitTextToSize(`Domicilio fiscal: ${emp.domicilio}`, PAGE_W - MARGIN - tx - 130) as string[], tx, y + 44);
+    doc.setTextColor(0);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.text(meta.periodo.codigo ?? '', PAGE_W - MARGIN, y + 16, { align: 'right' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);

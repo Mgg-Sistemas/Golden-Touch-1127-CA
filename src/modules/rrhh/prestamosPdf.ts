@@ -43,12 +43,14 @@ export interface OpcionesPrestamosPdf {
 const NARANJA: [number, number, number] = [255, 138, 0];
 
 export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfEmpresa }, { identidadEmpresa }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
+    import('@/shared/lib/empresa'),
   ]);
-  const logo = await loadLogoPdfDataUrl().catch(() => null);
+  const emp = identidadEmpresa(op.empresa);
+  const logo = await loadLogoPdfEmpresa(op.empresa).catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
@@ -59,7 +61,7 @@ export async function descargarPrestamosPdf(op: OpcionesPrestamosPdf): Promise<v
   doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text(pdfSafe(op.titulo.toUpperCase()), W / 2, y + 16, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(pdfSafe(`GOLDEN TOUCH 1127 C.A.  ·  Nómina ${op.empresa}`), W / 2, y + 31, { align: 'center' });
+  doc.text(pdfSafe(`${emp.nombre}  ·  RIF ${emp.rif}  ·  Nómina ${op.empresa}`), W / 2, y + 31, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 52;
 

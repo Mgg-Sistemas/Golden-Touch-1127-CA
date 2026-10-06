@@ -17,7 +17,8 @@
    ============================================================ */
 import QRCode from 'qrcode';
 import { recorteDeEncuadre, type Encuadre } from './encuadreFoto';
-import { EMPRESA_EMAIL, EMPRESA_WHATSAPP } from '@/shared/lib/empresa';
+import { identidadEmpresa } from '@/shared/lib/empresa';
+import { loadLogoPdfEmpresa } from '@/shared/lib/pdfLogo';
 import { lineasSaludQr } from './saludPersonal';
 import { fechaCarnet } from './vigenciaCarnet';
 import type { Personal } from '@/shared/lib/types';
@@ -180,7 +181,7 @@ export function contenidoQrPersona(p: Personal, origen = typeof window !== 'unde
 export function textoQrPersona(p: Personal): string {
   const nombre = `${p.nombre} ${p.apellido ?? ''}`.trim();
   const lineas = [
-    'GOLDEN TOUCH 1127 C.A.',
+    identidadEmpresa(p.empresa).nombre,
     `Nombre: ${nombre}`,
     p.cedula ? `Cédula: ${p.cedula}` : '',
     p.cargo ? `Cargo: ${p.cargo}` : '',
@@ -316,10 +317,11 @@ export async function generarCarnetPersonalDataUrl(
     ctx.fillText(`C.I. ${cedulaConPuntos(p.cedula)}`, cx, y + 36);
   }
 
-  // Logo de Golden Touch con su RIF.
+  // Logo de la empresa con su RIF: Golden Touch, o Minería Tin Oxide si es de la nómina MTO.
   const gw = 372, gh = gw * (608 / 1696);
   const gy = 612;
-  await dibujarContain(ctx, LOGOS.golden, (CARNET_W - gw) / 2, gy, gw, gh, tema);
+  const logoEmpresa = p.empresa === 'MTO' ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
+  await dibujarContain(ctx, logoEmpresa, (CARNET_W - gw) / 2, gy, gw, gh, tema);
 
   // Cargo y vigencia.
   ctx.fillStyle = pal.texto;
@@ -379,9 +381,10 @@ function textoCentrado(ctx: CanvasRenderingContext2D, texto: string, cx: number,
   return yy;
 }
 
-/** Genera el REVERSO del carnet (PNG, 638×1016 px). Es igual para todos. */
-export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro'): Promise<string> {
+/** Genera el REVERSO del carnet (PNG, 638×1016 px). Igual para todos los de una misma empresa. */
+export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro', empresa?: string | null): Promise<string> {
   const pal = PALETA_CARNET[tema];
+  const emp = identidadEmpresa(empresa);
   const { canvas, ctx } = lienzo();
   const cx = CARNET_W / 2;
   fondoYMarco(ctx, pal);
@@ -410,12 +413,23 @@ export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro'): P
   y += 20;
   y = textoCentrado(ctx, REVERSO_P2, cx, y, bw - 44, 32);
   y += 22;
-  ctx.fillText(EMPRESA_EMAIL, cx, y);
-  ctx.fillText(`WhatsApp ${EMPRESA_WHATSAPP}`, cx, y + 32);
+  ctx.fillText(emp.email, cx, y);
+  ctx.fillText(`WhatsApp ${emp.whatsapp}`, cx, y + 32);
 
-  // Firma a la izquierda y sello de Golden Touch a la derecha.
+  // Firma a la izquierda y, a la derecha, el sello de Golden Touch; MTO no tiene
+  // sello cargado, así que en su lugar va su razón social y su RIF.
   await dibujarContain(ctx, LOGOS.firma, 64, 708, 250, 136, tema);
-  await dibujarContain(ctx, LOGOS.goldenSello, 336, 730, 238, 86, tema);
+  if (emp.clave === 'MTO') {
+    ctx.fillStyle = pal.texto;
+    ctx.textAlign = 'center';
+    // Centrado en el hueco del sello (x 336–574), achicando la letra hasta que quepa.
+    letraQueQuepa(ctx, 'MINERÍA TIN OXIDE, C.A.', 24, 14, 226);
+    ctx.fillText('MINERÍA TIN OXIDE, C.A.', 455, 768);
+    letraQueQuepa(ctx, `RIF ${emp.rif}`, 22, 14, 226);
+    ctx.fillText(`RIF ${emp.rif}`, 455, 800);
+  } else {
+    await dibujarContain(ctx, LOGOS.goldenSello, 336, 730, 238, 86, tema);
+  }
 
   // Raya naranja y logo del Ministerio.
   ctx.strokeStyle = pal.naranja;

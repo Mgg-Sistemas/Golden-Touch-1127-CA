@@ -7,10 +7,10 @@
    ============================================================ */
 import type { Personal } from '@/shared/lib/types';
 import { money } from '@/shared/lib/format';
-import { loadLogoPdfDataUrl, loadFirmaDataUrl, loadFirma2DataUrl, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfEmpresa, loadFirmaDataUrl, loadFirma2DataUrl, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { EMPRESA_EMAIL, EMPRESA_RIF, EMPRESA_WHATSAPP } from '@/shared/lib/empresa';
+import { EMPRESA_RIF, identidadEmpresa } from '@/shared/lib/empresa';
 
 export type FirmanteConstancia = 'rrhh' | 'leydis' | 'gerente' | 'ninguna';
 
@@ -47,9 +47,11 @@ function fechaLarga(iso?: string | null): string {
 
 export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInput): Promise<void> {
   const { persona: p } = input;
+  // GT o MTO (Minería Tin Oxide): nombre, RIF, domicilio y logo de SU empresa.
+  const emp = identidadEmpresa(p.empresa);
   const [{ jsPDF }, logo, firmaGerente, firmaLeydis] = await Promise.all([
     import('jspdf'),
-    loadLogoPdfDataUrl().catch(() => null),
+    loadLogoPdfEmpresa(p.empresa).catch(() => null),
     input.firmante === 'gerente' ? loadFirmaDataUrl().catch(() => null) : Promise.resolve(null),
     input.firmante === 'leydis' ? loadFirma2DataUrl().catch(() => null) : Promise.resolve(null),
   ]);
@@ -70,13 +72,13 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   const derecha = PAGE_W - MARGIN;
   doc.setTextColor(20, 20, 20);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-  doc.text(`RIF: ${EMPRESA_RIF}`, derecha, y + 26, { align: 'right' });
+  doc.text(`RIF: ${emp.rif}`, derecha, y + 26, { align: 'right' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90, 90, 90);
-  doc.text(EMPRESA_EMAIL, derecha, y + 41, { align: 'right' });
-  doc.text(`WhatsApp ${EMPRESA_WHATSAPP}`, derecha, y + 55, { align: 'right' });
+  doc.text(emp.email, derecha, y + 41, { align: 'right' });
+  doc.text(`WhatsApp ${emp.whatsapp}`, derecha, y + 55, { align: 'right' });
   if (!logo) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(20, 20, 20);
-    doc.text('GOLDEN TOUCH 1127 C.A.', MARGIN, y + 34);
+    doc.text(emp.nombre, MARGIN, y + 34);
   }
   doc.setTextColor(20, 20, 20);
   y += CAJA_LOGO + 8;
@@ -90,7 +92,7 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
   const diaHoy = new Intl.DateTimeFormat('es-VE', { day: 'numeric', timeZone: 'America/Caracas' }).format(hoy);
   const mesHoy = new Intl.DateTimeFormat('es-VE', { month: 'long', timeZone: 'America/Caracas' }).format(hoy);
   const anioHoy = new Intl.DateTimeFormat('es-VE', { year: 'numeric', timeZone: 'America/Caracas' }).format(hoy);
-  const lugar = pdfSafe(input.lugar) || 'Puerto Ordaz, Estado Bolívar';
+  const lugar = pdfSafe(input.lugar) || emp.ciudad;
 
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
   doc.text(`${lugar}, ${diaHoy} de ${mesHoy} de ${anioHoy}`, PAGE_W - MARGIN, y, { align: 'right' });
@@ -119,7 +121,7 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
     : '';
 
   const parrafo1 =
-    `Quien suscribe, en representación de GOLDEN TOUCH 1127 C.A., por medio de la presente hace constar que ` +
+    `Quien suscribe, en representación de ${emp.nombre}, por medio de la presente hace constar que ` +
     `el(la) ciudadano(a) ${nombre}, titular de la cédula de identidad N° ${cedula}, presta sus servicios en ` +
     `nuestra empresa desempeñando el cargo de ${cargo}${clausulaDepto}${clausulaIngreso}${clausulaSalario}.`;
 
@@ -167,12 +169,12 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
     doc.text(firma.cargo, centro, ly, { align: 'center' });
     ly += 15;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
-    doc.text('GOLDEN TOUCH 1127 C.A.', centro, ly, { align: 'center' });
+    doc.text(emp.nombre, centro, ly, { align: 'center' });
   } else {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
     doc.setTextColor(90, 90, 90);
     doc.text('Firma y sello autorizados', centro, firmaY + 16, { align: 'center' });
-    doc.text('GOLDEN TOUCH 1127 C.A.', centro, firmaY + 30, { align: 'center' });
+    doc.text(emp.nombre, centro, firmaY + 30, { align: 'center' });
   }
 
   // Recuadro para el SELLO húmedo (a la izquierda de la firma) cuando la firma la
@@ -189,7 +191,10 @@ export async function descargarConstanciaTrabajoPdf(input: ConstanciaTrabajoInpu
     doc.text('Sello', bx + bw / 2, by + bh / 2 + 3, { align: 'center' });
   }
 
-  // Pie.
+  // Pie: domicilio fiscal de la empresa y marca de generación.
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(110);
+  const dom = doc.splitTextToSize(`${emp.nombre} · RIF ${emp.rif} · Domicilio fiscal: ${emp.domicilio}`, CONTENT_W) as string[];
+  doc.text(dom, MARGIN, PAGE_H - 36 - dom.length * 10);
   doc.setFontSize(8); doc.setTextColor(140);
   doc.text(
     `Documento generado por el sistema · ${new Intl.DateTimeFormat('es-VE', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Caracas' }).format(hoy)}`,

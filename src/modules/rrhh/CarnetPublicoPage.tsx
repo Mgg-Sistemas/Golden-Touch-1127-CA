@@ -11,13 +11,15 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/shared/lib/supabase';
-import { EMPRESA_EMAIL, EMPRESA_WHATSAPP } from '@/shared/lib/empresa';
+import { identidadEmpresa, type IdentidadEmpresa } from '@/shared/lib/empresa';
 import { lineasSaludQr } from './saludPersonal';
 import { PARENTESCOS } from './fichaPersonal';
 import { estadoCarnet, fechaCarnet } from './vigenciaCarnet';
 
 interface CarnetPublico {
   activo: boolean;
+  /** 'GT' | 'MTO': de qué empresa es el carnet (MTO = Minería Tin Oxide). */
+  empresa?: string | null;
   nombre?: string; apellido?: string | null; cedula?: string | null;
   cargo?: string | null; departamento?: string | null;
   telefono?: string | null; correo?: string | null;
@@ -29,7 +31,7 @@ interface CarnetPublico {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const LOGO = `${import.meta.env.BASE_URL}LOGO.jpg`;
+const urlPublica = (archivo: string) => `${import.meta.env.BASE_URL}${encodeURIComponent(archivo)}`;
 
 const fondo: CSSProperties = {
   minHeight: '100vh', background: '#12151a', color: '#e7ecf3', display: 'flex',
@@ -37,10 +39,13 @@ const fondo: CSSProperties = {
   fontFamily: "'Segoe UI', Arial, sans-serif",
 };
 
-function SoloLogo() {
+/** GT: el logo redondo. MTO: su logo horizontal sobre una placa blanca. */
+function SoloLogo({ emp }: { emp: IdentidadEmpresa }) {
   return (
     <div style={fondo}>
-      <img src={LOGO} alt="Golden Touch 1127 C.A." style={{ width: 'min(320px, 80vw)', borderRadius: '50%', background: '#fff' }} />
+      {emp.clave === 'MTO'
+        ? <img src={urlPublica(emp.logoPantalla)} alt={emp.nombre} style={{ width: 'min(420px, 88vw)', borderRadius: 18, background: '#fff', padding: 12 }} />
+        : <img src={urlPublica(emp.logoPantalla)} alt={emp.nombre} style={{ width: 'min(320px, 80vw)', borderRadius: '50%', background: '#fff' }} />}
     </div>
   );
 }
@@ -59,8 +64,9 @@ export function CarnetPublicoPage() {
   }, [token]);
 
   if (dato === undefined) return <div style={fondo}>Cargando…</div>;
-  // Inactivo, o un QR que no es de nadie: solo el logo.
-  if (!dato || !dato.activo) return <SoloLogo />;
+  const emp = identidadEmpresa(dato?.empresa);
+  // Inactivo, o un QR que no es de nadie: solo el logo (de SU empresa).
+  if (!dato || !dato.activo) return <SoloLogo emp={emp} />;
 
   const nombre = `${dato.nombre ?? ''} ${dato.apellido ?? ''}`.trim();
   const vencido = estadoCarnet(dato.carnet_vence) === 'vencido';
@@ -81,9 +87,11 @@ export function CarnetPublicoPage() {
     <div style={{ ...fondo, alignItems: 'flex-start', background: '#14110d', color: '#f4efe6' }}>
       <div style={{ width: '100%', maxWidth: 440 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-          <img src={LOGO} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover', background: '#fff' }} />
+          {emp.clave === 'MTO'
+            ? <img src={urlPublica(emp.logoPantalla)} alt="" style={{ height: 56, width: 112, borderRadius: 12, objectFit: 'contain', background: '#fff', padding: 4 }} />
+            : <img src={urlPublica(emp.logoPantalla)} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover', background: '#fff' }} />}
           <div>
-            <div style={{ fontWeight: 800, color: '#ff9f2e', letterSpacing: '.02em', fontSize: 17 }}>GOLDEN TOUCH 1127 C.A.</div>
+            <div style={{ fontWeight: 800, color: '#ff9f2e', letterSpacing: '.02em', fontSize: 17 }}>{emp.nombre}</div>
             <div style={{ fontSize: 13, opacity: 0.75 }}>Carnet de identificación · verificado en línea</div>
           </div>
         </div>
@@ -108,7 +116,7 @@ export function CarnetPublicoPage() {
             {salud.map((l) => <div key={l} style={{ fontWeight: 700 }}>{l}</div>)}
           </div>
         )}
-        <div style={{ marginTop: 22, fontSize: 13, opacity: 0.6 }}>{EMPRESA_EMAIL} · WhatsApp {EMPRESA_WHATSAPP}</div>
+        <div style={{ marginTop: 22, fontSize: 13, opacity: 0.6 }}>{emp.nombre} · RIF {emp.rif}<br />{emp.email} · WhatsApp {emp.whatsapp}</div>
       </div>
     </div>
   );

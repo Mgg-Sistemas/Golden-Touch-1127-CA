@@ -1,4 +1,5 @@
 import type { jsPDF } from 'jspdf';
+import { identidadEmpresa } from './empresa';
 
 let cachedDataUrl: string | null = null;
 let cachedPdfDataUrl: string | null = null;
@@ -24,6 +25,73 @@ export function anchoLogoPdf(caja: number): number {
 export function dibujarLogoPdf(doc: jsPDF, dataUrl: string, x: number, y: number, caja: number): void {
   const h = caja * LOGO_PDF_ALTO;
   try { doc.addImage(dataUrl, 'JPEG', x, y + (caja - h) / 2, h * LOGO_PDF_PROPORCION, h); } catch { /* el logo es opcional */ }
+}
+
+const cacheLogoEmpresa = new Map<string, Promise<string>>();
+
+/**
+ * Logo de PDF de la empresa de una nómina: GT → el de siempre; MTO → «Logo MTO.png»
+ * (Minería Tin Oxide). El de MTO viene con mucho margen blanco: se recorta al
+ * dibujo y se centra en un lienzo con la MISMA proporción que el de GT, así
+ * `dibujarLogoPdf` / `anchoLogoPdf` sirven igual para los dos sin tocar nada.
+ */
+export async function loadLogoPdfEmpresa(empresa?: string | null): Promise<string> {
+  if (empresa !== 'MTO') return loadLogoPdfDataUrl();
+  const archivo = identidadEmpresa('MTO').logoPdf;
+  if (!cacheLogoEmpresa.has(archivo)) {
+    const p = cargarLogoRecortado(archivo);
+    cacheLogoEmpresa.set(archivo, p);
+    p.catch(() => cacheLogoEmpresa.delete(archivo));
+  }
+  return cacheLogoEmpresa.get(archivo)!;
+}
+
+async function cargarLogoRecortado(archivo: string): Promise<string> {
+  const resp = await fetch(`${import.meta.env.BASE_URL}${encodeURIComponent(archivo)}`);
+  if (!resp.ok) throw new Error(`No se pudo cargar el logo (${resp.status})`);
+  const objectUrl = URL.createObjectURL(await resp.blob());
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('No se pudo decodificar el logo'));
+      el.src = objectUrl;
+    });
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const src = document.createElement('canvas');
+    src.width = w; src.height = h;
+    const sctx = src.getContext('2d');
+    if (!sctx) throw new Error('Canvas 2D no disponible');
+    sctx.fillStyle = '#FFFFFF'; sctx.fillRect(0, 0, w, h);
+    sctx.drawImage(img, 0, 0);
+    // Caja del dibujo: todo lo que no es (casi) blanco.
+    const px = sctx.getImageData(0, 0, w, h).data;
+    let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let y = 0; y < h; y += 2) {
+      for (let x = 0; x < w; x += 2) {
+        const i = (y * w + x) * 4;
+        if (px[i] < 235 || px[i + 1] < 235 || px[i + 2] < 235) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+    }
+    if (x1 < x0 || y1 < y0) { x0 = 0; y0 = 0; x1 = w - 1; y1 = h - 1; }
+    const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+    // Lienzo de salida a la proporción del logo de GT, con el dibujo centrado.
+    const OUT_W = 1000, OUT_H = Math.round(OUT_W / LOGO_PDF_PROPORCION);
+    const escala = Math.min(OUT_W / cw, OUT_H / ch);
+    const dw = cw * escala, dh = ch * escala;
+    const out = document.createElement('canvas');
+    out.width = OUT_W; out.height = OUT_H;
+    const octx = out.getContext('2d');
+    if (!octx) throw new Error('Canvas 2D no disponible');
+    octx.fillStyle = '#FFFFFF'; octx.fillRect(0, 0, OUT_W, OUT_H);
+    // Pegado a la izquierda (como el de GT), centrado en alto.
+    octx.drawImage(src, x0, y0, cw, ch, 0, (OUT_H - dh) / 2, dw, dh);
+    return out.toDataURL('image/jpeg', 0.9);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 export async function loadLogoPdfDataUrl(): Promise<string> {

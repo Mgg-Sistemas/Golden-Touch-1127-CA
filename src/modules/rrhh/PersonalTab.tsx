@@ -47,6 +47,7 @@ import { ExportarPersonalModal } from './ExportarPersonalModal';
 import { descargarCarnetPdf } from './carnetPdf';
 import { VigenciaCarnetCampo } from './VigenciaCarnetCampo';
 import { CARNET_VENCE_POR_DEFECTO } from './vigenciaCarnet';
+import { identidadEmpresa } from '@/shared/lib/empresa';
 
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
@@ -549,7 +550,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           {/* La planilla en blanco: se imprime y se le da a quien ingresa para
               que la complete a mano. No lleva datos de nadie. */}
-          <button className="btn btn-ghost" onClick={() => { void descargarHojaIngresoPdf(); }}
+          <button className="btn btn-ghost" onClick={() => { void descargarHojaIngresoPdf(empresa); }}
             title="Planilla en blanco para que la complete quien ingresa">
             📋 Hoja de ingreso (PDF)
           </button>
@@ -1260,7 +1261,8 @@ function TarjetaRrhh({ titulo, valor, tono, marcada, onClick, ayuda }: {
 /* ───────── Constancia de trabajo (PDF · vista previa) ───────── */
 function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
   const [dirigidoA, setDirigidoA] = useState('A quien pueda interesar:');
-  const [lugar, setLugar] = useState('Puerto Ordaz, Estado Bolívar');
+  // Ciudad de SU empresa: Puerto Ordaz (GT) o Upata (MTO · Minería Tin Oxide).
+  const [lugar, setLugar] = useState(identidadEmpresa(persona.empresa).ciudad);
   const [incluirSalario, setIncluirSalario] = useState(Number(persona.sueldo_base) > 0);
   const [firmante, setFirmante] = useState<FirmanteConstancia>('rrhh');
   const [generando, setGenerando] = useState(false);
@@ -1316,7 +1318,7 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
       </div>
       <div className="form-row">
         <label>Lugar de expedición</label>
-        <input className="input" value={lugar} onChange={(e) => setLugar(e.target.value)} placeholder="Puerto Ordaz, Estado Bolívar" />
+        <input className="input" value={lugar} onChange={(e) => setLugar(e.target.value)} placeholder={identidadEmpresa(persona.empresa).ciudad} />
       </div>
       <div className="form-row">
         <label>Firma al pie</label>
@@ -1420,7 +1422,7 @@ function CarnetModal({ persona, canWrite, onClose, onFotoCambio }: {
         if (!cancel) setFotoData(foto);
         const [f, r] = await Promise.all([
           generarCarnetPersonalDataUrl({ ...persona, foto_path: fotoPath }, foto, tema),
-          generarCarnetReversoDataUrl(tema),
+          generarCarnetReversoDataUrl(tema, persona.empresa),
         ]);
         if (!cancel) { setFrente(f); setReverso(r); }
       } catch (e) {
