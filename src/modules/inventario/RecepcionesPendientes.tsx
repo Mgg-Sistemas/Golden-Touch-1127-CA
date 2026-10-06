@@ -6,6 +6,8 @@ import { toast } from '@/shared/ui/Toast';
 import { date, dateTime, money, num, montoMoneda } from '@/shared/lib/format';
 import type { Almacen, ItemOrden, Orden } from '@/shared/lib/types';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
+import { avisarCambiosDeMarca } from '@/modules/pedidos/avisoMarcaDistinta';
+import { MarcaRecibidaCampos, useMarcasRecibidas } from '@/modules/pedidos/MarcaRecibidaCampos';
 import { recepcionarCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { nombreCortoAlmacen } from './almacenes.repository';
@@ -32,7 +34,9 @@ interface RecepcionesPendientesProps {
 }
 
 /** Marca/modelo del ítem (para mostrarlo en el detalle). */
-const ficha = (it: ItemOrden): string => rotuloMarcaModelo(it);
+// Ya recibido: manda la marca que LLEGÓ (puede no ser la pedida).
+const ficha = (it: ItemOrden): string =>
+  rotuloMarcaModelo(it.marca_recibida || it.modelo_recibido ? { marca: it.marca_recibida, modelo: it.modelo_recibido } : it);
 
 /** Almacenes ordenados: cada principal seguido de sus sub-almacenes. */
 function almacenesOrdenados(almacenes: Almacen[]): Almacen[] {
@@ -62,6 +66,7 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
     return m;
   });
   const [nota, setNota] = useState('');
+  const { marcas, cambiar: cambiarMarca } = useMarcasRecibidas(orden.items);
   // Un servicio se presta: no llega mercadería, no hay almacén destino y no toca stock.
   // Su rastro va al historial del equipo asociado (ver `ordenAfectaInventario`).
   const esServicio = orden.tipo === 'servicio';
@@ -80,7 +85,10 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
 
   async function handleConfirm() {
     setError(null);
-    const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
+    const recepciones = orden.items.map((it) => ({
+      sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0,
+      ...(esServicio ? {} : { marca: marcas[it.sku]?.marca ?? null, modelo: marcas[it.sku]?.modelo ?? null }),
+    }));
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indica al menos una cantidad recibida.'); return; }
     // Un servicio no entra a ningún almacén: no se le pide destino.
     if (!esServicio && !almacen.trim()) { setError('Elige el almacén destino al que entra la mercancía.'); return; }
@@ -88,6 +96,7 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
     setSaving(true);
     try {
       await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName, esServicio ? null : almacen.trim());
+      avisarCambiosDeMarca(orden, recepciones);
       const esContra = orden.condiciones_pago === 'contra_entrega';
       toast(
         esServicio
@@ -174,7 +183,10 @@ function RecibirOrdenModal({ orden, almacenes, actor, actorName, onClose, onSave
               return (
                 <tr key={it.sku}>
                   <td className="mono">{it.sku}</td>
-                  <td>{it.nombre}</td>
+                  <td>
+                    {it.nombre}
+                    {!esServicio && <MarcaRecibidaCampos item={it} valor={marcas[it.sku] ?? { marca: '', modelo: '' }} onChange={(v) => cambiarMarca(it.sku, v)} />}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                   <td style={{ textAlign: 'right' }}>
                     <input className="input mono" type="number" min={0} max={it.cantidad} step="any"
