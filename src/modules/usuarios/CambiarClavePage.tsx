@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useSession, signOut } from '@/modules/auth/authStore';
 import { cambiarMiClave } from './usuarios.repository';
 import { toast } from '@/shared/ui/Toast';
+import { pistaClaveDebil } from './mensajesClave';
 
 export function CambiarClavePage() {
   const { user, loading } = useSession();
@@ -11,6 +12,9 @@ export function CambiarClavePage() {
   const [clave, setClave] = useState('');
   const [confirmacion, setConfirmacion] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // 👁 Ver la clave mientras se escribe (06/10/2026): con dos campos ocultos no
+  // se sabía qué se había tecleado hasta que Auth la rechazaba.
+  const [verClave, setVerClave] = useState(false);
 
   // Si el usuario llega desde otra pantalla del app (ej. Ajustes), `state.from`
   // viene seteado: "Volver" lo lleva de regreso allí sin cerrar sesión.
@@ -25,6 +29,7 @@ export function CambiarClavePage() {
   const largoOk = claveTrim.length >= 6;
   const coincide = largoOk && claveTrim === confTrim;
   const mostrarNoCoincide = confTrim.length > 0 && claveTrim !== confTrim;
+  const pista = pistaClaveDebil(claveTrim);
 
   if (loading) return <div className="p-8">Cargando…</div>;
   if (!user) {
@@ -123,9 +128,12 @@ export function CambiarClavePage() {
 
         <div className="form-row">
           <label>Ingrese clave nueva</label>
+          <div style={{ display: 'flex', gap: '.4rem' }}>
           <input
-            type="password"
+            id="clave-nueva"
+            type={verClave ? 'text' : 'password'}
             className="input"
+            style={{ flex: 1, minWidth: 0 }}
             autoComplete="new-password"
             value={clave}
             onChange={(e) => setClave(e.target.value)}
@@ -133,12 +141,24 @@ export function CambiarClavePage() {
             disabled={submitting}
             autoFocus
           />
+          <button type="button" className="btn btn-ghost" onClick={() => setVerClave((v) => !v)}
+            aria-pressed={verClave} aria-controls="clave-nueva clave-confirmacion"
+            title={verClave ? 'Ocultar la clave' : 'Ver la clave que escribes'}>
+            {verClave ? '🙈 Ocultar' : '👁 Ver'}
+          </button>
+          </div>
+          {pista && (
+            <small style={{ color: 'var(--warning)', marginTop: '.35rem', display: 'block' }}>
+              ⚠ {pista}
+            </small>
+          )}
         </div>
 
         <div className="form-row">
           <label>Confirmación de clave</label>
           <input
-            type="password"
+            id="clave-confirmacion"
+            type={verClave ? 'text' : 'password'}
             className="input"
             autoComplete="new-password"
             value={confirmacion}

@@ -16,3 +16,17 @@ describe('mensajeClaveEnEspanol', () => {
     expect(mensajeClaveEnEspanol('Solo admin puede resetear claves')).toBe('Solo admin puede resetear claves');
   });
 });
+
+describe('pistaClaveDebil · aviso antes de mandar la clave', () => {
+  it('avisa los patrones que casi siempre están filtrados', async () => {
+    const { pistaClaveDebil } = await import('./mensajesClave');
+    for (const c of ['123456', '11111111', 'abcdef', '654321', 'Golden2026', 'clave123', 'Ab1!x']) {
+      expect(pistaClaveDebil(c), c).not.toBeNull();
+    }
+  });
+  it('no molesta con una clave razonable ni con el campo vacío', async () => {
+    const { pistaClaveDebil } = await import('./mensajesClave');
+    expect(pistaClaveDebil('')).toBeNull();
+    expect(pistaClaveDebil('Mina-Rio*47tapa')).toBeNull();
+  });
+});
