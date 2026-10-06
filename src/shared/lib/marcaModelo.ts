@@ -61,3 +61,32 @@ export function descripcionConMarcaModelo(
   if (norm(actual).includes(norm(rotulo))) return null;
   return `${actual}\n${rotulo}`;
 }
+
+/* ───────── Marca RECIBIDA (06/10/2026) ─────────
+   Se pide una marca y a veces llega otra similar. Al recepcionar, cada
+   renglón trae «Marca / Modelo recibido» llenos con lo pedido; si llegó
+   otra, se corrige ahí. Lo que entra al inventario es lo RECIBIDO, y la
+   orden queda marcada con el cambio para que Compras lo vea. */
+
+/** Lo que llegó: lo escrito al recepcionar, o lo pedido si no se tocó. En mayúsculas. */
+export function marcaRecibida(pedido: ConMarcaModelo, escrito?: ConMarcaModelo | null): ConMarcaModelo {
+  const tomar = (v: string | null | undefined, porDefecto: string | null | undefined) =>
+    (v === undefined ? limpio(porDefecto) : limpio(v)).toUpperCase() || null;
+  return { marca: tomar(escrito?.marca, pedido.marca), modelo: tomar(escrito?.modelo, pedido.modelo) };
+}
+
+/**
+ * «Marca pedida DONALDSON → recibida FLEETGUARD», o null si llegó lo mismo.
+ * Acentos y mayúsculas no cuentan como cambio.
+ */
+export function cambioDeMarca(pedido: ConMarcaModelo, recibido: ConMarcaModelo): string | null {
+  const partes: string[] = [];
+  const comparar = (que: string, a?: string | null, b?: string | null) => {
+    const pa = limpio(a); const pb = limpio(b);
+    // Si no se pidió ninguna, anotar la que llegó no es «otra marca»: solo se completa el dato.
+    if (pa && norm(pa) !== norm(pb)) partes.push(`${que} pedida ${pa} → recibida ${pb || '(sin indicar)'}`);
+  };
+  comparar('Marca', pedido.marca, recibido.marca);
+  comparar('Modelo', pedido.modelo, recibido.modelo);
+  return partes.length ? partes.join(' · ') : null;
+}

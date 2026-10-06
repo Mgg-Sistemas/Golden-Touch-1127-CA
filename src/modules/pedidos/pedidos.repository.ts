@@ -8,7 +8,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
-import { rotuloMarcaModelo, descripcionConMarcaModelo } from '@/shared/lib/marcaModelo';
+import { rotuloMarcaModelo, descripcionConMarcaModelo, marcaRecibida, cambioDeMarca } from '@/shared/lib/marcaModelo';
 import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
 import { ALMACEN_MINA } from '@/modules/inventario/depositos';
 import {
@@ -2318,9 +2318,29 @@ async function despiezarResRecibida(input: {
  * orden cierra como `recibida` SIN saldo pendiente (los faltantes solo se anotan).
  * Para contra_entrega, `recibido_total` es el monto que luego se paga en Tesorería.
  */
+/** Un renglón de la recepción: cuánto llegó y, si se indicó, con qué marca/modelo. */
+export interface RecepcionRenglon {
+  sku: string;
+  cantidad_recibida: number;
+  /** Marca/modelo que llegó. Sin indicar (undefined) = lo pedido. */
+  marca?: string | null;
+  modelo?: string | null;
+}
+
+/** Renglones donde llegó otra marca/modelo que la pedida, con el texto del cambio. */
+export function cambiosDeMarcaEnRecepcion(o: Orden, recepciones: RecepcionRenglon[]): { sku: string; nombre: string; cambio: string }[] {
+  const porSku = new Map(recepciones.map((r) => [r.sku, r]));
+  return o.items.flatMap((it) => {
+    const r = porSku.get(it.sku);
+    if (!r || (Number(r.cantidad_recibida) || 0) <= 0) return [];
+    const cambio = cambioDeMarca(it, marcaRecibida(it, r));
+    return cambio ? [{ sku: it.sku, nombre: it.nombre, cambio }] : [];
+  });
+}
+
 export async function recibirOrdenParcial(
   o: Orden,
-  recepciones: { sku: string; cantidad_recibida: number }[],
+  recepciones: RecepcionRenglon[],
   nota: string | null,
   actorEmail: string,
   actorName: string | null,
@@ -2335,6 +2355,9 @@ export async function recibirOrdenParcial(
   // Almacén al que entra la mercancía: el elegido al recibir manda; si no, el de la OC.
   const destinoFinal = (almacenDestino && almacenDestino.trim()) || (o.almacen_destino && o.almacen_destino.trim()) || null;
   const recMap = new Map(recepciones.map((r) => [r.sku, Math.max(0, Number(r.cantidad_recibida) || 0)]));
+  // Marca/modelo que LLEGÓ por renglón (lo pedido si no se tocó). Es lo que entra al inventario.
+  const escritoPorSku = new Map(recepciones.map((r) => [r.sku, r]));
+  const recibidoDe = (it: ItemOrden) => marcaRecibida(it, escritoPorSku.get(it.sku));
   for (const it of o.items) {
     const rec = recMap.get(it.sku) ?? 0;
     if (rec > Number(it.cantidad)) throw new Error(`No puedes recibir más de lo pedido en ${it.sku}.`);
@@ -2401,9 +2424,11 @@ export async function recibirOrdenParcial(
       // El kardex dice CON QUÉ MARCA entró este lote. Un mismo producto se compra a
       // varias marcas y, sin esto, el historial no distinguía una entrada de la otra.
       detalle: [
-        `Recepción de ${rec}/${it.cantidad} ${it.sku} @ $${precioCompra.toFixed(2)} (promedio: $${precioPromedio.toFixed(2)}) → ${almacenProd}`,
-        conversion ? `${conversion} (a $${Number(it.precio).toFixed(2)} el ${it.unidad})` : null,
-        rotuloMarcaModelo(it),
+        `Recepción de ${rec}/${it.cantidad} ${it.sku} @ ${precioCompra.toFixed(2)} (promedio: ${precioPromedio.toFixed(2)}) → ${almacenProd}`,
+        conversion ? `${conversion} (a ${Number(it.precio).toFixed(2)} el ${it.unidad})` : null,
+        // La marca que REALMENTE entró; si no era la pedida, queda dicho.
+        rotuloMarcaModelo(recibidoDe(it)),
+        cambioDeMarca(it, recibidoDe(it)) ? `LLEGÓ OTRA MARCA (${cambioDeMarca(it, recibidoDe(it))})` : null,
       ].filter(Boolean).join(' · '),
       // Sin esto la columna «Valor» del histórico de recepciones quedaba siempre vacía:
       // la compra directa sí lo guardaba, la recepción de OC no.
@@ -2414,12 +2439,16 @@ export async function recibirOrdenParcial(
     // La marca y el modelo que se pidieron en la solicitud se suman a la DESCRIPCIÓN
     // del producto. Nunca se pisa lo que ya decía: el texto viejo queda y el rótulo
     // se agrega en una línea nueva, y no se repite si ya estaba.
-    const descNueva = descripcionConMarcaModelo(prod?.descripcion as string | null, it);
+    const recibido = recibidoDe(it);
+    const descNueva = descripcionConMarcaModelo(prod?.descripcion as string | null, recibido);
     const { error: uErr } = await supabase
       .from('productos')
       .update({
         stock: stockDespues, precio: precioCompra, precio_promedio: precioPromedio,
         ...(descNueva ? { descripcion: descNueva } : {}),
+        // La ficha del producto queda con la marca/modelo de lo último que entró.
+        ...(recibido.marca ? { marca: recibido.marca } : {}),
+        ...(recibido.modelo ? { modelo: recibido.modelo } : {}),
       })
       .eq('id', it.productoId);
     if (uErr) throw uErr;
@@ -2455,7 +2484,13 @@ export async function recibirOrdenParcial(
     }
   }
 
-  const itemsRec = o.items.map((it) => ({ ...it, cantidad_recibida: recMap.get(it.sku) ?? 0 }));
+  const itemsRec = o.items.map((it) => {
+    const rec = recMap.get(it.sku) ?? 0;
+    if (rec <= 0) return { ...it, cantidad_recibida: rec };
+    const r = recibidoDe(it);
+    return { ...it, cantidad_recibida: rec, marca_recibida: r.marca ?? null, modelo_recibido: r.modelo ?? null };
+  });
+  const cambiosMarca = cambiosDeMarcaEnRecepcion(o, recepciones);
   const recibidoTotal = Math.round(itemsRec.reduce((a, it) => a + (it.cantidad_recibida ?? 0) * Number(it.precio), 0) * 100) / 100;
   const huboDiferencia = itemsRec.some((it) => (it.cantidad_recibida ?? 0) < Number(it.cantidad));
   // Crédito recibido sin terminar de pagar: queda RECIBIDO pero la cuenta sigue
@@ -2469,6 +2504,9 @@ export async function recibirOrdenParcial(
   let historial = appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal });
   for (const t of trazasDespiece) {
     historial = appendHistorial({ ...o, historial }, 'res_despiezada', actorEmail, { motivo: t.resumen, despiece: t });
+  }
+  for (const c of cambiosMarca) {
+    historial = appendHistorial({ ...o, historial }, 'marca_distinta', actorEmail, { motivo: `${c.nombre}: ${c.cambio}`, sku: c.sku });
   }
 
   const patch = {

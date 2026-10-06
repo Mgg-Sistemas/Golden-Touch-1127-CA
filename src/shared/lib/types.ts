@@ -1174,6 +1174,10 @@ export interface ItemOrden {
   area?: string | null;
   /** Cantidad realmente recibida (recepción parcial). Si falta = aún no recibido. */
   cantidad_recibida?: number;
+  /** Marca/modelo que LLEGÓ (06/10/2026). Se guarda al recepcionar; si no coincide con
+   *  `marca`/`modelo` (lo pedido), la orden muestra «llegó otra marca». */
+  marca_recibida?: string | null;
+  modelo_recibido?: string | null;
   /** SERVICIOS: este ítem es un servicio (no un producto de inventario). */
   es_servicio?: boolean;
   /** SERVICIOS: categoría del servicio (RECARGA / MANTENIMIENTO / OTRO…). */

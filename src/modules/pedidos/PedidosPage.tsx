@@ -65,6 +65,9 @@ import {
   listOrdenesEnCredito,
   type PrecioHistorico,
 } from './pedidos.repository';
+import type { RecepcionRenglon } from './pedidos.repository';
+import { MarcaRecibidaCampos, useMarcasRecibidas } from './MarcaRecibidaCampos';
+import { avisarCambiosDeMarca } from './avisoMarcaDistinta';
 import { descargarOrdenesPorPagarPdf } from '@/modules/tesoreria/ordenesPorPagarPdf';
 import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl } from './ofertas.repository';
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
@@ -198,6 +201,7 @@ function eventLabel(ev: string): string {
       pagada: 'Pago registrado (Tesorería)',
       recibida: 'Recepción confirmada',
       res_despiezada: 'Res en canal despiezada',
+      marca_distinta: 'Llegó otra marca',
       finalizada: 'Pedido finalizado',
     } as Record<string, string>
   )[ev] ?? ev;
@@ -236,6 +240,7 @@ function eventClass(ev: string): string {
       pagada: 'ok',
       recibida: 'ok',
       res_despiezada: 'info',
+      marca_distinta: 'warn',
       finalizada: 'ok',
     } as Record<string, string>
   )[ev] ?? '';
@@ -1016,6 +1021,7 @@ export function PedidosPage() {
                 almacenDestino,
                 despieces,
               );
+              avisarCambiosDeMarca(modal.orden, recepciones);
               const esContra = modal.orden.condiciones_pago === 'contra_entrega';
               notify(
                 esContra
@@ -1827,7 +1833,7 @@ function RecepcionParcialModal({
   productos: Producto[];
   onClose: () => void;
   onConfirm: (
-    recepciones: { sku: string; cantidad_recibida: number }[],
+    recepciones: RecepcionRenglon[],
     nota: string | null,
     almacenDestino: string,
     despieces: DespiecePorItem[],
@@ -1845,6 +1851,7 @@ function RecepcionParcialModal({
     return m;
   });
   const [nota, setNota] = useState('');
+  const { marcas, cambiar: cambiarMarca } = useMarcasRecibidas(orden.items);
   // Inventario único: la mercancía recibida entra siempre al Inventario General ('General' en BD).
   const almacen = 'General';
   const [saving, setSaving] = useState(false);
@@ -1874,7 +1881,10 @@ function RecepcionParcialModal({
 
   async function handleConfirm() {
     setError(null);
-    const recepciones = orden.items.map((it) => ({ sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0 }));
+    const recepciones: RecepcionRenglon[] = orden.items.map((it) => ({
+      sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0,
+      ...(orden.tipo === 'servicio' ? {} : { marca: marcas[it.sku]?.marca ?? null, modelo: marcas[it.sku]?.modelo ?? null }),
+    }));
     if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indica al menos una cantidad recibida.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indica una nota explicando la diferencia.'); return; }
     // El despiece se revisa aquí también (no solo en el servidor) para que el aviso
@@ -1927,7 +1937,10 @@ function RecepcionParcialModal({
               return (
                 <tr key={it.sku}>
                   <td className="mono">{it.sku}</td>
-                  <td>{it.nombre}</td>
+                  <td>
+                    {it.nombre}
+                    {orden.tipo !== 'servicio' && <MarcaRecibidaCampos item={it} valor={marcas[it.sku] ?? { marca: '', modelo: '' }} onChange={(v) => cambiarMarca(it.sku, v)} />}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)} {it.unidad ?? ''}</td>
                   <td style={{ textAlign: 'right' }}>
                     <input className="input mono" type="number" min={0} max={it.cantidad} step="any"

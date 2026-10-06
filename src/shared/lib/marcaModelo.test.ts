@@ -56,3 +56,28 @@ describe('descripcionConMarcaModelo', () => {
       .toBe('Filtro.\nMarca: DONALDSON\nMarca: FLEETGUARD');
   });
 });
+
+describe('marca recibida al recepcionar', () => {
+  it('si no se tocó, llegó lo pedido', async () => {
+    const { marcaRecibida, cambioDeMarca } = await import('./marcaModelo');
+    const r = marcaRecibida({ marca: 'Donaldson', modelo: 'P553771' }, undefined);
+    expect(r).toEqual({ marca: 'DONALDSON', modelo: 'P553771' });
+    expect(cambioDeMarca({ marca: 'Donaldson', modelo: 'P553771' }, r)).toBeNull();
+  });
+  it('si llegó otra marca, lo dice', async () => {
+    const { marcaRecibida, cambioDeMarca } = await import('./marcaModelo');
+    const r = marcaRecibida({ marca: 'DONALDSON' }, { marca: 'fleetguard' });
+    expect(r.marca).toBe('FLEETGUARD');
+    expect(cambioDeMarca({ marca: 'DONALDSON' }, r)).toBe('Marca pedida DONALDSON → recibida FLEETGUARD');
+  });
+  it('acentos y mayúsculas no son un cambio', async () => {
+    const { cambioDeMarca } = await import('./marcaModelo');
+    expect(cambioDeMarca({ marca: 'Pirámide' }, { marca: 'PIRAMIDE' })).toBeNull();
+  });
+  it('se puede indicar la marca aunque no se haya pedido ninguna', async () => {
+    const { marcaRecibida, cambioDeMarca } = await import('./marcaModelo');
+    const r = marcaRecibida({ marca: null }, { marca: 'Truper' });
+    expect(r.marca).toBe('TRUPER');
+    expect(cambioDeMarca({ marca: null }, r)).toBeNull();
+  });
+});
