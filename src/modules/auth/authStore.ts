@@ -99,8 +99,8 @@ export async function resetIntentosLogin(): Promise<void> {
   await supabase.rpc('auth_reset_intentos');
 }
 
-export async function signOut() {
-  return supabase.auth.signOut();
+export async function signOut(opts?: { scope?: 'global' | 'local' | 'others' }) {
+  return supabase.auth.signOut(opts);
 }
 
 export async function getAppUser(user: User): Promise<AppUser | null> {
