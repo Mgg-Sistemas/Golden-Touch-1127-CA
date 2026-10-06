@@ -47,3 +47,14 @@ describe('normalizarVistas', () => {
     expect(normalizarVistas('surtidor')).toEqual([]);
   });
 });
+
+describe('pantalla del Depósito Mina', () => {
+  it('se abre con la pantalla dada y lectura en Inventario', () => {
+    expect(claves(vistasPermitidas(['deposito_mina'], conModulos('inventario'), false))).toEqual(['deposito_mina']);
+    expect(claves(vistasPermitidas(['deposito_mina'], conModulos('cocina'), false))).toEqual([]);
+  });
+  it('un rol «solo teléfono» con esa sola pantalla entra directo a ella', () => {
+    const vs = vistasPermitidas(['deposito_mina'], conModulos('inventario'), false);
+    expect(inicioTelefono(vs)).toBe('/app/inventario/deposito-mina/telefono');
+  });
+});
