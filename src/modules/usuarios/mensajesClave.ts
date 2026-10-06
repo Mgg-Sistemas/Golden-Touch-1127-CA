@@ -20,3 +20,27 @@ export function mensajeClaveEnEspanol(mensaje: string): string {
   }
   return m;
 }
+
+const COMUNES = ['password', 'contrasena', 'clave', 'admin', 'golden', 'goldentouch', 'qwerty', 'asdf', 'zxcv', 'abc', 'iloveyou', 'teamo', 'venezuela', 'mina'];
+
+/**
+ * Aviso EN VIVO, antes de mandar la clave (06/10/2026): Auth rechaza las claves
+ * filtradas recién al tocar «Aceptar», y eso resultaba molesto — se escribía la
+ * clave dos veces para enterarse al final. Esto no consulta ninguna lista: solo
+ * detecta los patrones que casi siempre están filtrados (todo números, cortas,
+ * secuencias, un mismo carácter repetido, palabras comunes). Devuelve null si
+ * no ve nada raro; la palabra final la sigue teniendo Auth.
+ */
+export function pistaClaveDebil(clave: string): string | null {
+  const c = (clave ?? '').trim();
+  if (!c) return null;
+  const min = c.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/^(.)\1+$/.test(min)) return 'Es un mismo carácter repetido: casi seguro está en las listas de claves filtradas.';
+  if (/^\d+$/.test(min)) return 'Solo números: esas claves casi siempre están filtradas. Agrega letras y un símbolo.';
+  const secuencia = '0123456789abcdefghijklmnopqrstuvwxyz';
+  const alReves = [...secuencia].reverse().join('');
+  if (min.length >= 4 && (secuencia.includes(min) || alReves.includes(min))) return 'Es una secuencia (como 123456 o abcdef): está filtrada. Elige otra.';
+  if (COMUNES.some((p) => min.replace(/[^a-z]/g, '') === p)) return 'Es una palabra muy común con algún número: suele estar filtrada. Mézclala con otra palabra y un símbolo.';
+  if (c.length < 8) return 'Es corta: con 8 caracteres o más, mezclando letras, números y un símbolo, casi nunca la rechaza.';
+  return null;
+}
