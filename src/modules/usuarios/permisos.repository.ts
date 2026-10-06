@@ -14,6 +14,7 @@ export type ModuleKey =
   | 'tesoreria'
   | 'ventas'
   | 'retenciones'
+  | 'documentacion'
   | 'recepciones'
   | 'rrhh'
   | 'geodesta'
@@ -45,6 +46,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'ventas',      label: 'Ventas' },
   { key: 'retenciones', label: 'Retenciones' },
+  { key: 'documentacion', label: 'Documentación' },
   { key: 'recepciones', label: 'Recepciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'geodesta',    label: 'Geodesta' },

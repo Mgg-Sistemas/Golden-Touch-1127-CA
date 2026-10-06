@@ -332,6 +332,19 @@ const SECCIONES: Seccion[] = [
     ],
   },
   {
+    icono: '🗂',
+    titulo: 'Documentación',
+    intro:
+      'Módulo nuevo (06/10/2026) con dos apartados: el archivo de documentos de la empresa y el Formato envío de documentación (notas de envío con correlativo e histórico). Tiene su propio permiso por rol (Documentación, en Usuarios > Roles).',
+    puntos: [
+      'Documentos: se carga cada documento de la empresa (RIF, registro mercantil, permisos, contratos, seguros…) con nombre, categoría, descripción, el archivo (PDF o imagen) y, si tiene, su fecha de vencimiento: se marca en naranja 30 días antes y en rojo al vencer. Se busca por nombre, categoría o descripción. "Ver" abre el archivo en vista previa; "Editar" cambia los datos o reemplaza el archivo; la papelera lo elimina con su archivo.',
+      'Nota de envío: el papel que acompaña los documentos que se envían (facturas originales, contratos…). "Nueva nota de envío" pide fecha, entregado por, razón social / departamento y RIF/C.I., atención a, condición y los renglones (descripción y cantidad). El total suma las cantidades solo, pero se puede escribir a mano, igual que su texto (Total Facturas, Total Documentos…).',
+      'Correlativo: el N° (0001, 0002…) lo asigna el sistema al guardar y no se cambia nunca. Una nota no se borra: se anula con su motivo y queda en el histórico (el PDF sale marcado ANULADA), así el correlativo queda completo.',
+      'PDF: igual al formato impreso (membrete con domicilio fiscal, N° y fecha, cliente, detalles de entrega, ÍTEM / DESCRIPCIÓN / CANT., total). Las firmas Entregado por y Recibido conforme (firma, sello, cédula y fecha) van a mano sobre la nota impresa: no hay firma digital.',
+      'Histórico: todas las notas con búsqueda, filtro por estado (Enviada, Recibida conforme, Anulada) y fechas. Mientras está Enviada se puede editar. Al volver firmada, "Recibida conforme" registra quién la recibió y permite adjuntar la copia firmada escaneada. Todo en tiempo real y con auditoría.',
+    ],
+  },
+  {
     icono: '🧮',
     titulo: 'Tesorería · tasas y calculadora',
     intro:
