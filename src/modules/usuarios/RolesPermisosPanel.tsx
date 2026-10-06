@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
+import { norm } from '@/shared/lib/texto';
 import {
   loadPermisos,
   savePermisosRole,
@@ -58,9 +59,18 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   const [loading, setLoading] = useState(true);
   const [autoEstado, setAutoEstado] = useState<'idle' | 'guardando' | 'guardado' | 'error'>('idle');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
+  const [buscarRol, setBuscarRol] = useState('');
+  // Guardados en curso. Mientras haya alguno, el eco de tiempo real de NUESTRO
+  // propio guardado no se aplica (pisaría un clic hecho un instante después);
+  // se refresca una sola vez al terminar el último.
+  const guardandoRef = useRef(0);
+  const refrescarAlTerminar = useRef(false);
 
-  async function refresh() {
-    setLoading(true);
+  // `silencioso`: actualiza los datos sin mostrar «Cargando…». Antes cada cambio
+  // de permiso volvía por tiempo real, la matriz entera se desmontaba y se
+  // volvía a pintar (parecía que la página se refrescaba y el scroll saltaba).
+  async function refresh(silencioso = false) {
+    if (!silencioso) setLoading(true);
     try {
       const [rolesList, remote, c, tel] = await Promise.all([
         listRoles(),
@@ -94,12 +104,23 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
     return () => { cancelled = true; };
   }, []);
   // En vivo (multiusuario): cambios de roles o de la matriz de permisos se reflejan solos.
-  useRealtime(['custom_roles', 'roles_permisos', 'taxonomias'], () => { void refresh(); });
+  useRealtime(['custom_roles', 'roles_permisos', 'taxonomias'], () => {
+    if (guardandoRef.current > 0) { refrescarAlTerminar.current = true; return; }
+    void refresh(true);
+  });
+
+  function terminarGuardado() {
+    guardandoRef.current -= 1;
+    if (guardandoRef.current === 0 && refrescarAlTerminar.current) {
+      refrescarAlTerminar.current = false;
+      void refresh(true);
+    }
+  }
 
   // Recarga la matriz y avisa al padre (para que el dropdown de "crear usuario"
   // y otros listados de roles se actualicen automáticamente tras un cambio).
   async function reload() {
-    await refresh();
+    await refresh(true);
     onRolesChanged?.();
   }
 
@@ -124,12 +145,16 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
 
   async function persistirRol(role: RoleKey, rolePermisos: RolePermisos) {
     setAutoEstado('guardando');
+    guardandoRef.current += 1;
     try {
       await savePermisosRole(role, rolePermisos, user?.email ?? 'sistema');
       setAutoEstado('guardado');
     } catch (e) {
       setAutoEstado('error');
       toast(e instanceof Error ? e.message : 'No se pudo guardar el permiso', 'error');
+      refrescarAlTerminar.current = true; // vuelve a lo que de verdad quedó guardado
+    } finally {
+      terminarGuardado();
     }
   }
 
@@ -142,12 +167,16 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
 
   async function persistirTelefono(role: RoleKey, acceso: AccesoTelefonoRol) {
     setAutoEstado('guardando');
+    guardandoRef.current += 1;
     try {
       await saveTelefonoRol(role, acceso, user?.email ?? 'sistema', permisos[role] ?? defaultsFor(role));
       setAutoEstado('guardado');
     } catch (e) {
       setAutoEstado('error');
       toast(e instanceof Error ? e.message : 'No se pudo guardar la pantalla de teléfono', 'error');
+      refrescarAlTerminar.current = true;
+    } finally {
+      terminarGuardado();
     }
   }
 
@@ -169,6 +198,12 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
       toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error');
     }
   }
+
+  const rolesVisibles = (() => {
+    const t = norm(buscarRol);
+    if (!t) return roles;
+    return roles.filter((r) => t.split(/\s+/).every((p) => norm(`${r.label} ${r.key} ${r.descripcion ?? ''}`).includes(p)));
+  })();
 
   return (
     <div>
@@ -200,6 +235,18 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
         )}
       </div>
 
+      {!loading && (
+        <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.9rem' }}>
+          <input
+            id="roles-buscar" className="input" style={{ maxWidth: 360 }}
+            value={buscarRol} onChange={(e) => setBuscarRol(e.target.value)}
+            placeholder="🔍 Buscar rol por nombre o descripción…" aria-label="Buscar rol"
+          />
+          {buscarRol && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setBuscarRol('')}>✕ Limpiar</button>}
+          <span className="muted" style={{ fontSize: '.8rem' }}>{rolesVisibles.length} de {roles.length} roles</span>
+        </div>
+      )}
+
       {loading ? (
         <div className="card" style={{ padding: '1.25rem' }}>
           <p className="muted" style={{ margin: 0 }}>Cargando matriz de permisos…</p>
@@ -212,7 +259,10 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
             gap: '1rem',
           }}
         >
-          {roles.map((rc) => {
+          {!rolesVisibles.length && (
+            <div className="card muted" style={{ padding: '1.25rem' }}>Ningún rol coincide con «{buscarRol}».</div>
+          )}
+          {rolesVisibles.map((rc) => {
             const enUso = counts[rc.key] ?? 0;
             return (
               <div
