@@ -34,6 +34,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { ResumenActividadModal } from './ResumenActividadModal';
 import { norm } from '@/shared/lib/texto';
+import { listCambiosDeUsuario, nombreCompleto, type CambioNombre } from '@/shared/lib/nombresHistoricos';
 import { estadoVisible, estaArchivado, filtrarPorEstado, puedeArchivar, type FiltroEstadoUsuario } from './usuariosArchivo';
 
 type View = 'creacion' | 'roles';
@@ -825,6 +826,13 @@ function UsuarioEditModal({
   const [departamento, setDepartamento] = useState(usuario.departamento ?? '');
   const [role, setRole] = useState<string>(usuario.role);
   const [submitting, setSubmitting] = useState(false);
+  // ¿Se tocó el nombre o el apellido? Entonces se pide el motivo (va al historial).
+  const [cambiaNombre, setCambiaNombre] = useState(false);
+  function revisarCambioNombre() {
+    const root = formRef.current;
+    const v = (name: string) => ((root?.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? '').trim();
+    setCambiaNombre(v('u-nombre') !== (usuario.nombre ?? '').trim() || v('u-apellido') !== (usuario.apellido ?? '').trim());
+  }
 
   useEffect(() => {
     if (recientementeCreado && roles.some((r) => r.key === recientementeCreado)) {
@@ -845,6 +853,13 @@ function UsuarioEditModal({
       toast('Nombre, apellido y CI son obligatorios', 'error');
       return;
     }
+    const nombreCambio = nombre !== (usuario.nombre ?? '').trim() || apellido !== (usuario.apellido ?? '').trim();
+    const motivoNombre = (root?.querySelector('[name="u-motivo-nombre"]') as HTMLTextAreaElement | null)?.value.trim() ?? '';
+    if (nombreCambio && !motivoNombre) {
+      setCambiaNombre(true);
+      toast('Escribe el motivo del cambio de nombre: queda en el historial del usuario.', 'error');
+      return;
+    }
     const cambiaEmail = !!emailNuevo && emailNuevo !== (usuario.email ?? '').toLowerCase();
     if (emailNuevo && !/\S+@\S+\.\S+/.test(emailNuevo)) {
       toast('El correo no es válido', 'error');
@@ -859,6 +874,7 @@ function UsuarioEditModal({
         telefono,
         departamento: departamento.trim(),
         role,
+        motivoCambioNombre: nombreCambio ? motivoNombre : undefined,
       });
       // El correo se cambia aparte (Auth + tabla, vía Edge Function solo-admin).
       if (cambiaEmail) await cambiarEmailUsuario(usuario.id, emailNuevo);
@@ -893,7 +909,7 @@ function UsuarioEditModal({
             className="input"
             name="u-nombre"
             defaultValue={usuario.nombre ?? ''}
-            onChange={(e) => { e.target.value = onlyLetters(e.target.value); }}
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); revisarCambioNombre(); }}
             disabled={submitting}
           />
         </div>
@@ -903,11 +919,23 @@ function UsuarioEditModal({
             className="input"
             name="u-apellido"
             defaultValue={usuario.apellido ?? ''}
-            onChange={(e) => { e.target.value = onlyLetters(e.target.value); }}
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); revisarCambioNombre(); }}
             disabled={submitting}
           />
         </div>
       </div>
+
+      {cambiaNombre && (
+        <div className="form-row">
+          <label htmlFor="u-motivo-nombre">Motivo del cambio de nombre *</label>
+          <textarea id="u-motivo-nombre" className="input" name="u-motivo-nombre" rows={2} disabled={submitting}
+            placeholder="Ej.: corrección de la cédula, cambio de apellido por matrimonio, error al registrarlo…" />
+          <small className="muted">
+            Lo que hizo con su nombre anterior <strong>sigue mostrando ese nombre</strong>. El cambio, la fecha, quién lo hizo y
+            el motivo quedan en el <strong>historial de nombres</strong> del usuario.
+          </small>
+        </div>
+      )}
 
       <div className="form-grid">
         <div className="form-row">
@@ -1213,6 +1241,7 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onT
         <div className="k">Registrado</div>
         <div className="v">{dateTime(usuario.created_at)}</div>
       </div>
+      <HistorialNombres usuarioId={usuario.id} />
     </Modal>
   );
 }
@@ -1254,5 +1283,42 @@ function ClaveTemporalModal({ titulo, email, clave, onClose }: {
         obligatoriamente por una propia.
       </p>
     </Modal>
+  );
+}
+
+/* ───────── Historial de cambios de nombre (07/10/2026) ───────── */
+function HistorialNombres({ usuarioId }: { usuarioId: string }) {
+  const [cambios, setCambios] = useState<CambioNombre[] | null>(null);
+  const cargar = useCallback(() => {
+    listCambiosDeUsuario(usuarioId).then(setCambios).catch(() => setCambios([]));
+  }, [usuarioId]);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['usuarios_nombres_historial'], cargar);
+
+  return (
+    <div style={{ marginTop: '1rem' }}>
+      <div className="card-title" style={{ marginBottom: '.4rem' }}>🕘 Historial de nombres</div>
+      {cambios === null ? <p className="muted" style={{ margin: 0 }}>Cargando…</p>
+        : !cambios.length ? <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Nunca se le ha cambiado el nombre.</p>
+        : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead><tr><th>Fecha</th><th>Nombre anterior</th><th>Nombre nuevo</th><th>Motivo</th><th>Cambiado por</th></tr></thead>
+              <tbody>
+                {cambios.map((c) => (
+                  <tr key={c.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{dateTime(c.cambiado_en)}</td>
+                    <td className="muted">{nombreCompleto(c.nombre_anterior, c.apellido_anterior) || '—'}</td>
+                    <td><strong>{nombreCompleto(c.nombre_nuevo, c.apellido_nuevo) || '—'}</strong></td>
+                    <td>{c.motivo}</td>
+                    <td className="muted">{c.cambiado_por_nombre || c.cambiado_por || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      <small className="muted">Lo que hizo antes de cada cambio sigue mostrando el nombre que tenía en ese momento.</small>
+    </div>
   );
 }

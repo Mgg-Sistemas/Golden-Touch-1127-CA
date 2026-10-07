@@ -154,7 +154,7 @@ export async function descargarOrdenSalidaPdf(
   sol: SolicitudSalida,
   /** Resuelve email → "Nombre Apellido" (del directorio de usuarios). Sin resolver,
    *  o si el email no se encuentra, se usa el valor tal cual. */
-  resolverNombre?: (email?: string | null) => string,
+  resolverNombre?: (email?: string | null, fecha?: string | null) => string,
 ): Promise<void> {
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl, loadFirma2DataUrl }] = await Promise.all([
     import('jspdf'),
@@ -168,9 +168,9 @@ export async function descargarOrdenSalidaPdf(
   const cant = Number(sol.cantidad) || 0;
   const precio = Number(sol.precio_unit) || 0;
   // Nombre completo (no el email): resuelve del directorio de usuarios.
-  const nombre = (email?: string | null): string => {
+  const nombre = (email?: string | null, fecha?: string | null): string => {
     if (!email) return '';
-    const r = resolverNombre?.(email);
+    const r = resolverNombre?.(email, fecha);
     return r && r !== email ? r : email;
   };
   // Autorizador de salidas/traslados: LEYDIS RENGEL (con su firma) cuando ya fue aprobada/ejecutada.
@@ -179,7 +179,8 @@ export async function descargarOrdenSalidaPdf(
   const autorizo = aprobada ? AUTORIZADOR_SALIDAS : null;
   const firma2 = aprobada ? await loadFirma2DataUrl().catch(() => null) : null;
   // Solicitante: el nombre COMPLETO del usuario (no el texto guardado, que puede venir cortado).
-  const creoResuelto = nombre(sol.actor);
+  // Con la fecha de la solicitud: el nombre que tenía entonces (historial de nombres).
+  const creoResuelto = nombre(sol.actor, sol.created_at);
   const creo = (creoResuelto && creoResuelto !== sol.actor) ? creoResuelto : (sol.solicitante || sol.actor_name || sol.actor);
 
   // Renglones: varios (items) o uno solo (campos sueltos). Se muestran como factura.

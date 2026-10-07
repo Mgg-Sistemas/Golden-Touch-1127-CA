@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { resolverNombresEnFecha } from '@/shared/lib/nombresHistoricos';
 import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, loadFirmaDataUrl, loadFirma2DataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import type { OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
@@ -98,11 +99,6 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
   };
 }
 
-/** Nombre legible de un correo; si no se resolvió, devuelve el correo tal cual. */
-function nombrePersona(email: string | null | undefined, map: Map<string, string>): string {
-  if (!email) return '—';
-  return map.get(email.toLowerCase()) ?? email;
-}
 
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personasMap }, logoDataUrl, firmaGerente, firmaLeydis, { jsPDF }, { default: autoTable }] = await Promise.all([
@@ -113,6 +109,8 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
+  // Nombre que tenía cada persona en la fecha de lo que hizo (historial de nombres).
+  const quien = await resolverNombresEnFecha(personasMap);
 
   // La firma solo se estampa cuando la OC ya fue aprobada (confirmada). Es la
   // aprobación de OC (oc_aprobada_*), no la del pedido.
@@ -211,7 +209,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
     doc.text(
-      `Cancelada por ${nombrePersona(cancelEvent.actor, personasMap)} · ${dateTime(cancelEvent.at)}`,
+      `Cancelada por ${quien(cancelEvent.actor, cancelEvent.at)} · ${dateTime(cancelEvent.at)}`,
       PAGE_W - MARGIN - 12,
       y + 18,
       { align: 'right' },
@@ -257,7 +255,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   doc.setFontSize(9);
   const solicitud: Array<[string, string]> = [
     ['Unidad solicitante', pdfSafe(orden.unidad_solicitante) || '—'],
-    ['Solicitado por', pdfSafe(orden.solicitante || nombrePersona(orden.solicitante_email, personasMap))],
+    ['Solicitado por', pdfSafe(orden.solicitante || quien(orden.solicitante_email, orden.created_at))],
     ...(orden.ci_solicitante ? ([['Cédula del solicitante', orden.ci_solicitante]] as Array<[string, string]>) : []),
     [`Fecha de solicitud (${SOL_ABBR})`, orden.created_at ? dateTime(orden.created_at) : '—'],
     [`${SOL_ABBR} aprobada el`, orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
@@ -285,7 +283,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     ['Fecha de entrega prometida', ofertaAceptada?.fecha_entrega_prometida ?? '—'],
     ['Condiciones de pago', ofertaAceptada?.condiciones_pago ?? '—'],
     ['Documentos', documentosOc.length ? documentosOc.join(' · ') : '—'],
-    [`Aprobada por (${SOL_ABBR})`, pdfSafe(nombrePersona(orden.aprobada_por, personasMap))],
+    [`Aprobada por (${SOL_ABBR})`, pdfSafe(quien(orden.aprobada_por, orden.aprobada_en))],
     ['Aprobada el', orden.aprobada_en ? dateTime(orden.aprobada_en) : '—'],
   ];
   // OC por factura con IVA: desglose con el % que se aplicó (16 por defecto, editable).
@@ -405,7 +403,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         ['Oferta · Condiciones de pago', oferta?.condiciones_pago ?? '—'],
         ['Desistió (fecha y hora)', dateTime(h.at)],
         ['Motivo', (h as { motivo?: string }).motivo ?? '—'],
-        ['Registró', nombrePersona(h.actor, personasMap)],
+        ['Registró', quien(h.actor, h.at)],
       ];
       autoTable(doc, {
         startY: y,
@@ -434,7 +432,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       doc.setFontSize(8);
       doc.setTextColor(120);
       doc.text(
-        `Solicitante: ${o.solicitante ?? nombrePersona(o.solicitante_email, personasMap)}`,
+        `Solicitante: ${o.solicitante ?? quien(o.solicitante_email, o.created_at)}`,
         PAGE_W - MARGIN,
         y + 12,
         { align: 'right' },
@@ -602,7 +600,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     doc.setFontSize(7.5);
     doc.setTextColor(120);
     doc.text(
-      `Aprobada por ${nombrePersona(ocAprobPor, personasMap)}${ocAprobEn ? ' · ' + dateTime(ocAprobEn) : ''}`,
+      `Aprobada por ${quien(ocAprobPor, ocAprobEn)}${ocAprobEn ? ' · ' + dateTime(ocAprobEn) : ''}`,
       MARGIN,
       pageH - 56,
     );

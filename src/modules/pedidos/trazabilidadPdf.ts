@@ -1,4 +1,5 @@
 import type { jsPDF as jsPDFType } from 'jspdf';
+import { resolverNombresEnFecha } from '@/shared/lib/nombresHistoricos';
 import { supabase } from '@/shared/lib/supabase';
 import { dateTime, money, montoMoneda, num } from '@/shared/lib/format';
 import { loadLogoPdfDataUrl, anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
@@ -52,7 +53,12 @@ async function cargarTrazabilidad(ordenId: string): Promise<TrazabilidadData> {
       .select('nombre, apellido')
       .eq('email', orden.aprobada_por)
       .maybeSingle();
-    if (u) aprobadaPorNombre = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || null;
+    const actual = u ? `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() : '';
+    // El nombre que tenía cuando aprobó (si después se le cambió, queda el anterior).
+    if (actual) {
+      const quien = await resolverNombresEnFecha(new Map([[orden.aprobada_por.toLowerCase(), actual]]));
+      aprobadaPorNombre = quien(orden.aprobada_por, orden.aprobada_en) || null;
+    }
   }
 
   return {

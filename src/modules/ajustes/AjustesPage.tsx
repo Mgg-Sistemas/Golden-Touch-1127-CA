@@ -28,6 +28,8 @@ export function AjustesPage() {
   // Perfil editable
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
+  // Motivo del cambio de nombre: obligatorio si cambia (queda en el historial de nombres).
+  const [motivoNombre, setMotivoNombre] = useState('');
   const [telefono, setTelefono] = useState('');
   const [departamento, setDepartamento] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
@@ -67,8 +69,11 @@ export function AjustesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  const cambiaNombre = !!usuario && (nombre.trim() !== (usuario.nombre ?? '').trim() || apellido.trim() !== (usuario.apellido ?? '').trim());
+
   async function handleGuardarPerfil() {
     if (!user) return;
+    if (cambiaNombre && !motivoNombre.trim()) { toast('Escribe el motivo del cambio de nombre: queda en tu historial.', 'error'); return; }
     setSavingProfile(true);
     try {
       const { error } = await supabase
@@ -78,11 +83,13 @@ export function AjustesPage() {
           apellido: apellido.trim() || null,
           telefono: telefono.trim() || null,
           departamento: departamento.trim() || null,
+          ...(cambiaNombre ? { nombre_cambio_motivo: motivoNombre.trim() } : {}),
         })
         .eq('id', user.id);
       if (error) throw error;
       toast('Perfil actualizado', 'success');
       setUsuario((u) => u ? { ...u, nombre: nombre.trim(), apellido: apellido.trim() || null, telefono: telefono.trim() || null, departamento: departamento.trim() || null } : u);
+      setMotivoNombre('');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al guardar', 'error');
     } finally {
@@ -180,6 +187,14 @@ export function AjustesPage() {
               />
             </div>
           </div>
+          {cambiaNombre && (
+            <div className="form-row">
+              <label htmlFor="perfil-motivo-nombre">Motivo del cambio de nombre *</label>
+              <textarea id="perfil-motivo-nombre" className="input" rows={2} value={motivoNombre} onChange={(e) => setMotivoNombre(e.target.value)}
+                placeholder="Ej.: corrección, cambio de apellido…" />
+              <small className="muted">Lo que hiciste con tu nombre anterior sigue mostrando ese nombre; el cambio queda en tu historial de nombres.</small>
+            </div>
+          )}
           <div className="form-grid">
             <div className="form-row">
               <label>Teléfono</label>

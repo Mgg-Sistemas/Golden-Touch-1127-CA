@@ -11,13 +11,8 @@ import { loadLogoPdfDataUrl, loadFirmaDataUrl, anchoLogoPdf, dibujarLogoPdf } fr
 import type { AbonoCredito, Orden, PagoMetodo, Proveedor } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
+import { resolverNombresEnFecha } from '@/shared/lib/nombresHistoricos';
 import { labelMetodoPago, listAbonos } from './pedidos.repository';
-
-/** Nombre legible de un correo; si no se resolvió, devuelve el correo tal cual. */
-function nombrePersona(email: string | null | undefined, map: Map<string, string>): string {
-  if (!email) return '—';
-  return map.get(email.toLowerCase()) ?? email;
-}
 
 export async function descargarComprobantePagoPdf(ordenId: string): Promise<void> {
   const { data: ordenRow, error: oe } = await supabase.from('ordenes').select('*').eq('id', ordenId).single();
@@ -52,6 +47,8 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
+  // Nombre que tenía cada persona en la fecha (historial de nombres).
+  const quien = await resolverNombresEnFecha(personasMap);
 
   const esServicio =
     /^CS/i.test(orden.oc_codigo ?? '') ||
@@ -120,7 +117,7 @@ export async function descargarComprobantePagoPdf(ordenId: string): Promise<void
     ...(proveedor?.rif ? [['RIF', proveedor.rif] as [string, string]] : []),
     ['Estado', estadoTxt],
     [esCredito ? 'Último abono' : 'Fecha de pago', fechaPagoTxt],
-    ['Pagada por', pdfSafe(nombrePersona(orden.pagada_por ?? orden.finalizada_por, personasMap))],
+    ['Pagada por', pdfSafe(quien(orden.pagada_por ?? orden.finalizada_por, orden.pagada_en ?? orden.finalizada_en))],
     ['Caja', pdfSafe(cajaNombre) || (esCredito ? 'Ver detalle de abonos' : '—')],
     ['Moneda', moneda === 'Bs' ? 'Bs' : '$ (USD)'],
   ];
