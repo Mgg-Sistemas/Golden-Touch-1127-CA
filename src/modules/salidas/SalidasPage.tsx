@@ -763,6 +763,9 @@ function SolicitudesKanban({ sols, onVer, onVerHistorico, nombreDe }: {
                     👤 {quienSolicito(s)}
                   </div>
                   <div className="muted" style={{ fontSize: '.68rem', marginTop: '.15rem' }}>{dateTime(s.created_at)}</div>
+                  {s.estado === 'cancelada' && accionDe(s).motivo && (
+                    <div style={{ fontSize: '.72rem', marginTop: '.25rem', color: 'var(--danger)' }}>✕ {accionDe(s).motivo}</div>
+                  )}
                 </button>
               ))}
               {!items.length && <div className="muted" style={{ fontSize: '.74rem', padding: '.25rem' }}>—</div>}
@@ -1387,6 +1390,16 @@ function SolicitudDetalleModal({
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
           {sol.aprobada_en && <tr><td className="muted">Autorizada por</td><td>{nombreDe(sol.aprobada_por, sol.aprobada_en)} · {dateTime(sol.aprobada_en)}</td></tr>}
           {sol.ejecutada_en && <tr><td className="muted">Ejecutada por</td><td>{nombreDe(sol.ejecutada_por, sol.ejecutada_en)} · {dateTime(sol.ejecutada_en)}</td></tr>}
+          {sol.estado === 'cancelada' && (() => {
+            // El motivo se guarda en el historial (evento «cancelada»), no en una columna.
+            const c = accionDe(sol);
+            return (
+              <>
+                <tr><td className="muted">Cancelada por</td><td>{c.actor ? `${nombreDe(c.actor, c.at)} · ${dateTime(c.at)}` : '—'}</td></tr>
+                <tr><td className="muted">Motivo de la cancelación</td><td style={{ color: 'var(--danger)', fontWeight: 600 }}>{c.motivo || '—'}</td></tr>
+              </>
+            );
+          })()}
         </tbody>
       </table>
 
