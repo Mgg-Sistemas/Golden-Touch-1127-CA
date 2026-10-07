@@ -1,9 +1,10 @@
 /* ============================================================
    Golden Touch · Libro de retenciones e impuestos (Supabase)
 
-   Golden Touch NO es agente de retención. Lo que pasa de verdad es que sus
-   CLIENTES le retienen (IVA, ISLR, municipal) y le entregan el comprobante, y
-   que al pagar en divisas le cobran el IGTF. Ese papel vale dinero: la retención
+   Golden Touch es AGENTE DE RETENCIÓN DE IVA (desde el 07/10/2026): al pagar
+   a un proveedor le retiene el IVA y emite el comprobante. Además sus CLIENTES
+   le retienen (IVA, ISLR, municipal) y le entregan el comprobante, y al pagar
+   en divisas le cobran el IGTF. Ese papel vale dinero: la retención
    sufrida es un ANTICIPO DE IMPUESTO que se descuenta en la declaración, y el
    que no se registra se pierde.
 
@@ -34,6 +35,8 @@ export interface ParametrosFiscales {
   empresa_nombre: string;
   agente_direccion: string;
   contribuyente_especial: boolean;
+  /** Designada agente de retención de IVA (sin ser especial): puede retener IVA, no IGTF. */
+  agente_retencion_iva: boolean;
   iva_alicuota: number;
   iva_retencion: number;
   igtf_alicuota: number;
@@ -48,6 +51,7 @@ const PARAMETROS_POR_DEFECTO: ParametrosFiscales = {
   empresa_nombre: 'GOLDEN TOUCH 1127 C.A.',
   agente_direccion: '',
   contribuyente_especial: false,
+  agente_retencion_iva: true,
   iva_alicuota: 16,
   iva_retencion: 75,
   igtf_alicuota: 3,

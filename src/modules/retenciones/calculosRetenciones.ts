@@ -25,12 +25,13 @@
    · IGTF (Ley de IGTF). 3% de lo pagado en divisas. No es una retención sino
      una percepción, pero se lleva en el mismo libro porque se declara igual.
 
-   QUIÉN RETIENE. Golden Touch NO es agente de retención: no está designada
-   contribuyente especial para retener IVA. Lo que vive de verdad es lo
-   contrario — sus CLIENTES le retienen y le entregan el comprobante, y ese
-   papel es un ANTICIPO DE IMPUESTO que se descuenta en la declaración.
-   Perderlo es pagar dos veces. Por eso el libro tiene dos roles y arranca en
-   «sufrida» (nos la practicaron); «practicada» queda para el caso excepcional.
+   QUIÉN RETIENE. Desde el 07/10/2026 Golden Touch VUELVE A SER AGENTE DE
+   RETENCIÓN DE IVA (casilla «agente_retencion_iva» de Parámetros fiscales):
+   al pagarle a un proveedor le retiene el IVA (75% o 100%) y emite el
+   comprobante AAAAMM + 8 dígitos. Sigue sin ser contribuyente especial, así
+   que el IGTF no lo percibe. Y sus CLIENTES también le retienen: ese papel es
+   un ANTICIPO DE IMPUESTO que se descuenta en la declaración; perderlo es
+   pagar dos veces. Por eso el libro tiene los dos roles.
    Las cuentas son las mismas en los dos sentidos: lo que cambia es de qué lado
    está la empresa y de dónde sale el número del comprobante.
 
@@ -407,9 +408,14 @@ export { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';
  */
 export const TIPOS_SOLO_CONTRIBUYENTE_ESPECIAL: readonly TipoRetencion[] = ['IVA', 'IGTF'];
 
-/** ¿Puede la empresa practicar una retención de este impuesto? */
-export function puedeRetenerLaEmpresa(tipo: TipoRetencion, esContribuyenteEspecial: boolean): boolean {
+/**
+ * ¿Puede la empresa practicar una retención de este impuesto? El IVA también lo
+ * puede retener quien, sin ser especial, fue designado agente de retención de IVA
+ * (`esAgenteRetencionIva`, como Golden Touch desde el 07/10/2026). El IGTF no.
+ */
+export function puedeRetenerLaEmpresa(tipo: TipoRetencion, esContribuyenteEspecial: boolean, esAgenteRetencionIva = false): boolean {
   if (esContribuyenteEspecial) return true;
+  if (tipo === 'IVA' && esAgenteRetencionIva) return true;
   return !TIPOS_SOLO_CONTRIBUYENTE_ESPECIAL.includes(tipo);
 }
 
@@ -422,11 +428,16 @@ export function puedeRetenerLaEmpresa(tipo: TipoRetencion, esContribuyenteEspeci
 export function motivoNoPuedeRetener(
   tipo: TipoRetencion,
   esContribuyenteEspecial: boolean,
+  esAgenteRetencionIva = false,
 ): string | null {
-  if (puedeRetenerLaEmpresa(tipo, esContribuyenteEspecial)) return null;
-  const norma = tipo === 'IVA'
-    ? 'la Providencia SNAT/2015/0049 designa agentes de retención de IVA a los contribuyentes especiales'
-    : 'la Ley del IGTF pone la percepción en cabeza de los contribuyentes especiales';
+  if (puedeRetenerLaEmpresa(tipo, esContribuyenteEspecial, esAgenteRetencionIva)) return null;
+  if (tipo === 'IVA') {
+    return `${TIPO_RETENCION_LABEL[tipo]}: la empresa no está marcada como agente de retención de IVA `
+      + '(la Providencia SNAT/2015/0049 designa a los agentes). '
+      + 'Si lo que pasó es que te lo retuvieron a tú, cambia «¿Quién retuvo?» a «Nos la practicaron». '
+      + 'Si la empresa es agente, marca la casilla en Parámetros fiscales.';
+  }
+  const norma = 'la Ley del IGTF pone la percepción en cabeza de los contribuyentes especiales';
   return `${TIPO_RETENCION_LABEL[tipo]}: la empresa no puede retener este impuesto porque `
     + `no está designada contribuyente especial, y ${norma}. `
     + 'Si lo que pasó es que te lo retuvieron a tú, cambia «¿Quién retuvo?» a «Nos la practicaron». '
