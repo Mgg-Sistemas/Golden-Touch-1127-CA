@@ -6,6 +6,7 @@
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import { accionDe } from './historicoSolicitudes';
 
 /** Inventario único: el almacén guardado es `'General'`; se imprime «Inventario General». */
 const invLabel = (a?: string | null): string => (a && a.trim().toLowerCase() === 'general' ? 'Inventario General' : (a || '—'));
@@ -308,8 +309,13 @@ export async function descargarOrdenSalidaPdf(
   y = lastY() + 18;
 
   // ── Observaciones / notas ──
+  // Cancelada: el motivo (que vive en el historial) va primero, con quién y cuándo.
+  const cancel = sol.estado === 'cancelada' ? accionDe(sol) : null;
+  const notaCancel = cancel
+    ? `CANCELADA${cancel.actor ? ` por ${resolverNombre ? resolverNombre(cancel.actor, cancel.at) : cancel.actor}` : ''} el ${fmt.dateTime(cancel.at)} · Motivo: ${cancel.motivo?.trim() || 'sin indicar'}`
+    : '';
   const notas = [
-    sol.motivo?.trim(), sol.nota_entrega?.trim(),
+    notaCancel, sol.motivo?.trim(), sol.nota_entrega?.trim(),
     conVale ? 'Vale de entrega a Cocina: los alimentos de esta salida no descuentan inventario; el consumo lo registra Distribución de comidas al servir el plato.' : '',
   ].filter(Boolean).join(' · ') || '—';
   const notasWrap = doc.splitTextToSize(notas, PAGE_W - MARGIN * 2);
@@ -351,6 +357,16 @@ export async function descargarOrdenSalidaPdf(
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24);
+
+  // Una orden cancelada no vale como salida: marca de agua en cada hoja.
+  if (cancel) {
+    const paginas = doc.getNumberOfPages();
+    for (let p = 1; p <= paginas; p++) {
+      doc.setPage(p);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(64); doc.setTextColor(220, 60, 60);
+      doc.text('CANCELADA', PAGE_W / 2, PAGE_H / 2, { align: 'center', angle: 30 });
+    }
+  }
 
   previewPdf(doc, `orden-${esTraslado ? 'traslado' : 'salida'}-${sol.codigo}.pdf`);
 }
