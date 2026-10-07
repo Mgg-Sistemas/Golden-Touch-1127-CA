@@ -610,7 +610,14 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
           }
         }
         if (!categoria) { setError('Elige o crea una categoría para el material nuevo.'); return; }
-        payload.push({ modo: 'nuevo', nombre, categoria, unidad: l.unidad, cantidad: cant });
+        // Se compra en otra presentación (CAJA de 12 UND…): unidad y cuántas de uso trae.
+        if (l.pres && (!l.pres.unidad.trim() || !(Number(l.pres.factor) > 0))) {
+          setError(`«${nombre}»: indica en qué se compra (CAJA, SACO…) y cuántas ${l.unidad} trae cada una.`); return;
+        }
+        if (l.pres && l.pres.unidad.trim().toUpperCase() === l.unidad.trim().toUpperCase()) {
+          setError(`«${nombre}»: la presentación de compra no puede ser la misma unidad de uso (${l.unidad}).`); return;
+        }
+        payload.push({ modo: 'nuevo', nombre, categoria, unidad: l.unidad, cantidad: cant, presentacion: l.pres ? { unidad: l.pres.unidad.trim().toUpperCase(), factor: Number(l.pres.factor) } : null });
       }
     }
     // Validación del proveedor nuevo (si se eligió darlo de alta ahora).
@@ -810,10 +817,36 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCategoria(l.id); } }} maxLength={40} />
                       <button type="button" className="btn btn-sm btn-ghost" onClick={() => handleAddCategoria(l.id)}>+ Añadir</button>
                     </div></div>
-                  <div className="form-row"><label>Unidad / medida</label>
+                  <div className="form-row"><label>Unidad de uso (inventario)</label>
                     <select className="select" value={l.unidad} onChange={(e) => set(l.id, { unidad: e.target.value })}>{unis.map((u) => <option key={u} value={u}>{u}</option>)}</select>
-                    <small className="muted">Solo medidas existentes. Nuevas: <strong>📏 Medidas</strong> en Inventario.</small></div>
-                  <div className="form-row"><label>Cantidad</label>
+                    <small className="muted">Como se lleva y se gasta. Solo medidas existentes; nuevas: <strong>📏 Medidas</strong> en Inventario.</small></div>
+                  <div className="form-row"><label>Se compra en</label>
+                    <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: '.86rem' }}>
+                      <input type="checkbox" checked={!!l.pres} onChange={(e) => set(l.id, { pres: e.target.checked ? { unidad: '', factor: 0 } : null })} />
+                      Otra presentación (caja, saco, tambor…)
+                    </label>
+                    {l.pres ? (
+                      <>
+                        <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.35rem' }}>
+                          <input className="input" style={{ width: 90 }} placeholder="CAJA" aria-label="Unidad de compra" value={l.pres.unidad}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                            onChange={(e) => set(l.id, { pres: { unidad: e.target.value.toUpperCase(), factor: l.pres?.factor ?? 0 } })} />
+                          <span className="muted">de</span>
+                          <input className="input mono" style={{ width: 80 }} type="number" min={0} step="any" placeholder="12" aria-label={`Cuántos ${l.unidad} trae`}
+                            value={l.pres.factor || ''}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                            onChange={(e) => set(l.id, { pres: { unidad: l.pres?.unidad ?? '', factor: Number(e.target.value) || 0 } })} />
+                          <span className="muted">{l.unidad}</span>
+                        </div>
+                        <small className="muted">
+                          {l.pres.unidad.trim() && Number(l.pres.factor) > 0
+                            ? <>Al inventario entran <strong>{rotuloConversion({ unidad: l.pres.unidad, factor: l.pres.factor, unidad_uso: l.unidad }, Number(l.cantidad) || 0)?.split(' = ')[1]}</strong>. La presentación queda guardada para la próxima compra.</>
+                            : 'Ej.: CAJA de 12 UND — se compra por caja y se usa por unidad.'}
+                        </small>
+                      </>
+                    ) : <small className="muted">Si el proveedor lo vende en caja, saco… márcalo: se compra así y se usa en {l.unidad}.</small>}
+                  </div>
+                  <div className="form-row"><label>Cantidad{l.pres?.unidad ? ` (${l.pres.unidad})` : ''}</label>
                     <input className="input mono" name={`linea-cant-nuevo-${l.id}`} type="number" min={1} step="any" value={l.cantidad} onChange={(e) => set(l.id, { cantidad: e.target.value })} required /></div>
                 </div>
               </>

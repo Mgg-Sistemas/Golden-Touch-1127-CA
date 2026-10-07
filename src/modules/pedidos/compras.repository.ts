@@ -11,6 +11,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { cantidadEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
+import { crearPresentacion } from '@/modules/inventario/presentaciones.repository';
 import { egresarGastoCaja, ingresarDineroCaja } from '@/modules/salidas/cajas.repository';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { crearRetencion, borrarRetencionesDeCompra } from '@/modules/tesoreria/tesoreria.repository';
@@ -298,7 +299,12 @@ export async function getCompraDirectaByCajaMovId(movId: string): Promise<Compra
 /** Presentación de compra elegida para el renglón (null = se compra en la unidad de uso). */
 export interface PresentacionLinea { unidad: string; factor: number }
 export interface LineaExistente { modo: 'existente'; productoId: string; cantidad: number; presentacion?: PresentacionLinea | null }
-export interface LineaNueva { modo: 'nuevo'; nombre: string; categoria: string; unidad: string; cantidad: number }
+/**
+ * Material que se da de alta con la compra. `unidad` es la de USO (como se lleva en el
+ * inventario); `presentacion`, si viene, es como lo vende el proveedor (CAJA de 12 UND,
+ * SACO de 25 KG…): la cantidad va en esa presentación y al recibir entra convertida.
+ */
+export interface LineaNueva { modo: 'nuevo'; nombre: string; categoria: string; unidad: string; cantidad: number; presentacion?: PresentacionLinea | null }
 export type LineaCompra = LineaExistente | LineaNueva;
 
 export interface CrearCompraInput {
@@ -327,6 +333,28 @@ function itemPresentacion(pres: PresentacionLinea | null | undefined, unidadUso:
   return { unidad: pres.unidad.trim(), factor: f, unidad_uso: unidadUso ?? null };
 }
 
+/**
+ * Da de alta el material nuevo de un renglón y devuelve su ítem. Si se compra en otra
+ * presentación, el ítem la lleva (entra convertido al recibir) y la presentación queda
+ * guardada en el catálogo del producto para la próxima compra (best-effort).
+ */
+async function itemDeMaterialNuevo(
+  l: LineaNueva, cantidad: number, almacen: string, productosExistentes: Producto[], actor: string | null,
+): Promise<{ item: CompraDirectaItem; producto: Producto }> {
+  const nom = l.nombre.trim().toUpperCase();
+  if (!nom) throw new Error('Indica el nombre del material nuevo.');
+  const nuevo = await createProducto({
+    sku: await nextSku(l.categoria, productosExistentes),
+    nombre: nom, categoria: l.categoria, unidad: l.unidad,
+    stock: 0, stock_min: 0, precio: 0, almacen, estado: 'activo',
+  });
+  const pres = itemPresentacion(l.presentacion, nuevo.unidad ?? l.unidad);
+  if (pres.factor && pres.unidad) {
+    await crearPresentacion({ producto_id: nuevo.id, proveedor_id: null, unidad: pres.unidad, factor: pres.factor }, actor).catch(() => null);
+  }
+  return { producto: nuevo, item: { producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad, ...pres } };
+}
+
 export async function crearCompraDirecta(
   input: CrearCompraInput,
   productosExistentes: Producto[] = [],
@@ -346,15 +374,9 @@ export async function crearCompraDirecta(
       // si el proveedor lo vende en otra presentación, el renglón la guarda con su factor.
       items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad, ...itemPresentacion(l.presentacion, p?.unidad) });
     } else {
-      const nom = l.nombre.trim().toUpperCase();
-      if (!nom) throw new Error('Indica el nombre del material nuevo.');
-      const nuevo = await createProducto({
-        sku: await nextSku(l.categoria, productosExistentes),
-        nombre: nom, categoria: l.categoria, unidad: l.unidad,
-        stock: 0, stock_min: 0, precio: 0, almacen, estado: 'activo',
-      });
-      productosExistentes = [...productosExistentes, nuevo];
-      items.push({ producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad });
+      const { item, producto } = await itemDeMaterialNuevo(l, cantidad, almacen, productosExistentes, input.actor ?? null);
+      productosExistentes = [...productosExistentes, producto];
+      items.push(item);
     }
   }
 
@@ -759,15 +781,9 @@ export async function editarCompraDirectaEnProceso(
       // si el proveedor lo vende en otra presentación, el renglón la guarda con su factor.
       items.push({ producto_id: l.productoId, producto_nombre: p?.nombre ?? '', producto_sku: p?.sku ?? null, cantidad, ...itemPresentacion(l.presentacion, p?.unidad) });
     } else {
-      const nom = l.nombre.trim().toUpperCase();
-      if (!nom) throw new Error('Indica el nombre del material nuevo.');
-      const nuevo = await createProducto({
-        sku: await nextSku(l.categoria, productosExistentes),
-        nombre: nom, categoria: l.categoria, unidad: l.unidad,
-        stock: 0, stock_min: 0, precio: 0, almacen, estado: 'activo',
-      });
-      productosExistentes = [...productosExistentes, nuevo];
-      items.push({ producto_id: nuevo.id, producto_nombre: nuevo.nombre, producto_sku: nuevo.sku, cantidad });
+      const { item, producto } = await itemDeMaterialNuevo(l, cantidad, almacen, productosExistentes, input.actor ?? null);
+      productosExistentes = [...productosExistentes, producto];
+      items.push(item);
     }
   }
 
