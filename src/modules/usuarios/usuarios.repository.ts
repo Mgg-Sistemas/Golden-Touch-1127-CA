@@ -161,6 +161,8 @@ export interface ActualizarUsuarioInput {
   telefono?: string;
   departamento?: string;
   role?: Role | string;
+  /** Obligatorio si cambia el nombre o el apellido: queda en el historial de nombres. */
+  motivoCambioNombre?: string;
 }
 
 /** Actualiza datos editables del usuario (no toca email ni password). */
@@ -172,6 +174,8 @@ export async function actualizarUsuario(id: string, input: ActualizarUsuarioInpu
   if (input.telefono != null) payload.telefono = input.telefono.trim() || null;
   if (input.departamento != null) payload.departamento = input.departamento.trim() || null;
   if (input.role != null) payload.role = String(input.role);
+  // El trigger de la base lo exige si cambia el nombre, lo guarda en el historial y lo borra.
+  if (input.motivoCambioNombre?.trim()) payload.nombre_cambio_motivo = input.motivoCambioNombre.trim();
   const { error } = await supabase.from(TABLE).update(payload).eq('id', id);
   if (error) throw error;
 }

@@ -44,6 +44,7 @@ import {
   TOPE_COLUMNA, ETIQUETA_ACCION, accionDe, actoresDeAccion, filtrarHistorico, recortarColumna,
 } from './historicoSolicitudes';
 import { FechaInput } from '@/shared/ui/FechaInput';
+import { listCambiosNombre, nombreEnFecha, type CambioNombre } from '@/shared/lib/nombresHistoricos';
 
 type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
@@ -158,10 +159,17 @@ export function SalidasPage() {
     });
     return m;
   }, [usuarios]);
-  const nombreDe = useCallback((email?: string | null) => {
+  // Con `fecha`, el nombre que tenía en ESA fecha: si después se le cambió el
+  // nombre, lo que hizo antes sigue mostrando el anterior (historial de nombres).
+  const [cambiosNombre, setCambiosNombre] = useState<CambioNombre[]>([]);
+  useEffect(() => { listCambiosNombre().then(setCambiosNombre).catch(() => undefined); }, []);
+  useRealtime(['usuarios_nombres_historial'], () => { listCambiosNombre(true).then(setCambiosNombre).catch(() => undefined); });
+  const nombreDe = useCallback((email?: string | null, fecha?: string | null) => {
     if (!email) return '—';
-    return nombrePorEmail.get(email.toLowerCase()) || email;
-  }, [nombrePorEmail]);
+    const actual = nombrePorEmail.get(email.toLowerCase());
+    if (!actual) return email;
+    return nombreEnFecha(email, actual, fecha, cambiosNombre) || actual;
+  }, [nombrePorEmail, cambiosNombre]);
 
   const almacenesActivos = useMemo(
     () => almacenes.filter((a) => a.estado === 'activo').map((a) => a.nombre),
@@ -181,7 +189,7 @@ export function SalidasPage() {
   // Usuarios (actores) presentes en las solicitudes de la vista, para el selector de filtro.
   const usuariosDeVista = useMemo(() => {
     const m = new Map<string, string>();
-    solsVista.forEach((s) => { if (s.actor) m.set(s.actor, s.actor_name || nombreDe(s.actor) || s.actor); });
+    solsVista.forEach((s) => { if (s.actor) m.set(s.actor, s.actor_name || nombreDe(s.actor, s.created_at) || s.actor); });
     return Array.from(m.entries()).map(([email, nombre]) => ({ email, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [solsVista, nombreDe]);
   // Aplica los filtros por usuario (actor) y por solicitante (texto).
@@ -351,7 +359,7 @@ export function SalidasPage() {
 
 /* ───────── Resumen del gasto de material por UNIDAD SOLICITANTE ───────── */
 function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
-  solicitudes: SolicitudSalida[]; defaultEmail: string; nombreDe: (email?: string | null) => string; onClose: () => void;
+  solicitudes: SolicitudSalida[]; defaultEmail: string; nombreDe: (email?: string | null, fecha?: string | null) => string; onClose: () => void;
 }) {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -379,9 +387,9 @@ function ResumenUnidadModal({ solicitudes, defaultEmail, nombreDe, onClose }: {
           tipo: esTraslado ? 'Traslado' : 'Salida',
           codigo: s.codigo ?? '',
           solicitante: s.solicitante || s.actor_name || s.actor || '—',
-          autorizo: s.aprobada_por ? nombreDe(s.aprobada_por) : '',
+          autorizo: s.aprobada_por ? nombreDe(s.aprobada_por, s.aprobada_en) : '',
           autorizadoEn: s.aprobada_en ?? '',
-          ejecutoPor: s.ejecutada_por ? nombreDe(s.ejecutada_por) : '',
+          ejecutoPor: s.ejecutada_por ? nombreDe(s.ejecutada_por, s.ejecutada_en) : '',
           origen: r.almacen,
           destinoTxt: esTraslado ? (s.almacen_destino ?? '') : (s.destino ?? ''),
           motivo: s.motivo ?? '',
@@ -714,7 +722,7 @@ function SolicitudesKanban({ sols, onVer, onVerHistorico, nombreDe }: {
   onVer: (s: SolicitudSalida) => void;
   /** Salta al histórico ya filtrado por esa columna (el «+ N más»). */
   onVerHistorico: (estado: EstadoSolicitudSalida) => void;
-  nombreDe: (email?: string | null) => string;
+  nombreDe: (email?: string | null, fecha?: string | null) => string;
 }) {
   // Nombre completo de quien solicitó: se resuelve del usuario (email → "Nombre Apellido");
   // si no se encuentra, cae al texto guardado en la solicitud.
@@ -724,7 +732,7 @@ function SolicitudesKanban({ sols, onVer, onVerHistorico, nombreDe }: {
     // edición del solicitante "no se tomaba" en la tarjeta.
     const sol = (s.solicitante ?? '').trim();
     if (sol) return sol;
-    const n = nombreDe(s.actor);
+    const n = nombreDe(s.actor, s.created_at);
     return n && n !== s.actor ? n : (s.actor ?? '—');
   };
   if (!sols.length) return <EmptyState message="No hay solicitudes en esta vista. Crea una con el botón de arriba." icon="🗂" />;
@@ -782,7 +790,7 @@ function HistoricoSolicitudes({ sols, estado, onEstado, nombreDe, onVer }: {
   sols: SolicitudSalida[];
   estado: EstadoSolicitudSalida | '';
   onEstado: (e: EstadoSolicitudSalida | '') => void;
-  nombreDe: (email?: string | null) => string;
+  nombreDe: (email?: string | null, fecha?: string | null) => string;
   onVer: (s: SolicitudSalida) => void;
 }) {
   const [texto, setTexto] = useState('');
@@ -857,9 +865,9 @@ function HistoricoSolicitudes({ sols, estado, onEstado, nombreDe, onVer }: {
                   <td><span className={`badge ${SOL_ESTADO_CLASS[s.estado]}`}>{SOL_COLS.find((c) => c.key === s.estado)?.label}</span></td>
                   <td><strong>{s.tipo === 'material' ? (s.producto_nombre ?? 'Material') : 'Dinero'}</strong></td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>{resumenSolicitud(s)}</td>
-                  <td>{(s.solicitante ?? '').trim() || nombreDe(s.actor)}</td>
+                  <td>{(s.solicitante ?? '').trim() || nombreDe(s.actor, s.created_at)}</td>
                   <td>{ETIQUETA_ACCION[acc.evento] ?? acc.evento}{acc.motivo && <div className="muted" style={{ fontSize: '.72rem' }}>{acc.motivo}</div>}</td>
-                  <td style={{ color: 'var(--success)', fontWeight: 600 }}>{acc.actor ? nombreDe(acc.actor) : '—'}</td>
+                  <td style={{ color: 'var(--success)', fontWeight: 600 }}>{acc.actor ? nombreDe(acc.actor, acc.at) : '—'}</td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(acc.at)}</td>
                 </tr>
               );
@@ -1202,7 +1210,7 @@ function SolicitudDetalleModal({
   existencias: Existencia[];
   actor: string;
   actorName: string | null;
-  nombreDe: (email?: string | null) => string;
+  nombreDe: (email?: string | null, fecha?: string | null) => string;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -1323,7 +1331,7 @@ function SolicitudDetalleModal({
         <tbody>
           <tr><td className="muted">Tipo</td><td>{sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de {sol.tipo === 'dinero' ? 'dinero' : 'material'}</td></tr>
           <tr><td className="muted">Estado</td><td><span className={`badge ${SOL_ESTADO_CLASS[sol.estado]}`}>{SOL_COLS.find((c) => c.key === sol.estado)?.label}</span></td></tr>
-          <tr><td className="muted">Solicitante</td><td>{(() => { const s = (sol.solicitante ?? '').trim(); if (s) return s; const n = nombreDe(sol.actor); return n && n !== sol.actor ? n : (sol.actor ?? '—'); })()}</td></tr>
+          <tr><td className="muted">Solicitante</td><td>{(() => { const s = (sol.solicitante ?? '').trim(); if (s) return s; const n = nombreDe(sol.actor, sol.created_at); return n && n !== sol.actor ? n : (sol.actor ?? '—'); })()}</td></tr>
           {sol.sede_origen && <tr><td className="muted">Sede origen</td><td>{sol.sede_origen}</td></tr>}
           {sol.unidad_solicitante && <tr><td className="muted">Unidad solicitante</td><td>{sol.unidad_solicitante}</td></tr>}
           {!!sol.items?.some((it) => it.vale_cocina) && <tr><td className="muted">Vale a Cocina</td><td style={{ color: 'var(--warning, #f59e0b)' }}>🍽 Los alimentos de esta salida no descuentan inventario: el consumo lo registra Distribución de comidas. Limpieza y demás sí descuentan.</td></tr>}
@@ -1377,8 +1385,8 @@ function SolicitudDetalleModal({
           {sol.direccion_despacho && <tr><td className="muted">Dirección de despacho</td><td>{sol.direccion_despacho}</td></tr>}
           {sol.direccion_destino && <tr><td className="muted">Dirección de destino</td><td>{sol.direccion_destino}</td></tr>}
           <tr><td className="muted">Creada</td><td>{dateTime(sol.created_at)}</td></tr>
-          {sol.aprobada_en && <tr><td className="muted">Autorizada por</td><td>{nombreDe(sol.aprobada_por)} · {dateTime(sol.aprobada_en)}</td></tr>}
-          {sol.ejecutada_en && <tr><td className="muted">Ejecutada por</td><td>{nombreDe(sol.ejecutada_por)} · {dateTime(sol.ejecutada_en)}</td></tr>}
+          {sol.aprobada_en && <tr><td className="muted">Autorizada por</td><td>{nombreDe(sol.aprobada_por, sol.aprobada_en)} · {dateTime(sol.aprobada_en)}</td></tr>}
+          {sol.ejecutada_en && <tr><td className="muted">Ejecutada por</td><td>{nombreDe(sol.ejecutada_por, sol.ejecutada_en)} · {dateTime(sol.ejecutada_en)}</td></tr>}
         </tbody>
       </table>
 
