@@ -120,15 +120,26 @@ describe('tres apartados: bienes y equipo · dotación · vehículos', () => {
     expect(formVacio('2026-10-06', 'dotacion').retornable).toBe(false);
     expect(formVacio('2026-10-06', 'bienes').categoria).toBe('equipo');
   });
-  it('un vehículo pide la ficha o la placa y manda placa y km', () => {
+  it('un vehículo pide el del catálogo y manda placa, km y la autorización', () => {
     const f = { ...formVacio('2026-10-06', 'vehiculo'), personal_id: 'p1', descripcion: 'Hilux' };
-    expect(erroresForm(f)).toContain('Elige el vehículo de la flota o escribe su placa.');
-    const ok = { ...f, placa: ' a12bc3d ', km_entrega: '15000' };
+    expect(erroresForm(f).join(' ')).toContain('Elige el vehículo del catálogo');
+    const ok = { ...f, vehiculo_id: 'v1', placa: ' a12bc3d ', km_entrega: '15000', autorizacion_hasta: '2026-12-31', ruta_autorizada: ' Upata - Mina ' };
     expect(erroresForm(ok)).toEqual([]);
     const p = payloadDe(ok);
+    expect(p.vehiculo_id).toBe('v1');
+    expect(p.equipo_id).toBeNull();
     expect(p.placa).toBe('A12BC3D');
     expect(p.km_entrega).toBe(15000);
+    expect(p.autorizacion_hasta).toBe('2026-12-31');
+    expect(p.ruta_autorizada).toBe('Upata - Mina');
     expect(p.talla).toBeNull();
+  });
+  it('«autorizado hasta» no puede ser antes de la fecha; fuera de vehículos no viaja', () => {
+    const f = { ...formVacio('2026-10-06', 'vehiculo'), personal_id: 'p1', descripcion: 'Hilux', vehiculo_id: 'v1', autorizacion_hasta: '2026-10-01' };
+    expect(erroresForm(f).join(' ')).toContain('no puede ser antes');
+    const otro = payloadDe({ ...f, categoria: 'equipo' });
+    expect(otro.vehiculo_id).toBeNull();
+    expect(otro.autorizacion_hasta).toBeNull();
   });
   it('la talla solo viaja en la dotación y sale en el detalle', () => {
     const f = { ...formVacio('2026-10-06', 'dotacion'), personal_id: 'p1', descripcion: 'Botas', talla: '42' };

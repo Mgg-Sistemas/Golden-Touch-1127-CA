@@ -17,6 +17,11 @@
      · 📦 Bienes y equipo  → línea, equipo electrónico, oficina, herramienta, otro;
      · 🦺 Dotación al personal → dotación / uniformes / EPP (con talla);
      · 🚙 Vehículos → vehículo de la flota (ficha de Maquinaria), placa y km.
+
+   Desde el 07/10/2026 la asignación de un vehículo es la AUTORIZACIÓN para
+   que la persona transite en él: el vehículo sale del catálogo propio
+   (`vehiculos_catalogo`, ver vehiculosCatalogo.ts), con fecha «autorizado
+   hasta» opcional y ruta/zona autorizada, y se imprime la autorización.
    ============================================================ */
 
 export type CategoriaAsignacion = 'dotacion' | 'linea' | 'equipo' | 'oficina' | 'herramienta' | 'vehiculo' | 'otro';
@@ -55,6 +60,12 @@ export interface Asignacion {
   km_devolucion?: number | null;
   /** Talla de la dotación (camisa, pantalón, botas…). */
   talla?: string | null;
+  /** Vehículo del catálogo (Asignación de vehículos = autorización de tránsito). */
+  vehiculo_id?: string | null;
+  /** Hasta cuándo vale la autorización; vacío = mientras lo tenga asignado. */
+  autorizacion_hasta?: string | null;
+  /** Ruta o zona por la que puede transitar. */
+  ruta_autorizada?: string | null;
   created_at: string;
   created_by?: string | null;
   actor_name?: string | null;
@@ -162,7 +173,7 @@ export function filtrarAsignaciones(lista: Asignacion[], f: FiltrosAsignacion, p
     if (f.retorna === 'no' && a.retornable) return false;
     if (t) {
       const heno = normalizar([
-        a.codigo, a.descripcion, a.serial, a.marca_modelo, a.numero_linea, a.operador, a.observacion, a.placa, a.talla,
+        a.codigo, a.descripcion, a.serial, a.marca_modelo, a.numero_linea, a.operador, a.observacion, a.placa, a.talla, a.ruta_autorizada,
         CATEGORIA[a.categoria]?.label, p ? nombreDe(p) : '', p?.cedula, p?.cargo, p?.ficha_nro, p?.departamento,
       ].filter(Boolean).join(' '));
       if (!heno.includes(t)) return false;
@@ -229,6 +240,9 @@ export interface FormAsignacion {
   placa: string;
   km_entrega: string;
   talla: string;
+  vehiculo_id: string;
+  autorizacion_hasta: string;
+  ruta_autorizada: string;
 }
 
 /** Formulario en blanco; la categoría inicial es la primera del apartado elegido. */
@@ -238,6 +252,7 @@ export function formVacio(hoy: string, tipo: TipoAsignacion | '' = ''): FormAsig
     personal_id: '', fecha: hoy, categoria, descripcion: '', desdeInventario: false, producto_id: '',
     cantidad: '1', unidad: '', valor_unitario: '', serial: '', marca_modelo: '', numero_linea: '', operador: '',
     retornable: CATEGORIA[categoria].retorna, observacion: '', equipo_id: '', placa: '', km_entrega: '', talla: '',
+    vehiculo_id: '', autorizacion_hasta: '', ruta_autorizada: '',
   };
 }
 
@@ -262,7 +277,8 @@ export function erroresForm(f: FormAsignacion, stock?: number | null): string[] 
   }
   if (f.categoria === 'linea' && !f.numero_linea.trim()) e.push('Indica el número de la línea.');
   if (f.categoria === 'vehiculo') {
-    if (!f.equipo_id && !f.placa.trim()) e.push('Elige el vehículo de la flota o escribe su placa.');
+    if (!f.vehiculo_id) e.push('Elige el vehículo del catálogo (si no está, agrégalo en 🚙 Catálogo de vehículos).');
+    if (f.autorizacion_hasta && f.fecha && f.autorizacion_hasta < f.fecha) e.push('«Autorizado hasta» no puede ser antes de la fecha de la asignación.');
     if (f.km_entrega.trim() && !(aNumero(f.km_entrega) >= 0)) e.push('El kilometraje de entrega no es un número válido.');
   }
   return e;
@@ -285,7 +301,10 @@ export function payloadDe(f: FormAsignacion): Record<string, unknown> {
     operador: f.operador.trim() || null,
     retornable: f.retornable,
     observacion: f.observacion.trim() || null,
-    equipo_id: f.categoria === 'vehiculo' ? f.equipo_id || null : null,
+    equipo_id: null,
+    vehiculo_id: f.categoria === 'vehiculo' ? f.vehiculo_id || null : null,
+    autorizacion_hasta: f.categoria === 'vehiculo' ? f.autorizacion_hasta || null : null,
+    ruta_autorizada: f.categoria === 'vehiculo' ? f.ruta_autorizada.trim() || null : null,
     placa: f.categoria === 'vehiculo' ? f.placa.trim().toUpperCase() || null : null,
     km_entrega: f.categoria === 'vehiculo' && f.km_entrega.trim() ? aNumero(f.km_entrega) : null,
     talla: f.categoria === 'dotacion' ? f.talla.trim() || null : null,
@@ -300,6 +319,7 @@ export function formDesde(a: Asignacion): FormAsignacion {
     serial: a.serial ?? '', marca_modelo: a.marca_modelo ?? '', numero_linea: a.numero_linea ?? '', operador: a.operador ?? '',
     retornable: a.retornable, observacion: a.observacion ?? '',
     equipo_id: a.equipo_id ?? '', placa: a.placa ?? '', km_entrega: a.km_entrega != null ? String(a.km_entrega) : '', talla: a.talla ?? '',
+    vehiculo_id: a.vehiculo_id ?? '', autorizacion_hasta: a.autorizacion_hasta ?? '', ruta_autorizada: a.ruta_autorizada ?? '',
   };
 }
 
@@ -307,6 +327,7 @@ export function formDesde(a: Asignacion): FormAsignacion {
 export function detalleCorto(a: Asignacion): string {
   return [
     a.placa ? `Placa ${a.placa}` : null,
+    a.ruta_autorizada ? `Ruta: ${a.ruta_autorizada}` : null,
     a.km_entrega != null ? `${a.km_entrega} km al entregar${a.km_devolucion != null ? ` · ${a.km_devolucion} km al devolver` : ''}` : null,
     a.talla ? `Talla ${a.talla}` : null,
     a.marca_modelo, a.serial ? `S/N ${a.serial}` : null,
