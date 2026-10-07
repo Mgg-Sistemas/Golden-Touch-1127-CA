@@ -117,6 +117,13 @@ export function UsuariosPage() {
   const inactivos = useMemo(() => usuarios.filter((u) => estadoVisible(u) === 'inactivo').length, [usuarios]);
   const archivados = useMemo(() => usuarios.filter(estaArchivado).length, [usuarios]);
 
+  // Clic en una tarjeta: muestra esa lista (o la quita si ya estaba) y baja hasta la tabla.
+  const listaRef = useRef<HTMLDivElement>(null);
+  const verEstado = (estado: Exclude<FiltroEstadoUsuario, ''>) => {
+    setFilterEstado((prev) => (prev === estado ? '' : estado));
+    listaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const filtered = useMemo(() => {
     const q = norm(filterText);
     const nombreCompleto = (u: Usuario) => `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email || '';
@@ -180,28 +187,40 @@ export function UsuariosPage() {
         <RolesPermisosPanel readOnly={!canWrite} onRolesChanged={refresh} />
       ) : (
       <>
+      {/* Tarjetas dinámicas: un clic filtra la lista por ese estado; otro clic lo quita. */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-        <div className="kpi">
-          <div className="label">Usuarios activos</div>
-          <div className="value">{activos}</div>
-          <div className="delta">Con acceso al sistema</div>
-          <div className="icon">✓</div>
-        </div>
-        <div className="kpi">
-          <div className="label">Usuarios deshabilitados</div>
-          <div className="value">{inactivos}</div>
-          <div className="delta down">No pueden ingresar</div>
-          <div className="icon">⛔</div>
-        </div>
-        <div className="kpi">
-          <div className="label">Usuarios archivados</div>
-          <div className="value">{archivados}</div>
-          <div className="delta">Fuera de la lista · se pueden restaurar</div>
-          <div className="icon">🗄</div>
-        </div>
+        {([
+          { estado: 'activo', label: 'Usuarios activos', valor: activos, delta: 'Con acceso al sistema', down: false, icon: '✓' },
+          { estado: 'inactivo', label: 'Usuarios deshabilitados', valor: inactivos, delta: 'No pueden ingresar', down: true, icon: '⛔' },
+          { estado: 'archivado', label: 'Usuarios archivados', valor: archivados, delta: 'Fuera de la lista · se pueden restaurar', down: false, icon: '🗄' },
+        ] as const).map((k) => {
+          const activa = filterEstado === k.estado;
+          return (
+            <div
+              key={k.estado}
+              className="kpi"
+              role="button"
+              tabIndex={0}
+              aria-pressed={activa}
+              title={activa ? 'Clic para quitar el filtro' : `Clic para ver la lista de ${k.label.toLowerCase()}`}
+              onClick={() => verEstado(k.estado)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); verEstado(k.estado); } }}
+              style={{
+                cursor: 'pointer',
+                transition: 'border-color .15s, box-shadow .15s',
+                ...(activa ? { borderColor: 'var(--primary)', boxShadow: '0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent)' } : null),
+              }}
+            >
+              <div className="label">{k.label}</div>
+              <div className="value">{k.valor}</div>
+              <div className={`delta${k.down ? ' down' : ''}`}>{activa ? 'Viendo esta lista · clic para quitar' : k.delta}</div>
+              <div className="icon">{k.icon}</div>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="filterbar" style={{ marginTop: '1rem' }}>
+      <div className="filterbar" style={{ marginTop: '1rem' }} ref={listaRef}>
         <input
           className="search"
           placeholder="Buscar por nombre, apellido, email, CI…"
