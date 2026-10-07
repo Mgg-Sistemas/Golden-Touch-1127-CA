@@ -25,6 +25,11 @@
 
    «(si aplica)» marca lo que no le corresponde a todo el mundo: sin eso, una
    lista con casilleros vacíos parece un expediente incompleto.
+
+   SOLO COPIAS (07/10/2026). La oficina no recibe originales: cada documento
+   se consigna en COPIA y el original se lo queda la persona. Por eso cada
+   renglón dice «Copia de…» (las fotos carnet y el currículum son de la
+   persona, no se copian). La prueba lo vigila.
    ============================================================ */
 
 export interface SegmentoDocumentos {
@@ -42,46 +47,46 @@ export const SEGMENTOS_DOCUMENTOS: readonly SegmentoDocumentos[] = [
       'Copia del RIF personal (SENIAT, vigente)',
       'Dos (2) fotografías tipo carnet, fondo blanco',
       'Copia de la partida de nacimiento',
-      'Constancia de residencia o carta de domicilio',
+      'Copia de la constancia de residencia o carta de domicilio',
       'Copia de la licencia de conducir (si aplica)',
-      'Certificado de no antecedentes penales (si aplica)',
+      'Copia del certificado de no antecedentes penales (si aplica)',
     ],
   },
   {
     titulo: 'Documentos académicos y laborales',
     documentos: [
       'Copia del título obtenido (bachiller, técnico o universitario)',
-      'Notas certificadas del último grado cursado',
-      'Certificados de cursos, talleres y capacitaciones',
+      'Copia de las notas certificadas del último grado cursado',
+      'Copia de los certificados de cursos, talleres y capacitaciones',
       'Currículum vitae actualizado',
-      'Constancias de trabajo de empleos anteriores',
-      'Dos (2) referencias personales con teléfono de contacto',
+      'Copia de las constancias de trabajo de empleos anteriores',
+      'Copia de dos (2) referencias personales con teléfono de contacto',
       'Copia del colegio o gremio profesional (si aplica)',
     ],
   },
   {
     titulo: 'Documentos de salud',
     documentos: [
-      'Certificado médico de salud pre-empleo (vigente)',
-      'Examen médico ocupacional del cargo a desempeñar',
-      'Constancia del tipo de sangre y factor RH',
-      'Constancia o carnet de vacunación',
-      'Informe médico de enfermedad preexistente (si aplica)',
-      'Informe médico de alergias declaradas (si aplica)',
-      'Certificado de discapacidad CONAPDIS (si aplica)',
+      'Copia del certificado médico de salud pre-empleo (vigente)',
+      'Copia del examen médico ocupacional del cargo a desempeñar',
+      'Copia de la constancia del tipo de sangre y factor RH',
+      'Copia de la constancia o carnet de vacunación',
+      'Copia del informe médico de enfermedad preexistente (si aplica)',
+      'Copia del informe médico de alergias declaradas (si aplica)',
+      'Copia del certificado de discapacidad CONAPDIS (si aplica)',
     ],
   },
   {
     titulo: 'Documentos de matrimonio y carga familiar',
     documentos: [
       'Copia del acta de matrimonio',
-      'Constancia de concubinato o unión estable de hecho (si aplica)',
+      'Copia de la constancia de concubinato o unión estable de hecho (si aplica)',
       'Copia de la cédula del cónyuge o pareja',
       'Copia de la partida de nacimiento de cada hijo',
       'Copia de la cédula de los hijos mayores de nueve (9) años',
-      'Constancia de estudios de cada hijo en edad escolar',
+      'Copia de la constancia de estudios de cada hijo en edad escolar',
       'Copia de la cédula de los padres a cargo (si aplica)',
-      'Acta de defunción del cónyuge (si aplica)',
+      'Copia del acta de defunción del cónyuge (si aplica)',
     ],
   },
 ];

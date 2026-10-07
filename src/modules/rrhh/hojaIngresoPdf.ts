@@ -158,9 +158,11 @@ export async function descargarHojaIngresoPdf(empresa: string | null = 'GT'): Pr
     y += 14;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
     doc.setTextColor(105, 105, 105);
-    doc.text(aclaracion, PAGE_W / 2, y, { align: 'center' });
+    // Una aclaración larga se parte en renglones centrados, sin salirse del margen.
+    const lineas = doc.splitTextToSize(aclaracion, PAGE_W - 2 * MARGIN) as string[];
+    doc.text(lineas, PAGE_W / 2, y, { align: 'center' });
     doc.setTextColor(20, 20, 20);
-    return y + 17;
+    return y + 17 + (lineas.length - 1) * 10;
   }
 
   /**
@@ -416,7 +418,7 @@ export async function descargarHojaIngresoPdf(empresa: string | null = 'GT'): Pr
   doc.addPage();
   y = membrete(MARGIN);
   y = titulo(y, 'DOCUMENTOS A CONSIGNAR POR OFICINA',
-    'Marque cada documento recibido. Lo que dice «si aplica» se exige solo a quien le corresponda.');
+    'Solo se consignan COPIAS: los originales no se entregan, se los queda el trabajador. Marque cada copia recibida. Lo que dice «si aplica» se exige solo a quien le corresponda.');
 
   // A UNA COLUMNA y en letra 12, que es lo que se lee cómodo en papel. Con eso
   // la lista no entra en una hoja: sigue en la siguiente, con el membrete, y
