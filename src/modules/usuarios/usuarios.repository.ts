@@ -177,7 +177,9 @@ export async function actualizarUsuario(id: string, input: ActualizarUsuarioInpu
   // El trigger de la base lo exige si cambia el nombre, lo guarda en el historial y lo borra.
   if (input.motivoCambioNombre?.trim()) payload.nombre_cambio_motivo = input.motivoCambioNombre.trim();
   const { error } = await supabase.from(TABLE).update(payload).eq('id', id);
-  if (error) throw error;
+  // El error de Supabase no es un Error de JS: se envuelve para que la pantalla muestre
+  // el motivo real (p. ej. «Indica el motivo del cambio de nombre.») y no uno genérico.
+  if (error) throw new Error(error.message || 'No se pudo actualizar el usuario');
 }
 
 /** Cambia el correo del usuario (Auth + tabla) vía Edge Function. Solo admin. */

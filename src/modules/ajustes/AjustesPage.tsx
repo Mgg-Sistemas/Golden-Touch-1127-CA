@@ -86,7 +86,7 @@ export function AjustesPage() {
           ...(cambiaNombre ? { nombre_cambio_motivo: motivoNombre.trim() } : {}),
         })
         .eq('id', user.id);
-      if (error) throw error;
+      if (error) throw new Error(error.message || 'No se pudo guardar el perfil');
       toast('Perfil actualizado', 'success');
       setUsuario((u) => u ? { ...u, nombre: nombre.trim(), apellido: apellido.trim() || null, telefono: telefono.trim() || null, departamento: departamento.trim() || null } : u);
       setMotivoNombre('');
