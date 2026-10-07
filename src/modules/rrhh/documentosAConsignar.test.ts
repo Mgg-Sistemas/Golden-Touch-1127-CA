@@ -36,6 +36,14 @@ describe('SEGMENTOS_DOCUMENTOS · la hoja de documentos a consignar', () => {
     }
   });
 
+  it('solo se consignan copias: todo documento dice «Copia» (salvo fotos y currículum)', () => {
+    for (const d of todosLosDocumentos()) {
+      if (/fotograf|curr[ií]culum/i.test(d)) continue;
+      expect(d.startsWith('Copia')).toBe(true);
+    }
+    expect(todosLosDocumentos().join(' ').toLowerCase()).not.toContain('original');
+  });
+
   it('el total coincide con lo que hay en los segmentos', () => {
     expect(totalDocumentos()).toBe(todosLosDocumentos().length);
     expect(totalDocumentos()).toBe(
