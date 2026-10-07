@@ -1,7 +1,8 @@
 /* ============================================================
    Golden Touch · Libro de retenciones e impuestos
 
-   Golden Touch NO es agente de retención. Lo que pasa de verdad es que sus
+   Golden Touch es AGENTE DE RETENCIÓN DE IVA (07/10/2026): al pagar a un
+   proveedor le retiene el IVA y el sistema numera el comprobante. Además sus
    CLIENTES le retienen —IVA, ISLR, municipal— y le entregan un comprobante, y
    que al pagar en divisas le cobran el IGTF. Ese papel vale dinero: la retención
    que nos practican es un ANTICIPO DE IMPUESTO que se descuenta en la
@@ -131,9 +132,14 @@ export function LibroRetencionesPanel({ puedeCargar, actor, actorName }: {
   return (
     <>
       <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
-        <strong>Golden Touch no es agente de retención.</strong>{' '}
+        {params?.agente_retencion_iva || params?.contribuyente_especial
+          ? <strong>Golden Touch es agente de retención de IVA.</strong>
+          : <strong>Golden Touch no es agente de retención.</strong>}{' '}
         <span className="muted">
-          Lo normal es que le retengan: cada comprobante que entra es un <strong>anticipo de impuesto</strong> que
+          {params?.agente_retencion_iva || params?.contribuyente_especial
+            ? <>Al pagarle a un proveedor le retiene el IVA (en «La practicamos»): ese monto se entera al SENIAT por quincena y el comprobante sale numerado. </>
+            : null}
+          Lo que le retienen sus clientes es un <strong>anticipo de impuesto</strong> que
           se descuenta en la declaración. El IGTF que le cobran al pagar en divisas no se recupera: es costo.
         </span>
       </div>
@@ -430,11 +436,11 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
   const montoBs = enBolivares(calculo.monto, moneda, tasa);
   const rifMal = !!rif.trim() && !rifValido(rif);
 
-  // Golden Touch no está designada contribuyente especial, así que no puede
-  // retener IVA ni percibir IGTF. Solo aplica al lado «practicada»: que le
+  // Golden Touch es agente de retención de IVA pero no contribuyente especial:
+  // retiene IVA, no percibe IGTF. Solo aplica al lado «practicada»: que le
   // retengan a ella se registra siempre, porque es dinero a favor.
   const bloqueoAgente = rol === 'practicada'
-    ? motivoNoPuedeRetener(tipo, params.contribuyente_especial)
+    ? motivoNoPuedeRetener(tipo, params.contribuyente_especial, params.agente_retencion_iva)
     : null;
 
   async function guardar(e: FormEvent) {
@@ -520,7 +526,7 @@ function RegistrarRetencionModal({ params, conceptos, actor, actorName, onClose,
             <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoRetencion)}>
               {TIPOS.map((t) => (
                 <option key={t} value={t}
-                  disabled={rol === 'practicada' && !puedeRetenerLaEmpresa(t, params.contribuyente_especial)}>
+                  disabled={rol === 'practicada' && !puedeRetenerLaEmpresa(t, params.contribuyente_especial, params.agente_retencion_iva)}>
                   {TIPO_RETENCION_LABEL[t]}
                 </option>
               ))}
@@ -816,13 +822,22 @@ function ParametrosModal({ params, onClose, onSaved }: {
           </div>
         </div>
         <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', marginTop: '.5rem' }}>
-          <input type="checkbox" checked={p.contribuyente_especial}
-            onChange={(e) => set('contribuyente_especial', e.target.checked)} />
-          <span>La empresa es contribuyente especial (agente de retención de IVA)</span>
+          <input type="checkbox" checked={p.agente_retencion_iva}
+            onChange={(e) => set('agente_retencion_iva', e.target.checked)} />
+          <span>La empresa es <strong>agente de retención de IVA</strong></span>
         </label>
         <small className="muted">
-          Hoy está en <strong>{p.contribuyente_especial ? 'sí' : 'no'}</strong>. Golden Touch no fue designada agente de
-          retención: si el SENIAT la designa, márcalo aquí.
+          Hoy está en <strong>{p.agente_retencion_iva ? 'sí' : 'no'}</strong>. Con la casilla marcada se puede registrar
+          el IVA retenido a proveedores en «La practicamos».
+        </small>
+        <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', marginTop: '.5rem' }}>
+          <input type="checkbox" checked={p.contribuyente_especial}
+            onChange={(e) => set('contribuyente_especial', e.target.checked)} />
+          <span>La empresa es contribuyente especial</span>
+        </label>
+        <small className="muted">
+          Hoy está en <strong>{p.contribuyente_especial ? 'sí' : 'no'}</strong>. Solo el contribuyente especial percibe
+          el IGTF (y retiene IVA aunque la casilla de arriba no esté marcada).
         </small>
       </form>
     </Modal>

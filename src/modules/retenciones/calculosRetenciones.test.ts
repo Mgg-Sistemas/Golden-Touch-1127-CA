@@ -240,6 +240,14 @@ describe('quién puede retener · Golden Touch no es contribuyente especial', ()
     expect(puedeRetenerLaEmpresa('IVA', NO_ESPECIAL)).toBe(false);
   });
 
+  it('designada agente de retención de IVA (GT desde el 07/10/2026): retiene IVA pero no percibe IGTF', () => {
+    expect(puedeRetenerLaEmpresa('IVA', NO_ESPECIAL, true)).toBe(true);
+    expect(puedeRetenerLaEmpresa('IGTF', NO_ESPECIAL, true)).toBe(false);
+    expect(motivoNoPuedeRetener('IVA', NO_ESPECIAL, true)).toBeNull();
+    expect(motivoNoPuedeRetener('IGTF', NO_ESPECIAL, true)).toContain('contribuyente especial');
+    expect(motivoNoPuedeRetener('IVA', NO_ESPECIAL, false)).toContain('agente de retención de IVA');
+  });
+
   it('sin ser especial, la empresa NO puede percibir IGTF', () => {
     expect(puedeRetenerLaEmpresa('IGTF', NO_ESPECIAL)).toBe(false);
   });
