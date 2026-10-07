@@ -18,29 +18,35 @@ import {
 } from './asignacionesReglas';
 import {
   anularDevolucion, crearAsignacion, devolverAsignacion, editarAsignacion, eliminarAsignacion, guardarKmDevolucion,
-  type ProductoAsignable, type VehiculoFlota,
+  type ProductoAsignable,
 } from './asignaciones.repository';
+import {
+  VIGENCIA_LABEL, descripcionVehiculo, etiquetaVehiculo, marcaModelo, vigenciaAutorizacion, type VehiculoCatalogo,
+} from './vehiculosCatalogo';
+import { descargarAutorizacionVehiculoPdf } from './autorizacionVehiculoPdf';
 
 /** Ejemplo del campo «¿Qué se asigna?» según la categoría. */
 const EJEMPLO: Partial<Record<FormAsignacion['categoria'], string>> = {
   dotacion: 'Camisa, pantalón, botas de seguridad, casco, guantes…',
-  vehiculo: 'Se completa al elegir el vehículo de la flota',
+  vehiculo: 'Se completa al elegir el vehículo del catálogo',
   linea: 'Línea corporativa',
   equipo: 'Laptop, teléfono, radio…',
 };
 
 type Modo = 'ver' | 'editar' | 'devolver';
 
-export function AsignacionModal({ asignacion, tipo = '', personal, productos, vehiculos = [], vehiculosEnUso, canWrite, actor, actorName, onClose, onSaved }: {
+export function AsignacionModal({ asignacion, tipo = '', personal, productos, vehiculos = [], vehiculosEnUso, canWrite, actor, actorName, onClose, onSaved, onCatalogo }: {
   asignacion: Asignacion | null;
   /** Apartado desde el que se abrió (limita las categorías). Vacío = todas. */
   tipo?: TipoAsignacion | '';
   personal: PersonaMin[];
   productos: ProductoAsignable[];
-  /** Flota (fichas de Control de Maquinaria) para el apartado Vehículos. */
-  vehiculos?: VehiculoFlota[];
-  /** equipo_id → a quién está asignado hoy (para avisar antes de guardar). */
+  /** Catálogo de vehículos para el apartado Vehículos (autorización de tránsito). */
+  vehiculos?: VehiculoCatalogo[];
+  /** vehiculo_id → a quién está autorizado hoy (para avisar antes de guardar). */
   vehiculosEnUso?: Map<string, string>;
+  /** Abre el catálogo de vehículos (para agregar uno que falta). */
+  onCatalogo?: () => void;
   canWrite: boolean;
   actor: string;
   actorName: string | null;
@@ -78,19 +84,30 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
     setF((x) => ({ ...x, categoria: c, retornable: CATEGORIA[c].retorna, ...(c === 'vehiculo' ? { desdeInventario: false, producto_id: '' } : {}) }));
   }
 
-  // Al elegir un vehículo de la flota se traen su nombre, placa, marca/modelo y serial.
+  // Al elegir un vehículo del catálogo se traen su nombre, placa, marca/modelo y serial.
   function elegirVehiculo(id: string) {
     const v = vehiculos.find((x) => x.id === id);
     setF((x) => ({
       ...x,
-      equipo_id: id,
-      descripcion: v ? v.equipo : x.descripcion,
+      vehiculo_id: id,
+      descripcion: v ? descripcionVehiculo(v) : x.descripcion,
       placa: v?.placa ?? x.placa,
-      marca_modelo: v ? [v.marca, v.modelo].filter(Boolean).join(' ') : x.marca_modelo,
-      serial: v?.serial ?? x.serial,
+      marca_modelo: v ? marcaModelo(v) : x.marca_modelo,
+      serial: v?.serial_carroceria ?? x.serial,
     }));
   }
-  const enUsoPor = f.equipo_id && f.equipo_id !== asignacion?.equipo_id ? vehiculosEnUso?.get(f.equipo_id) : undefined;
+  const enUsoPor = f.vehiculo_id && f.vehiculo_id !== asignacion?.vehiculo_id ? vehiculosEnUso?.get(f.vehiculo_id) : undefined;
+  const vehiculoElegido = vehiculos.find((v) => v.id === f.vehiculo_id) ?? null;
+  // Se ofrecen los activos; el que ya tenía esta asignación aparece aunque se haya desactivado.
+  const vehiculosOfrecidos = vehiculos.filter((v) => v.activo || v.id === asignacion?.vehiculo_id);
+
+  async function pdfAutorizacion() {
+    if (!asignacion) return;
+    try {
+      await descargarAutorizacionVehiculoPdf(asignacion, personal.find((p) => p.id === asignacion.personal_id) ?? null,
+        vehiculos.find((v) => v.id === asignacion.vehiculo_id) ?? null);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar la autorización', 'error'); }
+  }
 
   // Al elegir un producto del inventario se traen nombre, unidad y costo.
   useEffect(() => {
@@ -186,6 +203,9 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
       {!esNueva && canWrite && modo === 'ver' && (
         <button className="btn btn-ghost" onClick={() => setModo('editar')} disabled={saving}>✏ Editar</button>
       )}
+      {!esNueva && modo === 'ver' && asignacion?.categoria === 'vehiculo' && (
+        <button className="btn btn-ghost" onClick={() => void pdfAutorizacion()} disabled={saving} title="Autorización de tránsito para que la porte el conductor">📄 Autorización</button>
+      )}
       {modo !== 'ver' && !esNueva && <button className="btn btn-ghost" onClick={() => { setModo('ver'); setErrores([]); }} disabled={saving}>Volver</button>}
       {(modo === 'ver' || esNueva) && <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}
       {modo === 'editar' && canWrite && esNueva && (
@@ -217,7 +237,8 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
       )}
 
       {modo === 'ver' && asignacion && (
-        <VerAsignacion a={asignacion} persona={personal.find((p) => p.id === asignacion.personal_id) ?? null} />
+        <VerAsignacion a={asignacion} persona={personal.find((p) => p.id === asignacion.personal_id) ?? null}
+          vehiculo={vehiculos.find((v) => v.id === asignacion.vehiculo_id) ?? null} />
       )}
 
       {modo === 'devolver' && asignacion && (
@@ -324,31 +345,48 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
           {esVehiculo && (
             <div className="form-grid" style={{ marginTop: '.6rem' }}>
               <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-                <label htmlFor="asig-vehiculo">Vehículo de la flota</label>
-                <SearchSelect id="asig-vehiculo" value={f.equipo_id} onChange={elegirVehiculo} placeholder="🔍 Buscar por nombre o placa…"
-                  options={vehiculos.map((v) => {
-                    const uso = v.id !== asignacion?.equipo_id ? vehiculosEnUso?.get(v.id) : undefined;
-                    const mm = [v.marca, v.modelo].filter(Boolean).join(' ');
-                    return {
-                      value: v.id,
-                      label: `${v.equipo}${v.placa ? ` · ${v.placa}` : ''}${mm ? ` · ${mm}` : ''}${uso ? ` · (asignado a ${uso})` : ''}`,
-                    };
+                <label htmlFor="asig-vehiculo">Vehículo del catálogo *</label>
+                <SearchSelect id="asig-vehiculo" value={f.vehiculo_id} onChange={elegirVehiculo} placeholder="🔍 Buscar por placa, nombre o marca…"
+                  options={vehiculosOfrecidos.map((v) => {
+                    const uso = v.id !== asignacion?.vehiculo_id ? vehiculosEnUso?.get(v.id) : undefined;
+                    return { value: v.id, label: `${etiquetaVehiculo(v)}${uso ? ` · (autorizado a ${uso})` : ''}` };
                   })} />
-                <small className="muted">Sale de las fichas de Control de Maquinaria. Si no está registrado, escribe la placa abajo.</small>
+                <small className="muted">
+                  La asignación es la <strong>autorización</strong> para que la persona transite en este vehículo.
+                  {onCatalogo ? <> ¿No está? <button type="button" className="btn-link" onClick={onCatalogo}>🚙 Agrégalo al catálogo</button>.</> : null}
+                </small>
+                {vehiculoElegido && (
+                  <div className="card" style={{ marginTop: '.4rem', padding: '.5rem .7rem', fontSize: '.84rem' }}>
+                    <strong className="mono">{vehiculoElegido.placa}</strong>
+                    {' · '}{[vehiculoElegido.tipo, marcaModelo(vehiculoElegido), vehiculoElegido.color].filter(Boolean).join(' · ') || '—'}
+                    {(vehiculoElegido.serial_carroceria || vehiculoElegido.serial_motor) && (
+                      <div className="muted mono" style={{ fontSize: '.78rem' }}>
+                        {[vehiculoElegido.serial_carroceria ? `Carr. ${vehiculoElegido.serial_carroceria}` : null, vehiculoElegido.serial_motor ? `Motor ${vehiculoElegido.serial_motor}` : null].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {enUsoPor && (
                   <div className="aviso warning sm" style={{ marginTop: '.4rem' }}>
                     <span className="aviso-icono">⚠</span>
-                    <div>Este vehículo ya está asignado a <strong>{enUsoPor}</strong>. Registra primero su devolución.</div>
+                    <div>Este vehículo ya está autorizado a <strong>{enUsoPor}</strong>. Registra primero su devolución.</div>
                   </div>
                 )}
               </div>
               <div className="form-row">
-                <label htmlFor="asig-placa">Placa *</label>
-                <input id="asig-placa" className="input mono" value={f.placa} onChange={(e) => set('placa', e.target.value.toUpperCase())} placeholder="A12BC3D" />
-              </div>
-              <div className="form-row">
                 <label htmlFor="asig-km">Kilometraje al entregar</label>
                 <input id="asig-km" className="input mono" inputMode="decimal" value={f.km_entrega} onChange={(e) => set('km_entrega', e.target.value)} placeholder="km" />
+              </div>
+              <div className="form-row">
+                <label htmlFor="asig-hasta">Autorizado hasta</label>
+                <input id="asig-hasta" className="input" type="date" value={f.autorizacion_hasta} min={f.fecha || undefined}
+                  onChange={(e) => set('autorizacion_hasta', e.target.value)} />
+                <small className="muted">Vacío = mientras lo tenga asignado.</small>
+              </div>
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label htmlFor="asig-ruta">Ruta / zona autorizada</label>
+                <input id="asig-ruta" className="input" value={f.ruta_autorizada} onChange={(e) => set('ruta_autorizada', e.target.value)}
+                  placeholder="Ej.: Upata – Mina Peramanal – Puerto Ordaz" />
               </div>
             </div>
           )}
@@ -468,10 +506,24 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
   );
 }
 
-function VerAsignacion({ a, persona }: { a: Asignacion; persona: PersonaMin | null }) {
+function VerAsignacion({ a, persona, vehiculo }: { a: Asignacion; persona: PersonaMin | null; vehiculo: VehiculoCatalogo | null }) {
   const det = detalleCorto(a);
+  const vig = a.categoria === 'vehiculo' ? vigenciaAutorizacion(a, hoyVenezuela()) : null;
   return (
     <>
+      {vig && (
+        <div className={`aviso ${vig === 'vigente' ? 'success' : vig === 'vencida' ? 'danger' : 'info'}`} style={{ marginBottom: '.7rem' }}>
+          <span className="aviso-icono">{vig === 'vigente' ? '🪪' : vig === 'vencida' ? '⛔' : 'ℹ'}</span>
+          <div>
+            <strong>{VIGENCIA_LABEL[vig]}</strong>
+            {' · '}{nombreDe(persona)} puede transitar en <strong className="mono">{vehiculo?.placa ?? a.placa ?? '—'}</strong>
+            {vehiculo ? ` (${[vehiculo.tipo, marcaModelo(vehiculo), vehiculo.color].filter(Boolean).join(' · ')})` : ''}
+            {' '}desde el {fmtDate(a.fecha)}{a.autorizacion_hasta ? ` hasta el ${fmtDate(a.autorizacion_hasta)}` : ' mientras lo tenga asignado'}.
+            {a.ruta_autorizada && <div>Ruta / zona: {a.ruta_autorizada}</div>}
+            {vig === 'vencida' && <div>La fecha tope ya pasó: edita «Autorizado hasta» para renovarla o registra la devolución.</div>}
+          </div>
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.45rem .9rem', fontSize: '.88rem' }}>
         <div><span className="muted">Trabajador:</span> <strong>{nombreDe(persona)}</strong></div>
         <div><span className="muted">Cargo:</span> <strong>{persona?.cargo || '—'}</strong></div>

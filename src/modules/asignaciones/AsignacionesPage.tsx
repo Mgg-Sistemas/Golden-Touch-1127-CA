@@ -3,7 +3,8 @@
 
    Qué se le dio a cada trabajador, en tres apartados (pestañas):
    📦 bienes y equipo (líneas, laptops, oficina, herramientas), 🦺 dotación
-   al personal (uniformes / EPP con talla) y 🚙 vehículos de la flota. Puede salir del inventario (descuenta
+   al personal (uniformes / EPP con talla) y 🚙 vehículos (la asignación es la
+   AUTORIZACIÓN de tránsito; los vehículos salen de su propio catálogo). Puede salir del inventario (descuenta
    stock) o ser algo de afuera. Lo que RETORNA queda pendiente hasta que se
    registre la devolución; la dotación y el material de oficina no retornan,
    pero igual quedan en el historial de la persona.
@@ -23,8 +24,10 @@ import {
   nombreDe, normalizar, ordenarAsignaciones, resumenAsignaciones, valorTotal,
   type Asignacion, type FiltrosAsignacion, type PersonaMin,
 } from './asignacionesReglas';
-import { listAsignaciones, listProductosAsignables, listVehiculosFlota, type ProductoAsignable, type VehiculoFlota } from './asignaciones.repository';
+import { listAsignaciones, listProductosAsignables, listVehiculosCatalogo, type ProductoAsignable } from './asignaciones.repository';
 import { AsignacionModal } from './AsignacionModal';
+import { VehiculosCatalogoModal, type UsoVehiculo } from './VehiculosCatalogoModal';
+import { vigenciaAutorizacion, type VehiculoCatalogo } from './vehiculosCatalogo';
 import { descargarAsignacionesPdf, nombreArchivoPdf } from './asignacionesPdf';
 
 const PILL: Record<Asignacion['estado'], string> = { asignado: 'ambar', devuelto: 'verde', entregado: 'gris' };
@@ -40,7 +43,8 @@ export function AsignacionesPage() {
   const [lista, setLista] = useState<Asignacion[]>([]);
   const [personal, setPersonal] = useState<PersonaMin[]>([]);
   const [productos, setProductos] = useState<ProductoAsignable[]>([]);
-  const [vehiculos, setVehiculos] = useState<VehiculoFlota[]>([]);
+  const [vehiculos, setVehiculos] = useState<VehiculoCatalogo[]>([]);
+  const [catalogo, setCatalogo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [f, setF] = useState<FiltrosAsignacion>(FILTROS_VACIOS);
   const [masFiltros, setMasFiltros] = useState(false);
@@ -54,7 +58,7 @@ export function AsignacionesPage() {
         listAsignaciones(),
         listPersonal(false).catch(() => []),
         listProductosAsignables().catch(() => [] as ProductoAsignable[]),
-        listVehiculosFlota().catch(() => [] as VehiculoFlota[]),
+        listVehiculosCatalogo().catch(() => [] as VehiculoCatalogo[]),
       ]);
       setLista(as);
       setPersonal(ps as PersonaMin[]);
@@ -64,7 +68,7 @@ export function AsignacionesPage() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
-  useRealtime(['asignaciones', 'personal', 'productos', 'maquinaria_equipos'], () => { void recargar(); });
+  useRealtime(['asignaciones', 'personal', 'productos', 'vehiculos_catalogo'], () => { void recargar(); });
 
   const personas = useMemo(() => new Map(personal.map((p) => [p.id, p])), [personal]);
   const filtradas = useMemo(() => ordenarAsignaciones(filtrarAsignaciones(lista, f, personas)), [lista, f, personas]);
@@ -73,12 +77,25 @@ export function AsignacionesPage() {
     () => lista.filter((a) => a.estado === 'asignado' && (!f.tipo || filtrarAsignaciones([a], { ...FILTROS_VACIOS, tipo: f.tipo }, personas).length > 0)),
     [lista, f.tipo, personas],
   );
-  // Vehículo de la flota → a quién está asignado hoy.
+  // Vehículo del catálogo → a quién está autorizado hoy.
   const vehiculosEnUso = useMemo(() => new Map(
-    lista.filter((a) => a.equipo_id && a.estado === 'asignado')
-      .map((a) => [a.equipo_id as string, `${nombreDe(personas.get(a.personal_id))} (${a.codigo})`]),
+    lista.filter((a) => a.vehiculo_id && a.estado === 'asignado')
+      .map((a) => [a.vehiculo_id as string, `${nombreDe(personas.get(a.personal_id))} (${a.codigo})`]),
   ), [lista, personas]);
-  const flotaLibre = vehiculos.filter((v) => !vehiculosEnUso.has(v.id)).length;
+  // Para el catálogo: a quién está autorizado y cuántas asignaciones tiene (si tiene, no se borra).
+  const usoVehiculos = useMemo(() => {
+    const m = new Map<string, UsoVehiculo>();
+    for (const a of lista) {
+      if (!a.vehiculo_id) continue;
+      const u = m.get(a.vehiculo_id) ?? { total: 0 };
+      m.set(a.vehiculo_id, { ...u, total: u.total + 1 });
+    }
+    for (const [id, quien] of vehiculosEnUso) m.set(id, { ...(m.get(id) ?? { total: 1 }), autorizadoA: quien });
+    return m;
+  }, [lista, vehiculosEnUso]);
+  const vehiculosActivos = vehiculos.filter((v) => v.activo);
+  const flotaLibre = vehiculosActivos.filter((v) => !vehiculosEnUso.has(v.id)).length;
+  const vencidas = useMemo(() => lista.filter((a) => a.categoria === 'vehiculo' && vigenciaAutorizacion(a, hoy) === 'vencida').length, [lista, hoy]);
   const activo = rangoActivo(f.desde, f.hasta, hoy);
   const nActivos = filtrosActivos(f);
 
@@ -142,11 +159,18 @@ export function AsignacionesPage() {
           <span className="lt-kpi-sub">{r.pendientesInactivos ? 'hay que recuperarlos' : 'nada pendiente de quien ya no está'}</span>
         </div>
         {f.tipo === 'vehiculo' && (
-          <div className="lt-kpi verde">
-            <span className="lt-kpi-label">Vehículos de la flota libres</span>
+          <button type="button" className="lt-kpi verde" onClick={() => setCatalogo(true)}>
+            <span className="lt-kpi-label">Vehículos libres</span>
             <span className="lt-kpi-valor">{flotaLibre}</span>
-            <span className="lt-kpi-sub">de {vehiculos.length} en Control de Maquinaria · {vehiculosEnUso.size} asignado(s)</span>
-          </div>
+            <span className="lt-kpi-sub">de {vehiculosActivos.length} en el catálogo · {vehiculosEnUso.size} autorizado(s) · toca para ver el catálogo</span>
+          </button>
+        )}
+        {f.tipo === 'vehiculo' && vencidas > 0 && (
+          <button type="button" className="lt-kpi rojo" onClick={() => setF((x) => ({ ...x, estado: 'pendientes' }))}>
+            <span className="lt-kpi-label">Autorizaciones vencidas</span>
+            <span className="lt-kpi-valor">{vencidas}</span>
+            <span className="lt-kpi-sub">pasó «autorizado hasta»: renovar o registrar la devolución</span>
+          </button>
         )}
         <div className="lt-kpi azul">
           <span className="lt-kpi-label">Asignado en lo filtrado</span>
@@ -241,6 +265,9 @@ export function AsignacionesPage() {
             {f.tipo === 'vehiculo' ? '+ Asignar vehículo' : f.tipo === 'dotacion' ? '+ Nueva dotación' : f.tipo === 'bienes' ? '+ Asignar bien o equipo' : '+ Nueva asignación'}
           </button>
         )}
+        {(f.tipo === 'vehiculo' || !f.tipo) && (
+          <button className="btn btn-ghost" onClick={() => setCatalogo(true)}>🚙 Catálogo de vehículos</button>
+        )}
         <button className="btn btn-ghost" onClick={() => void pdfListado()} disabled={!filtradas.length}>📄 Reporte en PDF</button>
         {f.personalId && (
           <button className="btn btn-ghost" onClick={() => setHistorial(personas.get(f.personalId) ?? null)}>🧾 Historial del trabajador</button>
@@ -283,6 +310,11 @@ export function AsignacionesPage() {
                         <td>
                           <span className={`lt-pill ${PILL[a.estado]}`}>{ESTADO_LABEL[a.estado]}</span>
                           {a.estado === 'devuelto' && <span className="lt-sub">{fmtDate(a.fecha_devolucion)}</span>}
+                          {a.categoria === 'vehiculo' && a.estado === 'asignado' && (
+                            vigenciaAutorizacion(a, hoy) === 'vencida'
+                              ? <span className="lt-pill rojo" style={{ marginLeft: '.3rem' }}>Autorización vencida</span>
+                              : <span className="lt-sub">🪪 Autorizado{a.autorizacion_hasta ? ` hasta ${fmtDate(a.autorizacion_hasta)}` : ''}</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -297,7 +329,13 @@ export function AsignacionesPage() {
         <AsignacionModal asignacion={modal.asignacion} tipo={f.tipo} personal={personal} productos={productos}
           vehiculos={vehiculos} vehiculosEnUso={vehiculosEnUso} canWrite={canWrite}
           actor={actor} actorName={actorName} onClose={() => setModal(null)}
-          onSaved={async () => { setModal(null); await recargar(); }} />
+          onSaved={async () => { setModal(null); await recargar(); }}
+          onCatalogo={canWrite ? () => setCatalogo(true) : undefined} />
+      )}
+
+      {catalogo && (
+        <VehiculosCatalogoModal vehiculos={vehiculos} uso={usoVehiculos} canWrite={canWrite} actor={actor}
+          onClose={() => setCatalogo(false)} onChanged={() => { void recargar(); }} />
       )}
 
       {historial && (

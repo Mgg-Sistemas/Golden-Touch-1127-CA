@@ -8,6 +8,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Asignacion, CondicionDevolucion } from './asignacionesReglas';
 import { ALMACEN_MINA } from '@/modules/inventario/depositos';
+import type { VehiculoCatalogo } from './vehiculosCatalogo';
 
 export interface ProductoAsignable {
   id: string;
@@ -77,24 +78,30 @@ export async function eliminarAsignacion(id: string, actor: string, actorName: s
 
 /* ───────── Vehículos (apartado «Asignación de vehículos») ───────── */
 
-/** Unidad de la flota tomada de la ficha de Control de Maquinaria. */
-export interface VehiculoFlota {
-  id: string;
-  equipo: string;
-  tipo: string | null;
-  marca: string | null;
-  modelo: string | null;
-  placa: string | null;
-  serial: string | null;
-  status: string | null;
+/** Catálogo de vehículos (tabla `vehiculos_catalogo`): activos e inactivos. */
+export async function listVehiculosCatalogo(): Promise<VehiculoCatalogo[]> {
+  const { data, error: e } = await supabase.from('vehiculos_catalogo').select('*').order('placa');
+  if (e) throw error(e, 'No se pudo cargar el catálogo de vehículos');
+  return (data ?? []) as VehiculoCatalogo[];
 }
 
-export async function listVehiculosFlota(): Promise<VehiculoFlota[]> {
-  const { data, error: e } = await supabase.from('maquinaria_equipos')
-    .select('id, equipo, tipo, marca, modelo, placa, serial, status')
-    .eq('activo', true).order('equipo');
-  if (e) throw e;
-  return (data ?? []) as VehiculoFlota[];
+/** Agrega (sin `id`) o edita un vehículo del catálogo. */
+export async function guardarVehiculo(id: string | null, p: Record<string, unknown>, actor: string): Promise<VehiculoCatalogo> {
+  const q = id
+    ? supabase.from('vehiculos_catalogo').update({ ...p, updated_by: actor }).eq('id', id)
+    : supabase.from('vehiculos_catalogo').insert({ ...p, created_by: actor });
+  const { data, error: e } = await q.select('*').single();
+  if (e) {
+    if (e.code === '23505') throw new Error(`La placa ${String(p.placa ?? '')} ya está en el catálogo.`);
+    throw error(e, 'No se pudo guardar el vehículo');
+  }
+  return data as VehiculoCatalogo;
+}
+
+/** Borra un vehículo del catálogo. La base lo impide si tiene asignaciones (se marca inactivo). */
+export async function eliminarVehiculo(id: string): Promise<void> {
+  const { error: e } = await supabase.from('vehiculos_catalogo').delete().eq('id', id);
+  if (e) throw error(e, 'No se pudo borrar el vehículo');
 }
 
 /** Guarda el kilometraje con que se devolvió el vehículo (va después de devolver). */
