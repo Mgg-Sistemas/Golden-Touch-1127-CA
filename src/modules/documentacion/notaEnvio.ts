@@ -47,3 +47,34 @@ export function cantidadTexto(n: number | null | undefined): string {
   const v = Number(n);
   return Number.isInteger(v) ? String(v) : v.toLocaleString('es-VE', { maximumFractionDigits: 2 });
 }
+
+/* ───────── Catálogo de destinatarios ───────── */
+
+/** Lo que se guarda de un destinatario y se copia a la nota. */
+export interface DatosDestinatario {
+  razon_social: string;
+  rif: string | null;
+  direccion: string | null;
+  atencion_a: string | null;
+  condicion: string | null;
+}
+
+const normDest = (s: string | null | undefined) =>
+  String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+
+/** El destinatario del catálogo con esa razón social (sin importar mayúsculas, acentos ni espacios). */
+export function buscarDestinatario<T extends DatosDestinatario>(lista: T[], razon: string): T | null {
+  const k = normDest(razon);
+  return k ? lista.find((d) => normDest(d.razon_social) === k) ?? null : null;
+}
+
+/** ¿Lo escrito en la nota difiere de lo guardado? (para ofrecer actualizar el catálogo) */
+export function difiereDelCatalogo(datos: DatosDestinatario, guardado: DatosDestinatario): boolean {
+  const campos: (keyof DatosDestinatario)[] = ['razon_social', 'rif', 'direccion', 'atencion_a', 'condicion'];
+  return campos.some((c) => normDest(datos[c]) !== normDest(guardado[c]));
+}
+
+/** Renglón del buscador: «ALCALDÍA DE CARONÍ · J-00000000-0 · Atención: Ana Pérez». */
+export function etiquetaDestinatario(d: DatosDestinatario): string {
+  return [d.razon_social, d.rif, d.atencion_a ? `Atención: ${d.atencion_a}` : null].filter(Boolean).join(' · ');
+}

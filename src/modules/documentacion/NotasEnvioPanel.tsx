@@ -20,6 +20,8 @@ import {
 import { ESTADO_ENVIO_LABEL, cantidadTexto, numeroEnvio, totalRenglones, type EstadoEnvio } from './notaEnvio';
 import { descargarNotaEnvioPdf } from './notaEnvioPdf';
 import { NotaEnvioForm } from './NotaEnvioForm';
+import { DestinatariosModal } from './DestinatariosModal';
+import { listDestinatarios, type DestinatarioEnvio } from './documentacion.repository';
 
 const COLOR_ESTADO: Record<EstadoEnvio, string> = {
   emitido: 'var(--warning)',
@@ -39,14 +41,28 @@ export function NotasEnvioPanel({ canWrite, actor }: { canWrite: boolean; actor:
   const [form, setForm] = useState<NotaEnvio | 'nueva' | null>(null);
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [destinatarios, setDestinatarios] = useState<DestinatarioEnvio[]>([]);
+  const [catalogo, setCatalogo] = useState(false);
 
   const cargar = useCallback(async () => {
     try { setNotas(await listNotasEnvio()); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar las notas', 'error'); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => { void cargar(); }, [cargar]);
+  const cargarDestinatarios = useCallback(async () => {
+    try { setDestinatarios(await listDestinatarios()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar el catálogo de destinatarios', 'error'); }
+  }, []);
+  useEffect(() => { void cargar(); void cargarDestinatarios(); }, [cargar, cargarDestinatarios]);
   useRealtime(['envios_documentacion'], () => { void cargar(); });
+  useRealtime(['destinatarios_envio'], () => { void cargarDestinatarios(); });
+
+  // Cuántas notas usan cada razón social (lo muestra la vista previa al borrar del catálogo).
+  const usos = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of notas) m.set(norm(n.razon_social), (m.get(norm(n.razon_social)) ?? 0) + 1);
+    return m;
+  }, [notas]);
 
   const sugerencias = useMemo(() => ({
     razon: unicos(notas.map((n) => n.razon_social)),
@@ -105,6 +121,9 @@ export function NotasEnvioPanel({ canWrite, actor }: { canWrite: boolean; actor:
             <input id="ne-hasta" className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
           </div>
           <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{filtradas.length} de {notas.length}</span>
+          <button className="btn btn-ghost" onClick={() => setCatalogo(true)} title="Clientes / departamentos guardados: agregar, editar y borrar">
+            📇 Destinatarios ({destinatarios.length})
+          </button>
           {canWrite && (
             <button className="btn btn-primary" onClick={() => setForm('nueva')} title={`La próxima nota sale con el N° ${numeroEnvio(proximo)} (aprox.)`}>
               ＋ Nueva nota de envío
@@ -146,9 +165,14 @@ export function NotasEnvioPanel({ canWrite, actor }: { canWrite: boolean; actor:
       {form && (
         <NotaEnvioForm
           nota={form === 'nueva' ? null : form} sugerencias={sugerencias} actor={actor}
+          destinatarios={destinatarios} onCatalogo={canWrite ? () => setCatalogo(true) : undefined}
           onClose={() => setForm(null)}
           onSaved={async (n) => { setForm(null); await cargar(); setDetalleId(n.id); }}
         />
+      )}
+      {catalogo && (
+        <DestinatariosModal destinatarios={destinatarios} usos={usos} canWrite={canWrite} actorEmail={actor.email}
+          onClose={() => setCatalogo(false)} onChanged={() => { void cargarDestinatarios(); }} />
       )}
       {detalle && (
         <NotaDetalle
@@ -219,6 +243,7 @@ function NotaDetalle({ n, canWrite, actor, pdfBusy, onImprimir, onEditar, onClos
         {fila('Estado', <span className="badge" style={{ color: COLOR_ESTADO[n.estado] }}>{ESTADO_ENVIO_LABEL[n.estado]}</span>)}
         {fila('Fecha', fechaVe(n.fecha))}
         {fila('Cliente / departamento', `${n.razon_social}${n.rif ? ` · ${n.rif}` : ''}`)}
+        {n.direccion && fila('Dirección', n.direccion)}
         {n.atencion_a && fila('Atención a', n.atencion_a)}
         {n.condicion && fila('Condición', n.condicion)}
         {n.entregado_por && fila('Entregado por', n.entregado_por)}
