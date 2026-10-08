@@ -158,6 +158,7 @@ export interface NotaEnvio {
   fecha: string;
   razon_social: string;
   rif: string | null;
+  direccion: string | null;
   atencion_a: string | null;
   condicion: string | null;
   items: RenglonEnvio[];
@@ -183,6 +184,7 @@ export interface NotaEnvioInput {
   fecha: string;
   razon_social: string;
   rif?: string | null;
+  direccion?: string | null;
   atencion_a?: string | null;
   condicion?: string | null;
   items: RenglonEnvio[];
@@ -207,6 +209,7 @@ function filaNota(input: NotaEnvioInput) {
     fecha: input.fecha,
     razon_social: input.razon_social.trim(),
     rif: input.rif?.trim() || null,
+    direccion: input.direccion?.trim() || null,
     atencion_a: input.atencion_a?.trim() || null,
     condicion: input.condicion?.trim() || null,
     items,
@@ -259,4 +262,56 @@ export async function anularNotaEnvio(n: NotaEnvio, motivo: string, actorEmail: 
     .update({ estado: 'anulado', anulado_motivo: motivo.trim(), anulado_por: actorEmail, anulado_en: new Date().toISOString() })
     .eq('id', n.id);
   if (error) throw error;
+}
+
+/* ─────────────── Catálogo de destinatarios (notas de envío) ───────────────
+   Cliente / departamento + detalles de entrega que se repiten de una nota a
+   otra. Se eligen en el formulario y rellenan los campos; se agregan, editan
+   y borran desde «📇 Destinatarios». Borrar uno no toca las notas ya hechas:
+   cada nota guarda su propia copia de los datos. */
+
+const T_DEST = 'destinatarios_envio';
+
+export interface DestinatarioEnvio {
+  id: string;
+  razon_social: string;
+  rif: string | null;
+  direccion: string | null;
+  atencion_a: string | null;
+  condicion: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export type DestinatarioInput = Pick<DestinatarioEnvio, 'razon_social' | 'rif' | 'direccion' | 'atencion_a' | 'condicion'>;
+
+export async function listDestinatarios(): Promise<DestinatarioEnvio[]> {
+  const { data, error } = await supabase.from(T_DEST).select('*').order('razon_social');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as DestinatarioEnvio[];
+}
+
+function filaDestinatario(d: DestinatarioInput) {
+  if (!d.razon_social?.trim()) throw new Error('Indica la razón social o el departamento.');
+  const t = (x: string | null | undefined) => x?.trim() || null;
+  return { razon_social: d.razon_social.trim(), rif: t(d.rif), direccion: t(d.direccion), atencion_a: t(d.atencion_a), condicion: t(d.condicion) };
+}
+
+/** Agrega (sin id) o edita un destinatario del catálogo. */
+export async function guardarDestinatario(id: string | null, d: DestinatarioInput, actorEmail: string): Promise<DestinatarioEnvio> {
+  const fila = filaDestinatario(d);
+  const q = id
+    ? supabase.from(T_DEST).update({ ...fila, updated_by: actorEmail }).eq('id', id)
+    : supabase.from(T_DEST).insert({ ...fila, created_by: actorEmail });
+  const { data, error } = await q.select('*').single();
+  if (error) {
+    if (error.code === '23505') throw new Error(`«${fila.razon_social}» ya está en el catálogo.`);
+    throw new Error(error.message || 'No se pudo guardar el destinatario');
+  }
+  return data as DestinatarioEnvio;
+}
+
+export async function eliminarDestinatario(id: string): Promise<void> {
+  const { error } = await supabase.from(T_DEST).delete().eq('id', id);
+  if (error) throw new Error(error.message || 'No se pudo borrar el destinatario');
 }

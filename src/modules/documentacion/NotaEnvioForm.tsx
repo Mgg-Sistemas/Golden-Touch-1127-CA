@@ -3,20 +3,33 @@
    Crear o corregir (mientras está «Enviada»). El N° lo asigna la base
    al guardar. El total sigue la suma de cantidades salvo que se escriba
    a mano (en el papel a veces se cuenta distinto, p. ej. solo facturas).
+
+   Cliente / departamento y detalles de entrega salen del catálogo de
+   destinatarios (📇): al elegir uno se rellenan los cinco campos, y al
+   guardar la nota se puede agregar o actualizar ese destinatario.
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { FechaInput } from '@/shared/ui/FechaInput';
 import { toast } from '@/shared/ui/Toast';
-import { crearNotaEnvio, actualizarNotaEnvio, type NotaEnvio } from './documentacion.repository';
-import { numeroEnvio, totalRenglones, type RenglonEnvio } from './notaEnvio';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import {
+  crearNotaEnvio, actualizarNotaEnvio, guardarDestinatario, type DestinatarioEnvio, type NotaEnvio,
+} from './documentacion.repository';
+import {
+  buscarDestinatario, difiereDelCatalogo, etiquetaDestinatario, numeroEnvio, totalRenglones, type RenglonEnvio,
+} from './notaEnvio';
 
 const hoyCaracas = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
 
-export function NotaEnvioForm({ nota, sugerencias, actor, onClose, onSaved }: {
+export function NotaEnvioForm({ nota, sugerencias, destinatarios, onCatalogo, actor, onClose, onSaved }: {
   nota: NotaEnvio | null;
   /** Valores ya usados (razón social, atención, condición) para autocompletar. */
   sugerencias: { razon: string[]; rif: Record<string, string>; atencion: string[]; condicion: string[] };
+  /** Catálogo de destinatarios (📇). */
+  destinatarios: DestinatarioEnvio[];
+  /** Abre el catálogo para gestionarlo. */
+  onCatalogo?: () => void;
   actor: { email: string; nombre: string | null };
   onClose: () => void;
   onSaved: (n: NotaEnvio) => void;
@@ -24,6 +37,7 @@ export function NotaEnvioForm({ nota, sugerencias, actor, onClose, onSaved }: {
   const [fecha, setFecha] = useState(nota?.fecha ?? hoyCaracas());
   const [razon, setRazon] = useState(nota?.razon_social ?? '');
   const [rif, setRif] = useState(nota?.rif ?? '');
+  const [direccion, setDireccion] = useState(nota?.direccion ?? '');
   const [atencion, setAtencion] = useState(nota?.atencion_a ?? '');
   const [condicion, setCondicion] = useState(nota?.condicion ?? '');
   const [items, setItems] = useState<Array<{ descripcion: string; cantidad: string }>>(
@@ -50,20 +64,51 @@ export function NotaEnvioForm({ nota, sugerencias, actor, onClose, onSaved }: {
   const setItem = (i: number, campo: 'descripcion' | 'cantidad', v: string) =>
     setItems((xs) => xs.map((r, j) => (j === i ? { ...r, [campo]: v } : r)));
 
+  // Elegido del catálogo: rellena los cinco campos (se pueden retocar después).
+  function elegirDestinatario(id: string) {
+    const d = destinatarios.find((x) => x.id === id);
+    if (!d) return;
+    setRazon(d.razon_social); setRif(d.rif ?? ''); setDireccion(d.direccion ?? '');
+    setAtencion(d.atencion_a ?? ''); setCondicion(d.condicion ?? '');
+  }
+
+  // Escrita a mano: si coincide con uno del catálogo, completa lo que esté vacío.
   function elegirRazon(v: string) {
     setRazon(v);
-    if (!rif && sugerencias.rif[v]) setRif(sugerencias.rif[v]);
+    const d = buscarDestinatario(destinatarios, v);
+    if (d) {
+      if (!rif) setRif(d.rif ?? '');
+      if (!direccion) setDireccion(d.direccion ?? '');
+      if (!atencion) setAtencion(d.atencion_a ?? '');
+      if (!condicion) setCondicion(d.condicion ?? '');
+    } else if (!rif && sugerencias.rif[v]) setRif(sugerencias.rif[v]);
   }
+
+  // ¿Se guarda en el catálogo? Nuevo → marcado; ya existe y cambió → se ofrece actualizarlo.
+  const datos = { razon_social: razon, rif: rif || null, direccion: direccion || null, atencion_a: atencion || null, condicion: condicion || null };
+  const enCatalogo = buscarDestinatario(destinatarios, razon);
+  const cambioCatalogo = !!enCatalogo && difiereDelCatalogo(datos, enCatalogo);
+  // Por defecto: nuevo se guarda; uno existente NO se pisa (un retoque puede ser solo para esta nota).
+  const [eleccionCatalogo, setGuardarEnCatalogo] = useState<boolean | null>(null);
+  const guardarEnCatalogo = eleccionCatalogo ?? !enCatalogo;
+  const ofrecerCatalogo = !!razon.trim() && (!enCatalogo || cambioCatalogo);
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null); setSaving(true);
     const input = {
-      fecha, razon_social: razon, rif, atencion_a: atencion, condicion,
+      fecha, razon_social: razon, rif, direccion, atencion_a: atencion, condicion,
       items: renglones, total_etiqueta: etiqueta, total, entregado_por: entregadoPor, notas,
     };
     try {
       const n = nota ? await actualizarNotaEnvio(nota.id, input) : await crearNotaEnvio(input, actor);
       toast(nota ? `Nota N° ${numeroEnvio(n.numero)} actualizada` : `Nota de envío N° ${numeroEnvio(n.numero)} creada`, 'success');
+      // El catálogo va después de la nota: si falla, la nota ya quedó y solo se avisa.
+      if (ofrecerCatalogo && guardarEnCatalogo) {
+        try {
+          await guardarDestinatario(enCatalogo?.id ?? null, datos, actor.email);
+          toast(enCatalogo ? `«${razon.trim()}» actualizado en el catálogo` : `«${razon.trim()}» guardado en el catálogo`, 'success');
+        } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo guardar en el catálogo', 'error'); }
+      }
       onSaved(n);
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
   }
@@ -93,16 +138,32 @@ export function NotaEnvioForm({ nota, sugerencias, actor, onClose, onSaved }: {
         </div>
 
         <div className="card-title" style={{ margin: '.4rem 0' }}>Datos del cliente / departamento</div>
+        <div className="form-row">
+          <label htmlFor="ne-catalogo">Elegir del catálogo</label>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <SearchSelect id="ne-catalogo" value={enCatalogo?.id ?? ''} onChange={elegirDestinatario}
+                placeholder={destinatarios.length ? '🔍 Buscar destinatario guardado…' : 'Aún no hay destinatarios guardados'}
+                options={destinatarios.map((d) => ({ value: d.id, label: etiquetaDestinatario(d) }))} />
+            </div>
+            {onCatalogo && <button type="button" className="btn btn-ghost" onClick={onCatalogo} title="Agregar, editar o borrar destinatarios">📇 Catálogo</button>}
+          </div>
+          <small className="muted">Rellena los cinco campos de abajo; se pueden retocar para esta nota.</small>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1rem' }}>
           <div className="form-row">
             <label htmlFor="ne-razon">Razón social / departamento *</label>
             <input id="ne-razon" className="input" list="ne-razones" value={razon} onChange={(e) => elegirRazon(e.target.value)} />
-            <datalist id="ne-razones">{sugerencias.razon.map((v) => <option key={v} value={v} />)}</datalist>
+            <datalist id="ne-razones">{[...new Set([...destinatarios.map((d) => d.razon_social), ...sugerencias.razon])].map((v) => <option key={v} value={v} />)}</datalist>
           </div>
           <div className="form-row">
             <label htmlFor="ne-rif">RIF / C.I.</label>
             <input id="ne-rif" className="input" value={rif} onChange={(e) => setRif(e.target.value)} />
           </div>
+        </div>
+        <div className="form-row">
+          <label htmlFor="ne-direccion">Dirección (opcional)</label>
+          <input id="ne-direccion" className="input" value={direccion} onChange={(e) => setDireccion(e.target.value)} />
         </div>
 
         <div className="card-title" style={{ margin: '.4rem 0' }}>Detalles de entrega</div>
@@ -118,6 +179,16 @@ export function NotaEnvioForm({ nota, sugerencias, actor, onClose, onSaved }: {
             <datalist id="ne-condiciones">{sugerencias.condicion.map((v) => <option key={v} value={v} />)}</datalist>
           </div>
         </div>
+        {ofrecerCatalogo && (
+          <label style={{ display: 'flex', gap: '.45rem', alignItems: 'center', fontSize: '.86rem', margin: '.1rem 0 .6rem' }}>
+            <input type="checkbox" checked={guardarEnCatalogo} onChange={(e) => setGuardarEnCatalogo(e.target.checked)} />
+            <span>
+              {enCatalogo
+                ? <>Actualizar <strong>{enCatalogo.razon_social}</strong> en el catálogo con estos datos</>
+                : <>Guardar este destinatario en el <strong>catálogo</strong> para la próxima nota</>}
+            </span>
+          </label>
+        )}
 
         <div className="card-title" style={{ margin: '.4rem 0' }}>Renglones</div>
         <div className="table-wrap">

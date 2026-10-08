@@ -64,7 +64,8 @@ export async function descargarNotaEnvioPdf(n: NotaEnvio): Promise<void> {
   // ─── Recuadros: cliente / departamento · detalles de entrega ───
   const gap = 12;
   const bw = (W - 2 * M - gap) / 2;
-  const bh = 78;
+  // Con dirección el recuadro del cliente lleva un renglón más (hasta dos líneas).
+  const bh = n.direccion ? 108 : 78;
   const caja = (x: number, titulo: string, filas: Array<[string, string]>) => {
     doc.setFillColor(...FONDO_CAJA); doc.setDrawColor(...BORDE_CAJA); doc.setLineWidth(0.7);
     doc.roundedRect(x, y, bw, bh, 5, 5, 'FD');
@@ -80,7 +81,10 @@ export async function descargarNotaEnvioPdf(n: NotaEnvio): Promise<void> {
       fy += val.length > 1 ? 24 : 18;
     });
   };
-  caja(M, 'DATOS DEL CLIENTE / DEPARTAMENTO', [['Razón social:', n.razon_social], ['RIF / C.I.:', n.rif ?? '']]);
+  caja(M, 'DATOS DEL CLIENTE / DEPARTAMENTO', [
+    ['Razón social:', n.razon_social], ['RIF / C.I.:', n.rif ?? ''],
+    ...(n.direccion ? [['Dirección:', n.direccion] as [string, string]] : []),
+  ]);
   caja(M + bw + gap, 'DETALLES DE ENTREGA', [['Atención a:', n.atencion_a ?? ''], ['Condición:', n.condicion ?? '']]);
   y += bh + 16;
 
