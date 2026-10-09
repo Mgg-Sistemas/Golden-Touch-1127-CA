@@ -19,7 +19,16 @@ import type { EmpresaRrhh, Personal, AnticipoPrestamo, NominaRenglon, NominaPeri
 import { getTasaHoy, round2 } from '../tesoreria/tasas.repository';
 import { listPersonal, setPersonalActivo } from './personal.repository';
 import { listAnticiposActivos } from './anticipos.repository';
-import { descargarNominaReciboPdf } from './nominaReciboPdf';
+import { descargarNominaReciboPdf, type TipoRecibo } from './nominaReciboPdf';
+
+/** Qué recibos sacar de cada persona: los dos (sueldo en Bs + bonificación) o uno solo. */
+type CualesRecibos = 'ambos' | TipoRecibo;
+const CUALES_RECIBOS: { id: CualesRecibos; label: string }[] = [
+  { id: 'ambos', label: 'Los dos recibos' },
+  { id: 'sueldo', label: '1 · Sueldo en Bs' },
+  { id: 'bono', label: '2 · Bonificación y descuentos' },
+];
+const tiposDe = (c: CualesRecibos): TipoRecibo[] => (c === 'ambos' ? ['sueldo', 'bono'] : [c]);
 import {
   cargarNomina, listNominas, listRenglones, eliminarNomina, calcularRenglon,
   recuperarNomina, vaciarPapeleraNomina, quincenaAbiertaDe,
@@ -448,6 +457,7 @@ function ImprimirRecibosModal({ periodo, empresa, onClose }: {
   const [cargando, setCargando] = useState(true);
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cuales, setCuales] = useState<CualesRecibos>('ambos');
 
   useEffect(() => {
     let vigente = true;
@@ -470,7 +480,7 @@ function ImprimirRecibosModal({ periodo, empresa, onClose }: {
     if (!aImprimir.length) { setError('No queda ningún recibo marcado para imprimir.'); return; }
     setGenerando(true);
     try {
-      await descargarNominaReciboPdf(aImprimir, { periodo, cedulas });
+      await descargarNominaReciboPdf(aImprimir, { periodo, cedulas, tipos: tiposDe(cuales) });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo generar el PDF');
@@ -487,7 +497,7 @@ function ImprimirRecibosModal({ periodo, empresa, onClose }: {
         <>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={generando}>Cancelar</button>
           <button type="button" className="btn btn-primary" onClick={imprimir} disabled={generando || cargando || !aImprimir.length}>
-            {generando ? 'Armando el PDF…' : `🖨 Imprimir ${aImprimir.length} recibo(s)`}
+            {generando ? 'Armando el PDF…' : `🖨 Imprimir ${aImprimir.length * tiposDe(cuales).length} recibo(s) · ${aImprimir.length} persona(s)`}
           </button>
         </>
       }
@@ -496,8 +506,13 @@ function ImprimirRecibosModal({ periodo, empresa, onClose }: {
 
       <div className="aviso info sm" style={{ marginBottom: '.7rem' }}>
         <span className="aviso-icono">🖨</span>
-        <div>Se arma <strong>un PDF con una hoja por trabajador</strong>, agrupadas por la fecha en que cobraron.
-          Destilda a quien no quieras imprimir —por ejemplo, a los que ya firmaron su recibo la semana pasada—.</div>
+        <div>Cada trabajador tiene <strong>dos recibos</strong>, cada uno en su hoja y con sus firmas: <strong>1 · el pago en bolívares</strong> (el sueldo) y <strong>2 · la bonificación</strong> en divisas, con los préstamos y anticipos descontados.
+          Se agrupan por la fecha en que cobraron. Destilda a quien no quieras imprimir —por ejemplo, a los que ya firmaron su recibo la semana pasada—.</div>
+      </div>
+      <div role="group" aria-label="Qué recibos imprimir" style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.7rem' }}>
+        {CUALES_RECIBOS.map((c) => (
+          <button key={c.id} type="button" className={`btn btn-sm ${cuales === c.id ? 'btn-primary' : 'btn-ghost'}`} aria-pressed={cuales === c.id} onClick={() => setCuales(c.id)}>{c.label}</button>
+        ))}
       </div>
 
       {cargando && <div className="muted">Cargando los renglones…</div>}
@@ -584,7 +599,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   const [diasBase, setDiasBase] = useState(11);
   const [descansoBase, setDescansoBase] = useState(4);
   // Del total acordado, este porcentaje se declara como sueldo en el recibo;
-  // el resto se paga como bono, en divisas, y no entra al recibo.
+  // el resto se paga como bono, en divisas: va en el recibo 2 (bonificación y descuentos).
   const [sueldoPct, setSueldoPct] = useState(SUELDO_PCT_DEFECTO);
   const [tasa, setTasa] = useState(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
@@ -1038,7 +1053,7 @@ function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResume
   return (
     <Modal title={`Nómina ${periodo.codigo}`} size="xl" onClose={onClose} footer={
       <>
-        <button className="btn btn-ghost" onClick={() => descargarNominaReciboPdf(rows, { periodo, cedulas }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length} title="Recibos de pago de TODA la nómina (uno por persona), con fecha y líneas de firma de la persona y la Jefa de RRHH">📄 Recibos de pago (todos)</button>
+        <button className="btn btn-ghost" onClick={() => descargarNominaReciboPdf(rows, { periodo, cedulas }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length} title="Recibos de TODA la nómina: dos por persona (1 · sueldo en Bs y 2 · bonificación con préstamos y anticipos), cada uno con fecha y líneas de firma de la persona y la Jefa de RRHH">📄 Recibos de pago (todos · 2 por persona)</button>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
@@ -1061,7 +1076,7 @@ function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResume
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.neto_usd)}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: r.estado === 'pagada' ? 'var(--success)' : 'var(--warning)' }}>{r.estado === 'pagada' ? 'Pagada' : 'Por pagar'}</span></td>
                 <td className="muted">{r.pagada_en ? `${dateTime(r.pagada_en)}${r.moneda_pago ? ` · ${r.moneda_pago}` : ''}` : '—'}</td>
-                <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => reciboDe(r)} title="Recibo de pago (con fecha y líneas de firma: la persona y la Jefa de RRHH)">📄</button></td>
+                <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => reciboDe(r)} title="Sus dos recibos: 1 · sueldo en Bs y 2 · bonificación con préstamos y anticipos (con fecha y líneas de firma: la persona y la Jefa de RRHH)">📄</button></td>
               </tr>
             ))}
           </tbody>
