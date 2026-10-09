@@ -37,6 +37,10 @@ const AuditoriaPage = lazy(() => import('./modules/auditoria/AuditoriaPage').the
 const MaquinariaPage = lazy(() => import('./modules/maquinaria/MaquinariaPage').then((m) => ({ default: m.MaquinariaPage })));
 const ServicioMantenimientoPage = lazy(() => import('./modules/maquinaria/ServicioMantenimientoPage').then((m) => ({ default: m.ServicioMantenimientoPage })));
 const EquipoExpedientePage = lazy(() => import('./modules/maquinaria/EquipoExpedientePage').then((m) => ({ default: m.EquipoExpedientePage })));
+const OrdenesServicioPage = lazy(() => import('./modules/maquinaria/OrdenesServicioPage').then((m) => ({ default: m.OrdenesServicioPage })));
+const AveriasEstadosPage = lazy(() => import('./modules/maquinaria/AveriasEstadosPage').then((m) => ({ default: m.AveriasEstadosPage })));
+const LavadosPage = lazy(() => import('./modules/maquinaria/LavadosPage').then((m) => ({ default: m.LavadosPage })));
+const RepuestosComprasPage = lazy(() => import('./modules/maquinaria/RepuestosComprasPage').then((m) => ({ default: m.RepuestosComprasPage })));
 const TelefonoInicioPage = lazy(() => import('./modules/auth/TelefonoInicioPage').then((m) => ({ default: m.TelefonoInicioPage })));
 const CambiarClavePage = lazy(() => import('./modules/usuarios/CambiarClavePage').then((m) => ({ default: m.CambiarClavePage })));
 
@@ -107,6 +111,10 @@ export function App() {
           <Route path="maquinaria" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/servicio-mantenimiento" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><ServicioMantenimientoPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/equipo/:id" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><EquipoExpedientePage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/ordenes" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><OrdenesServicioPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/averias" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><AveriasEstadosPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/lavados" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><LavadosPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/repuestos" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><RepuestosComprasPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
           <Route path="asignaciones" element={<RequireModule module="asignaciones"><Suspense fallback={<PageLoader />}><AsignacionesPage /></Suspense></RequireModule>} />
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />

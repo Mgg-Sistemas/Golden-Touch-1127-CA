@@ -160,7 +160,7 @@ export function AppShell() {
       ['ventas', '/app/ventas'],
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
       ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
-      ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['retenciones', '/app/retenciones'], ['documentacion', '/app/documentacion'],
+      ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['maquinaria', '/app/maquinaria/ordenes'], ['maquinaria', '/app/maquinaria/averias'], ['maquinaria', '/app/maquinaria/lavados'], ['maquinaria', '/app/maquinaria/repuestos'], ['retenciones', '/app/retenciones'], ['documentacion', '/app/documentacion'],
       ['rrhh', '/app/rrhh'], ['asignaciones', '/app/asignaciones'], ['usuarios', '/app/usuarios'], ['ajustes', '/app/ajustes'],
       ['geodesta', '/app/geodesta'],
     ] as Array<[ModuleKey, string]>)
@@ -335,6 +335,10 @@ export function AppShell() {
           {can('geodesta') && <NavItem to="/app/geodesta" icon="🧭" label="Geodesta" />}
           {can('asignaciones') && <NavItem to="/app/asignaciones" icon="🎒" label="Asignaciones" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
+          {can('maquinaria') && <NavItem to="/app/maquinaria/ordenes" icon="🧾" label="Órdenes de servicio" />}
+          {can('maquinaria') && <NavItem to="/app/maquinaria/averias" icon="🔴" label="Averías y estados" />}
+          {can('maquinaria') && <NavItem to="/app/maquinaria/lavados" icon="🚿" label="Lavados" />}
+          {can('maquinaria') && <NavItem to="/app/maquinaria/repuestos" icon="🛒" label="Repuestos y compras" />}
           {can('maquinaria') && <NavItem to="/app/maquinaria/servicio-mantenimiento" icon="🔧" label="Servicio de Mantenimiento" />}
         </nav>}
 

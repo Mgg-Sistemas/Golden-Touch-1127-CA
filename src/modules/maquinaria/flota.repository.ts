@@ -16,6 +16,7 @@ import type { ItemOrden, ItemSalida, Orden } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { crearOrden } from '@/modules/pedidos/pedidos.repository';
 import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
+import { ultimoHorometroEquipo, ultimoKilometrajeEquipo } from '@/modules/combustible/tanques.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
 import { servicioPorId, piezasNuevas } from './flota';
 export { faltaSalida, faltaCompra } from './flota';
@@ -387,4 +388,52 @@ export async function eliminarLavado(id: string): Promise<void> {
   const { data, error } = await supabase.from('maquinaria_lavados').delete().eq('id', id).select('id');
   if (error) throw error;
   if (!data?.length) throw new Error('Solo un administrador puede borrar lavados.');
+}
+
+/* ───────── Lecturas para los submódulos (todos los equipos) ───────── */
+
+/** Historial global de cambios de estado (más reciente primero). */
+export async function listEventosEstadoTodos(limite = 2000): Promise<EventoEstado[]> {
+  const { data, error } = await supabase.from('maquinaria_estado_eventos').select('*')
+    .order('created_at', { ascending: false }).limit(limite);
+  if (error) throw error;
+  return (data ?? []) as EventoEstado[];
+}
+
+/** Todos los lavados (más reciente primero). */
+export async function listLavadosTodos(limite = 5000): Promise<LavadoEquipo[]> {
+  const { data, error } = await supabase.from('maquinaria_lavados').select('*')
+    .order('fecha', { ascending: false }).limit(limite);
+  if (error) throw error;
+  return (data ?? []) as LavadoEquipo[];
+}
+
+export interface CompraResumen { id: string; codigo: string; oc_codigo: string | null; estado: string; created_at: string; total: number | null; total_moneda: string | null }
+
+/** Las solicitudes de pedido / OC vinculadas a órdenes de servicio (por id). */
+export async function comprasPorIds(ids: string[]): Promise<Map<string, CompraResumen>> {
+  const out = new Map<string, CompraResumen>();
+  const unicos = [...new Set(ids.filter(Boolean))];
+  if (!unicos.length) return out;
+  const { data, error } = await supabase.from('ordenes').select('id, codigo, oc_codigo, estado, created_at, total, total_moneda').in('id', unicos);
+  if (error) throw error;
+  for (const r of (data ?? []) as CompraResumen[]) out.set(r.id, { ...r, total: r.total != null ? Number(r.total) : null });
+  return out;
+}
+
+/** Horómetro y km vigentes de un equipo (Combustible; el horómetro cae a la bitácora). */
+export async function lecturasVigentesEquipo(e: { id: string; combustible_equipo: string | null }): Promise<{ horometro: number | null; km: number | null }> {
+  const vinc = (e.combustible_equipo ?? '').trim();
+  const [horo, km] = await Promise.all([
+    vinc ? ultimoHorometroEquipo(vinc).catch(() => null) : Promise.resolve(null),
+    vinc ? ultimoKilometrajeEquipo(vinc).catch(() => null) : Promise.resolve(null),
+  ]);
+  let horometro = horo;
+  if (horometro == null) {
+    const { data } = await supabase.from('maquinaria_mantenimientos').select('horometro')
+      .eq('equipo_id', e.id).not('horometro', 'is', null)
+      .order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(1);
+    horometro = data?.[0]?.horometro != null ? Number(data[0].horometro) : null;
+  }
+  return { horometro, km };
 }

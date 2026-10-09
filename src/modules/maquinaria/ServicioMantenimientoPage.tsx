@@ -7,6 +7,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { useSession } from '@/modules/auth/authStore';
 import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { BitacoraModal } from './BitacoraModal';
+import { FlotaNav } from './FlotaNav';
 import { ResumenMantenimientoModal } from './ResumenMantenimientoModal';
 import { listEquipos, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { horasUltimoPorEquipo, solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
@@ -173,6 +174,7 @@ export function ServicioMantenimientoPage() {
 
   return (
     <div>
+      <FlotaNav />
       <div className="page-head">
         <div>
           <h1>🔧 Servicio de Mantenimiento</h1>

@@ -431,3 +431,39 @@
   /* Pie de las ventanas de este módulo (Modal no acepta clase: se ubican por su contenido). */
   .modal:has(.flo) .modal-footer .btn { min-height: 44px; flex: 1 1 auto; justify-content: center; white-space: normal; }
 }
+
+/* ───────── Submódulos: tira de navegación, filtros y listados ───────── */
+.flo-subnav {
+  display: flex; gap: .35rem; overflow-x: auto; scrollbar-width: none; margin-bottom: .8rem; padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+.flo-subnav::-webkit-scrollbar { display: none; }
+.flo-subnav a {
+  flex: none; display: inline-flex; align-items: center; gap: .35rem; min-height: 38px; padding: 0 .8rem;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  font-size: .82rem; font-weight: 600; white-space: nowrap; text-decoration: none;
+}
+.flo-subnav a:hover { color: var(--text); border-color: var(--border-strong); }
+.flo-subnav a.activo { color: var(--text); border-color: var(--primary); background: var(--grad-primary-soft), var(--surface); }
+.flo-fecha { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; color: var(--text-muted); }
+.flo-fecha .input { width: auto; }
+.flo-filtro-equipo { flex: 1 1 220px; min-width: 0; }
+.flo-chips-col { display: grid; gap: .3rem; justify-items: end; }
+.flo-sec-acc { display: flex; gap: .35rem; flex-wrap: wrap; }
+.flo-tabs-plano { position: static; background: transparent; backdrop-filter: none; }
+.flo-ver-todo { justify-self: start; font-size: .82rem; font-weight: 600; }
+a.flo-row { color: inherit; }
+a.flo-kcard { color: var(--text-muted); }
+a.flo-kcard:hover { border-color: var(--border-strong); }
+
+@media (max-width: 640px) {
+  .flo-subnav { margin: 0 -1rem .8rem; padding: 0 1rem 2px; }
+  .flo-subnav a { min-height: 44px; }
+  .flo-filtros .fila > .flo-fecha { flex: 1 1 calc(50% - .5rem); min-width: 0; flex-direction: column; align-items: stretch; gap: .15rem; }
+  .flo-fecha .input { width: 100%; min-width: 0; min-height: 44px; }
+  .flo-filtros .select, .flo-filtros .input { min-height: 44px; }
+  .flo-chips-col { justify-items: start; }
+  .flo-sec-acc { width: 100%; }
+  .flo-sec-acc .btn { flex: 1 1 0; }
+  .flo-ver-todo { min-height: 44px; display: inline-flex; align-items: center; }
+}

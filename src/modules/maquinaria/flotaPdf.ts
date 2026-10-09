@@ -297,3 +297,42 @@ export async function ordenServicioPdf(
   pies(doc, `${o.codigo} · ${e.equipo}`);
   previewPdf(doc, `${nombreArchivo(`${o.codigo} ${e.equipo}`)}.pdf`);
 }
+
+/** Un listado de los submódulos (órdenes, estados, lavados, repuestos) en PDF. */
+export interface ListadoFlota {
+  titulo: string;
+  /** Filtros aplicados, en palabras («Estado: abiertas · Desde 01/10/2026»). */
+  subtitulo: string;
+  encabezados: string[];
+  filas: (string | number | null)[][];
+  /** Anchos relativos de las columnas (se reparten en el ancho útil). */
+  anchos?: number[];
+  archivo: string;
+}
+
+/** PDF apaisado con el membrete y el pie del sistema (logo, «Página X de Y»). */
+export async function listadoFlotaPdf(l: ListadoFlota): Promise<void> {
+  if (!l.filas.length) throw new Error('No hay filas que exportar con estos filtros.');
+  const { jsPDF, autoTable } = await cargarPdf();
+  const doc = new jsPDF({ unit: 'mm', format: 'letter', orientation: 'landscape' });
+  const W = doc.internal.pageSize.getWidth();
+  let y = await encabezado(doc, l.titulo, l.subtitulo, null);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+  doc.text(`${l.filas.length} registro(s) · generado ${new Date().toLocaleString('es-VE')}`, M, y);
+  y += 4;
+  const util = W - 2 * M;
+  const total = (l.anchos ?? l.encabezados.map(() => 1)).reduce((a, b) => a + b, 0);
+  const columnStyles: Record<number, { cellWidth: number }> = {};
+  (l.anchos ?? []).forEach((a, i) => { columnStyles[i] = { cellWidth: (a / total) * util }; });
+  autoTable(doc, {
+    startY: y, margin: { left: M, right: M, bottom: 18 }, theme: 'grid',
+    head: [l.encabezados],
+    body: l.filas.map((f) => f.map((c) => (c == null ? '' : typeof c === 'number' ? fmtNum(c) : c))),
+    styles: { fontSize: 7.8, cellPadding: 1.8, lineColor: BORDE, lineWidth: 0.25, textColor: TINTA, overflow: 'linebreak', valign: 'middle' },
+    headStyles: { fillColor: NARANJA, textColor: [26, 14, 0], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [250, 246, 240] },
+    columnStyles,
+  });
+  pies(doc, l.titulo.toLowerCase().replace(/^./, (c) => c.toUpperCase()));
+  previewPdf(doc, `${nombreArchivo(l.archivo)}.pdf`);
+}

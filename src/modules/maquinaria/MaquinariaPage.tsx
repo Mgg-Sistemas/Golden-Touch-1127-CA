@@ -19,6 +19,7 @@ import {
   type AvisoServicio, type BucketFlota, type ClaseEquipo, type EstadoEquipo,
 } from './flota';
 import { ordenesAbiertasPorEquipo, fotosDeEquipos } from './flota.repository';
+import { FlotaNav } from './FlotaNav';
 
 interface InfoEquipo {
   estado: EstadoEquipo;
@@ -171,6 +172,7 @@ export function MaquinariaPage() {
 
   return (
     <div className="flo">
+      <FlotaNav />
       <div className="page-head">
         <div>
           <h1 className="flo-h1">🚜 Control de Maquinaria y Vehículos</h1>
@@ -178,7 +180,6 @@ export function MaquinariaPage() {
         </div>
         <div className="actions" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           {canWrite && <button className="btn btn-primary" onClick={() => setNuevo(true)}>+ Nuevo equipo</button>}
-          <Link className="btn btn-ghost" to="/app/maquinaria/servicio-mantenimiento">🔧 Servicio de mantenimiento</Link>
           <button className="btn btn-ghost" onClick={() => setResumenOpen(true)}>📊 Resumen</button>
           <button className="btn btn-ghost" onClick={() => setCatalogoOpen(true)}>🏷 Catálogo</button>
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void descargarEquiposPdf(lista)}>↓ PDF</button>
