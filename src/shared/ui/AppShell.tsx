@@ -334,12 +334,9 @@ export function AppShell() {
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
           {can('geodesta') && <NavItem to="/app/geodesta" icon="🧭" label="Geodesta" />}
           {can('asignaciones') && <NavItem to="/app/asignaciones" icon="🎒" label="Asignaciones" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria/ordenes" icon="🧾" label="Órdenes de servicio" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria/averias" icon="🔴" label="Averías y estados" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria/lavados" icon="🚿" label="Lavados" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria/repuestos" icon="🛒" label="Repuestos y compras" />}
-          {can('maquinaria') && <NavItem to="/app/maquinaria/servicio-mantenimiento" icon="🔧" label="Servicio de Mantenimiento" />}
+          {/* Sus submódulos (órdenes, averías, lavados, repuestos, servicio de mantenimiento)
+              se manejan DENTRO del módulo, con la tira de arriba: aquí solo va la entrada. */}
+          {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" incluyeSubrutas />}
         </nav>}
 
         {showSistema && <div className="sidebar-section">Sistema</div>}
@@ -514,11 +511,14 @@ function NavItem({
   icon,
   label,
   disabled,
+  incluyeSubrutas,
 }: {
   to: string;
   icon: ReactNode;
   label: string;
   disabled?: boolean;
+  /** Queda marcado también en sus subrutas (los submódulos que viven dentro del módulo). */
+  incluyeSubrutas?: boolean;
 }) {
   if (disabled) {
     return (
@@ -531,7 +531,7 @@ function NavItem({
   // módulo antes del clic, así la navegación se siente instantánea.
   const precargar = () => prefetchRuta(to);
   return (
-    <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end
+    <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end={!incluyeSubrutas}
       onMouseEnter={precargar} onFocus={precargar} onTouchStart={precargar}>
       <span className="icn">{icon}</span> <span>{label}</span>
     </NavLink>
