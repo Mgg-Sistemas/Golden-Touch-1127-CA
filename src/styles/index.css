@@ -10,6 +10,7 @@
 @import './listado.css';
 @import './cocina.css';
 @import './flota.css';
+@import './flotaDetalle.css';
 
 @tailwind utilities;
 

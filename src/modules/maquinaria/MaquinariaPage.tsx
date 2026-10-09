@@ -11,14 +11,13 @@ import { EquipoFormModal } from './EquipoFormModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
 import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, type MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { horasUltimoPorEquipo } from './maquinariaMant.repository';
-import { horometrosVigentesPorEquipo, kilometrajesVigentesPorEquipo, listCatalogos } from '@/modules/combustible/tanques.repository';
+import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
 import {
   BUCKETS_FLOTA, CLASES_EQUIPO, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, avisoServicio, avisoMasUrgente, coincideEquipo,
   type AvisoServicio, type BucketFlota, type ClaseEquipo, type EstadoEquipo,
 } from './flota';
-import { ordenesAbiertasPorEquipo, fotosDeEquipos } from './flota.repository';
+import { ordenesAbiertasPorEquipo, fotosDeEquipos, lecturasVigentesPorEquipo, type LecturaVigente } from './flota.repository';
 import { FlotaNav } from './FlotaNav';
 
 interface InfoEquipo {
@@ -43,9 +42,7 @@ export function MaquinariaPage() {
   const actor = user?.email ?? 'sistema';
 
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
-  const [horometros, setHorometros] = useState<Map<string, number>>(new Map());     // combustible: nombre→horómetro
-  const [kilometrajes, setKilometrajes] = useState<Map<string, number>>(new Map()); // combustible: nombre→kilometraje
-  const [bitMap, setBitMap] = useState<Map<string, { ultimoHorometro: number | null }>>(new Map()); // bitácora: equipo_id→…
+  const [lecturas, setLecturas] = useState<Map<string, LecturaVigente>>(new Map()); // contador vigente por equipo
   const [ordenesAbiertas, setOrdenesAbiertas] = useState<Map<string, number>>(new Map());
   const [fotos, setFotos] = useState<Map<string, string>>(new Map());
   // GT-INT-15 · Valores vigentes del catalogo de Combustible, para detectar fichas que
@@ -67,19 +64,15 @@ export function MaquinariaPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, horos, kms, bit, cats, abiertas, fts] = await Promise.all([
+      const [eqs, lecs, cats, abiertas, fts] = await Promise.all([
         listEquipos(),
-        horometrosVigentesPorEquipo().catch(() => new Map<string, number>()),
-        kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>()),
-        horasUltimoPorEquipo().catch(() => new Map()),
+        lecturasVigentesPorEquipo().catch(() => new Map<string, LecturaVigente>()),
         listCatalogos().catch(() => []),
         ordenesAbiertasPorEquipo().catch(() => new Map<string, number>()),
         fotosDeEquipos().catch(() => []),
       ]);
       setEquipos(eqs);
-      setHorometros(horos);
-      setKilometrajes(kms);
-      setBitMap(bit);
+      setLecturas(lecs);
       setOrdenesAbiertas(abiertas);
       const fm = new Map<string, string>();
       for (const f of fts) if (!fm.has(f.equipo_id)) fm.set(f.equipo_id, f.url);
@@ -89,7 +82,7 @@ export function MaquinariaPage() {
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   // También vigila los movimientos de combustible (horómetro vigente) y las órdenes de servicio.
-  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'maquinaria_documentos', 'maquinaria_ordenes_servicio', 'combustible_tanque_movimientos'], () => { void cargar(); });
+  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'maquinaria_documentos', 'maquinaria_ordenes_servicio', 'combustible_tanque_movimientos', 'maquinaria_lecturas'], () => { void cargar(); });
 
   // Estado, clase y aviso de servicio por equipo. Las lecturas vigentes (horómetro y
   // kilometraje) se traen de Combustible por el equipo vinculado (combustible_equipo);
@@ -98,9 +91,10 @@ export function MaquinariaPage() {
   const info = useMemo(() => {
     const m = new Map<string, InfoEquipo>();
     for (const e of equipos) {
-      const vinc = e.combustible_equipo ? e.combustible_equipo.trim() : null;
-      const horo = (vinc ? horometros.get(vinc) : undefined) ?? bitMap.get(e.id)?.ultimoHorometro ?? null;
-      const km = (vinc ? kilometrajes.get(vinc) : undefined) ?? null;
+      // Contador vigente unificado: Combustible, Maquinaria y bitácora (el mismo del surtidor).
+      const lec = lecturas.get(e.id);
+      const horo = lec?.horometro ?? null;
+      const km = lec?.kilometraje ?? null;
       const aviso = avisoMasUrgente(
         avisoServicio(e.mantenimiento_cada_hrs, horo, e.mantenimiento_base_hrs, 'h'),
         avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km'),
@@ -108,7 +102,7 @@ export function MaquinariaPage() {
       m.set(e.id, { estado: estadoEfectivo(e), clase: claseEquipo(e), horometro: horo, km, aviso });
     }
     return m;
-  }, [equipos, horometros, kilometrajes, bitMap]);
+  }, [equipos, lecturas]);
 
   // GT-INT-15 · Fichas que apuntan a un valor que ya no está en el catálogo de
   // Combustible: no ven su horómetro ni su gasoil, y su alerta NO suena.

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   estadoEfectivo, statusDeEstado, estadoExigeMotivo, claseEquipo, restantesServicio, avisoServicio,
   avisoMasUrgente, decidirRepuesto, efectoOrden, columnaCompra, compraAbierta, accionesEquipo,
-  siguientesEstadosOrden, sugerirServicio, coincideEquipo, ESTADOS_EQUIPO, faltaSalida, faltaCompra,
+  siguientesEstadosOrden, sugerirServicio, coincideEquipo, ESTADOS_EQUIPO, faltaSalida, faltaCompra, validarLectura, etiquetaOrigenLectura,
 } from './flota';
 
 describe('estadoEfectivo (equipos de antes y de ahora)', () => {
@@ -104,7 +104,7 @@ describe('órdenes de servicio', () => {
   it('sugiere el servicio por la avería', () => {
     expect(sugerirServicio('Dos cauchos traseros reventados', null)).toBe('cauchos');
     expect(sugerirServicio('se le dañó el gato', null)).toBe('hidraulico');
-    expect(sugerirServicio('', { nivel: 'proximo', restante: 10, unidad: 'h', pct: 96 })).toBe('preventivo');
+    expect(sugerirServicio('', { nivel: 'proximo', restante: 10, unidad: 'h', pct: 96, ratio: 0.96 })).toBe('preventivo');
     expect(sugerirServicio(null, null)).toBeNull();
   });
 });
@@ -125,15 +125,16 @@ describe('acciones por permiso', () => {
   it('solo lectura: consultar, bitácora, documentos y ficha', () => {
     expect(accionesEquipo({ maquinaria: false, combustible: false }, 'operativa')).toEqual(['bitacora', 'documentos', 'ficha']);
   });
-  it('combustible sin maquinaria: solo agrega el surtido', () => {
+  it('combustible sin maquinaria: no da acciones (el surtido es solo en Combustible)', () => {
     const a = accionesEquipo({ maquinaria: false, combustible: true }, 'operativa');
-    expect(a).toContain('combustible');
+    expect(a).toEqual(['bitacora', 'documentos', 'ficha']);
+    expect(a).not.toContain('lectura');
     expect(a).not.toContain('servicio');
     expect(a).not.toContain('retirar');
   });
   it('maquinaria: servicio, avería, espera, retirar y eliminar', () => {
     const a = accionesEquipo({ maquinaria: true, combustible: false }, 'operativa', { avisoServicio: true });
-    expect(a).toEqual(expect.arrayContaining(['servicio', 'averia', 'espera', 'retirar', 'editar', 'mantt_hecho', 'eliminar']));
+    expect(a).toEqual(expect.arrayContaining(['servicio', 'averia', 'lectura', 'espera', 'retirar', 'editar', 'mantt_hecho', 'eliminar']));
   });
   it('averiada no ofrece reportar otra avería; espera ofrece quitarla', () => {
     expect(accionesEquipo({ maquinaria: true, combustible: true }, 'averiada')).not.toContain('averia');
@@ -143,7 +144,7 @@ describe('acciones por permiso', () => {
     const a = accionesEquipo({ maquinaria: true, combustible: true }, 'retirada');
     expect(a).toContain('reactivar');
     expect(a).not.toContain('servicio');
-    expect(a).not.toContain('combustible');
+    expect(a).not.toContain('lectura');
   });
 });
 
@@ -171,5 +172,28 @@ describe('qué falta pedir de una orden', () => {
   });
   it('pieza nueva no sale del inventario', () => {
     expect(faltaSalida({ estado: 'abierta', solicitud_salida_id: null, repuestos: [{ producto_id: null, desde_inventario: 0, a_comprar: 1 }] })).toBe(false);
+  });
+});
+
+describe('lecturas de horómetro / km', () => {
+  const vig = { horometro: 1200, kilometraje: 50000 };
+  it('hace falta al menos una lectura y que sea un número positivo', () => {
+    expect(validarLectura({ horometro: null, kilometraje: null }, vig)).toMatch(/horómetro o el kilometraje/);
+    expect(validarLectura({ horometro: -1, kilometraje: null }, vig)).toMatch(/positivo/);
+  });
+  it('no puede bajar de la vigente; igual o mayor sí', () => {
+    expect(validarLectura({ horometro: 1199, kilometraje: null }, vig)).toMatch(/1200 h/);
+    expect(validarLectura({ horometro: null, kilometraje: 49000 }, vig)).toMatch(/50000 km/);
+    expect(validarLectura({ horometro: 1200, kilometraje: 50010 }, vig)).toBeNull();
+    expect(validarLectura({ horometro: 5, kilometraje: null }, { horometro: null, kilometraje: null })).toBeNull();
+  });
+  it('corrección hacia abajo: solo admin y con motivo', () => {
+    expect(validarLectura({ horometro: 10, kilometraje: null }, vig, { correccion: true, admin: false, motivo: 'cambio' })).toMatch(/administrador/);
+    expect(validarLectura({ horometro: 10, kilometraje: null }, vig, { correccion: true, admin: true, motivo: '' })).toMatch(/motivo/);
+    expect(validarLectura({ horometro: 10, kilometraje: null }, vig, { correccion: true, admin: true, motivo: 'cambio de horómetro' })).toBeNull();
+  });
+  it('origen legible', () => {
+    expect(etiquetaOrigenLectura('combustible')).toMatch(/Combustible/);
+    expect(etiquetaOrigenLectura(null)).toBe('—');
   });
 });

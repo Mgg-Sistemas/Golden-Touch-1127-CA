@@ -14,6 +14,7 @@ import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/p
 import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import type { FotoEquipo, LavadoEquipo, OrdenServicio } from './flota.repository';
+import { fotosOrdenConUrl } from './osFotos.repository';
 import { ESTADOS_EQUIPO, ORDEN_ESTADOS, URGENCIAS, estadoEfectivo, servicioPorId, type EstadoEquipo } from './flota';
 
 type AutoTable = (doc: JsPDF, opts: Record<string, unknown>) => void;
@@ -119,7 +120,8 @@ export interface DatosFicha {
   km: number | null;
   restantesHrs: number | null;
   restantesKm: number | null;
-  consumoLts: number | null;
+  /** Último surtido de Combustible, ya en palabras («09/10/2026 · 180 L · Tanque 2»). */
+  ultimoSurtido: string | null;
 }
 
 /** Ficha técnico-operativa del equipo. */
@@ -156,7 +158,7 @@ export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ord
     ['Próximo servicio (h)', datos.restantesHrs != null ? `${datos.restantesHrs <= 0 ? `vencido ${fmtNum(Math.abs(datos.restantesHrs))}` : `faltan ${fmtNum(datos.restantesHrs)}`} h (cada ${fmtNum(e.mantenimiento_cada_hrs)} h)` : ''],
     ['Próximo servicio (km)', datos.restantesKm != null ? `${datos.restantesKm <= 0 ? `vencido ${fmtNum(Math.abs(datos.restantesKm))}` : `faltan ${fmtNum(datos.restantesKm)}`} km (cada ${fmtNum(e.mantenimiento_cada_km)} km)` : ''],
     ['Consumo esperado', e.litros_consume != null ? `${fmtNum(e.litros_consume)} L` : ''],
-    ['Gasoil (últimos 30 días)', datos.consumoLts != null ? `${fmtNum(datos.consumoLts)} L` : ''],
+    ['Último surtido', datos.ultimoSurtido ?? ''],
   ] as [string, string][]).filter(([, x]) => x);
   y = Math.max(tablaPar(doc, autoTable, M, y, col, opIzq), tablaPar(doc, autoTable, M + col + 6, y, col, opDer)) + 8;
 
@@ -281,6 +283,34 @@ export async function ordenServicioPdf(
   doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(146, 64, 14);
   if (vinculos.salida) { doc.text(`Solicitud de salida de inventario: ${vinculos.salida.codigo} · ${vinculos.salida.estado.replace(/_/g, ' ')}`, M, y); y += 5; }
   if (vinculos.compra) { doc.text(`Solicitud de pedido (compra): ${vinculos.compra.codigo} · ${vinculos.compra.estado.replace(/_/g, ' ')}`, M, y); y += 5; }
+
+  // 4. Registro fotográfico (las fotos de la orden, hasta 4, de dos en dos y sin deformar).
+  const fotosOs = await fotosOrdenConUrl(o.id).catch(() => [] as { nombre: string; url: string }[]);
+  const imgsOs = (await Promise.all(fotosOs.map((f) => urlADataUrl(f.url)))).filter((x): x is { data: string; tipo: 'JPEG' | 'PNG' } => !!x);
+  if (imgsOs.length) {
+    const colF = (W - 2 * M - 6) / 2;
+    const altoF = 62;
+    y += 4;
+    if (y + 12 + altoF > H - 20) { doc.addPage(); y = 20; }
+    y = seccion(doc, y, '4. REGISTRO FOTOGRÁFICO');
+    for (let i = 0; i < imgsOs.length; i += 2) {
+      if (y + altoF + 8 > H - 20) { doc.addPage(); y = 20; }
+      [imgsOs[i], imgsOs[i + 1]].forEach((img, k) => {
+        if (!img) return;
+        const x = M + k * (colF + 6);
+        doc.setDrawColor(...BORDE); doc.setLineWidth(0.25); doc.rect(x, y, colF, altoF);
+        try {
+          const p = doc.getImageProperties(img.data);
+          const esc = Math.min((colF - 2) / p.width, (altoF - 2) / p.height);
+          const w = p.width * esc; const h = p.height * esc;
+          doc.addImage(img.data, img.tipo, x + (colF - w) / 2, y + (altoF - h) / 2, w, h, undefined, 'FAST');
+        } catch { /* una foto que no se puede dibujar no tumba el PDF */ }
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(71, 85, 105);
+        doc.text(`Foto ${i + k + 1}`, x + colF / 2, y + altoF + 4, { align: 'center' });
+      });
+      y += altoF + 9;
+    }
+  }
 
   y = Math.max(y + 18, H - 50);
   if (y > H - 30) { doc.addPage(); y = 60; }

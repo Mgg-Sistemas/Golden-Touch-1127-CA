@@ -9,23 +9,24 @@ import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { num as fmtNum, date as fmtDate, dateTime } from '@/shared/lib/format';
 import { statusBadge } from '@/shared/lib/format';
-import { ultimoHorometroEquipo, ultimoKilometrajeEquipo } from '@/modules/combustible/tanques.repository';
 import {
-  getEquipo, eliminarEquipo, reiniciarMantenimientoDeEquipo, datosCombustibleDeEquipo, type MaquinariaEquipo,
+  getEquipo, eliminarEquipo, reiniciarMantenimientoDeEquipo, type MaquinariaEquipo,
 } from './maquinariaEquipos.repository';
-import { listMantenimientos, addMantenimiento } from './maquinariaMant.repository';
+import { addMantenimiento } from './maquinariaMant.repository';
 import {
   ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
   accionesEquipo, servicioPorId, servicioReiniciaContador, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
-  faltaSalida, faltaCompra, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, soloPiezasNuevasPorComprar, piezasNuevas,
+  faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, soloPiezasNuevasPorComprar, piezasNuevas,
   type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
 } from './flota';
 import {
-  listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, surtidosDeEquipo, fotosDeEquipos,
+  listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, fotosDeEquipos,
+  lecturaVigenteEquipo, listLecturasEquipo, ultimoSurtidoEquipo,
   avanzarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden,
   listLavados, eliminarLavado, notificarComprasPiezasNuevas,
   type LavadoEquipo,
-  type OrdenServicio, type EventoEstado, type CompraEquipo, type SurtidoEquipo, type FotoEquipo,
+  type OrdenServicio, type EventoEstado, type CompraEquipo, type FotoEquipo,
+  type LecturaVigente, type LecturaMedidor, type UltimoSurtido,
 } from './flota.repository';
 import { fichaEquipoPdf, ordenServicioPdf } from './flotaPdf';
 import { EstadoEquipoModal, type ModoEstado } from './EstadoEquipoModal';
@@ -35,14 +36,17 @@ import { EquipoDocumentosModal } from './EquipoDocumentosModal';
 import { EquipoMovimientosModal } from './EquipoMovimientosModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { LavadoModal } from './LavadoModal';
+import { LecturaModal } from './LecturaModal';
 import { ReemplazarPiezaModal } from './ReemplazarPiezaModal';
+import { FotosOrden, FotosOrdenModal } from './FotosOrdenServicio';
+import { EstadoDetalleModal } from './EstadoDetalleModal';
 
-type Tab = 'resumen' | 'servicios' | 'compras' | 'combustible' | 'lavados' | 'fotos' | 'ficha';
+type Tab = 'resumen' | 'servicios' | 'compras' | 'contador' | 'lavados' | 'fotos' | 'ficha';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'servicios', label: 'Servicios' },
   { id: 'compras', label: 'Compras' },
-  { id: 'combustible', label: 'Combustible' },
+  { id: 'contador', label: 'Contador' },
   { id: 'lavados', label: 'Lavados' },
   { id: 'fotos', label: 'Fotos y documentos' },
   { id: 'ficha', label: 'Ficha' },
@@ -82,12 +86,14 @@ export function EquipoExpedientePage() {
   const [loading, setLoading] = useState(true);
   const [horometro, setHorometro] = useState<number | null>(null);
   const [km, setKm] = useState<number | null>(null);
-  const [consumo30, setConsumo30] = useState<{ lts: number; usd: number } | null>(null);
+  const [vigente, setVigente] = useState<LecturaVigente | null>(null);
+  const [lecturas, setLecturas] = useState<LecturaMedidor[]>([]);
+  const [ultimoSurtido, setUltimoSurtido] = useState<UltimoSurtido | null>(null);
+  const [lecturaOpen, setLecturaOpen] = useState(false);
   const [ordenes, setOrdenes] = useState<OrdenServicio[]>([]);
   const [eventos, setEventos] = useState<EventoEstado[]>([]);
   const [compras, setCompras] = useState<CompraEquipo[]>([]);
   const [salidas, setSalidas] = useState<Map<string, { codigo: string; estado: string }>>(new Map());
-  const [surtidos, setSurtidos] = useState<SurtidoEquipo[]>([]);
   const [fotos, setFotos] = useState<FotoEquipo[]>([]);
   const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
 
@@ -104,6 +110,7 @@ export function EquipoExpedientePage() {
   const [lavadoOpen, setLavadoOpen] = useState(false);
   const [borrarLavado, setBorrarLavado] = useState<LavadoEquipo | null>(null);
   const [reemplazo, setReemplazo] = useState<{ orden: OrdenServicio; indice: number } | null>(null);
+  const [detalleEstado, setDetalleEstado] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -111,26 +118,25 @@ export function EquipoExpedientePage() {
       setEq(e);
       if (!e) return;
       const vinc = (e.combustible_equipo ?? '').trim();
-      const hace30 = new Date(Date.now() - 30 * 86400000);
-      const [horo, kms, bit, ords, evs, surt, fts, cons, lavs] = await Promise.all([
-        vinc ? ultimoHorometroEquipo(vinc).catch(() => null) : Promise.resolve(null),
-        vinc ? ultimoKilometrajeEquipo(vinc).catch(() => null) : Promise.resolve(null),
-        listMantenimientos(e.id).catch(() => []),
+      // Contador vigente UNIFICADO (Combustible, Maquinaria y bitácora): el mismo que usa el surtidor.
+      const [vig, lecs, surt, ords, evs, fts, lavs] = await Promise.all([
+        lecturaVigenteEquipo(e.id).catch(() => null),
+        listLecturasEquipo(e.id).catch(() => [] as LecturaMedidor[]),
+        ultimoSurtidoEquipo(vinc).catch(() => null),
         listOrdenesServicio(e.id).catch(() => [] as OrdenServicio[]),
         listEventosEstado(e.id).catch(() => [] as EventoEstado[]),
-        surtidosDeEquipo(vinc).catch(() => [] as SurtidoEquipo[]),
         fotosDeEquipos(e.id).catch(() => [] as FotoEquipo[]),
-        vinc ? datosCombustibleDeEquipo(vinc, hace30, new Date()).catch(() => null) : Promise.resolve(null),
         listLavados(e.id).catch(() => [] as LavadoEquipo[]),
       ]);
-      setHorometro(horo ?? bit.find((r) => r.horometro != null)?.horometro ?? null);
-      setKm(kms);
+      setVigente(vig);
+      setHorometro(vig?.horometro ?? null);
+      setKm(vig?.kilometraje ?? null);
+      setLecturas(lecs);
+      setUltimoSurtido(surt);
       setOrdenes(ords);
       setEventos(evs);
-      setSurtidos(surt);
       setFotos(fts);
       setLavados(lavs);
-      setConsumo30(cons ? { lts: cons.gasoilLts, usd: cons.gasoilUsd } : null);
       const [cps, sals] = await Promise.all([
         comprasDeEquipo(e.id, ords).catch(() => [] as CompraEquipo[]),
         salidasDeOrdenes(ords).catch(() => new Map<string, { codigo: string; estado: string }>()),
@@ -144,7 +150,7 @@ export function EquipoExpedientePage() {
   useEffect(() => { setLoading(true); void cargar(); }, [cargar]);
   useRealtime([
     'maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_estado_eventos', 'maquinaria_mantenimientos',
-    'maquinaria_documentos', 'maquinaria_lavados', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
+    'maquinaria_documentos', 'maquinaria_lavados', 'maquinaria_lecturas', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
   ], () => { void cargar(); });
 
   const estado = eq ? estadoEfectivo(eq) : 'operativa';
@@ -179,7 +185,7 @@ export function EquipoExpedientePage() {
     try {
       await fichaEquipoPdf(eq, {
         horometro, km, restantesHrs: avisoH?.restante ?? null, restantesKm: avisoK?.restante ?? null,
-        consumoLts: consumo30?.lts ?? null,
+        ultimoSurtido: ultimoSurtido ? `${fmtDate(ultimoSurtido.fecha)} · ${fmtNum(ultimoSurtido.litros)} L${ultimoSurtido.tanque ? ` · ${ultimoSurtido.tanque}` : ''}` : null,
       }, ordenes, fotos, lavados);
     } catch (e) { toast(errMsg(e, 'No se pudo generar la ficha'), 'error'); }
   }
@@ -258,7 +264,7 @@ export function EquipoExpedientePage() {
           return {
             tono: aviso.nivel === 'vencido' ? 'danger' : 'warning',
             titulo: aviso.nivel === 'vencido' ? `Servicio vencido por ${fmtNum(Math.abs(aviso.restante))} ${aviso.unidad}` : `Servicio en ${fmtNum(aviso.restante)} ${aviso.unidad}`,
-            texto: 'Según el horómetro / kilometraje de Combustible.', cta: btnServicio,
+            texto: 'Según el contador vigente (Combustible, Maquinaria y bitácora).', cta: btnServicio,
           };
         }
         return null;
@@ -290,18 +296,20 @@ export function EquipoExpedientePage() {
 
       <div className="flo-body">
         {avisoEstado && (
-          <div className={`flo-aviso tone-${avisoEstado.tono}`}>
+          <div className={`flo-aviso flo-clic tone-${avisoEstado.tono}`}>
+            {/* Toda la tarjeta abre el detalle (motivo completo, informe técnico, documentos). */}
+            <button type="button" className="flo-estirar" onClick={() => setDetalleEstado(true)} aria-label={`Ver el detalle del estado: ${avisoEstado.titulo}`} />
             <span className="ico">{st.icon}</span>
             <div className="txt"><strong>{avisoEstado.titulo}</strong><p>{avisoEstado.texto}</p></div>
-            {avisoEstado.cta}
+            {avisoEstado.cta && <span className="flo-sobre">{avisoEstado.cta}</span>}
           </div>
         )}
 
-        <Vitales horometro={horometro} km={km} avisoH={avisoH} avisoK={avisoK} equipo={eq} consumo30={consumo30} lavado={lavado} onLavados={() => setTab('lavados')} />
+        <Vitales vigente={vigente} avisoH={avisoH} avisoK={avisoK} equipo={eq} ultimoSurtido={ultimoSurtido} lavado={lavado} onLavados={() => setTab('lavados')} onContador={() => setTab('contador')} />
 
         <section aria-labelledby="flo-acc" style={{ display: 'grid', gap: '.6rem' }}>
           <div className="flo-acc-head"><h2 id="flo-acc">¿Qué necesitas hacer?</h2><span>{perm.maquinaria ? 'Con permiso de Maquinaria' : 'Solo lectura en Maquinaria'}</span></div>
-          {(puede('servicio') || puede('averia') || puede('lavado') || puede('combustible')) && (
+          {(puede('servicio') || puede('averia') || puede('lavado') || puede('lectura')) && (
             <div className="flo-tiles">
               {puede('servicio') && (
                 <button type="button" className="flo-tile hero" onClick={() => setNuevaOrden(true)}>
@@ -313,7 +321,7 @@ export function EquipoExpedientePage() {
               )}
               {puede('averia') && <Tile icon="🔴" titulo="Reportar avería" sub="Averiada o parada, con motivo" onClick={() => setModoEstado('averia')} />}
               {puede('lavado') && <Tile icon="🚿" titulo="Registrar lavado" sub={lavado ? `Último ${textoHace(diasDesde(lavado.fecha))} · ${lavado.tipo}` : 'Completo, exterior, interior, motor…'} onClick={() => setLavadoOpen(true)} />}
-              {puede('combustible') && <Tile icon="⛽" titulo="Combustible" sub={surtidos[0] ? `Último surtido ${fmtDate(surtidos[0].fecha)}` : 'Registrar surtido en Combustible'} onClick={() => navigate('/app/combustible')} />}
+              {puede('lectura') && <Tile icon="⏱️" titulo="Registrar horómetro / km" sub={vigente?.horometro != null ? `Vigente ${fmtNum(vigente.horometro)} h · se sincroniza con Combustible` : 'Se sincroniza con Combustible'} onClick={() => setLecturaOpen(true)} />}
             </div>
           )}
           <div className="flo-quick">
@@ -357,13 +365,14 @@ export function EquipoExpedientePage() {
             />
           )}
           {tab === 'compras' && <TabCompras compras={compras} />}
-          {tab === 'combustible' && <TabCombustible eq={eq} surtidos={surtidos} consumo30={consumo30} horometro={horometro} km={km} puede={puede('combustible')} onIr={() => navigate('/app/combustible')} />}
+          {tab === 'contador' && <TabContador eq={eq} vigente={vigente} lecturas={lecturas} ultimoSurtido={ultimoSurtido} puede={puede('lectura')} onRegistrar={() => setLecturaOpen(true)} />}
           {tab === 'fotos' && <TabFotos fotos={fotos} onDocs={() => setDocumentos(true)} />}
           {tab === 'ficha' && <TabFicha eq={eq} onPdf={() => void pdfFicha()} />}
         </section>
       </div>
 
       {modoEstado && <EstadoEquipoModal equipo={eq} modo={modoEstado} onClose={() => setModoEstado(null)} onSaved={() => void cargar()} />}
+      {detalleEstado && <EstadoDetalleModal equipo={eq} evento={eventos[0] ?? null} enExpediente onClose={() => setDetalleEstado(false)} onCambio={() => void cargar()} />}
       {nuevaOrden && (
         <OrdenServicioModal equipo={eq} horometro={horometro} kilometraje={km} aviso={aviso}
           puedeSalidas={perm.salidas} puedePedidos={perm.pedidos} actor={{ email: actor, nombre: actorName }}
@@ -372,6 +381,11 @@ export function EquipoExpedientePage() {
       {cerrar && (
         <CerrarOrdenModal orden={cerrar.orden} estado={cerrar.estado} equipo={eq} horometro={horometro} km={km}
           actor={actor} actorName={actorName} onClose={() => setCerrar(null)} onDone={() => void cargar()} />
+      )}
+      {lecturaOpen && (
+        <LecturaModal equipo={eq} isAdmin={isAdmin}
+          vigente={vigente ?? { horometro: null, horometro_fecha: null, horometro_origen: null, kilometraje: null, km_fecha: null, km_origen: null }}
+          onClose={() => setLecturaOpen(false)} onSaved={() => void cargar()} />
       )}
       {lavadoOpen && (
         <LavadoModal equipo={eq} horometro={horometro} km={km} ultimo={lavado} actor={{ email: actor, nombre: actorName }}
@@ -420,32 +434,35 @@ function Tile({ icon, titulo, sub, onClick }: { icon: string; titulo: string; su
   return <button type="button" className="flo-tile" onClick={onClick}><span className="ico">{icon}</span><strong>{titulo}</strong><span>{sub}</span></button>;
 }
 
-function Vitales({ horometro, km, avisoH, avisoK, equipo, consumo30, lavado, onLavados }: {
-  horometro: number | null; km: number | null; avisoH: AvisoServicio | null; avisoK: AvisoServicio | null;
-  equipo: MaquinariaEquipo; consumo30: { lts: number; usd: number } | null; lavado: LavadoEquipo | null; onLavados: () => void;
+function Vitales({ vigente, avisoH, avisoK, equipo, ultimoSurtido, lavado, onLavados, onContador }: {
+  vigente: LecturaVigente | null; avisoH: AvisoServicio | null; avisoK: AvisoServicio | null;
+  equipo: MaquinariaEquipo; ultimoSurtido: UltimoSurtido | null; lavado: LavadoEquipo | null; onLavados: () => void; onContador: () => void;
 }) {
+  const horometro = vigente?.horometro ?? null;
+  const km = vigente?.kilometraje ?? null;
+  const origen = horometro != null ? vigente?.horometro_origen : vigente?.km_origen;
   const dias = diasDesde(lavado?.fecha);
   const aviso = avisoMasUrgente(avisoH, avisoK);
   const tono = !aviso ? 'var(--text-dim)' : aviso.nivel === 'vencido' ? 'var(--danger)' : aviso.nivel === 'proximo' ? 'var(--warning)' : 'var(--success)';
   const lectura = horometro != null ? { v: horometro, u: 'h', l: 'Horómetro' } : km != null ? { v: km, u: 'km', l: 'Kilometraje' } : null;
   return (
     <div className="flo-vitals">
-      <div className="flo-vital">
+      <button type="button" className="flo-vital flo-vital-btn" onClick={onContador} aria-label="Ver el contador del equipo">
         <small>{lectura?.l ?? 'Horómetro / km'}</small>
         <strong>{lectura ? fmtNum(lectura.v) : '—'}{lectura && <em>{lectura.u}</em>}</strong>
-        <span>{horometro != null && km != null ? `${fmtNum(km)} km` : equipo.combustible_equipo ? 'De Combustible' : 'Sin vínculo en Combustible'}</span>
-      </div>
+        <span>{[horometro != null && km != null ? `${fmtNum(km)} km` : null, lectura ? etiquetaOrigenLectura(origen) : 'Sin lecturas'].filter(Boolean).join(' · ')}</span>
+      </button>
       <div className="flo-vital">
         <small>Próx. servicio</small>
         <strong>{aviso ? fmtNum(Math.max(0, aviso.restante)) : '—'}{aviso && <em>{aviso.unidad}</em>}</strong>
         {aviso && <div className="flo-meter" style={{ ['--tone' as string]: tono }}><i style={{ width: `${aviso.pct}%` }} /></div>}
         <span>{!aviso ? 'Define el intervalo en la ficha' : aviso.nivel === 'vencido' ? `Vencido por ${fmtNum(Math.abs(aviso.restante))} ${aviso.unidad}` : aviso.nivel === 'proximo' ? 'Servicio próximo' : `Cada ${fmtNum(aviso.unidad === 'h' ? equipo.mantenimiento_cada_hrs : equipo.mantenimiento_cada_km)} ${aviso.unidad}`}</span>
       </div>
-      <div className="flo-vital">
-        <small>Gasoil 30 días</small>
-        <strong>{consumo30 ? fmtNum(consumo30.lts) : '—'}{consumo30 && <em>L</em>}</strong>
-        <span>{consumo30 && consumo30.usd ? `≈ $ ${fmtNum(consumo30.usd)}` : equipo.litros_consume != null ? `Esperado ${fmtNum(equipo.litros_consume)} L` : ''}</span>
-      </div>
+      <button type="button" className="flo-vital flo-vital-btn" onClick={onContador} aria-label="Ver el último surtido">
+        <small>Último surtido</small>
+        <strong>{ultimoSurtido ? fmtNum(ultimoSurtido.litros) : '—'}{ultimoSurtido && <em>L</em>}</strong>
+        <span>{ultimoSurtido ? `${fmtDate(ultimoSurtido.fecha)}${ultimoSurtido.tanque ? ` · ${ultimoSurtido.tanque}` : ''}` : equipo.combustible_equipo ? 'Sin surtidos' : 'Sin vínculo en Combustible'}</span>
+      </button>
       <button type="button" className="flo-vital flo-vital-btn" onClick={onLavados} aria-label="Ver los lavados del equipo">
         <small>Último lavado</small>
         <strong>{dias == null ? '—' : dias}{dias != null && <em>{dias === 1 ? 'día' : 'días'}</em>}</strong>
@@ -503,6 +520,7 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
   onPedir: (o: OrdenServicio, q: 'salida' | 'compra') => void; onPdf: (o: OrdenServicio) => void; onTab: (t: Tab) => void;
   onReemplazar: (o: OrdenServicio, indice: number) => void; onAvisarCompras: (o: OrdenServicio) => void;
 }) {
+  const [fotosDe, setFotosDe] = useState<OrdenServicio | null>(null);
   const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
   const cerradas = ordenes.filter((o) => !ordenAbierta(o.estado));
   return (
@@ -565,8 +583,9 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
                   : !((faltaSalida(o) && perm.salidas) || (faltaCompra(o) && perm.pedidos)) && ' Pídeselo a quien tenga permiso de Salidas / Pedidos.'}
               </div></div>
             )}
+            <FotosOrden ordenId={o.id} canWrite={perm.maquinaria} mostrarVacio={false} />
             <div className="flo-orden-foot">
-              {perm.maquinaria && sig.includes('en_proceso') && <button className="btn btn-primary" disabled={ocupado} onClick={() => onIniciar(o)}>🔧 Iniciar trabajo</button>}
+              {perm.maquinaria && sig.includes('en_proceso') &&<button className="btn btn-primary" disabled={ocupado} onClick={() => onIniciar(o)}>🔧 Iniciar trabajo</button>}
               {perm.maquinaria && sig.includes('realizada') && <button className="btn btn-success" disabled={ocupado} onClick={() => onCerrar(o, 'realizada')}>✅ Marcar realizada</button>}
               {faltaSalida(o) && perm.salidas && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'salida')}>📦 Pedir salida de inventario</button>}
               {faltaCompra(o) && perm.pedidos && !soloPiezasNuevasPorComprar(o.repuestos) && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'compra')}>🛒 Pedir compra</button>}
@@ -590,13 +609,17 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
                 <div key={o.id}>
                   <span>{o.estado === 'anulada' ? '⛔' : s?.icon}</span>
                   <div style={{ minWidth: 0 }}><strong>{o.codigo} · {s?.label ?? o.tipo}</strong><small>{fmtDate(o.created_at)}{o.cerrada_at ? ` → ${fmtDate(o.cerrada_at)}` : ''} · {ORDEN_ESTADOS[o.estado]?.label}{o.nota_cierre ? ` · ${o.nota_cierre}` : ''}</small></div>
-                  <button className="btn btn-sm btn-ghost" onClick={() => onPdf(o)} aria-label={`PDF de ${o.codigo}`}>📄 PDF</button>
+                  <span style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setFotosDe(o)} aria-label={`Fotos de ${o.codigo}`}>📷 Fotos</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => onPdf(o)} aria-label={`PDF de ${o.codigo}`}>📄 PDF</button>
+                  </span>
                 </div>
               );
             })}
           </div>
         ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Todavía no hay servicios cerrados. Los registros anteriores siguen en la bitácora (📒).</p>}
       </div>
+      {fotosDe && <FotosOrdenModal ordenId={fotosDe.id} codigo={fotosDe.codigo} canWrite={perm.maquinaria} onClose={() => setFotosDe(null)} />}
     </>
   );
 }
@@ -631,35 +654,47 @@ function TabCompras({ compras }: { compras: CompraEquipo[] }) {
   );
 }
 
-function TabCombustible({ eq, surtidos, consumo30, horometro, km, puede, onIr }: {
-  eq: MaquinariaEquipo; surtidos: SurtidoEquipo[]; consumo30: { lts: number; usd: number } | null;
-  horometro: number | null; km: number | null; puede: boolean; onIr: () => void;
+/**
+ * Contador del equipo (solo lectura): horómetro y km VIGENTES con su fecha y su origen, el
+ * último surtido de Combustible y el historial de lecturas de las tres fuentes. El surtido se
+ * registra SOLO en Combustible; aquí solo se sube el horómetro / km (y se sincroniza allá).
+ */
+function TabContador({ eq, vigente, lecturas, ultimoSurtido, puede, onRegistrar }: {
+  eq: MaquinariaEquipo; vigente: LecturaVigente | null; lecturas: LecturaMedidor[]; ultimoSurtido: UltimoSurtido | null;
+  puede: boolean; onRegistrar: () => void;
 }) {
-  if (!eq.combustible_equipo) {
-    return <div className="aviso warning"><span className="aviso-icono">🔗</span><div>Este equipo no está vinculado a un equipo de <strong>Combustible</strong>: no se ven su horómetro, sus surtidos ni su alerta de mantenimiento. Vincúlalo en «✎ Editar ficha».</div></div>;
-  }
-  const total = surtidos.reduce((a, s) => a + s.litros, 0);
   return (
     <>
+      {puede && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onRegistrar}>⏱️ Registrar horómetro / km</button>}
       <div className="flo-stats">
-        <div className="flo-stat"><small>Último surtido</small><strong style={{ fontSize: '1.1rem' }}>{surtidos[0] ? fmtDate(surtidos[0].fecha) : '—'}</strong></div>
-        <div className="flo-stat"><small>Gasoil 30 días</small><strong>{consumo30 ? `${fmtNum(consumo30.lts)} L` : '—'}</strong></div>
-        <div className="flo-stat"><small>Horómetro</small><strong>{horometro != null ? `${fmtNum(horometro)} h` : '—'}</strong></div>
-        <div className="flo-stat"><small>Kilometraje</small><strong>{km != null ? `${fmtNum(km)} km` : '—'}</strong></div>
+        <div className="flo-stat"><small>Horómetro vigente</small><strong>{vigente?.horometro != null ? `${fmtNum(vigente.horometro)} h` : '—'}</strong>
+          <small>{vigente?.horometro_fecha ? `${dateTime(vigente.horometro_fecha)} · ${etiquetaOrigenLectura(vigente.horometro_origen)}` : 'sin lectura'}</small></div>
+        <div className="flo-stat"><small>Km vigente</small><strong>{vigente?.kilometraje != null ? `${fmtNum(vigente.kilometraje)} km` : '—'}</strong>
+          <small>{vigente?.km_fecha ? `${dateTime(vigente.km_fecha)} · ${etiquetaOrigenLectura(vigente.km_origen)}` : 'sin lectura'}</small></div>
+        <div className="flo-stat"><small>Último surtido</small><strong>{ultimoSurtido ? `${fmtNum(ultimoSurtido.litros)} L` : '—'}</strong>
+          <small>{ultimoSurtido ? [fmtDate(ultimoSurtido.fecha), ultimoSurtido.hora, ultimoSurtido.tanque, ultimoSurtido.quien].filter(Boolean).join(' · ') : (eq.combustible_equipo ? 'sin surtidos' : 'sin vínculo en Combustible')}</small></div>
       </div>
-      {puede && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onIr}>⛽ Registrar surtido en Combustible</button>}
+      <div className="aviso info sm"><span className="aviso-icono">⛽</span><div>
+        {eq.combustible_equipo
+          ? <>El surtido se registra solo en <strong>Combustible</strong> (equipo «{eq.combustible_equipo}»). Lo que subas aquí es el horómetro / km de arranque del próximo surtido, y lo que se surte allá se ve aquí como contador.</>
+          : <>Este equipo no está vinculado a un equipo de <strong>Combustible</strong>: sus lecturas quedan solo en Maquinaria. Vincúlalo en «✎ Editar ficha».</>}
+      </div></div>
       <div className="flo-sec">
-        <div className="flo-sec-head"><h3>⛽ Últimos surtidos · {eq.combustible_equipo}</h3><span className="muted" style={{ fontSize: '.76rem' }}>{fmtNum(total)} L en {surtidos.length}</span></div>
-        {surtidos.length ? (
+        <div className="flo-sec-head"><h3>⏱️ Historial de lecturas</h3><span className="muted" style={{ fontSize: '.76rem' }}>Combustible, Maquinaria y bitácora</span></div>
+        {lecturas.length ? (
           <div className="flo-hist">
-            {surtidos.map((s) => (
-              <div key={s.id}><span>⛽</span>
-                <div style={{ minWidth: 0 }}><strong className="mono">{fmtNum(s.litros)} L</strong><small>{[s.ubicacion, s.autorizado_por, s.horometro_fin != null ? `${fmtNum(s.horometro_fin)} h` : null, s.kilometraje != null ? `${fmtNum(s.kilometraje)} km` : null].filter(Boolean).join(' · ') || '—'}</small></div>
-                <span className="muted" style={{ fontSize: '.76rem' }}>{fmtDate(s.fecha)}</span>
+            {lecturas.map((l) => (
+              <div key={`${l.origen}-${l.referencia}`}>
+                <span>{l.origen === 'combustible' ? '⛽' : l.origen === 'bitacora' ? '📒' : '🚜'}</span>
+                <div style={{ minWidth: 0 }}>
+                  <strong className="mono">{[l.horometro != null ? `${fmtNum(l.horometro)} h` : null, l.kilometraje != null ? `${fmtNum(l.kilometraje)} km` : null].filter(Boolean).join(' · ')}</strong>
+                  <small>{dateTime(l.fecha)} · {etiquetaOrigenLectura(l.origen)}{l.es_correccion ? ' · corrección' : ''}{l.actor ? ` · ${l.actor}` : ''}</small>
+                </div>
+                <span />
               </div>
             ))}
           </div>
-        ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin surtidos registrados.</p>}
+        ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin lecturas registradas.</p>}
       </div>
     </>
   );

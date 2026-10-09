@@ -9,7 +9,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
-import { compararMovimientos, horaOrden } from './horaMovimiento';
+import { compararMovimientos } from './horaMovimiento';
+import { planCadenaMedidor, type FilaMedidor } from './cadenaMedidor';
 import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion, observacionMerma, type MermaRecepcion } from './mermaRecepcion';
 import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
@@ -1028,16 +1029,6 @@ export async function recomputarTanque(tanqueId: string): Promise<void> {
   await aplicarSaldoTanque(tanqueId, round(saldoL, 2), round(saldoU, 2), tasa);
 }
 
-/** Fila mínima para re-encadenar un medidor continuo (ini→fin) en orden cronológico. */
-interface FilaMedidor {
-  id: string;
-  fecha: string | null;
-  hora: string | null;
-  created_at: string | null;
-  ini: number | null;
-  fin: number | null;
-}
-
 /**
  * Re-encadena un medidor CONTINUO (lectura inicial → final) sobre un conjunto de
  * movimientos ya acotado (por tanque para el contador del surtidor, por equipo para
@@ -1049,48 +1040,16 @@ interface FilaMedidor {
  * cuántas filas cambió.
  */
 async function reencadenarMedidor(rows: FilaMedidor[], iniCol: string, finCol: string): Promise<number> {
-  const usables = rows
-    .filter((r) => r.ini != null && r.fin != null)
-    .slice()
-    .sort((a, b) => {
-      // Orden físico = lectura final ascendente (el medidor solo crece). Fecha/hora/created_at
-      // SOLO desempatan lecturas iguales; nunca mandan por encima del medidor, para que una
-      // hora sin AM/PM no descoloque la cadena ni genere «lt usados» negativos.
-      const vf = num(a.fin) - num(b.fin);
-      if (vf !== 0) return vf;
-      const f = (a.fecha ?? '').localeCompare(b.fecha ?? '');
-      if (f !== 0) return f;
-      const h = horaOrden(a.hora) - horaOrden(b.hora);
-      if (h !== 0) return h;
-      const c = (a.created_at ?? '').localeCompare(b.created_at ?? '');
-      if (c !== 0) return c;
-      // Igual que el libro mayor: sin este último desempate, dos lecturas idénticas
-      // se encadenaban en un orden distinto en cada carga.
-      return (a.id ?? '').localeCompare(b.id ?? '');
-    });
-  if (usables.length === 0) return 0;
-  // El medidor es ABSOLUTO: la lectura FINAL de cada fila es el dato físico leído del
-  // surtidor/horómetro y NO se toca. Lo que se re-encadena es el INICIAL: cada fila cuelga
-  // del FINAL de la fila anterior EN EL TIEMPO (la primera conserva su propio inicial, que
-  // es la lectura previa al primer registro). Así, si un movimiento se carga fuera de orden
-  // cronológico, el delta (fin − ini) se corrige SOLO — sin arrastrar un delta viejo ni
-  // inventar lecturas. (Antes se preservaba el delta y se re-apilaba desde la lectura más
-  // baja; eso perpetuaba un delta capturado mal al cargar fuera de orden, p. ej. dif = −22.)
-  let cambios = 0;
-  let prevFin: number | null = null;
-  for (const r of usables) {
-    const fin = round(num(r.fin), 2);                              // dato físico: se conserva
-    const ini = prevFin == null ? round(num(r.ini), 2) : round(prevFin, 2);
-    if (ini !== round(num(r.ini), 2)) {
-      // Las horas trabajadas (HF − HI) las recalcula la base sola: es una columna generada.
-      const { error } = await supabase.from('combustible_tanque_movimientos')
-        .update({ [iniCol]: ini, [finCol]: fin, updated_at: new Date().toISOString() }).eq('id', r.id);
-      if (error) throw error;
-      cambios++;
-    }
-    prevFin = fin;
+  // La regla (orden físico por la lectura final, inicial = final anterior, anclas de
+  // Maquinaria que no se escriben) vive en cadenaMedidor.ts, con sus pruebas.
+  const cambios = planCadenaMedidor(rows);
+  for (const c of cambios) {
+    // Las horas trabajadas (HF − HI) las recalcula la base sola: es una columna generada.
+    const { error } = await supabase.from('combustible_tanque_movimientos')
+      .update({ [iniCol]: c.ini, [finCol]: c.fin, updated_at: new Date().toISOString() }).eq('id', c.id);
+    if (error) throw error;
   }
-  return cambios;
+  return cambios.length;
 }
 
 /** Re-encadena el CONTADOR del surtidor (por tanque) en orden cronológico. */
@@ -1112,6 +1071,24 @@ async function reencadenarContadorTanque(tanqueId: string): Promise<number> {
   return reencadenarMedidor(rows, 'contador_global_ini', 'contador_global_fin');
 }
 
+/**
+ * Lecturas de horómetro registradas en MAQUINARIA para este equipo (09/10/2026). Entran a la
+ * cadena como anclas: así el surtido que arranca de una de ellas (HI = esa lectura) no vuelve
+ * a colgar del HF anterior al re-encadenar. Las correcciones (lecturas hacia abajo, solo
+ * admin) no son anclas. Si la consulta falla, la cadena queda como antes.
+ */
+async function anclasHorometroMaquinaria(equipo: string): Promise<FilaMedidor[]> {
+  const { data, error } = await supabase.from('maquinaria_lecturas_unificadas')
+    .select('referencia, fecha, horometro')
+    .eq('equipo_comb', equipo).eq('origen', 'maquinaria').eq('es_correccion', false)
+    .not('horometro', 'is', null);
+  if (error) return [];
+  return ((data ?? []) as Array<{ referencia: string; fecha: string; horometro: number }>).map((r) => ({
+    id: `maq-${r.referencia}`, fecha: (r.fecha ?? '').slice(0, 10) || null, hora: null, created_at: r.fecha,
+    ini: num(r.horometro), fin: num(r.horometro), ancla: true,
+  }));
+}
+
 /** Re-encadena el HORÓMETRO (por equipo, puede cruzar tanques) en orden cronológico. */
 async function reencadenarHorometroEquipo(equipo: string | null | undefined): Promise<number> {
   const e = (equipo ?? '').trim();
@@ -1124,7 +1101,7 @@ async function reencadenarHorometroEquipo(equipo: string | null | undefined): Pr
     created_at: r.created_at as string | null,
     ini: r.horometro_ini as number | null, fin: r.horometro_fin as number | null,
   }));
-  return reencadenarMedidor(rows, 'horometro_ini', 'horometro_fin');
+  return reencadenarMedidor([...rows, ...(await anclasHorometroMaquinaria(e))], 'horometro_ini', 'horometro_fin');
 }
 
 /** Edita un movimiento. Acepta metadatos + medidores y, opcionalmente, los campos que
@@ -1588,11 +1565,23 @@ export async function kilometrajesVigentesPorEquipo(): Promise<Map<string, numbe
   return out;
 }
 
+/** Lectura vigente del equipo para el surtidor: la mayor entre Combustible y las lecturas
+ *  registradas en Maquinaria (desde la última corrección). null si la función no responde. */
+async function lecturaVigenteCombustible(equipo: string): Promise<{ horometro: number | null; kilometraje: number | null } | null> {
+  const { data, error } = await supabase.rpc('combustible_lectura_vigente', { p_equipo: equipo });
+  if (error) return null;
+  const r = (Array.isArray(data) ? data[0] : data) as { horometro: number | null; kilometraje: number | null } | null;
+  return r ? { horometro: r.horometro == null ? null : num(r.horometro), kilometraje: r.kilometraje == null ? null : num(r.kilometraje) } : null;
+}
+
 /** Último kilometraje (odómetro) registrado para un equipo. Sirve para autocargar la
  *  próxima lectura en el surtidor (el odómetro solo crece). */
 export async function ultimoKilometrajeEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
+  // Desde el 09/10/2026 cuenta también lo que se registró en Maquinaria.
+  const vig = await lecturaVigenteCombustible(e);
+  if (vig && vig.kilometraje != null) return vig.kilometraje;
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
     .select('kilometraje, created_at')
@@ -1623,6 +1612,10 @@ export async function listMedidores(): Promise<MedidorCombustible[]> {
 export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
+  // Desde el 09/10/2026 el HI sale de la lectura vigente unificada: la mayor entre los HF de
+  // Combustible y los horómetros registrados en Maquinaria (sincronización en dos vías).
+  const vig = await lecturaVigenteCombustible(e);
+  if (vig && vig.horometro != null) return vig.horometro;
   // El HI del próximo surtido del equipo = su MAYOR HF (02/10/2026), como el contador
   // del surtidor: el horómetro es un totalizador que solo sube, así que la lectura más
   // alta es la vigente. Antes era el HF del último CARGADO, y cargar tarde un surtido de

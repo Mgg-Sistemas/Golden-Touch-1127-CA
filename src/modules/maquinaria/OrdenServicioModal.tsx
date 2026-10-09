@@ -14,6 +14,9 @@ import {
   crearOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, notificarComprasPiezasNuevas, faltaSalida, faltaCompra, type OrdenServicio,
 } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { FotosNuevaOrden } from './FotosOrdenServicio';
+import { useFotosLocales } from './useFotosLocales';
+import { subirFotosOrden } from './osFotos.repository';
 
 interface Linea { productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null }
 
@@ -63,6 +66,8 @@ export function OrdenServicioModal({
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [saving, setSaving] = useState(false);
+  // Fotos (hasta 4): se comprimen al elegirlas y se suben al crear la orden.
+  const fotosOS = useFotosLocales();
 
   useEffect(() => { listProductosActivos().then(setProductos).catch(() => setProductos([])); }, []);
 
@@ -109,6 +114,12 @@ export function OrdenServicioModal({
       } as unknown as OrdenServicio;
       const partes: string[] = [`${r.codigo} creada`];
       const pendientes: string[] = [];
+      // Fotos: la orden ya existe (su carpeta lleva el id). Si alguna falla, se agrega luego desde la orden.
+      if (fotosOS.fotos.length) {
+        const { subidas, fallos } = await subirFotosOrden(r.id, fotosOS.fotos.map((f) => f.file), actor.email, actor.nombre);
+        if (subidas) partes.push(subidas === 1 ? '1 foto' : `${subidas} fotos`);
+        if (fallos.length) toast(`No se pudieron subir ${fallos.length} foto(s): ${fallos.join('; ')}. Agrégalas desde la orden.`, 'warning');
+      }
       if (faltaSalida(orden)) {
         if (puedeSalidas) {
           try { partes.push(`salida ${await solicitarSalidaDeOrden(orden, equipo.equipo, actor)} por aprobar`); }
@@ -152,7 +163,7 @@ export function OrdenServicioModal({
           : <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>}
         {paso < 2
           ? <button className="btn btn-primary" disabled={!listo} onClick={() => setPaso(paso + 1)}>{paso === 0 ? 'Elegir repuestos' : 'Revisar orden'}</button>
-          : <button className="btn btn-primary" disabled={saving} onClick={() => void crear()}>{saving ? 'Creando…' : 'Crear orden de servicio'}</button>}
+          : <button className="btn btn-primary" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear()}>{saving ? 'Creando…' : fotosOS.preparando > 0 ? 'Preparando fotos…' : 'Crear orden de servicio'}</button>}
       </>}>
       <div className="flo" style={{ display: 'grid', gap: '.8rem' }}>
         <ol className="flo-wizard-steps" aria-label="Pasos">
@@ -192,6 +203,7 @@ export function OrdenServicioModal({
             <div className="form-row"><label htmlFor="os-desc">Descripción del problema o trabajo</label>
               <textarea id="os-desc" className="textarea" rows={3} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Qué se observa y qué hay que hacer" />
             </div>
+            <FotosNuevaOrden estado={fotosOS} />
             {origen === 'externo' && <p className="muted" style={{ fontSize: '.8rem', margin: 0 }}>Si el proveedor cobra el servicio, pídelo también en <strong>Pedidos → 🔧 Servicios</strong> casado a este equipo: aparecerá en la pestaña Compras.</p>}
           </>
         )}
@@ -243,6 +255,7 @@ export function OrdenServicioModal({
               <strong>Orden de servicio · {servicio?.label}</strong>
               <p>{equipo.equipo} · urgencia {urgencia} · {responsable.trim() || 'responsable por asignar'}</p>
               <p>{descripcion.trim() || 'Sin descripción'}</p>
+              {fotosOS.fotos.length > 0 && <p>📷 {fotosOS.fotos.length === 1 ? '1 foto' : `${fotosOS.fotos.length} fotos`} · se suben al crear la orden</p>}
             </div></div>
             <div className="flo-flow-link" />
             <div className="flo-flow-split">
