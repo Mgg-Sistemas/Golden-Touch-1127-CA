@@ -17,7 +17,8 @@ import type { Personal, PersonalSueldo } from '@/shared/lib/types';
 import {
   MOTIVOS_SUELDO, MOTIVO_SIN_REGISTRAR, errorCambioSueldo, etiquetaVariacion, motivoFinal, variacionSueldo,
 } from './sueldos';
-import { borrarRenglonSueldo, cambiarSueldo, listHistorialSueldo } from './sueldos.repository';
+import { borrarRenglonSueldo, cambiarSueldo, listHistorialSueldo, registrarSueldoHistorico } from './sueldos.repository';
+import { MOTIVO_HISTORICO, errorSueldoHistorico, topeHistorico } from './sueldosHistoricos';
 import { descargarHistorialSueldoPdf } from './historialSueldoPdf';
 
 const hoy = () => new Date().toISOString().slice(0, 10);
@@ -36,6 +37,8 @@ export function HistorialSueldoModal({
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState(false);
+  /** 'cambio' = el sueldo de hoy en adelante; 'historico' = un sueldo viejo (no toca la ficha). */
+  const [modo, setModo] = useState<'cambio' | 'historico'>('cambio');
   const [guardando, setGuardando] = useState(false);
   const [porBorrar, setPorBorrar] = useState<PersonalSueldo | null>(null);
 
@@ -69,18 +72,44 @@ export function HistorialSueldoModal({
   }, [monto]);
 
   const motivoElegido = motivoFinal(motivo, otro);
-  const problema = abierto ? errorCambioSueldo(actual, montoNum, motivoElegido) : null;
-  const previa = montoNum != null && Number.isFinite(montoNum) ? variacionSueldo(actual, montoNum) : null;
+  const tope = topeHistorico(filas);
+  const errorActual = () => modo === 'historico'
+    ? errorSueldoHistorico(montoNum, desde, motivoElegido, tope, hoy(), filas.map((r) => r.fecha))
+    : errorCambioSueldo(actual, montoNum, motivoElegido);
+  const problema = abierto ? errorActual() : null;
+  const previa = modo === 'cambio' && montoNum != null && Number.isFinite(montoNum) ? variacionSueldo(actual, montoNum) : null;
+  const motivos: readonly string[] = modo === 'historico' ? [MOTIVO_HISTORICO, ...MOTIVOS_SUELDO] : MOTIVOS_SUELDO;
+  // Máximo del calendario en modo histórico: el día antes del sueldo vigente (o hoy).
+  const maxHistorico = (() => {
+    if (!tope) return hoy();
+    const d = new Date(`${tope}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  function abrir(m: 'cambio' | 'historico') {
+    limpiar(); setModo(m); setAbierto(true); setError(null);
+    if (m === 'historico') { setMotivo(MOTIVO_HISTORICO); setDesde(''); }
+  }
 
   function limpiar() {
     setMonto(''); setMotivo(MOTIVOS_SUELDO[0]); setOtro(''); setDesde(hoy()); setNota('');
   }
 
   async function guardar() {
-    const err = errorCambioSueldo(actual, montoNum, motivoElegido);
+    const err = errorActual();
     if (err) { setError(err); return; }
     setGuardando(true); setError(null);
     try {
+      if (modo === 'historico') {
+        await registrarSueldoHistorico({
+          personalId: persona.id, fecha: desde, sueldo: Number(montoNum),
+          motivo: motivoElegido, nota: nota.trim() || null,
+        });
+        toast('Sueldo histórico agregado. El sueldo de hoy no cambió.', 'success');
+        limpiar(); setAbierto(false);
+        await recargar();
+        return;
+      }
       await cambiarSueldo({
         personalId: persona.id,
         sueldoNuevo: Number(montoNum),
@@ -126,13 +155,19 @@ export function HistorialSueldoModal({
             onClick={() => { void import('./historialSalarialReportes').then((m) => m.descargarHistorialSueldoExcel(persona, filas)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error')); }}
             title="El mismo historial en Excel">↓ Excel</button>
           {canWrite && !abierto && (
-            <button className="btn btn-primary" onClick={() => { limpiar(); setAbierto(true); setError(null); }}>
+            <button className="btn btn-ghost" onClick={() => abrir('historico')}
+              title="Cargar un sueldo viejo (de años anteriores) sin cambiar el sueldo de hoy">
+              📜 Agregar sueldo anterior
+            </button>
+          )}
+          {canWrite && !abierto && (
+            <button className="btn btn-primary" onClick={() => abrir('cambio')}>
               💵 Cambiar sueldo
             </button>
           )}
           {canWrite && abierto && (
             <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando || !!problema}>
-              {guardando ? 'Guardando…' : 'Guardar el cambio'}
+              {guardando ? 'Guardando…' : modo === 'historico' ? 'Guardar sueldo anterior' : 'Guardar el cambio'}
             </button>
           )}
         </>
@@ -163,9 +198,16 @@ export function HistorialSueldoModal({
 
       {abierto && (
         <div className="card" style={{ marginBottom: '.8rem', padding: '.8rem' }}>
+          {modo === 'historico' && (
+            <div className="aviso info sm" style={{ marginBottom: '.6rem' }}>
+              <span className="aviso-icono">📜</span>
+              <div>Sueldo <strong>anterior</strong>: queda en el historial con su fecha, pero <strong>no cambia el sueldo de hoy</strong>.
+                {tope ? <> Tiene que ser antes del {date(tope)} (sueldo vigente).</> : null}</div>
+            </div>
+          )}
           <div className="form-grid">
             <div className="form-row">
-              <label>Sueldo nuevo (USD, mensual) *</label>
+              <label>{modo === 'historico' ? 'Sueldo que ganaba (USD, mensual) *' : 'Sueldo nuevo (USD, mensual) *'}</label>
               <input className="input mono" type="number" min={0} step="any" autoFocus
                 value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0,00" />
               {previa && previa.sentido !== 'igual' && (
@@ -175,14 +217,17 @@ export function HistorialSueldoModal({
               )}
             </div>
             <div className="form-row">
-              <label>Desde cuándo rige *</label>
-              <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-              <small className="muted">Puede ser anterior a hoy: queda guardado también el día en que se cargó.</small>
+              <label>{modo === 'historico' ? 'Desde cuándo regía *' : 'Desde cuándo rige *'}</label>
+              <input className="input" type="date" value={desde} max={modo === 'historico' ? maxHistorico : undefined}
+                onChange={(e) => setDesde(e.target.value)} />
+              <small className="muted">{modo === 'historico'
+                ? 'Si solo sabes el año, pon el 1 de enero de ese año.'
+                : 'Puede ser anterior a hoy: queda guardado también el día en que se cargó.'}</small>
             </div>
             <div className="form-row">
               <label>Motivo del cambio *</label>
               <select className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
-                {MOTIVOS_SUELDO.map((m) => <option key={m} value={m}>{m}</option>)}
+                {motivos.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
               {motivo === 'Otro' && (
                 <input className="input" style={{ marginTop: '.35rem' }} value={otro}
@@ -201,7 +246,7 @@ export function HistorialSueldoModal({
             </div>
           )}
           <button className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }}
-            onClick={() => { setAbierto(false); setError(null); }} disabled={guardando}>Cancelar el cambio</button>
+            onClick={() => { setAbierto(false); setError(null); }} disabled={guardando}>Cancelar</button>
         </div>
       )}
 
@@ -231,7 +276,10 @@ export function HistorialSueldoModal({
                 const sinMotivo = r.motivo === MOTIVO_SIN_REGISTRAR;
                 return (
                   <tr key={r.id}>
-                    <td className="mono">{date(r.fecha)}</td>
+                    <td className="mono">
+                      {date(r.fecha)}
+                      {r.historico && <div className="muted" style={{ fontSize: '.72rem' }} title="Sueldo viejo cargado después: no movió el sueldo de la ficha">📜 histórico</div>}
+                    </td>
                     <td className="mono" style={{ textAlign: 'right' }}>{primero ? '—' : money(r.sueldo_anterior)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(r.sueldo_nuevo)}</td>
                     <td className="mono" style={{ textAlign: 'right', color: primero ? undefined : v.sentido === 'sube' ? 'var(--success)' : 'var(--warning)' }}>

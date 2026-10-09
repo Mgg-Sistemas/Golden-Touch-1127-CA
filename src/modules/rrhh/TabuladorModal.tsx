@@ -20,6 +20,7 @@ import { money, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
+import { CargarSueldosHistoricosModal } from './CargarSueldosHistoricosModal';
 import {
   ETIQUETA_ACCION, cargosFaltantes, claveCargo, conteoPorCargo, errorTabulador, filtrarHistorialSalarial,
   nombreCompleto, normalizarCargo, planAplicarTabulador, type TabuladorCargo, type TabuladorHistorial,
@@ -269,7 +270,7 @@ export function TabuladorModal({ empresa, canWrite, onClose }: { empresa: Empres
         />
       )}
 
-      {historicos && <HistoricosSalarialesModal empresaInicial={empresa} onClose={() => setHistoricos(false)} />}
+      {historicos && <HistoricosSalarialesModal empresaInicial={empresa} canWrite={canWrite} onClose={() => setHistoricos(false)} />}
     </Modal>
   );
 }
@@ -545,7 +546,8 @@ function AplicarTabuladorModal({
 
 /* ---------------- Históricos salariales (PDF / Excel) ---------------- */
 
-export function HistoricosSalarialesModal({ empresaInicial, onClose }: { empresaInicial: EmpresaRrhh; onClose: () => void }) {
+export function HistoricosSalarialesModal({ empresaInicial, canWrite = false, onClose }: { empresaInicial: EmpresaRrhh; canWrite?: boolean; onClose: () => void }) {
+  const [cargarExcel, setCargarExcel] = useState(false);
   const [empresa, setEmpresa] = useState<EmpresaRrhh | 'todas'>(empresaInicial);
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -606,6 +608,10 @@ export function HistoricosSalarialesModal({ empresaInicial, onClose }: { empresa
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+          {canWrite && (
+            <button className="btn btn-ghost" onClick={() => setCargarExcel(true)}
+              title="Pasar al sistema los sueldos viejos que se llevaban en Excel (no cambia el sueldo de hoy)">📥 Cargar históricos (Excel)</button>
+          )}
           <button className="btn btn-ghost" disabled={!visibles.length || !!ocupado} onClick={() => void bajar('xlsx')}>
             {ocupado === 'xlsx' ? 'Generando…' : '📊 Excel'}
           </button>
@@ -671,6 +677,7 @@ export function HistoricosSalarialesModal({ empresaInicial, onClose }: { empresa
           </table>
         </div>
       )}
+      {cargarExcel && <CargarSueldosHistoricosModal onClose={() => setCargarExcel(false)} onCargado={() => void recargar()} />}
     </Modal>
   );
 }
