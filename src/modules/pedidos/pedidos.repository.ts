@@ -2402,7 +2402,10 @@ export async function recibirOrdenParcial(
     const stockAntes = Number(prod?.stock ?? 0);
     const stockDespues = stockAntes + recUso;
     const almacenProd = destinoFinal || (prod?.almacen as string) || 'General';
-    const precioActual = Number(prod?.precio_promedio ?? prod?.precio ?? 0);
+    // PMP vigente. Un precio_promedio en 0 (fichas viejas: Apio, Queso…) NO es un costo:
+    // con `??` el 0 pasaba y la recepción promediaba contra $0, bajando el costo a la mitad.
+    const ppGuardado = Number(prod?.precio_promedio) || 0;
+    const precioActual = ppGuardado > 0 ? ppGuardado : Number(prod?.precio ?? 0) || 0;
     const precioCompra = precioEnUso(it, Number(it.precio));
     const precioPromedio = stockDespues > 0
       ? Number(((stockAntes * precioActual + recUso * precioCompra) / stockDespues).toFixed(4))

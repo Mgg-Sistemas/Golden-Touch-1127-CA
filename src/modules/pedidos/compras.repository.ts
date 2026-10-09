@@ -17,22 +17,87 @@ import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSal
 import { crearRetencion, borrarRetencionesDeCompra } from '@/modules/tesoreria/tesoreria.repository';
 import { CATEGORIA_REEMBOLSO, errorRetencionPago, montoLegadoARevertir, netoAPagar, patasConMonto } from './pagoDirecto';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { costoUnitarioUsd, planRemontaje } from './costoCompraDirecta';
 import type { Producto, CuentaCaja, TipoRetencion } from '@/shared/lib/types';
-
-/**
- * Costo de un renglón EN USD para el inventario. El inventario se valoriza en USD:
- * si la compra fue en Bs, se convierte el gasto del renglón a USD con la tasa del día
- * (Bs ÷ tasa) redondeado a 2 decimales. En USD se deja tal cual. Sin tasa válida no
- * se convierte (se evita dividir por 0). */
-function gastoRenglonUsd(gasto: number | null | undefined, moneda: string | null | undefined, tasaUsd: number): number {
-  const g = Number(gasto) || 0;
-  if (moneda === 'Bs' && tasaUsd > 0) return Math.round((g / tasaUsd) * 100) / 100;
-  return g;
-}
 
 /** Tasa USD del día (best-effort). 0 si no se puede resolver → no se convierte. */
 async function tasaUsdHoy(): Promise<number> {
   try { const t = await getTasaHoy(); return Number(t.usd) || 0; } catch { return 0; }
+}
+
+/**
+ * Tasa (Bs por $) con la que se valoriza en el inventario una compra en Bs: PRIMERO la
+ * que el usuario fijó al convertir en el formulario (`tasa_conversion`) y, si no hay, la
+ * BCV del día. En $ devuelve 0 (no se convierte). Si la compra es en Bs y NINGUNA tasa es
+ * válida, se BLOQUEA: sin tasa, 1.200 Bs entrarían como $1.200.
+ */
+async function tasaParaInventario(moneda: string | null | undefined, tasaConversion: number | null | undefined): Promise<number> {
+  if (moneda !== 'Bs') return 0;
+  const guardada = Number(tasaConversion) || 0;
+  const tasa = guardada > 0 ? guardada : await tasaUsdHoy();
+  if (!(tasa > 0)) {
+    throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Carga/actualiza la tasa BCV (Tesorería → Tasas) o usa el conversor "⇄ Convertir a $" de la compra, y vuelve a intentarlo. (Sin tasa, 1200 Bs se registraría como $1200 — se bloqueó a propósito.)');
+  }
+  return tasa;
+}
+
+/** Productos marcados «no inventariable» (genéricos/surtidos): se pagan pero no se stockean. */
+async function idsNoInventariables(items: { producto_id?: string | null }[]): Promise<Set<string>> {
+  const ids = items.map((i) => i.producto_id).filter(Boolean) as string[];
+  const out = new Set<string>();
+  if (!ids.length) return out;
+  const { data, error } = await supabase.from('productos').select('id, no_inventariable').in('id', ids);
+  if (error) throw error;
+  for (const p of data ?? []) if (p.no_inventariable) out.add(p.id);
+  return out;
+}
+
+/** Saca del inventario lo que entró con una recepción de compra directa (en unidad de uso). */
+async function revertirEntradaCompra(
+  compra: CompraDirecta, motivo: string, actor: string, actorName: string | null,
+): Promise<void> {
+  const noInv = await idsNoInventariables(compra.items);
+  for (const it of compra.items) {
+    const cantidad = cantidadEnUso(it, Number(it.cantidad) || 0);
+    if (cantidad <= 0 || !it.producto_id || noInv.has(it.producto_id)) continue;
+    try {
+      await registrarMovimiento({
+        producto_id: it.producto_id, tipo: 'salida', delta: -cantidad,
+        almacen: compra.recepcion_almacen || compra.almacen,
+        actor, actor_name: actorName,
+        ref_tipo: 'compra_directa_reapertura', ref_id: compra.id,
+        detalle: `${motivo} · ${compra.codigo ?? ''} · ${it.producto_nombre}`.replace(/\s+·\s+·/g, ' ·'),
+      });
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      throw new Error(`No se pudo sacar del inventario lo que ya había entrado de «${it.producto_nombre}» para corregirlo (${m}). Si ya se consumió, corrige el costo desde Inventario.`);
+    }
+  }
+}
+
+/** Da entrada al inventario a cada material de la compra, a su costo en $ (PMP). */
+async function darEntradaCompra(
+  compra: Pick<CompraDirecta, 'id' | 'items' | 'moneda' | 'tasa_conversion'>,
+  almacen: string, actor: string, actorName: string | null,
+): Promise<string | null> {
+  const tasaUsd = await tasaParaInventario(compra.moneda, compra.tasa_conversion);
+  const noInv = await idsNoInventariables(compra.items);
+  let primerMov: string | null = null;
+  for (const it of compra.items) {
+    // Presentación de compra: entra en la unidad de USO (4 SACO → 100 KG), a costo por esa unidad.
+    const cantidad = cantidadEnUso(it, Number(it.cantidad) || 0);
+    if (cantidad <= 0 || !it.producto_id || noInv.has(it.producto_id)) continue;
+    const conversion = rotuloConversion(it, Number(it.cantidad) || 0);
+    const mov = await registrarMovimiento({
+      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
+      actor, actor_name: actorName,
+      ref_tipo: 'compra_directa', ref_id: compra.id,
+      detalle: `Compra directa · ${it.producto_nombre}${conversion ? ` · ${conversion}` : ''}`,
+      precio_unitario: costoUnitarioUsd(it, compra.moneda, tasaUsd),
+    });
+    if (!primerMov) primerMov = mov.id;
+  }
+  return primerMov;
 }
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja.
@@ -540,45 +605,10 @@ export async function finalizarCompraDirecta(input: FinalizarCompraInput): Promi
     adjuntoNombre = input.file.name;
   }
 
-  // 3) Entrada al inventario por cada material (costo = gasto / cantidad).
-  //    Compras en Bs: el costo se lleva a USD con la tasa del día (2 decimales).
-  //    Los productos genéricos/surtidos (no_inventariable) se pagan pero NO se stockean.
-  const idsProd = items.map((i) => i.producto_id).filter(Boolean) as string[];
-  const noInventariables = new Set<string>();
-  if (idsProd.length) {
-    const { data: flags } = await supabase
-      .from('productos').select('id, no_inventariable').in('id', idsProd);
-    for (const p of flags ?? []) if (p.no_inventariable) noInventariables.add(p.id);
-  }
-  // Tasa para valorizar el inventario de una compra en Bs: PRIMERO la tasa que el
-  // usuario fijó al convertir en el formulario (compra.tasa_conversion), y si no hay,
-  // la tasa BCV del día. Si NINGUNA es válida NO se registra: se bloquea con error para
-  // no meter, p. ej., 1200 Bs como $1200 (Bs tratado como USD por un fallback silencioso).
-  let tasaUsd = 0;
-  if (compra.moneda === 'Bs') {
-    const tasaGuardada = Number(compra.tasa_conversion) || 0;
-    tasaUsd = tasaGuardada > 0 ? tasaGuardada : await tasaUsdHoy();
-    if (!(tasaUsd > 0)) {
-      throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Carga/actualiza la tasa BCV (Tesorería → Tasas) o usa el conversor "⇄ Convertir a $" de la compra, y vuelve a completar. (Sin tasa, 1200 Bs se registraría como $1200 — se bloqueó a propósito.)');
-    }
-  }
-  let primerMov: string | null = null;
-  for (const it of items) {
-    // Presentación de compra: al inventario entra en la unidad de USO (4 SACO → 100 KG)
-    // y el costo es por esa unidad. Sin presentación el factor es 1.
-    const cantidad = cantidadEnUso(it, Number(it.cantidad) || 0);
-    if (cantidad <= 0 || !it.producto_id || noInventariables.has(it.producto_id)) continue;
-    const gastoUsd = gastoRenglonUsd(it.gasto, compra.moneda, tasaUsd);
-    const costoUnit = gastoUsd > 0 ? Math.round((gastoUsd / cantidad) * 10000) / 10000 : 0;
-    const conversion = rotuloConversion(it, Number(it.cantidad) || 0);
-    const mov = await registrarMovimiento({
-      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen: compra.almacen,
-      actor: input.actor, actor_name: input.actorName ?? null,
-      ref_tipo: 'compra_directa', ref_id: compra.id,
-      detalle: `Compra directa · ${it.producto_nombre}${conversion ? ` · ${conversion}` : ''}`, precio_unitario: costoUnit,
-    });
-    if (!primerMov) primerMov = mov.id;
-  }
+  // 3) Entrada al inventario por cada material (costo = gasto / cantidad → PMP), en $:
+  //    las compras en Bs se convierten con su tasa (ver `darEntradaCompra`). Los genéricos
+  //    (no_inventariable) se pagan pero NO se stockean.
+  const primerMov = await darEntradaCompra({ ...compra, items }, compra.almacen, input.actor, input.actorName ?? null);
 
   // 4) Cerrar la OCD.
   const { error } = await supabase
@@ -850,6 +880,8 @@ export interface EnviarCompraAPagarInput {
  *   · «Por recibir» en el almacén (`recepcion_pendiente=true` si afecta inventario).
  * La mercancía puede recibirse ANTES de que Tesorería pague (o viceversa). NO mueve
  * caja ni inventario todavía (el pago lo hace Tesorería; la entrada, el almacenista).
+ * Si la compra YA había entrado al inventario y se vuelve a montar, no se recibe dos
+ * veces: o se deja como está, o se corrige el costo en el inventario (ver planRemontaje).
  * La factura se sube aparte (adjuntos).
  */
 export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promise<void> {
@@ -873,25 +905,73 @@ export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promis
   const retencionBase = (Math.max(0, Math.round((Number(input.retencionBase) || 0) * 100) / 100)) || subtotal;
   const retencionMonto = retencionPct > 0 ? Math.round(retencionBase * (retencionPct / 100) * 100) / 100 : 0;
 
+  const afecta = input.afectaInventario !== false;
+  const tasaConversion = input.tasaConversion != null && input.tasaConversion > 0 ? Math.round(Number(input.tasaConversion) * 100) / 100 : null;
+
+  // ── ¿Ya había entrado al inventario? (09/10/2026, CD-2026-0055) ─────────────────
+  // Antes, volver a montar una compra YA RECIBIDA la devolvía a «Por recibir» y el
+  // almacén le daba entrada OTRA VEZ (stock doble, y el costo viejo mezclado en el PMP).
+  // Se lee la fila de la base (no la de la pantalla) y se decide con `planRemontaje`.
+  const { data: filaActual, error: errLeer } = await supabase
+    .from('compras_directas').select('*').eq('id', compra.id).maybeSingle();
+  if (errLeer) throw errLeer;
+  if (!filaActual) throw new Error('La compra ya no existe.');
+  const antes = normalizar(filaActual as Record<string, unknown>);
+  if (antes.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');
+  const yaRecibida = antes.afecta_inventario !== false && !!antes.mov_id;
+  const plan = planRemontaje(
+    yaRecibida,
+    { moneda: antes.moneda, tasa_conversion: antes.tasa_conversion, afecta_inventario: antes.afecta_inventario, items: antes.items },
+    { moneda, tasa_conversion: tasaConversion, afecta_inventario: afecta, items },
+  );
+  const actorName = input.actorName ?? null;
+  const almacenRecibido = antes.recepcion_almacen || antes.almacen;
+  // Revalorizar: la tasa se valida ANTES de sacar nada (en Bs sin tasa se bloquea).
+  if (plan === 'revalorizar') await tasaParaInventario(moneda, tasaConversion);
+  if (plan === 'revalorizar' || plan === 'rehacer') {
+    await revertirEntradaCompra(antes, 'Corrección de montaje (sale lo que entró)', input.actor, actorName);
+  }
+  const recepcion = plan === 'pendiente'
+    ? { recepcion_pendiente: afecta }
+    : plan === 'mantener' || plan === 'revalorizar'
+      ? { recepcion_pendiente: false }
+      // rehacer: lo que entró ya salió; si afecta, el almacén vuelve a contar lo que llegó.
+      : { recepcion_pendiente: afecta, mov_id: null, recepcionada_at: null, recepcionada_por: null, recepcionada_por_name: null, recepcion_almacen: null };
+
   const { error } = await supabase
     .from('compras_directas')
     .update({
       estado: 'por_pagar', gasto: total, items,
-      moneda, tasa_conversion: input.tasaConversion != null && input.tasaConversion > 0 ? Math.round(Number(input.tasaConversion) * 100) / 100 : null,
+      moneda, tasa_conversion: tasaConversion,
       iva, iva_pct: ivaPct, descuento, descuento_pct: descuentoPct,
       retencion_tipo: retencionPct > 0 ? (input.retencionTipo ?? null) : null,
       retencion_base: retencionPct > 0 ? retencionBase : 0,
       retencion_pct: retencionPct, retencion_monto: retencionMonto,
-      afecta_inventario: input.afectaInventario !== false,
+      afecta_inventario: afecta,
       // Recepción pendiente DESDE el montaje: la mercancía entra a «Por recibir» aunque
       // Tesorería todavía no haya pagado. Si no afecta inventario, no hay nada que recibir.
-      recepcion_pendiente: input.afectaInventario !== false,
+      // Si YA se había recibido, no se reabre (ver el plan de arriba).
+      ...recepcion,
       // Nota: solo se reemplaza si viene en el input (undefined = conservar la existente).
       ...(input.nota !== undefined ? { nota: input.nota?.trim() || null } : {}),
       enviada_pagar_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     })
     .eq('id', compra.id);
   if (error) throw error;
+
+  // Revalorizar: vuelve a entrar lo mismo, en el mismo almacén, al costo corregido.
+  if (plan === 'revalorizar') {
+    let movId: string | null;
+    try {
+      movId = await darEntradaCompra({ id: compra.id, items, moneda, tasa_conversion: tasaConversion }, almacenRecibido, input.actor, actorName);
+    } catch (e) {
+      // Ya salió lo viejo: queda «Por recibir» para que el almacén la ingrese al costo nuevo.
+      await supabase.from('compras_directas').update({ recepcion_pendiente: true, mov_id: null, recepcionada_at: null }).eq('id', compra.id);
+      throw e;
+    }
+    const { error: eMov } = await supabase.from('compras_directas').update({ mov_id: movId }).eq('id', compra.id);
+    if (eMov) throw eMov;
+  }
 }
 
 /** Resultado del pago. El pago en sí o sale bien o lanza; esto lleva lo que quedó a medias
@@ -1146,9 +1226,15 @@ export interface RecepcionarCompraInput {
 
 /**
  * El ALMACENISTA da ENTRADA al inventario de una compra directa: registra la entrada de
- * cada material (costo = monto ÷ cantidad → PMP; en Bs se convierte a USD con la tasa del
- * día) en el almacén/sub-almacén elegido y marca la recepción como hecha. Es INDEPENDIENTE
- * del pago: puede recibirse aunque Tesorería todavía no haya pagado (queda `por_pagar`).
+ * cada material (costo = monto ÷ cantidad → PMP, en $; en Bs se divide entre la tasa de la
+ * compra o, si no tiene, la BCV del día) en el almacén elegido y marca la recepción como
+ * hecha. Es INDEPENDIENTE del pago: puede recibirse aunque Tesorería no haya pagado.
+ *
+ * 09/10/2026 · La recepción se RESERVA primero en la base (recepcion_pendiente true → false
+ * condicionado): si dos personas la reciben a la vez, solo una mete el stock. Y se costea con
+ * la fila FRESCA de la base, no con la que tenía la pantalla: si Compras corrigió la moneda o
+ * la tasa mientras tanto, entra al costo corregido. Los genéricos (no_inventariable) no se
+ * stockean, igual que en el resto de caminos.
  */
 export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): Promise<void> {
   const { compra } = input;
@@ -1156,35 +1242,28 @@ export async function recepcionarCompraDirecta(input: RecepcionarCompraInput): P
   if (compra.recepcion_pendiente === false) throw new Error('Esta compra ya fue recibida en el inventario.');
   const almacen = (input.almacen ?? '').trim();
   if (!almacen) throw new Error('Elige el almacén/sub-almacén destino.');
-  const items = (compra.items ?? []).filter((it) => (Number(it.cantidad) || 0) > 0 && it.producto_id);
-  if (!items.length) throw new Error('La compra no tiene materiales para recibir.');
+  if (!(compra.items ?? []).some((it) => (Number(it.cantidad) || 0) > 0 && it.producto_id))
+    throw new Error('La compra no tiene materiales para recibir.');
 
-  // Compras en Bs: el costo de inventario se lleva a USD con la tasa GUARDADA de la compra
-  // (la que usó el usuario al convertir) y, si no hay, la BCV del día. Sin tasa válida se
-  // bloquea (no se registra Bs como USD).
-  let tasaUsd = 0;
-  if (compra.moneda === 'Bs') {
-    const tasaGuardada = Number(compra.tasa_conversion) || 0;
-    tasaUsd = tasaGuardada > 0 ? tasaGuardada : await tasaUsdHoy();
-    if (!(tasaUsd > 0)) {
-      throw new Error('No hay tasa para convertir esta compra en Bs a dólares. Carga/actualiza la tasa BCV (Tesorería → Tasas) o usa el conversor de la compra, y vuelve a guardar. (Sin tasa, el costo en Bs entraría como $ — se bloqueó a propósito.)');
-    }
-  }
+  const ahora = new Date().toISOString();
+  const { data: reservada, error: errReserva } = await supabase
+    .from('compras_directas')
+    .update({ recepcion_pendiente: false, updated_at: ahora })
+    .eq('id', compra.id)
+    .eq('recepcion_pendiente', true)
+    .neq('estado', 'en_proceso')
+    .select('*');
+  if (errReserva) throw errReserva;
+  if (!reservada?.length) throw new Error('Esta compra ya fue recibida en el inventario (o la están recibiendo en este momento).');
+  const fresca = normalizar(reservada[0] as Record<string, unknown>);
 
-  let primerMov: string | null = null;
-  for (const it of items) {
-    // Presentación de compra: entra en la unidad de USO, a costo por esa unidad.
-    const cantidad = cantidadEnUso(it, Number(it.cantidad) || 0);
-    const gastoUsd = gastoRenglonUsd(it.gasto, compra.moneda, tasaUsd);
-    const costoUnit = gastoUsd > 0 ? Math.round((gastoUsd / cantidad) * 10000) / 10000 : 0;
-    const conversion = rotuloConversion(it, Number(it.cantidad) || 0);
-    const mov = await registrarMovimiento({
-      producto_id: it.producto_id, tipo: 'entrada', delta: cantidad, almacen,
-      actor: input.actor, actor_name: input.actorName ?? null,
-      ref_tipo: 'compra_directa', ref_id: compra.id,
-      detalle: `Compra directa · ${it.producto_nombre}${conversion ? ` · ${conversion}` : ''}`, precio_unitario: costoUnit,
-    });
-    if (!primerMov) primerMov = mov.id;
+  let primerMov: string | null;
+  try {
+    primerMov = await darEntradaCompra(fresca, almacen, input.actor, input.actorName ?? null);
+  } catch (e) {
+    // No entró (p. ej. sin tasa): se libera la reserva para poder reintentar.
+    await supabase.from('compras_directas').update({ recepcion_pendiente: true }).eq('id', compra.id);
+    throw e;
   }
 
   const { error } = await supabase
