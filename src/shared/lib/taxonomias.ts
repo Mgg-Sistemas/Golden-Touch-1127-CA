@@ -11,7 +11,11 @@ export type Scope =
   | 'tesoreria.moneda'
   | 'documento.categoria';
 
+// Caché corta: lo que otra persona agrega al catálogo (o el disparador que copia
+// las categorías de los productos) aparece en segundos, sin recargar la página.
+const TTL_MS = 30_000;
 const cache = new Map<Scope, Promise<string[]>>();
+const leidoEn = new Map<Scope, number>();
 
 async function fetchScope(scope: Scope): Promise<string[]> {
   const { data, error } = await supabase
@@ -23,9 +27,12 @@ async function fetchScope(scope: Scope): Promise<string[]> {
   return (data ?? []).map((r: { valor: string }) => r.valor).filter((v) => !!v);
 }
 
-/** Lee los valores extra para un scope, cacheados durante la sesión. */
+/** Lee los valores extra para un scope (caché de 30 s). */
 export async function listTaxonomia(scope: Scope): Promise<string[]> {
-  if (!cache.has(scope)) cache.set(scope, fetchScope(scope));
+  if (!cache.has(scope) || Date.now() - (leidoEn.get(scope) ?? 0) > TTL_MS) {
+    cache.set(scope, fetchScope(scope));
+    leidoEn.set(scope, Date.now());
+  }
   try {
     return await cache.get(scope)!;
   } catch (e) {
