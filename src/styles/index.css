@@ -9,6 +9,7 @@
 @import './geodesta.css';
 @import './listado.css';
 @import './cocina.css';
+@import './flota.css';
 
 @tailwind utilities;
 
