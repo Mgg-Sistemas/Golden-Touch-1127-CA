@@ -112,16 +112,14 @@ export async function descargarResumenPdf(r: ResumenArmado, meta: MetaResumen): 
   previewPdf(doc, meta.archivo + '.pdf');
 }
 
-/** Excel con logo (ExcelJS), grupos con título y subtotal, fila TOTAL y bloque de totales. */
+/** Excel (ExcelJS, sin logo), grupos con título y subtotal, fila TOTAL y bloque de totales. */
 export async function descargarResumenExcel(r: ResumenArmado, meta: MetaResumen): Promise<void> {
   validar(r);
-  const [{ default: ExcelJS }, { loadLogoDataUrl, loadLogoPdfEmpresa, LOGO_PDF_PROPORCION }, { identidadEmpresa }] = await Promise.all([
+  const [{ default: ExcelJS }, { identidadEmpresa }] = await Promise.all([
     import('exceljs'),
-    import('@/shared/lib/pdfLogo'),
     import('@/shared/lib/empresa'),
   ]);
   const emp = identidadEmpresa(meta.empresa);
-  const logo = await (meta.empresa === 'MTO' ? loadLogoPdfEmpresa('MTO') : loadLogoDataUrl()).catch(() => null);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Resumen de nómina', {
@@ -135,15 +133,8 @@ export async function descargarResumenExcel(r: ResumenArmado, meta: MetaResumen)
   const formato: Record<string, string> = { usd: '#,##0.00', bs: '#,##0.00', monto: '#,##0.00', tasa: '#,##0.00', num: '0' };
 
   ws.getRow(1).height = 26; ws.getRow(2).height = 20; ws.getRow(3).height = 16;
-  const logoAlto = 54;
-  const logoAncho = meta.empresa === 'MTO' ? Math.round(logoAlto * LOGO_PDF_PROPORCION) : logoAlto;
-  if (logo) {
-    const id = wb.addImage({ base64: logo, extension: 'jpeg' });
-    ws.addImage(id, { tl: { col: 0.1, row: 0.1 }, ext: { width: logoAncho, height: logoAlto } });
-  }
-  let desde = 1, ocupado = 0;
-  while (desde < ultima && ocupado < logoAncho + 8) { ocupado += (Number(ws.getColumn(desde).width) || 10) * 7; desde += 1; }
-  desde = Math.min(Math.max(desde, 2), ultima);
+  // Los Excel van sin logo (09/10/2026): el título arranca en la columna A.
+  const desde = 1;
   for (const fila of [1, 2, 3]) ws.mergeCells(fila, desde, fila, Math.max(desde, ultima));
   const t = ws.getCell(1, desde);
   t.value = `RESUMEN DE NÓMINA · ${emp.nombre}`;

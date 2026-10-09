@@ -140,11 +140,10 @@ export async function descargarAusenciasPdf(filas: FilaAusencia[], meta: MetaAus
 
 export async function descargarAusenciasExcel(filas: FilaAusencia[], meta: MetaAusencias): Promise<void> {
   if (!filas.length) throw new Error('No hay registros con esos filtros.');
-  const [{ default: ExcelJS }, { loadLogoDataUrl, loadLogoPdfEmpresa, LOGO_PDF_PROPORCION }, { identidadEmpresa }] = await Promise.all([
-    import('exceljs'), import('@/shared/lib/pdfLogo'), import('@/shared/lib/empresa'),
+  const [{ default: ExcelJS }, { identidadEmpresa }] = await Promise.all([
+    import('exceljs'), import('@/shared/lib/empresa'),
   ]);
   const emp = identidadEmpresa(meta.empresa);
-  const logo = await (meta.empresa === 'MTO' ? loadLogoPdfEmpresa('MTO') : loadLogoDataUrl()).catch(() => null);
   const esVac = meta.tipo === 'vacaciones';
   const { head, body } = tabla(meta.tipo, filas);
   const anchos = esVac ? [6, 30, 13, 22, 20, 12, 12, 8, 12, 13, 8] : [6, 30, 13, 22, 20, 12, 12, 8, 10, 40];
@@ -160,15 +159,8 @@ export async function descargarAusenciasExcel(filas: FilaAusencia[], meta: MetaA
   const bordes = { top: borde, left: borde, bottom: borde, right: borde };
 
   ws.getRow(1).height = 26; ws.getRow(2).height = 20; ws.getRow(3).height = 14;
-  const logoAlto = 54;
-  const logoAncho = meta.empresa === 'MTO' ? Math.round(logoAlto * LOGO_PDF_PROPORCION) : logoAlto;
-  if (logo) {
-    const id = wb.addImage({ base64: logo, extension: 'jpeg' });
-    ws.addImage(id, { tl: { col: 0.1, row: 0.1 }, ext: { width: logoAncho, height: logoAlto } });
-  }
-  let desde = 1, ocupado = 0;
-  while (desde < ultima && ocupado < logoAncho + 8) { ocupado += (Number(ws.getColumn(desde).width) || 10) * 7; desde += 1; }
-  desde = Math.min(Math.max(desde, 2), ultima);
+  // Los Excel van sin logo (09/10/2026): el título arranca en la columna A.
+  const desde = 1;
   ws.mergeCells(1, desde, 1, ultima);
   ws.mergeCells(2, desde, 2, ultima);
   const t = ws.getCell(1, desde);

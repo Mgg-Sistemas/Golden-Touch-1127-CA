@@ -160,14 +160,11 @@ interface HojaExcel {
 }
 
 async function bajarExcel(h: HojaExcel): Promise<void> {
-  const [{ default: ExcelJS }, { loadLogoDataUrl, loadLogoPdfEmpresa, LOGO_PDF_PROPORCION }, { identidadEmpresa }] = await Promise.all([
+  const [{ default: ExcelJS }, { identidadEmpresa }] = await Promise.all([
     import('exceljs'),
-    import('@/shared/lib/pdfLogo'),
     import('@/shared/lib/empresa'),
   ]);
   const emp = identidadEmpresa(h.empresa);
-  // GT: el logo cuadrado de siempre. MTO: su logo horizontal (no tiene versión cuadrada).
-  const logo = await (h.empresa === 'MTO' ? loadLogoPdfEmpresa('MTO') : loadLogoDataUrl()).catch(() => null);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Histórico salarial', {
@@ -180,15 +177,8 @@ async function bajarExcel(h: HojaExcel): Promise<void> {
   const bordes = { top: borde, left: borde, bottom: borde, right: borde };
 
   ws.getRow(1).height = 26; ws.getRow(2).height = 20; ws.getRow(3).height = 14;
-  const logoAlto = 54;
-  const logoAncho = h.empresa === 'MTO' ? Math.round(logoAlto * LOGO_PDF_PROPORCION) : logoAlto;
-  if (logo) {
-    const id = wb.addImage({ base64: logo, extension: 'jpeg' });
-    ws.addImage(id, { tl: { col: 0.1, row: 0.1 }, ext: { width: logoAncho, height: logoAlto } });
-  }
-  let desde = 1, ocupado = 0;
-  while (desde < ultima && ocupado < logoAncho + 8) { ocupado += (Number(ws.getColumn(desde).width) || 10) * 7; desde += 1; }
-  desde = Math.min(Math.max(desde, 2), ultima);
+  // Los Excel van sin logo (09/10/2026): el título arranca en la columna A.
+  const desde = 1;
   ws.mergeCells(1, desde, 1, Math.max(desde, ultima));
   ws.mergeCells(2, desde, 2, Math.max(desde, ultima));
   const t = ws.getCell(1, desde);
