@@ -1,0 +1,712 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
+import { toast } from '@/shared/ui/Toast';
+import { num as fmtNum, date as fmtDate, dateTime } from '@/shared/lib/format';
+import { statusBadge } from '@/shared/lib/format';
+import { ultimoHorometroEquipo, ultimoKilometrajeEquipo } from '@/modules/combustible/tanques.repository';
+import {
+  getEquipo, eliminarEquipo, reiniciarMantenimientoDeEquipo, datosCombustibleDeEquipo, type MaquinariaEquipo,
+} from './maquinariaEquipos.repository';
+import { listMantenimientos, addMantenimiento } from './maquinariaMant.repository';
+import {
+  ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
+  accionesEquipo, servicioPorId, servicioReiniciaContador, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
+  faltaSalida, faltaCompra, type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
+} from './flota';
+import {
+  listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, surtidosDeEquipo, fotosDeEquipos,
+  avanzarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden,
+  type OrdenServicio, type EventoEstado, type CompraEquipo, type SurtidoEquipo, type FotoEquipo,
+} from './flota.repository';
+import { fichaEquipoPdf, ordenServicioPdf } from './flotaPdf';
+import { EstadoEquipoModal, type ModoEstado } from './EstadoEquipoModal';
+import { OrdenServicioModal } from './OrdenServicioModal';
+import { BitacoraModal } from './BitacoraModal';
+import { EquipoDocumentosModal } from './EquipoDocumentosModal';
+import { EquipoMovimientosModal } from './EquipoMovimientosModal';
+import { EquipoFormModal } from './EquipoFormModal';
+
+type Tab = 'resumen' | 'servicios' | 'compras' | 'combustible' | 'fotos' | 'ficha';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'resumen', label: 'Resumen' },
+  { id: 'servicios', label: 'Servicios' },
+  { id: 'compras', label: 'Compras' },
+  { id: 'combustible', label: 'Combustible' },
+  { id: 'fotos', label: 'Fotos y documentos' },
+  { id: 'ficha', label: 'Ficha' },
+];
+
+const ESTADO_SALIDA: Record<string, string> = { por_aprobar: 'Por aprobar', aprobada: 'Aprobada', ejecutada: 'Ejecutada', cancelada: 'Cancelada' };
+
+function Chip({ tono, children, lg }: { tono: TonoFlota; children: ReactNode; lg?: boolean }) {
+  return <span className={`flo-chip tone-${tono}${lg ? ' lg' : ''}`}>{children}</span>;
+}
+
+const errMsg = (e: unknown, def: string) => (e instanceof Error ? e.message : (e as { message?: string })?.message || def);
+
+/**
+ * Expediente del equipo: placa de identificación, aviso de estado con la acción que
+ * lo resuelve, signos vitales, «¿Qué necesitas hacer?» (solo lo que el usuario puede)
+ * y pestañas. Reutiliza los modales de siempre (bitácora, documentos, ficha, consumos).
+ */
+export function EquipoExpedientePage() {
+  const { id = '' } = useParams();
+  const [sp, setSp] = useSearchParams();
+  const navigate = useNavigate();
+  const { can, appUser } = usePermissions();
+  const { user } = useSession();
+  const actor = user?.email ?? 'sistema';
+  const actorName = appUser?.nombre ?? null;
+  const perm = {
+    maquinaria: can('maquinaria', 'escritura'),
+    combustible: can('combustible', 'escritura'),
+    salidas: can('salidas', 'escritura'),
+    pedidos: can('pedidos', 'escritura'),
+  };
+  const tab = (TABS.some((t) => t.id === sp.get('tab')) ? sp.get('tab') : 'resumen') as Tab;
+  const setTab = (t: Tab) => setSp((p) => { const n = new URLSearchParams(p); n.set('tab', t); return n; }, { replace: true });
+
+  const [eq, setEq] = useState<MaquinariaEquipo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [horometro, setHorometro] = useState<number | null>(null);
+  const [km, setKm] = useState<number | null>(null);
+  const [consumo30, setConsumo30] = useState<{ lts: number; usd: number } | null>(null);
+  const [ordenes, setOrdenes] = useState<OrdenServicio[]>([]);
+  const [eventos, setEventos] = useState<EventoEstado[]>([]);
+  const [compras, setCompras] = useState<CompraEquipo[]>([]);
+  const [salidas, setSalidas] = useState<Map<string, { codigo: string; estado: string }>>(new Map());
+  const [surtidos, setSurtidos] = useState<SurtidoEquipo[]>([]);
+  const [fotos, setFotos] = useState<FotoEquipo[]>([]);
+
+  const [modoEstado, setModoEstado] = useState<ModoEstado | null>(null);
+  const [nuevaOrden, setNuevaOrden] = useState(false);
+  const [bitacora, setBitacora] = useState(false);
+  const [documentos, setDocumentos] = useState(false);
+  const [movimientos, setMovimientos] = useState(false);
+  const [editar, setEditar] = useState(false);
+  const [confirmMantt, setConfirmMantt] = useState(false);
+  const [borrar, setBorrar] = useState(false);
+  const [cerrar, setCerrar] = useState<{ orden: OrdenServicio; estado: EstadoOrdenServicio } | null>(null);
+  const [trabajando, setTrabajando] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    try {
+      const e = await getEquipo(id);
+      setEq(e);
+      if (!e) return;
+      const vinc = (e.combustible_equipo ?? '').trim();
+      const hace30 = new Date(Date.now() - 30 * 86400000);
+      const [horo, kms, bit, ords, evs, surt, fts, cons] = await Promise.all([
+        vinc ? ultimoHorometroEquipo(vinc).catch(() => null) : Promise.resolve(null),
+        vinc ? ultimoKilometrajeEquipo(vinc).catch(() => null) : Promise.resolve(null),
+        listMantenimientos(e.id).catch(() => []),
+        listOrdenesServicio(e.id).catch(() => [] as OrdenServicio[]),
+        listEventosEstado(e.id).catch(() => [] as EventoEstado[]),
+        surtidosDeEquipo(vinc).catch(() => [] as SurtidoEquipo[]),
+        fotosDeEquipos(e.id).catch(() => [] as FotoEquipo[]),
+        vinc ? datosCombustibleDeEquipo(vinc, hace30, new Date()).catch(() => null) : Promise.resolve(null),
+      ]);
+      setHorometro(horo ?? bit.find((r) => r.horometro != null)?.horometro ?? null);
+      setKm(kms);
+      setOrdenes(ords);
+      setEventos(evs);
+      setSurtidos(surt);
+      setFotos(fts);
+      setConsumo30(cons ? { lts: cons.gasoilLts, usd: cons.gasoilUsd } : null);
+      const [cps, sals] = await Promise.all([
+        comprasDeEquipo(e.id, ords).catch(() => [] as CompraEquipo[]),
+        salidasDeOrdenes(ords).catch(() => new Map<string, { codigo: string; estado: string }>()),
+      ]);
+      setCompras(cps);
+      setSalidas(sals);
+    } catch (err) {
+      toast(errMsg(err, 'No se pudo cargar el equipo'), 'error');
+    } finally { setLoading(false); }
+  }, [id]);
+  useEffect(() => { setLoading(true); void cargar(); }, [cargar]);
+  useRealtime([
+    'maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_estado_eventos', 'maquinaria_mantenimientos',
+    'maquinaria_documentos', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
+  ], () => { void cargar(); });
+
+  const estado = eq ? estadoEfectivo(eq) : 'operativa';
+  const avisoH = eq ? avisoServicio(eq.mantenimiento_cada_hrs, horometro, eq.mantenimiento_base_hrs, 'h') : null;
+  const avisoK = eq ? avisoServicio(eq.mantenimiento_cada_km, km, eq.mantenimiento_base_km, 'km') : null;
+  const aviso = avisoMasUrgente(avisoH, avisoK);
+  const acciones = useMemo(
+    () => accionesEquipo({ maquinaria: perm.maquinaria, combustible: perm.combustible }, estado, { avisoServicio: !!aviso && aviso.nivel !== 'ok' }),
+    [perm.maquinaria, perm.combustible, estado, aviso],
+  );
+  const puede = (a: AccionEquipo) => acciones.includes(a);
+  const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
+  const comprasAbiertas = compras.filter((c) => compraAbierta(c.estado));
+  const cuenta: Partial<Record<Tab, number>> = { servicios: abiertas.length, compras: comprasAbiertas.length, fotos: fotos.length };
+
+  if (loading && !eq) return <EmptyState message="Cargando expediente…" />;
+  if (!eq) {
+    return (
+      <div className="flo">
+        <Link className="flo-volver" to="/app/maquinaria">← Catálogo</Link>
+        <EmptyState message="Equipo no encontrado (puede que lo hayan eliminado)." icon="🚜" />
+      </div>
+    );
+  }
+
+  const st = ESTADOS_EQUIPO[estado];
+  const foto = fotos[0]?.url ?? null;
+
+  async function pdfFicha() {
+    if (!eq) return;
+    try {
+      await fichaEquipoPdf(eq, {
+        horometro, km, restantesHrs: avisoH?.restante ?? null, restantesKm: avisoK?.restante ?? null,
+        consumoLts: consumo30?.lts ?? null,
+      }, ordenes, fotos);
+    } catch (e) { toast(errMsg(e, 'No se pudo generar la ficha'), 'error'); }
+  }
+
+  async function pdfOrden(o: OrdenServicio) {
+    if (!eq) return;
+    const compra = o.orden_compra_id ? compras.find((c) => c.id === o.orden_compra_id) : null;
+    try {
+      await ordenServicioPdf(o, eq, {
+        salida: o.solicitud_salida_id ? (salidas.get(o.solicitud_salida_id) ?? null) : null,
+        compra: compra ? { codigo: compra.oc_codigo || compra.codigo, estado: statusBadge(compra.estado).label } : null,
+      });
+    } catch (e) { toast(errMsg(e, 'No se pudo generar el PDF'), 'error'); }
+  }
+
+  async function iniciar(o: OrdenServicio) {
+    setTrabajando(o.id);
+    try { await avanzarOrdenServicio(o.id, 'en_proceso'); toast(`${o.codigo}: trabajo iniciado.`, 'success'); await cargar(); }
+    catch (e) { toast(errMsg(e, 'No se pudo avanzar la orden'), 'error'); }
+    finally { setTrabajando(null); }
+  }
+
+  async function pedir(o: OrdenServicio, que: 'salida' | 'compra') {
+    if (!eq) return;
+    setTrabajando(o.id);
+    try {
+      const codigo = que === 'salida'
+        ? await solicitarSalidaDeOrden(o, eq.equipo, { email: actor, nombre: actorName })
+        : await solicitarCompraDeOrden(o, eq, { email: actor, nombre: actorName });
+      toast(`${o.codigo}: ${que === 'salida' ? 'salida' : 'solicitud de pedido'} ${codigo} creada.`, 'success');
+      await cargar();
+    } catch (e) { toast(errMsg(e, 'No se pudo crear la solicitud'), 'error'); }
+    finally { setTrabajando(null); }
+  }
+
+  async function manttHecho() {
+    if (!eq) return;
+    try {
+      const { horas, km: k } = await reiniciarMantenimientoDeEquipo(eq.id);
+      if (horas == null && k == null) toast('No hay horómetro ni kilometraje vigente para fijar la base.', 'warning');
+      else toast(`Contador reiniciado desde ${[horas != null ? `${fmtNum(horas)} h` : null, k != null ? `${fmtNum(k)} km` : null].filter(Boolean).join(' · ')}.`, 'success');
+      await cargar();
+    } catch (e) { toast(errMsg(e, 'No se pudo reiniciar el contador'), 'error'); }
+  }
+
+  /* ───────── Aviso según el estado ───────── */
+  const orden0 = abiertas[0];
+  const avisoEstado: { tono: TonoFlota; titulo: string; texto: string; cta?: ReactNode } | null = (() => {
+    const btnServicio = puede('servicio') ? <button className="btn btn-sm btn-primary" onClick={() => setNuevaOrden(true)}>Crear orden de servicio</button> : undefined;
+    switch (estado) {
+      case 'averiada': case 'parada':
+        return {
+          tono: estado === 'averiada' ? 'danger' : 'warning',
+          titulo: `${st.label}${eq.estado_nota ? ` · ${eq.estado_nota}` : ''}`,
+          texto: `${eq.estado_desde ? `Desde ${fmtDate(eq.estado_desde)}. ` : ''}${orden0 ? `Tiene la orden ${orden0.codigo} en curso.` : 'Abre una orden de servicio: toma los repuestos del inventario y pide a compras lo que falte.'}`,
+          cta: orden0 ? <button className="btn btn-sm" onClick={() => setTab('servicios')}>Ver orden</button> : btnServicio,
+        };
+      case 'taller':
+        return { tono: 'primary', titulo: `En taller${orden0 ? ` · ${orden0.codigo}` : ''}`, texto: eq.estado_nota || 'Orden de servicio en curso.', cta: <button className="btn btn-sm" onClick={() => setTab('servicios')}>Ver orden</button> };
+      case 'repuestos':
+        return { tono: 'warning', titulo: `Esperando repuestos${orden0 ? ` · ${orden0.codigo}` : ''}`, texto: 'La orden sigue sola cuando Pedidos reciba la compra.', cta: <button className="btn btn-sm" onClick={() => setTab('compras')}>Ver compra</button> };
+      case 'espera':
+        return { tono: 'wait', titulo: 'Esperando instrucciones', texto: eq.estado_nota || 'Sin frente asignado.', cta: puede('quitar_espera') ? <button className="btn btn-sm btn-success" onClick={() => setModoEstado('operativa')}>Ya se decidió</button> : undefined };
+      case 'retirada':
+        return { tono: 'retired', titulo: 'Retirada de servicio', texto: eq.estado_nota || 'El equipo está inactivo. No se borró nada.', cta: puede('reactivar') ? <button className="btn btn-sm btn-success" onClick={() => setModoEstado('operativa')}>Reactivar</button> : undefined };
+      default:
+        if (aviso && aviso.nivel !== 'ok') {
+          return {
+            tono: aviso.nivel === 'vencido' ? 'danger' : 'warning',
+            titulo: aviso.nivel === 'vencido' ? `Servicio vencido por ${fmtNum(Math.abs(aviso.restante))} ${aviso.unidad}` : `Servicio en ${fmtNum(aviso.restante)} ${aviso.unidad}`,
+            texto: 'Según el horómetro / kilometraje de Combustible.', cta: btnServicio,
+          };
+        }
+        return null;
+    }
+  })();
+
+  return (
+    <div className="flo flo-exp">
+      <Link className="flo-volver" to="/app/maquinaria">← Catálogo</Link>
+
+      <div className="flo-hero">
+        <div className="flo-media">
+          {foto ? <img src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
+          <div className={`estado tone-${st.tono}`}><Chip tono={st.tono} lg>{st.icon} {st.label}</Chip></div>
+          <button className="fotos-btn" type="button" onClick={() => (fotos.length ? setTab('fotos') : setDocumentos(true))}>
+            📷 {fotos.length ? `${fotos.length} foto(s)` : perm.maquinaria ? 'Agregar foto' : 'Documentos'}
+          </button>
+        </div>
+        <div className="flo-plate">
+          <div className="fila"><span className="marca">{eq.marca || 'Sin marca'}</span><span className="prop">{eq.propietario || ''}</span></div>
+          <h1>{eq.equipo}</h1>
+          <div className="modelo">{[eq.modelo, eq.anio].filter(Boolean).join(' · ') || eq.tipo || '—'}</div>
+          <div className="pin">
+            <small>SERIAL / PIN</small><b>{eq.serial || '—'}</b>
+            {eq.placa && <><small>PLACA</small><b>{eq.placa}</b></>}
+          </div>
+        </div>
+      </div>
+
+      <div className="flo-body">
+        {avisoEstado && (
+          <div className={`flo-aviso tone-${avisoEstado.tono}`}>
+            <span className="ico">{st.icon}</span>
+            <div className="txt"><strong>{avisoEstado.titulo}</strong><p>{avisoEstado.texto}</p></div>
+            {avisoEstado.cta}
+          </div>
+        )}
+
+        <Vitales horometro={horometro} km={km} avisoH={avisoH} avisoK={avisoK} equipo={eq} consumo30={consumo30} />
+
+        <section aria-labelledby="flo-acc" style={{ display: 'grid', gap: '.6rem' }}>
+          <div className="flo-acc-head"><h2 id="flo-acc">¿Qué necesitas hacer?</h2><span>{perm.maquinaria ? 'Con permiso de Maquinaria' : 'Solo lectura en Maquinaria'}</span></div>
+          {(puede('servicio') || puede('averia') || puede('combustible')) && (
+            <div className="flo-tiles">
+              {puede('servicio') && (
+                <button type="button" className="flo-tile hero" onClick={() => setNuevaOrden(true)}>
+                  <span className="ico">🔧</span>
+                  <div><strong>Servicio</strong><span>Mantenimiento, reparación o cambio de piezas. Usa el inventario y pide a compras lo que falte.</span>
+                    <div className="tags"><i>Preventivo</i><i>Reparación</i><i>Cauchos</i><i>Piezas</i></div></div>
+                  <span className="go" aria-hidden="true">+</span>
+                </button>
+              )}
+              {puede('averia') && <Tile icon="🔴" titulo="Reportar avería" sub="Averiada o parada, con motivo" onClick={() => setModoEstado('averia')} />}
+              {puede('combustible') && <Tile icon="⛽" titulo="Combustible" sub={surtidos[0] ? `Último surtido ${fmtDate(surtidos[0].fecha)}` : 'Registrar surtido en Combustible'} onClick={() => navigate('/app/combustible')} />}
+            </div>
+          )}
+          <div className="flo-quick">
+            {puede('bitacora') && <button type="button" onClick={() => setBitacora(true)}><span className="ico">📒</span><span>Bitácora</span></button>}
+            <button type="button" onClick={() => setMovimientos(true)}><span className="ico">🧾</span><span>Consumos</span></button>
+            {puede('documentos') && <button type="button" onClick={() => setDocumentos(true)}><span className="ico">📎</span><span>Documentos</span></button>}
+            {puede('ficha') && <button type="button" onClick={() => void pdfFicha()}><span className="ico">📄</span><span>Ficha PDF</span></button>}
+            {puede('editar') && <button type="button" onClick={() => setEditar(true)}><span className="ico">✎</span><span>Editar ficha</span></button>}
+            {puede('mantt_hecho') && <button type="button" onClick={() => setConfirmMantt(true)}><span className="ico">✔</span><span>Mantt. hecho</span></button>}
+          </div>
+          {(puede('espera') || puede('quitar_espera') || puede('retirar') || puede('reactivar') || puede('eliminar')) && (
+            <div className="flo-estado-acc">
+              {puede('espera') && <button className="btn" onClick={() => setModoEstado('espera')}>⏳ Esperando instrucciones</button>}
+              {puede('quitar_espera') && <button className="btn btn-success" onClick={() => setModoEstado('operativa')}>✅ Ya se decidió (quitar espera)</button>}
+              {puede('retirar') && <button className="btn btn-danger" onClick={() => setModoEstado('retirar')}>⬛ Retirar de servicio</button>}
+              {puede('reactivar') && <button className="btn btn-success" onClick={() => setModoEstado('operativa')}>✅ Reactivar (operativa)</button>}
+              {puede('eliminar') && <button className="btn btn-ghost" onClick={() => setBorrar(true)}>🗑 Eliminar</button>}
+            </div>
+          )}
+          {!perm.maquinaria && <p className="flo-solo-lectura">Puedes consultar este equipo, su bitácora y su ficha. Para abrir servicios o cambiar su estado hace falta permiso de escritura en Maquinaria.</p>}
+        </section>
+
+        <nav className="flo-tabs" role="tablist" aria-label="Secciones del equipo">
+          {TABS.map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
+              {t.label}{cuenta[t.id] ? <span className="n">{cuenta[t.id]}</span> : null}
+            </button>
+          ))}
+        </nav>
+
+        <section className="flo-panel" role="tabpanel">
+          {tab === 'resumen' && <TabResumen eq={eq} eventos={eventos} ordenes={ordenes} />}
+          {tab === 'servicios' && (
+            <TabServicios
+              ordenes={ordenes} salidas={salidas} compras={compras} perm={perm} trabajando={trabajando}
+              puedeCrear={puede('servicio')} onNueva={() => setNuevaOrden(true)}
+              onIniciar={(o) => void iniciar(o)} onCerrar={(o, e) => setCerrar({ orden: o, estado: e })}
+              onPedir={(o, q) => void pedir(o, q)} onPdf={(o) => void pdfOrden(o)} onTab={setTab}
+            />
+          )}
+          {tab === 'compras' && <TabCompras compras={compras} />}
+          {tab === 'combustible' && <TabCombustible eq={eq} surtidos={surtidos} consumo30={consumo30} horometro={horometro} km={km} puede={puede('combustible')} onIr={() => navigate('/app/combustible')} />}
+          {tab === 'fotos' && <TabFotos fotos={fotos} onDocs={() => setDocumentos(true)} />}
+          {tab === 'ficha' && <TabFicha eq={eq} onPdf={() => void pdfFicha()} />}
+        </section>
+      </div>
+
+      {modoEstado && <EstadoEquipoModal equipo={eq} modo={modoEstado} onClose={() => setModoEstado(null)} onSaved={() => void cargar()} />}
+      {nuevaOrden && (
+        <OrdenServicioModal equipo={eq} horometro={horometro} kilometraje={km} aviso={aviso}
+          puedeSalidas={perm.salidas} puedePedidos={perm.pedidos} actor={{ email: actor, nombre: actorName }}
+          onClose={() => setNuevaOrden(false)} onCreated={() => { setTab('servicios'); void cargar(); }} />
+      )}
+      {cerrar && (
+        <CerrarOrdenModal orden={cerrar.orden} estado={cerrar.estado} equipo={eq} horometro={horometro} km={km}
+          actor={actor} actorName={actorName} onClose={() => setCerrar(null)} onDone={() => void cargar()} />
+      )}
+      {bitacora && <BitacoraModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => setBitacora(false)} />}
+      {documentos && <EquipoDocumentosModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => { setDocumentos(false); void cargar(); }} />}
+      {movimientos && <EquipoMovimientosModal equipo={eq} onClose={() => setMovimientos(false)} />}
+      {editar && <EquipoFormModal equipo={eq} actor={actor} onClose={() => setEditar(false)} onSaved={() => void cargar()} />}
+      {confirmMantt && (
+        <ConfirmDialog title="Mantenimiento hecho" confirmText="Reiniciar contador"
+          message="Se marca el mantenimiento como realizado: el contador de horas/km vuelve a empezar desde la lectura vigente."
+          preview={<VistaPrevia titulo="Base nueva"><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Horómetro">{horometro != null ? `${fmtNum(horometro)} h` : undefined}</Dato><Dato label="Kilometraje">{km != null ? `${fmtNum(km)} km` : undefined}</Dato></VistaPrevia>}
+          onCancel={() => setConfirmMantt(false)} onConfirm={() => { setConfirmMantt(false); void manttHecho(); }} />
+      )}
+      {borrar && (
+        <ConfirmDialog title="Eliminar equipo" danger confirmText="Eliminar" requireText={eq.equipo}
+          message="Se borra el equipo con su bitácora, sus documentos, sus órdenes de servicio y su historial de estados. No se puede deshacer. Si solo dejó de trabajar, usa «Retirar de servicio»."
+          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Tipo">{eq.tipo ?? undefined}</Dato><Dato label="Serial">{eq.serial ?? undefined}</Dato><Dato label="Órdenes">{ordenes.length ? String(ordenes.length) : undefined}</Dato></VistaPrevia>}
+          onCancel={() => setBorrar(false)}
+          onConfirm={() => {
+            setBorrar(false);
+            void eliminarEquipo(eq.id).then(() => { toast('Equipo eliminado', 'success'); navigate('/app/maquinaria'); })
+              .catch((e) => toast(errMsg(e, 'No se pudo eliminar'), 'error'));
+          }} />
+      )}
+    </div>
+  );
+}
+
+function Tile({ icon, titulo, sub, onClick }: { icon: string; titulo: string; sub: string; onClick: () => void }) {
+  return <button type="button" className="flo-tile" onClick={onClick}><span className="ico">{icon}</span><strong>{titulo}</strong><span>{sub}</span></button>;
+}
+
+function Vitales({ horometro, km, avisoH, avisoK, equipo, consumo30 }: {
+  horometro: number | null; km: number | null; avisoH: AvisoServicio | null; avisoK: AvisoServicio | null;
+  equipo: MaquinariaEquipo; consumo30: { lts: number; usd: number } | null;
+}) {
+  const aviso = avisoMasUrgente(avisoH, avisoK);
+  const tono = !aviso ? 'var(--text-dim)' : aviso.nivel === 'vencido' ? 'var(--danger)' : aviso.nivel === 'proximo' ? 'var(--warning)' : 'var(--success)';
+  const lectura = horometro != null ? { v: horometro, u: 'h', l: 'Horómetro' } : km != null ? { v: km, u: 'km', l: 'Kilometraje' } : null;
+  return (
+    <div className="flo-vitals">
+      <div className="flo-vital">
+        <small>{lectura?.l ?? 'Horómetro / km'}</small>
+        <strong>{lectura ? fmtNum(lectura.v) : '—'}{lectura && <em>{lectura.u}</em>}</strong>
+        <span>{horometro != null && km != null ? `${fmtNum(km)} km` : equipo.combustible_equipo ? 'De Combustible' : 'Sin vínculo en Combustible'}</span>
+      </div>
+      <div className="flo-vital">
+        <small>Próx. servicio</small>
+        <strong>{aviso ? fmtNum(Math.max(0, aviso.restante)) : '—'}{aviso && <em>{aviso.unidad}</em>}</strong>
+        {aviso && <div className="flo-meter" style={{ ['--tone' as string]: tono }}><i style={{ width: `${aviso.pct}%` }} /></div>}
+        <span>{!aviso ? 'Define el intervalo en la ficha' : aviso.nivel === 'vencido' ? `Vencido por ${fmtNum(Math.abs(aviso.restante))} ${aviso.unidad}` : aviso.nivel === 'proximo' ? 'Servicio próximo' : `Cada ${fmtNum(aviso.unidad === 'h' ? equipo.mantenimiento_cada_hrs : equipo.mantenimiento_cada_km)} ${aviso.unidad}`}</span>
+      </div>
+      <div className="flo-vital">
+        <small>Gasoil 30 días</small>
+        <strong>{consumo30 ? fmtNum(consumo30.lts) : '—'}{consumo30 && <em>L</em>}</strong>
+        <span>{consumo30 && consumo30.usd ? `≈ $ ${fmtNum(consumo30.usd)}` : equipo.litros_consume != null ? `Esperado ${fmtNum(equipo.litros_consume)} L` : ''}</span>
+      </div>
+    </div>
+  );
+}
+
+function TabResumen({ eq, eventos, ordenes }: { eq: MaquinariaEquipo; eventos: EventoEstado[]; ordenes: OrdenServicio[] }) {
+  const actividad = [
+    ...eventos.map((e) => ({
+      at: e.created_at, icon: ESTADOS_EQUIPO[e.estado]?.icon ?? '•',
+      titulo: `${e.estado_anterior && ESTADOS_EQUIPO[e.estado_anterior as keyof typeof ESTADOS_EQUIPO] ? `${ESTADOS_EQUIPO[e.estado_anterior as keyof typeof ESTADOS_EQUIPO].label} → ` : ''}${ESTADOS_EQUIPO[e.estado]?.label ?? e.estado}`,
+      detalle: [e.motivo, e.material ? `falta ${e.material}` : null, e.nota, e.actor_name || e.actor].filter(Boolean).join(' · '),
+    })),
+    ...ordenes.map((o) => ({ at: o.created_at, icon: servicioPorId(o.tipo)?.icon ?? '🔧', titulo: `${o.codigo} abierta`, detalle: [servicioPorId(o.tipo)?.label, o.actor_name || o.created_by].filter(Boolean).join(' · ') })),
+  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
+  return (
+    <div className="flo-2col">
+      <div className="flo-sec">
+        <div className="flo-sec-head"><h3>🧭 Asignación y ubicación</h3></div>
+        <dl className="flo-facts">
+          <Fact label="Tipo" v={eq.tipo} />
+          <Fact label="Propietario" v={eq.propietario} />
+          <Fact label="Ubicación" v={eq.ubicacion} />
+          <Fact label="Grupo de mantenimiento" v={eq.grupo_mantenimiento} />
+          <Fact label="Equipo en Combustible" v={eq.combustible_equipo} />
+          <Fact label="Status (registro)" v={eq.status} />
+          <Fact label="Notas" v={eq.notas} />
+        </dl>
+      </div>
+      <div className="flo-sec">
+        <div className="flo-sec-head"><h3>🕘 Actividad</h3></div>
+        {actividad.length ? (
+          <ol className="flo-timeline">
+            {actividad.map((a, i) => <li key={i}><span>{a.icon}</span><div><strong>{a.titulo}</strong><span>{dateTime(a.at)}{a.detalle ? ` · ${a.detalle}` : ''}</span></div></li>)}
+          </ol>
+        ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin actividad registrada desde el 09/10/2026. La bitácora de siempre sigue en «📒 Bitácora».</p>}
+      </div>
+    </div>
+  );
+}
+
+function Fact({ label, v }: { label: string; v: string | null | undefined }) {
+  if (!v) return null;
+  return <div><dt>{label}</dt><dd>{v}</dd></div>;
+}
+
+function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onTab }: {
+  ordenes: OrdenServicio[]; salidas: Map<string, { codigo: string; estado: string }>; compras: CompraEquipo[];
+  perm: { maquinaria: boolean; salidas: boolean; pedidos: boolean }; trabajando: string | null; puedeCrear: boolean;
+  onNueva: () => void; onIniciar: (o: OrdenServicio) => void; onCerrar: (o: OrdenServicio, e: EstadoOrdenServicio) => void;
+  onPedir: (o: OrdenServicio, q: 'salida' | 'compra') => void; onPdf: (o: OrdenServicio) => void; onTab: (t: Tab) => void;
+}) {
+  const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
+  const cerradas = ordenes.filter((o) => !ordenAbierta(o.estado));
+  return (
+    <>
+      {puedeCrear && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onNueva}>🔧 Crear orden de servicio</button>}
+      {abiertas.length ? abiertas.map((o) => {
+        const s = servicioPorId(o.tipo);
+        const est = ORDEN_ESTADOS[o.estado];
+        const idx = ORDEN_FLUJO.indexOf(o.estado);
+        const urg = URGENCIAS.find((u) => u.id === o.urgencia);
+        const sal = o.solicitud_salida_id ? salidas.get(o.solicitud_salida_id) : null;
+        const cmp = o.orden_compra_id ? compras.find((c) => c.id === o.orden_compra_id) : null;
+        const sig = siguientesEstadosOrden(o.estado);
+        const ocupado = trabajando === o.id;
+        return (
+          <div key={o.id} className="flo-orden">
+            <div className="flo-orden-head">
+              <div><h3>{s?.icon} {o.codigo}</h3><p>{s?.label ?? o.tipo} · {fmtDate(o.created_at)} · {o.responsable || 'responsable por asignar'}</p></div>
+              <div style={{ display: 'grid', gap: '.3rem', justifyItems: 'end' }}>
+                <Chip tono={est.tono}>{est.icon} {est.label}</Chip>
+                {urg && urg.id !== 'normal' && <Chip tono={urg.tono}>{urg.label}</Chip>}
+              </div>
+            </div>
+            <ol className="flo-steps" aria-label="Avance de la orden">
+              {ORDEN_FLUJO.map((f, i) => <li key={f} className={i < idx ? 'done' : i === idx ? 'current' : ''}>{ORDEN_ESTADOS[f].label}</li>)}
+            </ol>
+            {o.descripcion && <p style={{ margin: 0, fontSize: '.86rem', color: 'var(--text)' }}>{o.descripcion}</p>}
+            {o.repuestos.length > 0 && (
+              <ul className="flo-parts">
+                {o.repuestos.map((r, i) => (
+                  <li key={i}>
+                    <span>{r.nombre}</span><strong className="mono">{fmtNum(r.cantidad)} {r.unidad}</strong>
+                    <span className="src">
+                      {r.desde_inventario > 0 && <Chip tono="success">📦 {fmtNum(r.desde_inventario)} del inventario{sal ? ` · ${sal.codigo}` : ''}</Chip>}
+                      {r.a_comprar > 0 && <Chip tono="warning">🛒 {fmtNum(r.a_comprar)} a compra{cmp ? ` · ${cmp.oc_codigo || cmp.codigo}` : r.producto_id ? '' : ' · pieza nueva'}</Chip>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(sal || cmp) && (
+              <div className="muted" style={{ fontSize: '.78rem' }}>
+                {sal && <>📦 Salida <strong>{sal.codigo}</strong>: {ESTADO_SALIDA[sal.estado] ?? sal.estado}. </>}
+                {cmp && <>🛒 Compra <strong>{cmp.oc_codigo || cmp.codigo}</strong>: {statusBadge(cmp.estado).label}.</>}
+              </div>
+            )}
+            {(faltaSalida(o) || faltaCompra(o)) && (
+              <div className="aviso warning sm"><span className="aviso-icono">⚠️</span><div>
+                Por solicitar: {[faltaSalida(o) ? 'la salida de inventario' : null, faltaCompra(o) ? 'la compra' : null].filter(Boolean).join(' y ')}.
+                {!((faltaSalida(o) && perm.salidas) || (faltaCompra(o) && perm.pedidos)) && ' Pídeselo a quien tenga permiso de Salidas / Pedidos.'}
+              </div></div>
+            )}
+            <div className="flo-orden-foot">
+              {perm.maquinaria && sig.includes('en_proceso') && <button className="btn btn-primary" disabled={ocupado} onClick={() => onIniciar(o)}>🔧 Iniciar trabajo</button>}
+              {perm.maquinaria && sig.includes('realizada') && <button className="btn btn-success" disabled={ocupado} onClick={() => onCerrar(o, 'realizada')}>✅ Marcar realizada</button>}
+              {faltaSalida(o) && perm.salidas && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'salida')}>📦 Pedir salida de inventario</button>}
+              {faltaCompra(o) && perm.pedidos && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'compra')}>🛒 Pedir compra</button>}
+              {cmp && <button className="btn" onClick={() => onTab('compras')}>🛒 Ver compra</button>}
+              <button className="btn" onClick={() => onPdf(o)}>📄 PDF de la orden</button>
+              {perm.maquinaria && sig.includes('anulada') && <button className="btn btn-ghost" disabled={ocupado} onClick={() => onCerrar(o, 'anulada')}>⛔ Anular</button>}
+            </div>
+          </div>
+        );
+      }) : (
+        <div className="flo-sec"><EmptyState message="Sin órdenes abiertas. Cuando abras un servicio, aquí verás su avance y de dónde salen los repuestos." icon="✅" /></div>
+      )}
+      <div className="flo-sec">
+        <div className="flo-sec-head"><h3>📚 Historial de servicio</h3><span className="muted" style={{ fontSize: '.76rem' }}>{cerradas.length} orden(es)</span></div>
+        {cerradas.length ? (
+          <div className="flo-hist">
+            {cerradas.map((o) => {
+              const s = servicioPorId(o.tipo);
+              return (
+                <div key={o.id}>
+                  <span>{o.estado === 'anulada' ? '⛔' : s?.icon}</span>
+                  <div style={{ minWidth: 0 }}><strong>{o.codigo} · {s?.label ?? o.tipo}</strong><small>{fmtDate(o.created_at)}{o.cerrada_at ? ` → ${fmtDate(o.cerrada_at)}` : ''} · {ORDEN_ESTADOS[o.estado]?.label}{o.nota_cierre ? ` · ${o.nota_cierre}` : ''}</small></div>
+                  <button className="btn btn-sm btn-ghost" onClick={() => onPdf(o)} aria-label={`PDF de ${o.codigo}`}>📄 PDF</button>
+                </div>
+              );
+            })}
+          </div>
+        ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Todavía no hay servicios cerrados. Los registros anteriores siguen en la bitácora (📒).</p>}
+      </div>
+    </>
+  );
+}
+
+function TabCompras({ compras }: { compras: CompraEquipo[] }) {
+  return (
+    <>
+      <div className="aviso info"><span className="aviso-icono">🛒</span><div>
+        <strong>Compras de este equipo.</strong> Las solicitudes de servicio de Pedidos casadas a este equipo y los repuestos pedidos desde sus órdenes de servicio. Se mueven en <Link to="/app/pedidos">Pedidos</Link>; al recibir los repuestos, la orden de servicio sigue sola.
+      </div></div>
+      {compras.length ? (
+        <div className="flo-kanban">
+          {COLUMNAS_COMPRA.map((c) => {
+            const cards = compras.filter((x) => columnaCompra(x.estado) === c.id);
+            return (
+              <div key={c.id} className={`flo-kcol tone-${c.tono}`}>
+                <header><span>{c.icon} {c.label}</span><span>{cards.length}</span></header>
+                {cards.length ? cards.map((k) => (
+                  <div key={k.id} className="flo-kcard">
+                    <div className="fila"><strong>{k.oc_codigo || k.codigo}</strong><span>{fmtDate(k.created_at)}</span></div>
+                    <div>{k.lineas.slice(0, 4).map((l, i) => <div key={i}>{fmtNum(l.cantidad)} {l.unidad ?? ''} · {l.nombre}</div>)}{k.lineas.length > 4 && <div>+{k.lineas.length - 4} más</div>}</div>
+                    <div className="fila"><span>{k.tipo === 'servicio' ? '🔧 Servicio' : k.orden_servicio ? `🧾 ${k.orden_servicio}` : '📦 Pedido'}</span><span className="mono">{k.total ? `${fmtNum(k.total)} ${k.total_moneda ?? ''}` : 'Sin precio'}</span></div>
+                    <span className={`badge ${statusBadge(k.estado).className}`} style={{ justifySelf: 'start' }}>{statusBadge(k.estado).label}</span>
+                  </div>
+                )) : <div className="vacio">Nada aquí</div>}
+              </div>
+            );
+          })}
+        </div>
+      ) : <div className="flo-sec"><EmptyState message="Sin compras vinculadas. Aparecerán cuando una orden de servicio pida repuestos o cuando Pedidos registre un servicio para este equipo." icon="🛒" /></div>}
+    </>
+  );
+}
+
+function TabCombustible({ eq, surtidos, consumo30, horometro, km, puede, onIr }: {
+  eq: MaquinariaEquipo; surtidos: SurtidoEquipo[]; consumo30: { lts: number; usd: number } | null;
+  horometro: number | null; km: number | null; puede: boolean; onIr: () => void;
+}) {
+  if (!eq.combustible_equipo) {
+    return <div className="aviso warning"><span className="aviso-icono">🔗</span><div>Este equipo no está vinculado a un equipo de <strong>Combustible</strong>: no se ven su horómetro, sus surtidos ni su alerta de mantenimiento. Vincúlalo en «✎ Editar ficha».</div></div>;
+  }
+  const total = surtidos.reduce((a, s) => a + s.litros, 0);
+  return (
+    <>
+      <div className="flo-stats">
+        <div className="flo-stat"><small>Último surtido</small><strong style={{ fontSize: '1.1rem' }}>{surtidos[0] ? fmtDate(surtidos[0].fecha) : '—'}</strong></div>
+        <div className="flo-stat"><small>Gasoil 30 días</small><strong>{consumo30 ? `${fmtNum(consumo30.lts)} L` : '—'}</strong></div>
+        <div className="flo-stat"><small>Horómetro</small><strong>{horometro != null ? `${fmtNum(horometro)} h` : '—'}</strong></div>
+        <div className="flo-stat"><small>Kilometraje</small><strong>{km != null ? `${fmtNum(km)} km` : '—'}</strong></div>
+      </div>
+      {puede && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onIr}>⛽ Registrar surtido en Combustible</button>}
+      <div className="flo-sec">
+        <div className="flo-sec-head"><h3>⛽ Últimos surtidos · {eq.combustible_equipo}</h3><span className="muted" style={{ fontSize: '.76rem' }}>{fmtNum(total)} L en {surtidos.length}</span></div>
+        {surtidos.length ? (
+          <div className="flo-hist">
+            {surtidos.map((s) => (
+              <div key={s.id}><span>⛽</span>
+                <div style={{ minWidth: 0 }}><strong className="mono">{fmtNum(s.litros)} L</strong><small>{[s.ubicacion, s.autorizado_por, s.horometro_fin != null ? `${fmtNum(s.horometro_fin)} h` : null, s.kilometraje != null ? `${fmtNum(s.kilometraje)} km` : null].filter(Boolean).join(' · ') || '—'}</small></div>
+                <span className="muted" style={{ fontSize: '.76rem' }}>{fmtDate(s.fecha)}</span>
+              </div>
+            ))}
+          </div>
+        ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin surtidos registrados.</p>}
+      </div>
+    </>
+  );
+}
+
+function TabFotos({ fotos, onDocs }: { fotos: FotoEquipo[]; onDocs: () => void }) {
+  return (
+    <>
+      <button className="btn" style={{ justifyContent: 'center' }} onClick={onDocs}>📎 Documentos del equipo (contrato, catálogo, fotos…)</button>
+      {fotos.length ? (
+        <div className="flo-fotos">
+          {fotos.map((f) => <figure key={f.id}><a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={f.nombre} loading="lazy" /></a><figcaption>{f.nombre}</figcaption></figure>)}
+        </div>
+      ) : <div className="flo-sec"><EmptyState message="Sin fotos. Sube una imagen (JPG o PNG) en los documentos del equipo: la primera es la foto del expediente y de la ficha PDF." icon="📷" /></div>}
+    </>
+  );
+}
+
+function TabFicha({ eq, onPdf }: { eq: MaquinariaEquipo; onPdf: () => void }) {
+  const filas: [string, string | null | undefined][] = [
+    ['Equipo', eq.equipo], ['Tipo', eq.tipo], ['Marca', eq.marca], ['Modelo', eq.modelo], ['Año', eq.anio != null ? String(eq.anio) : null],
+    ['Color', eq.color], ['Serial / PIN', eq.serial], ['Placa', eq.placa], ['Motor (modelo)', eq.motor_modelo], ['Motor (serial)', eq.motor_serial],
+    ['Combustible', eq.combustible], ['Consumo esperado', eq.litros_consume != null ? `${fmtNum(eq.litros_consume)} L` : null],
+    ['Mantenimiento cada', [eq.mantenimiento_cada_hrs ? `${fmtNum(eq.mantenimiento_cada_hrs)} h` : null, eq.mantenimiento_cada_km ? `${fmtNum(eq.mantenimiento_cada_km)} km` : null].filter(Boolean).join(' · ') || null],
+    ['Ficha técnica', eq.ficha_tecnica], ['Ficha de mantenimiento', eq.ficha_mantenimiento], ['Documentación', eq.documentacion],
+    ['Estado operativo', `${ESTADOS_EQUIPO[estadoEfectivo(eq)].label}${eq.estado_nota ? ` (${eq.estado_nota})` : ''}`],
+  ];
+  return (
+    <>
+      <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onPdf}>📄 Ficha técnico-operativa (PDF)</button>
+      <div className="flo-sec">
+        <div className="flo-sec-head"><h3>Identificación del equipo</h3></div>
+        <dl className="flo-facts">{filas.map(([k, v]) => <Fact key={k} label={k} v={v} />)}</dl>
+      </div>
+    </>
+  );
+}
+
+/** Cierra (realizada) o anula una orden. Al realizarla, ofrece anotarla en la bitácora y reiniciar el contador. */
+function CerrarOrdenModal({ orden, estado, equipo, horometro, km, actor, actorName, onClose, onDone }: {
+  orden: OrdenServicio; estado: EstadoOrdenServicio; equipo: MaquinariaEquipo; horometro: number | null; km: number | null;
+  actor: string; actorName: string | null; onClose: () => void; onDone: () => void;
+}) {
+  const realizar = estado === 'realizada';
+  const s = servicioPorId(orden.tipo);
+  const [nota, setNota] = useState('');
+  const [bitacora, setBitacora] = useState(true);
+  const [reiniciar, setReiniciar] = useState(servicioReiniciaContador(orden.tipo));
+  const [saving, setSaving] = useState(false);
+  const falta = !realizar && nota.trim().length < 3;
+
+  async function guardar() {
+    setSaving(true);
+    try {
+      await avanzarOrdenServicio(orden.id, estado, nota.trim() || null);
+      const extras: string[] = [];
+      if (realizar && bitacora) {
+        try {
+          await addMantenimiento({
+            equipo_id: equipo.id, fecha: new Date().toISOString().slice(0, 10), tipo: s?.bitacora ?? 'otro',
+            horometro, kilometraje: km,
+            trabajo: [`${orden.codigo}`, orden.descripcion, nota.trim()].filter(Boolean).join(' · '),
+            consumibles: orden.repuestos.map((r) => `${fmtNum(r.cantidad)} ${r.unidad} ${r.nombre}`).join(', ') || null,
+            mecanico: orden.responsable,
+          }, actor, actorName);
+          extras.push('anotada en la bitácora');
+        } catch (e) { toast(`No se pudo anotar en la bitácora: ${errMsg(e, 'error')}`, 'warning'); }
+      }
+      if (realizar && reiniciar) {
+        try { await reiniciarMantenimientoDeEquipo(equipo.id); extras.push('contador reiniciado'); }
+        catch (e) { toast(`No se pudo reiniciar el contador: ${errMsg(e, 'error')}`, 'warning'); }
+      }
+      toast(`${orden.codigo} ${realizar ? 'realizada' : 'anulada'}${extras.length ? ` · ${extras.join(' · ')}` : ''}.`, 'success');
+      onDone();
+      onClose();
+    } catch (e) { toast(errMsg(e, 'No se pudo cerrar la orden'), 'error'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal compact title={realizar ? `✅ Marcar realizada · ${orden.codigo}` : `⛔ Anular · ${orden.codigo}`} onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className={`btn ${realizar ? 'btn-success' : 'btn-danger'}`} disabled={saving || falta} onClick={() => void guardar()}>{saving ? 'Guardando…' : realizar ? 'Marcar realizada' : 'Anular orden'}</button>
+      </>}>
+      <div style={{ display: 'grid', gap: '.7rem' }}>
+        <VistaPrevia titulo={realizar ? 'Se cierra la orden' : 'Se anula la orden'}>
+          <Dato label="Orden">{orden.codigo}</Dato>
+          <Dato label="Servicio">{s?.label ?? orden.tipo}</Dato>
+          <Dato label="Equipo">{equipo.equipo}</Dato>
+          <Dato label="Repuestos">{orden.repuestos.length ? orden.repuestos.map((r) => `${fmtNum(r.cantidad)} ${r.nombre}`).join(', ') : undefined}</Dato>
+        </VistaPrevia>
+        {!realizar && <p className="muted" style={{ fontSize: '.8rem', margin: 0 }}>Anular no cancela la salida ni la compra que ya se pidieron: esas se cancelan en Salidas y Pedidos.</p>}
+        <div className="form-row" style={{ marginBottom: 0 }}>
+          <label htmlFor="flo-cierre">{realizar ? 'Nota de cierre (opcional)' : 'Motivo de la anulación'}</label>
+          <textarea id="flo-cierre" className="textarea" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder={realizar ? 'Qué se hizo, observaciones' : 'Por qué se anula'} />
+        </div>
+        {realizar && (
+          <>
+            <label style={{ display: 'flex', gap: '.45rem', alignItems: 'center', fontSize: '.85rem' }}>
+              <input type="checkbox" checked={bitacora} onChange={(e) => setBitacora(e.target.checked)} /> Anotar el servicio en la bitácora del equipo
+            </label>
+            <label style={{ display: 'flex', gap: '.45rem', alignItems: 'center', fontSize: '.85rem' }}>
+              <input type="checkbox" checked={reiniciar} onChange={(e) => setReiniciar(e.target.checked)} /> Reiniciar el contador de mantenimiento (horas/km) desde la lectura vigente
+            </label>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}

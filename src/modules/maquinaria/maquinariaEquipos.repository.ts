@@ -48,6 +48,12 @@ export interface MaquinariaEquipo {
   esp_tecnicas: boolean;
   revision_mina: boolean;
   notas: string | null;
+  /** Estado operativo (Flota y Servicio, 09/10/2026). null = se deduce de status/activo
+   *  (ver `estadoEfectivo` en flota.ts). Lo cambia el RPC `maquinaria_cambiar_estado`. */
+  estado_operativo?: string | null;
+  /** Motivo del estado actual («se le dañó el gato»). */
+  estado_nota?: string | null;
+  estado_desde?: string | null;
   activo: boolean;
   created_by: string | null;
   created_at: string;
