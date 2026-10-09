@@ -28,6 +28,7 @@ import {
 import { aplicarA, coincideTrabajador, nominaCerrada, quincenaAbierta } from './nominaReglas';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { TabuladorBoton } from './TabuladorModal';
+import { ResumenNominaModal } from './ResumenNominaModal';
 
 const bs = (n: number) => 'Bs ' + Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -44,6 +45,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
   const [renglonesAbiertos, setRenglonesAbiertos] = useState<NominaRenglon[]>([]);
   const [cargandoRenglones, setCargandoRenglones] = useState(false);
   const [imprimirDe, setImprimirDe] = useState<NominaPeriodoResumen | null>(null);
+  const [resumenOpen, setResumenOpen] = useState(false);
   // Papelera: las nóminas eliminadas (con motivo). Solo un admin recupera o vacía.
   const { isAdmin } = usePermissions();
   const [vista, setVista] = useState<'activas' | 'papelera'>('activas');
@@ -138,6 +140,8 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
           </button>
           <span className="muted" style={{ fontSize: '.88rem' }}>Nómina quincenal · se paga desde Tesorería.</span>
           <TabuladorBoton empresa={empresa} canWrite={canWrite} />
+          <button className="btn btn-sm btn-ghost" onClick={() => setResumenOpen(true)}
+            title="Resumen por período o de todas las nóminas: eliges las columnas y sale en PDF o Excel">📑 Resumen de nómina</button>
         </div>
         {canWrite && vista === 'activas' && (
           <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
@@ -220,6 +224,7 @@ export function NominaTab({ empresa, canWrite, actor, actorName }: { empresa: Em
       {liqOpen && <LiquidacionModal empresa={empresa} actor={actor} actorName={actorName} onClose={() => setLiqOpen(false)} onSaved={async () => { setLiqOpen(false); await recargar(); }} />}
       {verPeriodo && <NominaDetalleModal periodo={verPeriodo} onClose={() => setVerPeriodo(null)} />}
       {imprimirDe && <ImprimirRecibosModal periodo={imprimirDe} empresa={empresa} onClose={() => setImprimirDe(null)} />}
+      {resumenOpen && <ResumenNominaModal empresa={empresa} nominas={nominas} onClose={() => setResumenOpen(false)} />}
 
       {porBorrar && (
         <ConfirmDialog
