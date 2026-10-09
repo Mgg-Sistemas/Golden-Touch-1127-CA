@@ -179,7 +179,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
 
     // Título grande.
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text(esBono ? 'RECIBO DE BONIFICACIÓN Y DESCUENTOS' : 'RECIBO DE PAGO · SUELDO EN BOLÍVARES', MARGIN, y);
+    doc.text(esBono ? 'RECIBO DE BONIFICACIÓN Y DESCUENTOS' : 'RECIBO DE PAGO', MARGIN, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
     doc.text(esBono ? 'Pago en divisas ($)' : `Motivo: ${labelMotivo(meta.periodo.tipo)}`, PAGE_W - MARGIN, y, { align: 'right' });
     y += compacto ? 9 : 18;
@@ -296,7 +296,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       y = (doc.lastAutoTable?.finalY ?? y) + gap(6);
       if (m.prestamosUsd + m.anticiposUsd > 0) {
         doc.setFont('helvetica', 'italic'); doc.setFontSize(fs(7.5)); doc.setTextColor(100);
-        doc.text('Los préstamos y anticipos se descuentan de la bonificación en divisas, no del sueldo en bolívares.', MARGIN, y + 4);
+        doc.text('Los préstamos y anticipos se descuentan de la bonificación en divisas, no del pago en bolívares.', MARGIN, y + 4);
         doc.setTextColor(0);
         y += 10;
       }
@@ -316,7 +316,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       startY: y,
       head: [['TOTAL DE LA QUINCENA (los dos recibos)', 'Bs', 'Equivalente $']],
       body: [
-        [`Recibo 1 · sueldo en bolívares${Number.isFinite(pctSueldo) && pctSueldo > 0 ? ` (${Math.round(pctSueldo)} %)` : ''}`, bsStr(m.netoBs), usd(m.netoBsEnUsd)],
+        [`Recibo 1 · pago en bolívares${Number.isFinite(pctSueldo) && pctSueldo > 0 ? ` (${Math.round(pctSueldo)} %)` : ''}`, bsStr(m.netoBs), usd(m.netoBsEnUsd)],
         [m.prestamosUsd + m.anticiposUsd > 0 ? 'Recibo 2 · bonificación (neta de préstamos y anticipos)' : 'Recibo 2 · bonificación en divisas', '', usd(m.bonoNetoUsd)],
       ],
       foot: [['TOTAL RECIBIDO', '', usd(m.totalUsd)]],
