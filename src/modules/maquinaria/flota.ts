@@ -273,6 +273,24 @@ export function puedeReemplazarPieza(o: { estado: string; orden_compra_id: strin
   return !!r && !r.producto_id && ordenAbierta(o.estado) && !o.orden_compra_id;
 }
 
+/**
+ * Los repuestos de una orden se pueden editar mientras no empezó el trabajo (abierta o
+ * esperando repuestos) y no tiene salida ni pedido vinculados: después se corrigen allá.
+ * Es la misma regla de `maquinaria_editar_orden_servicio`.
+ */
+export function repuestosEditables(o: { estado: string; solicitud_salida_id: string | null; orden_compra_id: string | null }): boolean {
+  return (o.estado === 'abierta' || o.estado === 'repuestos') && !o.solicitud_salida_id && !o.orden_compra_id;
+}
+
+/**
+ * Quién puede borrar una orden: con permiso de Maquinaria, salvo que el servicio ya esté
+ * realizado (traza completa): esa solo la borra un administrador. Igual que el trigger.
+ */
+export function puedeBorrarOrden(o: { estado: string }, perm: { maquinaria: boolean; admin: boolean }): boolean {
+  if (perm.admin) return true;
+  return perm.maquinaria && o.estado !== 'realizada';
+}
+
 /** Solo hay piezas nuevas por comprar: no se puede armar la SP (Pedidos necesita el producto). */
 export function soloPiezasNuevasPorComprar(repuestos: Pick<RepuestoOrden, 'producto_id' | 'a_comprar'>[]): boolean {
   const porComprar = repuestos.filter((r) => r.a_comprar > 0);

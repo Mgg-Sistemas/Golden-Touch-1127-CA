@@ -16,6 +16,7 @@ import type { ItemOrden, ItemSalida, Orden } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { crearOrden } from '@/modules/pedidos/pedidos.repository';
 import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
+import { listFotosOrden, borrarArchivosFotosOrden } from './osFotos.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
 import { servicioPorId, piezasNuevas } from './flota';
 export { faltaSalida, faltaCompra } from './flota';
@@ -42,6 +43,22 @@ export async function cambiarEstadoEquipo(equipoId: string, estado: EstadoEquipo
     p_equipo_id: equipoId, p_estado: estado, p_motivo: motivo ?? null, p_material: material ?? null, p_nota: nota ?? null,
   });
   if (error) throw error;
+}
+
+/** Corrige el motivo, lo que falta y la nota de un cambio de estado (el estado no se cambia). */
+export async function editarEventoEstado(id: string, motivo: string | null, material: string | null, nota: string | null): Promise<void> {
+  const { error } = await supabase.rpc('maquinaria_editar_evento_estado', { p_id: id, p_motivo: motivo, p_material: material, p_nota: nota });
+  if (error) throw error;
+}
+
+/**
+ * Borra un cambio de estado. Si era el vigente, la base devuelve el equipo al estado
+ * anterior; los que registró una orden que sigue existiendo se manejan desde la orden.
+ */
+export async function eliminarEventoEstado(id: string): Promise<void> {
+  const { data, error } = await supabase.from('maquinaria_estado_eventos').delete().eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('No se pudo borrar el cambio de estado (puede que ya no exista o que no tengas permiso).');
 }
 
 export async function listEventosEstado(equipoId: string): Promise<EventoEstado[]> {
@@ -330,6 +347,41 @@ export async function notificarComprasPiezasNuevas(o: Pick<OrdenServicio, 'id' |
   return data === true;
 }
 
+export interface EdicionOrdenServicio {
+  tipo: string;
+  urgencia: 'normal' | 'alta' | 'urgente';
+  intervenciones: string[];
+  origen: 'interno' | 'externo';
+  responsable: string;
+  descripcion: string;
+  horometro: number | null;
+  kilometraje: number | null;
+  /** Solo en órdenes cerradas (realizada / anulada). */
+  nota_cierre?: string | null;
+  /** Solo si se cambiaron (y la orden lo permite): la base vuelve a decidir inventario / compra. */
+  repuestos?: NuevaOrdenServicio['repuestos'];
+}
+
+/** Edita la orden. Si cambiaron las piezas nuevas, `notificar` pide volver a avisar a Compras. */
+export async function editarOrdenServicio(id: string, input: EdicionOrdenServicio): Promise<{ codigo: string; estado: EstadoOrdenServicio; repuestos: RepuestoOrden[]; notificar: boolean }> {
+  const { data, error } = await supabase.rpc('maquinaria_editar_orden_servicio', { p_id: id, p: input });
+  if (error) throw error;
+  return data as { codigo: string; estado: EstadoOrdenServicio; repuestos: RepuestoOrden[]; notificar: boolean };
+}
+
+/**
+ * Borra la orden con sus fotos. La base valida (una orden realizada solo la borra un
+ * administrador) y, si estaba en curso, devuelve el equipo al estado que tenía antes.
+ * Los archivos de las fotos se borran desde la app y solo si la orden se borró.
+ */
+export async function eliminarOrdenServicio(o: Pick<OrdenServicio, 'id' | 'codigo'>): Promise<void> {
+  const fotos = await listFotosOrden(o.id).catch(() => []);
+  const { data, error } = await supabase.from('maquinaria_ordenes_servicio').delete().eq('id', o.id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error(`No se pudo borrar la orden ${o.codigo} (puede que ya no exista o que no tengas permiso).`);
+  await borrarArchivosFotosOrden(fotos.map((f) => f.path));
+}
+
 /** Cambia una pieza nueva por el producto del inventario y vuelve a decidir inventario / compra. */
 export async function reemplazarPiezaOrden(ordenId: string, indice: number, productoId: string): Promise<RepuestoOrden> {
   const { data, error } = await supabase.rpc('maquinaria_reemplazar_pieza_orden', { p_id: ordenId, p_indice: indice, p_producto_id: productoId });
@@ -382,11 +434,23 @@ export async function registrarLavado(input: NuevoLavado, actor: { email: string
   if (error) throw error;
 }
 
-/** Borra un lavado. La base solo lo permite al administrador. */
+export async function actualizarLavado(id: string, input: Omit<NuevoLavado, 'equipo_id'>): Promise<void> {
+  const tipo = input.tipo.trim();
+  if (tipo.length < 3) throw new Error('Indica el tipo de lavado (al menos 3 letras).');
+  const { data, error } = await supabase.from('maquinaria_lavados').update({
+    ...input, tipo,
+    responsable: input.responsable?.trim() || null,
+    nota: input.nota?.trim() || null,
+  }).eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('No se pudo guardar el lavado (puede que ya no exista o que no tengas permiso).');
+}
+
+/** Borra un lavado (con permiso de Maquinaria). */
 export async function eliminarLavado(id: string): Promise<void> {
   const { data, error } = await supabase.from('maquinaria_lavados').delete().eq('id', id).select('id');
   if (error) throw error;
-  if (!data?.length) throw new Error('Solo un administrador puede borrar lavados.');
+  if (!data?.length) throw new Error('No se pudo borrar el lavado (puede que ya no exista o que no tengas permiso).');
 }
 
 /* ───────── Lecturas para los submódulos (todos los equipos) ───────── */
@@ -508,6 +572,46 @@ export async function registrarLectura(l: NuevaLectura): Promise<void> {
     p_nota: l.nota, p_correccion: !!l.correccion, p_motivo: l.motivo ?? null,
   });
   if (error) throw error;
+}
+
+export interface LecturaMaquinaria {
+  id: string;
+  equipo_id: string;
+  fecha: string;
+  horometro: number | null;
+  kilometraje: number | null;
+  nota: string | null;
+  es_correccion: boolean;
+  motivo_correccion: string | null;
+}
+
+/** Una lectura registrada desde Maquinaria (para editarla). */
+export async function getLectura(id: string): Promise<LecturaMaquinaria | null> {
+  const { data, error } = await supabase.from('maquinaria_lecturas')
+    .select('id, equipo_id, fecha, horometro, kilometraje, nota, es_correccion, motivo_correccion').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const r = data as LecturaMaquinaria;
+  return { ...r, horometro: r.horometro == null ? null : Number(r.horometro), kilometraje: r.kilometraje == null ? null : Number(r.kilometraje) };
+}
+
+/**
+ * Edita una lectura de Maquinaria. Sin ser administrador tiene que quedar entre la lectura
+ * anterior y la siguiente; una corrección solo la cambia un administrador. El contador
+ * vigente (y el próximo surtido en Combustible) se recalcula solo.
+ */
+export async function editarLectura(id: string, l: { horometro: number | null; kilometraje: number | null; fecha: string; nota: string | null; motivo?: string | null }): Promise<void> {
+  const { error } = await supabase.rpc('maquinaria_editar_lectura', {
+    p_id: id, p_horometro: l.horometro, p_kilometraje: l.kilometraje, p_fecha: l.fecha, p_nota: l.nota, p_motivo: l.motivo ?? null,
+  });
+  if (error) throw error;
+}
+
+/** Borra una lectura de Maquinaria (una corrección, solo un administrador). */
+export async function eliminarLectura(id: string): Promise<void> {
+  const { data, error } = await supabase.from('maquinaria_lecturas').delete().eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('No se pudo borrar la lectura (puede que ya no exista o que no tengas permiso).');
 }
 
 export interface UltimoSurtido {

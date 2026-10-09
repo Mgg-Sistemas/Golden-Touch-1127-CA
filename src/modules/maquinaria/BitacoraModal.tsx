@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { date as fmtDate, num as fmtNum, money } from '@/shared/lib/format';
 import { listServiciosDeEquipo, type ServicioDeEquipo } from '@/modules/pedidos/servicios.repository';
 import {
-  listMantenimientos, addMantenimiento, eliminarMantenimiento, resumenHorometro,
+  listMantenimientos, addMantenimiento, updateMantenimiento, eliminarMantenimiento, resumenHorometro,
   TIPOS_MANTENIMIENTO, etiquetaTipoMant,
   type MantenimientoCalc,
 } from './maquinariaMant.repository';
@@ -25,6 +26,9 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [borrarId, setBorrarId] = useState<string | null>(null);
+  // Edición: el mismo formulario precargado con el registro (se vuelve a montar con `formKey`).
+  const [editando, setEditando] = useState<MantenimientoCalc | null>(null);
+  const [formKey, setFormKey] = useState(0);
   // alta
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [tipo, setTipo] = useState<string>('cambio_aceite');
@@ -62,11 +66,30 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
   // Horómetro vigente: prioriza el de Combustible (vínculo), si no el de la bitácora.
   const horometroVigente = comb?.horometro ?? res.ultimoHorometro;
 
+  function limpiar() {
+    setPieza(''); setHorometro(''); setKilometraje(''); setAlertaKm(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
+    setFecha(new Date().toISOString().slice(0, 10)); setTipo('cambio_aceite'); setUbicacion(equipo.ubicacion ?? '');
+  }
+
+  function abrirEdicion(r: MantenimientoCalc) {
+    const t = (v: number | null) => (v == null ? '' : String(v));
+    setFecha(String(r.fecha).slice(0, 10)); setTipo(r.tipo ?? 'otro'); setPieza(r.pieza ?? '');
+    setHorometro(t(r.horometro)); setKilometraje(t(r.kilometraje)); setAlertaKm(t(r.alerta_km));
+    setAceite(t(r.aceite_lts)); setRefrigerante(t(r.refrigerante_lts)); setGasoil(t(r.gasoil_lts));
+    setTrabajo(r.trabajo ?? ''); setConsumibles(r.consumibles ?? ''); setMecanico(r.mecanico ?? ''); setUbicacion(r.ubicacion ?? '');
+    setEditando(r); setShowForm(true); setFormKey((k) => k + 1);
+  }
+
+  function cerrarForm() {
+    setShowForm(false);
+    if (editando) { setEditando(null); limpiar(); setFormKey((k) => k + 1); }
+  }
+
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
-      await addMantenimiento({
+      const datos = {
         equipo_id: equipo.id, fecha,
         tipo: tipo || null,
         pieza: tipo === 'cambio_pieza' ? (pieza || null) : null,
@@ -78,9 +101,17 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
         gasoil_lts: gasoil === '' ? null : Number(gasoil),
         trabajo: trabajo || null, consumibles: consumibles || null,
         mecanico: mecanico || null, ubicacion: ubicacion || null,
-      }, actor, actorName);
-      toast('Mantenimiento registrado', 'success');
-      setPieza(''); setHorometro(''); setKilometraje(''); setAlertaKm(''); setAceite(''); setRefrigerante(''); setGasoil(''); setTrabajo(''); setConsumibles(''); setMecanico('');
+      };
+      if (editando) {
+        await updateMantenimiento(editando.id, { ...datos, observacion: editando.observacion });
+        toast('Registro actualizado', 'success');
+      } else {
+        await addMantenimiento(datos, actor, actorName);
+        toast('Mantenimiento registrado', 'success');
+      }
+      setEditando(null);
+      limpiar();
+      setFormKey((k) => k + 1);
       setShowForm(false);
       await cargar();
     } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo agregar', 'error'); }
@@ -145,12 +176,13 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
 
       {canWrite && (
         <div style={{ marginBottom: '.6rem' }}>
-          <button className="btn btn-sm btn-primary" onClick={() => setShowForm((v) => !v)}>{showForm ? '✕ Cancelar' : '+ Nuevo registro'}</button>
+          <button className="btn btn-sm btn-primary" onClick={() => (showForm ? cerrarForm() : setShowForm(true))}>{showForm ? '✕ Cancelar' : '+ Nuevo registro'}</button>
         </div>
       )}
 
       {showForm && canWrite && (
-        <form onSubmit={handleAdd} className="card" style={{ padding: '.75rem', marginBottom: '.75rem' }}>
+        <form key={formKey} onSubmit={handleAdd} className="card" style={{ padding: '.75rem', marginBottom: '.75rem' }}>
+          {editando && <div className="aviso info sm" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">✎</span><div>Editando el registro del <strong>{fmtDate(editando.fecha)}</strong> ({etiquetaTipoMant(editando.tipo)}). Los cambios quedan en la auditoría.</div></div>}
           <div className="form-grid">
             <div className="form-row">
               <label>Tipo de mantenimiento</label>
@@ -201,7 +233,7 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
             <div className="form-row"><label>Ubicación</label><input className="input" name="bit-ubicacion" defaultValue={ubicacion} onChange={(e) => { e.target.value = e.target.value.toUpperCase(); setUbicacion(e.target.value); }} /></div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar registro'}</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : editando ? 'Guardar cambios' : 'Guardar registro'}</button>
           </div>
         </form>
       )}
@@ -231,7 +263,12 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
                 <td style={{ fontSize: '.78rem' }}>{r.trabajo || '—'}</td>
                 <td style={{ fontSize: '.78rem' }}>{r.mecanico || '—'}</td>
                 <td style={{ fontSize: '.78rem' }}>{r.ubicacion || '—'}</td>
-                {canWrite && <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" title="Eliminar" onClick={() => setBorrarId(r.id)}>🗑</button></td>}
+                {canWrite && (
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-ghost" title="Editar" aria-label={`Editar el registro del ${fmtDate(r.fecha)}`} onClick={() => abrirEdicion(r)}>✎</button>
+                    <button className="btn btn-sm btn-ghost" title="Eliminar" aria-label={`Eliminar el registro del ${fmtDate(r.fecha)}`} style={{ color: 'var(--danger)' }} onClick={() => setBorrarId(r.id)}>🗑</button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -242,7 +279,8 @@ export function BitacoraModal({ equipo, canWrite, actor, actorName, onClose }: {
       </p>
 
       {borrarId && (
-        <ConfirmDialog title="Eliminar registro" message="¿Eliminar este registro de la bitácora?" confirmText="Eliminar" danger
+        <ConfirmDialog title="Eliminar registro" message="Se elimina este registro de la bitácora. Si tenía horómetro o km, el contador vigente se recalcula con las demás lecturas. No se puede deshacer." confirmText="Eliminar" danger
+          preview={(() => { const r = rows.find((x) => x.id === borrarId); return r ? <VistaPrevia><Dato label="Equipo">{equipo.equipo}</Dato><Dato label="Fecha">{fmtDate(r.fecha)}</Dato><Dato label="Tipo">{etiquetaTipoMant(r.tipo)}</Dato><Dato label="Horómetro">{r.horometro != null ? fmtNum(r.horometro) : undefined}</Dato><Dato label="Trabajo">{r.trabajo ?? undefined}</Dato></VistaPrevia> : null; })()}
           onCancel={() => setBorrarId(null)} onConfirm={() => { const id = borrarId; setBorrarId(null); void borrar(id); }} />
       )}
     </Modal>

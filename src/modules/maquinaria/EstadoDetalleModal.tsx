@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { previewArchivo } from '@/shared/lib/reportePreview';
@@ -8,8 +9,10 @@ import { mensajeError } from '@/shared/lib/errores';
 import { date as fmtDate, dateTime } from '@/shared/lib/format';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { ESTADOS_EQUIPO, ORDEN_ESTADOS, diasDesde, estadoEfectivo, ordenAbierta, servicioPorId, textoHace } from './flota';
-import { listEventosEstado, listOrdenesServicio, type EventoEstado, type OrdenServicio } from './flota.repository';
+import { ESTADOS_EQUIPO, ORDEN_ESTADOS, diasDesde, estadoEfectivo, estadoExigeMotivo, ordenAbierta, servicioPorId, textoHace } from './flota';
+import {
+  listEventosEstado, listOrdenesServicio, editarEventoEstado, eliminarEventoEstado, type EventoEstado, type OrdenServicio,
+} from './flota.repository';
 import { listDocumentosEquipo, BUCKET_DOCUMENTOS, type DocumentoEquipo } from './maquinariaDocumentos.repository';
 import { nombreDescargaDocumento } from './maquinariaDocumentos';
 import { bloquesNotas, documentoInforme, esEventoInforme, imagenesDocumentos } from './flotaDetalle';
@@ -57,14 +60,16 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
   const [cargando, setCargando] = useState(true);
   const [accion, setAccion] = useState<'orden' | 'elegir_estado' | null>(null);
   const [modoEstado, setModoEstado] = useState<ModoEstado | null>(null);
+  const [editarEv, setEditarEv] = useState(false);
+  const [borrarEv, setBorrarEv] = useState(false);
 
   const firmadas = useRef(new Map<string, string>());
-  const hayEvento = !!evento;
   const cargar = useCallback(async () => {
+    // El último cambio se carga siempre: dice si el tocado es el vigente (al borrarlo, el equipo vuelve atrás).
     const [d, o, ev] = await Promise.all([
       listDocumentosEquipo(equipo.id),
       listOrdenesServicio(equipo.id).catch(() => [] as OrdenServicio[]),
-      hayEvento ? Promise.resolve([] as EventoEstado[]) : listEventosEstado(equipo.id).catch(() => [] as EventoEstado[]),
+      listEventosEstado(equipo.id).catch(() => [] as EventoEstado[]),
     ]);
     setDocs(d);
     setOrdenes(o.filter((x) => ordenAbierta(x.estado)));
@@ -77,7 +82,7 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
       faltan.forEach((p, i) => { const u = data?.[i]?.signedUrl; if (u) firmadas.current.set(p, u); });
     }
     setImagenes(imgs.map((x) => ({ ...x, url: firmadas.current.get(x.path) ?? null })));
-  }, [equipo.id, hayEvento]);
+  }, [equipo.id]);
 
   useEffect(() => {
     cargar().catch((e) => toast(mensajeError(e, 'No se pudo cargar el detalle'), 'error')).finally(() => setCargando(false));
@@ -85,6 +90,7 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
   useRealtime(['maquinaria_documentos', 'maquinaria_ordenes_servicio', 'maquinaria_estado_eventos'], () => { void cargar().catch(() => {}); });
 
   const ev = evento ?? ultimo;
+  const esVigente = !!ev && ultimo?.id === ev.id;
   const estado = estadoEfectivo(equipo);
   const st = ESTADOS_EQUIPO[estado];
   const informe = documentoInforme(docs);
@@ -146,6 +152,14 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
                 {ev.nota && <div><dt>Nota</dt><dd>{ev.nota}</dd></div>}
                 <div><dt>Registró</dt><dd>{ev.actor_name || ev.actor || '—'} · {dateTime(ev.created_at)}</dd></div>
               </dl>
+              {canWrite && (
+                <div className="flo-det-fila">
+                  <button type="button" className="btn btn-sm" onClick={() => setEditarEv(true)}>✎ Editar motivo</button>
+                  {ev.orden_servicio_id
+                    ? <small className="muted">Lo registró una orden de servicio: se corrige o se borra desde la orden.</small>
+                    : <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrarEv(true)}>🗑 Borrar este cambio</button>}
+                </div>
+              )}
             </>
           ) : equipo.estado_nota ? (
             <dl className="flo-det-motivo"><div><dt>Motivo</dt><dd>{equipo.estado_nota}</dd></div></dl>
@@ -238,6 +252,68 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
         </Modal>
       )}
       {modoEstado && <EstadoEquipoModal equipo={equipo} modo={modoEstado} onClose={() => setModoEstado(null)} onSaved={listo} />}
+      {editarEv && ev && <EditarEventoModal equipo={equipo} evento={ev} onClose={() => setEditarEv(false)} onSaved={listo} />}
+      {borrarEv && ev && (
+        <ConfirmDialog title="Borrar cambio de estado" danger confirmText="Borrar"
+          message={esVigente
+            ? <>Es el <strong>estado vigente</strong> del equipo: al borrarlo, el equipo vuelve a <strong>«{etiqueta(ev.estado_anterior ?? 'operativa')}»</strong>. No se puede deshacer; queda en la auditoría.</>
+            : 'Sale del historial. El estado actual del equipo no cambia. No se puede deshacer; queda en la auditoría.'}
+          preview={<VistaPrevia><Dato label="Equipo">{equipo.equipo}</Dato><Dato label="Cambio">{`${etiqueta(ev.estado_anterior)} → ${etiqueta(ev.estado)}`}</Dato><Dato label="Motivo">{ev.motivo ?? undefined}</Dato><Dato label="Fecha">{dateTime(ev.created_at)}</Dato><Dato label="Registró">{ev.actor_name || ev.actor || undefined}</Dato></VistaPrevia>}
+          onCancel={() => setBorrarEv(false)}
+          onConfirm={() => {
+            setBorrarEv(false);
+            void eliminarEventoEstado(ev.id)
+              .then(() => { toast(esVigente ? `Cambio borrado: ${equipo.equipo} vuelve a «${etiqueta(ev.estado_anterior ?? 'operativa')}».` : 'Cambio de estado borrado.', 'success'); listo(); })
+              .catch((e) => toast(mensajeError(e, 'No se pudo borrar el cambio de estado'), 'error'));
+          }} />
+      )}
+    </Modal>
+  );
+}
+
+/** Corrige el motivo, lo que falta y la nota de un cambio de estado (el estado en sí no se cambia). */
+function EditarEventoModal({ equipo, evento, onClose, onSaved }: {
+  equipo: MaquinariaEquipo; evento: EventoEstado; onClose: () => void; onSaved: () => void;
+}) {
+  const [motivo, setMotivo] = useState(evento.motivo ?? '');
+  const [material, setMaterial] = useState(evento.material ?? '');
+  const [nota, setNota] = useState(evento.nota ?? '');
+  const [saving, setSaving] = useState(false);
+  const falta = estadoExigeMotivo(evento.estado) && motivo.trim().length < 3;
+  const conMaterial = evento.estado === 'averiada' || evento.estado === 'parada' || !!evento.material;
+
+  async function guardar() {
+    setSaving(true);
+    try {
+      await editarEventoEstado(evento.id, motivo.trim() || null, conMaterial ? material.trim() || null : evento.material, nota.trim() || null);
+      toast('Cambio de estado corregido.', 'success');
+      onSaved();
+      onClose();
+    } catch (e) { toast(mensajeError(e, 'No se pudo guardar'), 'error'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal compact title={`✎ Editar cambio de estado · ${equipo.equipo}`} onClose={onClose}
+      footer={<>
+        <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={saving || falta}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
+      </>}>
+      <div className="flo" style={{ display: 'grid', gap: '.7rem' }}>
+        <p className="muted" style={{ margin: 0, fontSize: '.84rem' }}>{etiqueta(evento.estado_anterior)} → <strong>{etiqueta(evento.estado)}</strong> · {dateTime(evento.created_at)}. El estado no se cambia aquí: para eso usa «🔁 Cambiar estado».</p>
+        <div className="form-row" style={{ marginBottom: 0 }}><label htmlFor="ev-motivo">Motivo{estadoExigeMotivo(evento.estado) ? '' : ' (opcional)'}</label>
+          <textarea id="ev-motivo" className="textarea" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+        </div>
+        {conMaterial && (
+          <div className="form-row" style={{ marginBottom: 0 }}><label htmlFor="ev-material">Lo que falta (opcional)</label>
+            <input id="ev-material" className="input" value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Caucho, aceite, repuesto…" />
+          </div>
+        )}
+        <div className="form-row" style={{ marginBottom: 0 }}><label htmlFor="ev-nota">Nota (opcional)</label>
+          <textarea id="ev-nota" className="textarea" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} />
+        </div>
+        {falta && <div className="aviso warning sm"><span className="aviso-icono">⚠️</span><div>Escribe el motivo (al menos 3 letras).</div></div>}
+      </div>
     </Modal>
   );
 }
