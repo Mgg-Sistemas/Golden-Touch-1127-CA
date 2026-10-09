@@ -508,6 +508,7 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
   return (
     <>
       {puedeCrear && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onNueva}>🔧 Crear orden de servicio</button>}
+      <Link className="flo-ver-todo" to="/app/maquinaria/ordenes">Ver las órdenes de toda la flota →</Link>
       {abiertas.length ? abiertas.map((o) => {
         const s = servicioPorId(o.tipo);
         const est = ORDEN_ESTADOS[o.estado];
@@ -604,7 +605,7 @@ function TabCompras({ compras }: { compras: CompraEquipo[] }) {
   return (
     <>
       <div className="aviso info"><span className="aviso-icono">🛒</span><div>
-        <strong>Compras de este equipo.</strong> Las solicitudes de servicio de Pedidos casadas a este equipo y los repuestos pedidos desde sus órdenes de servicio. Se mueven en <Link to="/app/pedidos">Pedidos</Link>; al recibir los repuestos, la orden de servicio sigue sola.
+        <strong>Compras de este equipo.</strong> Las solicitudes de servicio de Pedidos casadas a este equipo y los repuestos pedidos desde sus órdenes de servicio. Se mueven en <Link to="/app/pedidos">Pedidos</Link>; al recibir los repuestos, la orden de servicio sigue sola. <Link to="/app/maquinaria/repuestos">Ver repuestos y compras de toda la flota →</Link>
       </div></div>
       {compras.length ? (
         <div className="flo-kanban">
@@ -671,6 +672,7 @@ function TabLavados({ lavados, puedeRegistrar, puedeBorrar, onNuevo, onBorrar }:
   return (
     <>
       {puedeRegistrar && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onNuevo}>🚿 Registrar lavado</button>}
+      <Link className="flo-ver-todo" to="/app/maquinaria/lavados">Ver los lavados de toda la flota →</Link>
       <div className="flo-stats">
         <div className="flo-stat"><small>Último lavado</small><strong style={{ fontSize: '1.1rem' }}>{ult ? textoHace(diasDesde(ult.fecha)) : '—'}</strong></div>
         <div className="flo-stat"><small>Tipo</small><strong style={{ fontSize: '1.1rem' }}>{ult?.tipo ?? '—'}</strong></div>
