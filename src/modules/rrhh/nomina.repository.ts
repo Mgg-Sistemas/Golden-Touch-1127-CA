@@ -12,6 +12,8 @@
        salario_bruto      = sueldo quincenal $ + bono quincenal $
        sueldo_quincena_bs = la parte SUELDO en bolívares, a la tasa de cierre
        neto_usd           = salario_bruto + asignaciones − (anticipos + préstamos)
+   Los anticipos y préstamos se descuentan del BONO en dólares (+ asignaciones),
+   nunca del sueldo del recibo; lo que no alcanza queda para la otra quincena.
    El RECIBO que firma el trabajador declara solo `sueldo_quincena_bs`; el bono
    se paga aparte en divisas.
    No se descuenta seguro social (IVSS/FAOV): las columnas deduc_ivss/deduc_faov
@@ -19,7 +21,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { round2 } from '../tesoreria/tasas.repository';
-import { DIAS_QUINCENA, calcularQuincena, pctValido } from './nominaCalculo';
+import { DIAS_QUINCENA, calcularQuincena, descontarDelBono, pctValido } from './nominaCalculo';
 import type { Caja, EmpresaRrhh, NominaPeriodo, NominaRenglon, DeduccionRef, Personal, CuentaCaja } from '@/shared/lib/types';
 
 const BUCKET = 'nomina-comprobantes';
@@ -65,6 +67,12 @@ export interface RenglonCalc {
   deduc_prestamos: number;
   asignaciones: number;
   neto_usd: number;
+  /** Las deducciones que de verdad se aplican (topadas al bono en $). Son las que se guardan. */
+  deducciones_aplicadas: DeduccionRef[];
+  /** Bono + asignaciones después de descontar préstamos y anticipos. */
+  bono_neto_usd: number;
+  /** Lo que se pidió descontar y no alcanzó el bono (queda en el saldo). */
+  deduccion_sin_cubrir: number;
 }
 
 /**
@@ -92,14 +100,17 @@ export function calcularRenglon(input: RenglonCalcInput): RenglonCalc {
   const salario_bruto = round2(sueldo_quincena_usd + bono_quincena_usd);
   // El devengado ya trae los días adentro (diario × trabajados + diario × descanso).
   const sueldo_quincena_bs = q.devengadoBs;
-  const deducs = input.deducciones ?? [];
-  const deduc_anticipos = round2(deducs.filter((d) => d.tipo === 'anticipo').reduce((a, d) => a + (Number(d.monto) || 0), 0));
-  const deduc_prestamos = round2(deducs.filter((d) => d.tipo === 'prestamo').reduce((a, d) => a + (Number(d.monto) || 0), 0));
   const asignaciones = round2(Number(input.asignaciones) || 0);
+  // Préstamos y anticipos salen del BONO en dólares (+ asignaciones), no del sueldo del recibo.
+  const desc = descontarDelBono(bono_quincena_usd + asignaciones, input.deducciones ?? []);
+  const deducs = desc.aplicadas;
+  const deduc_anticipos = round2(deducs.filter((d) => d.tipo === 'anticipo').reduce((a, d) => a + d.monto, 0));
+  const deduc_prestamos = round2(deducs.filter((d) => d.tipo === 'prestamo').reduce((a, d) => a + d.monto, 0));
   const neto_usd = round2(salario_bruto + asignaciones - deduc_anticipos - deduc_prestamos);
   return {
     salario_bruto, sueldo_quincena_usd, bono_quincena_usd, sueldo_quincena_bs,
     deduc_anticipos, deduc_prestamos, asignaciones, neto_usd,
+    deducciones_aplicadas: deducs, bono_neto_usd: desc.bonoNeto, deduccion_sin_cubrir: desc.sinCubrir,
   };
 }
 
@@ -192,7 +203,8 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
     asignaciones: c.asignaciones,
     deduc_anticipos: c.deduc_anticipos,
     deduc_prestamos: c.deduc_prestamos,
-    deducciones: r.deducciones ?? [],
+    // Se guarda lo que de verdad se descontó (topado al bono): es lo que se abona al pagar.
+    deducciones: c.deducciones_aplicadas,
     neto_usd: c.neto_usd,
     estado: 'por_pagar',
   }));

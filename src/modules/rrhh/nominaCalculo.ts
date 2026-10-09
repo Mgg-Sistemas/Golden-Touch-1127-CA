@@ -174,3 +174,36 @@ export function diasDelPeriodo(desde: string, hasta: string): number {
   if (isNaN(a) || isNaN(b) || b < a) return 0;
   return Math.round((b - a) / 86400000) + 1;
 }
+
+/* ───────── Préstamos y anticipos: se descuentan del BONO en dólares ─────────
+   Desde el 09/10/2026 los préstamos y anticipos salen del BONO (la parte que
+   se paga en divisas, más las asignaciones), nunca del sueldo que declara el
+   recibo en bolívares. Si lo que se quiere descontar supera lo disponible en
+   dólares, se descuenta solo hasta ahí, en el orden en que vienen; lo que no
+   alcanza queda en el saldo del préstamo/anticipo para la próxima quincena. */
+
+export interface DeduccionBono { id: string; tipo: 'anticipo' | 'prestamo'; monto: number }
+
+export interface DescuentoBono<T extends DeduccionBono> {
+  /** Lo que de verdad se descuenta, renglón por renglón (los que quedan en 0 se omiten). */
+  aplicadas: T[];
+  total: number;
+  /** Lo pedido que no alcanzó a cubrir el bono. */
+  sinCubrir: number;
+  /** Bono + asignaciones después del descuento. */
+  bonoNeto: number;
+}
+
+export function descontarDelBono<T extends DeduccionBono>(disponibleUsd: number, deducciones: T[]): DescuentoBono<T> {
+  let resta = r2(Math.max(0, Number(disponibleUsd) || 0));
+  let pedido = 0;
+  const aplicadas: T[] = [];
+  for (const d of deducciones) {
+    const m = r2(Math.max(0, Number(d.monto) || 0));
+    pedido = r2(pedido + m);
+    const usa = r2(Math.min(m, resta));
+    if (usa > 0) { aplicadas.push({ ...d, monto: usa }); resta = r2(resta - usa); }
+  }
+  const total = r2(aplicadas.reduce((a, d) => a + d.monto, 0));
+  return { aplicadas, total, sinCubrir: r2(pedido - total), bonoNeto: resta };
+}

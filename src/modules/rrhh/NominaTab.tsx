@@ -559,7 +559,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           </div>
         </div>
         <small className="muted" style={{ display: 'block', marginTop: '.5rem' }}>
-          Marca los trabajadores a pagar. Sueldo diario = sueldo mensual ÷ 30. Bruto = diario × días. Neto = bruto − (anticipos + préstamos). No se descuenta seguro social (IVSS/FAOV).
+          Marca los trabajadores a pagar. Sueldo diario = sueldo mensual ÷ 30. Bruto = diario × días. Neto = bruto − (anticipos + préstamos). <strong>Los préstamos y anticipos se descuentan del bono en $</strong>, no del sueldo del recibo; si el bono no alcanza, se descuenta hasta donde llega y el resto queda en el saldo. No se descuenta seguro social (IVSS/FAOV).
         </small>
       </div>
 
@@ -577,7 +577,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           <tbody>
             {!filas.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Sin personal activo. Agrega trabajadores en la pestaña Personal.</td></tr>}
             {filas.map((f, i) => {
-              const { deducciones, salario_bruto, neto_usd } = calcFila(f);
+              const { deducciones, salario_bruto, neto_usd, deduc_anticipos, deduc_prestamos, bono_quincena_usd, bono_neto_usd, deduccion_sin_cubrir } = calcFila(f);
               const ants = anticiposDe(f.persona.id);
               return (
                 <tr key={f.persona.id} style={{ opacity: f.incluido ? 1 : 0.45 }}>
@@ -601,7 +601,16 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
                         <span className="muted" style={{ fontSize: '.7rem' }}>de {money(a.saldo)}</span>
                       </div>
                     ))}
-                    {deducciones.length > 0 && <div className="muted" style={{ fontSize: '.7rem' }}>− {money(deducciones.reduce((s, d) => s + d.monto, 0))}</div>}
+                    {deducciones.length > 0 && (
+                      <div className="muted" style={{ fontSize: '.7rem' }}>
+                        − {money(round2(deduc_anticipos + deduc_prestamos))} del bono ({money(bono_quincena_usd)} → {money(bono_neto_usd)})
+                      </div>
+                    )}
+                    {deduccion_sin_cubrir > 0 && (
+                      <div style={{ fontSize: '.7rem', color: 'var(--warning)' }} title="El bono en dólares no alcanza: se descuenta hasta donde llega y el resto queda en el saldo del préstamo/anticipo">
+                        ⚠ El bono no alcanza: {money(deduccion_sin_cubrir)} quedan para la próxima quincena
+                      </div>
+                    )}
                   </td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
                     {money(neto_usd)}
