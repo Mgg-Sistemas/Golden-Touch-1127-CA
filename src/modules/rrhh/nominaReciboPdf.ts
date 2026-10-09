@@ -154,7 +154,12 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     doc.text(`RIF ${emp.rif}  ·  ${esBono ? 'Recibo de Bonificación y Descuentos' : 'Recibo de Pago de Personal'}`, tx, y + 32);
     doc.setFontSize(7.5); doc.setTextColor(110);
-    doc.text(doc.splitTextToSize(`Domicilio fiscal: ${emp.domicilio}`, PAGE_W - MARGIN - tx - 130) as string[], tx, y + 44);
+    // El domicilio suele ocupar dos renglones: el encabezado crece con él, para que
+    // la raya naranja y el título queden DEBAJO y no se monten sobre el texto.
+    const domicilio = doc.splitTextToSize(`Domicilio fiscal: ${emp.domicilio}`, PAGE_W - MARGIN - tx - 130) as string[];
+    const LINEA_DOM = 9;
+    doc.text(domicilio, tx, y + 44, { lineHeightFactor: LINEA_DOM / 7.5 });
+    const finDomicilio = 44 + (domicilio.length - 1) * LINEA_DOM + 3;   // base del último renglón + descendentes
     doc.setTextColor(0);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.text(meta.periodo.codigo ?? '', PAGE_W - MARGIN, y + 16, { align: 'right' });
@@ -166,7 +171,7 @@ export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       doc.text(`Recibo ${esBono ? 2 : 1} de 2`, PAGE_W - MARGIN, y + 44, { align: 'right' });
       doc.setTextColor(0);
     }
-    y += Math.max(LOGO, 40) + (compacto ? 2 : 6);
+    y += Math.max(LOGO, finDomicilio) + (compacto ? 4 : 8);
 
     doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
     doc.line(MARGIN, y, PAGE_W - MARGIN, y);
