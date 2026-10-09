@@ -485,6 +485,15 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
   // Categorías y medidas editables: se pueden dar de alta nuevas en el momento (igual que en inventario).
   const [cats, setCats] = useState<string[]>(categorias);
   const [nuevaCat, setNuevaCat] = useState<Record<number, string>>({});
+  // Al abrir, se relee el catálogo de categorías del inventario: la lista que trajo la
+  // página puede ser vieja (alguien creó una categoría en Inventario mientras tanto).
+  useEffect(() => {
+    let vivo = true;
+    getCategorias(productos)
+      .then((cs) => { if (vivo && cs.length) setCats(cs); })
+      .catch(() => { /* se queda con la lista de la página */ });
+    return () => { vivo = false; };
+  }, [productos]);
   // Medidas: SOLO se eligen las existentes; el alta de una medida nueva vive únicamente
   // en el gestor «📏 Medidas» del Inventario (no se crean desde una compra/alta de producto).
   const [unis] = useState<string[]>(unidades);
