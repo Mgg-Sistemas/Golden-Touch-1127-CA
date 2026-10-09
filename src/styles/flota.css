@@ -31,7 +31,7 @@
 .flo-chip {
   display: inline-flex; align-items: center; gap: .3rem;
   padding: .15rem .55rem; border-radius: 999px;
-  font-size: .74rem; font-weight: 700; line-height: 1.4; white-space: nowrap;
+  font-size: .74rem; font-weight: 700; line-height: 1.4; white-space: nowrap; max-width: 100%;
   color: var(--text);
   border: 1px solid color-mix(in srgb, var(--tone, var(--text-dim)) 55%, transparent);
   background: color-mix(in srgb, var(--tone, var(--text-dim)) 16%, transparent);
@@ -201,7 +201,11 @@
 .flo-aviso .txt p { margin: .1rem 0 0; font-size: .82rem; }
 
 /* Signos vitales */
-.flo-vitals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+.flo-vitals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
+@media (max-width: 900px) { .flo-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.flo-vital-btn { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.flo-vital-btn:hover { border-color: var(--border-strong); }
+.flo-vital-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .flo-vital { padding: .6rem .75rem; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border); display: grid; gap: .2rem; align-content: start; min-width: 0; }
 .flo-vital small { font-size: .74rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flo-vital strong { font-family: var(--flo-display); font-size: 1.55rem; line-height: 1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -209,7 +213,6 @@
 .flo-vital span { font-size: .7rem; color: var(--text-dim); }
 .flo-meter { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
 .flo-meter i { display: block; height: 100%; background: var(--tone, var(--success)); }
-@media (max-width: 420px) { .flo-vitals { grid-template-columns: 1fr 1fr; } .flo-vitals .flo-vital:last-child { grid-column: 1 / -1; } }
 
 /* ¿Qué necesitas hacer? */
 .flo-acc-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
@@ -363,4 +366,68 @@
   .flo-plate { margin: 0; }
   .flo-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .flo-quick { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+
+/* Formulario de dos columnas (lavado): una sola en el teléfono */
+.flo-form2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 .8rem; }
+.flo-form2 .form-row { min-width: 0; }
+.flo-mini { margin: .2rem 0 0; padding-left: 1rem; font-size: .8rem; color: var(--text-muted); }
+.flo-mini em { font-style: normal; color: var(--text-dim); }
+.flo-hist small + small { margin-top: .1rem; }
+
+/* ───────── Teléfono (≤ 640px): una columna, nada desborda, áreas táctiles de 44 px ───────── */
+@media (max-width: 640px) {
+  .flo { overflow-wrap: break-word; }
+  .flo-h1 { font-size: 1.45rem; }
+  /* Las acciones del encabezado hacen wrap (en vez de la tira deslizable del resto del sistema). */
+  .flo .page-head .actions { flex-wrap: wrap; overflow-x: visible; }
+  .flo .page-head .actions .btn { flex: 1 1 auto; justify-content: center; }
+  .flo .btn, .flo-pill, .flo-seg button, .flo-tabs button { min-height: 44px; }
+  .flo .btn { white-space: normal; text-align: center; justify-content: center; line-height: 1.25; }
+  .flo .btn.btn-sm { min-height: 44px; }
+  .flo-filtros .fila > * { flex: 1 1 100%; }
+  .flo-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flo-seg button + button { border-left: 0; }
+  .flo-seg button:nth-child(even) { border-left: 1px solid var(--border); }
+  .flo-seg button:nth-child(n+3) { border-top: 1px solid var(--border); }
+  .flo-fleet { grid-template-columns: repeat(5, minmax(88px, 1fr)); }
+  .flo-row { grid-template-columns: 56px minmax(0, 1fr); gap: .6rem; }
+  .flo-thumb { width: 56px; height: 56px; }
+  /* La placa se monta sobre la foto: el botón de fotos sube arriba a la derecha para no quedar tapado. */
+  .flo-media .fotos-btn { top: .6rem; bottom: auto; height: 44px; }
+  .flo-plate { margin: -24px .35rem 0; padding: .75rem .9rem; }
+  .flo-plate .pin { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .2rem .6rem; }
+  .flo-top { flex-wrap: wrap; row-gap: 0; }
+  .flo-code { white-space: normal; overflow-wrap: anywhere; }
+  .flo-plate .fila { flex-direction: column; align-items: flex-start; gap: .05rem; }
+  .flo-plate .prop { white-space: normal; }
+  .flo-vitals { grid-template-columns: 1fr; }
+  .flo-vital { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: .6rem; }
+  .flo-vital small, .flo-vital span, .flo-vital .flo-meter { grid-column: 1 / -1; }
+  .flo-vital strong { grid-row: 1; grid-column: 2; font-size: 1.35rem; }
+  .flo-vital small { grid-column: 1; grid-row: 1; }
+  .flo-tiles { grid-template-columns: 1fr 1fr; }
+  .flo-tile { min-height: 88px; }
+  .flo-tile.hero { grid-template-columns: auto minmax(0, 1fr); }
+  .flo-tile.hero .go { display: none; }
+  .flo-quick button { min-height: 64px; }
+  .flo-estado-acc .btn { flex: 1 1 100%; }
+  .flo-orden-foot .btn { flex: 1 1 100%; }
+  .flo-orden-head > div:last-child { justify-items: start !important; }
+  .flo-parts li { grid-template-columns: minmax(0, 1fr); }
+  .flo-parts li .btn { width: 100%; }
+  .flo-chip { white-space: normal; }
+  .flo-facts > div { grid-template-columns: minmax(0, 1fr); gap: .1rem; }
+  .flo-hist > div { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .flo-kanban { grid-auto-columns: minmax(78vw, 1fr); }
+  .flo-stats { grid-template-columns: 1fr 1fr; }
+  .flo-form2 { grid-template-columns: 1fr; }
+  .flo-svc { min-height: 64px; }
+  .flo-qty button { width: 44px; height: 44px; }
+  .flo-qty input { height: 44px; width: 64px; }
+  .flo-linea-top > div:last-child { width: 100%; justify-content: space-between; }
+  .flo-wizard-steps li { font-size: .72rem; }
+  .flo-tabs { margin: 0 -1rem; padding: 0 .5rem; }
+  /* Pie de las ventanas de este módulo (Modal no acepta clase: se ubican por su contenido). */
+  .modal:has(.flo) .modal-footer .btn { min-height: 44px; flex: 1 1 auto; justify-content: center; white-space: normal; }
 }

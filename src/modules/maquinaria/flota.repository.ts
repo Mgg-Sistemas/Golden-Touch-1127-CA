@@ -17,7 +17,7 @@ import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { crearOrden } from '@/modules/pedidos/pedidos.repository';
 import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
-import { servicioPorId } from './flota';
+import { servicioPorId, piezasNuevas } from './flota';
 export { faltaSalida, faltaCompra } from './flota';
 
 /* ───────── Estado operativo ───────── */
@@ -76,6 +76,8 @@ export interface OrdenServicio {
   created_at: string;
   updated_at: string | null;
   cerrada_at: string | null;
+  /** Cuándo se avisó a Compras de las piezas que no están en el inventario. */
+  compras_notificada_at: string | null;
 }
 
 export async function listOrdenesServicio(equipoId?: string): Promise<OrdenServicio[]> {
@@ -169,7 +171,7 @@ export async function solicitarCompraDeOrden(o: OrdenServicio, equipo: { id: str
   const nuevas = o.repuestos.filter((r) => r.a_comprar > 0 && !r.producto_id);
   if (!conProducto.length) {
     throw new Error(nuevas.length
-      ? 'Las piezas a comprar no están en el inventario: dalas de alta en Inventario (o pídelas desde Pedidos) para poder generar la solicitud.'
+      ? 'Las piezas a comprar todavía no están en el inventario: Compras las dará de alta (se le notificó). Cuando existan, cámbialas por el producto en la orden y pide la compra.'
       : 'Esta orden no tiene repuestos por comprar.');
   }
   // SKU de cada producto (la SP lo usa para la recepción).
@@ -309,4 +311,80 @@ export async function fotosDeEquipos(equipoId?: string): Promise<FotoEquipo[]> {
     const url = urls?.[i]?.signedUrl;
     return url ? [{ id: r.id, equipo_id: r.equipo_id, nombre: r.nombre, url }] : [];
   });
+}
+
+/* ───────── Piezas nuevas: aviso a Compras y cambio por el producto ───────── */
+
+/**
+ * Avisa a Compras (notificación persistente dirigida al rol analista_de_compras, con el
+ * código OS, el equipo y la lista de piezas; enlaza al expediente) de las
+ * piezas de la orden que no existen en el inventario: las da de alta Compras, la orden
+ * no crea productos. Deja constancia en la orden. Devuelve false si no había piezas.
+ */
+export async function notificarComprasPiezasNuevas(o: Pick<OrdenServicio, 'id' | 'repuestos'>): Promise<boolean> {
+  if (!piezasNuevas(o.repuestos).length) return false;
+  // En el servidor (RPC): quien crea la orden no tiene el rol de Compras y no podría leer
+  // de vuelta una notificación dirigida a ese rol. Inserta el aviso y marca la orden juntos.
+  const { data, error } = await supabase.rpc('maquinaria_notificar_compras_piezas', { p_id: o.id });
+  if (error) throw error;
+  return data === true;
+}
+
+/** Cambia una pieza nueva por el producto del inventario y vuelve a decidir inventario / compra. */
+export async function reemplazarPiezaOrden(ordenId: string, indice: number, productoId: string): Promise<RepuestoOrden> {
+  const { data, error } = await supabase.rpc('maquinaria_reemplazar_pieza_orden', { p_id: ordenId, p_indice: indice, p_producto_id: productoId });
+  if (error) throw error;
+  return data as RepuestoOrden;
+}
+
+/* ───────── Lavados ───────── */
+
+export interface LavadoEquipo {
+  id: string;
+  equipo_id: string;
+  fecha: string;
+  tipo: string;
+  responsable: string | null;
+  horometro: number | null;
+  kilometraje: number | null;
+  nota: string | null;
+  actor: string | null;
+  actor_name: string | null;
+  created_at: string;
+}
+
+export async function listLavados(equipoId: string): Promise<LavadoEquipo[]> {
+  const { data, error } = await supabase.from('maquinaria_lavados').select('*')
+    .eq('equipo_id', equipoId).order('fecha', { ascending: false }).limit(200);
+  if (error) throw error;
+  return (data ?? []) as LavadoEquipo[];
+}
+
+export interface NuevoLavado {
+  equipo_id: string;
+  fecha: string;          // ISO
+  tipo: string;
+  responsable: string | null;
+  horometro: number | null;
+  kilometraje: number | null;
+  nota: string | null;
+}
+
+export async function registrarLavado(input: NuevoLavado, actor: { email: string; nombre: string | null }): Promise<void> {
+  const tipo = input.tipo.trim();
+  if (tipo.length < 3) throw new Error('Indica el tipo de lavado (al menos 3 letras).');
+  const { error } = await supabase.from('maquinaria_lavados').insert({
+    ...input, tipo,
+    responsable: input.responsable?.trim() || null,
+    nota: input.nota?.trim() || null,
+    actor: actor.email, actor_name: actor.nombre,
+  });
+  if (error) throw error;
+}
+
+/** Borra un lavado. La base solo lo permite al administrador. */
+export async function eliminarLavado(id: string): Promise<void> {
+  const { data, error } = await supabase.from('maquinaria_lavados').delete().eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Solo un administrador puede borrar lavados.');
 }
