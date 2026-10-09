@@ -18,6 +18,7 @@ import { date as fmtDate } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
+import { AusenciasReporteModal } from './AusenciasReporteModal';
 import {
   aplicarPlanDescansos, crearDescanso, editarDescanso, eliminarDescanso, getConfigDescansos, getSeleccionPlan,
   guardarConfigDescansos, guardarSeleccionPlan, listDescansos, type Descanso, type SeleccionPlanGuardada,
@@ -57,6 +58,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
   const [ajustes, setAjustes] = useState(false);
   const [plan, setPlan] = useState(false);
   const [lista, setLista] = useState<'fuera' | 'proximos' | null>(null);
+  const [reporte, setReporte] = useState(false);
 
   const recargar = useCallback(async () => {
     try {
@@ -142,6 +144,8 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
         <input id="desc-buscar" className="input desc-buscar" placeholder="🔍 Buscar por nombre, cédula, cargo, departamento…" value={texto} onChange={(e) => setTexto(e.target.value)} />
         <div className="desc-acciones">
           <span className="chip" title="Días de trabajo × días de descanso · tope a la vez">{cfg.dias_trabajo}×{cfg.dias_descanso} · tope {cfg.max_simultaneos}</span>
+          <button className="btn btn-sm btn-ghost" onClick={() => setReporte(true)} disabled={loading}
+            title="Descansos en PDF o Excel, por rango de fechas y trabajador">📄 PDF / 📊 Excel</button>
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setAjustes(true)}>⚙ Ajustes</button>}
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setPlan(true)} disabled={!personal.length}>🗓 Generar plan</button>}
           {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setEditar({})} disabled={!personal.length}>+ Descanso</button>}
@@ -216,6 +220,12 @@ export function DescansosTab({ empresa, canWrite, actor, actorName }: {
           empresa={empresa} selGuardada={selGuardada}
           onSeleccionGuardada={(sg) => setSelGuardada(sg)}
           onClose={() => setPlan(false)} onSaved={async () => { setPlan(false); await recargar(); }} />
+      )}
+      {reporte && (
+        <AusenciasReporteModal tipo="descansos" empresa={empresa} personas={personal} mes={cursor}
+          items={descansos.map((d) => ({ id: d.id, personal_id: d.personal_id, desde: d.desde, hasta: d.hasta,
+            estado: d.origen === 'plan' ? 'Plan' : 'Manual', nota: d.nota ?? null }))}
+          onClose={() => setReporte(false)} />
       )}
       {lista && (
         <Modal title={lista === 'fuera' ? `🏠 Fuera hoy (${fueraHoy.length} / ${cfg.max_simultaneos})` : `📅 Salen en los próximos 7 días (${proximos.length})`}
