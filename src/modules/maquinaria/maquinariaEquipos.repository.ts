@@ -6,9 +6,10 @@
    se traen del módulo de Combustible.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { ultimoHorometroEquipo, kilometrajesVigentesPorEquipo, consumoPorEquipo } from '@/modules/combustible/tanques.repository';
+import { ultimoHorometroEquipo, consumoPorEquipo } from '@/modules/combustible/tanques.repository';
 import { norm } from '@/shared/lib/texto';
 import { pathsDocumentosDeEquipo, borrarArchivosDocumentos } from './maquinariaDocumentos.repository';
+import { pathsFotosDeEquipo, borrarArchivosFotosOrden } from './osFotos.repository';
 
 export interface MaquinariaEquipo {
   id: string;
@@ -136,11 +137,14 @@ export async function eliminarEquipo(id: string): Promise<void> {
   // Rutas de sus documentos (📎): los registros se van solos por la FK en cascada,
   // pero los archivos del bucket hay que borrarlos a mano, y solo si el equipo se borró.
   const archivos = await pathsDocumentosDeEquipo(id).catch(() => [] as string[]);
+  // Igual con las fotos de sus órdenes de servicio (bucket maquinaria-os-fotos).
+  const fotosOs = await pathsFotosDeEquipo(id).catch(() => [] as string[]);
   // Borra la bitácora del equipo (mantenimientos) antes que el equipo.
   await supabase.from('maquinaria_mantenimientos').delete().eq('equipo_id', id);
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
   await borrarArchivosDocumentos(archivos);
+  await borrarArchivosFotosOrden(fotosOs);
 }
 
 /**
@@ -155,21 +159,12 @@ export async function reiniciarMantenimientoDeEquipo(equipoId: string): Promise<
   if (!equipoId) return { horas: null, km: null };
   const eq = await getEquipo(equipoId);
   if (!eq) return { horas: null, km: null };
-  const vinc = (eq.combustible_equipo ?? '').trim();
-  // Horómetro vigente: de Combustible por el equipo vinculado; si no, la última lectura de la bitácora.
-  let horas: number | null = vinc ? await ultimoHorometroEquipo(vinc).catch(() => null) : null;
-  if (horas == null) {
-    const { data } = await supabase.from('maquinaria_mantenimientos')
-      .select('horometro').eq('equipo_id', equipoId).not('horometro', 'is', null)
-      .order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(1);
-    horas = data?.[0]?.horometro != null ? Number(data[0].horometro) : null;
-  }
-  // Kilometraje vigente (de Combustible), si el equipo lo maneja.
-  let km: number | null = null;
-  if (vinc) {
-    const kms = await kilometrajesVigentesPorEquipo().catch(() => new Map<string, number>());
-    km = kms.get(vinc) ?? null;
-  }
+  // Lectura vigente UNIFICADA (09/10/2026): la mayor entre Combustible, las lecturas
+  // registradas en Maquinaria y la bitácora (desde la última corrección).
+  const { data: vig } = await supabase.rpc('maquinaria_lecturas_vigentes');
+  const fila = ((vig ?? []) as Array<{ equipo_id: string; horometro: number | null; kilometraje: number | null }>).find((x) => x.equipo_id === equipoId);
+  const horas: number | null = fila?.horometro != null ? Number(fila.horometro) : null;
+  const km: number | null = fila?.kilometraje != null ? Number(fila.kilometraje) : null;
   // Escribe la base vía RPC SECURITY DEFINER: así el reinicio funciona aunque quien
   // finaliza la compra (p. ej. Tesorería) no tenga permiso de escritura en Maquinaria.
   // coalesce en el servidor no pisa con null la dimensión sin lectura.

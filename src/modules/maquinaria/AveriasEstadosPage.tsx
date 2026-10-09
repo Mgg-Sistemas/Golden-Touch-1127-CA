@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -14,6 +13,8 @@ import { listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
 import { listadoFlotaExcel } from './flotaExcel';
 import { AccionConEquipo } from './AccionConEquipo';
 import { FlotaNav } from './FlotaNav';
+import { EstadoDetalleModal, ChipInforme } from './EstadoDetalleModal';
+import { esEventoInforme, resumenEvento, ultimoEventoPorEquipo } from './flotaDetalle';
 
 const etiqueta = (e: string | null | undefined) => (e && ESTADOS_EQUIPO[e as EstadoEquipo] ? ESTADOS_EQUIPO[e as EstadoEquipo].label : e ?? '—');
 
@@ -30,6 +31,8 @@ export function AveriasEstadosPage() {
   const [loading, setLoading] = useState(true);
   const [f, setF] = useState<FiltroEventos>({});
   const [reportar, setReportar] = useState(false);
+  // Detalle abierto: por id, para que el tiempo real lo mantenga al día.
+  const [detalle, setDetalle] = useState<{ equipoId: string; eventoId: string | null } | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -46,6 +49,9 @@ export function AveriasEstadosPage() {
   const porId = useMemo(() => new Map(equipos.map((e) => [e.id, e])), [equipos]);
   const atencion = useMemo(() => equiposEnAtencion(equipos), [equipos]);
   const historial = useMemo(() => filtrarEventos(eventos, porId, f), [eventos, porId, f]);
+  const ultimoDe = useMemo(() => ultimoEventoPorEquipo(eventos), [eventos]);
+  const detEquipo = detalle ? porId.get(detalle.equipoId) ?? null : null;
+  const detEvento = detalle?.eventoId ? eventos.find((x) => x.id === detalle.eventoId) ?? null : null;
   const opcEquipos = useMemo(() => [{ value: '', label: 'Todos los equipos' }, ...[...equipos].sort((a, b) => a.equipo.localeCompare(b.equipo, 'es')).map((e) => ({ value: e.id, label: e.equipo }))], [equipos]);
   const set = (p: Partial<FiltroEventos>) => setF((x) => ({ ...x, ...p }));
 
@@ -98,19 +104,24 @@ export function AveriasEstadosPage() {
             {atencion.map((e) => {
               const st = ESTADOS_EQUIPO[e.estado];
               const dias = diasDesde(e.estado_desde);
+              const ult = ultimoDe.get(e.id) ?? null;
+              const motivo = e.estado_nota || ult?.motivo || null;
               return (
-                <Link key={e.id} to={`/app/maquinaria/equipo/${e.id}`} className="flo-row" aria-label={`Abrir expediente de ${e.equipo}`}>
+                <div key={e.id} className="flo-row flo-clic">
+                  <button type="button" className="flo-estirar" onClick={() => setDetalle({ equipoId: e.id, eventoId: ult?.id ?? null })}
+                    aria-label={`Ver el detalle de ${e.equipo}: ${st.label}${motivo ? `, ${motivo}` : ''}`} />
                   <div className="flo-thumb"><span aria-hidden="true">{st.icon}</span></div>
                   <div className="flo-main">
                     <div className="flo-top"><span className="flo-code">{e.equipo}</span>{e.tipo && <span className="flo-tipo">{e.tipo}</span>}</div>
-                    {e.estado_nota && <div className={`flo-nota ${e.estado === 'averiada' ? '' : e.estado === 'espera' ? 'wait' : 'warn'}`}>{e.estado_nota}</div>}
+                    {motivo && <div className={`flo-nota ${e.estado === 'averiada' ? '' : e.estado === 'espera' ? 'wait' : 'warn'}`} title={motivo}>{motivo}</div>}
                     <div className="flo-meta">
                       <span className={`flo-chip tone-${st.tono}`}>{st.icon} {st.label}</span>
                       {e.estado_desde && <span>🕘 {textoHace(dias)}</span>}
                       {e.ubicacion && <span>📍 {e.ubicacion}</span>}
+                      {esEventoInforme(ult) && <ChipInforme equipoId={e.id} className="flo-sobre" />}
                     </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
@@ -143,12 +154,16 @@ export function AveriasEstadosPage() {
           <ol className="flo-timeline">
             {historial.slice(0, 300).map((ev) => {
               const eq = porId.get(ev.equipo_id);
+              const resumen = resumenEvento(ev);
               return (
-                <li key={ev.id}>
+                <li key={ev.id} className="flo-clic">
+                  <button type="button" className="flo-estirar" onClick={() => setDetalle({ equipoId: ev.equipo_id, eventoId: ev.id })}
+                    aria-label={`Ver el detalle: ${eq?.equipo ?? 'equipo'}, ${etiqueta(ev.estado_anterior)} a ${etiqueta(ev.estado)}`} />
                   <span>{ESTADOS_EQUIPO[ev.estado]?.icon ?? '•'}</span>
                   <div style={{ minWidth: 0 }}>
-                    <strong><Link to={`/app/maquinaria/equipo/${ev.equipo_id}`}>{eq?.equipo ?? 'Equipo'}</Link> · {etiqueta(ev.estado_anterior)} → {etiqueta(ev.estado)}</strong>
-                    <span>{dateTime(ev.created_at)}{[ev.motivo, ev.material ? `falta ${ev.material}` : null, ev.nota, ev.actor_name || ev.actor].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
+                    <strong>{eq?.equipo ?? 'Equipo'} · {etiqueta(ev.estado_anterior)} → {etiqueta(ev.estado)}</strong>
+                    <span className="flo-corta2" title={resumen}>{dateTime(ev.created_at)}{resumen ? ` · ${resumen}` : ''}</span>
+                    {esEventoInforme(ev) && <div className="flo-ev-pie"><ChipInforme equipoId={ev.equipo_id} className="flo-sobre" /></div>}
                   </div>
                 </li>
               );
@@ -159,6 +174,9 @@ export function AveriasEstadosPage() {
       </div>
 
       {reportar && <AccionConEquipo accion="averia" equipos={equipos} onClose={() => setReportar(false)} onDone={() => void cargar()} />}
+      {detEquipo && (
+        <EstadoDetalleModal equipo={detEquipo} evento={detEvento} onClose={() => setDetalle(null)} onCambio={() => void cargar()} />
+      )}
     </div>
   );
 }

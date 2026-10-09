@@ -468,3 +468,52 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
   .flo-sec-acc .btn { flex: 1 1 0; }
   .flo-ver-todo { min-height: 44px; display: inline-flex; align-items: center; }
 }
+
+/* ───────── Servicio de Mantenimiento ───────── */
+.flo-fleet.flo-grupos { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); overflow: visible; }
+.flo-fleet.flo-grupos button span { white-space: normal; }
+.flo-mant-resumen { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; margin-bottom: .6rem; }
+.flo-mant-resumen button {
+  --tone: var(--text-dim);
+  display: grid; gap: .1rem; justify-items: start; text-align: left; min-height: 60px; padding: .55rem .7rem;
+  border-radius: var(--r-md); border: 1px solid var(--border); border-left: 4px solid var(--tone);
+  background: var(--surface); color: var(--text); font: inherit; cursor: pointer; min-width: 0;
+}
+.flo-mant-resumen button strong { font-family: var(--flo-display); font-size: 1.6rem; line-height: 1; color: var(--tone); font-variant-numeric: tabular-nums; }
+.flo-mant-resumen button span { font-size: .76rem; color: var(--text-muted); }
+.flo-mant-resumen button[aria-pressed="true"] { border-color: var(--tone); background: color-mix(in srgb, var(--tone) 12%, var(--surface)); }
+.flo-mant-resumen .tone-retired, .flo-mant-card.tone-retired { --tone: var(--flo-retired); }
+.flo-mant-card {
+  --tone: var(--text-dim);
+  display: grid; gap: .55rem; padding: .75rem .8rem; min-width: 0;
+  border-radius: var(--r-lg); border: 1px solid var(--border); border-left: 4px solid var(--tone); background: var(--surface);
+}
+.flo-mant-card.inactivo { opacity: .6; }
+.flo-mant-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; }
+.flo-mant-head .flo-code { display: block; color: var(--text); }
+.flo-mant-head .flo-code:hover { color: var(--primary-2); }
+.flo-mant-barras { display: grid; gap: .45rem; }
+.flo-mant-barra { display: grid; gap: .2rem; }
+.flo-mant-barra .fila { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; font-size: .76rem; color: var(--text-muted); }
+.flo-mant-barra .fila strong { font-size: .78rem; }
+.flo-mant-barra.sin .fila span:last-child { color: var(--text-dim); font-style: italic; }
+.flo-mant-card .flo-orden-foot .btn { flex: 1 1 120px; justify-content: center; }
+
+@media (max-width: 640px) {
+  .flo-fleet.flo-grupos { grid-template-columns: 1fr 1fr; }
+  .flo-mant-resumen { grid-template-columns: 1fr 1fr; }
+  .flo-mant-resumen button { min-height: 56px; }
+  .flo-mant-head { flex-wrap: wrap; }
+  .flo-mant-card .flo-orden-foot .btn { flex: 1 1 calc(50% - .5rem); }
+}
+
+/* ───────── Contador (horómetro / km vigentes) ───────── */
+.flo-contador-mini { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.flo-contador-mini > div { display: grid; gap: .1rem; padding: .55rem .7rem; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--bg-1); min-width: 0; }
+.flo-contador-mini small { font-size: .74rem; color: var(--text-muted); }
+.flo-contador-mini strong { font-family: var(--flo-display); font-size: 1.3rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.flo-contador-mini span { font-size: .72rem; color: var(--text-dim); }
+.flo-stat small + small { margin-top: .15rem; color: var(--text-dim); font-size: .72rem; }
+@media (max-width: 420px) { .flo-contador-mini { grid-template-columns: 1fr; } }
+/* Campos de las ventanas del módulo (lectura, lavado, avería…): área táctil de 44 px en el teléfono. */
+@media (max-width: 640px) { .flo .input, .flo .select { min-height: 44px; } }

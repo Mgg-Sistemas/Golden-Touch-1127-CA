@@ -14,6 +14,8 @@ import { ordenServicioPdf, listadoFlotaPdf, type ListadoFlota } from './flotaPdf
 import { listadoFlotaExcel } from './flotaExcel';
 import { AccionConEquipo } from './AccionConEquipo';
 import { FlotaNav } from './FlotaNav';
+import { FotosOrdenModal } from './FotosOrdenServicio';
+import { contarFotosPorOrden, TABLA_OS_FOTOS } from './osFotos.repository';
 
 type PestanaEstado = NonNullable<FiltroOrdenes['estado']>;
 const PESTANAS: { id: PestanaEstado; label: string }[] = [
@@ -41,6 +43,8 @@ export function OrdenesServicioPage() {
   const [loading, setLoading] = useState(true);
   const [f, setF] = useState<FiltroOrdenes>({ estado: 'abiertas' });
   const [nueva, setNueva] = useState(false);
+  const [nFotos, setNFotos] = useState<Map<string, number>>(new Map());
+  const [verFotos, setVerFotos] = useState<OrdenServicio | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -59,6 +63,10 @@ export function OrdenesServicioPage() {
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime(['maquinaria_ordenes_servicio', 'maquinaria_equipos', 'solicitudes_salida', 'ordenes'], () => { void cargar(); });
+  // Cuántas fotos tiene cada orden (botón «📷 n»), en vivo.
+  const cargarFotos = useCallback(() => { contarFotosPorOrden().then(setNFotos).catch(() => {}); }, []);
+  useEffect(() => { cargarFotos(); }, [cargarFotos]);
+  useRealtime([TABLA_OS_FOTOS], cargarFotos);
 
   const porId = useMemo(() => new Map(equipos.map((e) => [e.id, e])), [equipos]);
   const sinEstado = useMemo(() => filtrarOrdenes(ordenes, porId, { ...f, estado: 'todas' }), [ordenes, porId, f]);
@@ -194,6 +202,7 @@ export function OrdenesServicioPage() {
                 )}
                 <div className="flo-orden-foot">
                   <Link className="btn btn-primary" to={`/app/maquinaria/equipo/${o.equipo_id}?tab=servicios`}>Abrir la orden</Link>
+                  <button className="btn" onClick={() => setVerFotos(o)}>📷 Fotos{nFotos.get(o.id) ? ` (${nFotos.get(o.id)})` : ''}</button>
                   <button className="btn" onClick={() => void pdfOrden(o)}>📄 PDF</button>
                 </div>
               </div>
@@ -203,6 +212,10 @@ export function OrdenesServicioPage() {
       )}
 
       {nueva && <AccionConEquipo accion="orden" equipos={equipos} onClose={() => setNueva(false)} onDone={() => void cargar()} />}
+      {verFotos && (
+        <FotosOrdenModal ordenId={verFotos.id} codigo={verFotos.codigo} equipo={porId.get(verFotos.equipo_id)?.equipo}
+          canWrite={canWrite} onClose={() => setVerFotos(null)} />
+      )}
     </div>
   );
 }

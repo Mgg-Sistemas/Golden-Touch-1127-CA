@@ -16,7 +16,6 @@ import type { ItemOrden, ItemSalida, Orden } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { crearOrden } from '@/modules/pedidos/pedidos.repository';
 import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
-import { ultimoHorometroEquipo, ultimoKilometrajeEquipo } from '@/modules/combustible/tanques.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
 import { servicioPorId, piezasNuevas } from './flota';
 export { faltaSalida, faltaCompra } from './flota';
@@ -421,19 +420,120 @@ export async function comprasPorIds(ids: string[]): Promise<Map<string, CompraRe
   return out;
 }
 
-/** Horómetro y km vigentes de un equipo (Combustible; el horómetro cae a la bitácora). */
-export async function lecturasVigentesEquipo(e: { id: string; combustible_equipo: string | null }): Promise<{ horometro: number | null; km: number | null }> {
-  const vinc = (e.combustible_equipo ?? '').trim();
-  const [horo, km] = await Promise.all([
-    vinc ? ultimoHorometroEquipo(vinc).catch(() => null) : Promise.resolve(null),
-    vinc ? ultimoKilometrajeEquipo(vinc).catch(() => null) : Promise.resolve(null),
-  ]);
-  let horometro = horo;
-  if (horometro == null) {
-    const { data } = await supabase.from('maquinaria_mantenimientos').select('horometro')
-      .eq('equipo_id', e.id).not('horometro', 'is', null)
-      .order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(1);
-    horometro = data?.[0]?.horometro != null ? Number(data[0].horometro) : null;
+/* ───────── Contador (horómetro / km) en dos vías con Combustible ───────── */
+
+export type OrigenLectura = 'maquinaria' | 'combustible' | 'bitacora';
+
+export interface LecturaVigente {
+  horometro: number | null;
+  horometro_fecha: string | null;
+  horometro_origen: OrigenLectura | null;
+  kilometraje: number | null;
+  km_fecha: string | null;
+  km_origen: OrigenLectura | null;
+}
+
+const SIN_LECTURA: LecturaVigente = { horometro: null, horometro_fecha: null, horometro_origen: null, kilometraje: null, km_fecha: null, km_origen: null };
+
+/**
+ * Lectura vigente de TODOS los equipos (una sola consulta): la mayor entre Combustible,
+ * Maquinaria y la bitácora, desde la última corrección. Es la que usan las alertas de
+ * mantenimiento, el catálogo, el expediente y Servicio de Mantenimiento.
+ */
+export async function lecturasVigentesPorEquipo(): Promise<Map<string, LecturaVigente>> {
+  const { data, error } = await supabase.rpc('maquinaria_lecturas_vigentes');
+  if (error) throw error;
+  const out = new Map<string, LecturaVigente>();
+  for (const r of (data ?? []) as Array<LecturaVigente & { equipo_id: string }>) {
+    out.set(r.equipo_id, {
+      horometro: r.horometro == null ? null : Number(r.horometro), horometro_fecha: r.horometro_fecha, horometro_origen: r.horometro_origen,
+      kilometraje: r.kilometraje == null ? null : Number(r.kilometraje), km_fecha: r.km_fecha, km_origen: r.km_origen,
+    });
   }
-  return { horometro, km };
+  return out;
+}
+
+/** Lectura vigente de un equipo. */
+export async function lecturaVigenteEquipo(equipoId: string): Promise<LecturaVigente> {
+  const m = await lecturasVigentesPorEquipo();
+  return m.get(equipoId) ?? SIN_LECTURA;
+}
+
+/** Horómetro y km vigentes de un equipo (para las ventanas que los precargan). */
+export async function lecturasVigentesEquipo(e: { id: string }): Promise<{ horometro: number | null; km: number | null }> {
+  const v = await lecturaVigenteEquipo(e.id);
+  return { horometro: v.horometro, km: v.kilometraje };
+}
+
+export interface LecturaMedidor {
+  origen: OrigenLectura;
+  referencia: string;
+  fecha: string;
+  horometro: number | null;
+  kilometraje: number | null;
+  es_correccion: boolean;
+  actor: string | null;
+}
+
+/** Historial de lecturas del equipo, de las tres fuentes (más reciente primero). */
+export async function listLecturasEquipo(equipoId: string, limite = 60): Promise<LecturaMedidor[]> {
+  const { data, error } = await supabase.from('maquinaria_lecturas_unificadas')
+    .select('origen, referencia, fecha, horometro, kilometraje, es_correccion, actor')
+    .eq('equipo_id', equipoId).order('fecha', { ascending: false }).limit(limite);
+  if (error) throw error;
+  return ((data ?? []) as LecturaMedidor[]).map((r) => ({
+    ...r, horometro: r.horometro == null ? null : Number(r.horometro), kilometraje: r.kilometraje == null ? null : Number(r.kilometraje),
+  }));
+}
+
+export interface NuevaLectura {
+  equipo_id: string;
+  horometro: number | null;
+  kilometraje: number | null;
+  fecha: string;        // ISO
+  nota: string | null;
+  /** Corrección hacia abajo (cambio de horómetro, error): solo admin y con motivo. */
+  correccion?: boolean;
+  motivo?: string | null;
+}
+
+/**
+ * Registra un horómetro y/o km desde Maquinaria. La base no deja que sea menor que la
+ * vigente (salvo corrección de un admin con motivo). El próximo surtido del equipo en
+ * Combustible arranca desde esta lectura.
+ */
+export async function registrarLectura(l: NuevaLectura): Promise<void> {
+  const { error } = await supabase.rpc('maquinaria_registrar_lectura', {
+    p_equipo_id: l.equipo_id, p_horometro: l.horometro, p_kilometraje: l.kilometraje, p_fecha: l.fecha,
+    p_nota: l.nota, p_correccion: !!l.correccion, p_motivo: l.motivo ?? null,
+  });
+  if (error) throw error;
+}
+
+export interface UltimoSurtido {
+  fecha: string;
+  hora: string | null;
+  litros: number;
+  tanque: string | null;
+  quien: string | null;
+}
+
+/** Último surtido (uso) del equipo en Combustible. Solo lectura: el surtido se hace en Combustible. */
+export async function ultimoSurtidoEquipo(nombreCombustible: string | null | undefined): Promise<UltimoSurtido | null> {
+  const nombre = (nombreCombustible ?? '').trim();
+  if (!nombre) return null;
+  const { data, error } = await supabase.from('combustible_tanque_movimientos')
+    .select('fecha, hora, litros, autorizado_por, actor_name, created_by, tanque_id')
+    .eq('equipo', nombre).eq('tipo', 'uso')
+    .order('fecha', { ascending: false }).order('created_at', { ascending: false })
+    .limit(1).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const r = data as { fecha: string; hora: string | null; litros: number; autorizado_por: string | null; actor_name: string | null; created_by: string | null; tanque_id: string | null };
+  let tanque: string | null = null;
+  if (r.tanque_id) {
+    const { data: t } = await supabase.from('combustible_tanques').select('nombre').eq('id', r.tanque_id).maybeSingle();
+    tanque = (t as { nombre?: string } | null)?.nombre ?? null;
+  }
+  return { fecha: r.fecha, hora: r.hora, litros: Number(r.litros) || 0, tanque, quien: r.autorizado_por || r.actor_name || r.created_by };
 }

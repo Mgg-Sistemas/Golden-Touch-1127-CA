@@ -104,6 +104,8 @@ export interface AvisoServicio {
   unidad: 'h' | 'km';
   /** % del intervalo ya consumido (0–100), para la barrita. */
   pct: number;
+  /** Fracción consumida SIN tope (1,2 = pasado un 20 %): sirve para ordenar por urgencia. */
+  ratio: number;
 }
 
 /** Aviso de servicio de una dimensión (horas o km). null si falta el intervalo o la lectura. */
@@ -112,7 +114,7 @@ export function avisoServicio(frecuencia: number | null | undefined, lectura: nu
   if (restante == null || !frecuencia) return null;
   const pct = Math.min(100, Math.max(0, ((frecuencia - restante) / frecuencia) * 100));
   const nivel = restante <= 0 ? 'vencido' : restante <= frecuencia * MARGEN_ALERTA_PCT ? 'proximo' : 'ok';
-  return { nivel, restante, unidad, pct };
+  return { nivel, restante, unidad, pct, ratio: (frecuencia - restante) / frecuencia };
 }
 
 /** El aviso más urgente entre horas y km (vencido > próximo > ok; a igual nivel, el de menor % restante). */
@@ -351,12 +353,14 @@ export function compraAbierta(estado: string | null | undefined): boolean {
 /* ───────── ¿Qué necesitas hacer? (según permisos) ───────── */
 
 export type AccionEquipo =
-  | 'servicio' | 'averia' | 'combustible' | 'bitacora' | 'documentos' | 'editar'
+  | 'servicio' | 'averia' | 'lectura' | 'bitacora' | 'documentos' | 'editar'
   | 'ficha' | 'mantt_hecho' | 'espera' | 'quitar_espera' | 'retirar' | 'reactivar' | 'eliminar' | 'lavado';
 
 export interface PermisosFlota {
   maquinaria: boolean;   // escritura en Maquinaria
-  combustible: boolean;  // escritura en Combustible
+  /** Escritura en Combustible. Ya no da acciones en Maquinaria (el surtido se hace solo en
+   *  Combustible, 09/10/2026); se conserva para no romper a quien lo pase. */
+  combustible?: boolean;
 }
 
 /**
@@ -371,7 +375,8 @@ export function accionesEquipo(p: PermisosFlota, estado: EstadoEquipo, opts?: { 
     if (estado !== 'averiada' && estado !== 'parada') out.push('averia');
     out.push('lavado');
   }
-  if (p.combustible && !retirada) out.push('combustible');
+  // Registrar horómetro / km: con escritura en Maquinaria (se sincroniza con Combustible).
+  if (p.maquinaria && !retirada) out.push('lectura');
   out.push('bitacora', 'documentos', 'ficha');
   if (p.maquinaria) {
     out.push('editar');
@@ -394,4 +399,39 @@ export function coincideEquipo(
   if (!t) return true;
   const texto = norm([e.equipo, e.tipo, e.propietario, e.ubicacion, e.serial, e.placa, e.marca, e.modelo, e.status, e.estado_nota].filter(Boolean).join(' '));
   return t.split(/\s+/).every((p) => texto.includes(p));
+}
+
+/* ───────── Contador (horómetro / km) ───────── */
+
+export const ORIGENES_LECTURA: Record<string, { label: string; icon: string }> = {
+  maquinaria: { label: 'Maquinaria', icon: '🚜' },
+  combustible: { label: 'Combustible (surtido)', icon: '⛽' },
+  bitacora: { label: 'Bitácora', icon: '📒' },
+};
+
+export function etiquetaOrigenLectura(o: string | null | undefined): string {
+  return o ? (ORIGENES_LECTURA[o]?.label ?? o) : '—';
+}
+
+/**
+ * Revisa una lectura nueva contra la vigente (misma regla que maquinaria_registrar_lectura):
+ * hace falta horómetro o km; no puede bajar, salvo CORRECCIÓN de un admin con motivo.
+ * Devuelve el problema o null.
+ */
+export function validarLectura(
+  nueva: { horometro: number | null; kilometraje: number | null },
+  vigente: { horometro: number | null; kilometraje: number | null },
+  opts: { correccion?: boolean; admin?: boolean; motivo?: string | null } = {},
+): string | null {
+  const { horometro: h, kilometraje: k } = nueva;
+  if (h == null && k == null) return 'Indica el horómetro o el kilometraje.';
+  if ((h != null && (!Number.isFinite(h) || h < 0)) || (k != null && (!Number.isFinite(k) || k < 0))) return 'La lectura tiene que ser un número positivo.';
+  if (opts.correccion) {
+    if (!opts.admin) return 'Solo un administrador puede corregir una lectura hacia abajo.';
+    if ((opts.motivo ?? '').trim().length < 3) return 'Escribe el motivo de la corrección.';
+    return null;
+  }
+  if (h != null && vigente.horometro != null && h < vigente.horometro) return `El horómetro no puede ser menor que el vigente (${vigente.horometro} h).`;
+  if (k != null && vigente.kilometraje != null && k < vigente.kilometraje) return `El kilometraje no puede ser menor que el vigente (${vigente.kilometraje} km).`;
+  return null;
 }
