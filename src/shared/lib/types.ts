@@ -1534,6 +1534,8 @@ export interface PersonalSueldo {
   fecha: string;
   created_at: string;
   created_by?: string | null;
+  /** Sueldo viejo cargado a posteriori (Excel o a mano): no movió el sueldo de la ficha. */
+  historico?: boolean;
 }
 
 /** Anticipo o préstamo a una persona; se descuenta de la nómina hasta saldar.

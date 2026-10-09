@@ -51,6 +51,38 @@ export async function cambiarSueldo(input: CambioSueldoInput): Promise<PersonalS
 }
 
 /**
+ * Registra un sueldo VIEJO (anterior al vigente) sin tocar el sueldo de la
+ * ficha: sirve para cargar el historial que se tenía en Excel.
+ */
+export async function registrarSueldoHistorico(input: {
+  personalId: string; fecha: string; sueldo: number; motivo: string; nota?: string | null;
+}): Promise<PersonalSueldo> {
+  const { data, error } = await supabase.rpc('registrar_sueldo_historico', {
+    p_personal_id: input.personalId,
+    p_fecha: input.fecha,
+    p_sueldo: Math.round((Number(input.sueldo) || 0) * 100) / 100,
+    p_motivo: String(input.motivo ?? '').trim(),
+    p_nota: input.nota?.trim() || null,
+  });
+  if (error) throw new Error(mensaje(error));
+  return data as PersonalSueldo;
+}
+
+/** Carga en lote (todo o nada). Devuelve cuántos sueldos entraron. */
+export async function cargarSueldosHistoricos(filas: Array<{
+  fila: number; personalId: string; fecha: string; sueldo: number; motivo: string; nota?: string | null;
+}>): Promise<number> {
+  const { data, error } = await supabase.rpc('cargar_sueldos_historicos', {
+    p_filas: filas.map((f) => ({
+      fila: f.fila, personal_id: f.personalId, fecha: f.fecha,
+      sueldo: Math.round(f.sueldo * 100) / 100, motivo: f.motivo, nota: f.nota?.trim() || null,
+    })),
+  });
+  if (error) throw new Error(mensaje(error));
+  return Number(data) || 0;
+}
+
+/**
  * Borra un renglón del histórico. Solo admin, y es para deshacer una carga
  * equivocada: no existe "editar" a propósito, porque un histórico que se puede
  * retocar no sirve como histórico.
@@ -68,7 +100,7 @@ function mensaje(error: { message?: string; hint?: string }): string {
   const m = String(error?.message ?? '').trim();
   if (!m) return 'No se pudo registrar el cambio de sueldo.';
   // Las excepciones que levanta `cambiar_sueldo` ya vienen escritas para leer.
-  if (/motivo|negativo|mismo que ya tenía|no se encontró/i.test(m)) return m;
+  if (/motivo|negativo|mismo que ya tenía|no se encontró|fecha|Fila d+|permiso|No hay filas/i.test(m)) return m;
   if (/permission denied|row-level security/i.test(m)) {
     return 'No tienes permiso para cambiar sueldos en RRHH.';
   }

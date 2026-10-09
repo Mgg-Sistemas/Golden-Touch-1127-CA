@@ -43,7 +43,7 @@ export interface ReciboMeta {
 /** Dos decimales: así se paga y así se imprime. */
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 
-async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
+export async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     loadLogoPdfEmpresa(meta.periodo.empresa).catch(() => null),
     import('jspdf'),
@@ -56,12 +56,29 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   const PAGE_H = doc.internal.pageSize.getHeight();
   const MARGIN = 56.69; // 2 cm por lado
 
+  // Cada recibo va en UNA hoja, con las firmas abajo. Se dibuja con el tamaño
+  // normal; si no cabe (préstamos, asignaciones, seriales de billetes…) se borra
+  // lo dibujado y se repite en modo compacto: menos relleno y letra un poco menor.
+  // Se prueba primero en un documento borrador, que se descarta.
   renglones.forEach((r, idx) => {
+    const prueba = new jsPDF({ unit: 'pt', format: 'letter' });
+    const compacto = dibujar(prueba, r, false);
     if (idx > 0) doc.addPage();
-    let y = MARGIN;
+    dibujar(doc, r, compacto);
+  });
+
+  /** Dibuja un recibo desde la hoja actual de `doc`. Devuelve true si no cupo en una hoja. */
+  function dibujar(doc: InstanceType<typeof jsPDF>, r: NominaRenglon, compacto: boolean): boolean {
+    const pagina = doc.getNumberOfPages();
+    const MT = compacto ? 34 : MARGIN;          // margen de arriba
+    const MB = compacto ? 34 : MARGIN;          // margen de abajo
+    const pad = (n: number) => (compacto ? Math.max(1.2, n * 0.55) : n);
+    const fs = (n: number) => (compacto ? n - 1 : n);
+    const gap = (n: number) => (compacto ? Math.round(n * 0.5) : n);
+    let y = MT;
 
     // Encabezado: logo + empresa + título.
-    const LOGO = 56;
+    const LOGO = compacto ? 42 : 56;
     if (logoDataUrl) { dibujarLogoPdf(doc, logoDataUrl, MARGIN, y, LOGO); }
     const tx = logoDataUrl ? MARGIN + anchoLogoPdf(LOGO) + 14 : MARGIN;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
@@ -77,18 +94,18 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // Fecha de EMISIÓN del recibo (hoy). El período y la fecha de pago van en el detalle.
     const fechaEmision = fmtDate(new Date().toISOString());
     doc.text(`Emitido: ${fechaEmision}`, PAGE_W - MARGIN, y + 32, { align: 'right' });
-    y += Math.max(LOGO, 40) + 6;
+    y += Math.max(LOGO, 40) + (compacto ? 2 : 6);
 
     doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
     doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-    y += 18;
+    y += compacto ? 13 : 18;
 
     // Título grande.
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
     doc.text('RECIBO DE PAGO', MARGIN, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
     doc.text(`Motivo: ${labelMotivo(meta.periodo.tipo)}`, PAGE_W - MARGIN, y, { align: 'right' });
-    y += 18;
+    y += compacto ? 9 : 18;
 
     // Datos del trabajador.
     // La tasa del renglón manda sobre la del período: es la que se congeló al
@@ -110,13 +127,13 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['Estado', r.estado === 'pagada' ? 'Pagado' : 'Por pagar', 'Días', `${r.dias_trabajados ?? 0} trab. + ${r.dias_descanso ?? 0} desc.`],
         ['Tasa de cierre', tasaTexto, 'Total acordado / mes', usd(r.sueldo_base_mensual)],
       ],
-      margin: MARGIN,
+      margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
       theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 3.5 },
+      styles: { fontSize: fs(9), cellPadding: pad(3.5) },
       columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 }, 2: { fontStyle: 'bold', cellWidth: 90 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+    y = (doc.lastAutoTable?.finalY ?? y) + gap(10);
 
     // ── El desglose, como en la planilla: devengado, deducción y saldo ──
     const enUsd = (bs: number) => (tasa > 0 ? r2(bs / tasa) : 0);
@@ -171,9 +188,9 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ['', 'TOTALES', bsStr(devengadoBs), usd(enUsd(devengadoBs)), bsStr(deduccionBs), usd(enUsd(deduccionBs))],
         ['', 'NETO DEL RECIBO', bsStr(netoBs), usd(enUsd(netoBs)), '', ''],
       ],
-      margin: MARGIN,
+      margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
       theme: 'grid',
-      styles: { fontSize: 8.5, cellPadding: 2.5 },
+      styles: { fontSize: fs(8.5), cellPadding: pad(2.5) },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
       columnStyles: {
@@ -185,7 +202,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 10;
+    y = (doc.lastAutoTable?.finalY ?? y) + gap(10);
 
     // ── Lo que se paga en divisas ──
     // ── BONO ──
@@ -210,14 +227,14 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         ...(anticiposUsd > 0 ? [['Menos: anticipos', `− ${usd(anticiposUsd)}`]] : []),
         ...(prestamosUsd + anticiposUsd > 0 ? [['BONO NETO A RECIBIR', usd(bonoNetoUsd)]] : []),
       ],
-      margin: MARGIN,
+      margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
       theme: 'grid',
-      styles: { fontSize: 8.5, cellPadding: 4 },
+      styles: { fontSize: fs(8.5), cellPadding: pad(4) },
       headStyles: { fillColor: [60, 60, 60], textColor: 255, fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right', cellWidth: 110 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 8;
+    y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
 
     // ── El total del recibo, en dólares ──
     // Las dos partes se suman aquí: lo cobrado en bolívares (llevado a dólares
@@ -235,18 +252,18 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         [prestamosUsd + anticiposUsd > 0 ? 'Bono en divisas (neto de préstamos y anticipos)' : 'Bono en divisas', '', usd(bonoNetoUsd)],
       ],
       foot: [['TOTAL RECIBIDO', '', usd(totalRecibidoUsd)]],
-      margin: MARGIN,
+      margin: { left: MARGIN, right: MARGIN, top: MT, bottom: MB },
       theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 3 },
+      styles: { fontSize: fs(9), cellPadding: pad(3) },
       headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [235, 235, 235], textColor: 20, fontStyle: 'bold', fontSize: 10 },
       columnStyles: { 1: { halign: 'right', cellWidth: 104 }, 2: { halign: 'right', cellWidth: 104 } },
     });
     // @ts-expect-error lastAutoTable lo agrega el plugin en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 8;
+    y = (doc.lastAutoTable?.finalY ?? y) + gap(8);
 
     // Texto de conformidad, el mismo que se viene firmando.
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(fs(8.5));
     const conformidad = doc.splitTextToSize(
       `Certifico haber recibido la cantidad de ${bsStr(netoBs)}`
       + (bonoUsd + (Number(r.asignaciones) || 0) > 0 ? ` y ${usd(bonoUsd + (Number(r.asignaciones) || 0))} en concepto de bono` : '')
@@ -255,7 +272,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       PAGE_W - MARGIN * 2,
     );
     doc.text(conformidad, MARGIN, y + 10);
-    y += 10 + conformidad.length * 11;
+    y += 10 + conformidad.length * (compacto ? 9.5 : 11);
 
     if (r.seriales_billetes && r.seriales_billetes.length) {
       doc.setFontSize(8);
@@ -278,18 +295,19 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // para firmar.
     const HUECO_FIRMA_MIN = 46;             // 1,6 cm: menos que esto no es un renglón de firma
     const BAJO_LA_RAYA = 24;                // rótulo + nombre debajo de la raya
-    const PISO = PAGE_H - MARGIN - 20;      // hasta donde puede bajar el nombre
+    const PISO = PAGE_H - MB - (compacto ? 4 : 20); // hasta donde puede bajar el nombre
     const recibiY = y + 12;                 // el epígrafe, justo debajo del texto
     let fy = PISO - BAJO_LA_RAYA;           // la raya, lo más abajo posible
     // Si el recibo vino tan largo que no queda ni el hueco mínimo para firmar, se
     // pasa a una hoja nueva: una raya sin lugar donde firmar no sirve de nada.
-    if (fy - recibiY < HUECO_FIRMA_MIN) {
-      doc.addPage();
-      doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
-      doc.text('Recibí conforme el pago aquí detallado.', MARGIN, MARGIN + 12);
-      doc.setTextColor(0);
-      fy = MARGIN + 12 + HUECO_FIRMA_MIN;
-    } else {
+    // Una tabla que se partió en dos hojas, o sin el hueco mínimo para firmar:
+    // no cabe. En modo normal se reintenta compacto; en compacto se firma igual
+    // con el hueco que quede (nunca en otra hoja).
+    if (doc.getNumberOfPages() > pagina || fy - recibiY < HUECO_FIRMA_MIN) {
+      if (!compacto) return true;
+      fy = Math.max(fy, recibiY + 30);
+    }
+    {
       doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(90);
       doc.text('Recibí conforme el pago aquí detallado.', MARGIN, recibiY);
       doc.setTextColor(0);
@@ -305,7 +323,8 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     doc.text(`${r.nombre}${cedula ? ' · C.I. ' + cedula : ''}`, MARGIN + colW / 2, fy + BAJO_LA_RAYA, { align: 'center' });
     doc.text('Jefatura de Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + BAJO_LA_RAYA, { align: 'center' });
     doc.setTextColor(0);
-  });
+    return doc.getNumberOfPages() > pagina;
+  }
 
   return doc;
 }
