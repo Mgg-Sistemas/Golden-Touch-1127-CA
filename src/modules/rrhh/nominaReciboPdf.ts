@@ -131,8 +131,12 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     const descansoBs = r2(sueldoBs - trabajadosBs);
 
     const bonosBs = r2((Number(r.asignaciones) || 0) * tasa);
-    const prestamosBs = r2((Number(r.deduc_prestamos) || 0) * tasa);
-    const anticiposBs = r2((Number(r.deduc_anticipos) || 0) * tasa);
+    // Préstamos y anticipos se descuentan del BONO en dólares (09/10/2026), no del
+    // sueldo en bolívares: en esta tabla van en cero y el descuento sale abajo.
+    const prestamosUsd = Number(r.deduc_prestamos) || 0;
+    const anticiposUsd = Number(r.deduc_anticipos) || 0;
+    const prestamosBs = 0;
+    const anticiposBs = 0;
 
     const devengadoBs = r2(trabajadosBs + descansoBs + bonosBs);
     const deduccionBs = r2(prestamosBs + anticiposBs);
@@ -159,8 +163,8 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
         linea(6, 'Rég. Prestacional de Empleo', 0, 'deduccion'),
         linea(7, 'Rég. Prest. de Vivienda y Hábitat', 0, 'deduccion'),
         linea(8, 'Sindicato', 0, 'deduccion'),
-        linea(9, 'Préstamos', prestamosBs, 'deduccion'),
-        linea(10, 'Anticipos', anticiposBs, 'deduccion'),
+        linea(9, prestamosUsd > 0 ? 'Préstamos (se descuentan del bono en $)' : 'Préstamos', prestamosBs, 'deduccion'),
+        linea(10, anticiposUsd > 0 ? 'Anticipos (se descuentan del bono en $)' : 'Anticipos', anticiposBs, 'deduccion'),
         linea(11, 'Otros', 0, 'deduccion'),
       ],
       foot: [
@@ -192,6 +196,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     const bonoUsd = Number(r.bono_quincena_usd) || 0;
     const pctSueldo = Number(r.sueldo_pct);
     const pctBono = Number.isFinite(pctSueldo) ? Math.round(100 - pctSueldo) : null;
+    const bonoNetoUsd = r2(bonoUsd + (Number(r.asignaciones) || 0) - prestamosUsd - anticiposUsd);
 
     autoTable(doc, {
       startY: y,
@@ -201,6 +206,9 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
           ? `Bono de la quincena (${pctBono} % del total acordado)`
           : 'Bono de la quincena', usd(bonoUsd)],
         ...(Number(r.asignaciones) > 0 ? [['Asignaciones adicionales', usd(r.asignaciones)]] : []),
+        ...(prestamosUsd > 0 ? [['Menos: préstamos', `− ${usd(prestamosUsd)}`]] : []),
+        ...(anticiposUsd > 0 ? [['Menos: anticipos', `− ${usd(anticiposUsd)}`]] : []),
+        ...(prestamosUsd + anticiposUsd > 0 ? [['BONO NETO A RECIBIR', usd(bonoNetoUsd)]] : []),
       ],
       margin: MARGIN,
       theme: 'grid',
@@ -216,7 +224,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
     // con la MISMA tasa que dice el recibo) más el bono, que ya está en
     // dólares. Es la cifra que la persona quiere ver: cuánto cobró en total.
     const netoEnUsd = enUsd(netoBs);
-    const totalRecibidoUsd = r2(netoEnUsd + bonoUsd + (Number(r.asignaciones) || 0));
+    const totalRecibidoUsd = r2(netoEnUsd + bonoNetoUsd);
 
     autoTable(doc, {
       startY: y,
@@ -224,7 +232,7 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
       body: [
         [`Pagado en bolívares${pctSueldo ? ` (sueldo, ${Math.round(pctSueldo)} %)` : ''}`, bsStr(netoBs), usd(netoEnUsd)],
         ['Tasa aplicada (BCV del día)', tasaTexto, ''],
-        ['Bono en divisas', '', usd(bonoUsd + (Number(r.asignaciones) || 0))],
+        [prestamosUsd + anticiposUsd > 0 ? 'Bono en divisas (neto de préstamos y anticipos)' : 'Bono en divisas', '', usd(bonoNetoUsd)],
       ],
       foot: [['TOTAL RECIBIDO', '', usd(totalRecibidoUsd)]],
       margin: MARGIN,

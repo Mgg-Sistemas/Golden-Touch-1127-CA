@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DIAS_QUINCENA, SUELDO_PCT_DEFECTO, aBs, aUsd, avisosQuincena, calcularQuincena,
-  diasDelPeriodo, pctValido, quincenaDe,
+  descontarDelBono, diasDelPeriodo, pctValido, quincenaDe,
 } from './nominaCalculo';
 
 /* Los números de estas pruebas salen de la planilla real del Drive
@@ -163,5 +163,27 @@ describe('diasDelPeriodo', () => {
   it('el mismo día es 1, y al revés es 0', () => {
     expect(diasDelPeriodo('2026-09-23', '2026-09-23')).toBe(1);
     expect(diasDelPeriodo('2026-09-30', '2026-09-16')).toBe(0);
+  });
+});
+
+describe('préstamos y anticipos se descuentan del bono en $', () => {
+  const d = (id: string, tipo: 'anticipo' | 'prestamo', monto: number) => ({ id, tipo, monto });
+  it('si el bono alcanza, se descuenta todo', () => {
+    const r = descontarDelBono(200, [d('a', 'prestamo', 50), d('b', 'anticipo', 30)]);
+    expect(r.total).toBe(80);
+    expect(r.bonoNeto).toBe(120);
+    expect(r.sinCubrir).toBe(0);
+    expect(r.aplicadas.map((x) => x.monto)).toEqual([50, 30]);
+  });
+  it('si no alcanza, se descuenta hasta el bono y en orden; el resto queda sin cubrir', () => {
+    const r = descontarDelBono(60, [d('a', 'prestamo', 50), d('b', 'anticipo', 30)]);
+    expect(r.aplicadas).toEqual([d('a', 'prestamo', 50), d('b', 'anticipo', 10)]);
+    expect(r.bonoNeto).toBe(0);
+    expect(r.sinCubrir).toBe(20);
+  });
+  it('sin bono no se descuenta nada (no toca el sueldo del recibo)', () => {
+    const r = descontarDelBono(0, [d('a', 'prestamo', 50)]);
+    expect(r.aplicadas).toEqual([]);
+    expect(r.sinCubrir).toBe(50);
   });
 });
