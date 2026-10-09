@@ -1594,6 +1594,12 @@ export interface NominaPeriodo {
   creada_por?: string | null;
   actor_name?: string | null;
   created_at: string;
+  /** Papelera: si tiene fecha, la nómina se eliminó (con motivo) y no se lista
+   *  ni se paga. Solo un administrador la recupera o la borra del todo. */
+  eliminado_en?: string | null;
+  eliminado_por?: string | null;
+  eliminado_por_nombre?: string | null;
+  eliminado_motivo?: string | null;
 }
 
 /** Una deducción concreta aplicada a un renglón (referencia al anticipo/préstamo). */

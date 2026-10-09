@@ -119,10 +119,14 @@ export function calcularRenglon(input: RenglonCalcInput): RenglonCalc {
 /** El correlativo es POR EMPRESA, y MTO lleva su marca para no confundir papeles. */
 async function nextCodigoNomina(empresa: EmpresaRrhh): Promise<string> {
   const year = new Date().getFullYear();
-  const { count, error } = await supabase.from('nomina_periodos')
-    .select('id', { count: 'exact', head: true }).eq('empresa', empresa);
+  // El MAYOR correlativo usado, no la cantidad de filas: al vaciar la papelera
+  // se borran períodos y contar repetiría un código que ya circuló en papeles.
+  const { data, error } = await supabase.from('nomina_periodos').select('codigo').eq('empresa', empresa);
   if (error) throw error;
-  const n = String((count ?? 0) + 1).padStart(4, '0');
+  const usados = ((data ?? []) as Array<{ codigo: string | null }>)
+    .map((x) => Number(/(\d+)\s*$/.exec(x.codigo ?? '')?.[1] ?? 0))
+    .filter((x) => Number.isFinite(x));
+  const n = String(Math.max(usados.length, ...usados, 0) + 1).padStart(4, '0');
   return empresa === 'MTO' ? `NOM-MTO-${year}-${n}` : `NOM-${year}-${n}`;
 }
 
@@ -164,6 +168,12 @@ export async function cargarNomina(input: CargarNominaInput): Promise<NominaPeri
   const calculados = renglones.map((r) => ({ r, c: calcularRenglon(r) }));
   const total = round2(calculados.reduce((a, x) => a + x.c.neto_usd, 0));
   const empresa: EmpresaRrhh = input.empresa ?? 'GT';
+  // Una quincena nueva solo si la anterior está cerrada (la base también lo
+  // exige con un trigger; esto da el mensaje antes de armar nada).
+  if ((input.tipo || 'quincena') === 'quincena') {
+    const abierta = await quincenaAbiertaDe(empresa);
+    if (abierta) throw new Error(`No se puede cargar otra nómina: la ${abierta.codigo}${abierta.nombre ? ` (${abierta.nombre})` : ''} todavía no está cerrada. Termina de pagarla o elimínala primero.`);
+  }
   const codigo = await nextCodigoNomina(empresa);
 
   const { data: per, error: pErr } = await supabase.from('nomina_periodos').insert({
@@ -222,14 +232,19 @@ export interface NominaPeriodoResumen extends NominaPeriodo {
   pendientes: number;
 }
 
-export async function listNominas(empresa?: EmpresaRrhh): Promise<NominaPeriodoResumen[]> {
-  let q = supabase.from('nomina_periodos').select('*').order('created_at', { ascending: false });
+/** Nóminas de la empresa. Por defecto SIN las de la papelera; `papelera: true` trae solo esas. */
+export async function listNominas(empresa?: EmpresaRrhh, opts: { papelera?: boolean } = {}): Promise<NominaPeriodoResumen[]> {
+  let q = supabase.from('nomina_periodos').select('*');
+  q = opts.papelera
+    ? q.not('eliminado_en', 'is', null).order('eliminado_en', { ascending: false })
+    : q.is('eliminado_en', null).order('created_at', { ascending: false });
   if (empresa) q = q.eq('empresa', empresa);
   const { data: pers, error } = await q;
   if (error) throw error;
   const periodos = (pers ?? []) as NominaPeriodo[];
   if (!periodos.length) return [];
-  const { data: regs, error: rErr } = await supabase.from('nomina_renglones').select('periodo_id, estado');
+  const { data: regs, error: rErr } = await supabase.from('nomina_renglones').select('periodo_id, estado')
+    .in('periodo_id', periodos.map((p) => p.id));
   if (rErr) throw rErr;
   const rows = (regs ?? []) as Array<{ periodo_id: string; estado: string }>;
   return periodos.map((p) => {
@@ -251,8 +266,10 @@ export async function listRenglonesPorPagar(): Promise<NominaRenglon[]> {
     .from('nomina_renglones')
     // Tesorería paga las DOS nóminas, así que no se filtra por empresa: se
     // trae el dato para que la cola diga de cuál es cada renglón.
-    .select('*, periodo:nomina_periodos!nomina_renglones_periodo_id_fkey(codigo, empresa, tipo, periodo_desde, periodo_hasta, tasa_bcv)')
+    // `!inner` + filtro: los renglones de una nómina en la PAPELERA no se pagan.
+    .select('*, periodo:nomina_periodos!nomina_renglones_periodo_id_fkey!inner(codigo, empresa, tipo, periodo_desde, periodo_hasta, tasa_bcv, eliminado_en)')
     .eq('estado', 'por_pagar')
+    .is('periodo.eliminado_en', null)
     .order('created_at', { ascending: true });
   if (error) throw error;
   return (data ?? []) as NominaRenglon[];
@@ -270,7 +287,10 @@ export async function getRenglonById(id: string): Promise<NominaRenglon | null> 
 }
 
 export async function countRenglonesPorPagar(): Promise<number> {
-  const { count, error } = await supabase.from('nomina_renglones').select('id', { count: 'exact', head: true }).eq('estado', 'por_pagar');
+  const { count, error } = await supabase.from('nomina_renglones')
+    .select('id, periodo:nomina_periodos!nomina_renglones_periodo_id_fkey!inner(eliminado_en)', { count: 'exact', head: true })
+    .eq('estado', 'por_pagar')
+    .is('periodo.eliminado_en', null);
   if (error) throw error;
   return count ?? 0;
 }
@@ -438,15 +458,54 @@ export async function pagarRenglon(input: PagarRenglonInput): Promise<void> {
   await supabase.from('nomina_periodos').update({ estado: pendientes === 0 ? 'pagada' : 'en_pago' }).eq('id', r.periodo_id);
 }
 
-/** Elimina una nómina cargada (solo si ningún renglón fue pagado). */
-export async function eliminarNomina(periodoId: string): Promise<void> {
+/**
+ * Manda una nómina a la PAPELERA (no la borra): solo si ningún renglón fue
+ * pagado y con un motivo obligatorio. La base lo vuelve a validar (trigger
+ * `nomina_periodos_reglas`): una nómina cerrada no se elimina nunca.
+ */
+export async function eliminarNomina(periodoId: string, motivo: string, actorEmail: string, actorName?: string | null): Promise<void> {
+  const m = (motivo ?? '').trim();
+  if (!m) throw new Error('Indica el motivo para eliminar la nómina.');
   const { data: regs, error } = await supabase.from('nomina_renglones').select('estado').eq('periodo_id', periodoId);
   if (error) throw error;
   if ((regs ?? []).some((r) => (r as { estado: string }).estado === 'pagada')) {
     throw new Error('No se puede eliminar: ya tiene pagos realizados.');
   }
-  const { error: dErr } = await supabase.from('nomina_periodos').delete().eq('id', periodoId);
-  if (dErr) throw dErr;
+  const { error: uErr } = await supabase.from('nomina_periodos').update({
+    eliminado_en: new Date().toISOString(),
+    eliminado_por: actorEmail,
+    eliminado_por_nombre: actorName ?? null,
+    eliminado_motivo: m,
+  }).eq('id', periodoId);
+  if (uErr) throw uErr;
+}
+
+/** Saca una nómina de la papelera (solo administradores; la base lo exige). */
+export async function recuperarNomina(periodoId: string): Promise<void> {
+  const { data, error } = await supabase.from('nomina_periodos')
+    .update({ eliminado_en: null }).eq('id', periodoId).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('No se pudo recuperar la nómina (¿sin permiso?).');
+}
+
+/**
+ * Vacía la papelera: borra DEFINITIVAMENTE las nóminas indicadas (o todas las
+ * de la papelera si no se indican). Solo administradores (RPC `security
+ * definer` que verifica is_admin()). Devuelve cuántas se borraron.
+ */
+export async function vaciarPapeleraNomina(ids?: string[]): Promise<number> {
+  const { data, error } = await supabase.rpc('nomina_vaciar_papelera', { p_ids: ids?.length ? ids : null });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
+/** La quincena abierta (no cerrada ni en la papelera) de esa empresa, si hay. */
+export async function quincenaAbiertaDe(empresa: EmpresaRrhh): Promise<NominaPeriodo | null> {
+  const { data, error } = await supabase.from('nomina_periodos').select('*')
+    .eq('empresa', empresa).eq('tipo', 'quincena').neq('estado', 'pagada').is('eliminado_en', null)
+    .order('created_at', { ascending: true }).limit(1);
+  if (error) throw error;
+  return ((data ?? [])[0] ?? null) as NominaPeriodo | null;
 }
 
 /* ───────────── Vacaciones → pago (a Tesorería) ───────────── */

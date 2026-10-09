@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buscarInventario, filasInventario, rotuloOrigen, totalesInventario, type FilaKardex } from './movInventario';
+import {
+  buscarInventario, filasInventario, filtrarTipoInventario, rotuloOrigen, tiposInventario, totalesInventario, type FilaKardex,
+} from './movInventario';
 
 const viveres = [
   { id: 'a', nombre: 'Arroz', unidad: 'KG' },
@@ -102,5 +104,33 @@ describe('buscarInventario', () => {
 
   it('sin texto, salen todas', () => {
     expect(buscarInventario(filas, '  ')).toHaveLength(2);
+  });
+
+  it('busca por categoría, cantidad y tipo, con varias palabras', () => {
+    const conCat = filasInventario([
+      k({ producto_id: 'a', delta: 2.5, at: '2026-09-20T10:00:00Z', ref_tipo: 'orden' }),
+      k({ producto_id: 'b', delta: -5, at: '2026-09-21T10:00:00Z' }),
+    ], [{ id: 'a', nombre: 'Arroz', unidad: 'KG', categoria: 'Víveres' }, { id: 'b', nombre: 'Pollo', unidad: 'KG', categoria: 'Proteínas' }]);
+    expect(buscarInventario(conCat, 'proteinas').map((f) => f.producto_id)).toEqual(['b']);
+    expect(buscarInventario(conCat, '2,5').map((f) => f.producto_id)).toEqual(['a']);
+    expect(buscarInventario(conCat, 'salida pollo').map((f) => f.producto_id)).toEqual(['b']);
+    expect(buscarInventario(conCat, 'salida arroz')).toEqual([]);
+  });
+});
+
+describe('tiposInventario / filtrarTipoInventario', () => {
+  const filas = filasInventario([
+    k({ producto_id: 'a', delta: 10, at: '2026-09-20T10:00:00Z', ref_tipo: 'orden' }),
+    k({ producto_id: 'b', delta: -5, at: '2026-09-21T10:00:00Z', ref_tipo: 'salida_modulo' }),
+    k({ producto_id: 'a', delta: 3, at: '2026-09-22T10:00:00Z', ref_tipo: 'orden' }),
+  ], viveres);
+
+  it('lista cada tipo una vez, en orden', () => {
+    expect(tiposInventario(filas)).toEqual(['Orden de compra', 'Salida de material']);
+  });
+
+  it('filtra por el tipo elegido; vacío deja todo', () => {
+    expect(filtrarTipoInventario(filas, 'Salida de material').map((f) => f.producto_id)).toEqual(['b']);
+    expect(filtrarTipoInventario(filas, '')).toHaveLength(3);
   });
 });

@@ -15,7 +15,10 @@ import { dateTime, num } from '@/shared/lib/format';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { listMovInventarioCiclo, type Mercado } from './cocinaMercado.repository';
 import type { Producto } from '@/shared/lib/types';
-import { buscarInventario, rotuloOrigen, totalesInventario, type MovInventario } from './movInventario';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import {
+  buscarInventario, filtrarTipoInventario, rotuloOrigen, tiposInventario, totalesInventario, type MovInventario,
+} from './movInventario';
 
 export function MovimientosInventario({ mercado, viveres, recargar }: {
   mercado: Mercado;
@@ -40,7 +43,13 @@ export function MovimientosInventario({ mercado, viveres, recargar }: {
     return () => { vivo = false; };
   }, [mercado, viveres, recargar]);
 
-  const vistas = useMemo(() => buscarInventario(filas, buscar), [filas, buscar]);
+  const [tipo, setTipo] = useState('');
+  // Selector buscable con los tipos que hay en el ciclo (09/10/2026).
+  const opcionesTipo = useMemo(
+    () => [{ value: '', label: 'Todos los tipos' }, ...tiposInventario(filas).map((t) => ({ value: t, label: t }))],
+    [filas],
+  );
+  const vistas = useMemo(() => buscarInventario(filtrarTipoInventario(filas, tipo), buscar), [filas, tipo, buscar]);
   // Los totales son SIEMPRE los del ciclo completo: son los que tienen que dar lo mismo
   // que el panel. Filtrar la búsqueda y mover el total haría dudar de la cuenta.
   const tot = useMemo(() => totalesInventario(filas), [filas]);
@@ -75,9 +84,20 @@ export function MovimientosInventario({ mercado, viveres, recargar }: {
         </div>
       </div>
 
-      <div className="form-row" style={{ margin: '0 0 .6rem' }}>
-        <input className="input" value={buscar} onChange={(e) => setBuscar(e.target.value)}
-          placeholder="🔍 víver, comprobante, motivo, responsable…" />
+      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end', margin: '0 0 .6rem' }}>
+        <div className="form-row" style={{ margin: 0, minWidth: 200 }}>
+          <label style={{ fontSize: '.72rem' }}>Tipo de movimiento</label>
+          <SearchSelect options={opcionesTipo} value={tipo} onChange={setTipo}
+            placeholder="Escribe el tipo…" emptyText="Ningún tipo con ese nombre" />
+        </div>
+        <div className="form-row" style={{ margin: 0, flex: '1 1 260px' }}>
+          <label style={{ fontSize: '.72rem' }}>Búsqueda</label>
+          <input className="input" value={buscar} onChange={(e) => setBuscar(e.target.value)}
+            placeholder="🔍 víver, categoría, comprobante, motivo, responsable, fecha, cantidad…" />
+        </div>
+        {(tipo || buscar) && (
+          <button className="btn btn-ghost" onClick={() => { setTipo(''); setBuscar(''); }}>✕ Limpiar</button>
+        )}
       </div>
 
       {cargando ? (
@@ -87,7 +107,7 @@ export function MovimientosInventario({ mercado, viveres, recargar }: {
       ) : filas.length === 0 ? (
         <EmptyState message="En este ciclo no entró ni salió nada del inventario, fuera de las comidas." icon="📦" />
       ) : vistas.length === 0 ? (
-        <p className="muted" style={{ margin: 0 }}>Ningún movimiento con esa búsqueda.</p>
+        <p className="muted" style={{ margin: 0 }}>Ningún movimiento con ese tipo o búsqueda.</p>
       ) : (
         <>
           <div className="table-wrap">

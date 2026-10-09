@@ -38,6 +38,7 @@ import {
   diaCaracas, diasAtras, errorFechaComida, errorPersonas, etiquetaDia, hoyCaracas, instanteServicio, yaCargada,
 } from './comidaMovil';
 import { mensajeComida } from './mensajeComida';
+import { disponibleParaConsumo, mensajeExcedeStock, superaStock, viveresConsumibles } from './consumoStock';
 
 /** Cuántas comidas se ven en el teléfono. El registro completo está en la PC. */
 export const ULTIMAS_EN_TELEFONO = 10;
@@ -227,7 +228,7 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
     return () => clearTimeout(t);
   }, [guardando]);
 
-  const disponible = (pid: string) => Number(porId.get(pid)?.stock ?? 0) + (yaConsumido.get(pid) ?? 0);
+  const disponible = (pid: string) => disponibleParaConsumo(porId.get(pid)?.stock ?? 0, yaConsumido.get(pid) ?? 0);
   const lineas = Object.entries(sel).map(([pid, cantStr]) => {
     const p = porId.get(pid);
     const fb = respaldo.get(pid) ?? elegidos[pid];
@@ -240,16 +241,18 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
       precio: Number(p?.precio ?? fb?.precio) || 0,
       almacen: p?.almacen ?? fb?.almacen ?? null,
       hay: p ? disponible(pid) : null,
-      excede: !!p && cant > disponible(pid),
+      excede: !!p && superaStock(cant, disponible(pid)),
       // Desactivado en el inventario y la comida le saca más de lo que ya traía: no se puede guardar.
       inactivo: !p && cant > (yaConsumido.get(pid) ?? 0),
     };
   });
 
+  // Solo los víveres con algo para consumir (09/10/2026): uno en 0 no se ofrece.
+  const consumibles = useMemo(() => viveresConsumibles(viveres, yaConsumido), [viveres, yaConsumido]);
   const porElegir = useMemo(() => {
     const q = norm(busqueda).trim();
-    return viveres.filter((p) => !(p.id in sel) && (!q || norm(`${p.nombre} ${p.sku}`).includes(q)));
-  }, [viveres, sel, busqueda]);
+    return consumibles.filter((p) => !(p.id in sel) && (!q || norm(`${p.nombre} ${p.sku}`).includes(q)));
+  }, [consumibles, sel, busqueda]);
 
   const repetida = yaCargada(movs, fecha, tipo, editar?.id ?? null);
   const avisoCiclo = avisoFueraDelCiclo(fueraDelCiclo(fecha, mercado), mercado);
@@ -280,7 +283,7 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
     const deBaja = lineas.find((l) => l.inactivo);
     if (deBaja) { setError(`${deBaja.nombre} fue desactivado en el inventario. Quítalo de la lista con la ✕ y vuelve a guardar.`); return; }
     const pasada = lineas.find((l) => l.excede);
-    if (pasada) { setError(`No hay tanto ${pasada.nombre}: quedan ${num(pasada.hay)} ${pasada.unidad}.`.trim()); return; }
+    if (pasada) { setError(mensajeExcedeStock({ nombre: pasada.nombre, hay: pasada.hay, quiere: pasada.cant, unidad: pasada.unidad })); return; }
 
     const items: CocinaItem[] = lineas.map((l) => ({
       producto_id: l.pid, sku: l.sku, nombre: l.nombre, cantidad: l.cant, precio: l.precio, almacen: l.almacen, unidad: l.unidad || null,
@@ -369,7 +372,7 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
                   <div className="sub">
                     {l.hay != null ? `Hay ${num(l.hay)} ${l.unidad}`
                       : l.inactivo ? 'Desactivado en el inventario · quítalo con la ✕' : 'Ya no está activo en el inventario'}
-                    {l.excede ? ' · no alcanza' : ''}
+                    {l.excede ? ` · no alcanza: quieres usar ${num(l.cant)} ${l.unidad}`.trimEnd() : ''}
                   </div>
                 </div>
                 <input id={`com-cant-${l.pid}`} className="input comida-cant" type="number" inputMode="decimal" min={0} step="any"
@@ -387,10 +390,10 @@ function FormularioComida({ tipoInicial, editar, viveres, movs, mercado, actor, 
           {porElegir.slice(0, VIVERES_A_LA_VISTA).map((p) => (
             <button key={p.id} type="button" className="comida-viver" onClick={() => agregar(p.id)}>
               <span className="nombre">{p.nombre}</span>
-              <span className="hay">{num(Number(p.stock) + (yaConsumido.get(p.id) ?? 0))} {p.unidad ?? ''} <span className="mas" aria-hidden>＋</span></span>
+              <span className="hay">{num(disponible(p.id))} {p.unidad ?? ''} <span className="mas" aria-hidden>＋</span></span>
             </button>
           ))}
-          {!porElegir.length && <div className="muted" style={{ padding: '.7rem' }}>{busqueda ? 'Ningún producto con ese nombre.' : 'No queda nada por agregar.'}</div>}
+          {!porElegir.length && <div className="muted" style={{ padding: '.7rem' }}>{busqueda ? 'Ningún producto con ese nombre (los que están en 0 no salen).' : 'No queda nada por agregar.'}</div>}
         </div>
         {porElegir.length > VIVERES_A_LA_VISTA && (
           <small className="muted">Hay {num(porElegir.length - VIVERES_A_LA_VISTA)} más: escribe parte del nombre para encontrarlo.</small>
