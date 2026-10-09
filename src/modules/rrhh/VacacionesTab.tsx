@@ -11,6 +11,8 @@ import type { EmpresaRrhh, Personal, RrhhEvento } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
 import { listEventos, crearEvento, eliminarEvento, marcarVacacionProcesada } from './eventos.repository';
 import { procesarVacacion, montoVacacion } from './nomina.repository';
+import { AusenciasReporteModal } from './AusenciasReporteModal';
+import type { AusenciaBase } from './ausenciasReporte';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -39,6 +41,7 @@ export function VacacionesTab({ empresa, canWrite, actor, actorName }: { empresa
   const [loading, setLoading] = useState(true);
   const [detalle, setDetalle] = useState<RrhhEvento | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [reporte, setReporte] = useState(false);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -101,6 +104,19 @@ export function VacacionesTab({ empresa, canWrite, actor, actorName }: { empresa
     });
   }
 
+  // Para el reporte: solo las vacaciones del personal de esta nómina, con su monto.
+  const itemsReporte = useMemo<AusenciaBase[]>(() => eventos
+    .filter((e) => e.fecha_desde && e.fecha_hasta && persById.has(e.personal_id))
+    .map((e) => {
+      const dias = Number(e.dias) || diasInclusive(e.fecha_desde!, e.fecha_hasta!);
+      return {
+        id: e.id, personal_id: e.personal_id, desde: e.fecha_desde!, hasta: e.fecha_hasta!, dias,
+        estado: e.procesada ? 'Procesada' : 'Pendiente',
+        monto: Number(e.monto) || montoVacacion(Number(persById.get(e.personal_id)?.sueldo_base) || 0, dias),
+        cruce: conflictoIds.has(e.id), nota: e.descripcion ?? null,
+      };
+    }), [eventos, persById, conflictoIds]);
+
   const hayConflictos = filas.some((f) => f.evs.some((e) => conflictoIds.has(e.id)));
 
   return (
@@ -112,7 +128,11 @@ export function VacacionesTab({ empresa, canWrite, actor, actorName }: { empresa
           <button className="btn btn-sm btn-ghost" onClick={() => mover(1)}>→</button>
           <button className="btn btn-sm btn-ghost" onClick={() => setCursor({ y: now.getFullYear(), m: now.getMonth() })}>Hoy</button>
         </div>
-        {canWrite && <button className="btn btn-primary" onClick={() => setAddOpen(true)}>+ Programar vacaciones</button>}
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={() => setReporte(true)} disabled={loading}
+            title="Vacaciones en PDF o Excel, por rango de fechas y trabajador">📄 PDF / 📊 Excel</button>
+          {canWrite && <button className="btn btn-primary" onClick={() => setAddOpen(true)}>+ Programar vacaciones</button>}
+        </div>
       </div>
 
       {hayConflictos && (
@@ -154,6 +174,10 @@ export function VacacionesTab({ empresa, canWrite, actor, actorName }: { empresa
         <VacacionDetalleModal evento={detalle} persona={persById.get(detalle.personal_id) ?? null}
           enConflicto={conflictoIds.has(detalle.id)} canWrite={canWrite} actor={actor} actorName={actorName}
           onClose={() => setDetalle(null)} onChanged={async () => { setDetalle(null); await recargar(); }} />
+      )}
+      {reporte && (
+        <AusenciasReporteModal tipo="vacaciones" empresa={empresa} items={itemsReporte} personas={personal}
+          mes={cursor} onClose={() => setReporte(false)} />
       )}
       {addOpen && (
         <ProgramarVacacionModal personal={personal} eventos={eventos} actor={actor} actorName={actorName}
