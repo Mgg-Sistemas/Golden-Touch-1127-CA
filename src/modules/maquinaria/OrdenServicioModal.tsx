@@ -7,15 +7,15 @@ import { num as fmtNum } from '@/shared/lib/format';
 import { listProductosActivos } from '@/modules/pedidos/pedidos.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio,
+  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, soloPiezasNuevasPorComprar,
   type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
-  crearOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, faltaSalida, faltaCompra, type OrdenServicio,
+  crearOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, notificarComprasPiezasNuevas, faltaSalida, faltaCompra, type OrdenServicio,
 } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
-interface Linea { productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number }
+interface Linea { productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null }
 
 const PASOS = ['Servicio', 'Repuestos', 'Confirmar'];
 
@@ -82,13 +82,13 @@ export function OrdenServicioModal({
   const servicio = servicioPorId(tipo);
 
   function agregar(p: Producto) {
-    setLineas((prev) => [...prev, { productoId: p.id, nombre: p.nombre, unidad: p.unidad || 'und', cantidad: 1, stock: Math.max(0, Number(p.stock) || 0) }]);
+    setLineas((prev) => [...prev, { productoId: p.id, nombre: p.nombre, unidad: p.unidad || 'und', cantidad: 1, stock: Math.max(0, Number(p.stock) || 0), almacen: p.almacen || null }]);
     setBusqueda('');
   }
   function agregarNueva() {
     const nombre = busqueda.trim().toUpperCase();
     if (nombre.length < 2) { toast('Escribe el nombre de la pieza en el buscador.', 'warning'); return; }
-    setLineas((prev) => [...prev, { productoId: null, nombre, unidad: 'und', cantidad: 1, stock: 0 }]);
+    setLineas((prev) => [...prev, { productoId: null, nombre, unidad: 'und', cantidad: 1, stock: 0, almacen: null }]);
     setBusqueda('');
   }
   const setCant = (i: number, v: number) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, cantidad: Math.max(1, Math.round((Number(v) || 1) * 100) / 100) } : l)));
@@ -115,7 +115,16 @@ export function OrdenServicioModal({
           catch (e) { pendientes.push(`la salida de inventario (${e instanceof Error ? e.message : 'error'})`); }
         } else pendientes.push('la salida de inventario (no tienes permiso de Salidas)');
       }
-      if (faltaCompra(orden)) {
+      // Piezas que no existen en el inventario: las da de alta Compras (la orden no crea
+      // productos). Se le avisa con una notificación dirigida y queda constancia en la orden.
+      const hayNuevas = r.repuestos.some((x) => !x.producto_id);
+      if (hayNuevas) {
+        try { await notificarComprasPiezasNuevas(orden); partes.push('Compras notificada de las piezas nuevas'); }
+        catch (e) { pendientes.push(`avisar a Compras de las piezas nuevas (${e instanceof Error ? e.message : 'error'})`); }
+      }
+      if (faltaCompra(orden) && soloPiezasNuevasPorComprar(r.repuestos)) {
+        // Sin productos del inventario no hay SP posible: queda «por solicitar compra».
+      } else if (faltaCompra(orden)) {
         if (puedePedidos) {
           try { partes.push(`compra ${await solicitarCompraDeOrden(orden, equipo, actor)} solicitada`); }
           catch (e) { pendientes.push(`la compra (${e instanceof Error ? e.message : 'error'})`); }
@@ -203,7 +212,7 @@ export function OrdenServicioModal({
                   </div>
                 </button>
               ))}
-              {!resultados.length && <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>No está en el inventario. Agrégala como pieza nueva y se pedirá a compras.</p>}
+              {!resultados.length && <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>No está en el inventario. Agrégala como pieza nueva: Compras la dará de alta (se le notifica al crear la orden).</p>}
             </div>
             <button type="button" className="btn btn-ghost btn-sm" style={{ justifySelf: 'start' }} onClick={agregarNueva}>➕ Agregar como pieza que no está en inventario</button>
 
@@ -211,7 +220,7 @@ export function OrdenServicioModal({
               {lineas.length ? lineas.map((l, i) => (
                 <div key={`${l.productoId ?? l.nombre}-${i}`} className="flo-linea">
                   <div className="flo-linea-top">
-                    <div style={{ minWidth: 0 }}><strong>{l.nombre}</strong><small>{l.productoId ? `${fmtNum(l.stock)} ${l.unidad} en stock` : 'Pieza nueva · no existe en inventario'}</small></div>
+                    <div style={{ minWidth: 0 }}><strong>{l.nombre}</strong><small>{l.productoId ? `${fmtNum(l.stock)} ${l.unidad} en stock${l.almacen ? ` · ${l.almacen}` : ''}` : 'Pieza nueva · Compras la dará de alta'}</small></div>
                     <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
                       <div className="flo-qty">
                         <button type="button" aria-label="Menos" onClick={() => setCant(i, l.cantidad - 1)}>−</button>
@@ -239,13 +248,14 @@ export function OrdenServicioModal({
             <div className="flo-flow-split">
               <div className="flo-flow-node"><span className="ico">📦</span><div>
                 <strong>Solicitud de salida de inventario</strong>
-                {efecto.salen ? <p>{decididas.filter((l) => l.producto_id && l.desde_inventario > 0).map((l) => `${fmtNum(l.desde_inventario)} ${l.unidad} · ${l.nombre}`).join(' · ')}</p> : <p>No se toma nada del inventario.</p>}
+                {efecto.salen ? <ul className="flo-mini">{decididas.filter((l) => l.producto_id && l.desde_inventario > 0).map((l, i) => <li key={i}>{fmtNum(l.desde_inventario)} {l.unidad} · {l.nombre}{l.almacen ? <em> · almacén {l.almacen}</em> : null}</li>)}</ul> : <p>No se toma nada del inventario.</p>}
                 {efecto.salen > 0 && <p>{puedeSalidas ? 'Va a Salidas «por aprobar»: descuenta stock cuando se ejecute.' : '⚠️ No tienes permiso de Salidas: quedará por solicitar.'}</p>}
               </div></div>
               <div className="flo-flow-node"><span className="ico">🛒</span><div>
                 <strong>{efecto.compran ? 'Solicitud de pedido' : 'Sin compras'}</strong>
-                {efecto.compran ? <p>{decididas.filter((l) => l.a_comprar > 0).map((l) => `${fmtNum(l.a_comprar)} ${l.unidad} · ${l.nombre}`).join(' · ')}</p> : <p>Todo está en inventario.</p>}
-                {efecto.compran > 0 && <p>{puedePedidos ? 'Entra a Pedidos como solicitud (SP) para aprobar y cotizar.' : '⚠️ No tienes permiso de Pedidos: quedará por solicitar.'}{efecto.nuevos ? ' Las piezas nuevas van anotadas en la nota.' : ''}</p>}
+                {efecto.compran ? <ul className="flo-mini">{decididas.filter((l) => l.a_comprar > 0).map((l, i) => <li key={i}>{fmtNum(l.a_comprar)} {l.unidad} · {l.nombre}{l.producto_id ? null : <em> · pieza nueva</em>}</li>)}</ul> : <p>Todo está en inventario.</p>}
+                {efecto.compran > 0 && <p>{efecto.compran === efecto.nuevos ? 'Solo hay piezas nuevas: la compra queda por solicitar hasta que Compras las dé de alta.' : puedePedidos ? 'Entra a Pedidos como solicitud (SP) para aprobar y cotizar.' : '⚠️ No tienes permiso de Pedidos: quedará por solicitar.'}</p>}
+                {efecto.nuevos > 0 && <p>🔔 Compras recibirá una notificación con las {efecto.nuevos} pieza(s) nueva(s) para darlas de alta.</p>}
               </div></div>
             </div>
             <div className="flo-flow-link" />

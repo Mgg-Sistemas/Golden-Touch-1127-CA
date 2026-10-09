@@ -227,6 +227,8 @@ export interface RepuestoOrden {
   desde_inventario: number;
   a_comprar: number;
   origen: OrigenRepuesto;
+  /** Nombre con que se pidió cuando era una pieza nueva (antes de cambiarla por el producto). */
+  pieza_nueva?: string | null;
 }
 
 /** Resumen de lo que va a pasar al confirmar la orden. */
@@ -250,6 +252,67 @@ export function faltaSalida(o: { estado: string; solicitud_salida_id: string | n
 export function faltaCompra(o: { estado: string; orden_compra_id: string | null; repuestos: Pick<RepuestoOrden, 'producto_id' | 'desde_inventario' | 'a_comprar'>[] }): boolean {
   return !o.orden_compra_id && o.estado !== 'anulada' && o.estado !== 'realizada'
     && o.repuestos.some((r) => r.a_comprar > 0);
+}
+
+/* ───────── Piezas que no existen en el inventario ───────── */
+
+/** Repuestos de la orden que todavía no existen en el inventario (los da de alta Compras). */
+export function piezasNuevas<T extends Pick<RepuestoOrden, 'producto_id'>>(repuestos: T[]): T[] {
+  return repuestos.filter((r) => !r.producto_id);
+}
+
+/**
+ * ¿Se puede cambiar esta pieza nueva por el producto que Compras dio de alta? Solo una
+ * pieza nueva, con la orden abierta y sin solicitud de pedido vinculada (si ya hay SP, la
+ * pieza se corrige allí, en Pedidos). Es la misma regla de `maquinaria_reemplazar_pieza_orden`.
+ */
+export function puedeReemplazarPieza(o: { estado: string; orden_compra_id: string | null; repuestos: Pick<RepuestoOrden, 'producto_id'>[] }, indice: number): boolean {
+  const r = o.repuestos[indice];
+  return !!r && !r.producto_id && ordenAbierta(o.estado) && !o.orden_compra_id;
+}
+
+/** Solo hay piezas nuevas por comprar: no se puede armar la SP (Pedidos necesita el producto). */
+export function soloPiezasNuevasPorComprar(repuestos: Pick<RepuestoOrden, 'producto_id' | 'a_comprar'>[]): boolean {
+  const porComprar = repuestos.filter((r) => r.a_comprar > 0);
+  return porComprar.length > 0 && porComprar.every((r) => !r.producto_id);
+}
+
+/* ───────── Lavados ───────── */
+
+export const TIPOS_LAVADO: { id: string; label: string; icon: string; hint: string }[] = [
+  { id: 'Completo', label: 'Completo', icon: '✨', hint: 'Exterior, interior y motor' },
+  { id: 'Exterior', label: 'Exterior', icon: '🚿', hint: 'Carrocería y tren de rodaje' },
+  { id: 'Interior', label: 'Interior', icon: '🪑', hint: 'Cabina' },
+  { id: 'Motor', label: 'Motor', icon: '🛢️', hint: 'Desengrase del compartimiento' },
+  { id: 'Chasis', label: 'Chasis', icon: '🔩', hint: 'Bajos y estructura' },
+];
+
+/** Días de calendario (hora local) entre una fecha y hoy. Nunca negativo; null si no hay fecha. */
+export function diasDesde(fecha: string | Date | null | undefined, hoy: Date = new Date()): number | null {
+  if (!fecha) return null;
+  const d = typeof fecha === 'string' ? new Date(fecha) : fecha;
+  if (Number.isNaN(d.getTime())) return null;
+  const a = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const b = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+
+/** «hoy», «ayer», «hace 5 días». */
+export function textoHace(dias: number | null): string {
+  if (dias == null) return 'sin registro';
+  if (dias === 0) return 'hoy';
+  if (dias === 1) return 'ayer';
+  return `hace ${dias} días`;
+}
+
+/** El lavado más reciente de una lista (por fecha). */
+export function ultimoLavado<T extends { fecha: string }>(lavados: T[]): T | null {
+  return lavados.reduce<T | null>((m, l) => (!m || l.fecha > m.fecha ? l : m), null);
+}
+
+/** Tipo de lavado escrito: uno de la lista o el que la persona escribió (mín. 3 letras). */
+export function tipoLavadoValido(tipo: string | null | undefined): boolean {
+  return (tipo ?? '').trim().length >= 3;
 }
 
 /* ───────── Compras del equipo (tablero de solo lectura) ───────── */
@@ -289,7 +352,7 @@ export function compraAbierta(estado: string | null | undefined): boolean {
 
 export type AccionEquipo =
   | 'servicio' | 'averia' | 'combustible' | 'bitacora' | 'documentos' | 'editar'
-  | 'ficha' | 'mantt_hecho' | 'espera' | 'quitar_espera' | 'retirar' | 'reactivar' | 'eliminar';
+  | 'ficha' | 'mantt_hecho' | 'espera' | 'quitar_espera' | 'retirar' | 'reactivar' | 'eliminar' | 'lavado';
 
 export interface PermisosFlota {
   maquinaria: boolean;   // escritura en Maquinaria
@@ -306,6 +369,7 @@ export function accionesEquipo(p: PermisosFlota, estado: EstadoEquipo, opts?: { 
   if (p.maquinaria && !retirada) {
     out.push('servicio');
     if (estado !== 'averiada' && estado !== 'parada') out.push('averia');
+    out.push('lavado');
   }
   if (p.combustible && !retirada) out.push('combustible');
   out.push('bitacora', 'documentos', 'ficha');

@@ -13,7 +13,7 @@ import { identidadEmpresa } from '@/shared/lib/empresa';
 import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
-import type { FotoEquipo, OrdenServicio } from './flota.repository';
+import type { FotoEquipo, LavadoEquipo, OrdenServicio } from './flota.repository';
 import { ESTADOS_EQUIPO, ORDEN_ESTADOS, URGENCIAS, estadoEfectivo, servicioPorId, type EstadoEquipo } from './flota';
 
 type AutoTable = (doc: JsPDF, opts: Record<string, unknown>) => void;
@@ -123,7 +123,7 @@ export interface DatosFicha {
 }
 
 /** Ficha técnico-operativa del equipo. */
-export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ordenes: OrdenServicio[], fotos: FotoEquipo[]): Promise<void> {
+export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ordenes: OrdenServicio[], fotos: FotoEquipo[], lavados: LavadoEquipo[] = []): Promise<void> {
   const { jsPDF, autoTable } = await cargarPdf();
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
@@ -203,6 +203,22 @@ export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ord
       styles: { fontSize: 8, cellPadding: 2.2, lineColor: BORDE, lineWidth: 0.25, textColor: TINTA },
       headStyles: { fillColor: NARANJA, textColor: [26, 14, 0], fontStyle: 'bold' },
       columnStyles: { 0: { cellWidth: 26 }, 1: { cellWidth: 22 }, 2: { cellWidth: 38 }, 4: { cellWidth: 28 } },
+    });
+  }
+
+  if (lavados.length) {
+    let yl = ordenes.length ? finalY(doc) + 10 : y;
+    if (yl + 30 > H - 20) { doc.addPage(); yl = 20; }
+    yl = sec(yl, 'HISTORIAL DE LAVADOS');
+    autoTable(doc, {
+      startY: yl, margin: { left: M, right: M },
+      head: [['Fecha', 'Lavado', 'Lo realizó', 'Lectura', 'Nota']],
+      body: lavados.slice(0, 40).map((l) => [fmtDate(l.fecha), l.tipo, l.responsable ?? '',
+        [l.horometro != null ? `${fmtNum(l.horometro)} h` : '', l.kilometraje != null ? `${fmtNum(l.kilometraje)} km` : ''].filter(Boolean).join(' · '), l.nota ?? '']),
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2.2, lineColor: BORDE, lineWidth: 0.25, textColor: TINTA },
+      headStyles: { fillColor: NARANJA, textColor: [26, 14, 0], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 30 }, 2: { cellWidth: 38 }, 3: { cellWidth: 32 } },
     });
   }
 

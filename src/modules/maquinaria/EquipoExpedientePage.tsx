@@ -17,11 +17,14 @@ import { listMantenimientos, addMantenimiento } from './maquinariaMant.repositor
 import {
   ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
   accionesEquipo, servicioPorId, servicioReiniciaContador, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
-  faltaSalida, faltaCompra, type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
+  faltaSalida, faltaCompra, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, soloPiezasNuevasPorComprar, piezasNuevas,
+  type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
 } from './flota';
 import {
   listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, surtidosDeEquipo, fotosDeEquipos,
   avanzarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden,
+  listLavados, eliminarLavado, notificarComprasPiezasNuevas,
+  type LavadoEquipo,
   type OrdenServicio, type EventoEstado, type CompraEquipo, type SurtidoEquipo, type FotoEquipo,
 } from './flota.repository';
 import { fichaEquipoPdf, ordenServicioPdf } from './flotaPdf';
@@ -31,13 +34,16 @@ import { BitacoraModal } from './BitacoraModal';
 import { EquipoDocumentosModal } from './EquipoDocumentosModal';
 import { EquipoMovimientosModal } from './EquipoMovimientosModal';
 import { EquipoFormModal } from './EquipoFormModal';
+import { LavadoModal } from './LavadoModal';
+import { ReemplazarPiezaModal } from './ReemplazarPiezaModal';
 
-type Tab = 'resumen' | 'servicios' | 'compras' | 'combustible' | 'fotos' | 'ficha';
+type Tab = 'resumen' | 'servicios' | 'compras' | 'combustible' | 'lavados' | 'fotos' | 'ficha';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'servicios', label: 'Servicios' },
   { id: 'compras', label: 'Compras' },
   { id: 'combustible', label: 'Combustible' },
+  { id: 'lavados', label: 'Lavados' },
   { id: 'fotos', label: 'Fotos y documentos' },
   { id: 'ficha', label: 'Ficha' },
 ];
@@ -59,7 +65,7 @@ export function EquipoExpedientePage() {
   const { id = '' } = useParams();
   const [sp, setSp] = useSearchParams();
   const navigate = useNavigate();
-  const { can, appUser } = usePermissions();
+  const { can, appUser, isAdmin } = usePermissions();
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -83,6 +89,7 @@ export function EquipoExpedientePage() {
   const [salidas, setSalidas] = useState<Map<string, { codigo: string; estado: string }>>(new Map());
   const [surtidos, setSurtidos] = useState<SurtidoEquipo[]>([]);
   const [fotos, setFotos] = useState<FotoEquipo[]>([]);
+  const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
 
   const [modoEstado, setModoEstado] = useState<ModoEstado | null>(null);
   const [nuevaOrden, setNuevaOrden] = useState(false);
@@ -94,6 +101,9 @@ export function EquipoExpedientePage() {
   const [borrar, setBorrar] = useState(false);
   const [cerrar, setCerrar] = useState<{ orden: OrdenServicio; estado: EstadoOrdenServicio } | null>(null);
   const [trabajando, setTrabajando] = useState<string | null>(null);
+  const [lavadoOpen, setLavadoOpen] = useState(false);
+  const [borrarLavado, setBorrarLavado] = useState<LavadoEquipo | null>(null);
+  const [reemplazo, setReemplazo] = useState<{ orden: OrdenServicio; indice: number } | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -102,7 +112,7 @@ export function EquipoExpedientePage() {
       if (!e) return;
       const vinc = (e.combustible_equipo ?? '').trim();
       const hace30 = new Date(Date.now() - 30 * 86400000);
-      const [horo, kms, bit, ords, evs, surt, fts, cons] = await Promise.all([
+      const [horo, kms, bit, ords, evs, surt, fts, cons, lavs] = await Promise.all([
         vinc ? ultimoHorometroEquipo(vinc).catch(() => null) : Promise.resolve(null),
         vinc ? ultimoKilometrajeEquipo(vinc).catch(() => null) : Promise.resolve(null),
         listMantenimientos(e.id).catch(() => []),
@@ -111,6 +121,7 @@ export function EquipoExpedientePage() {
         surtidosDeEquipo(vinc).catch(() => [] as SurtidoEquipo[]),
         fotosDeEquipos(e.id).catch(() => [] as FotoEquipo[]),
         vinc ? datosCombustibleDeEquipo(vinc, hace30, new Date()).catch(() => null) : Promise.resolve(null),
+        listLavados(e.id).catch(() => [] as LavadoEquipo[]),
       ]);
       setHorometro(horo ?? bit.find((r) => r.horometro != null)?.horometro ?? null);
       setKm(kms);
@@ -118,6 +129,7 @@ export function EquipoExpedientePage() {
       setEventos(evs);
       setSurtidos(surt);
       setFotos(fts);
+      setLavados(lavs);
       setConsumo30(cons ? { lts: cons.gasoilLts, usd: cons.gasoilUsd } : null);
       const [cps, sals] = await Promise.all([
         comprasDeEquipo(e.id, ords).catch(() => [] as CompraEquipo[]),
@@ -132,7 +144,7 @@ export function EquipoExpedientePage() {
   useEffect(() => { setLoading(true); void cargar(); }, [cargar]);
   useRealtime([
     'maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_estado_eventos', 'maquinaria_mantenimientos',
-    'maquinaria_documentos', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
+    'maquinaria_documentos', 'maquinaria_lavados', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
   ], () => { void cargar(); });
 
   const estado = eq ? estadoEfectivo(eq) : 'operativa';
@@ -146,7 +158,8 @@ export function EquipoExpedientePage() {
   const puede = (a: AccionEquipo) => acciones.includes(a);
   const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
   const comprasAbiertas = compras.filter((c) => compraAbierta(c.estado));
-  const cuenta: Partial<Record<Tab, number>> = { servicios: abiertas.length, compras: comprasAbiertas.length, fotos: fotos.length };
+  const cuenta: Partial<Record<Tab, number>> = { servicios: abiertas.length, compras: comprasAbiertas.length, lavados: lavados.length, fotos: fotos.length };
+  const lavado = ultimoLavado(lavados);
 
   if (loading && !eq) return <EmptyState message="Cargando expediente…" />;
   if (!eq) {
@@ -167,7 +180,7 @@ export function EquipoExpedientePage() {
       await fichaEquipoPdf(eq, {
         horometro, km, restantesHrs: avisoH?.restante ?? null, restantesKm: avisoK?.restante ?? null,
         consumoLts: consumo30?.lts ?? null,
-      }, ordenes, fotos);
+      }, ordenes, fotos, lavados);
     } catch (e) { toast(errMsg(e, 'No se pudo generar la ficha'), 'error'); }
   }
 
@@ -199,6 +212,14 @@ export function EquipoExpedientePage() {
       toast(`${o.codigo}: ${que === 'salida' ? 'salida' : 'solicitud de pedido'} ${codigo} creada.`, 'success');
       await cargar();
     } catch (e) { toast(errMsg(e, 'No se pudo crear la solicitud'), 'error'); }
+    finally { setTrabajando(null); }
+  }
+
+  async function avisarCompras(o: OrdenServicio) {
+    if (!eq) return;
+    setTrabajando(o.id);
+    try { await notificarComprasPiezasNuevas(o); toast(`Compras notificada de las piezas nuevas de ${o.codigo}.`, 'success'); await cargar(); }
+    catch (e) { toast(errMsg(e, 'No se pudo notificar a Compras'), 'error'); }
     finally { setTrabajando(null); }
   }
 
@@ -276,11 +297,11 @@ export function EquipoExpedientePage() {
           </div>
         )}
 
-        <Vitales horometro={horometro} km={km} avisoH={avisoH} avisoK={avisoK} equipo={eq} consumo30={consumo30} />
+        <Vitales horometro={horometro} km={km} avisoH={avisoH} avisoK={avisoK} equipo={eq} consumo30={consumo30} lavado={lavado} onLavados={() => setTab('lavados')} />
 
         <section aria-labelledby="flo-acc" style={{ display: 'grid', gap: '.6rem' }}>
           <div className="flo-acc-head"><h2 id="flo-acc">¿Qué necesitas hacer?</h2><span>{perm.maquinaria ? 'Con permiso de Maquinaria' : 'Solo lectura en Maquinaria'}</span></div>
-          {(puede('servicio') || puede('averia') || puede('combustible')) && (
+          {(puede('servicio') || puede('averia') || puede('lavado') || puede('combustible')) && (
             <div className="flo-tiles">
               {puede('servicio') && (
                 <button type="button" className="flo-tile hero" onClick={() => setNuevaOrden(true)}>
@@ -291,6 +312,7 @@ export function EquipoExpedientePage() {
                 </button>
               )}
               {puede('averia') && <Tile icon="🔴" titulo="Reportar avería" sub="Averiada o parada, con motivo" onClick={() => setModoEstado('averia')} />}
+              {puede('lavado') && <Tile icon="🚿" titulo="Registrar lavado" sub={lavado ? `Último ${textoHace(diasDesde(lavado.fecha))} · ${lavado.tipo}` : 'Completo, exterior, interior, motor…'} onClick={() => setLavadoOpen(true)} />}
               {puede('combustible') && <Tile icon="⛽" titulo="Combustible" sub={surtidos[0] ? `Último surtido ${fmtDate(surtidos[0].fecha)}` : 'Registrar surtido en Combustible'} onClick={() => navigate('/app/combustible')} />}
             </div>
           )}
@@ -323,9 +345,11 @@ export function EquipoExpedientePage() {
         </nav>
 
         <section className="flo-panel" role="tabpanel">
-          {tab === 'resumen' && <TabResumen eq={eq} eventos={eventos} ordenes={ordenes} />}
+          {tab === 'resumen' && <TabResumen eq={eq} eventos={eventos} ordenes={ordenes} lavados={lavados} />}
+          {tab === 'lavados' && <TabLavados lavados={lavados} puedeRegistrar={puede('lavado')} puedeBorrar={isAdmin} onNuevo={() => setLavadoOpen(true)} onBorrar={setBorrarLavado} />}
           {tab === 'servicios' && (
             <TabServicios
+              onReemplazar={(o, i) => setReemplazo({ orden: o, indice: i })} onAvisarCompras={(o) => void avisarCompras(o)}
               ordenes={ordenes} salidas={salidas} compras={compras} perm={perm} trabajando={trabajando}
               puedeCrear={puede('servicio')} onNueva={() => setNuevaOrden(true)}
               onIniciar={(o) => void iniciar(o)} onCerrar={(o, e) => setCerrar({ orden: o, estado: e })}
@@ -348,6 +372,24 @@ export function EquipoExpedientePage() {
       {cerrar && (
         <CerrarOrdenModal orden={cerrar.orden} estado={cerrar.estado} equipo={eq} horometro={horometro} km={km}
           actor={actor} actorName={actorName} onClose={() => setCerrar(null)} onDone={() => void cargar()} />
+      )}
+      {lavadoOpen && (
+        <LavadoModal equipo={eq} horometro={horometro} km={km} ultimo={lavado} actor={{ email: actor, nombre: actorName }}
+          onClose={() => setLavadoOpen(false)} onSaved={() => void cargar()} />
+      )}
+      {reemplazo && (
+        <ReemplazarPiezaModal orden={reemplazo.orden} indice={reemplazo.indice} onClose={() => setReemplazo(null)} onDone={() => void cargar()} />
+      )}
+      {borrarLavado && (
+        <ConfirmDialog title="Borrar lavado" danger confirmText="Borrar"
+          message="Se borra este registro de lavado. No se puede deshacer."
+          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lavado">{borrarLavado.tipo}</Dato><Dato label="Fecha">{dateTime(borrarLavado.fecha)}</Dato><Dato label="Lo realizó">{borrarLavado.responsable ?? undefined}</Dato><Dato label="Registró">{borrarLavado.actor_name || borrarLavado.actor || undefined}</Dato></VistaPrevia>}
+          onCancel={() => setBorrarLavado(null)}
+          onConfirm={() => {
+            const l = borrarLavado; setBorrarLavado(null);
+            void eliminarLavado(l.id).then(() => { toast('Lavado borrado', 'success'); void cargar(); })
+              .catch((e) => toast(errMsg(e, 'No se pudo borrar el lavado'), 'error'));
+          }} />
       )}
       {bitacora && <BitacoraModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => setBitacora(false)} />}
       {documentos && <EquipoDocumentosModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => { setDocumentos(false); void cargar(); }} />}
@@ -378,10 +420,11 @@ function Tile({ icon, titulo, sub, onClick }: { icon: string; titulo: string; su
   return <button type="button" className="flo-tile" onClick={onClick}><span className="ico">{icon}</span><strong>{titulo}</strong><span>{sub}</span></button>;
 }
 
-function Vitales({ horometro, km, avisoH, avisoK, equipo, consumo30 }: {
+function Vitales({ horometro, km, avisoH, avisoK, equipo, consumo30, lavado, onLavados }: {
   horometro: number | null; km: number | null; avisoH: AvisoServicio | null; avisoK: AvisoServicio | null;
-  equipo: MaquinariaEquipo; consumo30: { lts: number; usd: number } | null;
+  equipo: MaquinariaEquipo; consumo30: { lts: number; usd: number } | null; lavado: LavadoEquipo | null; onLavados: () => void;
 }) {
+  const dias = diasDesde(lavado?.fecha);
   const aviso = avisoMasUrgente(avisoH, avisoK);
   const tono = !aviso ? 'var(--text-dim)' : aviso.nivel === 'vencido' ? 'var(--danger)' : aviso.nivel === 'proximo' ? 'var(--warning)' : 'var(--success)';
   const lectura = horometro != null ? { v: horometro, u: 'h', l: 'Horómetro' } : km != null ? { v: km, u: 'km', l: 'Kilometraje' } : null;
@@ -403,11 +446,16 @@ function Vitales({ horometro, km, avisoH, avisoK, equipo, consumo30 }: {
         <strong>{consumo30 ? fmtNum(consumo30.lts) : '—'}{consumo30 && <em>L</em>}</strong>
         <span>{consumo30 && consumo30.usd ? `≈ $ ${fmtNum(consumo30.usd)}` : equipo.litros_consume != null ? `Esperado ${fmtNum(equipo.litros_consume)} L` : ''}</span>
       </div>
+      <button type="button" className="flo-vital flo-vital-btn" onClick={onLavados} aria-label="Ver los lavados del equipo">
+        <small>Último lavado</small>
+        <strong>{dias == null ? '—' : dias}{dias != null && <em>{dias === 1 ? 'día' : 'días'}</em>}</strong>
+        <span>{lavado ? `${lavado.tipo} · ${textoHace(dias)}` : 'Sin lavados registrados'}</span>
+      </button>
     </div>
   );
 }
 
-function TabResumen({ eq, eventos, ordenes }: { eq: MaquinariaEquipo; eventos: EventoEstado[]; ordenes: OrdenServicio[] }) {
+function TabResumen({ eq, eventos, ordenes, lavados }: { eq: MaquinariaEquipo; eventos: EventoEstado[]; ordenes: OrdenServicio[]; lavados: LavadoEquipo[] }) {
   const actividad = [
     ...eventos.map((e) => ({
       at: e.created_at, icon: ESTADOS_EQUIPO[e.estado]?.icon ?? '•',
@@ -415,6 +463,7 @@ function TabResumen({ eq, eventos, ordenes }: { eq: MaquinariaEquipo; eventos: E
       detalle: [e.motivo, e.material ? `falta ${e.material}` : null, e.nota, e.actor_name || e.actor].filter(Boolean).join(' · '),
     })),
     ...ordenes.map((o) => ({ at: o.created_at, icon: servicioPorId(o.tipo)?.icon ?? '🔧', titulo: `${o.codigo} abierta`, detalle: [servicioPorId(o.tipo)?.label, o.actor_name || o.created_by].filter(Boolean).join(' · ') })),
+    ...lavados.map((l) => ({ at: l.fecha, icon: '🚿', titulo: `Lavado ${l.tipo.toLowerCase()}`, detalle: [l.responsable, l.nota, l.actor_name || l.actor].filter(Boolean).join(' · ') })),
   ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
   return (
     <div className="flo-2col">
@@ -447,11 +496,12 @@ function Fact({ label, v }: { label: string; v: string | null | undefined }) {
   return <div><dt>{label}</dt><dd>{v}</dd></div>;
 }
 
-function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onTab }: {
+function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onTab, onReemplazar, onAvisarCompras }: {
   ordenes: OrdenServicio[]; salidas: Map<string, { codigo: string; estado: string }>; compras: CompraEquipo[];
   perm: { maquinaria: boolean; salidas: boolean; pedidos: boolean }; trabajando: string | null; puedeCrear: boolean;
   onNueva: () => void; onIniciar: (o: OrdenServicio) => void; onCerrar: (o: OrdenServicio, e: EstadoOrdenServicio) => void;
   onPedir: (o: OrdenServicio, q: 'salida' | 'compra') => void; onPdf: (o: OrdenServicio) => void; onTab: (t: Tab) => void;
+  onReemplazar: (o: OrdenServicio, indice: number) => void; onAvisarCompras: (o: OrdenServicio) => void;
 }) {
   const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
   const cerradas = ordenes.filter((o) => !ordenAbierta(o.estado));
@@ -487,7 +537,12 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
                     <span>{r.nombre}</span><strong className="mono">{fmtNum(r.cantidad)} {r.unidad}</strong>
                     <span className="src">
                       {r.desde_inventario > 0 && <Chip tono="success">📦 {fmtNum(r.desde_inventario)} del inventario{sal ? ` · ${sal.codigo}` : ''}</Chip>}
-                      {r.a_comprar > 0 && <Chip tono="warning">🛒 {fmtNum(r.a_comprar)} a compra{cmp ? ` · ${cmp.oc_codigo || cmp.codigo}` : r.producto_id ? '' : ' · pieza nueva'}</Chip>}
+                      {r.a_comprar > 0 && <Chip tono="warning">🛒 {fmtNum(r.a_comprar)} a compra{cmp ? ` · ${cmp.oc_codigo || cmp.codigo}` : ''}</Chip>}
+                      {!r.producto_id && <Chip tono="info">🔩 Pieza nueva{o.compras_notificada_at ? ` · Compras notificada ${fmtDate(o.compras_notificada_at)}` : ' · falta avisar a Compras'}</Chip>}
+                      {r.pieza_nueva && <Chip tono="info">🔁 Era «{r.pieza_nueva}»</Chip>}
+                      {perm.maquinaria && puedeReemplazarPieza(o, i) && (
+                        <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => onReemplazar(o, i)}>🔁 Ya existe en inventario: cambiar por el producto</button>
+                      )}
                     </span>
                   </li>
                 ))}
@@ -502,14 +557,19 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
             {(faltaSalida(o) || faltaCompra(o)) && (
               <div className="aviso warning sm"><span className="aviso-icono">⚠️</span><div>
                 Por solicitar: {[faltaSalida(o) ? 'la salida de inventario' : null, faltaCompra(o) ? 'la compra' : null].filter(Boolean).join(' y ')}.
-                {!((faltaSalida(o) && perm.salidas) || (faltaCompra(o) && perm.pedidos)) && ' Pídeselo a quien tenga permiso de Salidas / Pedidos.'}
+                {faltaCompra(o) && soloPiezasNuevasPorComprar(o.repuestos)
+                  ? (o.compras_notificada_at
+                    ? ' Las piezas no existen en el inventario: Compras las dará de alta (se le notificó). Luego cámbialas por el producto y pide la compra.'
+                    : ' Las piezas no existen en el inventario y todavía no se avisó a Compras.')
+                  : !((faltaSalida(o) && perm.salidas) || (faltaCompra(o) && perm.pedidos)) && ' Pídeselo a quien tenga permiso de Salidas / Pedidos.'}
               </div></div>
             )}
             <div className="flo-orden-foot">
               {perm.maquinaria && sig.includes('en_proceso') && <button className="btn btn-primary" disabled={ocupado} onClick={() => onIniciar(o)}>🔧 Iniciar trabajo</button>}
               {perm.maquinaria && sig.includes('realizada') && <button className="btn btn-success" disabled={ocupado} onClick={() => onCerrar(o, 'realizada')}>✅ Marcar realizada</button>}
               {faltaSalida(o) && perm.salidas && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'salida')}>📦 Pedir salida de inventario</button>}
-              {faltaCompra(o) && perm.pedidos && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'compra')}>🛒 Pedir compra</button>}
+              {faltaCompra(o) && perm.pedidos && !soloPiezasNuevasPorComprar(o.repuestos) && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'compra')}>🛒 Pedir compra</button>}
+              {perm.maquinaria && piezasNuevas(o.repuestos).length > 0 && !o.compras_notificada_at && <button className="btn" disabled={ocupado} onClick={() => onAvisarCompras(o)}>🔔 Avisar a Compras</button>}
               {cmp && <button className="btn" onClick={() => onTab('compras')}>🛒 Ver compra</button>}
               <button className="btn" onClick={() => onPdf(o)}>📄 PDF de la orden</button>
               {perm.maquinaria && sig.includes('anulada') && <button className="btn btn-ghost" disabled={ocupado} onClick={() => onCerrar(o, 'anulada')}>⛔ Anular</button>}
@@ -604,6 +664,41 @@ function TabCombustible({ eq, surtidos, consumo30, horometro, km, puede, onIr }:
   );
 }
 
+function TabLavados({ lavados, puedeRegistrar, puedeBorrar, onNuevo, onBorrar }: {
+  lavados: LavadoEquipo[]; puedeRegistrar: boolean; puedeBorrar: boolean; onNuevo: () => void; onBorrar: (l: LavadoEquipo) => void;
+}) {
+  const ult = ultimoLavado(lavados);
+  return (
+    <>
+      {puedeRegistrar && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onNuevo}>🚿 Registrar lavado</button>}
+      <div className="flo-stats">
+        <div className="flo-stat"><small>Último lavado</small><strong style={{ fontSize: '1.1rem' }}>{ult ? textoHace(diasDesde(ult.fecha)) : '—'}</strong></div>
+        <div className="flo-stat"><small>Tipo</small><strong style={{ fontSize: '1.1rem' }}>{ult?.tipo ?? '—'}</strong></div>
+        <div className="flo-stat"><small>Lavados registrados</small><strong>{lavados.length}</strong></div>
+        <div className="flo-stat"><small>Últimos 30 días</small><strong>{lavados.filter((l) => (diasDesde(l.fecha) ?? 999) <= 30).length}</strong></div>
+      </div>
+      <div className="flo-sec">
+        <div className="flo-sec-head"><h3>🚿 Historial de lavados</h3></div>
+        {lavados.length ? (
+          <div className="flo-hist">
+            {lavados.map((l) => (
+              <div key={l.id}>
+                <span>🚿</span>
+                <div style={{ minWidth: 0 }}>
+                  <strong>{l.tipo}</strong>
+                  <small>{dateTime(l.fecha)} · {textoHace(diasDesde(l.fecha))}{l.responsable ? ` · ${l.responsable}` : ''}{l.horometro != null ? ` · ${fmtNum(l.horometro)} h` : ''}{l.kilometraje != null ? ` · ${fmtNum(l.kilometraje)} km` : ''}</small>
+                  {l.nota && <small>{l.nota}</small>}
+                </div>
+                {puedeBorrar ? <button className="btn btn-sm btn-ghost" aria-label={`Borrar lavado del ${dateTime(l.fecha)}`} onClick={() => onBorrar(l)}>🗑</button> : <span />}
+              </div>
+            ))}
+          </div>
+        ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin lavados registrados.</p>}
+      </div>
+    </>
+  );
+}
+
 function TabFotos({ fotos, onDocs }: { fotos: FotoEquipo[]; onDocs: () => void }) {
   return (
     <>
@@ -684,7 +779,7 @@ function CerrarOrdenModal({ orden, estado, equipo, horometro, km, actor, actorNa
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className={`btn ${realizar ? 'btn-success' : 'btn-danger'}`} disabled={saving || falta} onClick={() => void guardar()}>{saving ? 'Guardando…' : realizar ? 'Marcar realizada' : 'Anular orden'}</button>
       </>}>
-      <div style={{ display: 'grid', gap: '.7rem' }}>
+      <div className="flo" style={{ display: 'grid', gap: '.7rem' }}>
         <VistaPrevia titulo={realizar ? 'Se cierra la orden' : 'Se anula la orden'}>
           <Dato label="Orden">{orden.codigo}</Dato>
           <Dato label="Servicio">{s?.label ?? orden.tipo}</Dato>
