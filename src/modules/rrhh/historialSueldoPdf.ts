@@ -72,28 +72,29 @@ export async function descargarHistorialSueldoPdf(
 
   autoTable(doc, {
     startY: y,
-    head: [['DESDE', 'SUELDO ANTERIOR', 'SUELDO NUEVO', 'VARIACIÓN', 'MOTIVO', 'REGISTRADO']],
+    head: [['DESDE', 'SUELDO ANTERIOR', 'SUELDO NUEVO', 'VARIACIÓN', 'MOTIVO', 'NOTA', 'REGISTRADO']],
     body: orden.map((r) => {
       const v = variacionSueldo(r.sueldo_anterior, r.sueldo_nuevo);
-      const motivo = r.nota ? `${r.motivo}\n${r.nota}` : r.motivo;
       return [
         dia(r.fecha),
         r.sueldo_anterior == null ? '—' : usd(r.sueldo_anterior),
         usd(r.sueldo_nuevo),
         r.sueldo_anterior == null ? '—' : etiquetaVariacion(v),
-        pdfSafe(motivo),
+        pdfSafe(r.motivo),
+        pdfSafe(r.nota?.trim() || '—'),
         pdfSafe(`${dia(r.created_at)}${r.created_by ? `\n${r.created_by}` : ''}`),
       ];
     }),
     styles: { fontSize: 8, cellPadding: 3.5, overflow: 'linebreak' },
     headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 56 },
-      1: { cellWidth: 74, halign: 'right' },
-      2: { cellWidth: 74, halign: 'right' },
-      3: { cellWidth: 82, halign: 'right' },
+      0: { cellWidth: 52 },
+      1: { cellWidth: 62, halign: 'right' },
+      2: { cellWidth: 62, halign: 'right' },
+      3: { cellWidth: 70, halign: 'right' },
       4: { cellWidth: 'auto' },
-      5: { cellWidth: 92, fontSize: 7 },
+      5: { cellWidth: 'auto' },
+      6: { cellWidth: 82, fontSize: 7 },
     },
     margin: MARGIN,
   });

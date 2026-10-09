@@ -650,7 +650,7 @@ export function HistoricosSalarialesModal({ empresaInicial, onClose }: { empresa
         <div className="table-wrap" style={{ maxHeight: 360, overflow: 'auto' }}>
           <table className="table" style={{ fontSize: '.82rem' }}>
             <thead>
-              <tr><th>Trabajador</th>{empresa === 'todas' && <th>Nómina</th>}<th>Desde</th><th style={{ textAlign: 'right' }}>Antes</th><th style={{ textAlign: 'right' }}>Después</th><th>Motivo</th></tr>
+              <tr><th>Trabajador</th>{empresa === 'todas' && <th>Nómina</th>}<th>Desde</th><th style={{ textAlign: 'right' }}>Antes</th><th style={{ textAlign: 'right' }}>Después</th><th>Motivo</th><th>Nota</th></tr>
             </thead>
             <tbody>
               {visibles.map((r) => (
@@ -660,7 +660,11 @@ export function HistoricosSalarialesModal({ empresaInicial, onClose }: { empresa
                   <td className="mono">{date(r.fecha)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{r.sueldo_anterior == null ? '—' : money(r.sueldo_anterior)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(r.sueldo_nuevo)}</td>
-                  <td>{r.motivo}</td>
+                  <td>
+                    {r.motivo}
+                    {r.nota && <div className="muted" style={{ fontSize: '.76rem' }}>Nota: {r.nota}</div>}
+                  </td>
+                  <td>{r.nota || <span className="muted">—</span>}</td>
                 </tr>
               ))}
             </tbody>

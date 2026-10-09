@@ -81,12 +81,11 @@ export async function descargarHistorialSalarialGeneralPdf(filas: FilaHistorialS
 
   const conNomina = filtro.empresa === 'todas';
   const head = ['FICHA', 'TRABAJADOR', 'C.I.', 'CARGO', ...(conNomina ? ['NÓMINA'] : []),
-    'DESDE', 'ANTES', 'DESPUÉS', 'VARIACIÓN', 'MOTIVO', 'REGISTRADO'];
+    'DESDE', 'ANTES', 'DESPUÉS', 'VARIACIÓN', 'MOTIVO', 'NOTA', 'REGISTRADO'];
   let anterior = '';
   const body = filas.map((r) => {
     const mismo = r.personal_id === anterior;
     anterior = r.personal_id;
-    const motivo = r.nota ? `${r.motivo}\n${r.nota}` : r.motivo;
     return [
       mismo ? '' : (r.persona.ficha_nro ?? ''),
       mismo ? '' : pdfSafe(nombreCompleto(r.persona) + (r.persona.activo === false ? ' (inactivo)' : '')),
@@ -97,7 +96,8 @@ export async function descargarHistorialSalarialGeneralPdf(filas: FilaHistorialS
       r.sueldo_anterior == null ? '-' : usd(r.sueldo_anterior),
       usd(r.sueldo_nuevo),
       pdfSafe(variacionTexto(r)),
-      pdfSafe(motivo),
+      pdfSafe(r.motivo),
+      pdfSafe(r.nota?.trim() || '-'),
       pdfSafe(`${dia(r.created_at)}${r.created_by ? `\n${r.created_by}` : ''}`),
     ];
   });
@@ -111,16 +111,17 @@ export async function descargarHistorialSalarialGeneralPdf(filas: FilaHistorialS
     alternateRowStyles: { fillColor: [250, 246, 240] },
     columnStyles: {
       0: { cellWidth: 36, halign: 'center' },
-      1: { cellWidth: 104 },
-      2: { cellWidth: 56 },
-      3: { cellWidth: 80 },
+      1: { cellWidth: 96 },
+      2: { cellWidth: 52 },
+      3: { cellWidth: 72 },
       ...(conNomina ? { 4: { cellWidth: 36, halign: 'center' as const } } : {}),
-      [4 + o]: { cellWidth: 50, halign: 'center' },
-      [5 + o]: { cellWidth: 56, halign: 'right' },
-      [6 + o]: { cellWidth: 56, halign: 'right' },
-      [7 + o]: { cellWidth: 70, halign: 'right' },
+      [4 + o]: { cellWidth: 48, halign: 'center' },
+      [5 + o]: { cellWidth: 52, halign: 'right' },
+      [6 + o]: { cellWidth: 52, halign: 'right' },
+      [7 + o]: { cellWidth: 64, halign: 'right' },
       [8 + o]: { cellWidth: 'auto' },
-      [9 + o]: { cellWidth: 76, fontSize: 6.5 },
+      [9 + o]: { cellWidth: 'auto' },
+      [10 + o]: { cellWidth: 72, fontSize: 6.5 },
     },
     margin: { left: MARGIN, right: MARGIN, top: MARGIN, bottom: MARGIN },
     didDrawPage: () => {
