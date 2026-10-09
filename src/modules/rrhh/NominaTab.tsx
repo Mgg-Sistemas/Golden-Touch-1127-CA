@@ -25,7 +25,7 @@ import { descargarNominaReciboPdf, type TipoRecibo } from './nominaReciboPdf';
 type CualesRecibos = 'ambos' | TipoRecibo;
 const CUALES_RECIBOS: { id: CualesRecibos; label: string }[] = [
   { id: 'ambos', label: 'Los dos recibos' },
-  { id: 'sueldo', label: '1 · Sueldo en Bs' },
+  { id: 'sueldo', label: '1 · Pago en Bs' },
   { id: 'bono', label: '2 · Bonificación y descuentos' },
 ];
 const tiposDe = (c: CualesRecibos): TipoRecibo[] => (c === 'ambos' ? ['sueldo', 'bono'] : [c]);
@@ -1053,7 +1053,7 @@ function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResume
   return (
     <Modal title={`Nómina ${periodo.codigo}`} size="xl" onClose={onClose} footer={
       <>
-        <button className="btn btn-ghost" onClick={() => descargarNominaReciboPdf(rows, { periodo, cedulas }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length} title="Recibos de TODA la nómina: dos por persona (1 · sueldo en Bs y 2 · bonificación con préstamos y anticipos), cada uno con fecha y líneas de firma de la persona y la Jefa de RRHH">📄 Recibos de pago (todos · 2 por persona)</button>
+        <button className="btn btn-ghost" onClick={() => descargarNominaReciboPdf(rows, { periodo, cedulas }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))} disabled={!rows.length} title="Recibos de TODA la nómina: dos por persona (1 · pago en Bs y 2 · bonificación con préstamos y anticipos), cada uno con fecha y líneas de firma de la persona y la Jefa de RRHH">📄 Recibos de pago (todos · 2 por persona)</button>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </>
     }>
@@ -1076,7 +1076,7 @@ function NominaDetalleModal({ periodo, onClose }: { periodo: NominaPeriodoResume
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.neto_usd)}</td>
                 <td style={{ textAlign: 'center' }}><span className="badge" style={{ color: r.estado === 'pagada' ? 'var(--success)' : 'var(--warning)' }}>{r.estado === 'pagada' ? 'Pagada' : 'Por pagar'}</span></td>
                 <td className="muted">{r.pagada_en ? `${dateTime(r.pagada_en)}${r.moneda_pago ? ` · ${r.moneda_pago}` : ''}` : '—'}</td>
-                <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => reciboDe(r)} title="Sus dos recibos: 1 · sueldo en Bs y 2 · bonificación con préstamos y anticipos (con fecha y líneas de firma: la persona y la Jefa de RRHH)">📄</button></td>
+                <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => reciboDe(r)} title="Sus dos recibos: 1 · pago en Bs y 2 · bonificación con préstamos y anticipos (con fecha y líneas de firma: la persona y la Jefa de RRHH)">📄</button></td>
               </tr>
             ))}
           </tbody>
