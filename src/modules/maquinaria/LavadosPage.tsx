@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -16,6 +17,7 @@ import { listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
 import { listadoFlotaExcel } from './flotaExcel';
 import { AccionConEquipo } from './AccionConEquipo';
 import { FlotaNav } from './FlotaNav';
+import { LavadoModal } from './LavadoModal';
 
 const SIN_LAVAR_VISIBLES = 8;
 
@@ -24,7 +26,8 @@ const SIN_LAVAR_VISIBLES = 8;
  * sin lavar y «Registrar lavado» eligiendo el equipo. PDF/Excel del listado.
  */
 export function LavadosPage() {
-  const { can, isAdmin } = usePermissions();
+  const { can, appUser } = usePermissions();
+  const { user } = useSession();
   const canWrite = can('maquinaria', 'escritura');
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
@@ -32,6 +35,7 @@ export function LavadosPage() {
   const [f, setF] = useState<FiltroLavados>({});
   const [registrar, setRegistrar] = useState<{ equipoId?: string } | null>(null);
   const [borrar, setBorrar] = useState<LavadoEquipo | null>(null);
+  const [editar, setEditar] = useState<LavadoEquipo | null>(null);
   const [verTodosSinLavar, setVerTodosSinLavar] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -137,7 +141,12 @@ export function LavadosPage() {
                   <small>{dateTime(l.fecha)} · {textoHace(diasDesde(l.fecha))}{l.responsable ? ` · ${l.responsable}` : ''}{l.horometro != null ? ` · ${fmtNum(l.horometro)} h` : ''}{l.kilometraje != null ? ` · ${fmtNum(l.kilometraje)} km` : ''}</small>
                   {l.nota && <small>{l.nota}</small>}
                 </div>
-                {isAdmin ? <button className="btn btn-sm btn-ghost" aria-label={`Borrar lavado del ${dateTime(l.fecha)}`} onClick={() => setBorrar(l)}>🗑</button> : <span />}
+                {canWrite ? (
+                  <span style={{ display: 'flex', gap: '.25rem' }}>
+                    <button className="btn btn-sm btn-ghost" aria-label={`Editar lavado del ${dateTime(l.fecha)}`} onClick={() => setEditar(l)}>✎</button>
+                    <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} aria-label={`Borrar lavado del ${dateTime(l.fecha)}`} onClick={() => setBorrar(l)}>🗑</button>
+                  </span>
+                ) : <span />}
               </div>
             ))}
           </div>
@@ -146,6 +155,11 @@ export function LavadosPage() {
       </div>
 
       {registrar && <AccionConEquipo accion="lavado" equipos={equipos} equipoInicial={registrar.equipoId} onClose={() => setRegistrar(null)} onDone={() => void cargar()} />}
+      {editar && porId.get(editar.equipo_id) && (
+        <LavadoModal equipo={porId.get(editar.equipo_id) as MaquinariaEquipo} horometro={null} km={null} ultimo={null} lavado={editar}
+          actor={{ email: user?.email ?? 'sistema', nombre: appUser?.nombre ?? null }}
+          onClose={() => setEditar(null)} onSaved={() => void cargar()} />
+      )}
       {borrar && (
         <ConfirmDialog title="Borrar lavado" danger confirmText="Borrar"
           message="Se borra este registro de lavado. No se puede deshacer."

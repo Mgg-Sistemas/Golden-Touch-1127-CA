@@ -3,6 +3,7 @@ import {
   estadoEfectivo, statusDeEstado, estadoExigeMotivo, claseEquipo, restantesServicio, avisoServicio,
   avisoMasUrgente, decidirRepuesto, efectoOrden, columnaCompra, compraAbierta, accionesEquipo,
   siguientesEstadosOrden, sugerirServicio, coincideEquipo, ESTADOS_EQUIPO, faltaSalida, faltaCompra, validarLectura, etiquetaOrigenLectura,
+  repuestosEditables, puedeBorrarOrden,
 } from './flota';
 
 describe('estadoEfectivo (equipos de antes y de ahora)', () => {
@@ -106,6 +107,25 @@ describe('órdenes de servicio', () => {
     expect(sugerirServicio('se le dañó el gato', null)).toBe('hidraulico');
     expect(sugerirServicio('', { nivel: 'proximo', restante: 10, unidad: 'h', pct: 96, ratio: 0.96 })).toBe('preventivo');
     expect(sugerirServicio(null, null)).toBeNull();
+  });
+});
+
+describe('editar y borrar órdenes de servicio', () => {
+  const o = (estado: string, salida: string | null = null, compra: string | null = null) => ({ estado, solicitud_salida_id: salida, orden_compra_id: compra });
+  it('los repuestos se editan solo abierta / esperando repuestos y sin salida ni pedido', () => {
+    expect(repuestosEditables(o('abierta'))).toBe(true);
+    expect(repuestosEditables(o('repuestos'))).toBe(true);
+    expect(repuestosEditables(o('en_proceso'))).toBe(false);
+    expect(repuestosEditables(o('realizada'))).toBe(false);
+    expect(repuestosEditables(o('abierta', 'sal-1'))).toBe(false);
+    expect(repuestosEditables(o('repuestos', null, 'sp-1'))).toBe(false);
+  });
+  it('una orden realizada (traza completa) solo la borra un administrador', () => {
+    expect(puedeBorrarOrden({ estado: 'realizada' }, { maquinaria: true, admin: false })).toBe(false);
+    expect(puedeBorrarOrden({ estado: 'realizada' }, { maquinaria: true, admin: true })).toBe(true);
+    expect(puedeBorrarOrden({ estado: 'anulada' }, { maquinaria: true, admin: false })).toBe(true);
+    expect(puedeBorrarOrden({ estado: 'abierta' }, { maquinaria: true, admin: false })).toBe(true);
+    expect(puedeBorrarOrden({ estado: 'abierta' }, { maquinaria: false, admin: false })).toBe(false);
   });
 });
 

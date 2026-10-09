@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { num as fmtNum, date as fmtDate, statusBadge } from '@/shared/lib/format';
 import { listEquipos, type MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { ORDEN_ESTADOS, SERVICIOS, URGENCIAS, servicioPorId, faltaCompra, faltaSalida, type EstadoOrdenServicio } from './flota';
+import { ORDEN_ESTADOS, SERVICIOS, URGENCIAS, servicioPorId, faltaCompra, faltaSalida, puedeBorrarOrden, type EstadoOrdenServicio } from './flota';
 import { listOrdenesServicio, salidasDeOrdenes, comprasPorIds, type OrdenServicio, type CompraResumen } from './flota.repository';
 import { filtrarOrdenes, contarPorEstado, type FiltroOrdenes } from './flotaListados';
 import { ordenServicioPdf, listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
@@ -16,6 +17,8 @@ import { AccionConEquipo } from './AccionConEquipo';
 import { FlotaNav } from './FlotaNav';
 import { FotosOrdenModal } from './FotosOrdenServicio';
 import { contarFotosPorOrden, TABLA_OS_FOTOS } from './osFotos.repository';
+import { OrdenServicioModal } from './OrdenServicioModal';
+import { BorrarOrdenDialog } from './BorrarOrdenDialog';
 
 type PestanaEstado = NonNullable<FiltroOrdenes['estado']>;
 const PESTANAS: { id: PestanaEstado; label: string }[] = [
@@ -34,8 +37,11 @@ const ESTADO_SALIDA: Record<string, string> = { por_aprobar: 'Por aprobar', apro
  * con filtros, búsqueda sin acentos, «+ Nueva orden» y PDF/Excel del listado.
  */
 export function OrdenesServicioPage() {
-  const { can } = usePermissions();
+  const { can, isAdmin, appUser } = usePermissions();
+  const { user } = useSession();
   const canWrite = can('maquinaria', 'escritura');
+  const [editar, setEditar] = useState<OrdenServicio | null>(null);
+  const [borrar, setBorrar] = useState<OrdenServicio | null>(null);
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [ordenes, setOrdenes] = useState<OrdenServicio[]>([]);
   const [salidas, setSalidas] = useState<Map<string, { codigo: string; estado: string }>>(new Map());
@@ -204,6 +210,8 @@ export function OrdenesServicioPage() {
                   <Link className="btn btn-primary" to={`/app/maquinaria/equipo/${o.equipo_id}?tab=servicios`}>Abrir la orden</Link>
                   <button className="btn" onClick={() => setVerFotos(o)}>📷 Fotos{nFotos.get(o.id) ? ` (${nFotos.get(o.id)})` : ''}</button>
                   <button className="btn" onClick={() => void pdfOrden(o)}>📄 PDF</button>
+                  {canWrite && eq && <button className="btn btn-ghost" onClick={() => setEditar(o)}>✎ Editar</button>}
+                  {puedeBorrarOrden(o, { maquinaria: canWrite, admin: isAdmin }) && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(o)}>🗑 Borrar</button>}
                 </div>
               </div>
             );
@@ -212,6 +220,18 @@ export function OrdenesServicioPage() {
       )}
 
       {nueva && <AccionConEquipo accion="orden" equipos={equipos} onClose={() => setNueva(false)} onDone={() => void cargar()} />}
+      {editar && porId.get(editar.equipo_id) && (
+        <OrdenServicioModal equipo={porId.get(editar.equipo_id) as MaquinariaEquipo} horometro={editar.horometro} kilometraje={editar.kilometraje} aviso={null}
+          orden={editar} puedeSalidas={can('salidas', 'escritura')} puedePedidos={can('pedidos', 'escritura')}
+          actor={{ email: user?.email ?? 'sistema', nombre: appUser?.nombre ?? null }}
+          onClose={() => setEditar(null)} onCreated={() => void cargar()} />
+      )}
+      {borrar && (
+        <BorrarOrdenDialog orden={borrar} equipo={porId.get(borrar.equipo_id)?.equipo}
+          salida={borrar.solicitud_salida_id ? salidas.get(borrar.solicitud_salida_id)?.codigo ?? 'vinculada' : null}
+          compra={borrar.orden_compra_id ? (() => { const c = compras.get(borrar.orden_compra_id as string); return c ? c.oc_codigo || c.codigo : 'vinculado'; })() : null}
+          onClose={() => setBorrar(null)} onDone={() => void cargar()} />
+      )}
       {verFotos && (
         <FotosOrdenModal ordenId={verFotos.id} codigo={verFotos.codigo} equipo={porId.get(verFotos.equipo_id)?.equipo}
           canWrite={canWrite} onClose={() => setVerFotos(null)} />

@@ -1,15 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { validarLectura, etiquetaOrigenLectura } from './flota';
-import { registrarLectura, type LecturaVigente } from './flota.repository';
+import { registrarLectura, getLectura, editarLectura, type LecturaVigente, type LecturaMaquinaria } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 
 /** «2026-10-09T14:30» en hora local, para el input datetime-local. */
-function ahoraLocal(): string {
-  const d = new Date();
+function ahoraLocal(iso?: string | null): string {
+  const d = iso ? new Date(iso) : new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 16);
 }
@@ -23,11 +23,16 @@ const n = (v: string): number | null => {
  * Registrar horómetro / km desde Maquinaria. La lectura queda como contador vigente y el
  * próximo surtido del equipo en Combustible arranca desde ella (HI / km inicial). No puede
  * bajar de la vigente; un administrador puede corregirla hacia abajo con motivo.
+ *
+ * Con `lecturaId` edita una lectura ya registrada desde Maquinaria: sin ser administrador
+ * tiene que quedar entre la lectura anterior y la siguiente (lo valida la base).
  */
-export function LecturaModal({ equipo, vigente, isAdmin, onClose, onSaved }: {
+export function LecturaModal({ equipo, vigente, isAdmin, lecturaId, onClose, onSaved }: {
   equipo: MaquinariaEquipo;
   vigente: LecturaVigente;
   isAdmin: boolean;
+  /** La lectura a editar (si no viene, se registra una nueva). */
+  lecturaId?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -38,20 +43,51 @@ export function LecturaModal({ equipo, vigente, isAdmin, onClose, onSaved }: {
   const [correccion, setCorreccion] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [saving, setSaving] = useState(false);
+  const [original, setOriginal] = useState<LecturaMaquinaria | null>(null);
+  const editando = !!lecturaId;
+  const cerrar = useRef(onClose);
+  cerrar.current = onClose;
+
+  useEffect(() => {
+    if (!lecturaId) return;
+    getLectura(lecturaId).then((l) => {
+      if (!l) { toast('La lectura ya no existe.', 'warning'); cerrar.current(); return; }
+      setOriginal(l);
+      setHoro(l.horometro != null ? String(l.horometro) : '');
+      setKm(l.kilometraje != null ? String(l.kilometraje) : '');
+      setFecha(ahoraLocal(l.fecha));
+      setNota(l.nota ?? '');
+      setCorreccion(l.es_correccion);
+      setMotivo(l.motivo_correccion ?? '');
+    }).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar la lectura', 'error'); cerrar.current(); });
+  }, [lecturaId]);
 
   const nueva = { horometro: n(horo), kilometraje: n(km) };
-  const problema = validarLectura(nueva, vigente, { correccion, admin: isAdmin, motivo });
+  // Al editar, la vigente incluye a esta misma lectura: el rango lo valida la base.
+  const problema = editando
+    ? (!original ? 'Cargando…'
+      : nueva.horometro == null && nueva.kilometraje == null ? 'Indica el horómetro o el kilometraje.'
+      : correccion && motivo.trim().length < 3 ? 'Escribe el motivo de la corrección.' : null)
+    : validarLectura(nueva, vigente, { correccion, admin: isAdmin, motivo });
   const sinVinculo = !(equipo.combustible_equipo ?? '').trim();
 
   async function guardar() {
     if (problema) { toast(problema, 'warning'); return; }
     setSaving(true);
     try {
-      await registrarLectura({
-        equipo_id: equipo.id, horometro: nueva.horometro, kilometraje: nueva.kilometraje,
-        fecha: new Date(fecha).toISOString(), nota: nota.trim() || null, correccion, motivo: correccion ? motivo.trim() : null,
-      });
-      toast(`Contador de ${equipo.equipo} actualizado${sinVinculo ? '' : ': el próximo surtido arranca desde esta lectura'}.`, 'success');
+      if (lecturaId) {
+        await editarLectura(lecturaId, {
+          horometro: nueva.horometro, kilometraje: nueva.kilometraje, fecha: new Date(fecha).toISOString(),
+          nota: nota.trim() || null, motivo: correccion ? motivo.trim() : null,
+        });
+        toast(`Lectura de ${equipo.equipo} corregida: el contador vigente se recalculó.`, 'success');
+      } else {
+        await registrarLectura({
+          equipo_id: equipo.id, horometro: nueva.horometro, kilometraje: nueva.kilometraje,
+          fecha: new Date(fecha).toISOString(), nota: nota.trim() || null, correccion, motivo: correccion ? motivo.trim() : null,
+        });
+        toast(`Contador de ${equipo.equipo} actualizado${sinVinculo ? '' : ': el próximo surtido arranca desde esta lectura'}.`, 'success');
+      }
       onSaved();
       onClose();
     } catch (e) {
@@ -60,11 +96,11 @@ export function LecturaModal({ equipo, vigente, isAdmin, onClose, onSaved }: {
   }
 
   return (
-    <Modal title={`⏱️ Registrar horómetro / km · ${equipo.equipo}`} onClose={onClose}
+    <Modal title={`${editando ? '✎ Editar lectura' : '⏱️ Registrar horómetro / km'} · ${equipo.equipo}`} onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button className={`btn ${correccion ? 'btn-danger' : 'btn-primary'}`} onClick={() => void guardar()} disabled={saving || !!problema}>
-          {saving ? 'Guardando…' : correccion ? 'Guardar corrección' : 'Registrar lectura'}
+          {saving ? 'Guardando…' : editando ? 'Guardar cambios' : correccion ? 'Guardar corrección' : 'Registrar lectura'}
         </button>
       </>}>
       <div className="flo" style={{ display: 'grid', gap: '.8rem' }}>
@@ -88,7 +124,8 @@ export function LecturaModal({ equipo, vigente, isAdmin, onClose, onSaved }: {
             <input id="lec-nota" className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Opcional" />
           </div>
         </div>
-        {isAdmin && (
+        {editando && correccion && <div className="aviso info sm"><span className="aviso-icono">🛠</span><div>Esta lectura es una <strong>corrección</strong> (solo un administrador la cambia).</div></div>}
+        {isAdmin && !editando && (
           <label style={{ display: 'flex', gap: '.45rem', alignItems: 'center', fontSize: '.85rem', minHeight: 44 }}>
             <input type="checkbox" checked={correccion} onChange={(e) => setCorreccion(e.target.checked)} /> Es una corrección hacia abajo (cambio de horómetro u odómetro, error de carga)
           </label>
@@ -99,7 +136,7 @@ export function LecturaModal({ equipo, vigente, isAdmin, onClose, onSaved }: {
           </div>
         )}
         {problema && (nueva.horometro != null || nueva.kilometraje != null) && <div className="aviso warning sm"><span className="aviso-icono">⚠️</span><div>{problema}</div></div>}
-        <VistaPrevia titulo="Se va a registrar">
+        <VistaPrevia titulo={editando ? 'Se guarda así' : 'Se va a registrar'}>
           <Dato label="Equipo">{equipo.equipo}</Dato>
           <Dato label="Horómetro">{nueva.horometro != null ? `${fmtNum(nueva.horometro)} h` : undefined}</Dato>
           <Dato label="Kilometraje">{nueva.kilometraje != null ? `${fmtNum(nueva.kilometraje)} km` : undefined}</Dato>

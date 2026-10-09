@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { norm } from '@/shared/lib/texto';
@@ -7,18 +8,23 @@ import { num as fmtNum } from '@/shared/lib/format';
 import { listProductosActivos } from '@/modules/pedidos/pedidos.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, soloPiezasNuevasPorComprar,
-  type AvisoServicio, type TonoFlota,
+  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, soloPiezasNuevasPorComprar,
+  repuestosEditables, type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
-  crearOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, notificarComprasPiezasNuevas, faltaSalida, faltaCompra, type OrdenServicio,
+  crearOrdenServicio, editarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, notificarComprasPiezasNuevas, faltaSalida, faltaCompra,
+  type OrdenServicio,
 } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { FotosNuevaOrden } from './FotosOrdenServicio';
+import { FotosNuevaOrden, FotosOrden } from './FotosOrdenServicio';
 import { useFotosLocales } from './useFotosLocales';
 import { subirFotosOrden } from './osFotos.repository';
 
 interface Linea { productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null }
+
+/** Lo que importa para saber si los repuestos cambiaron al editar. */
+const firmaRepuestos = (ls: { producto_id: string | null; nombre: string; cantidad: number }[]) =>
+  JSON.stringify(ls.map((l) => [l.producto_id ?? null, l.producto_id ? '' : l.nombre, Number(l.cantidad)]));
 
 const PASOS = ['Servicio', 'Repuestos', 'Confirmar'];
 
@@ -46,30 +52,53 @@ function Decision({ l }: { l: Linea }) {
  *  2. si el usuario tiene permiso de Salidas, se pide la salida de inventario (por aprobar);
  *  3. si tiene permiso de Pedidos, se crea la solicitud de pedido con lo que falta.
  * Lo que no pueda pedir queda «por solicitar» en la orden.
+ *
+ * Con `orden` es el mismo asistente para EDITARLA: los repuestos solo se cambian mientras
+ * no empezó el trabajo y no tiene salida ni pedido (después se corrigen allá); las fotos
+ * se cambian en la misma ventana y lo que haya que pedir se genera desde la orden.
  */
 export function OrdenServicioModal({
-  equipo, horometro, kilometraje, aviso, puedeSalidas, puedePedidos, actor, onClose, onCreated,
+  equipo, horometro, kilometraje, aviso, puedeSalidas, puedePedidos, actor, orden, onClose, onCreated,
 }: {
   equipo: MaquinariaEquipo; horometro: number | null; kilometraje: number | null; aviso: AvisoServicio | null;
   puedeSalidas: boolean; puedePedidos: boolean; actor: { email: string; nombre: string | null };
+  /** La orden a editar (si no viene, se crea una nueva). */
+  orden?: OrdenServicio | null;
   onClose: () => void; onCreated: () => void;
 }) {
+  const editando = !!orden;
+  const editables = !orden || repuestosEditables(orden);
+  const cerrada = !!orden && (orden.estado === 'realizada' || orden.estado === 'anulada');
   const averiado = ['averiada', 'parada'].includes(equipo.estado_operativo ?? '') || equipo.status === 'FUERA DE SERVICIO';
   const [paso, setPaso] = useState(0);
-  const [tipo, setTipo] = useState<string | null>(() => sugerirServicio(averiado ? equipo.estado_nota : null, aviso));
-  const [urgencia, setUrgencia] = useState<'normal' | 'alta' | 'urgente'>(averiado ? 'alta' : 'normal');
-  const [intervenciones, setIntervenciones] = useState<string[]>(['Mecánica']);
-  const [origen, setOrigen] = useState<'interno' | 'externo'>('interno');
-  const [responsable, setResponsable] = useState('');
-  const [descripcion, setDescripcion] = useState(averiado ? (equipo.estado_nota ?? '') : '');
-  const [lineas, setLineas] = useState<Linea[]>([]);
+  const [tipo, setTipo] = useState<string | null>(() => orden?.tipo ?? sugerirServicio(averiado ? equipo.estado_nota : null, aviso));
+  const [urgencia, setUrgencia] = useState<'normal' | 'alta' | 'urgente'>(orden?.urgencia ?? (averiado ? 'alta' : 'normal'));
+  const [intervenciones, setIntervenciones] = useState<string[]>(orden?.intervenciones?.length ? orden.intervenciones : ['Mecánica']);
+  const [origen, setOrigen] = useState<'interno' | 'externo'>(orden?.origen ?? 'interno');
+  const [responsable, setResponsable] = useState(orden?.responsable ?? '');
+  const [descripcion, setDescripcion] = useState(orden ? (orden.descripcion ?? '') : averiado ? (equipo.estado_nota ?? '') : '');
+  const [notaCierre, setNotaCierre] = useState(orden?.nota_cierre ?? '');
+  const [lineas, setLineas] = useState<Linea[]>(() => (orden?.repuestos ?? []).map((r) => ({
+    productoId: r.producto_id, nombre: r.nombre, unidad: r.unidad || 'und', cantidad: Number(r.cantidad) || 1,
+    stock: Math.max(0, Number(r.stock_al_crear) || 0), almacen: r.almacen ?? null,
+  })));
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [saving, setSaving] = useState(false);
   // Fotos (hasta 4): se comprimen al elegirlas y se suben al crear la orden.
   const fotosOS = useFotosLocales();
 
-  useEffect(() => { listProductosActivos().then(setProductos).catch(() => setProductos([])); }, []);
+  useEffect(() => {
+    listProductosActivos().then((ps) => {
+      setProductos(ps);
+      // Al editar, la decisión inventario / compra se hace con el stock de HOY.
+      const porId = new Map(ps.map((p) => [p.id, p]));
+      setLineas((prev) => prev.map((l) => {
+        const p = l.productoId ? porId.get(l.productoId) : null;
+        return p ? { ...l, stock: Math.max(0, Number(p.stock) || 0), almacen: p.almacen || l.almacen } : l;
+      }));
+    }).catch(() => setProductos([]));
+  }, []);
 
   const resultados = useMemo(() => {
     const q = norm(busqueda);
@@ -97,6 +126,34 @@ export function OrdenServicioModal({
     setBusqueda('');
   }
   const setCant = (i: number, v: number) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, cantidad: Math.max(1, Math.round((Number(v) || 1) * 100) / 100) } : l)));
+
+  async function guardarEdicion() {
+    if (!tipo || !orden) return;
+    setSaving(true);
+    try {
+      const nuevos = lineas.map((l) => ({ producto_id: l.productoId, nombre: l.nombre, unidad: l.unidad, cantidad: l.cantidad }));
+      const cambiaron = editables && firmaRepuestos(nuevos) !== firmaRepuestos(orden.repuestos);
+      const r = await editarOrdenServicio(orden.id, {
+        tipo, urgencia, intervenciones, origen,
+        responsable: responsable.trim(), descripcion: descripcion.trim() || (servicio?.label ?? ''),
+        horometro: orden.horometro, kilometraje: orden.kilometraje,
+        ...(cerrada ? { nota_cierre: notaCierre.trim() || null } : {}),
+        ...(cambiaron ? { repuestos: nuevos } : {}),
+      });
+      const partes = [`${orden.codigo} actualizada`];
+      if (r.notificar) {
+        try { await notificarComprasPiezasNuevas({ id: orden.id, repuestos: r.repuestos }); partes.push('Compras notificada de las piezas nuevas'); }
+        catch (e) { toast(`No se pudo avisar a Compras: ${e instanceof Error ? e.message : 'error'}. Usa «🔔 Avisar a Compras» en la orden.`, 'warning'); }
+      }
+      toast(partes.join(' · '), 'success');
+      const o2 = { ...orden, estado: r.estado, repuestos: r.repuestos };
+      if (cambiaron && (faltaSalida(o2) || faltaCompra(o2))) toast('Los repuestos cambiaron: pide la salida o la compra desde la orden.', 'info');
+      onCreated();
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : (e as { message?: string })?.message || 'No se pudo guardar la orden', 'error');
+    } finally { setSaving(false); }
+  }
 
   async function crear() {
     if (!tipo) return;
@@ -156,14 +213,16 @@ export function OrdenServicioModal({
   const listo = paso === 0 ? !!tipo : true;
 
   return (
-    <Modal title={`🔧 Orden de servicio · ${equipo.equipo}`} size="lg" onClose={onClose}
+    <Modal title={editando ? `✎ Editar ${orden?.codigo} · ${equipo.equipo}` : `🔧 Orden de servicio · ${equipo.equipo}`} size="lg" onClose={onClose}
       footer={<>
         {paso > 0
           ? <button className="btn btn-ghost" onClick={() => setPaso(paso - 1)} disabled={saving}>Atrás</button>
           : <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>}
         {paso < 2
-          ? <button className="btn btn-primary" disabled={!listo} onClick={() => setPaso(paso + 1)}>{paso === 0 ? 'Elegir repuestos' : 'Revisar orden'}</button>
-          : <button className="btn btn-primary" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear()}>{saving ? 'Creando…' : fotosOS.preparando > 0 ? 'Preparando fotos…' : 'Crear orden de servicio'}</button>}
+          ? <button className="btn btn-primary" disabled={!listo} onClick={() => setPaso(paso + 1)}>{paso === 0 ? (editables ? 'Elegir repuestos' : 'Ver repuestos') : editando ? 'Revisar cambios' : 'Revisar orden'}</button>
+          : editando
+            ? <button className="btn btn-primary" disabled={saving} onClick={() => void guardarEdicion()}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
+            : <button className="btn btn-primary" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear()}>{saving ? 'Creando…' : fotosOS.preparando > 0 ? 'Preparando fotos…' : 'Crear orden de servicio'}</button>}
       </>}>
       <div className="flo" style={{ display: 'grid', gap: '.8rem' }}>
         <ol className="flo-wizard-steps" aria-label="Pasos">
@@ -172,7 +231,12 @@ export function OrdenServicioModal({
 
         {paso === 0 && (
           <>
-            {tipo && (averiado || aviso?.nivel !== 'ok') && (
+            {editando && orden && (
+              <div className="aviso info sm"><span className="aviso-icono">✎</span><div>
+                Editando <strong>{orden.codigo}</strong> · {ORDEN_ESTADOS[orden.estado]?.label ?? orden.estado}. Los cambios quedan en la auditoría.
+              </div></div>
+            )}
+            {!editando && tipo && (averiado || aviso?.nivel !== 'ok') && (
               <div className="aviso info"><span className="aviso-icono">💡</span><div><strong>Sugerido por el estado del equipo</strong> — {averiado ? (equipo.estado_nota || 'equipo averiado') : 'servicio por horas/km próximo'}. Puedes elegir otro.</div></div>
             )}
             <div className="flo-svc-grid" role="group" aria-label="Tipo de servicio">
@@ -203,12 +267,32 @@ export function OrdenServicioModal({
             <div className="form-row"><label htmlFor="os-desc">Descripción del problema o trabajo</label>
               <textarea id="os-desc" className="textarea" rows={3} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Qué se observa y qué hay que hacer" />
             </div>
-            <FotosNuevaOrden estado={fotosOS} />
+            {cerrada && (
+              <div className="form-row"><label htmlFor="os-cierre">{orden?.estado === 'anulada' ? 'Motivo de la anulación' : 'Nota de cierre'}</label>
+                <textarea id="os-cierre" className="textarea" rows={2} value={notaCierre} onChange={(e) => setNotaCierre(e.target.value)} />
+              </div>
+            )}
+            {editando && orden ? <FotosOrden ordenId={orden.id} canWrite /> : <FotosNuevaOrden estado={fotosOS} />}
             {origen === 'externo' && <p className="muted" style={{ fontSize: '.8rem', margin: 0 }}>Si el proveedor cobra el servicio, pídelo también en <strong>Pedidos → 🔧 Servicios</strong> casado a este equipo: aparecerá en la pestaña Compras.</p>}
           </>
         )}
 
-        {paso === 1 && (
+        {paso === 1 && !editables && (
+          <>
+            <div className="aviso warning sm"><span className="aviso-icono">🔒</span><div>
+              {orden?.solicitud_salida_id || orden?.orden_compra_id
+                ? 'Esta orden ya tiene su salida o su pedido: sus repuestos se corrigen allá (Salidas / Pedidos).'
+                : 'El trabajo ya empezó o la orden está cerrada: sus repuestos ya no se cambian.'}
+            </div></div>
+            {orden?.repuestos.length ? (
+              <ul className="flo-parts">
+                {orden.repuestos.map((r, i) => <li key={i}><span>{r.nombre}</span><strong className="mono">{fmtNum(r.cantidad)} {r.unidad}</strong></li>)}
+              </ul>
+            ) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin repuestos.</p>}
+          </>
+        )}
+
+        {paso === 1 && editables && (
           <>
             <div className="form-row"><label htmlFor="os-inv">Buscar en inventario</label>
               <input id="os-inv" className="input" type="search" autoComplete="off" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="🔍 Filtro, caucho, aceite, manguera…" />
@@ -249,7 +333,21 @@ export function OrdenServicioModal({
           </>
         )}
 
-        {paso === 2 && (
+        {paso === 2 && editando && orden && (
+          <VistaPrevia titulo="Se guarda la orden así">
+            <Dato label="Orden">{orden.codigo}</Dato>
+            <Dato label="Servicio">{servicio?.label ?? tipo ?? undefined}</Dato>
+            <Dato label="Urgencia">{URGENCIAS.find((u) => u.id === urgencia)?.label}</Dato>
+            <Dato label="Intervención">{intervenciones.join(', ') || undefined}</Dato>
+            <Dato label={origen === 'interno' ? 'Mecánico' : 'Proveedor'}>{responsable.trim() || undefined}</Dato>
+            <Dato label="Descripción">{descripcion.trim() || undefined}</Dato>
+            {cerrada && <Dato label="Nota de cierre">{notaCierre.trim() || undefined}</Dato>}
+            <Dato label="Repuestos">{lineas.length ? decididas.map((l) => `${fmtNum(l.cantidad)} ${l.unidad} ${l.nombre}${editables && l.a_comprar > 0 ? ` (${fmtNum(l.a_comprar)} a compra)` : ''}`).join(' · ') : 'Sin repuestos'}</Dato>
+            {editables && <Dato label="La orden queda">{efecto.compran ? 'Esperando repuestos (la compra se pide desde la orden)' : 'Abierta: todo sale del inventario'}</Dato>}
+          </VistaPrevia>
+        )}
+
+        {paso === 2 && !editando && (
           <div className="flo-flow">
             <div className="flo-flow-node main"><span className="ico">🧾</span><div>
               <strong>Orden de servicio · {servicio?.label}</strong>
