@@ -9,7 +9,8 @@
    ============================================================ */
 
 .flo {
-  --flo-display: "Barlow Condensed", "Arial Narrow", "Inter", system-ui, sans-serif;
+  /* Misma letra que el resto del sistema (Inter): los títulos se distinguen por peso y mayúsculas. */
+  --flo-display: var(--font-sans);
   --flo-steel-grad: linear-gradient(115deg, #f1f4f7 0%, #b9c2cc 22%, #e3e8ed 41%, #8f99a4 63%, #d7dde3 82%, #a3adb8 100%);
   --flo-steel-ink: #1f252c;
   --flo-steel-muted: #46505b;
