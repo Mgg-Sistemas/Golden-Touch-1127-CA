@@ -19,6 +19,7 @@ import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
 import { requiereTasa, textoTasaPago } from './tasaPago';
+import { monedaYaElegida } from './costoCompraDirecta';
 import { listCategoriasGasto, soloCategorias, subcategoriasDe, type CategoriaGasto } from '@/modules/tesoreria/categoriasGasto.repository';
 import { RetencionPagoCard, useRetencionPago } from '@/modules/tesoreria/RetencionPagoCard';
 import { repartirPagoYReembolso } from '@/modules/tesoreria/reembolsoPago';
@@ -906,7 +907,9 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
   // ¿El usuario ELIGIÓ explícitamente la moneda? En una compra nueva (sin moneda guardada)
   // arranca en false y se OBLIGA a elegir antes de guardar/pagar, para no registrar montos en
   // Bs como si fueran dólares (ni al revés) por dejar el selector en su valor por defecto.
-  const [monedaConfirmada, setMonedaConfirmada] = useState<boolean>(compra.moneda === 'USD' || compra.moneda === 'Bs');
+  // OJO: la base guarda 'USD' por defecto al crear, así que eso NO cuenta como elección
+  // hasta que la compra se monte una vez (CD-2026-0055 entró a $266.082 por esto).
+  const [monedaConfirmada, setMonedaConfirmada] = useState<boolean>(monedaYaElegida(compra));
   // Conversor: al convertir, se re-montan los inputs de gasto (no controlados) con `convKey`
   // y se recuerda la tasa usada (`tasaConversion`) para guardarla y mostrarla en Tesorería.
   const [convKey, setConvKey] = useState(0);
