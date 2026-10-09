@@ -42,8 +42,16 @@ import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSali
 import { adjuntosMercado, MODULO_LISTA_MERCADO, REGLA_LISTA_MERCADO } from './listaMercado';
 import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
 import { CategoriasCocinaModal } from './CategoriasCocinaModal';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { norm } from '@/shared/lib/texto';
+import { disponibleParaConsumo, mensajeExcedeStock, superaStock, viveresConsumibles } from './consumoStock';
+import { buscarComidas } from './buscarComidas';
 
-const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+/** Opciones del selector de tipo de movimiento: «Todos» + cada comida. */
+const OPCIONES_TIPO = [
+  { value: '', label: 'Todos los tipos' },
+  ...TIPOS_COMIDA.map((t) => ({ value: t.value, label: `${t.icono} ${t.label}` })),
+];
 /**
  * «Hoy» en la zona de la empresa (America/Caracas, UTC−4).
  *
@@ -162,7 +170,8 @@ export function CocinaPage() {
     setLoading(true);
     try {
       const [m, v] = await Promise.all([
-        listMovimientosCocina({ desde: fDesde || undefined, hasta: fHasta || undefined, tipo: fTipo || undefined }),
+        // El tipo se filtra en la pantalla (buscarComidas): cambiarlo no vuelve a leer la base.
+        listMovimientosCocina({ desde: fDesde || undefined, hasta: fHasta || undefined }),
         listViveres().catch(() => [] as Producto[]),
       ]);
       setMovs(m); setViveres(v); setErrorCarga(null);
@@ -204,7 +213,7 @@ export function CocinaPage() {
       setErrorCarga(msg);
       toast(msg, 'error');
     } finally { setLoading(false); }
-  }, [fDesde, fHasta, fTipo]);
+  }, [fDesde, fHasta]);
 
   useEffect(() => { void cargar(); }, [cargar]);
   useEffect(() => { setRecarga((v) => v + 1); }, [cargar]);
@@ -223,15 +232,16 @@ export function CocinaPage() {
     () => (mercado ? movs.length - comidasDelCiclo(movs, mercado.inicio_at).length : 0),
     [mercado, movs],
   );
-  const movsFiltrados = useMemo(() => {
-    const q = norm(fBuscar.trim());
-    if (!q) return movsBase;
-    return movsBase.filter((m) => {
-      const campos = [m.codigo ?? '', labelTipoComida(m.tipo_comida), m.nota ?? '', dateTime(m.at),
-        ...(m.items ?? []).flatMap((i) => [i.nombre, i.sku])];
-      return campos.some((c) => norm(String(c)).includes(q));
-    });
-  }, [movsBase, fBuscar]);
+  // Tipo de movimiento + búsqueda por todo lo que tiene la comida (víver, categoría, quién,
+  // fecha, nota, código, cantidades, platos…), sin acentos y con varias palabras (09/10/2026).
+  const categoriaDe = useMemo(() => {
+    const m = new Map(viveres.map((p) => [p.id, p.categoria ?? null]));
+    return (id: string) => m.get(id) ?? null;
+  }, [viveres]);
+  const movsFiltrados = useMemo(
+    () => buscarComidas(movsBase, { tipo: fTipo, texto: fBuscar }, { rotuloTipo: labelTipoComida, categoriaDe, fechaVisible: dateTime }),
+    [movsBase, fTipo, fBuscar, categoriaDe],
+  );
 
   // KPIs sincronizados con lo que muestra la tabla (mismos filtros: fecha, tipo y búsqueda).
   // Antes eran «de hoy» y no reflejaban un movimiento cargado con fecha de servicio desfasada.
@@ -563,16 +573,16 @@ export function CocinaPage() {
             <label style={{ fontSize: '.72rem' }}>Hasta</label>
             <FechaInput value={fHasta} onChange={setFHasta} />
           </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label style={{ fontSize: '.72rem' }}>Tipo de comida</label>
-            <select className="select" value={fTipo} onChange={(e) => setFTipo(e.target.value as TipoComida | '')}>
-              <option value="">Todas</option>
-              {TIPOS_COMIDA.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
+          <div className="form-row" style={{ margin: 0, minWidth: 190 }}>
+            <label style={{ fontSize: '.72rem' }}>Tipo de movimiento</label>
+            <SearchSelect options={OPCIONES_TIPO} value={fTipo} onChange={(v) => setFTipo(v as TipoComida | '')}
+              placeholder="Escribe el tipo…" emptyText="Ningún tipo con ese nombre" />
           </div>
-          <div className="form-row" style={{ margin: 0, flex: '1 1 220px' }}>
+          <div className="form-row" style={{ margin: 0, flex: '1 1 260px' }}>
             <label style={{ fontSize: '.72rem' }}>Búsqueda general</label>
-            <input className="input" value={fBuscar} onChange={(e) => setFBuscar(e.target.value)} placeholder="🔍 código, producto, nota, fecha/hora…" />
+            <input className="input" value={fBuscar} onChange={(e) => setFBuscar(e.target.value)}
+              placeholder="🔍 producto, categoría, comida, quién, fecha, nota, código, cantidad…"
+              title="Busca sin acentos. Con varias palabras, deben aparecer todas (p. ej. «pollo almuerzo ana»)." />
           </div>
           {(fDesde || fHasta || fTipo || fBuscar) && (
             <button className="btn btn-ghost" onClick={() => { setFDesde(''); setFHasta(''); setFTipo(''); setFBuscar(''); }}>✕ Limpiar</button>
@@ -966,7 +976,10 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
   const searchRef = useRef<HTMLInputElement>(null);
   // Stock disponible para un víver: al editar, se suma lo que este movimiento ya había
   // consumido (que se reintegra), para no bloquear una edición válida.
-  const dispDe = (p: Producto) => Number(p.stock) + (esEdicion ? (oldQty.get(p.id) ?? 0) : 0);
+  const dispDe = useCallback(
+    (p: Producto) => disponibleParaConsumo(p.stock, esEdicion ? (oldQty.get(p.id) ?? 0) : 0),
+    [esEdicion, oldQty],
+  );
 
   function toggle(pid: string) {
     const p = prodMap.get(pid);
@@ -985,12 +998,19 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
     requestAnimationFrame(() => searchRef.current?.focus());
   }
 
-  // Filtrado de la lista por texto (nombre / SKU), sin acentos ni mayúsculas.
+  // Solo se ofrecen los víveres con algo para consumir (09/10/2026): uno en 0 no sale,
+  // salvo que ya esté en la comida (para poder bajarlo o quitarlo).
+  const consumibles = useMemo(
+    () => viveresConsumibles(viveres, esEdicion ? oldQty : new Map(), Object.keys(sel)),
+    [viveres, esEdicion, oldQty, sel],
+  );
+  const sinStock = viveres.length - consumibles.length;
+  // Filtrado de la lista por texto (nombre / SKU / categoría), sin acentos ni mayúsculas.
   const viveresFiltrados = useMemo(() => {
     const q = norm(busqueda).trim();
-    if (!q) return viveres;
-    return viveres.filter((p) => norm(`${p.nombre} ${p.sku}`).includes(q));
-  }, [viveres, busqueda]);
+    if (!q) return consumibles;
+    return consumibles.filter((p) => norm(`${p.nombre} ${p.sku} ${p.categoria ?? ''}`).includes(q));
+  }, [consumibles, busqueda]);
 
   // Líneas seleccionadas (para el resumen/validación/submit).
   const lineas = useMemo(() => Object.entries(sel).map(([pid, cantStr]) => {
@@ -999,14 +1019,14 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
     const cant = Number(cantStr) || 0;
     const precio = Number(p?.precio ?? fb?.precio) || 0;
     // Disponible = stock actual + (al editar) lo que este movimiento ya consumía (se reintegra).
-    const disponible = p ? Number(p.stock) + (esEdicion ? (oldQty.get(pid) ?? 0) : 0) : Infinity;
+    const disponible = p ? dispDe(p) : Infinity;
     const info = p
       ? { id: p.id, sku: p.sku, nombre: p.nombre, almacen: p.almacen ?? null }
       : fb ? { id: pid, sku: fb.sku, nombre: fb.nombre, almacen: fb.almacen } : null;
     // Desactivado en el inventario y la comida le saca más de lo que ya traía: no se puede guardar.
     const inactivo = !p && cant > (oldQty.get(pid) ?? 0);
-    return { pid, info, cant, precio, subtotal: cant * precio, excede: cant > disponible, inactivo };
-  }), [sel, prodMap, itemFallback, marcados, esEdicion, oldQty]);
+    return { pid, info, cant, precio, subtotal: cant * precio, disponible, unidad: p?.unidad ?? null, excede: superaStock(cant, disponible), inactivo };
+  }), [sel, prodMap, itemFallback, marcados, oldQty, dispDe]);
   const total = lineas.reduce((a, l) => a + l.subtotal, 0);
   const nSeleccionados = lineas.length;
 
@@ -1024,8 +1044,9 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
       producto_id: l.info!.id, sku: l.info!.sku, nombre: l.info!.nombre, cantidad: l.cant, precio: l.precio, almacen: l.info!.almacen ?? null,
     }));
     if (!items.length) { setError('Marca al menos un víver con cantidad mayor a 0.'); return; }
+    // No se consume más de lo que hay: «hay X y quieres usar Y» (la base repite la regla).
     const exc = lineas.find((l) => l.excede);
-    if (exc) { setError(`No hay stock suficiente de ${exc.info?.nombre} (disponible ${num(Number((prodMap.get(exc.pid)?.stock ?? 0)) + (esEdicion ? (oldQty.get(exc.pid) ?? 0) : 0))}).`); return; }
+    if (exc) { setError(mensajeExcedeStock({ nombre: exc.info?.nombre ?? 'el víver', hay: exc.disponible, quiere: exc.cant, unidad: exc.unidad })); return; }
     const nPlatos = Number(platos) || 0;
     if (nPlatos <= 0) { setError('Indica cuántos platos se realizaron.'); return; }
     // Fecha del servicio: se combina el día elegido con una hora (para el orden dentro del
@@ -1120,12 +1141,16 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
             style={{ marginBottom: '.5rem' }} disabled={!viveres.length} />
           <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             {viveresFiltrados.length === 0 ? (
-              <div className="muted" style={{ padding: '.7rem' }}>{viveres.length ? 'Sin coincidencias con la búsqueda.' : 'No hay productos de la categoría Víveres en el inventario.'}</div>
+              <div className="muted" style={{ padding: '.7rem' }}>
+                {!viveres.length ? 'No hay productos de la categoría Víveres en el inventario.'
+                  : !consumibles.length ? 'Todos los víveres están en 0: no hay nada para consumir.'
+                  : 'Sin coincidencias con la búsqueda (los víveres en 0 no salen).'}
+              </div>
             ) : viveresFiltrados.map((p) => {
               const marcado = p.id in sel;
               const cant = Number(sel[p.id]) || 0;
               const disp = dispDe(p);
-              const excede = marcado && cant > disp;
+              const excede = marcado && superaStock(cant, disp);
               return (
                 <div key={p.id} style={{
                   display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5rem', alignItems: 'center',
@@ -1139,6 +1164,11 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
                       <span className="muted" style={{ display: 'block', fontSize: '.74rem' }}>
                         📦 {num(disp)} {p.unidad ?? ''}{esEdicion && (oldQty.get(p.id) ?? 0) > 0 ? <span title="Incluye lo que este movimiento ya consumía (se reintegra al editar)"> (incl. {num(oldQty.get(p.id) ?? 0)} de este mov.)</span> : ''} · {money(Number(p.precio) || 0)} · {p.almacen || 'sin almacén'}
                       </span>
+                      {excede && (
+                        <span style={{ display: 'block', fontSize: '.74rem', color: 'var(--danger)', fontWeight: 600 }}>
+                          ⛔ {mensajeExcedeStock({ nombre: p.nombre, hay: disp, quiere: cant, unidad: p.unidad })}
+                        </span>
+                      )}
                     </span>
                   </label>
                   {marcado && (
@@ -1155,7 +1185,7 @@ function AddMovimientoModal({ viveres, actor, actorName, editar, mercado, onClos
             })}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
-            <small className="muted">Los precios salen del inventario (PMP). {esEdicion ? <>Al guardar, el inventario se <strong>ajusta por la diferencia</strong> (si bajas una cantidad, vuelve al stock; si la subes, se descuenta más).</> : <>Al registrar, cada víver se <strong>descuenta del stock</strong>.</>}</small>
+            <small className="muted">Los precios salen del inventario (PMP). {sinStock > 0 && <>{num(sinStock)} víver{sinStock === 1 ? '' : 'es'} en 0 no se muestra{sinStock === 1 ? '' : 'n'}: no se puede consumir más de lo que hay. </>}{esEdicion ? <>Al guardar, el inventario se <strong>ajusta por la diferencia</strong> (si bajas una cantidad, vuelve al stock; si la subes, se descuenta más).</> : <>Al registrar, cada víver se <strong>descuenta del stock</strong>.</>}</small>
             <span style={{ fontWeight: 700 }}>
               {nSeleccionados} seleccionado{nSeleccionados === 1 ? '' : 's'} · TOTAL {money(total)}
               {(Number(platos) || 0) > 0 && <> · Prom./plato <span style={{ color: 'var(--brand, #ff8a00)' }}>{money(total / (Number(platos) || 1))}</span></>}

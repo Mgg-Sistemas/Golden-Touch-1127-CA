@@ -24,6 +24,8 @@ export interface MovInventario {
   producto_id: string;
   nombre: string;
   unidad: string | null;
+  /** Categoría del víver en el inventario, para la búsqueda. */
+  categoria?: string | null;
   fecha: string;
   /** Positivo entró, negativo salió. */
   delta: number;
@@ -79,7 +81,7 @@ export function rotuloOrigen(origen: string | null | undefined, tipo: string): s
  */
 export function filasInventario(
   filas: FilaKardex[],
-  viveres: { id: string; nombre: string; unidad: string | null }[],
+  viveres: { id: string; nombre: string; unidad: string | null; categoria?: string | null }[],
 ): MovInventario[] {
   const porId = new Map(viveres.map((p) => [p.id, p]));
   return filas
@@ -91,6 +93,7 @@ export function filasInventario(
         producto_id: r.producto_id,
         nombre: p.nombre,
         unidad: p.unidad ?? null,
+        categoria: p.categoria ?? null,
         fecha: r.at,
         delta: round2(Number(r.delta) || 0),
         tipo: r.tipo,
@@ -121,14 +124,33 @@ export function totalesInventario(filas: MovInventario[]): TotalesInventario {
   return { entradas, salidas, filas: filas.length };
 }
 
-/** Busca por víver, comprobante, motivo, responsable, origen o fecha, sin acentos. */
+/**
+ * Busca por víver, categoría, comprobante, motivo, responsable, tipo de movimiento,
+ * fecha o cantidad, sin acentos. Con varias palabras, tienen que estar todas
+ * (09/10/2026).
+ */
 export function buscarInventario(filas: MovInventario[], texto: string): MovInventario[] {
   // Se recorta: un espacio suelto en el buscador vaciaba la tabla entera.
-  const q = norm(texto).trim();
-  if (!q) return filas;
-  return filas.filter((f) => norm([
-    f.nombre, f.comprobante, f.detalle, f.responsable, rotuloOrigen(f.origen, f.tipo), f.fecha,
-  ].filter(Boolean).join(' ')).includes(q));
+  const palabras = norm(texto).split(/\s+/).filter(Boolean);
+  if (!palabras.length) return filas;
+  return filas.filter((f) => {
+    const cant = String(Math.abs(f.delta));
+    const t = norm([
+      f.nombre, f.categoria, f.unidad, f.comprobante, f.detalle, f.responsable, rotuloOrigen(f.origen, f.tipo),
+      f.tipo, f.delta > 0 ? 'entrada entro' : 'salida salio', f.fecha, cant, cant.replace('.', ','),
+    ].filter(Boolean).join(' '));
+    return palabras.every((p) => t.includes(p));
+  });
 }
 
-const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+/** Los tipos de movimiento que hay en la tabla, para el selector (sin repetir, en orden). */
+export function tiposInventario(filas: MovInventario[]): string[] {
+  return [...new Set(filas.map((f) => rotuloOrigen(f.origen, f.tipo)))].sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/** Deja solo el tipo de movimiento elegido (vacío = todos). */
+export function filtrarTipoInventario(filas: MovInventario[], tipo: string): MovInventario[] {
+  return tipo ? filas.filter((f) => rotuloOrigen(f.origen, f.tipo) === tipo) : filas;
+}
+
+const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');

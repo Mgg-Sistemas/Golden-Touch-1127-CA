@@ -12,6 +12,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import { push } from '@/modules/notificaciones/notif.repository';
 import { adjuntosCocina, MODULO_ADJUNTO_COCINA } from './adjuntosCocina.repository';
 import { consumenDeMas, mensajeViveresInactivos } from './viveresActivos';
+import { disponibleParaConsumo, mensajeExcedeStock, primerExcesoDeStock, superaStock } from './consumoStock';
 
 const TABLE = 'cocina_movimientos';
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -220,17 +221,27 @@ async function almacenesConStock(productoId: string, preferido?: string | null):
 /**
  * Descuenta `cantidad` de un víver tomándola del/los almacén(es) con stock (mayor
  * stock primero, o el preferido si lo tiene). Reparte el consumo entre varios almacenes
- * si hace falta (derrame). Si el stock total no alcanza, el resto se descuenta igual del
- * almacén preferido (o el primero con stock) para dejar la traza. Devuelve lo consumido.
+ * si hace falta (derrame).
+ *
+ * NO CONSUME MÁS DE LO QUE HAY (09/10/2026). Antes, si el stock no alcanzaba, el resto
+ * se descontaba igual «para dejar la traza» y el inventario quedaba en 0 con la
+ * diferencia perdida. Ahora se corta ANTES de tocar nada, con el aviso «hay X y quieres
+ * usar Y». La base repite la regla (trg_cocina_consumo_no_supera_stock).
  */
 async function consumirDeInventario(o: {
   productoId: string; cantidad: number; almacenPreferido?: string | null;
   actor: string; actorName?: string | null; detalle: string;
   refId?: string | null; refCodigo?: string | null;
+  /** Nombre y unidad del víver, para el aviso si no alcanza. */
+  nombre?: string; unidad?: string | null;
 }): Promise<void> {
   let restante = round2(Math.abs(o.cantidad));
   if (restante <= 0) return;
   const fuentes = await almacenesConStock(o.productoId, o.almacenPreferido);
+  const hay = fuentes.reduce((a, f) => a + f.stock, 0);
+  if (superaStock(restante, hay)) {
+    throw new Error(mensajeExcedeStock({ nombre: o.nombre ?? 'el víver', hay, quiere: restante, unidad: o.unidad }));
+  }
   for (const f of fuentes) {
     if (restante <= 1e-9) break;
     const toma = Math.min(restante, f.stock);
@@ -242,16 +253,36 @@ async function consumirDeInventario(o: {
     });
     restante = round2(restante - toma);
   }
-  if (restante > 1e-9) {
-    // No había stock suficiente en ningún almacén: se descuenta el resto del almacén
-    // preferido (o el primero con stock) para dejar el registro (la RPC no baja de 0).
-    const alm = o.almacenPreferido || fuentes[0]?.almacen || null;
-    await registrarMovimiento({
-      producto_id: o.productoId, tipo: 'consumo', delta: -restante, almacen: alm,
-      actor: o.actor, actor_name: o.actorName ?? null, ref_tipo: 'cocina',
-      ref_id: o.refId ?? null, ref_codigo: o.refCodigo ?? null, detalle: o.detalle,
-    });
+}
+
+/**
+ * Antes de guardar, se lee el stock de la base (no el de la pantalla, que puede estar
+ * viejo) y se corta si algún víver no alcanza. `yaConsumido` es lo que la comida tenía
+ * al corregirla: vuelve al inventario, así que cuenta como disponible.
+ */
+async function exigirStockSuficiente(
+  items: CocinaItem[], yaConsumido: ReadonlyMap<string, number> = new Map(),
+): Promise<void> {
+  const pedido = new Map<string, { cant: number; nombre: string; unidad: string | null }>();
+  for (const it of items) {
+    const p = pedido.get(it.producto_id);
+    pedido.set(it.producto_id, { cant: (p?.cant ?? 0) + Number(it.cantidad || 0), nombre: it.nombre, unidad: it.unidad ?? p?.unidad ?? null });
   }
+  // Solo los que la comida usa de más respecto a lo que ya tenía.
+  const ids = [...pedido.entries()].filter(([pid, x]) => x.cant > (yaConsumido.get(pid) ?? 0)).map(([pid]) => pid);
+  if (!ids.length) return;
+  const { data, error } = await supabase.from('productos').select('id, nombre, unidad, stock').in('id', ids);
+  if (error) throw error;
+  const porId = new Map(((data ?? []) as Pick<Producto, 'id' | 'nombre' | 'unidad' | 'stock'>[]).map((p) => [p.id, p]));
+  const msg = primerExcesoDeStock(ids.map((pid) => {
+    const x = pedido.get(pid)!;
+    const p = porId.get(pid);
+    return {
+      nombre: p?.nombre ?? x.nombre, unidad: p?.unidad ?? x.unidad, cantidad: x.cant,
+      disponible: disponibleParaConsumo(p?.stock ?? 0, yaConsumido.get(pid) ?? 0),
+    };
+  }));
+  if (msg) throw new Error(msg);
 }
 
 /**
@@ -279,6 +310,8 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
   if (!Number.isFinite(input.platos) || input.platos <= 0) throw new Error('Indica cuántos platos se realizaron (mayor que 0).');
 
   await exigirViveresActivos(items.map((i) => i.producto_id));
+  // Ni el registro se crea si algún víver no alcanza (09/10/2026).
+  await exigirStockSuficiente(items);
 
   // ── GT-SIN-13 · El REGISTRO va primero, el descuento después ────────────────
   // Antes se descontaban los N víveres y recién al final se insertaba el
@@ -317,6 +350,7 @@ export async function crearMovimientoCocina(input: CrearMovimientoCocinaInput): 
         actor: input.actor,
         actorName: input.actorName ?? null,
         detalle: `Consumo cocina · ${labelTipoComida(input.tipoComida)} · ${it.sku} ${it.nombre}`,
+        nombre: it.nombre, unidad: it.unidad ?? null,
         refId: mov.id,
         refCodigo: codigo,
       });
@@ -403,6 +437,8 @@ export async function actualizarMovimientoCocina(id: string, input: ActualizarMo
   };
   const viejo = acumular(Array.isArray(prev.items) ? prev.items : []);
   const nuevo = acumular(items);
+  // Lo que la comida ya tenía vuelve al stock: cuenta como disponible para la corrección.
+  await exigirStockSuficiente(items, new Map([...viejo].map(([pid, x]) => [pid, x.cant])));
 
   // 2) Reconciliar inventario por la diferencia (stockDelta = viejo − nuevo).
   for (const pid of new Set([...viejo.keys(), ...nuevo.keys()])) {
@@ -415,6 +451,7 @@ export async function actualizarMovimientoCocina(id: string, input: ActualizarMo
       // Consumo extra: se descuenta del/los almacén(es) con stock.
       await consumirDeInventario({
         productoId: pid, cantidad: Math.abs(stockDelta), almacenPreferido: meta.almacen ?? null,
+        nombre: meta.nombre,
         actor: input.actor, actorName: input.actorName ?? null, detalle, refId: id, refCodigo: prev.codigo,
       });
     } else {

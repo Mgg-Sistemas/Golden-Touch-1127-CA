@@ -122,6 +122,9 @@ export function HistorialSueldoModal({
           <button className="btn btn-ghost" disabled={!filas.length}
             onClick={() => { void descargarHistorialSueldoPdf(persona, filas).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}
             title="El papel que respalda el aumento, para el expediente">↓ PDF</button>
+          <button className="btn btn-ghost" disabled={!filas.length}
+            onClick={() => { void import('./historialSalarialReportes').then((m) => m.descargarHistorialSueldoExcel(persona, filas)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error')); }}
+            title="El mismo historial en Excel">↓ Excel</button>
           {canWrite && !abierto && (
             <button className="btn btn-primary" onClick={() => { limpiar(); setAbierto(true); setError(null); }}>
               💵 Cambiar sueldo

@@ -45,6 +45,7 @@ import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
 import { errorHorometro } from './horometroEquipo';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion } from './mermaRecepcion';
+import { errorSaldoInsuficiente, etiquetaTanque, litrosExtraQueSalen, saleDelTanque, tanqueSinLitros } from './saldoSuficiente';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -936,6 +937,14 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     ? mermaDeRecepcion(Number(litros) || 0, recibidos.trim() === '' ? null : Number(recibidos.replace(',', '.')), margenRecibe)
     : { ok: null, error: null };
 
+  // No se saca más de lo que hay (09/10/2026): uso, merma, traslado y envío a MGG restan
+  // del tanque elegido. Se avisa mientras se escribe y el botón no deja guardar.
+  const tanqueOrigen = tanques.find((t) => t.id === tanqueId);
+  const origenVacio = !!tanqueOrigen && saleDelTanque(tipo) && tanqueSinLitros(tanqueOrigen.saldo_litros);
+  const errSaldo = tanqueOrigen && saleDelTanque(tipo)
+    ? errorSaldoInsuficiente({ nombre: tanqueOrigen.nombre, saldo: tanqueOrigen.saldo_litros, litros: Number(litros) || 0 })
+    : null;
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -943,6 +952,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     if (litros.trim() === '' || litrosNum === 0) { setError('Indica los litros (se admiten negativos, como en el Excel).'); return; }
     if (tipo === 'traslado' && !destinoId) { setError('Indica el tanque destino del traslado.'); return; }
     if (tipo === 'traslado' && destinoId === tanqueId) { setError('El tanque destino debe ser distinto.'); return; }
+    if (errSaldo) { setError(errSaldo); return; }
     // HF < HI dejaría horas negativas y el próximo surtido del equipo arrancaría mal.
     const errHor = errorHorometro(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
     if (errHor) { setError(errHor); return; }
@@ -973,7 +983,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="tnk-mov" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Registrar movimiento'}</button>
+      <button type="submit" form="tnk-mov" className="btn btn-primary" disabled={saving || !!errSaldo}>{saving ? 'Guardando…' : 'Registrar movimiento'}</button>
     </>
   );
   return (
@@ -984,7 +994,8 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           <div className="form-row">
             <label>Tanque</label>
             <SearchSelect value={tanqueId} onChange={setTanqueId} placeholder="Buscar tanque…"
-              options={tanques.map((t) => ({ value: t.id, label: `${t.nombre} · ${num(t.saldo_litros)} L` }))} />
+              options={tanques.map((t) => ({ value: t.id, label: etiquetaTanque(t.nombre, t.saldo_litros) }))} />
+            {origenVacio && <small style={{ color: 'var(--danger)' }}>{tanqueOrigen?.nombre} está sin litros: solo admite entradas y retornos.</small>}
           </div>
           <div className="form-row">
             <label>Tipo de movimiento</label>
@@ -1014,6 +1025,9 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
           <div className="form-row">
             <label>Litros</label>
             <input className="input mono" type="number" step="any" name="mov-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} required />
+            {errSaldo
+              ? <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>
+              : tanqueOrigen && saleDelTanque(tipo) && <small className="muted">Disponible en {tanqueOrigen.nombre}: {num(Math.max(0, Number(tanqueOrigen.saldo_litros) || 0))} L.</small>}
           </div>
           {tipo === 'entrada' && (
             <div className="form-row">
@@ -1175,10 +1189,17 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   const hrs = hi !== '' && hf !== '' ? Number(hf) - Number(hi) : null;
   const litrosContador = ci !== '' && cf !== '' ? Number(cf) - Number(ci) : null;
   const montoCalc = litros !== '' && tasa !== '' ? Number(litros) * Number(tasa) : null;
+  // Si la edición SACA más litros del tanque (subir un surtido, pasarlo a uso…), tiene que
+  // caber en lo que hay. Bajar litros o corregir un histórico no se frena.
+  const extraSale = litrosExtraQueSalen({ tipo: mov.tipo, litros: mov.litros }, { tipo, litros: Number(litros) || 0 });
+  const errSaldo = tanque && extraSale > 0
+    ? errorSaldoInsuficiente({ nombre: tanque.nombre, saldo: tanque.saldo_litros, litros: extraSale, edicion: true })
+    : null;
 
   async function guardar() {
     setError(null);
     if (litros === '' || Number(litros) === 0) { setError('Indica los litros (distinto de 0).'); return; }
+    if (errSaldo) { setError(errSaldo); return; }
     // La misma regla que al registrar: un final menor que el inicial no se guarda.
     const errHor = errorHorometro(hi === '' ? null : Number(hi), hf === '' ? null : Number(hf));
     if (errHor) { setError(errHor); return; }
@@ -1200,7 +1221,7 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>
-      {canWrite && <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>}
+      {canWrite && <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={saving || !!errSaldo}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>}
     </>
   );
 
@@ -1235,7 +1256,8 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
             <option value="merma">{TIPO_MOV_LABEL.merma}</option>
           </select>
         </div>
-        <div className="form-row"><label>Litros</label><input className="input mono" type="number" step="any" name="det-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} disabled={!canWrite} /></div>
+        <div className="form-row"><label>Litros</label><input className="input mono" type="number" step="any" name="det-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} disabled={!canWrite} />
+          {errSaldo && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>}</div>
       </div>
       <div className="form-grid">
         <div className="form-row"><label>Tasa $/L</label><input className="input mono" type="number" step="0.0001" name="det-tasa" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite} /></div>

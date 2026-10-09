@@ -817,7 +817,7 @@ export async function detalleViverCiclo(m: Mercado, productoId: string, hastaISO
 export async function listMovInventarioCiclo(
   m: Mercado, viveres: Producto[], hastaISO?: string,
 ): Promise<MovInventario[]> {
-  const secos = viveres.map((p) => ({ id: p.id, nombre: p.nombre, unidad: p.unidad ?? null }));
+  const secos = viveres.map((p) => ({ id: p.id, nombre: p.nombre, unidad: p.unidad ?? null, categoria: p.categoria ?? null }));
 
   // Ciclo cerrado con su foto: se lee de ahí, como el detalle del víver.
   if (tieneCongelados(m)) {

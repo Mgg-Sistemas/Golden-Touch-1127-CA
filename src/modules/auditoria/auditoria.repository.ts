@@ -35,6 +35,7 @@ export const MODULO_TABLA: Record<string, { modulo: string; icono: string }> = {
   productos:                    { modulo: 'Inventario',          icono: '📦' },
   recepciones_cierres:          { modulo: 'Recepciones',         icono: '⚖' },
   nomina_renglones:             { modulo: 'RRHH / Nómina',       icono: '👛' },
+  nomina_periodos:              { modulo: 'RRHH / Nómina',       icono: '📋' },
   combustible_tanque_movimientos:{ modulo: 'Combustible',        icono: '⛽' },
   maquinaria_equipos:           { modulo: 'Maquinaria',          icono: '🚜' },
   maquinaria_mantenimientos:    { modulo: 'Maquinaria · Bitácora', icono: '🔧' },

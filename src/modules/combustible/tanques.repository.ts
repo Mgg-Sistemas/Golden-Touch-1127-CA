@@ -12,6 +12,7 @@ import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustibl
 import { compararMovimientos, horaOrden } from './horaMovimiento';
 import { completarContador, pasaPorSurtidor } from './contadorSurtidor';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion, observacionMerma, type MermaRecepcion } from './mermaRecepcion';
+import { errorSaldoInsuficiente, litrosExtraQueSalen } from './saldoSuficiente';
 import { push } from '@/modules/notificaciones/notif.repository';
 import type {
   CatalogoCombustible,
@@ -517,6 +518,17 @@ async function camposConContador(
   return { ...c, contadorGlobalIni: ini, contadorGlobalFin: fin, horometroIni };
 }
 
+/**
+ * No se saca de un tanque más de lo que tiene (09/10/2026). Se revisa con el saldo
+ * recién leído, antes de escribir, para dar el mensaje claro sin tocar el libro. La
+ * garantía de verdad está en la base (trigger combustible_tanque_sin_sobregiro), que
+ * bloquea el tanque y frena el segundo de dos surtidos simultáneos. Ver saldoSuficiente.ts.
+ */
+function exigirSaldo(t: TanqueCombustible, litros: number, edicion = false): void {
+  const err = errorSaldoInsuficiente({ nombre: t.nombre, saldo: t.saldo_litros, litros, edicion });
+  if (err) throw new Error(err);
+}
+
 /** Lo que se midió al recibir una entrada o un traslado (ver mermaRecepcion.ts). */
 export interface RecepcionMedida {
   /** Litros que llegaron de verdad. Vacío = no se midió y no hay merma. */
@@ -631,6 +643,7 @@ export async function registrarUso(input: {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
+  exigirSaldo(t, litros);
   const tasa = num(t.tasa_usd_litro);
 
   const mov = await insertarMovimiento({
@@ -658,6 +671,7 @@ export async function registrarMerma(input: {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
+  exigirSaldo(t, litros);
   const tasa = num(t.tasa_usd_litro);
 
   const mov = await insertarMovimiento({
@@ -716,9 +730,10 @@ export async function registrarTraslado(input: {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   if (input.tanqueDestinoId && input.tanqueDestinoId === input.tanqueId) throw new Error('El destino debe ser un tanque distinto.');
+  const t = await getTanque(input.tanqueId);
+  exigirSaldo(t, litros);
   // El margen es el del tanque que RECIBE. Se revisa antes de mover nada.
   const merma = input.tanqueDestinoId ? await prepararMerma(input.tanqueDestinoId, litros, input.recepcion) : null;
-  const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
   // El contador es el del surtidor del tanque ORIGEN; la entrada reflejo lleva el mismo.
@@ -777,6 +792,7 @@ export async function registrarTrasladoMGG(input: {
   const litros = num(input.litros);
   if (litros <= 0) throw new Error('Para enviar a MGG los litros deben ser mayores que 0.');
   const t = await getTanque(input.tanqueId);
+  exigirSaldo(t, litros);
   const tasa = num(t.tasa_usd_litro);
   const transfId = crypto.randomUUID();
   const obsBase = input.campos?.observacion?.trim();
@@ -1122,8 +1138,30 @@ export async function actualizarMovimientoTanque(
 ): Promise<void> {
   // Equipo previo: si la edición lo cambia, hay que re-encadenar también la cadena vieja.
   const { data: prev } = await supabase.from('combustible_tanque_movimientos')
-    .select('equipo').eq('id', id).maybeSingle();
+    .select('equipo, tipo, litros, tanque_id, mov_vinculado_id').eq('id', id).maybeSingle();
   const equipoViejo = (prev as { equipo?: string | null } | null)?.equipo ?? null;
+
+  // Una edición que SACA más litros (subir un surtido, pasar una entrada a uso…) tiene que
+  // caber en el tanque. Se revisa antes de escribir nada, también en la otra pata de un
+  // traslado: si no, se guardaba esta fila y la contraparte fallaba a medias. Bajar litros
+  // o corregir históricos no se frena (ver saldoSuficiente.ts).
+  if (prev && (patch.tipo != null || patch.litros != null)) {
+    const p = prev as { tipo: TipoMovTanque; litros: number | null; tanque_id: string; mov_vinculado_id: string | null };
+    const extra = litrosExtraQueSalen(
+      { tipo: p.tipo, litros: p.litros },
+      { tipo: patch.tipo ?? p.tipo, litros: patch.litros ?? p.litros },
+    );
+    if (extra > 0) exigirSaldo(await getTanque(p.tanque_id), extra, true);
+    if (p.mov_vinculado_id && patch.litros != null) {
+      const { data: cp } = await supabase.from('combustible_tanque_movimientos')
+        .select('tipo, litros, tanque_id').eq('id', p.mov_vinculado_id).maybeSingle();
+      const c = cp as { tipo: TipoMovTanque; litros: number | null; tanque_id: string } | null;
+      if (c) {
+        const extraCp = litrosExtraQueSalen({ tipo: c.tipo, litros: c.litros }, { tipo: c.tipo, litros: patch.litros });
+        if (extraCp > 0) exigirSaldo(await getTanque(c.tanque_id), extraCp, true);
+      }
+    }
+  }
 
   const upd: Record<string, unknown> = { ...campos(patch), updated_at: new Date().toISOString() };
   const afectaSaldo = patch.tipo != null || patch.litros != null || patch.tasaUsdLitro != null;

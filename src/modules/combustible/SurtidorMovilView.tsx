@@ -38,6 +38,7 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto } from './contadorSurtidor';
 import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
+import { errorSaldoInsuficiente, etiquetaTanque, tanqueSinLitros } from './saldoSuficiente';
 
 /** Cuántos movimientos se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMOS_EN_TELEFONO = 10;
@@ -142,20 +143,27 @@ export function SurtidorMovilView() {
                 onClick={() => { setSelId(t.id); setPaso('inicio'); }}>
                 <div className="nombre">{t.nombre}</div>
                 <div className="saldo">{num(t.saldo_litros)} <small>L</small></div>
+                {tanqueSinLitros(t.saldo_litros) && <div className="muted" style={{ fontSize: '.75rem', color: 'var(--danger)' }}>Sin litros</div>}
               </button>
             ))}
           </div>
         </>
       )}
 
+      {sel && paso === 'inicio' && canWrite && tanqueSinLitros(sel.saldo_litros) && (
+        <div className="aviso warning sm" style={{ margin: '.75rem 0' }}>
+          <span className="aviso-icono">⛔</span>
+          <div><strong>{sel.nombre} está sin litros.</strong> No se puede surtir ni pasar a otro tanque hasta que entre combustible.</div>
+        </div>
+      )}
       {sel && paso === 'inicio' && canWrite && (
         <div className="surt-acciones">
-          <button type="button" className="surt-btn primario" onClick={() => abrirForm('uso')}>
+          <button type="button" className="surt-btn primario" onClick={() => abrirForm('uso')} disabled={tanqueSinLitros(sel.saldo_litros)}>
             <span className="icono" aria-hidden>⛽</span>
             <span>Surtir a un equipo</span>
             <small>Sale combustible de {sel.nombre} a un equipo o camión</small>
           </button>
-          <button type="button" className="surt-btn" onClick={() => abrirForm('traslado')}>
+          <button type="button" className="surt-btn" onClick={() => abrirForm('traslado')} disabled={tanqueSinLitros(sel.saldo_litros)}>
             <span className="icono" aria-hidden>🔁</span>
             <span>Pasar a otro tanque</span>
             <small>Traslado a otro tanque</small>
@@ -277,6 +285,8 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
   // El contador al terminar es donde arranca el siguiente surtido: si se deja vacío, se
   // guarda inicial + litros (lo completa el repositorio; aquí solo se muestra).
   const cfPropuesto = contadorFinalPropuesto(ci === '' ? null : Number(ci), litrosNum);
+  // No se surte más de lo que hay (09/10/2026): se avisa mientras se escribe y no deja guardar.
+  const errSaldo = sale ? errorSaldoInsuficiente({ nombre: tanque.nombre, saldo: tanque.saldo_litros, litros: litrosNum }) : null;
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -285,7 +295,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
     if (tipo === 'uso' && !equipo) { setError('Indica a qué equipo o camión va el combustible.'); return; }
     if (tipo === 'traslado' && !destinoId) { setError('Indica a qué tanque pasa el combustible.'); return; }
     if (tipo === 'entrada' && !(costoNum >= 0)) { setError('Indica el costo por litro.'); return; }
-    if (sale && litrosNum > (Number(tanque.saldo_litros) || 0)) { setError(`El tanque tiene ${num(tanque.saldo_litros)} L: no alcanza para ${num(litrosNum)} L.`); return; }
+    if (errSaldo) { setError(errSaldo); return; }
     // HF < HI dejaría horas negativas y el próximo surtido del equipo arrancaría mal.
     let hiNum = hi === '' ? null : Number(hi); const hfNum = hf === '' ? null : Number(hf);
     // Con mala señal el inicial puede no haber llegado todavía: se pide ahora, antes de guardar,
@@ -344,6 +354,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
         <label htmlFor="surt-litros">Litros</label>
         <input id="surt-litros" className="input surt-input surt-litros" type="number" inputMode="decimal" step="any" min={0}
           value={litros} onChange={(e) => setLitros(e.target.value)} placeholder="0" autoFocus required />
+        {errSaldo && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>}
       </div>
 
       {tipo === 'entrada' && (
@@ -360,7 +371,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
           <label htmlFor="surt-destino">¿A qué tanque pasa?</label>
           <div className="surt-buscable">
             <SearchSelect id="surt-destino" value={destinoId} onChange={setDestinoId} placeholder="🔍 Busca el tanque…"
-              options={destinos.map((t) => ({ value: t.id, label: `${t.nombre} · ${num(t.saldo_litros)} L` }))} />
+              options={destinos.map((t) => ({ value: t.id, label: etiquetaTanque(t.nombre, t.saldo_litros) }))} />
           </div>
         </div>
       )}
@@ -511,7 +522,7 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, actor, actorName,
           </div>
         </div>
       )}
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando}>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!errSaldo}>
         {guardando
           ? (etapa === 'fotos' ? `Subiendo ${adjuntos.length === 1 ? 'la foto' : `${adjuntos.length} fotos`}…` : 'Guardando…')
           : `✔ Registrar ${tipo === 'uso' ? 'surtido' : tipo === 'traslado' ? 'traslado' : 'entrada'}`}
