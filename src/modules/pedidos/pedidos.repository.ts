@@ -357,6 +357,9 @@ export async function actualizarOrdenEditable(
     /** IVA escrito a mano al editar (servicios, 01/10/2026). Manda sobre el de la oferta:
      *  se puede prender, apagar o corregir. Solo se aplica junto con `total`. */
     iva?: IvaEditado;
+    /** Condición de pago (contado, contra entrega, anticipado, crédito). Solo mientras la OC
+     *  espera la aprobación del Gerente General: al aprobarla, el estado sale de aquí. */
+    condiciones_pago?: string | null;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -388,6 +391,11 @@ export async function actualizarOrdenEditable(
     )
     : null;
   const ivaCambia = !!conIvaEditado && ivaCambio(impPrevOrden, conIvaEditado);
+  const condNueva = patch.condiciones_pago !== undefined ? (patch.condiciones_pago?.trim() || null) : undefined;
+  const condCambia = condNueva !== undefined && condNueva !== (o.condiciones_pago ?? null);
+  if (condCambia && o.estado !== 'oc_creada') {
+    throw new Error('La condición de pago solo se cambia mientras la OC espera la aprobación del Gerente General.');
+  }
   const cambioMaterial = itemsCambian || descCambiaMaterial || ivaCambia;
   // Solo un cambio MATERIAL sobre una OC ya FIRMADA (confirmada_metodo) la devuelve a
   // aprobación del Gerente General (vuelve a `oc_creada`) y limpia la firma previa. Guardar
@@ -398,8 +406,10 @@ export async function actualizarOrdenEditable(
       ...(vuelveAGerente ? { nota: 'Modificada tras la firma · vuelve a aprobación del Gerente General' } : {}),
       ...(descCambia ? { descuento_obtenido: descNuevo } : {}),
       ...(ivaCambia && conIvaEditado ? { iva_anterior: impPrevOrden.ivaAplicado ? impPrevOrden.ivaMonto : 0, iva_nuevo: conIvaEditado.ivaMonto } : {}),
+      ...(condCambia ? { condicion_anterior: o.condiciones_pago ?? null, condicion_nueva: condNueva } : {}),
     }),
   };
+  if (condCambia) upd.condiciones_pago = condNueva;
   if (descCambia) upd.descuento_obtenido = descNuevo;
   if (vuelveAGerente) {
     upd.estado = 'oc_creada' as EstadoOrden;
@@ -466,6 +476,12 @@ export async function actualizarOrdenEditable(
       iva_monto: conIvaEditado.ivaAplicado ? conIvaEditado.ivaMonto : 0,
     }).eq('orden_id', o.id).eq('estado', 'aceptada');
     if (eOf) throw eOf;
+  }
+  // La condición de pago también sale de la oferta aceptada: se mantiene igual en las dos.
+  if (condCambia) {
+    const { error: eCond } = await supabase.from('ofertas_proveedor').update({ condiciones_pago: condNueva })
+      .eq('orden_id', o.id).eq('estado', 'aceptada');
+    if (eCond) throw eCond;
   }
   return data as Orden;
 }
