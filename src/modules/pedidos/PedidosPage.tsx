@@ -69,7 +69,7 @@ import type { RecepcionRenglon } from './pedidos.repository';
 import { MarcaRecibidaCampos, useMarcasRecibidas } from './MarcaRecibidaCampos';
 import { avisarCambiosDeMarca } from './avisoMarcaDistinta';
 import { descargarOrdenesPorPagarPdf } from '@/modules/tesoreria/ordenesPorPagarPdf';
-import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl } from './ofertas.repository';
+import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 import { esRecargaAgua } from './servicios.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
@@ -2407,8 +2407,11 @@ function OrdenDetailModal({
   // Editar la orden: en cualquier etapa hasta indicar el método de pago. Si ya está
   // FIRMADA por el GG (confirmada_metodo), igual se puede modificar, pero al guardar
   // la OC VUELVE A APROBACIÓN del Gerente General. Tras enviarla a pagar, se congela.
-  const puedeEditarOc = canManageProcurement
-    && (['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'] as string[]).includes(o.estado);
+  // El Gerente General (quien aprueba OC) también la edita mientras espera SU aprobación,
+  // aunque no tenga el permiso de Compras: corrige antes de firmar en vez de devolverla.
+  const puedeEditarOc = (canManageProcurement
+    && (['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'] as string[]).includes(o.estado))
+    || (isOcCreada && puedeAprobarOc(usuarioRole, actorEmail));
 
   // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
   const creditoSaldadoDet = isCuentaAbierta && (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
@@ -2541,9 +2544,9 @@ function OrdenDetailModal({
       {puedeEditarOc && (
         <button className="btn btn-ghost" onClick={onEditarOrden}
           title={isOcCreada
-            ? 'Agregar productos (del inventario o nuevos), cambiar cantidades o precios dentro de la cotización ya aceptada, antes de que apruebe el Gerente General. La oferta aceptada se actualiza con los mismos renglones y la OC sigue pendiente de aprobación.'
+            ? 'Editar todo lo de la OC antes de aprobarla: unidad solicitante, solicitante, motivo, finalidad, productos (agregar, quitar, cantidades y costos), descuento, IVA, condición de pago, clasificación, urgencia, nota y adjunto. La oferta aceptada se actualiza con los mismos datos y la OC sigue pendiente de aprobación.'
             : 'Modificar ítems, cantidades, costo de los productos, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.'}>
-          {isOcCreada ? '✎ Editar orden / agregar productos' : '✎ Editar orden'}
+          {isOcCreada ? '✎ Editar OC (todo)' : '✎ Editar orden'}
         </button>
       )}
       {canCancel && (
@@ -4176,10 +4179,11 @@ function EditarOrdenModal({
   // al cambiar una cantidad, la pantalla prometía un total y se guardaba otro.
   const impPreviosOrden = impuestosDeOrden(orden);
   const baseOrdenPrev = baseNetaDesdeTotal(orden.total, impPreviosOrden);
-  // IVA editable en los SERVICIOS (01/10/2026, pedido del usuario): al editar la orden de
-  // un servicio con precio, el IVA se puede prender, apagar o corregir, en % o en monto.
-  // Con un % cargado, el monto sigue a la base mientras no se escriba a mano.
-  const ivaEditable = editarPrecios && orden.tipo === 'servicio';
+  // IVA editable en TODA OC con precio (servicios desde el 01/10/2026; productos desde el
+  // 10/10/2026, para que el Gerente General corrija todo antes de aprobar): se puede prender,
+  // apagar o corregir, en % o en monto. Con un % cargado, el monto sigue a la base mientras
+  // no se escriba a mano.
+  const ivaEditable = editarPrecios;
   const [conIva, setConIva] = useState(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0);
   const [ivaPct, setIvaPct] = useState(String(impPreviosOrden.ivaPct > 0 ? impPreviosOrden.ivaPct : 16));
   const [ivaMontoStr, setIvaMontoStr] = useState(impPreviosOrden.ivaAplicado && impPreviosOrden.ivaMonto > 0 ? String(impPreviosOrden.ivaMonto) : '');
@@ -4221,6 +4225,12 @@ function EditarOrdenModal({
   const [clasifSel, setClasifSel] = useState<string[]>(orden.clasificacion ?? []);
   const [urgente, setUrgente] = useState(!!orden.urgente);
   const [notas, setNotas] = useState(orden.notas ?? '');
+  const [motivo, setMotivo] = useState(orden.motivo ?? '');
+  const [finalidad, setFinalidad] = useState(orden.finalidad ?? '');
+  // Condición de pago: solo mientras la OC espera la aprobación del Gerente General (al
+  // aprobarla, el estado al que pasa sale de aquí).
+  const condicionEditable = orden.estado === 'oc_creada';
+  const [condicion, setCondicion] = useState(orden.condiciones_pago ?? '');
   // Pago anticipado (adelanto parcial) de la OC de servicio: editable aquí mientras la orden
   // tenga total y no esté pagada/cerrada. No toca caja; se resta del total y el resto queda a
   // crédito (misma lógica que el bloque «Pago anticipado» del detalle). En blanco/0 lo quita.
@@ -4394,8 +4404,9 @@ function EditarOrdenModal({
         total: editarPrecios ? Math.round(totalEditado * 100) / 100 : undefined,
         descuento_obtenido: editarPrecios ? descuentoObtNum : undefined,
         iva: ivaEditado ?? undefined,
-        motivo: orden.motivo ?? null,
-        finalidad: orden.finalidad ?? null,
+        motivo: motivo.trim() || null,
+        finalidad: finalidad.trim() || null,
+        ...(condicionEditable ? { condiciones_pago: condicion || null } : {}),
         solicitante: solicitante.trim() || null,
         ci_solicitante: ciSolicitante.trim() || null,
         unidad_solicitante: unidadSol.trim().toUpperCase() || null,
@@ -4447,9 +4458,11 @@ function EditarOrdenModal({
   return (
     <Modal title={`Editar ${esOp ? 'solicitud de pedido' : 'orden'} · ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.8rem' }}>
-        Modifica solicitante, unidad, ítems, clasificación y urgencia. {esOp
-          ? 'Disponible mientras la solicitud de pedido esté pendiente (antes de aprobarla).'
-          : 'Disponible hasta que el Gerente General apruebe la OC.'}
+        {orden.estado === 'oc_creada'
+          ? 'OC pendiente de aprobación del Gerente General: se puede editar todo — unidad solicitante, solicitante, motivo, finalidad, productos, cantidades, costos, descuento, IVA, condición de pago, clasificación, urgencia, nota y adjunto.'
+          : <>Modifica solicitante, unidad, ítems, clasificación y urgencia. {esOp
+            ? 'Disponible mientras la solicitud de pedido esté pendiente (antes de aprobarla).'
+            : 'Disponible hasta que el Gerente General apruebe la OC.'}</>}
       </p>
       {Number(orden.total) > 0 && (
         <div className="card" style={{ borderColor: 'var(--warning, #f59e0b)', marginBottom: '.6rem', fontSize: '.8rem' }}>
@@ -4497,6 +4510,28 @@ function EditarOrdenModal({
         <label>Cédula del solicitante</label>
         <input className="input mono" value={ciSolicitante} onChange={(e) => setCiSolicitante(e.target.value)}
           placeholder="C.I. del solicitante (opcional)" />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.75rem' }}>
+        <div className="form-row" style={{ marginBottom: 0 }}>
+          <label htmlFor="editar-orden-motivo">Motivo <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <input id="editar-orden-motivo" className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)}
+            placeholder="¿Por qué se pide?" />
+        </div>
+        <div className="form-row" style={{ marginBottom: 0 }}>
+          <label htmlFor="editar-orden-finalidad">Finalidad <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          <input id="editar-orden-finalidad" className="input" value={finalidad} onChange={(e) => setFinalidad(e.target.value)}
+            placeholder="¿Para qué se va a usar?" />
+        </div>
+        {condicionEditable && (
+          <div className="form-row" style={{ marginBottom: 0 }}>
+            <label htmlFor="editar-orden-condicion">Condición de pago</label>
+            <select id="editar-orden-condicion" className="select" value={condicion} onChange={(e) => setCondicion(e.target.value)}>
+              <option value="">Contado / anticipado (sin indicar)</option>
+              {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="form-row">
