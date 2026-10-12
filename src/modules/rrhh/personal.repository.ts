@@ -231,6 +231,38 @@ export async function setPersonalActivo(id: string, activo: boolean): Promise<vo
   if (error) throw error;
 }
 
+/** Fecha AAAA-MM-DD → DD-MM-AAAA (para la nota del historial). */
+const ddmmaaaa = (iso: string) => iso.split('-').reverse().join('-');
+
+/**
+ * Reactiva o desactiva a una persona dejando constancia en su historial laboral
+ * (rrhh_eventos, tipo «nota»): qué pasó, cuándo y por qué (12/10/2026). Al reactivar por
+ * reingreso, la fecha de ingreso puede pasar a ser la del reingreso. Nada se borra: el
+ * histórico de pagos, préstamos y anticipos sigue igual.
+ */
+export async function cambiarEstadoPersonal(
+  p: Pick<Personal, 'id' | 'fecha_ingreso'>,
+  cambio: { activo: boolean; fecha: string; motivo: string; detalle?: string | null; actualizarIngreso?: boolean },
+  actorEmail?: string, actorName?: string | null,
+): Promise<void> {
+  if (!cambio.fecha) throw new Error('Indica la fecha.');
+  if (!cambio.motivo.trim()) throw new Error('Indica el motivo.');
+  const patch: Record<string, unknown> = { activo: cambio.activo };
+  if (cambio.activo && cambio.actualizarIngreso) patch.fecha_ingreso = cambio.fecha;
+  const { error } = await supabase.from(TABLE).update(patch).eq('id', p.id);
+  if (error) throw error;
+  const detalle = cambio.detalle?.trim();
+  const ingreso = cambio.activo && cambio.actualizarIngreso && p.fecha_ingreso && p.fecha_ingreso !== cambio.fecha
+    ? ` La fecha de ingreso pasó de ${ddmmaaaa(p.fecha_ingreso)} a ${ddmmaaaa(cambio.fecha)}.` : '';
+  // La nota es la constancia: si no se pudo escribir, se avisa (el cambio de estado ya quedó).
+  const { error: e2 } = await supabase.from('rrhh_eventos').insert({
+    personal_id: p.id, tipo: 'nota', fecha_desde: cambio.fecha,
+    descripcion: `${cambio.activo ? '↩ REACTIVADO' : '⏸ DESACTIVADO'} el ${ddmmaaaa(cambio.fecha)} · ${cambio.motivo.trim()}${detalle ? `: ${detalle}` : ''}.${ingreso}`,
+    creado_por: actorEmail ?? null, actor_name: actorName ?? null,
+  });
+  if (e2) throw new Error(`${cambio.activo ? 'Quedó activo' : 'Quedó inactivo'}, pero no se pudo anotar en su historial: ${e2.message}`);
+}
+
 /** Cuántas filas se van a ir en cascada junto con la persona. */
 export interface ResumenBorradoPersonal {
   documentos: number;
