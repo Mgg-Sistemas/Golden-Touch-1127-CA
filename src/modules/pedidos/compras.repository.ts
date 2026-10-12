@@ -884,6 +884,15 @@ export interface EnviarCompraAPagarInput {
  * veces: o se deja como está, o se corrige el costo en el inventario (ver planRemontaje).
  * La factura se sube aparte (adjuntos).
  */
+/**
+ * Cambia SOLO la nota de una compra directa, en cualquier estado (12/10/2026): se agrega o
+ * corrige desde la tarjeta sin reabrir la compra. La auditoría la registra el trigger.
+ */
+export async function actualizarNotaCompraDirecta(id: string, nota: string): Promise<void> {
+  const { error } = await supabase.from('compras_directas').update({ nota: nota.trim() || null }).eq('id', id);
+  if (error) throw error;
+}
+
 export async function enviarCompraAPagar(input: EnviarCompraAPagarInput): Promise<void> {
   const { compra } = input;
   if (compra.estado === 'finalizada') throw new Error('Esta compra ya fue pagada.');

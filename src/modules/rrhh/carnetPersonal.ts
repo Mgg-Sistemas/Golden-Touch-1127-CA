@@ -2,15 +2,16 @@
    Golden Touch · RRHH · Carnet de personal (imagen PNG)
    Tamaño 54 × 86 mm a 300 DPI = 638 × 1016 px (formato vertical).
 
-   Formato del 12/10/2026 (ordenado como el carnet de La Cantera): SOLO el
-   logo de la empresa —sin CVM, Motor Minero ni Gobierno— y el QR grande.
-   · Frente: marco dorado; arriba el logo de Golden Touch con su RIF (o el
-     de MTO si es de esa nómina); la FOTO con borde naranja, nombre, cédula,
-     el CARGO en mayúsculas y la vigencia; abajo el QR grande con
-     «ESCANEE PARA VERIFICAR» (abre /c/<token>: activo = datos, inactivo =
-     solo logo). Subir el logo es lo que le dio sitio al QR (116 → ~280 px).
-   · Reverso: el logo arriba interrumpiendo el recuadro punteado con el
-     texto legal y el contacto, y la firma autorizada sobre la raya naranja.
+   Formato «solo la empresa» del 12/10/2026: el mismo carnet que MGG armó a
+   partir del de La Cantera. Sin logos de la CVM, Motor Minero ni Gobierno.
+   · Frente: marco dorado; ARRIBA el logo de Golden Touch con su RIF (o el
+     de MTO si es de esa nómina); la FOTO con borde naranja; nombre (primer
+     nombre y primer apellido) y C.I. en letra grande; cargo y vigencia; y
+     abajo, centrado y GRANDE, el QR (abre /c/<token>: activo = datos,
+     inactivo = solo logo). Subir el logo es lo que le dio sitio al QR.
+   · Reverso (sin marco): el logo arriba; el recuadro punteado con el texto
+     de la credencial y el contacto; la firma y el sello lado a lado; una
+     raya naranja y la razón social con el RIF y la ciudad al pie.
    Dos versiones: fondo BLANCO (la del impreso) y fondo NEGRO. En la negra cada
    logo va sobre una placa blanca redondeada, igual que el QR.
    Los logos viven en public/carnet/ (sacados del PDF de muestra).
@@ -46,14 +47,14 @@ export interface PaletaCarnet {
   puntos: string;
   /** Relleno del marco de la foto cuando no hay foto. */
   fotoVacia: string;
-  /** El cargo y el «Escanee para verificar», en el color de la marca (más oscuro que el naranja para que se lea). */
-  cargo: string;
+  /** La vigencia y el RIF del pie, en gris. */
+  gris: string;
 }
 
 /** Colores de cada versión (los contrastes los verifica carnetPersonal.test.ts). */
 export const PALETA_CARNET: Record<TemaCarnet, PaletaCarnet> = {
-  claro: { fondo: '#ffffff', marco: '#c49a1c', naranja: '#f28c00', texto: '#111111', puntos: '#2b2b2b', fotoVacia: '#eef1f5', cargo: '#8a4b00' },
-  oscuro: { fondo: '#15171b', marco: '#d4a72c', naranja: '#f28c00', texto: '#f3f3f3', puntos: '#d0d0d0', fotoVacia: '#262a31', cargo: '#f5a623' },
+  claro: { fondo: '#ffffff', marco: '#c49a1c', naranja: '#f28c00', texto: '#111111', puntos: '#2b2b2b', fotoVacia: '#eef1f5', gris: '#5f6672' },
+  oscuro: { fondo: '#15171b', marco: '#d4a72c', naranja: '#f28c00', texto: '#f3f3f3', puntos: '#d0d0d0', fotoVacia: '#262a31', gris: '#9aa6b5' },
 };
 
 /** El QR va SIEMPRE oscuro sobre blanco: al revés, muchos lectores no lo leen. */
@@ -62,6 +63,7 @@ export const QR_OSCURO = '#111111';
 const img = (archivo: string) => `${import.meta.env.BASE_URL}carnet/${archivo}`;
 const LOGOS = {
   firma: img('firma.jpg'),
+  goldenSello: img('golden-sello.jpg'),
   golden: `${import.meta.env.BASE_URL}${encodeURIComponent('Logo Golden Touch.jpg')}`,
 };
 
@@ -221,16 +223,25 @@ async function dibujarContain(
   } catch { /* un logo que no carga no impide el carnet */ }
 }
 
-/** Pone la letra (negrita) más grande, entre `base` y `min`, con la que el texto entra en `maxW`. Dice si entró. */
-function letraQueQuepa(ctx: CanvasRenderingContext2D, texto: string, base: number, min: number, maxW: number): boolean {
-  for (let size = base; size >= min; size -= 1) {
-    ctx.font = `700 ${size}px ${FUENTE}`;
-    if (ctx.measureText(texto).width <= maxW) return true;
+/**
+ * Texto centrado en negrita (800) que se achica de `size` a `min` y, si aun así no entra,
+ * se parte hasta `maxLineas` renglones. Devuelve la Y siguiente.
+ */
+function textoAjustado(ctx: CanvasRenderingContext2D, texto: string, cx: number, y: number, maxW: number, size: number, min: number, maxLineas: number): number {
+  let t = size;
+  ctx.font = `800 ${t}px ${FUENTE}`;
+  let lineas = partirLineas(ctx, texto, maxW);
+  while ((lineas.length > maxLineas || lineas.some((l) => ctx.measureText(l).width > maxW)) && t > min) {
+    t -= 1;
+    ctx.font = `800 ${t}px ${FUENTE}`;
+    lineas = partirLineas(ctx, texto, maxW);
   }
-  return false;
+  let yy = y;
+  for (const l of lineas.slice(0, maxLineas)) { ctx.fillText(l, cx, yy); yy += t + 4; }
+  return yy;
 }
 
-/** Fondo y marco dorado redondeado: igual en las dos caras. */
+/** Fondo y marco dorado redondeado (el frente; el reverso va sin marco). */
 function fondoYMarco(ctx: CanvasRenderingContext2D, pal: PaletaCarnet) {
   ctx.fillStyle = pal.fondo;
   ctx.fillRect(0, 0, CARNET_W, CARNET_H);
@@ -262,15 +273,15 @@ export async function generarCarnetPersonalDataUrl(
   const cx = CARNET_W / 2;
   fondoYMarco(ctx, pal);
 
-  // Arriba, solo el logo de la empresa con su RIF: Golden Touch, o Minería Tin Oxide si es de la nómina MTO.
-  const gw = 400, gh = gw * (608 / 1696);
+  // ARRIBA, solo el logo de la empresa con su RIF: Golden Touch, o Minería Tin Oxide si es de la nómina MTO.
+  const logoY = 38, logoH = 148;
   const logoEmpresa = p.empresa === 'MTO' ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
-  await dibujarContain(ctx, logoEmpresa, (CARNET_W - gw) / 2, 30, gw, gh, tema);
+  await dibujarContain(ctx, logoEmpresa, 66, logoY, CARNET_W - 132, logoH, tema);
 
   // Foto con borde naranja.
   const fw = 236, fh = 290;
   const fx = (CARNET_W - fw) / 2;
-  const fy = 186;
+  const fy = logoY + logoH + 32;
   ctx.save();
   roundRect(ctx, fx, fy, fw, fh, 6);
   ctx.fillStyle = pal.fotoVacia;
@@ -289,57 +300,35 @@ export async function generarCarnetPersonalDataUrl(
   }
   ctx.restore();
   ctx.strokeStyle = pal.naranja;
-  ctx.lineWidth = 7;
-  roundRect(ctx, fx, fy, fw, fh, 6);
+  ctx.lineWidth = 8;
+  roundRect(ctx, fx - 4, fy - 4, fw + 8, fh + 8, 6);
   ctx.stroke();
 
-  // Nombre COMPLETO. Si no entra ni con la letra más chica, va en dos renglones
-  // (nombres / apellidos) y lo de abajo se corre.
+  // Nombre (primer nombre y primer apellido) y C.I., en letra grande: se leen a un metro.
   ctx.textAlign = 'center';
   ctx.fillStyle = pal.texto;
-  const completo = enTitulo(`${p.nombre ?? ''} ${p.apellido ?? ''}`);
-  const maxW = CARNET_W - 70;
-  let y = fy + fh + 34;
-  if (letraQueQuepa(ctx, completo, 32, 24, maxW)) {
-    ctx.fillText(completo, cx, y);
-  } else {
-    for (const linea of [enTitulo(p.nombre), enTitulo(p.apellido)].filter(Boolean)) {
-      letraQueQuepa(ctx, linea, 28, 18, maxW);
-      ctx.fillText(linea, cx, y);
-      y += 30;
-    }
-    y -= 30;
-  }
-  if (p.cedula) {
-    y += 34;
-    ctx.font = `700 27px ${FUENTE}`;
-    ctx.fillText(`C.I. ${cedulaConPuntos(p.cedula)}`, cx, y);
-  }
+  const maxW = CARNET_W - 80;
+  let y = fy + fh + 44;
+  y = textoAjustado(ctx, nombreParaCarnet(p) || '—', cx, y, maxW, 36, 24, 2);
+  y = textoAjustado(ctx, p.cedula ? `C.I. ${cedulaConPuntos(p.cedula)}` : 'C.I. —', cx, y + 2, maxW, 36, 24, 1);
 
-  // Cargo en mayúsculas y en el color de la marca (como el carnet de La Cantera), y la vigencia.
-  if (p.cargo) {
-    y += 34;
-    ctx.fillStyle = pal.cargo;
-    const cargo = String(p.cargo).trim().toUpperCase();
-    letraQueQuepa(ctx, cargo, 23, 14, maxW);
-    ctx.fillText(cargo, cx, y);
-  }
+  // Cargo y vigencia (la vigencia en gris).
+  let ty = y + 12;
+  const cargo = String(p.cargo ?? '').trim().toUpperCase();
+  if (cargo) ty = textoAjustado(ctx, cargo, cx, ty, CARNET_W - 90, 30, 20, 2);
   const vence = fechaCarnet(p.carnet_vence);
   if (vence) {
-    y += 31;
+    ctx.fillStyle = pal.gris;
+    ty = textoAjustado(ctx, `Vigencia ${vence}`, cx, ty + 2, CARNET_W - 90, 26, 18, 1);
     ctx.fillStyle = pal.texto;
-    ctx.font = `700 23px ${FUENTE}`;
-    ctx.fillText(`Vigencia ${vence}`, cx, y);
   }
 
-  // QR GRANDE abajo, al centro: abre /c/<token> (activo = datos, inactivo = solo el logo).
-  // Ocupa lo que queda entre la vigencia y el pie, con tope de 284 px (≈ 24 mm).
-  // Corrección «Q»: se sigue leyendo con el plástico rayado o con polvo.
-  const pie = CARNET_H - 62;
-  const qrTop = y + 28;
-  const qrSize = Math.max(170, Math.min(284, pie - qrTop));
+  // QR GRANDE abajo, al centro: ocupa lo que queda hasta el pie (tope 250 px ≈ 21 mm).
+  const qrAbajo = CARNET_H - 40;
+  const qrSize = Math.max(140, Math.min(250, qrAbajo - (ty + 18)));
+  const qrTop = qrAbajo - qrSize;
   const qrDataUrl = await QRCode.toDataURL(contenidoQrPersona(p), {
-    errorCorrectionLevel: 'Q', margin: 1, width: qrSize * 2,
+    errorCorrectionLevel: 'M', margin: 1, width: qrSize * 2,
     color: { dark: QR_OSCURO, light: '#ffffff' },
   });
   if (tema === 'oscuro') {
@@ -351,9 +340,6 @@ export async function generarCarnetPersonalDataUrl(
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(await cargarImg(qrDataUrl), cx - qrSize / 2, qrTop, qrSize, qrSize);
   ctx.imageSmoothingEnabled = true;
-  ctx.fillStyle = pal.cargo;
-  ctx.font = `700 17px ${FUENTE}`;
-  ctx.fillText('ESCANEE PARA VERIFICAR', cx, qrTop + qrSize + 24);
 
   return canvas.toDataURL('image/png');
 }
@@ -375,14 +361,8 @@ function partirLineas(ctx: CanvasRenderingContext2D, texto: string, maxW: number
 
 /** Texto legal fijo del reverso del carnet. */
 const REVERSO_P1 = 'Credencial de uso exclusivo para las alianzas en minerales estratégicos suscritas en la República Bolivariana de Venezuela. Agradecemos a todas las autoridades civiles, militares e institucionales prestar la mayor colaboración posible al portador de esta identificación.';
-const REVERSO_P2 = 'La persona portadora de esta credencial pertenece al grupo de alianzas de minerales estratégicos de la Corporación Venezolana de Minería.';
-
-/** Párrafo CENTRADO (como en el carnet impreso). Devuelve la Y siguiente. */
-function textoCentrado(ctx: CanvasRenderingContext2D, texto: string, cx: number, y: number, maxW: number, lh: number): number {
-  let yy = y;
-  for (const linea of partirLineas(ctx, texto, maxW)) { ctx.fillText(linea, cx, yy); yy += lh; }
-  return yy;
-}
+/** Segundo párrafo (12/10/2026): la persona forma parte del personal de la empresa (ya no menciona la CVM). */
+const reversoP2 = (razon: string) => `La persona portadora de esta credencial forma parte del personal de ${razon}`;
 
 /** Genera el REVERSO del carnet (PNG, 638×1016 px). Igual para todos los de una misma empresa. */
 export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro', empresa?: string | null): Promise<string> {
@@ -390,47 +370,63 @@ export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro', em
   const emp = identidadEmpresa(empresa);
   const { canvas, ctx } = lienzo();
   const cx = CARNET_W / 2;
-  fondoYMarco(ctx, pal);
+  // El reverso no lleva el marco dorado: solo el fondo.
+  ctx.fillStyle = pal.fondo;
+  ctx.fillRect(0, 0, CARNET_W, CARNET_H);
+  const esMto = emp.clave === 'MTO';
+  const razon = esMto ? 'Minería Tin Oxide, C.A.' : 'Golden Touch 1127 C.A.';
 
-  // Recuadro punteado con el texto legal y el contacto.
-  const bx = 44, by = 112, bw = CARNET_W - 88, bh = 600;
+  // ARRIBA, el logo de la empresa.
+  const logoY = 40, logoH = 140;
+  const logoEmpresa = esMto ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
+  await dibujarContain(ctx, logoEmpresa, 76, logoY, CARNET_W - 152, logoH, tema);
+
+  // Recuadro punteado con el texto de la credencial y el contacto (el alto sale del texto).
+  ctx.textAlign = 'center';
+  const boxX = 34, boxY = logoY + logoH + 30, boxW = CARNET_W - 68;
+  const anchoTexto = boxW - 50, linea = 29;
+  ctx.font = `400 22px ${FUENTE}`;
+  const l1 = partirLineas(ctx, REVERSO_P1, anchoTexto);
+  const l2 = partirLineas(ctx, reversoP2(razon), anchoTexto);
+  const boxH = 44 + (l1.length + l2.length) * linea + 20 + 22 + 2 * linea + 30;
   ctx.save();
   ctx.strokeStyle = pal.puntos;
   ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.setLineDash([0.1, 10]);
-  ctx.strokeRect(bx, by, bw, bh);
+  ctx.setLineDash([4, 9]);
+  ctx.strokeRect(boxX, boxY, boxW, boxH);
   ctx.restore();
-
-  // Arriba, solo el logo de la empresa, interrumpiendo el borde del recuadro.
-  const gw = 380, gh = gw * (608 / 1696);
-  const logoEmpresa = emp.clave === 'MTO' ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
-  ctx.fillStyle = pal.fondo;
-  ctx.fillRect(cx - gw / 2 - 10, by - 8, gw + 20, 16);
-  await dibujarContain(ctx, logoEmpresa, cx - gw / 2, 34, gw, gh, tema);
-
-  ctx.textAlign = 'center';
   ctx.fillStyle = pal.texto;
-  ctx.font = `400 23px ${FUENTE}`;
-  let y = 222;
-  y = textoCentrado(ctx, REVERSO_P1, cx, y, bw - 44, 32);
+  let y = boxY + 44;
+  for (const ln of l1) { ctx.fillText(ln, cx, y); y += linea; }
   y += 20;
-  y = textoCentrado(ctx, REVERSO_P2, cx, y, bw - 44, 32);
+  for (const ln of l2) { ctx.fillText(ln, cx, y); y += linea; }
   y += 22;
-  ctx.fillText(emp.email, cx, y);
-  ctx.fillText(`WhatsApp ${emp.whatsapp}`, cx, y + 32);
+  ctx.fillText(emp.email, cx, y); y += linea;
+  ctx.fillText(`WhatsApp ${emp.whatsapp}`, cx, y);
 
-  // Firma autorizada, centrada sobre la raya naranja, con la razón social y el RIF.
-  await dibujarContain(ctx, LOGOS.firma, cx - 140, 740, 280, 150, tema);
-  ctx.strokeStyle = pal.naranja;
-  ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.moveTo(130, 904); ctx.lineTo(CARNET_W - 130, 904); ctx.stroke();
+  // Firma (izquierda) y sello (derecha) en la misma fila, pegados al pie. MTO no tiene sello
+  // cargado: su firma va al centro.
+  const filaH = 124;
+  const altoPie = 14 + 8 + 80;
+  const filaY = Math.max(boxY + boxH + 18, CARNET_H - 36 - altoPie - filaH);
+  const cajaW = (CARNET_W - 100) / 2;
+  if (esMto) {
+    await dibujarContain(ctx, LOGOS.firma, (CARNET_W - cajaW) / 2, filaY, cajaW, filaH, tema);
+  } else {
+    await dibujarContain(ctx, LOGOS.firma, 40, filaY, cajaW, filaH, tema);
+    await dibujarContain(ctx, LOGOS.goldenSello, 60 + cajaW, filaY, cajaW, filaH, tema);
+  }
+
+  // Raya naranja y, al pie, la razón social con el RIF y la ciudad.
+  const rayaY = filaY + filaH + 14;
+  ctx.fillStyle = pal.naranja;
+  ctx.fillRect(70, rayaY, CARNET_W - 140, 8);
   ctx.fillStyle = pal.texto;
-  ctx.font = `700 19px ${FUENTE}`;
-  ctx.fillText('Firma autorizada', cx, 932);
-  ctx.font = `400 17px ${FUENTE}`;
-  // El logo de Golden Touch ya lleva el RIF; el de MTO no, así que ahí va escrito.
-  ctx.fillText(emp.clave === 'MTO' ? `Minería Tin Oxide, C.A. · RIF ${emp.rif}` : 'Golden Touch 1127, C.A.', cx, 958);
+  ctx.font = `700 24px ${FUENTE}`;
+  ctx.fillText(razon, cx, rayaY + 44);
+  ctx.fillStyle = pal.gris;
+  ctx.font = `400 19px ${FUENTE}`;
+  ctx.fillText(`RIF ${emp.rif} · ${emp.ciudad}`, cx, rayaY + 74);
 
   return canvas.toDataURL('image/png');
 }
