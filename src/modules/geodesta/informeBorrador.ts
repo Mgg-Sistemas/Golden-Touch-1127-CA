@@ -28,6 +28,7 @@ export function borradorDesdeInforme(inf: InformeGeodesta | null, cfg: GeodestaC
     direccion_pie: f?.direccion_pie ?? '',
     logo_gt: f?.logo_gt ?? true,
     logo_cvm: f?.logo_cvm ?? true,
+    logos_extra: inf?.logos_extra ?? [],
     apartados: inf?.apartados ?? [],
   };
 }

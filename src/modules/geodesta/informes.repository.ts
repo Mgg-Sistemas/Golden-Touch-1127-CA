@@ -46,6 +46,7 @@ export function filaAGuardar(b: BorradorInforme): Record<string, unknown> {
     direccion_pie: textoONull(b.direccion_pie),
     logo_gt: b.logo_gt,
     logo_cvm: b.logo_cvm,
+    logos_extra: b.logos_extra ?? [],
     apartados,
     busq: componerBusqInforme({ ...b, apartados }),
   };

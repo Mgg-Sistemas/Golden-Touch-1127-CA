@@ -62,6 +62,15 @@ describe('construirInformePdf', () => {
     const doc = await construirInformePdf(informe([c]), {});
     expect(doc.getNumberOfPages()).toBeGreaterThan(0);
   });
+  it('se construye con logos adicionales, al lado del CVM o en una fila debajo', async () => {
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    const logo = (id: string, w: number, h: number) => ({ id, nombre: id, data: png, w, h });
+    // uno cabe al lado; cuatro anchos no, y pasan a la fila de abajo
+    for (const logos_extra of [[logo('a', 100, 100)], [logo('a', 400, 100), logo('b', 400, 100), logo('c', 400, 100), logo('d', 400, 100)]]) {
+      const doc = await construirInformePdf({ ...informe([]), logos_extra });
+      expect(doc.getNumberOfPages()).toBeGreaterThan(0);
+    }
+  });
   it('se construye igual con los dos logos apagados', async () => {
     const inf = { ...informe([]), logo_gt: false, logo_cvm: false };
     const doc = await construirInformePdf(inf);
