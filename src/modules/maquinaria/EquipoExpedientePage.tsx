@@ -43,6 +43,7 @@ import { ReemplazarPiezaModal } from './ReemplazarPiezaModal';
 import { FotosOrden, FotosOrdenModal } from './FotosOrdenServicio';
 import { EstadoDetalleModal } from './EstadoDetalleModal';
 import { BorrarOrdenDialog } from './BorrarOrdenDialog';
+import { SeguimientoCompraModal } from './SeguimientoCompraModal';
 
 type Tab = 'resumen' | 'servicios' | 'compras' | 'contador' | 'lavados' | 'fotos' | 'ficha';
 const TABS: { id: Tab; label: string }[] = [
@@ -122,6 +123,8 @@ export function EquipoExpedientePage() {
   const [editarLavado, setEditarLavado] = useState<LavadoEquipo | null>(null);
   const [editarLectura, setEditarLectura] = useState<string | null>(null);
   const [borrarLectura, setBorrarLectura] = useState<LecturaMedidor | null>(null);
+  // «Ver compra»: seguimiento de la compra aquí mismo (no hace falta permiso de Pedidos).
+  const [verCompra, setVerCompra] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -259,7 +262,7 @@ export function EquipoExpedientePage() {
       case 'taller':
         return { tono: 'primary', titulo: `En taller${orden0 ? ` · ${orden0.codigo}` : ''}`, texto: eq.estado_nota || 'Orden de servicio en curso.', cta: <button className="btn btn-sm" onClick={() => setTab('servicios')}>Ver orden</button> };
       case 'repuestos':
-        return { tono: 'warning', titulo: `Esperando repuestos${orden0 ? ` · ${orden0.codigo}` : ''}`, texto: 'La orden sigue sola cuando Pedidos reciba la compra.', cta: <button className="btn btn-sm" onClick={() => setTab('compras')}>Ver compra</button> };
+        return { tono: 'warning', titulo: `Esperando repuestos${orden0 ? ` · ${orden0.codigo}` : ''}`, texto: 'La orden sigue sola cuando Pedidos reciba la compra.', cta: <button className="btn btn-sm" onClick={() => (orden0?.orden_compra_id ? setVerCompra(orden0.orden_compra_id) : setTab('compras'))}>Ver compra</button> };
       case 'espera':
         return { tono: 'wait', titulo: 'Esperando instrucciones', texto: eq.estado_nota || 'Sin frente asignado.', cta: puede('quitar_espera') ? <button className="btn btn-sm btn-success" onClick={() => setModoEstado('operativa')}>Ya se decidió</button> : undefined };
       case 'retirada':
@@ -366,11 +369,11 @@ export function EquipoExpedientePage() {
               ordenes={ordenes} salidas={salidas} compras={compras} perm={perm} trabajando={trabajando}
               puedeCrear={puede('servicio')} onNueva={() => setNuevaOrden(true)}
               onIniciar={(o) => void iniciar(o)} onCerrar={(o, e) => setCerrar({ orden: o, estado: e })}
-              onPedir={(o, q) => void pedir(o, q)} onPdf={(o) => void pdfOrden(o)} onTab={setTab}
+              onPedir={(o, q) => void pedir(o, q)} onPdf={(o) => void pdfOrden(o)} onVerCompra={setVerCompra}
               onEditar={setEditarOrden} onBorrar={setBorrarOrden}
             />
           )}
-          {tab === 'compras' && <TabCompras compras={compras} />}
+          {tab === 'compras' && <TabCompras compras={compras} puedePedidos={perm.pedidos} onVer={setVerCompra} />}
           {tab === 'contador' && <TabContador eq={eq} vigente={vigente} lecturas={lecturas} ultimoSurtido={ultimoSurtido} puede={puede('lectura')} onRegistrar={() => setLecturaOpen(true)}
             puedeEditar={perm.maquinaria} isAdmin={isAdmin} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}
           {tab === 'fotos' && <TabFotos fotos={fotos} onDocs={() => setDocumentos(true)} />}
@@ -411,6 +414,11 @@ export function EquipoExpedientePage() {
           vigente={vigente ?? { horometro: null, horometro_fecha: null, horometro_origen: null, kilometraje: null, km_fecha: null, km_origen: null }}
           onClose={() => setEditarLectura(null)} onSaved={() => void cargar()} />
       )}
+      {verCompra && (() => {
+        const os = ordenes.find((o) => o.orden_compra_id === verCompra);
+        return <SeguimientoCompraModal compraId={verCompra} equipoId={eq.id} ordenServicio={os ? { id: os.id, codigo: os.codigo } : null}
+          puedePedidos={perm.pedidos} onClose={() => setVerCompra(null)} />;
+      })()}
       {borrarLectura && (
         <ConfirmDialog title="Borrar lectura" danger confirmText="Borrar"
           message="Se borra esta lectura del contador. El horómetro / km vigente se recalcula con las demás lecturas (también el arranque del próximo surtido en Combustible). No se puede deshacer."
@@ -552,12 +560,12 @@ function Fact({ label, v }: { label: string; v: string | null | undefined }) {
   return <div><dt>{label}</dt><dd>{v}</dd></div>;
 }
 
-function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onTab, onReemplazar, onEditar, onBorrar }: {
+function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onVerCompra, onReemplazar, onEditar, onBorrar }: {
   ordenes: OrdenServicio[]; salidas: Map<string, { codigo: string; estado: string }>; compras: CompraEquipo[];
   perm: { maquinaria: boolean; salidas: boolean; pedidos: boolean; admin: boolean }; trabajando: string | null; puedeCrear: boolean;
   onEditar: (o: OrdenServicio) => void; onBorrar: (o: OrdenServicio) => void;
   onNueva: () => void; onIniciar: (o: OrdenServicio) => void; onCerrar: (o: OrdenServicio, e: EstadoOrdenServicio) => void;
-  onPedir: (o: OrdenServicio, q: 'salida' | 'compra') => void; onPdf: (o: OrdenServicio) => void; onTab: (t: Tab) => void;
+  onPedir: (o: OrdenServicio, q: 'salida' | 'compra') => void; onPdf: (o: OrdenServicio) => void; onVerCompra: (compraId: string) => void;
   onReemplazar: (o: OrdenServicio, indice: number) => void;
 }) {
   const [fotosDe, setFotosDe] = useState<OrdenServicio | null>(null);
@@ -626,7 +634,7 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
               {perm.maquinaria && sig.includes('realizada') && <button className="btn btn-success" disabled={ocupado} onClick={() => onCerrar(o, 'realizada')}>✅ Marcar realizada</button>}
               {faltaSalida(o) && perm.salidas && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'salida')}>📦 Pedir salida de inventario</button>}
               {faltaCompra(o) && perm.maquinaria && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'compra')}>🛒 Pedir compra</button>}
-              {cmp && <button className="btn" onClick={() => onTab('compras')}>🛒 Ver compra</button>}
+              {cmp && <button className="btn" onClick={() => onVerCompra(cmp.id)}>🛒 Ver compra</button>}
               <button className="btn" onClick={() => onPdf(o)}>📄 PDF de la orden</button>
               {perm.maquinaria && <button className="btn btn-ghost" disabled={ocupado} onClick={() => onEditar(o)}>✎ Editar</button>}
               {perm.maquinaria && sig.includes('anulada') && <button className="btn btn-ghost" disabled={ocupado} onClick={() => onCerrar(o, 'anulada')}>⛔ Anular</button>}
@@ -664,11 +672,11 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
   );
 }
 
-function TabCompras({ compras }: { compras: CompraEquipo[] }) {
+function TabCompras({ compras, puedePedidos, onVer }: { compras: CompraEquipo[]; puedePedidos: boolean; onVer: (id: string) => void }) {
   return (
     <>
       <div className="aviso info"><span className="aviso-icono">🛒</span><div>
-        <strong>Compras de este equipo.</strong> Las solicitudes de servicio de Pedidos casadas a este equipo y los repuestos pedidos desde sus órdenes de servicio. Se mueven en <Link to="/app/pedidos">Pedidos</Link>; al recibir los repuestos, la orden de servicio sigue sola. <Link to="/app/maquinaria/repuestos">Ver repuestos y compras de toda la flota →</Link>
+        <strong>Compras de este equipo.</strong> Las solicitudes de servicio de Pedidos casadas a este equipo y los repuestos pedidos desde sus órdenes de servicio. Toca una para ver en qué va. Se mueven en {puedePedidos ? <Link to="/app/pedidos">Pedidos</Link> : 'Pedidos'}; al recibir los repuestos, la orden de servicio sigue sola. <Link to="/app/maquinaria/repuestos">Ver repuestos y compras de toda la flota →</Link>
       </div></div>
       {compras.length ? (
         <div className="flo-kanban">
@@ -678,7 +686,8 @@ function TabCompras({ compras }: { compras: CompraEquipo[] }) {
               <div key={c.id} className={`flo-kcol tone-${c.tono}`}>
                 <header><span>{c.icon} {c.label}</span><span>{cards.length}</span></header>
                 {cards.length ? cards.map((k) => (
-                  <div key={k.id} className="flo-kcard">
+                  <div key={k.id} className="flo-kcard" role="button" tabIndex={0} style={{ cursor: 'pointer' }} title="Ver en qué va"
+                    onClick={() => onVer(k.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onVer(k.id); } }}>
                     <div className="fila"><strong>{k.oc_codigo || k.codigo}</strong><span>{fmtDate(k.created_at)}</span></div>
                     <div>{k.lineas.slice(0, 4).map((l, i) => <div key={i}>{fmtNum(l.cantidad)} {l.unidad ?? ''} · {l.nombre}</div>)}{k.lineas.length > 4 && <div>+{k.lineas.length - 4} más</div>}</div>
                     <div className="fila"><span>{k.tipo === 'servicio' ? '🔧 Servicio' : k.orden_servicio ? `🧾 ${k.orden_servicio}` : '📦 Pedido'}</span><span className="mono">{k.total ? `${fmtNum(k.total)} ${k.total_moneda ?? ''}` : 'Sin precio'}</span></div>

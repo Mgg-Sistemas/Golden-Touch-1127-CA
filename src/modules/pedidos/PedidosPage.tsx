@@ -102,6 +102,7 @@ import { OcPorLoteView } from './OcPorLoteView';
 import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_GERENTE_CANCELA, ESTADOS_FIRMADOS_GG } from './aprobadoresOc';
 import { CategoriasModal } from './CategoriasModal';
 import { CrearServicioModal } from './CrearServicioModal';
+import { FotosOrdenServicioDeSp } from '@/modules/maquinaria/FotosOrdenServicio';
 import { EditarPreciosOcModal } from './EditarPreciosOcModal';
 import { listActivosPedido, addCatalogoPedido } from './pedidoCatalogos.repository';
 import { norm } from '@/shared/lib/texto';
@@ -2920,6 +2921,8 @@ function OrdenDetailModal({
       {o.tipo === 'servicio' && (
         <AnticipoServicioBloque orden={o} actorEmail={actorEmail || 'sistema'} onSaved={onAcceptedOffer} />
       )}
+      {/* Si la SP nació de una orden de servicio de Maquinaria, sus fotos. */}
+      <FotosOrdenServicioDeSp spId={o.id} />
       <FacturasDirectas modulo="orden" refId={o.id} actor={actorEmail || 'sistema'} titulo="📎 Adjuntos (imágenes / PDF)" textoBoton="＋ Agregar adjunto (PDF/imagen)" />
 
       {mostrarOfertas && (
