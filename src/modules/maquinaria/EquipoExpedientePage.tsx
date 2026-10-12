@@ -16,7 +16,7 @@ import { addMantenimiento } from './maquinariaMant.repository';
 import {
   ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
   accionesEquipo, servicioPorId, servicioReiniciaContador, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
-  faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, soloPiezasNuevasPorComprar, piezasNuevas,
+  faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza,
   puedeBorrarOrden,
   type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
 } from './flota';
@@ -24,7 +24,7 @@ import {
   listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, fotosDeEquipos,
   lecturaVigenteEquipo, listLecturasEquipo, ultimoSurtidoEquipo,
   avanzarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden,
-  listLavados, eliminarLavado, notificarComprasPiezasNuevas, eliminarLectura,
+  listLavados, eliminarLavado, eliminarLectura,
   type LavadoEquipo,
   type OrdenServicio, type EventoEstado, type CompraEquipo, type FotoEquipo,
   type LecturaVigente, type LecturaMedidor, type UltimoSurtido,
@@ -32,6 +32,7 @@ import {
 import { fichaEquipoPdf, ordenServicioPdf } from './flotaPdf';
 import { EstadoEquipoModal, type ModoEstado } from './EstadoEquipoModal';
 import { OrdenServicioModal } from './OrdenServicioModal';
+import { PedirCompraModal } from './PedirCompraModal';
 import { BitacoraModal } from './BitacoraModal';
 import { EquipoDocumentosModal } from './EquipoDocumentosModal';
 import { EquipoMovimientosModal } from './EquipoMovimientosModal';
@@ -115,6 +116,8 @@ export function EquipoExpedientePage() {
   const [reemplazo, setReemplazo] = useState<{ orden: OrdenServicio; indice: number } | null>(null);
   const [detalleEstado, setDetalleEstado] = useState(false);
   const [editarOrden, setEditarOrden] = useState<OrdenServicio | null>(null);
+  // «Pedir compra» de una orden con piezas que no están en el inventario (se elige su categoría).
+  const [pedirCompra, setPedirCompra] = useState<OrdenServicio | null>(null);
   const [borrarOrden, setBorrarOrden] = useState<OrdenServicio | null>(null);
   const [editarLavado, setEditarLavado] = useState<LavadoEquipo | null>(null);
   const [editarLectura, setEditarLectura] = useState<string | null>(null);
@@ -218,24 +221,18 @@ export function EquipoExpedientePage() {
 
   async function pedir(o: OrdenServicio, que: 'salida' | 'compra') {
     if (!eq) return;
+    if (que === 'compra' && o.repuestos.some((r) => !r.producto_id && r.a_comprar > 0)) { setPedirCompra(o); return; }
     setTrabajando(o.id);
     try {
       const codigo = que === 'salida'
         ? await solicitarSalidaDeOrden(o, eq.equipo, { email: actor, nombre: actorName })
-        : await solicitarCompraDeOrden(o, eq, { email: actor, nombre: actorName });
+        : await solicitarCompraDeOrden(o);
       toast(`${o.codigo}: ${que === 'salida' ? 'salida' : 'solicitud de pedido'} ${codigo} creada.`, 'success');
       await cargar();
     } catch (e) { toast(errMsg(e, 'No se pudo crear la solicitud'), 'error'); }
     finally { setTrabajando(null); }
   }
 
-  async function avisarCompras(o: OrdenServicio) {
-    if (!eq) return;
-    setTrabajando(o.id);
-    try { await notificarComprasPiezasNuevas(o); toast(`Compras notificada de las piezas nuevas de ${o.codigo}.`, 'success'); await cargar(); }
-    catch (e) { toast(errMsg(e, 'No se pudo notificar a Compras'), 'error'); }
-    finally { setTrabajando(null); }
-  }
 
   async function manttHecho() {
     if (!eq) return;
@@ -365,7 +362,7 @@ export function EquipoExpedientePage() {
           {tab === 'lavados' && <TabLavados lavados={lavados} puedeRegistrar={puede('lavado')} puedeEditar={perm.maquinaria} onNuevo={() => setLavadoOpen(true)} onEditar={setEditarLavado} onBorrar={setBorrarLavado} />}
           {tab === 'servicios' && (
             <TabServicios
-              onReemplazar={(o, i) => setReemplazo({ orden: o, indice: i })} onAvisarCompras={(o) => void avisarCompras(o)}
+              onReemplazar={(o, i) => setReemplazo({ orden: o, indice: i })}
               ordenes={ordenes} salidas={salidas} compras={compras} perm={perm} trabajando={trabajando}
               puedeCrear={puede('servicio')} onNueva={() => setNuevaOrden(true)}
               onIniciar={(o) => void iniciar(o)} onCerrar={(o, e) => setCerrar({ orden: o, estado: e })}
@@ -393,6 +390,7 @@ export function EquipoExpedientePage() {
           puedeSalidas={perm.salidas} puedePedidos={perm.pedidos} actor={{ email: actor, nombre: actorName }}
           onClose={() => setEditarOrden(null)} onCreated={() => void cargar()} />
       )}
+      {pedirCompra && <PedirCompraModal orden={pedirCompra} onClose={() => setPedirCompra(null)} onDone={() => void cargar()} />}
       {borrarOrden && (
         <BorrarOrdenDialog orden={borrarOrden} equipo={eq.equipo}
           salida={borrarOrden.solicitud_salida_id ? salidas.get(borrarOrden.solicitud_salida_id)?.codigo ?? 'vinculada' : null}
@@ -554,13 +552,13 @@ function Fact({ label, v }: { label: string; v: string | null | undefined }) {
   return <div><dt>{label}</dt><dd>{v}</dd></div>;
 }
 
-function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onTab, onReemplazar, onAvisarCompras, onEditar, onBorrar }: {
+function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear, onNueva, onIniciar, onCerrar, onPedir, onPdf, onTab, onReemplazar, onEditar, onBorrar }: {
   ordenes: OrdenServicio[]; salidas: Map<string, { codigo: string; estado: string }>; compras: CompraEquipo[];
   perm: { maquinaria: boolean; salidas: boolean; pedidos: boolean; admin: boolean }; trabajando: string | null; puedeCrear: boolean;
   onEditar: (o: OrdenServicio) => void; onBorrar: (o: OrdenServicio) => void;
   onNueva: () => void; onIniciar: (o: OrdenServicio) => void; onCerrar: (o: OrdenServicio, e: EstadoOrdenServicio) => void;
   onPedir: (o: OrdenServicio, q: 'salida' | 'compra') => void; onPdf: (o: OrdenServicio) => void; onTab: (t: Tab) => void;
-  onReemplazar: (o: OrdenServicio, indice: number) => void; onAvisarCompras: (o: OrdenServicio) => void;
+  onReemplazar: (o: OrdenServicio, indice: number) => void;
 }) {
   const [fotosDe, setFotosDe] = useState<OrdenServicio | null>(null);
   const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
@@ -599,7 +597,7 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
                     <span className="src">
                       {r.desde_inventario > 0 && <Chip tono="success">📦 {fmtNum(r.desde_inventario)} del inventario{sal ? ` · ${sal.codigo}` : ''}</Chip>}
                       {r.a_comprar > 0 && <Chip tono="warning">🛒 {fmtNum(r.a_comprar)} a compra{cmp ? ` · ${cmp.oc_codigo || cmp.codigo}` : ''}</Chip>}
-                      {!r.producto_id && <Chip tono="info">🔩 Pieza nueva{o.compras_notificada_at ? ` · Compras notificada ${fmtDate(o.compras_notificada_at)}` : ' · falta avisar a Compras'}</Chip>}
+                      {!r.producto_id && <Chip tono="info">🔩 Pieza nueva · se da de alta al pedir la compra</Chip>}
                       {r.pieza_nueva && <Chip tono="info">🔁 Era «{r.pieza_nueva}»</Chip>}
                       {perm.maquinaria && puedeReemplazarPieza(o, i) && (
                         <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => onReemplazar(o, i)}>🔁 Ya existe en inventario: cambiar por el producto</button>
@@ -618,11 +616,8 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
             {(faltaSalida(o) || faltaCompra(o)) && (
               <div className="aviso warning sm"><span className="aviso-icono">⚠️</span><div>
                 Por solicitar: {[faltaSalida(o) ? 'la salida de inventario' : null, faltaCompra(o) ? 'la compra' : null].filter(Boolean).join(' y ')}.
-                {faltaCompra(o) && soloPiezasNuevasPorComprar(o.repuestos)
-                  ? (o.compras_notificada_at
-                    ? ' Las piezas no existen en el inventario: Compras las dará de alta (se le notificó). Luego cámbialas por el producto y pide la compra.'
-                    : ' Las piezas no existen en el inventario y todavía no se avisó a Compras.')
-                  : !((faltaSalida(o) && perm.salidas) || (faltaCompra(o) && perm.pedidos)) && ' Pídeselo a quien tenga permiso de Salidas / Pedidos.'}
+                {faltaSalida(o) && !perm.salidas && ' La salida la pide quien tenga permiso de Salidas.'}
+                {faltaCompra(o) && ' La compra entra a Pedidos con «🛒 Pedir compra».'}
               </div></div>
             )}
             <FotosOrden ordenId={o.id} canWrite={perm.maquinaria} mostrarVacio={false} />
@@ -630,8 +625,7 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
               {perm.maquinaria && sig.includes('en_proceso') &&<button className="btn btn-primary" disabled={ocupado} onClick={() => onIniciar(o)}>🔧 Iniciar trabajo</button>}
               {perm.maquinaria && sig.includes('realizada') && <button className="btn btn-success" disabled={ocupado} onClick={() => onCerrar(o, 'realizada')}>✅ Marcar realizada</button>}
               {faltaSalida(o) && perm.salidas && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'salida')}>📦 Pedir salida de inventario</button>}
-              {faltaCompra(o) && perm.pedidos && !soloPiezasNuevasPorComprar(o.repuestos) && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'compra')}>🛒 Pedir compra</button>}
-              {perm.maquinaria && piezasNuevas(o.repuestos).length > 0 && !o.compras_notificada_at && <button className="btn" disabled={ocupado} onClick={() => onAvisarCompras(o)}>🔔 Avisar a Compras</button>}
+              {faltaCompra(o) && perm.maquinaria && <button className="btn" disabled={ocupado} onClick={() => onPedir(o, 'compra')}>🛒 Pedir compra</button>}
               {cmp && <button className="btn" onClick={() => onTab('compras')}>🛒 Ver compra</button>}
               <button className="btn" onClick={() => onPdf(o)}>📄 PDF de la orden</button>
               {perm.maquinaria && <button className="btn btn-ghost" disabled={ocupado} onClick={() => onEditar(o)}>✎ Editar</button>}

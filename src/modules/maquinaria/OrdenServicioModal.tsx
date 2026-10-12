@@ -6,9 +6,11 @@ import { notify } from '@/shared/lib/notify';
 import { norm } from '@/shared/lib/texto';
 import { num as fmtNum } from '@/shared/lib/format';
 import { listProductosActivos } from '@/modules/pedidos/pedidos.repository';
+import { buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
+import { CategoriaProductoSelect } from '@/modules/inventario/CategoriaProductoSelect';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, soloPiezasNuevasPorComprar,
+  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio,
   repuestosEditables, type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
@@ -20,7 +22,11 @@ import { FotosNuevaOrden, FotosOrden } from './FotosOrdenServicio';
 import { useFotosLocales } from './useFotosLocales';
 import { subirFotosOrden } from './osFotos.repository';
 
-interface Linea { productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null }
+interface Linea {
+  productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null;
+  /** Pieza nueva: categoría con la que se da de alta en el inventario al pedir la compra. */
+  categoria?: string;
+}
 
 /** Lo que importa para saber si los repuestos cambiaron al editar. */
 const firmaRepuestos = (ls: { producto_id: string | null; nombre: string; cantidad: number }[]) =>
@@ -50,18 +56,21 @@ function Decision({ l }: { l: Linea }) {
  * Asistente de la orden de servicio (3 pasos). Al crear:
  *  1. la base guarda la orden y decide el origen de cada repuesto con el stock real;
  *  2. si el usuario tiene permiso de Salidas, se pide la salida de inventario (por aprobar);
- *  3. si tiene permiso de Pedidos, se crea la solicitud de pedido con lo que falta.
- * Lo que no pueda pedir queda «por solicitar» en la orden.
+ *  3. lo que falta entra a Pedidos como solicitud de pedido (la crea la base con el permiso
+ *     de Maquinaria); las piezas que no están en el inventario se dan de alta con stock 0
+ *     en la categoría elegida (12/10/2026).
+ * Lo que no se pueda pedir queda «por solicitar» en la orden.
  *
  * Con `orden` es el mismo asistente para EDITARLA: los repuestos solo se cambian mientras
  * no empezó el trabajo y no tiene salida ni pedido (después se corrigen allá); las fotos
  * se cambian en la misma ventana y lo que haya que pedir se genera desde la orden.
  */
 export function OrdenServicioModal({
-  equipo, horometro, kilometraje, aviso, puedeSalidas, puedePedidos, actor, orden, onClose, onCreated,
+  equipo, horometro, kilometraje, aviso, puedeSalidas, actor, orden, onClose, onCreated,
 }: {
   equipo: MaquinariaEquipo; horometro: number | null; kilometraje: number | null; aviso: AvisoServicio | null;
-  puedeSalidas: boolean; puedePedidos: boolean; actor: { email: string; nombre: string | null };
+  /** Ya no decide nada: la solicitud de pedido la crea la base con el permiso de Maquinaria. */
+  puedeSalidas: boolean; puedePedidos?: boolean; actor: { email: string; nombre: string | null };
   /** La orden a editar (si no viene, se crea una nueva). */
   orden?: OrdenServicio | null;
   onClose: () => void; onCreated: () => void;
@@ -85,6 +94,9 @@ export function OrdenServicioModal({
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [saving, setSaving] = useState(false);
+  // «¿Es alguno de estos?»: productos de nombre parecido antes de agregar una pieza nueva.
+  const [sugeridos, setSugeridos] = useState<{ nombre: string; lista: ProductoParecido[] } | null>(null);
+  const [buscandoParecidos, setBuscandoParecidos] = useState(false);
   // Fotos (hasta 4): se comprimen al elegirlas y se suben al crear la orden.
   const fotosOS = useFotosLocales();
 
@@ -119,12 +131,31 @@ export function OrdenServicioModal({
     setLineas((prev) => [...prev, { productoId: p.id, nombre: p.nombre, unidad: p.unidad || 'und', cantidad: 1, stock: Math.max(0, Number(p.stock) || 0), almacen: p.almacen || null }]);
     setBusqueda('');
   }
-  function agregarNueva() {
+  function agregarComoNueva(nombre: string) {
+    setLineas((prev) => [...prev, { productoId: null, nombre, unidad: 'und', cantidad: 1, stock: 0, almacen: null, categoria: '' }]);
+    setBusqueda('');
+    setSugeridos(null);
+  }
+  /** Antes de agregar una pieza nueva se miran los productos de nombre parecido, para no duplicar. */
+  async function agregarNueva() {
     const nombre = busqueda.trim().toUpperCase();
     if (nombre.length < 2) { toast('Escribe el nombre de la pieza en el buscador.', 'warning'); return; }
-    setLineas((prev) => [...prev, { productoId: null, nombre, unidad: 'und', cantidad: 1, stock: 0, almacen: null }]);
-    setBusqueda('');
+    if (lineas.some((l) => !l.productoId && l.nombre === nombre)) { toast('Esa pieza ya está en la orden.', 'warning'); return; }
+    setBuscandoParecidos(true);
+    try {
+      const lista = (await buscarProductosParecidos(nombre)).filter((p) => !lineas.some((l) => l.productoId === p.id));
+      if (lista.length) { setSugeridos({ nombre, lista }); return; }
+    } finally { setBuscandoParecidos(false); }
+    agregarComoNueva(nombre);
   }
+  function usarParecido(id: string) {
+    const p = productos.find((x) => x.id === id);
+    if (p) agregar(p);
+    else toast('Ese producto no se pudo cargar. Búscalo por su nombre en el buscador.', 'warning');
+    setSugeridos(null);
+  }
+  const setCategoria = (i: number, categoria: string) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, categoria } : l)));
+  const nuevasSinCategoria = lineas.filter((l) => !l.productoId && !(l.categoria ?? '').trim()).length;
   const setCant = (i: number, v: number) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, cantidad: Math.max(1, Math.round((Number(v) || 1) * 100) / 100) } : l)));
 
   async function guardarEdicion() {
@@ -140,12 +171,7 @@ export function OrdenServicioModal({
         ...(cerrada ? { nota_cierre: notaCierre.trim() || null } : {}),
         ...(cambiaron ? { repuestos: nuevos } : {}),
       });
-      const partes = [`${orden.codigo} actualizada`];
-      if (r.notificar) {
-        try { await notificarComprasPiezasNuevas({ id: orden.id, repuestos: r.repuestos }); partes.push('Compras notificada de las piezas nuevas'); }
-        catch (e) { toast(`No se pudo avisar a Compras: ${e instanceof Error ? e.message : 'error'}. Usa «🔔 Avisar a Compras» en la orden.`, 'warning'); }
-      }
-      toast(partes.join(' · '), 'success');
+      toast(`${orden.codigo} actualizada`, 'success');
       const o2 = { ...orden, estado: r.estado, repuestos: r.repuestos };
       if (cambiaron && (faltaSalida(o2) || faltaCompra(o2))) toast('Los repuestos cambiaron: pide la salida o la compra desde la orden.', 'info');
       onCreated();
@@ -183,20 +209,18 @@ export function OrdenServicioModal({
           catch (e) { pendientes.push(`la salida de inventario (${e instanceof Error ? e.message : 'error'})`); }
         } else pendientes.push('la salida de inventario (no tienes permiso de Salidas)');
       }
-      // Piezas que no existen en el inventario: las da de alta Compras (la orden no crea
-      // productos). Se le avisa con una notificación dirigida y queda constancia en la orden.
-      const hayNuevas = r.repuestos.some((x) => !x.producto_id);
-      if (hayNuevas) {
-        try { await notificarComprasPiezasNuevas(orden); partes.push('Compras notificada de las piezas nuevas'); }
-        catch (e) { pendientes.push(`avisar a Compras de las piezas nuevas (${e instanceof Error ? e.message : 'error'})`); }
-      }
-      if (faltaCompra(orden) && soloPiezasNuevasPorComprar(r.repuestos)) {
-        // Sin productos del inventario no hay SP posible: queda «por solicitar compra».
-      } else if (faltaCompra(orden)) {
-        if (puedePedidos) {
-          try { partes.push(`compra ${await solicitarCompraDeOrden(orden, equipo, actor)} solicitada`); }
-          catch (e) { pendientes.push(`la compra (${e instanceof Error ? e.message : 'error'})`); }
-        } else pendientes.push('la compra (no tienes permiso de Pedidos)');
+      // Lo que falta entra a Pedidos como solicitud de pedido. Las piezas que no están en el
+      // inventario se dan de alta ahí mismo (stock 0, con la categoría elegida).
+      if (faltaCompra(orden)) {
+        const nuevas = lineas.filter((l) => !l.productoId).map((l) => ({ nombre: l.nombre, categoria: (l.categoria ?? '').trim(), unidad: l.unidad }));
+        try { partes.push(`solicitud de pedido ${await solicitarCompraDeOrden(orden, nuevas)}`); }
+        catch (e) {
+          pendientes.push(`la solicitud de pedido (${e instanceof Error ? e.message : (e as { message?: string })?.message || 'error'})`);
+          // Si no se pudo, al menos Compras se entera de las piezas nuevas.
+          if (r.repuestos.some((x) => !x.producto_id)) {
+            try { await notificarComprasPiezasNuevas(orden); partes.push('Compras notificada de las piezas nuevas'); } catch { /* queda por solicitar */ }
+          }
+        }
       }
       notify(`🔧 ${partes.join(' · ')} — ${equipo.equipo}`, 'success', {
         link: `#/app/maquinaria/equipo/${equipo.id}?tab=servicios`,
@@ -210,7 +234,8 @@ export function OrdenServicioModal({
     } finally { setSaving(false); }
   }
 
-  const listo = paso === 0 ? !!tipo : true;
+  // Paso 2: cada pieza nueva necesita su categoría (con ella se da de alta en el inventario).
+  const listo = paso === 0 ? !!tipo : paso === 1 && !editando ? nuevasSinCategoria === 0 : true;
 
   return (
     <Modal title={editando ? `✎ Editar ${orden?.codigo} · ${equipo.equipo}` : `🔧 Orden de servicio · ${equipo.equipo}`} size="lg" onClose={onClose}
@@ -308,15 +333,34 @@ export function OrdenServicioModal({
                   </div>
                 </button>
               ))}
-              {!resultados.length && <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>No está en el inventario. Agrégala como pieza nueva: Compras la dará de alta (se le notifica al crear la orden).</p>}
+              {!resultados.length && <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>No está en el inventario. Agrégala como pieza nueva: al crear la orden se da de alta en el inventario y entra a Pedidos.</p>}
             </div>
-            <button type="button" className="btn btn-ghost btn-sm" style={{ justifySelf: 'start' }} onClick={agregarNueva}>➕ Agregar como pieza que no está en inventario</button>
+            {sugeridos ? (
+              <div className="aviso warning sm"><span className="aviso-icono">🔎</span><div style={{ display: 'grid', gap: '.4rem', minWidth: 0 }}>
+                <strong>¿«{sugeridos.nombre}» es alguno de estos?</strong>
+                <span>Ya hay productos con un nombre parecido. Si es el mismo, úsalo y no se crea otro.</span>
+                {sugeridos.lista.map((p) => (
+                  <button key={p.id} type="button" className="btn btn-sm" style={{ justifyContent: 'space-between', textAlign: 'left' }} onClick={() => usarParecido(p.id)}>
+                    <span>{p.nombre} <small className="muted">· {p.sku} · {p.categoria}</small></span>
+                    <span>{p.stock > 0 ? `${fmtNum(p.stock)} ${p.unidad} en stock` : 'Sin stock'} · Usar este</span>
+                  </button>
+                ))}
+                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={() => agregarComoNueva(sugeridos.nombre)}>No, es una pieza nueva</button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSugeridos(null)}>Cancelar</button>
+                </div>
+              </div></div>
+            ) : (
+              <button type="button" className="btn btn-ghost btn-sm" style={{ justifySelf: 'start' }} disabled={buscandoParecidos} onClick={() => void agregarNueva()}>
+                {buscandoParecidos ? 'Buscando parecidos…' : '➕ Agregar como pieza que no está en inventario'}
+              </button>
+            )}
 
             <div className="form-row" style={{ marginBottom: 0 }}><label>Repuestos de esta orden ({lineas.length})</label>
               {lineas.length ? lineas.map((l, i) => (
                 <div key={`${l.productoId ?? l.nombre}-${i}`} className="flo-linea">
                   <div className="flo-linea-top">
-                    <div style={{ minWidth: 0 }}><strong>{l.nombre}</strong><small>{l.productoId ? `${fmtNum(l.stock)} ${l.unidad} en stock${l.almacen ? ` · ${l.almacen}` : ''}` : 'Pieza nueva · Compras la dará de alta'}</small></div>
+                    <div style={{ minWidth: 0 }}><strong>{l.nombre}</strong><small>{l.productoId ? `${fmtNum(l.stock)} ${l.unidad} en stock${l.almacen ? ` · ${l.almacen}` : ''}` : editando ? 'Pieza nueva · se da de alta al pedir la compra' : 'Pieza nueva · se da de alta en el inventario al crear la orden'}</small></div>
                     <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
                       <div className="flo-qty">
                         <button type="button" aria-label="Menos" onClick={() => setCant(i, l.cantidad - 1)}>−</button>
@@ -327,8 +371,15 @@ export function OrdenServicioModal({
                     </div>
                   </div>
                   <Decision l={l} />
+                  {!l.productoId && !editando && (
+                    <div className="form-row" style={{ marginBottom: 0 }}>
+                      <label htmlFor={`os-cat-${i}`}>Categoría en el inventario *</label>
+                      <CategoriaProductoSelect id={`os-cat-${i}`} value={l.categoria ?? ''} onChange={(c) => setCategoria(i, c)} />
+                    </div>
+                  )}
                 </div>
               )) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin repuestos. Puedes seguir si el servicio es solo mano de obra.</p>}
+              {!editando && nuevasSinCategoria > 0 && <p className="muted" style={{ fontSize: '.78rem', margin: '.3rem 0 0' }}>⚠️ Elige la categoría de {nuevasSinCategoria === 1 ? 'la pieza nueva' : `las ${nuevasSinCategoria} piezas nuevas`} para seguir.</p>}
             </div>
           </>
         )}
@@ -365,8 +416,8 @@ export function OrdenServicioModal({
               <div className="flo-flow-node"><span className="ico">🛒</span><div>
                 <strong>{efecto.compran ? 'Solicitud de pedido' : 'Sin compras'}</strong>
                 {efecto.compran ? <ul className="flo-mini">{decididas.filter((l) => l.a_comprar > 0).map((l, i) => <li key={i}>{fmtNum(l.a_comprar)} {l.unidad} · {l.nombre}{l.producto_id ? null : <em> · pieza nueva</em>}</li>)}</ul> : <p>Todo está en inventario.</p>}
-                {efecto.compran > 0 && <p>{efecto.compran === efecto.nuevos ? 'Solo hay piezas nuevas: la compra queda por solicitar hasta que Compras las dé de alta.' : puedePedidos ? 'Entra a Pedidos como solicitud (SP) para aprobar y cotizar.' : '⚠️ No tienes permiso de Pedidos: quedará por solicitar.'}</p>}
-                {efecto.nuevos > 0 && <p>🔔 Compras recibirá una notificación con las {efecto.nuevos} pieza(s) nueva(s) para darlas de alta.</p>}
+                {efecto.compran > 0 && <p>Entra a Pedidos como solicitud de pedido (SP): Compras la cotiza y pasa a OC cuando el Gerente General la aprueba.</p>}
+                {efecto.nuevos > 0 && <p>🆕 {efecto.nuevos === 1 ? 'La pieza nueva se da' : `Las ${efecto.nuevos} piezas nuevas se dan`} de alta en el inventario (stock 0) en la categoría elegida.</p>}
               </div></div>
             </div>
             <div className="flo-flow-link" />

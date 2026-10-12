@@ -7,14 +7,14 @@
      · lo que sale del inventario se pide con una SOLICITUD DE SALIDA
        (Salidas, queda «por aprobar» y descuenta al ejecutarse);
      · lo que falta se pide con una SOLICITUD DE PEDIDO (Pedidos, SP).
-   Cada una se crea por su flujo de siempre y con el permiso de su
-   módulo; si el usuario no lo tiene, la orden queda «por solicitar» y
-   otro usuario lo genera después desde el expediente.
+   La salida se crea con el permiso de Salidas; si el usuario no lo tiene,
+   queda «por solicitar». La SP la crea la base (maquinaria_pedir_compra_orden)
+   con el permiso de Maquinaria, y da de alta las piezas que no estaban en el
+   inventario (12/10/2026).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { ItemOrden, ItemSalida, Orden } from '@/shared/lib/types';
+import type { ItemSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
-import { crearOrden } from '@/modules/pedidos/pedidos.repository';
 import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
 import { listFotosOrden, borrarArchivosFotosOrden } from './osFotos.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
@@ -178,51 +178,18 @@ export async function solicitarSalidaDeOrden(o: OrdenServicio, equipoNombre: str
   return sol.codigo;
 }
 
+/** Datos de una pieza nueva para darla de alta al pedir la compra. */
+export interface PiezaNuevaAlta { nombre: string; categoria: string; unidad?: string }
+
 /**
- * Pide a compras lo que falta: una solicitud de pedido (SP) con los productos del
- * inventario. Las piezas que todavía no existen en el inventario van anotadas en la
- * nota de la SP (Compras las da de alta al cotizar, como en una SP normal).
+ * Pide la compra de lo que falta: la base crea la SOLICITUD DE PEDIDO (Pedidos, «pendiente»)
+ * y da de alta como producto (stock 0) las piezas que no estaban en el inventario, con la
+ * categoría elegida. Basta el permiso de Maquinaria. Devuelve el código de la SP.
  */
-export async function solicitarCompraDeOrden(o: OrdenServicio, equipo: { id: string; equipo: string }, actor: Actor): Promise<string> {
-  const conProducto = o.repuestos.filter((r) => r.a_comprar > 0 && r.producto_id);
-  const nuevas = o.repuestos.filter((r) => r.a_comprar > 0 && !r.producto_id);
-  if (!conProducto.length) {
-    throw new Error(nuevas.length
-      ? 'Las piezas a comprar todavía no están en el inventario: Compras las dará de alta (se le notificó). Cuando existan, cámbialas por el producto en la orden y pide la compra.'
-      : 'Esta orden no tiene repuestos por comprar.');
-  }
-  // SKU de cada producto (la SP lo usa para la recepción).
-  const ids = conProducto.map((r) => r.producto_id as string);
-  const { data: prods, error: pe } = await supabase.from('productos').select('id, sku, unidad').in('id', ids);
-  if (pe) throw pe;
-  const sku = new Map(((prods ?? []) as { id: string; sku: string }[]).map((p) => [p.id, p.sku]));
-  const finalidad = `Repuesto para ${equipo.equipo} · ${o.codigo}`;
-  const items: ItemOrden[] = conProducto.map((r) => ({
-    productoId: r.producto_id as string,
-    sku: sku.get(r.producto_id as string) ?? '',
-    nombre: r.nombre,
-    cantidad: r.a_comprar,
-    precio: 0,
-    unidad: r.unidad,
-    comprar: true,
-    finalidad,
-    equipo_id: equipo.id,
-    equipo_nombre: equipo.equipo,
-  }));
-  const notas = [
-    `Orden de servicio ${o.codigo} · ${equipo.equipo}.`,
-    nuevas.length ? `Piezas que no están en el inventario: ${nuevas.map((n) => `${n.cantidad} ${n.unidad} ${n.nombre}`).join('; ')}.` : '',
-  ].filter(Boolean).join(' ');
-  const sp: Orden = await crearOrden({
-    proveedor_id: null, items, notas, motivo: null, finalidad,
-    clasificacion: [], urgente: o.urgencia === 'urgente',
-    solicitante_email: actor.email,
-    solicitante: (actor.nombre || actor.email).toUpperCase(),
-    unidad_solicitante: 'MAQUINARIA',
-    ci_solicitante: null,
-  });
-  await vincular(o.id, null, sp.id);
-  return sp.codigo;
+export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nuevas: PiezaNuevaAlta[] = []): Promise<string> {
+  const { data, error } = await supabase.rpc('maquinaria_pedir_compra_orden', { p_id: o.id, p_nuevas: nuevas });
+  if (error) throw error;
+  return (data as { codigo: string }).codigo;
 }
 
 /* ───────── Compras del equipo (lectura) ───────── */
