@@ -42,9 +42,18 @@ interface Borrador {
 
 type Filtro = 'sin_costo' | 'todos';
 
-/** Productos a los que les falta el costo unitario. */
+/**
+ * Le falta el costo: está en el inventario (con existencia) y vale $0. Un producto en 0
+ * recién creado desde una solicitud de pedido no cuenta: su costo llega al recibir la compra
+ * (12/10/2026; antes salían aquí todos los productos nuevos de las SP en curso).
+ */
+export function faltaCosto(p: Pick<Producto, 'estado' | 'precio' | 'stock'>): boolean {
+  return p.estado === 'activo' && !(Number(p.precio) > 0) && Number(p.stock) > 0;
+}
+
+/** Productos con existencia a los que les falta el costo unitario. */
 export function contarSinCosto(productos: Producto[]): number {
-  return productos.filter((p) => p.estado === 'activo' && !(Number(p.precio) > 0)).length;
+  return productos.filter(faltaCosto).length;
 }
 
 export function CostosYMedidasModal({ productos, actor, actorName, canWrite, onClose, onGuardado }: Props) {
@@ -74,7 +83,7 @@ export function CostosYMedidasModal({ productos, actor, actorName, canWrite, onC
   const filas = useMemo(() => {
     const texto = norm(q);
     return activos
-      .filter((p) => (filtro === 'sin_costo' ? !(Number(p.precio) > 0) : true))
+      .filter((p) => (filtro === 'sin_costo' ? faltaCosto(p) : true))
       .filter((p) => (cat ? p.categoria === cat : true))
       .filter((p) => {
         if (!texto) return true;
@@ -181,8 +190,8 @@ export function CostosYMedidasModal({ productos, actor, actorName, canWrite, onC
         <>
           <span className="muted" style={{ marginRight: 'auto', fontSize: '.8rem' }}>
             {sinCosto > 0
-              ? `${num(sinCosto)} producto(s) activos sin costo cargado`
-              : 'Todos los productos activos tienen su costo cargado'}
+              ? `${num(sinCosto)} producto(s) con existencia y sin costo cargado`
+              : 'Todos los productos con existencia tienen su costo cargado (los nuevos de una solicitud de pedido lo toman al recibir la compra)'}
           </span>
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
           {canWrite && (
@@ -225,7 +234,7 @@ export function CostosYMedidasModal({ productos, actor, actorName, canWrite, onC
           {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         <select className="select" value={filtro} onChange={(e) => setFiltro(e.target.value as Filtro)}>
-          <option value="sin_costo">Solo los que no tienen costo</option>
+          <option value="sin_costo">Con existencia y sin costo</option>
           <option value="todos">Todos los productos activos</option>
         </select>
       </div>
@@ -248,7 +257,7 @@ export function CostosYMedidasModal({ productos, actor, actorName, canWrite, onC
       {filas.length === 0 ? (
         <EmptyState
           message={filtro === 'sin_costo'
-            ? 'No hay productos sin costo con esos filtros.'
+            ? 'No hay productos con existencia y sin costo con esos filtros. Los nuevos de una solicitud de pedido toman su costo al recibir la compra.'
             : 'Ningún producto coincide con esos filtros.'}
           icon="$"
         />

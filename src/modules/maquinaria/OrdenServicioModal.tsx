@@ -10,7 +10,7 @@ import { buscarProductosParecidos, type ProductoParecido } from '@/modules/inven
 import { CategoriaProductoSelect } from '@/modules/inventario/CategoriaProductoSelect';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio,
+  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, CATEGORIA_REPUESTOS, categoriaFijaEnTelefono,
   repuestosEditables, type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
@@ -97,6 +97,8 @@ export function OrdenServicioModal({
   // «¿Es alguno de estos?»: productos de nombre parecido antes de agregar una pieza nueva.
   const [sugeridos, setSugeridos] = useState<{ nombre: string; lista: ProductoParecido[] } | null>(null);
   const [buscandoParecidos, setBuscandoParecidos] = useState(false);
+  // En el teléfono las piezas nuevas van siempre a REPUESTOS; en la computadora se puede cambiar.
+  const [categoriaFija] = useState(categoriaFijaEnTelefono);
   // Fotos (hasta 4): se comprimen al elegirlas y se suben al crear la orden.
   const fotosOS = useFotosLocales();
 
@@ -132,7 +134,7 @@ export function OrdenServicioModal({
     setBusqueda('');
   }
   function agregarComoNueva(nombre: string) {
-    setLineas((prev) => [...prev, { productoId: null, nombre, unidad: 'und', cantidad: 1, stock: 0, almacen: null, categoria: '' }]);
+    setLineas((prev) => [...prev, { productoId: null, nombre, unidad: 'und', cantidad: 1, stock: 0, almacen: null, categoria: CATEGORIA_REPUESTOS }]);
     setBusqueda('');
     setSugeridos(null);
   }
@@ -371,12 +373,14 @@ export function OrdenServicioModal({
                     </div>
                   </div>
                   <Decision l={l} />
-                  {!l.productoId && !editando && (
-                    <div className="form-row" style={{ marginBottom: 0 }}>
-                      <label htmlFor={`os-cat-${i}`}>Categoría en el inventario *</label>
-                      <CategoriaProductoSelect id={`os-cat-${i}`} value={l.categoria ?? ''} onChange={(c) => setCategoria(i, c)} />
-                    </div>
-                  )}
+                  {!l.productoId && !editando && (categoriaFija
+                    ? <small className="muted">Categoría en el inventario: <strong>{CATEGORIA_REPUESTOS}</strong></small>
+                    : (
+                      <div className="form-row" style={{ marginBottom: 0 }}>
+                        <label htmlFor={`os-cat-${i}`}>Categoría en el inventario *</label>
+                        <CategoriaProductoSelect id={`os-cat-${i}`} value={l.categoria ?? ''} onChange={(c) => setCategoria(i, c)} />
+                      </div>
+                    ))}
                 </div>
               )) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin repuestos. Puedes seguir si el servicio es solo mano de obra.</p>}
               {!editando && nuevasSinCategoria > 0 && <p className="muted" style={{ fontSize: '.78rem', margin: '.3rem 0 0' }}>⚠️ Elige la categoría de {nuevasSinCategoria === 1 ? 'la pieza nueva' : `las ${nuevasSinCategoria} piezas nuevas`} para seguir.</p>}
