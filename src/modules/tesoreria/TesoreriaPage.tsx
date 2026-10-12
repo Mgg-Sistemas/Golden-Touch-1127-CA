@@ -3792,7 +3792,12 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
                   )}
                 </td>
                 <td className="mono">{r.orden.codigo}</td>
-                <td>{r.proveedorNombre}</td>
+                <td>
+                  {r.proveedorNombre}
+                  {r.orden.notas?.trim() && (
+                    <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', whiteSpace: 'pre-wrap', maxWidth: 420 }} title="Nota de la solicitud de pedido">📝 {r.orden.notas.trim()}</div>
+                  )}
+                </td>
                 <td style={{ fontSize: '.78rem' }}>
                   {labelCondicionPago(r.orden.condiciones_pago)}
                   {espera && (
@@ -5785,7 +5790,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
               || <span className="muted">—</span>
             }</div>
             <div style={{ gridColumn: '1 / -1' }}><span className="muted">Motivo:</span> {o.motivo?.trim() || <span className="muted">—</span>}</div>
-            <div style={{ gridColumn: '1 / -1' }}><span className="muted">Nota (OP):</span> {o.notas?.trim() || <span className="muted">—</span>}</div>
+            <div style={{ gridColumn: '1 / -1', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)', padding: '.4rem .6rem', borderRadius: 6 }}>
+              📝 <strong>Nota de la solicitud:</strong> <span style={{ whiteSpace: 'pre-wrap' }}>{o.notas?.trim() || <span className="muted">— (sin nota)</span>}</span>
+            </div>
             {(o.oc_seleccion_observacion || (o.oc_seleccion_adjuntos && o.oc_seleccion_adjuntos.length > 0)) && (
               <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--border)', paddingTop: '.4rem', marginTop: '.15rem' }}>
                 <span className="muted">Justificación de la elección (analista):</span>{' '}
