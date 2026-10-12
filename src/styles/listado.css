@@ -55,6 +55,9 @@ button.lt-kpi:focus-visible { outline: 2px solid var(--primary); outline-offset:
 .asig-renglones { padding: .7rem .8rem; margin-bottom: .8rem; border: 1px solid var(--primary); border-radius: var(--r-md); background: rgba(255,138,0,.06); }
 .asig-renglones-cab { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .45rem; }
 .asig-renglon { display: flex; align-items: center; gap: .55rem; padding: .35rem 0; border-top: 1px solid var(--border); }
+/* Acta de entrega en el formulario de nueva asignación (12/10/2026). */
+.asig-acta { margin: .9rem 0 0; padding: .6rem .8rem .7rem; border: 1px solid var(--border); border-radius: var(--r-md); }
+.asig-acta legend { padding: 0 .35rem; font-weight: 700; font-size: .9rem; }
 .asig-renglon:first-of-type { border-top: 0; }
 .asig-renglon-txt { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asig-renglon > button { margin-left: auto; flex: 0 0 auto; }

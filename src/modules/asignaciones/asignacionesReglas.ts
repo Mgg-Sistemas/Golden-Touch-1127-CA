@@ -66,6 +66,8 @@ export interface Asignacion {
   autorizacion_hasta?: string | null;
   /** Ruta o zona por la que puede transitar. */
   ruta_autorizada?: string | null;
+  /** Acta de entrega que agrupa los artículos de una entrega (12/10/2026). */
+  acta_id?: string | null;
   created_at: string;
   created_by?: string | null;
   actor_name?: string | null;

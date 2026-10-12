@@ -29,6 +29,9 @@ import { AsignacionModal } from './AsignacionModal';
 import { VehiculosCatalogoModal, type UsoVehiculo } from './VehiculosCatalogoModal';
 import { vigenciaAutorizacion, type VehiculoCatalogo } from './vehiculosCatalogo';
 import { descargarAsignacionesPdf, nombreArchivoPdf } from './asignacionesPdf';
+import { listActas, listFirmantes, type ActaAsignacion, type Firmante } from './actas.repository';
+import { ActaModal } from './ActaModal';
+import { FirmantesCatalogoModal } from './FirmantesActa';
 
 const PILL: Record<Asignacion['estado'], string> = { asignado: 'ambar', devuelto: 'verde', entregado: 'gris' };
 
@@ -51,15 +54,24 @@ export function AsignacionesPage() {
   const [modal, setModal] = useState<{ abierto: boolean; asignacion: Asignacion | null } | null>(null);
   const [historial, setHistorial] = useState<PersonaMin | null>(null);
   const [listaModal, setListaModal] = useState<'pendientes' | 'trabajadores' | null>(null);
+  // Actas de entrega numeradas y el catálogo de quien suscribe (12/10/2026).
+  const [actas, setActas] = useState<ActaAsignacion[]>([]);
+  const [firmantes, setFirmantes] = useState<Firmante[]>([]);
+  const [verActa, setVerActa] = useState<string | null>(null);
+  const [catalogoFirmantes, setCatalogoFirmantes] = useState(false);
 
   const recargar = useCallback(async () => {
     try {
-      const [as, ps, pr, vs] = await Promise.all([
+      const [as, ps, pr, vs, ac, fi] = await Promise.all([
         listAsignaciones(),
         listPersonal(false).catch(() => []),
         listProductosAsignables().catch(() => [] as ProductoAsignable[]),
         listVehiculosCatalogo().catch(() => [] as VehiculoCatalogo[]),
+        listActas().catch(() => [] as ActaAsignacion[]),
+        listFirmantes().catch(() => [] as Firmante[]),
       ]);
+      setActas(ac);
+      setFirmantes(fi);
       setLista(as);
       setPersonal(ps as PersonaMin[]);
       setProductos(pr);
@@ -68,7 +80,10 @@ export function AsignacionesPage() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
-  useRealtime(['asignaciones', 'personal', 'productos', 'vehiculos_catalogo'], () => { void recargar(); });
+  useRealtime(['asignaciones', 'asignaciones_actas', 'asignaciones_firmantes', 'personal', 'productos', 'vehiculos_catalogo'], () => { void recargar(); });
+  const actaPorId = useMemo(() => new Map(actas.map((a) => [a.id, a])), [actas]);
+  const actasNumeros = useMemo(() => actas.map((a) => a.numero), [actas]);
+  const actaAbierta = verActa ? actaPorId.get(verActa) ?? null : null;
 
   const personas = useMemo(() => new Map(personal.map((p) => [p.id, p])), [personal]);
   const filtradas = useMemo(() => ordenarAsignaciones(filtrarAsignaciones(lista, f, personas)), [lista, f, personas]);
@@ -268,6 +283,7 @@ export function AsignacionesPage() {
         {(f.tipo === 'vehiculo' || !f.tipo) && (
           <button className="btn btn-ghost" onClick={() => setCatalogo(true)}>🚙 Catálogo de vehículos</button>
         )}
+        <button className="btn btn-ghost" onClick={() => setCatalogoFirmantes(true)} title="Quien suscribe las actas de entrega">📚 Firmantes del acta</button>
         <button className="btn btn-ghost" onClick={() => void pdfListado()} disabled={!filtradas.length}>📄 Reporte en PDF</button>
         {f.personalId && (
           <button className="btn btn-ghost" onClick={() => setHistorial(personas.get(f.personalId) ?? null)}>🧾 Historial del trabajador</button>
@@ -282,7 +298,7 @@ export function AsignacionesPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Código</th><th>Fecha</th><th>Trabajador</th><th>Categoría</th><th>Qué se asignó</th>
+                    <th>Código</th><th>Acta</th><th>Fecha</th><th>Trabajador</th><th>Categoría</th><th>Qué se asignó</th>
                     <th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Valor</th><th>Origen</th><th>Estado</th>
                   </tr>
                 </thead>
@@ -294,6 +310,17 @@ export function AsignacionesPage() {
                       <tr key={a.id} onClick={() => setModal({ abierto: true, asignacion: a })}
                         title="Ver, editar, devolver o eliminar">
                         <td className="mono">{a.codigo}</td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          {a.acta_id && actaPorId.get(a.acta_id) ? (() => {
+                            const ac = actaPorId.get(a.acta_id as string) as ActaAsignacion;
+                            return (
+                              <button type="button" className="btn btn-sm btn-ghost mono" style={{ padding: '0 .35rem' }} onClick={() => setVerActa(ac.id)}
+                                title={`Acta ${ac.numero}: PDF para firmar, fotos y acta firmada`}>
+                                {ac.numero}{ac.firmada_path ? ' ✔' : ''}{ac.fotos.length ? ` 📷${ac.fotos.length}` : ''}
+                              </button>
+                            );
+                          })() : <span className="muted">—</span>}
+                        </td>
                         <td>{fmtDate(a.fecha)}</td>
                         <td>
                           {nombreDe(p)}
@@ -330,7 +357,21 @@ export function AsignacionesPage() {
           vehiculos={vehiculos} vehiculosEnUso={vehiculosEnUso} canWrite={canWrite}
           actor={actor} actorName={actorName} onClose={() => setModal(null)}
           onSaved={async () => { setModal(null); await recargar(); }}
-          onCatalogo={canWrite ? () => setCatalogo(true) : undefined} />
+          onCatalogo={canWrite ? () => setCatalogo(true) : undefined}
+          actasNumeros={actasNumeros} firmantes={firmantes} onCatalogoFirmantes={() => setCatalogoFirmantes(true)}
+          onActaCreada={(ac) => { setActas((xs) => [ac, ...xs.filter((x) => x.id !== ac.id)]); setVerActa(ac.id); }}
+          actaNumero={modal.asignacion?.acta_id ? actaPorId.get(modal.asignacion.acta_id)?.numero ?? null : null}
+          onVerActa={modal.asignacion?.acta_id ? () => { setVerActa(modal.asignacion?.acta_id ?? null); setModal(null); } : undefined} />
+      )}
+
+      {actaAbierta && (
+        <ActaModal acta={actaAbierta} items={lista.filter((a) => a.acta_id === actaAbierta.id)} personal={personal} firmantes={firmantes}
+          canWrite={canWrite} actor={actor} onClose={() => setVerActa(null)} onChanged={recargar}
+          onCatalogo={() => setCatalogoFirmantes(true)} />
+      )}
+
+      {catalogoFirmantes && (
+        <FirmantesCatalogoModal canWrite={canWrite} actor={actor} onClose={() => { setCatalogoFirmantes(false); void recargar(); }} />
       )}
 
       {catalogo && (
