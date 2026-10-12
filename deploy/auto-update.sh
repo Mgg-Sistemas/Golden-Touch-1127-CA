@@ -36,8 +36,21 @@ git fetch origin "$BRANCH" --quiet
 LOCAL="$(git rev-parse HEAD)"
 REMOTE="$(git rev-parse "origin/$BRANCH")"
 
-if [ "$LOCAL" = "$REMOTE" ]; then
-  exit 0   # sin cambios → no hacemos nada (ni marcamos)
+# ÚLTIMO DESPLIEGUE QUE TERMINÓ BIEN (12/10/2026). Antes se comparaba solo HEAD con
+# origin/main: si el build fallaba (p. ej. Node sin memoria), HEAD ya había avanzado con
+# el reset y las corridas siguientes creían que no había nada nuevo. El sitio quedaba en
+# la versión vieja hasta el próximo commit. Ahora se reintenta hasta que publique.
+OK_FILE="/var/lib/golden-touch/ultimo-deploy-ok"
+mkdir -p "$(dirname "$OK_FILE")"
+ULTIMO_OK="$(cat "$OK_FILE" 2>/dev/null || true)"
+# Primera corrida con esta lógica: si lo publicado ya es este commit, solo se anota.
+if [ -z "$ULTIMO_OK" ] && [ "$LOCAL" = "$REMOTE" ] && grep -q "${REMOTE:0:7}" dist/version.json 2>/dev/null; then
+  echo "$REMOTE" > "$OK_FILE"
+  ULTIMO_OK="$REMOTE"
+fi
+
+if [ "$LOCAL" = "$REMOTE" ] && [ "$ULTIMO_OK" = "$REMOTE" ]; then
+  exit 0   # sin cambios y ya publicado → no hacemos nada (ni marcamos)
 fi
 
 # Credenciales para la marca de despliegue (de .env.local / .env, gitignored).
@@ -87,13 +100,18 @@ marcar_despliegue() {
 
 {
   echo "----------------------------------------"
-  echo "$(date '+%F %T') · cambios: ${LOCAL:0:7} -> ${REMOTE:0:7}"
+  if [ "$LOCAL" = "$REMOTE" ]; then
+    echo "$(date '+%F %T') · reintento: el build de ${REMOTE:0:7} no había terminado (último publicado: ${ULTIMO_OK:0:7})"
+  else
+    echo "$(date '+%F %T') · cambios: ${LOCAL:0:7} -> ${REMOTE:0:7}"
+  fi
   # .env.local / node_modules / dist están en .gitignore → reset no los borra
   git reset --hard "origin/$BRANCH"
   # `npm ci` tarda ~3 min en el Droplet: se corre solo si cambió package.json o el
   # lock (o si no hay node_modules). Si no cambiaron, node_modules ya es exactamente
   # lo que pide package-lock.json y reinstalarlo solo alarga el despliegue.
-  if [ ! -d node_modules ] || ! git diff --quiet "$LOCAL" "$REMOTE" -- package.json package-lock.json; then
+  BASE="${ULTIMO_OK:-$LOCAL}"
+  if [ ! -d node_modules ] || ! git diff --quiet "$BASE" "$REMOTE" -- package.json package-lock.json 2>/dev/null; then
     npm ci
   else
     echo "$(date '+%F %T') · npm ci omitido (package.json y package-lock.json sin cambios)"
@@ -114,6 +132,7 @@ marcar_despliegue() {
   mv dist.new dist
   rm -rf dist.old
   systemctl reload nginx
+  echo "$REMOTE" > "$OK_FILE"
   echo "$(date '+%F %T') · deploy OK en ${REMOTE:0:7}"
 } >> "$LOG" 2>&1
 
