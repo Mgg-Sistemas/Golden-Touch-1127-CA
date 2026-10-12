@@ -314,6 +314,24 @@
 
 .filterbar .search { flex: 1; min-width: 200px; width: auto; }
 
+/* Filtro de categorías con casillas (Inventario): se marcan varias a la vez. */
+.cat-check { position: relative; flex: 0 1 200px; min-width: 0; }
+.cat-check-btn { width: 100%; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cat-check-btn.activo { border-color: var(--primary); }
+.cat-check-panel {
+  position: absolute; z-index: 50; top: calc(100% + 4px); left: 0; min-width: 260px; max-height: min(60vh, 380px); overflow-y: auto;
+  display: grid; padding: .35rem; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-md); box-shadow: var(--shadow-md);
+}
+.cat-check-op { display: flex; align-items: center; gap: .55rem; padding: .45rem .55rem; border-radius: var(--r-sm); cursor: pointer; font-size: .88rem; color: var(--text); }
+.cat-check-op:hover { background: var(--surface-2); }
+.cat-check-op.todas { border-bottom: 1px solid var(--border); border-radius: 0; margin-bottom: .2rem; font-weight: 600; }
+.cat-check-op input { width: 16px; height: 16px; flex: none; accent-color: var(--primary); }
+@media (max-width: 640px) {
+  .cat-check { flex: 1 1 100%; }
+  .cat-check-panel { min-width: 0; width: 100%; }
+  .cat-check-op { min-height: 44px; }
+}
+
 /* Detail strip rows */
 .detail-row {
   display: grid; grid-template-columns: 160px 1fr;

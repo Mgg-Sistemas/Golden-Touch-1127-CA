@@ -73,7 +73,7 @@ interface UiState extends FilterValues {
 const INITIAL_UI: UiState = {
   view: 'productos',
   filterText: '',
-  filterCat: '',
+  filterCat: [],
   filterClass: '',
   filterStock: '',
   filterFundicion: '',
@@ -86,7 +86,8 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   // baja o se unificó en otro: mostrarlo hacía parecer que había dos productos
   // donde queda uno. Los dados de baja viven en «Productos inactivos».
   if (p.estado !== 'activo') return false;
-  if (ui.filterCat && p.categoria !== ui.filterCat) return false;
+  // Varias categorías a la vez (casillas, 12/10/2026): ninguna marcada = todas.
+  if (ui.filterCat.length && !ui.filterCat.includes(p.categoria)) return false;
   if (ui.filterClass && p._klass !== ui.filterClass) return false;
   if (ui.filterFundicion === 'si' && !p.receta_fundicion) return false;
   if (ui.filterFundicion === 'no' && p.receta_fundicion) return false;
@@ -410,7 +411,7 @@ export function InventarioPage({ deposito = 'general' }: { deposito?: Deposito }
 
   const inactivosCount = useMemo(() => productos.filter((p) => p.estado === 'inactivo').length, [productos]);
 
-  function setFilter2(key: keyof FilterValues, value: string) {
+  function setFilter2(key: keyof FilterValues, value: string | string[]) {
     setUi((prev) => ({ ...prev, [key]: value }) as UiState);
   }
 
