@@ -15,7 +15,7 @@ import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import type { FotoEquipo, LavadoEquipo, OrdenServicio } from './flota.repository';
 import { fotosOrdenConUrl } from './osFotos.repository';
-import { ESTADOS_EQUIPO, ORDEN_ESTADOS, URGENCIAS, estadoEfectivo, servicioPorId, type EstadoEquipo } from './flota';
+import { ESTADOS_EQUIPO, ORDEN_ESTADOS, URGENCIAS, estadoEfectivo, servicioPorId, etiquetaServicio, type EstadoEquipo } from './flota';
 
 type AutoTable = (doc: JsPDF, opts: Record<string, unknown>) => void;
 
@@ -200,7 +200,7 @@ export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ord
     autoTable(doc, {
       startY: y, margin: { left: M, right: M },
       head: [['Orden', 'Fecha', 'Servicio', 'Descripción', 'Estado']],
-      body: ordenes.map((o) => [o.codigo, fmtDate(o.created_at), servicioPorId(o.tipo)?.label ?? o.tipo, o.descripcion ?? '', ORDEN_ESTADOS[o.estado]?.label ?? o.estado]),
+      body: ordenes.map((o) => [o.codigo, fmtDate(o.created_at), etiquetaServicio(o.tipo, o.trabajos), o.descripcion ?? '', ORDEN_ESTADOS[o.estado]?.label ?? o.estado]),
       theme: 'grid',
       styles: { fontSize: 8, cellPadding: 2.2, lineColor: BORDE, lineWidth: 0.25, textColor: TINTA },
       headStyles: { fillColor: NARANJA, textColor: [26, 14, 0], fontStyle: 'bold' },
@@ -252,6 +252,7 @@ export async function ordenServicioPdf(
       ['Serial / placa', [e.serial, e.placa].filter(Boolean).join(' · ') || '—', 'Realiza', o.origen === 'interno' ? 'Taller propio' : 'Proveedor externo'],
       ['Ubicación', e.ubicacion ?? '—', 'Responsable', o.responsable ?? 'Por asignar'],
       ['Horómetro / km', [o.horometro != null ? `${fmtNum(o.horometro)} h` : '', o.kilometraje != null ? `${fmtNum(o.kilometraje)} km` : ''].filter(Boolean).join(' · ') || '—', 'Intervención', o.intervenciones.join(', ') || '—'],
+      ['Qué se hace', { content: o.trabajos?.length ? o.trabajos.join(', ') : '—', colSpan: 3 }],
     ],
     styles: { fontSize: 8.5, cellPadding: 2.4, lineColor: BORDE, lineWidth: 0.25, textColor: TINTA },
     columnStyles: { 0: { fillColor: FONDO_ETIQUETA, fontStyle: 'bold', cellWidth: 32 }, 2: { fillColor: FONDO_ETIQUETA, fontStyle: 'bold', cellWidth: 28 } },

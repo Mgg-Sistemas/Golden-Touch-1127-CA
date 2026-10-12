@@ -77,6 +77,8 @@ export interface OrdenServicio {
   tipo: string;
   urgencia: 'normal' | 'alta' | 'urgente';
   intervenciones: string[];
+  /** Qué se hace dentro del tipo (ej. cauchos: «Caucho espichado»). */
+  trabajos: string[];
   origen: 'interno' | 'externo';
   responsable: string | null;
   descripcion: string | null;
@@ -120,6 +122,8 @@ export interface NuevaOrdenServicio {
   tipo: string;
   urgencia: 'normal' | 'alta' | 'urgente';
   intervenciones: string[];
+  /** Qué se hace dentro del tipo (ej. cauchos: «Caucho espichado»). */
+  trabajos: string[];
   origen: 'interno' | 'externo';
   responsable: string;
   descripcion: string;
@@ -318,6 +322,8 @@ export interface EdicionOrdenServicio {
   tipo: string;
   urgencia: 'normal' | 'alta' | 'urgente';
   intervenciones: string[];
+  /** Qué se hace dentro del tipo (ej. cauchos: «Caucho espichado»). */
+  trabajos: string[];
   origen: 'interno' | 'externo';
   responsable: string;
   descripcion: string;

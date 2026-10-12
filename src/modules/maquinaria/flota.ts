@@ -147,6 +147,35 @@ export function servicioPorId(id: string | null | undefined) {
   return SERVICIOS.find((s) => s.id === id) ?? null;
 }
 
+/**
+ * Qué se hace dentro de cada tipo de servicio (12/10/2026): al elegir el tipo, el asistente
+ * muestra estas opciones y se marcan una o varias. «Otro» no trae: se describe a mano.
+ */
+export const TRABAJOS_SERVICIO: Record<string, string[]> = {
+  preventivo: ['Servicio por horas / km', 'Engrase general', 'Revisión de niveles', 'Limpieza de filtro de aire', 'Ajuste general'],
+  reparacion: ['Motor', 'Transmisión', 'Tren de rodaje', 'Diferencial', 'Sistema de enfriamiento', 'Aire acondicionado', 'Cabina'],
+  cambio_pieza: ['Cambio de pieza', 'Reparación de pieza', 'Instalación de componente nuevo'],
+  cauchos: ['Cambio de caucho', 'Reparación de caucho', 'Caucho espichado', 'Cambio de tripa', 'Rotación', 'Alineación y balanceo'],
+  aceite: ['Cambio de aceite de motor', 'Cambio de filtro de aceite', 'Cambio de filtro de combustible', 'Cambio de filtro de aire', 'Cambio de aceite hidráulico', 'Cambio de aceite de transmisión'],
+  frenos: ['Cambio de pastillas', 'Cambio de bandas', 'Cambio / purga de líquido', 'Ajuste de frenos', 'Freno de mano'],
+  electrico: ['Batería', 'Motor de arranque', 'Alternador', 'Luces', 'Cableado / cortocircuito', 'Tablero'],
+  hidraulico: ['Cambio de manguera', 'Fuga hidráulica', 'Gato / cilindro', 'Bomba hidráulica', 'Cambio de aceite hidráulico'],
+  soldadura: ['Estructura / chasis', 'Balde / cucharón', 'Tolva', 'Dientes del balde', 'Refuerzo'],
+  pintura: ['Pintura general', 'Retoque', 'Latonería', 'Cabina', 'Parabrisas / vidrios'],
+  inspeccion: ['Inspección general', 'Revisión antes de operar', 'Diagnóstico de falla', 'Informe técnico'],
+};
+
+/** Opciones de «¿Qué se hace?» del tipo de servicio (vacío si no tiene). */
+export function trabajosDe(tipo: string | null | undefined): string[] {
+  return (tipo && TRABAJOS_SERVICIO[tipo]) || [];
+}
+
+/** «Cauchos / neumáticos: Cambio de caucho, Caucho espichado» (o solo el tipo si no se marcó nada). */
+export function etiquetaServicio(tipo: string | null | undefined, trabajos?: string[] | null): string {
+  const base = servicioPorId(tipo)?.label ?? tipo ?? 'Servicio';
+  return trabajos?.length ? `${base}: ${trabajos.join(', ')}` : base;
+}
+
 /** ¿Este servicio reinicia el contador de mantenimiento al realizarse? (sugerencia, se puede cambiar). */
 export function servicioReiniciaContador(tipo: string | null | undefined): boolean {
   return tipo === 'preventivo' || tipo === 'aceite';
