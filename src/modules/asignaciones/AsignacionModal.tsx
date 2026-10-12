@@ -24,6 +24,11 @@ import {
   VIGENCIA_LABEL, descripcionVehiculo, etiquetaVehiculo, marcaModelo, vigenciaAutorizacion, type VehiculoCatalogo,
 } from './vehiculosCatalogo';
 import { descargarAutorizacionVehiculoPdf } from './autorizacionVehiculoPdf';
+import { MAX_FOTOS_ACTA, errorFotosActa, errorNumeroActa, siguienteNumeroActa } from './actas';
+import {
+  crearActa, eliminarActa, eliminarActaSiVacia, firmanteParaActa, subirFotosActa, type ActaAsignacion, type DatosFirmante, type Firmante,
+} from './actas.repository';
+import { FIRMANTE_VACIO, FirmanteCampos } from './FirmantesActa';
 
 /** Ejemplo del campo «¿Qué se asigna?» según la categoría. */
 const EJEMPLO: Partial<Record<FormAsignacion['categoria'], string>> = {
@@ -35,7 +40,8 @@ const EJEMPLO: Partial<Record<FormAsignacion['categoria'], string>> = {
 
 type Modo = 'ver' | 'editar' | 'devolver';
 
-export function AsignacionModal({ asignacion, tipo = '', personal, productos, vehiculos = [], vehiculosEnUso, canWrite, actor, actorName, onClose, onSaved, onCatalogo }: {
+export function AsignacionModal({ asignacion, tipo = '', personal, productos, vehiculos = [], vehiculosEnUso, canWrite, actor, actorName, onClose, onSaved, onCatalogo,
+  actasNumeros = [], firmantes = [], onCatalogoFirmantes, onActaCreada, actaNumero, onVerActa }: {
   asignacion: Asignacion | null;
   /** Apartado desde el que se abrió (limita las categorías). Vacío = todas. */
   tipo?: TipoAsignacion | '';
@@ -47,6 +53,16 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
   vehiculosEnUso?: Map<string, string>;
   /** Abre el catálogo de vehículos (para agregar uno que falta). */
   onCatalogo?: () => void;
+  /** Números de acta que ya existen: para proponer el siguiente (12/10/2026). */
+  actasNumeros?: string[];
+  /** Catálogo editable de quien suscribe el acta. */
+  firmantes?: Firmante[];
+  onCatalogoFirmantes?: () => void;
+  /** Al registrar una entrega nueva: el acta creada (se abre para imprimirla). */
+  onActaCreada?: (acta: ActaAsignacion) => void;
+  /** Número del acta de esta asignación (si tiene) y cómo abrirla. */
+  actaNumero?: string | null;
+  onVerActa?: () => void;
   canWrite: boolean;
   actor: string;
   actorName: string | null;
@@ -67,6 +83,17 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
   const [dev, setDev] = useState({ fecha: hoyVenezuela(), condicion: 'bueno' as CondicionDevolucion, reingresa: true, nota: '' });
   // Artículos ya agregados a esta entrega (solo al crear). Cada uno queda como su propia asignación.
   const [renglones, setRenglones] = useState<FormAsignacion[]>([]);
+
+  // Acta de entrega (solo al crear). El número: la primera vez se escribe a mano; desde
+  // ahí se propone el siguiente; si se borra, se escribe a mano (no se rellena solo).
+  const anioActa = Number((f.fecha || hoyVenezuela()).slice(0, 4)) || new Date().getFullYear();
+  const numeroPropuesto = useMemo(() => siguienteNumeroActa(actasNumeros, anioActa), [actasNumeros, anioActa]);
+  const [numeroActa, setNumeroActa] = useState(numeroPropuesto);
+  const [numeroTocado, setNumeroTocado] = useState(false);
+  useEffect(() => { if (!numeroTocado) setNumeroActa(numeroPropuesto); }, [numeroPropuesto, numeroTocado]);
+  const [entregaActa, setEntregaActa] = useState<DatosFirmante>(FIRMANTE_VACIO);
+  const [obsActa, setObsActa] = useState('');
+  const [fotosActa, setFotosActa] = useState<File[]>([]);
 
   const producto = productos.find((p) => p.id === f.producto_id) ?? null;
   const prodPorId = useMemo(() => new Map(productos.map((p) => [p.id, p])), [productos]);
@@ -145,16 +172,38 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
       if (errs.length) return;
     } else setErrores([]);
     const items = soloAgregados ? renglones : [...renglones, f];
+    if (!asignacion) {
+      const errsActa = [errorNumeroActa(numeroActa), errorFotosActa(fotosActa)].filter((x): x is string => !!x);
+      if (new Set(items.map((it) => it.personal_id)).size > 1) errsActa.push('Una entrega es de un solo trabajador: todos los artículos deben ser de la misma persona.');
+      if (errsActa.length) { setErrores(errsActa); return; }
+    }
     setSaving(true);
     try {
       if (asignacion) {
         await editarAsignacion(asignacion.id, payloadDe(f), actor, actorName);
         toast('Asignación actualizada', 'success');
       } else {
+        // Primero el acta (da el número; si está repetido, no se registra nada).
+        const firmante = await firmanteParaActa(entregaActa, firmantes, actor);
+        let acta = await crearActa({
+          numero: numeroActa, fecha: items[0].fecha, personal_id: items[0].personal_id,
+          entrega: entregaActa, firmanteId: firmante?.id ?? null, observaciones: obsActa,
+        }, { actor, actorName });
         // De a uno y en orden: cada uno descuenta stock, y si falla el tercero
         // los dos primeros ya quedaron (se ven en la lista y se pueden borrar).
-        for (const it of items) await crearAsignacion(payloadDe(it), actor, actorName);
-        toast(items.length === 1 ? 'Asignación registrada' : `${items.length} asignaciones registradas`, 'success');
+        let creadas = 0;
+        try {
+          for (const it of items) { await crearAsignacion({ ...payloadDe(it), acta_id: acta.id }, actor, actorName); creadas++; }
+        } finally {
+          // Un acta sin artículos no es nada: si no entró ninguno, se va.
+          if (!creadas) await eliminarActa(acta).catch(() => undefined);
+        }
+        if (fotosActa.length) {
+          try { acta = await subirFotosActa(acta, fotosActa); }
+          catch (e) { toast(`El acta quedó registrada pero las fotos no subieron: ${e instanceof Error ? e.message : 'error'}. Agrégalas desde el acta.`, 'warning'); }
+        }
+        toast(`${items.length === 1 ? 'Asignación registrada' : `${items.length} asignaciones registradas`} · acta ${acta.numero}`, 'success');
+        onActaCreada?.(acta);
       }
       onSaved();
     } catch (err) { setErrores([err instanceof Error ? err.message : 'No se pudo guardar']); setSaving(false); }
@@ -181,7 +230,12 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
   async function eliminar() {
     if (!asignacion) return;
     setBorrar(false); setSaving(true);
-    try { await eliminarAsignacion(asignacion.id, actor, actorName); toast('Asignación eliminada', 'success'); onSaved(); }
+    try {
+      await eliminarAsignacion(asignacion.id, actor, actorName);
+      // Si era el último artículo de su acta, el acta se va con sus fotos: un acta vacía no es nada.
+      if (asignacion.acta_id) await eliminarActaSiVacia(asignacion.acta_id).catch(() => undefined);
+      toast('Asignación eliminada', 'success'); onSaved();
+    }
     catch (err) { setErrores([err instanceof Error ? err.message : 'No se pudo eliminar']); setSaving(false); }
   }
 
@@ -202,6 +256,9 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
       )}
       {!esNueva && canWrite && modo === 'ver' && (
         <button className="btn btn-ghost" onClick={() => setModo('editar')} disabled={saving}>✏ Editar</button>
+      )}
+      {!esNueva && modo === 'ver' && actaNumero && onVerActa && (
+        <button className="btn btn-ghost" onClick={onVerActa} disabled={saving} title="Acta de entrega: PDF para firmar, fotos y acta firmada">📝 Acta {actaNumero}</button>
       )}
       {!esNueva && modo === 'ver' && asignacion?.categoria === 'vehiculo' && (
         <button className="btn btn-ghost" onClick={() => void pdfAutorizacion()} disabled={saving} title="Autorización de tránsito para que la porte el conductor">📄 Autorización</button>
@@ -476,6 +533,45 @@ export function AsignacionModal({ asignacion, tipo = '', personal, productos, ve
               <span className="aviso-icono">ℹ</span>
               <div>Si cambias el producto o la cantidad, se devuelve al inventario lo que estaba asignado y se descuenta lo nuevo.</div>
             </div>
+          )}
+
+          {esNueva && (
+            <fieldset className="asig-acta">
+              <legend>📝 Acta de entrega <span className="muted" style={{ fontWeight: 400 }}>· una para todos los artículos de esta entrega</span></legend>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label htmlFor="asig-acta-numero">N° de acta *</label>
+                  <input id="asig-acta-numero" className="input mono" value={numeroActa} placeholder="026-2026"
+                    onChange={(e) => { setNumeroTocado(true); setNumeroActa(e.target.value); }} />
+                  <small className="muted" style={{ fontSize: '.74rem' }}>
+                    {!numeroPropuesto
+                      ? 'Es la primera acta: escribe el número con el que sigue la numeración (ej.: 026-2026). Las siguientes salen solas.'
+                      : numeroActa.trim() === numeroPropuesto
+                        ? 'El siguiente número. Si lo borras, escríbelo a mano.'
+                        : numeroActa.trim() ? `Escrito a mano (el siguiente sería ${numeroPropuesto}).` : 'Escribe el número a mano (ej.: 026-2026).'}
+                    {numeroTocado && numeroPropuesto && numeroActa.trim() !== numeroPropuesto && (
+                      <> · <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .3rem' }}
+                        onClick={() => { setNumeroTocado(false); setNumeroActa(numeroPropuesto); }}>Usar {numeroPropuesto}</button></>
+                    )}
+                  </small>
+                </div>
+                <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                  <label htmlFor="asig-firmante-nombre">Quien suscribe (entrega por la empresa)</label>
+                  <FirmanteCampos id="asig-firmante" valor={entregaActa} onChange={setEntregaActa} catalogo={firmantes} onCatalogo={onCatalogoFirmantes} />
+                </div>
+                <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                  <label htmlFor="asig-acta-obs">Observación del acta <span className="muted" style={{ fontWeight: 400 }}>(opcional · va en la carta)</span></label>
+                  <input id="asig-acta-obs" className="input" value={obsActa} onChange={(e) => setObsActa(e.target.value)}
+                    placeholder="Para qué se entrega, estado, accesorios incluidos…" />
+                </div>
+                <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                  <label htmlFor="asig-acta-fotos">Anexo fotográfico <span className="muted" style={{ fontWeight: 400 }}>(opcional · hasta {MAX_FOTOS_ACTA} fotos · se pueden agregar después)</span></label>
+                  <input id="asig-acta-fotos" className="input" type="file" accept="image/*" multiple
+                    onChange={(e) => setFotosActa(Array.from(e.target.files ?? []).slice(0, MAX_FOTOS_ACTA))} />
+                  {fotosActa.length > 0 && <small className="muted">{fotosActa.length} foto(s): {fotosActa.map((x) => x.name).join(', ')}</small>}
+                </div>
+              </div>
+            </fieldset>
           )}
         </form>
       )}
