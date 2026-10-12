@@ -3719,6 +3719,13 @@ function CrearOrdenModal({
     const finDoms = root ? (Array.from(root.querySelectorAll('input[data-fin-idx]')) as HTMLInputElement[]) : [];
     const solicitanteFinal = ((solDom?.value ?? solicitanteNombre) || '').toUpperCase().trim();
     const notaFinal = ((notaDom?.value ?? notas) || '').trim();
+    // La nota es obligatoria (12/10/2026): es lo que Tesorería lee al pagar para saber
+    // para qué es la compra y quién la pidió.
+    if (notaFinal.replace(/\s+/g, '').length < 5) {
+      toast('Escribe la nota: para qué es y quién lo pidió. Tesorería la ve al pagar.', 'error');
+      notaDom?.focus();
+      return;
+    }
     const itemsFinal = items.map((it, idx) => {
       const dom = finDoms.find((d) => d.dataset.finIdx === String(idx));
       const base = dom ? { ...it, finalidad: dom.value } : it;
@@ -4085,11 +4092,12 @@ function CrearOrdenModal({
       </div>
 
       <div className="form-row">
-        <label>Nota <span className="muted">(opcional)</span></label>
+        <label>Nota <span style={{ color: 'var(--danger)' }}>*</span> <span className="muted" style={{ fontWeight: 400 }}>· para qué es y quién lo pidió (Tesorería la ve al pagar)</span></label>
         <textarea
           className="textarea"
           name="op-nota"
-          placeholder="Nota o justificación de la solicitud (opcional)"
+          required
+          placeholder="Ej.: SWITCH SOLICITADO POR JOEL, TÉCNICO DE LAS CÁMARAS, PARA EL CABLEADO DE LAS OFICINAS NUEVAS"
           defaultValue={notas}
           onChange={(e) => setNotas(e.target.value.toUpperCase())}
         />
