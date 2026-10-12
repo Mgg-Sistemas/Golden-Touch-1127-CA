@@ -21,8 +21,9 @@ import {
   listServiciosDirectos, registrarAbonoServicio, listAbonosServicio,
   type ServicioDirecto, type AbonoServicio,
 } from '@/modules/pedidos/serviciosDirectos.repository';
-import { FinalizarCompraModal } from '@/modules/pedidos/CompraDirectaView';
-import { FinalizarServicioModal } from '@/modules/pedidos/ServicioDirectoView';
+import { FinalizarCompraModal, AdjuntoLink as AdjuntoCompraLink } from '@/modules/pedidos/CompraDirectaView';
+import { FinalizarServicioModal, AdjuntoLink as AdjuntoServicioLink } from '@/modules/pedidos/ServicioDirectoView';
+import { FacturasDirectas } from '@/modules/pedidos/FacturasDirectas';
 
 /** Monto en su moneda (Bs → "Bs …"; el resto "$ …"). */
 function montoMoneda(n: number | null | undefined, moneda: string | null | undefined): string {
@@ -48,6 +49,8 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
   const [pagarC, setPagarC] = useState<CompraDirecta | null>(null);
   const [pagarS, setPagarS] = useState<ServicioDirecto | null>(null);
   const [abonarS, setAbonarS] = useState<ServicioDirecto | null>(null);
+  // Ver la factura del proveedor antes de pagar (12/10/2026: no se veía en Tesorería).
+  const [verFactura, setVerFactura] = useState<{ tipo: 'compra'; c: CompraDirecta } | { tipo: 'servicio'; s: ServicioDirecto } | null>(null);
 
   const reload = useCallback(async () => {
     const [cs, ss] = await Promise.all([
@@ -95,6 +98,7 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
                   <td className="mono" style={{ textAlign: 'right' }}>{c.gasto != null ? montoMoneda(c.gasto, c.moneda) : '—'}
                     {equivConversion(c.gasto, c.moneda, c.tasa_conversion) && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{equivConversion(c.gasto, c.moneda, c.tasa_conversion)}</div>}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setVerFactura({ tipo: 'compra', c })} title="Ver la factura del proveedor">🧾 Factura</button>{' '}
                     <button className="btn btn-sm btn-primary" onClick={() => setPagarC(c)} title="Pagar y finalizar la compra">💳 Pagar</button>
                   </td>
                 </tr>
@@ -124,6 +128,7 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
                       </div>
                     )}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setVerFactura({ tipo: 'servicio', s })} title="Ver la factura del proveedor">🧾 Factura</button>{' '}
                     {s.con_abonos
                       ? <button className="btn btn-sm btn-primary" onClick={() => setAbonarS(s)} title="Registrar un abono (pago parcial) del servicio">📆 Abonar</button>
                       : <button className="btn btn-sm btn-primary" onClick={() => setPagarS(s)} title="Pagar y finalizar el servicio">💳 Pagar</button>}
@@ -133,6 +138,23 @@ export function DirectosPorPagarPanel({ cajas, actor, actorName, onPaid }: {
             </tbody>
           </table>
         </div>
+      )}
+
+      {verFactura && (
+        <Modal title={`🧾 Factura · ${(verFactura.tipo === 'compra' ? verFactura.c.codigo : verFactura.s.codigo) ?? ''}`} size="md" onClose={() => setVerFactura(null)}
+          footer={<button className="btn btn-primary" onClick={() => setVerFactura(null)}>Cerrar</button>}>
+          {verFactura.tipo === 'compra' ? (
+            <>
+              {verFactura.c.adjunto_path && <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}><strong>Factura:</strong> <AdjuntoCompraLink compra={verFactura.c} /></div>}
+              <FacturasDirectas modulo="compra" refId={verFactura.c.id} actor={actor} soloLectura titulo="🧾 Facturas del proveedor" />
+            </>
+          ) : (
+            <>
+              {verFactura.s.adjunto_path && <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}><strong>Factura:</strong> <AdjuntoServicioLink servicio={verFactura.s} /></div>}
+              <FacturasDirectas modulo="servicio" refId={verFactura.s.id} actor={actor} soloLectura titulo="🧾 Facturas del proveedor" />
+            </>
+          )}
+        </Modal>
       )}
 
       {pagarC && (

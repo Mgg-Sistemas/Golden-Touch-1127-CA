@@ -354,13 +354,14 @@ function CompraCard({ compra, onMontar, onPdf, onEliminar, onVer, onRecibir }: {
   );
 }
 
-function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
+export function AdjuntoLink({ compra }: { compra: CompraDirecta }) {
   if (!compra.adjunto_path) return <span className="muted">—</span>;
   async function abrir() {
     try { previewArchivo(await urlAdjuntoCompra(compra.adjunto_path as string), compra.adjunto_nombre || ((compra.adjunto_path as string).split('/').pop() ?? 'adjunto')); }
     catch { toast('No se pudo abrir el adjunto', 'error'); }
   }
-  return <button className="btn btn-sm btn-ghost" onClick={abrir} title={compra.adjunto_nombre ?? 'Adjunto'}>📎 PDF</button>;
+  // type="button": también se usa dentro del formulario de pago y no debe enviarlo.
+  return <button type="button" className="btn btn-sm btn-ghost" onClick={abrir} title={compra.adjunto_nombre ?? 'Adjunto'}>📎 PDF</button>;
 }
 
 /* ───────── Modal: detalle de la compra directa ───────── */
@@ -1171,6 +1172,14 @@ export function FinalizarCompraModal({ modo, compra, cajas, actor, actorName, on
     <Modal title={esPago ? `💳 Pagar compra ${compra.codigo ?? ''}` : 'Cargar factura y montos'} size="lg" onClose={onClose} footer={footer}>
       <form id="cd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {/* Tesorería paga viendo la factura que cargó el analista (12/10/2026). */}
+        {esPago && (
+          <div style={{ marginBottom: '.75rem' }}>
+            {compra.adjunto_path && <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}><strong>🧾 Factura:</strong> <AdjuntoLink compra={compra} /></div>}
+            <FacturasDirectas modulo="compra" refId={compra.id} actor={actor} soloLectura titulo="🧾 Facturas del proveedor" />
+          </div>
+        )}
 
         {confirmarReembolso && (
           <ConfirmDialog
