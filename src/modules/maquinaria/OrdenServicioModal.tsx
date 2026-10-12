@@ -10,7 +10,7 @@ import { buscarProductosParecidos, type ProductoParecido } from '@/modules/inven
 import { CategoriaProductoSelect } from '@/modules/inventario/CategoriaProductoSelect';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio, CATEGORIA_REPUESTOS, categoriaFijaEnTelefono,
+  SERVICIOS, URGENCIAS, intervencionesDe, ajustarIntervenciones, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio, CATEGORIA_REPUESTOS, categoriaFijaEnTelefono,
   repuestosEditables, type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
@@ -82,7 +82,7 @@ export function OrdenServicioModal({
   const [paso, setPaso] = useState(0);
   const [tipo, setTipo] = useState<string | null>(() => orden?.tipo ?? sugerirServicio(averiado ? equipo.estado_nota : null, aviso));
   const [urgencia, setUrgencia] = useState<'normal' | 'alta' | 'urgente'>(orden?.urgencia ?? (averiado ? 'alta' : 'normal'));
-  const [intervenciones, setIntervenciones] = useState<string[]>(orden?.intervenciones?.length ? orden.intervenciones : ['Mecánica']);
+  const [intervenciones, setIntervenciones] = useState<string[]>(() => (orden?.intervenciones?.length ? orden.intervenciones : ajustarIntervenciones(tipo, [])));
   // «¿Qué se hace?»: opciones propias del tipo de servicio (cauchos → cambio, espichado…).
   const [trabajos, setTrabajos] = useState<string[]>(orden?.trabajos ?? []);
   const [origen, setOrigen] = useState<'interno' | 'externo'>(orden?.origen ?? 'interno');
@@ -271,7 +271,7 @@ export function OrdenServicioModal({
             <div className="flo-svc-grid" role="group" aria-label="Tipo de servicio">
               {SERVICIOS.map((s) => (
                 <button key={s.id} type="button" className="flo-svc" aria-pressed={tipo === s.id}
-                  onClick={() => { setTipo(s.id); setTrabajos((t) => t.filter((x) => trabajosDe(s.id).includes(x))); }}>
+                  onClick={() => { setTipo(s.id); setTrabajos((t) => t.filter((x) => trabajosDe(s.id).includes(x))); setIntervenciones((i) => ajustarIntervenciones(s.id, i)); }}>
                   <span className="ico">{s.icon}</span><strong>{s.label}</strong><span>{s.hint}</span>
                 </button>
               ))}
@@ -287,8 +287,9 @@ export function OrdenServicioModal({
             <div className="form-row"><label>Urgencia</label>
               <div className="flo-opt">{URGENCIAS.map((u) => <button key={u.id} type="button" className="flo-pill" aria-pressed={urgencia === u.id} onClick={() => setUrgencia(u.id)}>{u.label}</button>)}</div>
             </div>
-            <div className="form-row"><label>Tipo de intervención</label>
-              <div className="flo-opt">{INTERVENCIONES.map((i) => (
+            <div className="form-row"><label>Tipo de intervención{servicio && <span className="muted" style={{ fontWeight: 400 }}> · {servicio.label}</span>}</label>
+              {/* Las del servicio elegido; si la orden ya traía otra (de antes), también se muestra. */}
+              <div className="flo-opt">{[...intervencionesDe(tipo), ...intervenciones.filter((i) => !intervencionesDe(tipo).includes(i))].map((i) => (
                 <button key={i} type="button" className="flo-pill" aria-pressed={intervenciones.includes(i)}
                   onClick={() => setIntervenciones((p) => (p.includes(i) ? p.filter((x) => x !== i) : [...p, i]))}>{i}</button>
               ))}</div>

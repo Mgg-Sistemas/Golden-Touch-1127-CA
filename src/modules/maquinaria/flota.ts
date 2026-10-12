@@ -205,6 +205,36 @@ export const URGENCIAS: { id: 'normal' | 'alta' | 'urgente'; label: string; tono
 
 export const INTERVENCIONES = ['Mecánica', 'Electricidad', 'Mangueras / hidráulica', 'Servicio'];
 
+/**
+ * Tipo de intervención según el servicio elegido (12/10/2026): cada servicio muestra solo
+ * las que le corresponden y la primera viene marcada. «Otro» muestra las generales.
+ */
+export const INTERVENCIONES_SERVICIO: Record<string, string[]> = {
+  preventivo: ['Servicio', 'Lubricación', 'Mecánica', 'Electricidad'],
+  reparacion: ['Mecánica', 'Electricidad', 'Mangueras / hidráulica', 'Soldadura'],
+  cambio_pieza: ['Mecánica', 'Electricidad', 'Mangueras / hidráulica'],
+  cauchos: ['Cauchera / vulcanización', 'Mecánica'],
+  aceite: ['Lubricación', 'Servicio'],
+  frenos: ['Mecánica', 'Mangueras / hidráulica'],
+  electrico: ['Electricidad', 'Electrónica / diagnóstico'],
+  hidraulico: ['Mangueras / hidráulica', 'Mecánica'],
+  soldadura: ['Soldadura', 'Mecánica'],
+  pintura: ['Pintura', 'Latonería'],
+  inspeccion: ['Mecánica', 'Electricidad', 'Mangueras / hidráulica', 'Servicio'],
+};
+
+/** Opciones de «Tipo de intervención» del servicio (las generales si no tiene propias). */
+export function intervencionesDe(tipo: string | null | undefined): string[] {
+  return (tipo && INTERVENCIONES_SERVICIO[tipo]) || INTERVENCIONES;
+}
+
+/** Al cambiar de servicio: se quedan las marcadas que siguen aplicando; si no queda ninguna, la primera del nuevo. */
+export function ajustarIntervenciones(tipo: string | null | undefined, actuales: string[]): string[] {
+  const opciones = intervencionesDe(tipo);
+  const quedan = actuales.filter((i) => opciones.includes(i));
+  return quedan.length ? quedan : opciones.slice(0, 1);
+}
+
 export type EstadoOrdenServicio = 'abierta' | 'repuestos' | 'en_proceso' | 'realizada' | 'anulada';
 
 export const ORDEN_ESTADOS: Record<EstadoOrdenServicio, { label: string; icon: string; tono: TonoFlota }> = {
