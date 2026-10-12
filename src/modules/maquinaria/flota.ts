@@ -292,6 +292,14 @@ export function puedeBorrarOrden(o: { estado: string }, perm: { maquinaria: bool
 }
 
 /** Solo hay piezas nuevas por comprar: no se puede armar la SP (Pedidos necesita el producto). */
+/** Categoría del inventario de las piezas nuevas que da de alta Maquinaria (12/10/2026). */
+export const CATEGORIA_REPUESTOS = 'REPUESTOS';
+
+/** En el teléfono la categoría de una pieza nueva es fija (REPUESTOS): sin selector, sin errores. */
+export function categoriaFijaEnTelefono(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 640px)').matches;
+}
+
 export function soloPiezasNuevasPorComprar(repuestos: Pick<RepuestoOrden, 'producto_id' | 'a_comprar'>[]): boolean {
   const porComprar = repuestos.filter((r) => r.a_comprar > 0);
   return porComprar.length > 0 && porComprar.every((r) => !r.producto_id);
