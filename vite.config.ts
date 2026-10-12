@@ -94,6 +94,10 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     chunkSizeWarningLimit: 900,
+    // El Droplet tiene 2 GB sin swap: calcular el tamaño gzip de cada chunk para el reporte
+    // gastaba memoria al final del build y el sistema mataba el proceso («Killed», 12/10/2026).
+    // Los .gz reales los escribe el plugin de arriba; el reporte no hace falta.
+    reportCompressedSize: false,
     rollupOptions: {
       output: {
         // Vendors estables en chunks separados: se cachean entre deploys y
