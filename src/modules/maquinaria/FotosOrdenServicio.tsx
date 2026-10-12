@@ -6,6 +6,7 @@ import { previewArchivo } from '@/shared/lib/reportePreview';
 import { mensajeError } from '@/shared/lib/errores';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
+import { supabase } from '@/shared/lib/supabase';
 import { MAX_FOTOS_ORDEN, avisoCupo, tomarHastaCupo } from './osFotos';
 import {
   TABLA_OS_FOTOS, eliminarFotoOrden, listFotosOrden, prepararFotoOrden, subirFotoOrden, urlsFotos, type FotoOrden,
@@ -179,5 +180,31 @@ export function FotosOrdenModal({ ordenId, codigo, equipo, canWrite, onClose }: 
         <FotosOrden ordenId={ordenId} canWrite={canWrite} />
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Fotos de la orden de servicio que originó una solicitud de pedido (12/10/2026).
+ * La SP nace de la OS con `orden_compra_id`; las fotos se quedan en la OS (no se
+ * copian) y aquí se muestran de solo lectura, en vivo, para que Compras vea la pieza.
+ */
+export function FotosOrdenServicioDeSp({ spId }: { spId: string }) {
+  const [ordenes, setOrdenes] = useState<{ id: string; codigo: string }[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    supabase.from('maquinaria_ordenes_servicio').select('id, codigo').eq('orden_compra_id', spId)
+      .then(({ data }) => { if (vivo) setOrdenes((data ?? []) as { id: string; codigo: string }[]); });
+    return () => { vivo = false; };
+  }, [spId]);
+  if (!ordenes.length) return null;
+  return (
+    <>
+      {ordenes.map((o) => (
+        <div key={o.id} className="detail-row">
+          <div className="k">Fotos de la {o.codigo}</div>
+          <div className="v flo"><FotosOrden ordenId={o.id} canWrite={false} /></div>
+        </div>
+      ))}
+    </>
   );
 }

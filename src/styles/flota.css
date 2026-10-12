@@ -533,3 +533,15 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 @media (max-width: 420px) { .flo-contador-mini { grid-template-columns: 1fr; } }
 /* Campos de las ventanas del módulo (lectura, lavado, avería…): área táctil de 44 px en el teléfono. */
 @media (max-width: 640px) { .flo .input, .flo .select { min-height: 44px; } }
+
+/* Seguimiento de una compra desde Maquinaria (12/10/2026): pasos verticales con fecha. */
+.flo-seguimiento { list-style: none; margin: 0; padding: 0; display: grid; gap: .15rem; }
+.flo-seguimiento li { display: flex; gap: .65rem; align-items: flex-start; position: relative; padding-bottom: .55rem; color: var(--text-dim); }
+.flo-seguimiento li:not(:last-child)::after { content: ''; position: absolute; left: .8rem; top: 1.7rem; bottom: 0; width: 2px; background: var(--surface-3); }
+.flo-seguimiento li.done::after { background: var(--success); }
+.flo-seguimiento .dot { flex: 0 0 1.6rem; height: 1.6rem; border-radius: 50%; display: grid; place-items: center; font-size: .75rem; font-weight: 700; background: var(--surface-3); color: var(--text-muted); }
+.flo-seguimiento li.done .dot { background: var(--success); color: #fff; }
+.flo-seguimiento li.current .dot { background: var(--primary); color: #fff; box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 25%, transparent); }
+.flo-seguimiento .txt { display: grid; gap: .1rem; padding-top: .2rem; font-size: .88rem; }
+.flo-seguimiento li.done .txt, .flo-seguimiento li.current .txt { color: var(--text); }
+.flo-seguimiento .txt small { color: var(--text-muted); font-size: .74rem; }
