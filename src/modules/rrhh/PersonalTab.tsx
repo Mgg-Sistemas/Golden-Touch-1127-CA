@@ -9,7 +9,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Personal, NominaRenglon } from '@/shared/lib/types';
 import { formatearRif, normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
-  listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal, type PersonalInput,
+  listPersonal, crearPersonal, actualizarPersonal, eliminarPersonal, type PersonalInput,
   subirFotoPersonal, borrarFotoPersonal, fotoPersonalDataUrl, guardarEncuadreFoto,
   resumenBorradoPersonal, type ResumenBorradoPersonal,
 } from './personal.repository';
@@ -48,6 +48,7 @@ import { descargarCarnetPdf } from './carnetPdf';
 import { VigenciaCarnetCampo } from './VigenciaCarnetCampo';
 import { CARNET_VENCE_POR_DEFECTO } from './vigenciaCarnet';
 import { identidadEmpresa } from '@/shared/lib/empresa';
+import { EstadoPersonalModal } from './EstadoPersonalModal';
 
 const VACIO: PersonalInput = {
   nombre: '', apellido: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0,
@@ -152,6 +153,8 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   // persona. `estadoResumen` separa «todavía no llegó» de «no se pudo contar»:
   // son dos avisos distintos, y decir 0 cuando no se sabe sería mentir.
   const [porBorrar, setPorBorrar] = useState<Personal | null>(null);
+  // Reactivar / desactivar con motivo y fecha (queda en el historial laboral).
+  const [estadoPersona, setEstadoPersona] = useState<Personal | null>(null);
   const [resumenBorrado, setResumenBorrado] = useState<ResumenBorradoPersonal | null>(null);
   const [estadoResumen, setEstadoResumen] = useState<'cargando' | 'listo' | 'error'>('cargando');
   const [fotoPorBorrar, setFotoPorBorrar] = useState<string | null>(null);
@@ -496,10 +499,6 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
     finally { setGuardando(false); }
   }
 
-  async function toggleActivo(p: Personal) {
-    try { await setPersonalActivo(p.id, !p.activo); await recargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cambiar', 'error'); }
-  }
   async function borrar(p: Personal) {
     setPorBorrar(null);
     try { await eliminarPersonal(p.id); await recargar(); toast('Eliminado', 'success'); }
@@ -751,7 +750,9 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                   <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => toggleActivo(p)} title={p.activo ? 'Desactivar' : 'Activar'}>{p.activo ? '⏸' : '▶'}</button>
+                    {p.activo
+                      ? <button className="btn btn-sm btn-ghost" onClick={() => setEstadoPersona(p)} title="Desactivar (renuncia, despido, fin de contrato…)">⏸</button>
+                      : <button className="btn btn-sm btn-success" onClick={() => setEstadoPersona(p)} title="Reactivar: vuelve a la empresa o la baja fue por error">↩ Reactivar</button>}
                     <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
                   </>}
                 </td>
@@ -1173,6 +1174,9 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
         />
       )}
 
+      {estadoPersona && (
+        <EstadoPersonalModal persona={estadoPersona} actor={actor} onClose={() => setEstadoPersona(null)} onHecho={() => void recargar()} />
+      )}
       {porBorrar && (
         <ConfirmDialog
           title="Eliminar a esta persona"

@@ -17,7 +17,8 @@ import { money, date, dateTime, redondearArriba5 } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EmpresaRrhh, Personal, AnticipoPrestamo, NominaRenglon, NominaPeriodo, DeduccionRef } from '@/shared/lib/types';
 import { getTasaHoy, round2 } from '../tesoreria/tasas.repository';
-import { listPersonal, setPersonalActivo } from './personal.repository';
+import { listPersonal, cambiarEstadoPersonal } from './personal.repository';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { listAnticiposActivos } from './anticipos.repository';
 import { descargarNominaReciboPdf, type TipoRecibo } from './nominaReciboPdf';
 
@@ -982,7 +983,8 @@ function LiquidacionModal({ empresa, actor, actorName, onClose, onSaved }: {
         }],
         actorEmail: actor, actorName,
       });
-      if (darBaja) await setPersonalActivo(persona.id, false).catch(() => {});
+      // La baja deja su nota en el historial laboral (se puede reactivar desde Personal).
+      if (darBaja) await cambiarEstadoPersonal(persona, { activo: false, fecha: hoyVenezuela(), motivo: `Liquidación ${per.codigo}` }, actor, actorName).catch(() => {});
       notify(`Liquidación ${per.codigo} cargada · ${persona.nombre} · ${money(per.total_usd)}${darBaja ? ' · trabajador dado de baja' : ''}`, 'success', { link: '#/app/tesoreria' });
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cargar la liquidación'); setSaving(false); }
