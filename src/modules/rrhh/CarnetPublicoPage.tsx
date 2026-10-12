@@ -24,7 +24,6 @@ interface CarnetPublico {
   cargo?: string | null; departamento?: string | null;
   telefono?: string | null; correo?: string | null;
   contacto_emergencia?: string | null; contacto_emergencia_parentesco?: string | null; telefono_emergencia?: string | null;
-  grupo_sanguineo?: string | null;
   tiene_alergias?: boolean | null; alergias_detalle?: string | null;
   tiene_enfermedad?: boolean | null; enfermedad_detalle?: string | null;
   carnet_vence?: string | null;
@@ -78,7 +77,6 @@ export function CarnetPublicoPage() {
     ['Cargo', dato.cargo],
     ['Departamento', dato.departamento],
     ['Teléfono', dato.telefono],
-    ['Grupo sanguíneo', dato.grupo_sanguineo],
     ['Emergencia', emergencia],
     ['Vigencia', fechaCarnet(dato.carnet_vence)],
   ];
