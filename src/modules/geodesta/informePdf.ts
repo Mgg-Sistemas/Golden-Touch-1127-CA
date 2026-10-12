@@ -2,7 +2,8 @@
    Golden Touch · Geodesta · Informe (PDF)
 
    Hoja carta con el membrete de la empresa: logos (Golden Touch a la izquierda,
-   CVM a la derecha, cada uno con su interruptor), ciudad y fecha, código,
+   CVM a la derecha, cada uno con su interruptor, y hasta 4 logos adicionales
+   junto al de la CVM o en una fila debajo si no caben), ciudad y fecha, código,
    Para / De, los apartados definidos por el usuario en orden (cuadros como
    tabla, textos como párrafo con sus imágenes), «Atentamente;», espacio de
    firma y la dirección al pie de la última página.
@@ -14,7 +15,7 @@
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { EMPRESA_CONTACTO, EMPRESA_RIF } from '@/shared/lib/empresa';
-import type { ApartadoCuadro, ApartadoTexto, ColumnaCuadro, InformeGeodesta } from '@/shared/lib/types';
+import type { ApartadoCuadro, ApartadoTexto, ColumnaCuadro, InformeGeodesta, LogoExtra } from '@/shared/lib/types';
 import { LOGO_PDF_PROPORCION, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 
 export const ANCHO_UTIL = 532;   // 612 (carta) − 2 × 40 de margen
@@ -125,7 +126,24 @@ export async function construirInformePdf(
   const LOGO = 46;
   const LOGO_GT_W = anchoLogoPdf(LOGO); // el de los PDF es horizontal
   const margenIzq = inf.logo_gt ? LOGO_GT_W + 10 : 0;
-  const margenDer = inf.logo_cvm ? LOGO + 10 : 0;
+  let margenDer = inf.logo_cvm ? LOGO + 10 : 0;
+  // Logos adicionales (12/10/2026): a la izquierda del de la CVM si le dejan sitio al texto
+  // del membrete; si no, en una fila centrada debajo. Siempre con su proporción.
+  const GAP = 8;
+  const extras = (inf.logos_extra ?? []).slice(0, 4);
+  const anchoExtra = (l: LogoExtra, alto: number) => Math.min(alto * (l.w / Math.max(1, l.h)), alto * 2.4);
+  const anchoExtrasLado = extras.reduce((a, l) => a + anchoExtra(l, LOGO) + GAP, 0);
+  const extrasAlLado = extras.length > 0 && (W - 2 * MARGIN) - margenIzq - margenDer - anchoExtrasLado >= 230;
+  if (extrasAlLado) {
+    let x = W - MARGIN - margenDer;
+    for (const l of extras) {
+      const w = anchoExtra(l, LOGO);
+      x -= w;
+      dibujarImagen(doc, l.data, x, y, w, LOGO, true);
+      x -= GAP;
+    }
+    margenDer += anchoExtrasLado;
+  }
   if (logoGt) dibujarImagen(doc, logoGt, MARGIN, y + (LOGO - LOGO_GT_W / LOGO_PDF_PROPORCION) / 2, LOGO_GT_W, LOGO);
   if (inf.logo_cvm) {
     const xCvm = W - MARGIN - LOGO;
@@ -143,6 +161,13 @@ export async function construirInformePdf(
   texto(`RIF: ${EMPRESA_RIF}`, cx, y + 29, 'center');
   texto(EMPRESA_CONTACTO, cx, y + 40, 'center');
   y += LOGO + 8;
+  if (extras.length > 0 && !extrasAlLado) {
+    const ALTO = 30;
+    const ws = extras.map((l) => anchoExtra(l, ALTO));
+    let x = W / 2 - (ws.reduce((a, w) => a + w, 0) + GAP * (ws.length - 1)) / 2;
+    extras.forEach((l, i) => { dibujarImagen(doc, l.data, x, y, ws[i], ALTO, true); x += ws[i] + GAP; });
+    y += ALTO + 6;
+  }
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
   doc.line(MARGIN, y, W - MARGIN, y);
   y += 22;

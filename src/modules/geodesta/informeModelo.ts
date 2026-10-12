@@ -7,7 +7,7 @@
    ============================================================ */
 import { norm } from '@/shared/lib/texto';
 import type {
-  Apartado, ApartadoCuadro, ApartadoTexto, ColumnaCuadro, EstadoInforme, FilaCuadro,
+  Apartado, ApartadoCuadro, ApartadoTexto, ColumnaCuadro, EstadoInforme, FilaCuadro, LogoExtra,
 } from '@/shared/lib/types';
 
 /** Lo que el editor tiene en pantalla: el informe sin lo que pone la base. */
@@ -25,6 +25,8 @@ export interface BorradorInforme {
   direccion_pie: string;
   logo_gt: boolean;
   logo_cvm: boolean;
+  /** Logos adicionales del membrete (de Documentos o subidos). */
+  logos_extra?: LogoExtra[];
   apartados: Apartado[];
 }
 

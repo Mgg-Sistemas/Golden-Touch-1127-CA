@@ -20,6 +20,7 @@ import {
 } from './informes.repository';
 import { ApartadoCuadroEditor } from './ApartadoCuadroEditor';
 import { ApartadoTextoEditor } from './ApartadoTextoEditor';
+import { LogosInforme } from './LogosInforme';
 
 interface InformeEditorModalProps {
   /** `null` = alta. */
@@ -256,18 +257,7 @@ function InformeEditorForm({ informe, actor, onClose, onGuardado }: InformeEdito
             </div>
             {campo('Ciudad', 'ciudad')}
           </div>
-          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginTop: '.6rem' }}>
-            <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', cursor: 'pointer' }}>
-              <input type="checkbox" checked={b.logo_gt} onChange={(e) => cambiar({ logo_gt: e.target.checked })} />
-              <img src={`${raiz}LOGO.jpg`} alt="" height={28} style={{ opacity: b.logo_gt ? 1 : 0.3 }} />
-              Logo Golden Touch
-            </label>
-            <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', cursor: 'pointer' }}>
-              <input type="checkbox" checked={b.logo_cvm} onChange={(e) => cambiar({ logo_cvm: e.target.checked })} />
-              <img src={`${raiz}cvm.jpg`} alt="" height={28} style={{ opacity: b.logo_cvm ? 1 : 0.3 }} />
-              Logo CVM
-            </label>
-          </div>
+          <LogosInforme raiz={raiz} logoGt={b.logo_gt} logoCvm={b.logo_cvm} extras={b.logos_extra ?? []} onCambio={cambiar} />
         </section>
 
         <section style={{ marginBottom: '1.2rem' }}>

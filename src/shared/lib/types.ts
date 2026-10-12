@@ -1940,6 +1940,17 @@ export interface ApartadoTexto {
 
 export type Apartado = ApartadoCuadro | ApartadoTexto;
 
+/** Logo adicional del membrete del informe (12/10/2026): imagen reducida guardada en el propio informe. */
+export interface LogoExtra {
+  id: string;
+  nombre: string;
+  /** dataUrl de la imagen ya reducida. */
+  data: string;
+  /** Tamaño en píxeles, para respetar la proporción en el PDF. */
+  w: number;
+  h: number;
+}
+
 export interface InformeGeodesta {
   id: string;
   codigo: string;
@@ -1957,6 +1968,8 @@ export interface InformeGeodesta {
   direccion_pie: string | null;
   logo_gt: boolean;
   logo_cvm: boolean;
+  /** Logos adicionales del membrete (máximo 4). */
+  logos_extra?: LogoExtra[];
   apartados: Apartado[];
   busq?: string | null;
   creado_por?: string | null;
