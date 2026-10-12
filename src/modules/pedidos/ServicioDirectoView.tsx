@@ -266,13 +266,14 @@ function ServicioCard({ servicio, onFinalizar, onEliminar, onPdf, onVer }: {
   );
 }
 
-function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
+export function AdjuntoLink({ servicio }: { servicio: ServicioDirecto }) {
   if (!servicio.adjunto_path) return <span className="muted">—</span>;
   async function abrir() {
     try { previewArchivo(await urlAdjuntoServicio(servicio.adjunto_path as string), servicio.adjunto_nombre || ((servicio.adjunto_path as string).split('/').pop() ?? 'adjunto')); }
     catch { toast('No se pudo abrir el adjunto', 'error'); }
   }
-  return <button className="btn btn-sm btn-ghost" onClick={abrir} title={servicio.adjunto_nombre ?? 'Adjunto'}>📎 Factura</button>;
+  // type="button": también se usa dentro del formulario de pago y no debe enviarlo.
+  return <button type="button" className="btn btn-sm btn-ghost" onClick={abrir} title={servicio.adjunto_nombre ?? 'Adjunto'}>📎 Factura</button>;
 }
 
 /* ───────── Modal: detalle del servicio directo ───────── */
@@ -983,6 +984,14 @@ export function FinalizarServicioModal({ modo, servicio, cajas, actor, actorName
     <Modal title={esPago ? 'Pagar servicio' : 'Cargar factura y monto'} size="lg" onClose={onClose} footer={footer}>
       <form id="sd-fin-form" onSubmit={handleSubmit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        {/* Tesorería paga viendo la factura que cargó el analista (12/10/2026). */}
+        {esPago && (
+          <div style={{ marginBottom: '.75rem' }}>
+            {servicio.adjunto_path && <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.85rem' }}><strong>🧾 Factura:</strong> <AdjuntoLink servicio={servicio} /></div>}
+            <FacturasDirectas modulo="servicio" refId={servicio.id} actor={actor} soloLectura titulo="🧾 Facturas del proveedor" />
+          </div>
+        )}
 
         {confirmarReembolso && (
           <ConfirmDialog
