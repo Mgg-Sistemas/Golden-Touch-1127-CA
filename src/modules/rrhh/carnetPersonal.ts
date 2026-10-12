@@ -2,15 +2,15 @@
    Golden Touch · RRHH · Carnet de personal (imagen PNG)
    Tamaño 54 × 86 mm a 300 DPI = 638 × 1016 px (formato vertical).
 
-   Formato del 06/10/2026, el del carnet que se venía imprimiendo a mano
-   (HECTOR ALAGAL - GT - 2026.pdf), que es el que le gusta a la empresa:
-   · Frente: fondo blanco con marco dorado, logo de la CVM arriba a la
-     izquierda y de Motor Minero a la derecha, la FOTO con borde naranja,
-     nombre y cédula, el logo de Golden Touch con su RIF, cargo, vigencia
-     y el QR (que abre /c/<token>: activo = datos, inactivo = solo logo).
-   · Reverso: el sello «CVM Aliados» sobre un recuadro punteado con el
-     texto legal y el contacto, la firma y el sello de Golden Touch, y el
-     logo del Ministerio del Poder Popular de Desarrollo Minero Ecológico.
+   Formato del 12/10/2026 (ordenado como el carnet de La Cantera): SOLO el
+   logo de la empresa —sin CVM, Motor Minero ni Gobierno— y el QR grande.
+   · Frente: marco dorado; arriba el logo de Golden Touch con su RIF (o el
+     de MTO si es de esa nómina); la FOTO con borde naranja, nombre, cédula,
+     el CARGO en mayúsculas y la vigencia; abajo el QR grande con
+     «ESCANEE PARA VERIFICAR» (abre /c/<token>: activo = datos, inactivo =
+     solo logo). Subir el logo es lo que le dio sitio al QR (116 → ~280 px).
+   · Reverso: el logo arriba interrumpiendo el recuadro punteado con el
+     texto legal y el contacto, y la firma autorizada sobre la raya naranja.
    Dos versiones: fondo BLANCO (la del impreso) y fondo NEGRO. En la negra cada
    logo va sobre una placa blanca redondeada, igual que el QR.
    Los logos viven en public/carnet/ (sacados del PDF de muestra).
@@ -46,12 +46,14 @@ export interface PaletaCarnet {
   puntos: string;
   /** Relleno del marco de la foto cuando no hay foto. */
   fotoVacia: string;
+  /** El cargo y el «Escanee para verificar», en el color de la marca (más oscuro que el naranja para que se lea). */
+  cargo: string;
 }
 
 /** Colores de cada versión (los contrastes los verifica carnetPersonal.test.ts). */
 export const PALETA_CARNET: Record<TemaCarnet, PaletaCarnet> = {
-  claro: { fondo: '#ffffff', marco: '#c49a1c', naranja: '#f28c00', texto: '#111111', puntos: '#2b2b2b', fotoVacia: '#eef1f5' },
-  oscuro: { fondo: '#15171b', marco: '#d4a72c', naranja: '#f28c00', texto: '#f3f3f3', puntos: '#d0d0d0', fotoVacia: '#262a31' },
+  claro: { fondo: '#ffffff', marco: '#c49a1c', naranja: '#f28c00', texto: '#111111', puntos: '#2b2b2b', fotoVacia: '#eef1f5', cargo: '#8a4b00' },
+  oscuro: { fondo: '#15171b', marco: '#d4a72c', naranja: '#f28c00', texto: '#f3f3f3', puntos: '#d0d0d0', fotoVacia: '#262a31', cargo: '#f5a623' },
 };
 
 /** El QR va SIEMPRE oscuro sobre blanco: al revés, muchos lectores no lo leen. */
@@ -59,12 +61,7 @@ export const QR_OSCURO = '#111111';
 
 const img = (archivo: string) => `${import.meta.env.BASE_URL}carnet/${archivo}`;
 const LOGOS = {
-  cvm: img('cvm.jpg'),
-  motorMinero: img('motor-minero.jpg'),
-  cvmAliados: img('cvm-aliados.jpg'),
-  gobierno: img('gobierno.jpg'),
   firma: img('firma.jpg'),
-  goldenSello: img('golden-sello.jpg'),
   golden: `${import.meta.env.BASE_URL}${encodeURIComponent('Logo Golden Touch.jpg')}`,
 };
 
@@ -265,14 +262,15 @@ export async function generarCarnetPersonalDataUrl(
   const cx = CARNET_W / 2;
   fondoYMarco(ctx, pal);
 
-  // Logos de arriba: CVM a la izquierda, Motor Minero a la derecha.
-  await dibujarContain(ctx, LOGOS.cvm, 34, 30, 214, 132, tema);
-  await dibujarContain(ctx, LOGOS.motorMinero, CARNET_W - 34 - 132, 26, 132, 140, tema);
+  // Arriba, solo el logo de la empresa con su RIF: Golden Touch, o Minería Tin Oxide si es de la nómina MTO.
+  const gw = 400, gh = gw * (608 / 1696);
+  const logoEmpresa = p.empresa === 'MTO' ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
+  await dibujarContain(ctx, logoEmpresa, (CARNET_W - gw) / 2, 30, gw, gh, tema);
 
   // Foto con borde naranja.
-  const fw = 262, fh = 322;
+  const fw = 236, fh = 290;
   const fx = (CARNET_W - fw) / 2;
-  const fy = 182;
+  const fy = 186;
   ctx.save();
   roundRect(ctx, fx, fy, fw, fh, 6);
   ctx.fillStyle = pal.fotoVacia;
@@ -286,8 +284,8 @@ export async function generarCarnetPersonalDataUrl(
   } else {
     // Silueta (cabeza + hombros) mientras no haya foto.
     ctx.fillStyle = 'rgba(90,102,117,0.40)';
-    ctx.beginPath(); ctx.arc(cx, fy + fh * 0.4, 56, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx, fy + fh * 1.02, 100, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, fy + fh * 0.4, 52, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, fy + fh * 1.02, 92, Math.PI, 0); ctx.fill();
   }
   ctx.restore();
   ctx.strokeStyle = pal.naranja;
@@ -295,62 +293,67 @@ export async function generarCarnetPersonalDataUrl(
   roundRect(ctx, fx, fy, fw, fh, 6);
   ctx.stroke();
 
-  // Nombre COMPLETO, como en el carnet impreso. Si no entra ni con la letra más
-  // chica, va en dos renglones (nombres / apellidos).
+  // Nombre COMPLETO. Si no entra ni con la letra más chica, va en dos renglones
+  // (nombres / apellidos) y lo de abajo se corre.
   ctx.textAlign = 'center';
   ctx.fillStyle = pal.texto;
   const completo = enTitulo(`${p.nombre ?? ''} ${p.apellido ?? ''}`);
   const maxW = CARNET_W - 70;
-  let y = fy + fh + 40;
-  if (letraQueQuepa(ctx, completo, 34, 24, maxW)) {
+  let y = fy + fh + 34;
+  if (letraQueQuepa(ctx, completo, 32, 24, maxW)) {
     ctx.fillText(completo, cx, y);
   } else {
     for (const linea of [enTitulo(p.nombre), enTitulo(p.apellido)].filter(Boolean)) {
-      letraQueQuepa(ctx, linea, 30, 18, maxW);
+      letraQueQuepa(ctx, linea, 28, 18, maxW);
       ctx.fillText(linea, cx, y);
-      y += 32;
+      y += 30;
     }
-    y -= 32;
+    y -= 30;
   }
   if (p.cedula) {
-    ctx.font = `700 30px ${FUENTE}`;
-    ctx.fillText(`C.I. ${cedulaConPuntos(p.cedula)}`, cx, y + 36);
+    y += 34;
+    ctx.font = `700 27px ${FUENTE}`;
+    ctx.fillText(`C.I. ${cedulaConPuntos(p.cedula)}`, cx, y);
   }
 
-  // Logo de la empresa con su RIF: Golden Touch, o Minería Tin Oxide si es de la nómina MTO.
-  const gw = 372, gh = gw * (608 / 1696);
-  const gy = 612;
-  const logoEmpresa = p.empresa === 'MTO' ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
-  await dibujarContain(ctx, logoEmpresa, (CARNET_W - gw) / 2, gy, gw, gh, tema);
-
-  // Cargo y vigencia.
-  ctx.fillStyle = pal.texto;
+  // Cargo en mayúsculas y en el color de la marca (como el carnet de La Cantera), y la vigencia.
   if (p.cargo) {
-    const cargo = enTitulo(p.cargo);
-    letraQueQuepa(ctx, cargo, 28, 16, maxW);
-    ctx.fillText(cargo, cx, gy + gh + 36);
+    y += 34;
+    ctx.fillStyle = pal.cargo;
+    const cargo = String(p.cargo).trim().toUpperCase();
+    letraQueQuepa(ctx, cargo, 23, 14, maxW);
+    ctx.fillText(cargo, cx, y);
   }
   const vence = fechaCarnet(p.carnet_vence);
   if (vence) {
-    ctx.font = `700 28px ${FUENTE}`;
-    ctx.fillText(`Vigencia ${vence}`, cx, gy + gh + 72);
+    y += 31;
+    ctx.fillStyle = pal.texto;
+    ctx.font = `700 23px ${FUENTE}`;
+    ctx.fillText(`Vigencia ${vence}`, cx, y);
   }
 
-  // QR abajo, al centro: abre /c/<token> (activo = datos, inactivo = solo el logo).
-  const qrSize = 116;
+  // QR GRANDE abajo, al centro: abre /c/<token> (activo = datos, inactivo = solo el logo).
+  // Ocupa lo que queda entre la vigencia y el pie, con tope de 284 px (≈ 24 mm).
+  // Corrección «Q»: se sigue leyendo con el plástico rayado o con polvo.
+  const pie = CARNET_H - 62;
+  const qrTop = y + 28;
+  const qrSize = Math.max(170, Math.min(284, pie - qrTop));
   const qrDataUrl = await QRCode.toDataURL(contenidoQrPersona(p), {
-    errorCorrectionLevel: 'M', margin: 1, width: qrSize * 2,
+    errorCorrectionLevel: 'Q', margin: 1, width: qrSize * 2,
     color: { dark: QR_OSCURO, light: '#ffffff' },
   });
   if (tema === 'oscuro') {
     // Sobre negro el QR va en un recuadro blanco: claro sobre oscuro no lo lee cualquier teléfono.
     ctx.fillStyle = '#ffffff';
-    roundRect(ctx, cx - qrSize / 2 - 7, CARNET_H - 30 - qrSize - 7, qrSize + 14, qrSize + 14, 8);
+    roundRect(ctx, cx - qrSize / 2 - 8, qrTop - 8, qrSize + 16, qrSize + 16, 10);
     ctx.fill();
   }
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(await cargarImg(qrDataUrl), cx - qrSize / 2, CARNET_H - 30 - qrSize, qrSize, qrSize);
+  ctx.drawImage(await cargarImg(qrDataUrl), cx - qrSize / 2, qrTop, qrSize, qrSize);
   ctx.imageSmoothingEnabled = true;
+  ctx.fillStyle = pal.cargo;
+  ctx.font = `700 17px ${FUENTE}`;
+  ctx.fillText('ESCANEE PARA VERIFICAR', cx, qrTop + qrSize + 24);
 
   return canvas.toDataURL('image/png');
 }
@@ -390,7 +393,7 @@ export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro', em
   fondoYMarco(ctx, pal);
 
   // Recuadro punteado con el texto legal y el contacto.
-  const bx = 44, by = 130, bw = CARNET_W - 88, bh = 560;
+  const bx = 44, by = 112, bw = CARNET_W - 88, bh = 600;
   ctx.save();
   ctx.strokeStyle = pal.puntos;
   ctx.lineWidth = 4;
@@ -399,16 +402,17 @@ export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro', em
   ctx.strokeRect(bx, by, bw, bh);
   ctx.restore();
 
-  // Sello «CVM Aliados» encima del borde de arriba (lo interrumpe, como en el impreso).
-  // En el negro el blanco del sello se vuelve transparente: se tapa la raya con el fondo.
+  // Arriba, solo el logo de la empresa, interrumpiendo el borde del recuadro.
+  const gw = 380, gh = gw * (608 / 1696);
+  const logoEmpresa = emp.clave === 'MTO' ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
   ctx.fillStyle = pal.fondo;
-  ctx.fillRect(cx - 96, by - 6, 192, 12);
-  await dibujarContain(ctx, LOGOS.cvmAliados, cx - 96, 14, 192, 196, tema);
+  ctx.fillRect(cx - gw / 2 - 10, by - 8, gw + 20, 16);
+  await dibujarContain(ctx, logoEmpresa, cx - gw / 2, 34, gw, gh, tema);
 
   ctx.textAlign = 'center';
   ctx.fillStyle = pal.texto;
   ctx.font = `400 23px ${FUENTE}`;
-  let y = 236;
+  let y = 222;
   y = textoCentrado(ctx, REVERSO_P1, cx, y, bw - 44, 32);
   y += 20;
   y = textoCentrado(ctx, REVERSO_P2, cx, y, bw - 44, 32);
@@ -416,26 +420,17 @@ export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro', em
   ctx.fillText(emp.email, cx, y);
   ctx.fillText(`WhatsApp ${emp.whatsapp}`, cx, y + 32);
 
-  // Firma a la izquierda y, a la derecha, el sello de Golden Touch; MTO no tiene
-  // sello cargado, así que en su lugar va su razón social y su RIF.
-  await dibujarContain(ctx, LOGOS.firma, 64, 708, 250, 136, tema);
-  if (emp.clave === 'MTO') {
-    ctx.fillStyle = pal.texto;
-    ctx.textAlign = 'center';
-    // Centrado en el hueco del sello (x 336–574), achicando la letra hasta que quepa.
-    letraQueQuepa(ctx, 'MINERÍA TIN OXIDE, C.A.', 24, 14, 226);
-    ctx.fillText('MINERÍA TIN OXIDE, C.A.', 455, 768);
-    letraQueQuepa(ctx, `RIF ${emp.rif}`, 22, 14, 226);
-    ctx.fillText(`RIF ${emp.rif}`, 455, 800);
-  } else {
-    await dibujarContain(ctx, LOGOS.goldenSello, 336, 730, 238, 86, tema);
-  }
-
-  // Raya naranja y logo del Ministerio.
+  // Firma autorizada, centrada sobre la raya naranja, con la razón social y el RIF.
+  await dibujarContain(ctx, LOGOS.firma, cx - 140, 740, 280, 150, tema);
   ctx.strokeStyle = pal.naranja;
-  ctx.lineWidth = 7;
-  ctx.beginPath(); ctx.moveTo(92, 858); ctx.lineTo(CARNET_W - 92, 858); ctx.stroke();
-  await dibujarContain(ctx, LOGOS.gobierno, cx - 98, 870, 196, 125, tema);
+  ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(130, 904); ctx.lineTo(CARNET_W - 130, 904); ctx.stroke();
+  ctx.fillStyle = pal.texto;
+  ctx.font = `700 19px ${FUENTE}`;
+  ctx.fillText('Firma autorizada', cx, 932);
+  ctx.font = `400 17px ${FUENTE}`;
+  // El logo de Golden Touch ya lleva el RIF; el de MTO no, así que ahí va escrito.
+  ctx.fillText(emp.clave === 'MTO' ? `Minería Tin Oxide, C.A. · RIF ${emp.rif}` : 'Golden Touch 1127, C.A.', cx, 958);
 
   return canvas.toDataURL('image/png');
 }
