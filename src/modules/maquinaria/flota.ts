@@ -368,7 +368,7 @@ export function compraAbierta(estado: string | null | undefined): boolean {
   return c !== 'finalizada' && c !== 'cancelada' && c !== 'recibida';
 }
 
-/* ───────── ¿Qué necesitas hacer? (según permisos) ───────── */
+/* ───────── Opciones del equipo (según permisos) ───────── */
 
 export type AccionEquipo =
   | 'servicio' | 'averia' | 'lectura' | 'bitacora' | 'documentos' | 'editar'

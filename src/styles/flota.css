@@ -2,7 +2,7 @@
    Golden Touch · Control de Maquinaria · Flota y Servicio
    Catálogo (franja de flota + filas con foto) y expediente del
    equipo (placa de identificación en acero, signos vitales,
-   «¿Qué necesitas hacer?», pestañas, órdenes y tablero de compras).
+   «Opciones», pestañas, órdenes y tablero de compras).
    Usa los tokens del tema (--surface, --primary, --grad-primary…);
    lo único propio del módulo es el acero de la placa (--flo-steel-*).
    Todo va con prefijo .flo- para no chocar con otras pantallas.
@@ -127,8 +127,14 @@
 
 /* ───────── Expediente ───────── */
 .flo-exp { max-width: 1120px; }
-.flo-volver { display: inline-flex; align-items: center; gap: .35rem; margin-bottom: .6rem; color: var(--text-muted); font-weight: 600; font-size: .88rem; }
-.flo-volver:hover { color: var(--text); }
+/* «← Catálogo»: botón visible (antes era un enlace chico y gris). */
+.flo-volver {
+  display: inline-flex; align-items: center; gap: .45rem; margin-bottom: .8rem; min-height: 44px; padding: 0 1.1rem;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--primary) 55%, var(--border)); background: var(--grad-primary-soft), var(--surface);
+  color: var(--text); font-weight: 700; font-size: 1.05rem; text-decoration: none;
+}
+.flo-volver:hover { border-color: var(--primary); }
+.flo-volver:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 .flo-hero { display: grid; gap: 0; }
 .flo-media {
@@ -215,11 +221,13 @@
 .flo-meter { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
 .flo-meter i { display: block; height: 100%; background: var(--tone, var(--success)); }
 
-/* ¿Qué necesitas hacer? */
+/* Opciones del equipo */
 .flo-acc-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
 .flo-acc-head h2 { font-family: var(--flo-display); font-size: 1.35rem; text-transform: uppercase; margin: 0; }
 .flo-acc-head span { font-size: .75rem; color: var(--text-dim); }
-.flo-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+/* Las tarjetas llenan cada fila (con 3 o 5 acciones ya no queda un hueco a la derecha). */
+.flo-tiles { display: flex; flex-wrap: wrap; gap: .6rem; }
+.flo-tiles > .flo-tile { flex: 1 1 200px; }
 .flo-tile {
   display: grid; gap: .35rem; align-content: start; min-height: 96px; padding: .8rem;
   border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface);
@@ -231,16 +239,17 @@
 .flo-tile .ico { font-size: 1.6rem; }
 .flo-tile strong { font-size: .95rem; }
 .flo-tile span { font-size: .76rem; color: var(--text-muted); line-height: 1.35; }
-.flo-tile.hero {
-  grid-column: 1 / -1; min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .8rem;
+.flo-tile.principal {
+  flex-basis: 100%; min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .8rem;
   background: var(--grad-primary-soft), var(--surface); border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
 }
-.flo-tile.hero .ico { font-size: 2rem; }
-.flo-tile.hero > div { display: grid; gap: .15rem; min-width: 0; }
-.flo-tile.hero .go { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--grad-primary); color: #1a0e00; font-weight: 800; font-size: 1.1rem; }
-.flo-tile.hero .tags { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .2rem; }
-.flo-tile.hero .tags i { font-style: normal; font-size: .68rem; font-weight: 600; padding: .1rem .5rem; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--text-muted); }
-.flo-quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+.flo-tile.principal .ico { font-size: 2rem; }
+.flo-tile.principal > div { display: grid; gap: .15rem; min-width: 0; }
+.flo-tile.principal .go { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--grad-primary); color: #1a0e00; font-weight: 800; font-size: 1.1rem; }
+.flo-tile.principal .tags { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .2rem; }
+.flo-tile.principal .tags i { font-style: normal; font-size: .68rem; font-weight: 600; padding: .1rem .5rem; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--text-muted); }
+.flo-quick { display: flex; flex-wrap: wrap; gap: .5rem; }
+.flo-quick > button { flex: 1 1 120px; }
 .flo-quick button {
   display: grid; justify-items: center; align-content: center; gap: .2rem; min-height: 68px; padding: .4rem .25rem;
   border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface);
@@ -350,23 +359,27 @@
 .flo-decision .bar i { display: block; height: 100%; }
 .flo-decision .bar .a { background: var(--success); }
 .flo-decision .bar .b { background: var(--warning); }
-.flo-flow { display: grid; gap: 0; }
+/* Ojo: nada de las clases globales «main» o «hero» acá (app-shell y landing las usan y rompían el grid). */
+.flo-flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 .flo-flow-node { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: .6rem; align-items: start; padding: .6rem; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--bg-1); }
 .flo-flow-node > .ico { font-size: 1.2rem; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-2); }
 .flo-flow-node strong { display: block; font-size: .88rem; }
 .flo-flow-node p { font-size: .8rem; margin: .15rem 0 0; }
-.flo-flow-node.main { border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); background: var(--grad-primary-soft), var(--bg-1); }
+.flo-flow-node.principal { border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); background: var(--grad-primary-soft), var(--bg-1); }
 .flo-flow-link { width: 2px; height: 14px; background: var(--border-strong); margin-left: 27px; }
 .flo-flow-split { display: grid; gap: .45rem; }
 @media (min-width: 640px) { .flo-flow-split { grid-template-columns: 1fr 1fr; } }
 
 /* Escritorio: el héroe se abre en dos columnas */
 @media (min-width: 1024px) {
-  .flo-hero { grid-template-columns: 1.15fr 1fr; gap: 1rem; align-items: end; }
-  .flo-media { max-height: none; height: 100%; min-height: 230px; aspect-ratio: auto; }
-  .flo-plate { margin: 0; }
-  .flo-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .flo-quick { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  /* La placa ocupa todo el alto junto a la foto (antes quedaba abajo, con un hueco encima). */
+  .flo-hero { grid-template-columns: 1.15fr 1fr; grid-auto-rows: minmax(280px, auto); gap: 1rem; align-items: stretch; }
+  .flo-media { max-height: none; height: auto; min-height: 280px; aspect-ratio: auto; }
+  .flo-media img { position: absolute; inset: 0; }
+  .flo-plate { margin: 0; display: flex; flex-direction: column; padding: 1.3rem 1.5rem; }
+  .flo-plate h1 { margin-top: auto; font-size: clamp(2.2rem, 4vw, 3.4rem); }
+  .flo-plate .modelo { font-size: 1.35rem; }
+  .flo-plate .pin { margin-top: auto; }
 }
 
 /* Formulario de dos columnas (lavado): una sola en el teléfono */
@@ -407,11 +420,14 @@
   .flo-vital small, .flo-vital span, .flo-vital .flo-meter { grid-column: 1 / -1; }
   .flo-vital strong { grid-row: 1; grid-column: 2; font-size: 1.35rem; }
   .flo-vital small { grid-column: 1; grid-row: 1; }
-  .flo-tiles { grid-template-columns: 1fr 1fr; }
+  .flo-tiles > .flo-tile { flex-basis: calc(50% - .3rem); }
+  .flo-tiles > .flo-tile.principal { flex-basis: 100%; }
   .flo-tile { min-height: 88px; }
-  .flo-tile.hero { grid-template-columns: auto minmax(0, 1fr); }
-  .flo-tile.hero .go { display: none; }
+  .flo-tile.principal { grid-template-columns: auto minmax(0, 1fr); }
+  .flo-tile.principal .go { display: none; }
   .flo-quick button { min-height: 64px; }
+  .flo-quick > button { flex-basis: calc(33.333% - .34rem); }
+  .flo-volver { width: 100%; justify-content: center; }
   .flo-estado-acc .btn { flex: 1 1 100%; }
   .flo-orden-foot .btn { flex: 1 1 100%; }
   .flo-orden-head > div:last-child { justify-items: start !important; }

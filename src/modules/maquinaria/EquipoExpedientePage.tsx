@@ -64,7 +64,7 @@ const errMsg = (e: unknown, def: string) => (e instanceof Error ? e.message : (e
 
 /**
  * Expediente del equipo: placa de identificación, aviso de estado con la acción que
- * lo resuelve, signos vitales, «¿Qué necesitas hacer?» (solo lo que el usuario puede)
+ * lo resuelve, signos vitales, «Opciones» (solo lo que el usuario puede)
  * y pestañas. Reutiliza los modales de siempre (bitácora, documentos, ficha, consumos).
  */
 export function EquipoExpedientePage() {
@@ -316,11 +316,11 @@ export function EquipoExpedientePage() {
         <Vitales vigente={vigente} avisoH={avisoH} avisoK={avisoK} equipo={eq} ultimoSurtido={ultimoSurtido} lavado={lavado} onLavados={() => setTab('lavados')} onContador={() => setTab('contador')} />
 
         <section aria-labelledby="flo-acc" style={{ display: 'grid', gap: '.6rem' }}>
-          <div className="flo-acc-head"><h2 id="flo-acc">¿Qué necesitas hacer?</h2><span>{perm.maquinaria ? 'Con permiso de Maquinaria' : 'Solo lectura en Maquinaria'}</span></div>
+          <div className="flo-acc-head"><h2 id="flo-acc">Opciones</h2></div>
           {(puede('servicio') || puede('averia') || puede('lavado') || puede('lectura')) && (
             <div className="flo-tiles">
               {puede('servicio') && (
-                <button type="button" className="flo-tile hero" onClick={() => setNuevaOrden(true)}>
+                <button type="button" className="flo-tile principal" onClick={() => setNuevaOrden(true)}>
                   <span className="ico">🔧</span>
                   <div><strong>Servicio</strong><span>Mantenimiento, reparación o cambio de piezas. Usa el inventario y pide a compras lo que falte.</span>
                     <div className="tags"><i>Preventivo</i><i>Reparación</i><i>Cauchos</i><i>Piezas</i></div></div>
@@ -723,7 +723,7 @@ function TabContador({ eq, vigente, lecturas, ultimoSurtido, puede, onRegistrar,
       </div>
       <div className="aviso info sm"><span className="aviso-icono">⛽</span><div>
         {eq.combustible_equipo
-          ? <>El surtido se registra solo en <strong>Combustible</strong> (equipo «{eq.combustible_equipo}»). Lo que subas aquí es el horómetro / km de arranque del próximo surtido, y lo que se surte allá se ve aquí como contador.</>
+          ? <>El surtido se registra solo en <strong>Combustible</strong> (equipo «{eq.combustible_equipo}»).</>
           : <>Este equipo no está vinculado a un equipo de <strong>Combustible</strong>: sus lecturas quedan solo en Maquinaria. Vincúlalo en «✎ Editar ficha».</>}
       </div></div>
       <div className="flo-sec">

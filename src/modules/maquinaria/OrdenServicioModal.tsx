@@ -349,7 +349,7 @@ export function OrdenServicioModal({
 
         {paso === 2 && !editando && (
           <div className="flo-flow">
-            <div className="flo-flow-node main"><span className="ico">🧾</span><div>
+            <div className="flo-flow-node principal"><span className="ico">🧾</span><div>
               <strong>Orden de servicio · {servicio?.label}</strong>
               <p>{equipo.equipo} · urgencia {urgencia} · {responsable.trim() || 'responsable por asignar'}</p>
               <p>{descripcion.trim() || 'Sin descripción'}</p>
