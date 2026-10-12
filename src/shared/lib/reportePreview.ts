@@ -1,8 +1,10 @@
 import type { jsPDF as JsPDFType } from 'jspdf';
 import type { WorkBook } from 'xlsx-js-style';
+import { dibujarPdfEnCanvas, navegadorSinVisorPdf } from './pdfCanvas';
 
 /**
  * Vista previa de reportes antes de descargar.
+ * En el teléfono (sin visor de PDF propio) los PDF se dibujan con pdf.js: ver pdfCanvas.ts.
  *
  * Los generadores de reportes (PDF/Excel) son funciones planas (no componentes
  * React), así que el overlay se arma con DOM vanilla y se inyecta en el body.
@@ -108,13 +110,19 @@ export function previewPdf(doc: JsPDFType, filename: string): void {
   const blob = doc.output('blob');
   const url = URL.createObjectURL(blob);
   const ui = buildOverlay(filename);
-  const iframe = document.createElement('iframe');
-  iframe.src = url;
-  iframe.title = filename;
-  iframe.style.cssText = 'width:100%;height:100%;border:0;background:#fff;';
-  ui.body.appendChild(iframe);
+  if (navegadorSinVisorPdf()) {
+    // Teléfono (Chrome en Android): el iframe queda en blanco; las páginas se dibujan con pdf.js.
+    void dibujarPdfEnCanvas(doc.output('arraybuffer'), ui.body, ui.onClose);
+  } else {
+    const iframe = document.createElement('iframe');
+    iframe.src = url;
+    iframe.title = filename;
+    iframe.style.cssText = 'width:100%;height:100%;border:0;background:#fff;';
+    ui.body.appendChild(iframe);
+  }
   ui.btnDl.onclick = () => doc.save(filename);
-  ui.btnPrint.style.display = '';
+  // En el teléfono no se puede imprimir el PDF desde el visor: ahí queda solo ⬇ Descargar.
+  if (!navegadorSinVisorPdf()) ui.btnPrint.style.display = '';
   ui.btnPrint.onclick = () => imprimirUrlLocal(url, ui);
   ui.onClose(() => URL.revokeObjectURL(url));
 }
@@ -138,6 +146,19 @@ export function previewArchivo(url: string, filename = 'archivo'): void {
     img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;background:#fff;';
     wrap.appendChild(img);
     ui.body.appendChild(wrap);
+  } else if (navegadorSinVisorPdf()) {
+    // Teléfono (Chrome en Android): se baja el PDF y sus páginas se dibujan con pdf.js.
+    void (async () => {
+      try {
+        const datos = await (await fetch(url)).arrayBuffer();
+        await dibujarPdfEnCanvas(datos, ui.body, ui.onClose);
+      } catch {
+        const aviso = document.createElement('div');
+        aviso.textContent = 'No se pudo bajar el archivo. Revisa la conexión o usa «↗ Abrir en pestaña».';
+        aviso.style.cssText = 'color:#e6edf3;font:600 .9rem system-ui;text-align:center;padding:1.5rem 1rem;';
+        ui.body.appendChild(aviso);
+      }
+    })();
   } else {
     const iframe = document.createElement('iframe');
     iframe.src = url;
@@ -154,7 +175,8 @@ export function previewArchivo(url: string, filename = 'archivo'): void {
   // 🖨 Imprimir: la URL firmada es de otro origen y su iframe no se deja imprimir,
   // así que se baja el archivo y se imprime la copia local (blob). Una imagen va
   // dentro de una página mínima, para que salga sola en la hoja.
-  ui.btnPrint.style.display = '';
+  // En el teléfono no se puede imprimir el PDF desde el visor: ahí queda solo ⬇ Descargar.
+  if (!navegadorSinVisorPdf()) ui.btnPrint.style.display = '';
   ui.btnPrint.onclick = async () => {
     const texto = ui.btnPrint.textContent;
     ui.btnPrint.disabled = true;
