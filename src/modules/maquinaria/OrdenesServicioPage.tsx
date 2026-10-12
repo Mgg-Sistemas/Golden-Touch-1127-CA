@@ -8,7 +8,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { num as fmtNum, date as fmtDate, statusBadge } from '@/shared/lib/format';
 import { listEquipos, type MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { ORDEN_ESTADOS, SERVICIOS, URGENCIAS, servicioPorId, faltaCompra, faltaSalida, puedeBorrarOrden, type EstadoOrdenServicio } from './flota';
+import { ORDEN_ESTADOS, SERVICIOS, URGENCIAS, servicioPorId, etiquetaServicio, faltaCompra, faltaSalida, puedeBorrarOrden, type EstadoOrdenServicio } from './flota';
 import { listOrdenesServicio, salidasDeOrdenes, comprasPorIds, type OrdenServicio, type CompraResumen } from './flota.repository';
 import { filtrarOrdenes, contarPorEstado, type FiltroOrdenes } from './flotaListados';
 import { ordenServicioPdf, listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
@@ -99,7 +99,7 @@ export function OrdenesServicioPage() {
         const sal = o.solicitud_salida_id ? salidas.get(o.solicitud_salida_id) : null;
         const cmp = o.orden_compra_id ? compras.get(o.orden_compra_id) : null;
         return [
-          o.codigo, fmtDate(o.created_at), porId.get(o.equipo_id)?.equipo ?? '—', servicioPorId(o.tipo)?.label ?? o.tipo,
+          o.codigo, fmtDate(o.created_at), porId.get(o.equipo_id)?.equipo ?? '—', etiquetaServicio(o.tipo, o.trabajos),
           URGENCIAS.find((u) => u.id === o.urgencia)?.label ?? o.urgencia, ORDEN_ESTADOS[o.estado]?.label ?? o.estado,
           o.responsable ?? '', o.descripcion ?? '',
           o.repuestos.map((r) => `${fmtNum(r.cantidad)} ${r.unidad} ${r.nombre}`).join('; '),
@@ -186,7 +186,7 @@ export function OrdenesServicioPage() {
                 <div className="flo-orden-head">
                   <div style={{ minWidth: 0 }}>
                     <h3>{s?.icon} {o.codigo}</h3>
-                    <p>{s?.label ?? o.tipo} · {fmtDate(o.created_at)}{o.responsable ? ` · ${o.responsable}` : ''}</p>
+                    <p>{etiquetaServicio(o.tipo, o.trabajos)} · {fmtDate(o.created_at)}{o.responsable ? ` · ${o.responsable}` : ''}</p>
                     <p><Link to={`/app/maquinaria/equipo/${o.equipo_id}`}><strong>{eq?.equipo ?? 'Equipo'}</strong></Link>{eq?.tipo ? ` · ${eq.tipo}` : ''}</p>
                   </div>
                   <div className="flo-chips-col">

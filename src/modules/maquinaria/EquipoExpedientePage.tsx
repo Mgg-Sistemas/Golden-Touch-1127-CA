@@ -16,7 +16,7 @@ import { addMantenimiento } from './maquinariaMant.repository';
 import {
   ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
   accionesEquipo, servicioPorId, servicioReiniciaContador, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
-  faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza,
+  faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, etiquetaServicio,
   puedeBorrarOrden,
   type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
 } from './flota';
@@ -579,7 +579,7 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
         return (
           <div key={o.id} className="flo-orden">
             <div className="flo-orden-head">
-              <div><h3>{s?.icon} {o.codigo}</h3><p>{s?.label ?? o.tipo} · {fmtDate(o.created_at)} · {o.responsable || 'responsable por asignar'}</p></div>
+              <div><h3>{s?.icon} {o.codigo}</h3><p>{etiquetaServicio(o.tipo, o.trabajos)} · {fmtDate(o.created_at)} · {o.responsable || 'responsable por asignar'}</p></div>
               <div style={{ display: 'grid', gap: '.3rem', justifyItems: 'end' }}>
                 <Chip tono={est.tono}>{est.icon} {est.label}</Chip>
                 {urg && urg.id !== 'normal' && <Chip tono={urg.tono}>{urg.label}</Chip>}
@@ -646,7 +646,7 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
               return (
                 <div key={o.id}>
                   <span>{o.estado === 'anulada' ? '⛔' : s?.icon}</span>
-                  <div style={{ minWidth: 0 }}><strong>{o.codigo} · {s?.label ?? o.tipo}</strong><small>{fmtDate(o.created_at)}{o.cerrada_at ? ` → ${fmtDate(o.cerrada_at)}` : ''} · {ORDEN_ESTADOS[o.estado]?.label}{o.nota_cierre ? ` · ${o.nota_cierre}` : ''}</small></div>
+                  <div style={{ minWidth: 0 }}><strong>{o.codigo} · {etiquetaServicio(o.tipo, o.trabajos)}</strong><small>{fmtDate(o.created_at)}{o.cerrada_at ? ` → ${fmtDate(o.cerrada_at)}` : ''} · {ORDEN_ESTADOS[o.estado]?.label}{o.nota_cierre ? ` · ${o.nota_cierre}` : ''}</small></div>
                   <span style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button className="btn btn-sm btn-ghost" onClick={() => setFotosDe(o)} aria-label={`Fotos de ${o.codigo}`}>📷 Fotos</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => onPdf(o)} aria-label={`PDF de ${o.codigo}`}>📄 PDF</button>

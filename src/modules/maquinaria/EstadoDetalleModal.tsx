@@ -9,7 +9,7 @@ import { mensajeError } from '@/shared/lib/errores';
 import { date as fmtDate, dateTime } from '@/shared/lib/format';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { ESTADOS_EQUIPO, ORDEN_ESTADOS, diasDesde, estadoEfectivo, estadoExigeMotivo, ordenAbierta, servicioPorId, textoHace } from './flota';
+import { ESTADOS_EQUIPO, ORDEN_ESTADOS, diasDesde, estadoEfectivo, estadoExigeMotivo, ordenAbierta, servicioPorId, etiquetaServicio, textoHace } from './flota';
 import {
   listEventosEstado, listOrdenesServicio, editarEventoEstado, eliminarEventoEstado, type EventoEstado, type OrdenServicio,
 } from './flota.repository';
@@ -226,7 +226,7 @@ export function EstadoDetalleModal({ equipo, evento, enExpediente = false, onClo
                 return (
                   <li key={o.id}>
                     <Link to={`/app/maquinaria/equipo/${equipo.id}?tab=servicios`} onClick={onClose}>
-                      <span><strong>{s?.icon} {o.codigo}</strong> · {s?.label ?? o.tipo} · {fmtDate(o.created_at)}</span>
+                      <span><strong>{s?.icon} {o.codigo}</strong> · {etiquetaServicio(o.tipo, o.trabajos)} · {fmtDate(o.created_at)}</span>
                       {est && <span className={`flo-chip tone-${est.tono}`}>{est.icon} {est.label}</span>}
                     </Link>
                   </li>

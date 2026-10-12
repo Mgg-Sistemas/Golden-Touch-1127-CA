@@ -10,7 +10,7 @@ import { buscarProductosParecidos, type ProductoParecido } from '@/modules/inven
 import { CategoriaProductoSelect } from '@/modules/inventario/CategoriaProductoSelect';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, CATEGORIA_REPUESTOS, categoriaFijaEnTelefono,
+  SERVICIOS, URGENCIAS, INTERVENCIONES, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio, CATEGORIA_REPUESTOS, categoriaFijaEnTelefono,
   repuestosEditables, type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
@@ -83,6 +83,8 @@ export function OrdenServicioModal({
   const [tipo, setTipo] = useState<string | null>(() => orden?.tipo ?? sugerirServicio(averiado ? equipo.estado_nota : null, aviso));
   const [urgencia, setUrgencia] = useState<'normal' | 'alta' | 'urgente'>(orden?.urgencia ?? (averiado ? 'alta' : 'normal'));
   const [intervenciones, setIntervenciones] = useState<string[]>(orden?.intervenciones?.length ? orden.intervenciones : ['Mecánica']);
+  // «¿Qué se hace?»: opciones propias del tipo de servicio (cauchos → cambio, espichado…).
+  const [trabajos, setTrabajos] = useState<string[]>(orden?.trabajos ?? []);
   const [origen, setOrigen] = useState<'interno' | 'externo'>(orden?.origen ?? 'interno');
   const [responsable, setResponsable] = useState(orden?.responsable ?? '');
   const [descripcion, setDescripcion] = useState(orden ? (orden.descripcion ?? '') : averiado ? (equipo.estado_nota ?? '') : '');
@@ -167,8 +169,8 @@ export function OrdenServicioModal({
       const nuevos = lineas.map((l) => ({ producto_id: l.productoId, nombre: l.nombre, unidad: l.unidad, cantidad: l.cantidad }));
       const cambiaron = editables && firmaRepuestos(nuevos) !== firmaRepuestos(orden.repuestos);
       const r = await editarOrdenServicio(orden.id, {
-        tipo, urgencia, intervenciones, origen,
-        responsable: responsable.trim(), descripcion: descripcion.trim() || (servicio?.label ?? ''),
+        tipo, urgencia, intervenciones, trabajos, origen,
+        responsable: responsable.trim(), descripcion: descripcion.trim() || etiquetaServicio(tipo, trabajos),
         horometro: orden.horometro, kilometraje: orden.kilometraje,
         ...(cerrada ? { nota_cierre: notaCierre.trim() || null } : {}),
         ...(cambiaron ? { repuestos: nuevos } : {}),
@@ -188,8 +190,8 @@ export function OrdenServicioModal({
     setSaving(true);
     try {
       const r = await crearOrdenServicio({
-        equipo_id: equipo.id, tipo, urgencia, intervenciones, origen,
-        responsable: responsable.trim(), descripcion: descripcion.trim() || (servicio?.label ?? ''),
+        equipo_id: equipo.id, tipo, urgencia, intervenciones, trabajos, origen,
+        responsable: responsable.trim(), descripcion: descripcion.trim() || etiquetaServicio(tipo, trabajos),
         horometro, kilometraje,
         repuestos: lineas.map((l) => ({ producto_id: l.productoId, nombre: l.nombre, unidad: l.unidad, cantidad: l.cantidad })),
       });
@@ -268,11 +270,20 @@ export function OrdenServicioModal({
             )}
             <div className="flo-svc-grid" role="group" aria-label="Tipo de servicio">
               {SERVICIOS.map((s) => (
-                <button key={s.id} type="button" className="flo-svc" aria-pressed={tipo === s.id} onClick={() => setTipo(s.id)}>
+                <button key={s.id} type="button" className="flo-svc" aria-pressed={tipo === s.id}
+                  onClick={() => { setTipo(s.id); setTrabajos((t) => t.filter((x) => trabajosDe(s.id).includes(x))); }}>
                   <span className="ico">{s.icon}</span><strong>{s.label}</strong><span>{s.hint}</span>
                 </button>
               ))}
             </div>
+            {trabajosDe(tipo).length > 0 && (
+              <div className="form-row"><label>¿Qué se hace? <span className="muted" style={{ fontWeight: 400 }}>· {servicio?.label} (marca una o varias)</span></label>
+                <div className="flo-opt" role="group" aria-label="Qué se hace">{trabajosDe(tipo).map((t) => (
+                  <button key={t} type="button" className="flo-pill" aria-pressed={trabajos.includes(t)}
+                    onClick={() => setTrabajos((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]))}>{t}</button>
+                ))}</div>
+              </div>
+            )}
             <div className="form-row"><label>Urgencia</label>
               <div className="flo-opt">{URGENCIAS.map((u) => <button key={u.id} type="button" className="flo-pill" aria-pressed={urgencia === u.id} onClick={() => setUrgencia(u.id)}>{u.label}</button>)}</div>
             </div>
@@ -391,7 +402,7 @@ export function OrdenServicioModal({
         {paso === 2 && editando && orden && (
           <VistaPrevia titulo="Se guarda la orden así">
             <Dato label="Orden">{orden.codigo}</Dato>
-            <Dato label="Servicio">{servicio?.label ?? tipo ?? undefined}</Dato>
+            <Dato label="Servicio">{tipo ? etiquetaServicio(tipo, trabajos) : undefined}</Dato>
             <Dato label="Urgencia">{URGENCIAS.find((u) => u.id === urgencia)?.label}</Dato>
             <Dato label="Intervención">{intervenciones.join(', ') || undefined}</Dato>
             <Dato label={origen === 'interno' ? 'Mecánico' : 'Proveedor'}>{responsable.trim() || undefined}</Dato>
@@ -406,6 +417,7 @@ export function OrdenServicioModal({
           <div className="flo-flow">
             <div className="flo-flow-node principal"><span className="ico">🧾</span><div>
               <strong>Orden de servicio · {servicio?.label}</strong>
+              {trabajos.length > 0 && <p>{trabajos.join(' · ')}</p>}
               <p>{equipo.equipo} · urgencia {urgencia} · {responsable.trim() || 'responsable por asignar'}</p>
               <p>{descripcion.trim() || 'Sin descripción'}</p>
               {fotosOS.fotos.length > 0 && <p>📷 {fotosOS.fotos.length === 1 ? '1 foto' : `${fotosOS.fotos.length} fotos`} · se suben al crear la orden</p>}
