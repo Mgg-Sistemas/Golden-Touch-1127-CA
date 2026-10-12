@@ -55,8 +55,8 @@ describe('las dos versiones del carnet', () => {
       expect(contraste(p.marco, p.fondo)).toBeGreaterThanOrEqual(2);
       expect(contraste(p.naranja, p.fondo)).toBeGreaterThanOrEqual(2);
     });
-    it(`${tema}: el cargo y «Escanee para verificar» se leen (≥ 4.5:1)`, () => {
-      expect(contraste(p.cargo, p.fondo)).toBeGreaterThanOrEqual(4.5);
+    it(`${tema}: la vigencia y el RIF del pie (gris) se leen (≥ 4.5:1)`, () => {
+      expect(contraste(p.gris, p.fondo)).toBeGreaterThanOrEqual(4.5);
     });
     it(`${tema}: los puntos del recuadro se ven`, () => {
       expect(contraste(p.puntos, p.fondo)).toBeGreaterThanOrEqual(4.5);
