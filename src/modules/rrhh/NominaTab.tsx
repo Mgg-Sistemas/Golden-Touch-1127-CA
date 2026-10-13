@@ -7,7 +7,7 @@ import {
   grupoAMedias, grupoCompleto, renglonesAImprimir,
 } from './recibosLote';
 import {
-  DIAS_QUINCENA, SUELDO_PCT_DEFECTO, avisosQuincena, diasDelPeriodo, quincenaDe,
+  DIAS_QUINCENA, SUELDO_PCT_DEFECTO, avisosQuincena, diasDelPeriodo, diasSegunIngreso, quincenaDe,
 } from './nominaCalculo';
 import { FechaInput } from '@/shared/ui/FechaInput';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -571,6 +571,8 @@ interface FilaUI {
   diasTocado: boolean;
   /** Igual que `diasTocado`, para los días de descanso (se ajustan aparte). */
   descansoTocado: boolean;
+  /** Ingresó dentro del período: sus días se cuentan desde la fecha de ingreso (13/10/2026). */
+  desdeIngreso: boolean;
   deduc: Record<string, string>;   // anticipoId -> monto a descontar
 }
 
@@ -614,21 +616,25 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
     getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); }).catch(() => {});
     Promise.all([listPersonal(true, empresa), listAnticiposActivos()]).then(([ps, as]) => {
       setAnticipos(as);
-      setFilas(ps.map((p) => ({
+      setFilas(ps.map((p) => {
+        // Los días del encabezado, NO un 15 fijo; y quien ingresó dentro del
+        // período, solo desde su fecha de ingreso (13/10/2026).
+        const d = diasSegunIngreso(p.fecha_ingreso, periodoDesde, periodoHasta, diasBase, descansoBase);
+        return {
         persona: p,
-        incluido: true,
-        // Los días del encabezado, NO un 15 fijo: si se cambió el «días base»
-        // mientras cargaba el personal, las filas tienen que nacer con ese.
-        dias: String(diasBase),
-        diasDescanso: String(descansoBase),
+        incluido: d.dias + d.descanso > 0,
+        dias: String(d.dias),
+        diasDescanso: String(d.descanso),
         diasTocado: false,
         descansoTocado: false,
+        desdeIngreso: d.desdeIngreso,
         deduc: as.filter((a) => a.personal_id === p.id).reduce<Record<string, string>>((acc, a) => {
           const sug = a.cuota_sugerida != null ? Math.min(Number(a.cuota_sugerida), Number(a.saldo)) : 0;
           acc[a.id] = sug > 0 ? String(round2(sug)) : '';
           return acc;
         }, {}),
-      })));
+        };
+      }));
     }).catch(() => {});
   }, [empresa]);
 
@@ -636,14 +642,27 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   // mano. Antes las pisaba todas —el comentario decía una cosa y el código
   // hacía otra—, así que corregir el encabezado borraba los días ajustados
   // persona por persona y se pagaba un bruto que nadie eligió.
+  // Lo no tocado a mano se recalcula con el encabezado, el período y la fecha de ingreso.
+  function resincronizar(dBase: number, descBase: number, desde: string, hasta: string) {
+    setFilas((fs) => fs.map((f) => {
+      const d = diasSegunIngreso(f.persona.fecha_ingreso, desde, hasta, dBase, descBase);
+      return {
+        ...f,
+        dias: f.diasTocado ? f.dias : String(d.dias),
+        diasDescanso: f.descansoTocado ? f.diasDescanso : String(d.descanso),
+        desdeIngreso: d.desdeIngreso,
+      };
+    }));
+  }
+
   function aplicarDiasBase(n: number) {
     setDiasBase(n);
-    setFilas((fs) => fs.map((f) => (f.diasTocado ? f : { ...f, dias: String(n) })));
+    resincronizar(n, descansoBase, periodoDesde, periodoHasta);
   }
 
   function aplicarDescansoBase(n: number) {
     setDescansoBase(n);
-    setFilas((fs) => fs.map((f) => (f.descansoTocado ? f : { ...f, diasDescanso: String(n) })));
+    resincronizar(diasBase, n, periodoDesde, periodoHasta);
   }
 
   // Filtro buscable (nombre, apellido, cédula, cargo, departamento; sin acentos).
@@ -661,7 +680,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   /** Marcar = cada uno con los días de descanso del encabezado; desmarcar = 0 días. */
   function descansoVisibles(marcar: boolean) {
     setFilas((fs) => aplicarA(fs, idsVisibles, idDe, (f) => (marcar
-      ? { ...f, diasDescanso: String(descansoBase), descansoTocado: false }
+      ? { ...f, diasDescanso: String(diasSegunIngreso(f.persona.fecha_ingreso, periodoDesde, periodoHasta, diasBase, descansoBase).descanso), descansoTocado: false }
       : { ...f, diasDescanso: '0', descansoTocado: true })));
   }
   const visiblesIncluidos = visibles.filter((f) => f.incluido).length;
@@ -772,7 +791,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           </div>
           <div className="form-row" style={{ minWidth: 150 }}>
             <label style={{ fontSize: '.72rem' }}>Período desde</label>
-            <FechaInput value={periodoDesde} onChange={setPeriodoDesde} max={periodoHasta || undefined} />
+            <FechaInput value={periodoDesde} onChange={(v) => { setPeriodoDesde(v); resincronizar(diasBase, descansoBase, v, periodoHasta); }} max={periodoHasta || undefined} />
           </div>
           <div className="form-row" style={{ minWidth: 150 }}>
             <label style={{ fontSize: '.72rem' }}>
@@ -781,7 +800,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
                 {diasPeriodo > 0 ? `(${diasPeriodo} días)` : '(revisa las fechas)'}
               </span>
             </label>
-            <FechaInput value={periodoHasta} onChange={setPeriodoHasta} min={periodoDesde || undefined} />
+            <FechaInput value={periodoHasta} onChange={(v) => { setPeriodoHasta(v); resincronizar(diasBase, descansoBase, periodoDesde, v); }} min={periodoDesde || undefined} />
           </div>
           <div className="form-row" style={{ flex: 1, minWidth: 230 }}>
             <label style={{ fontSize: '.72rem' }}>Nombre de la nómina</label>
@@ -871,7 +890,10 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
               return (
                 <tr key={pid} style={{ opacity: f.incluido ? 1 : 0.45 }}>
                   <td><input type="checkbox" checked={f.incluido} onChange={(e) => { const v = e.target.checked; cambiarFila(pid, (x) => ({ ...x, incluido: v })); }} /></td>
-                  <td>{f.persona.nombre} {f.persona.apellido}<div className="muted" style={{ fontSize: '.72rem' }}>{f.persona.cedula ? `${f.persona.cedula} · ` : ''}{f.persona.departamento || ''}{f.persona.cargo ? ` · ${f.persona.cargo}` : ''}</div></td>
+                  <td>{f.persona.nombre} {f.persona.apellido}{f.desdeIngreso && (
+                    <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.68rem', color: 'var(--warning)' }}
+                      title="Ingresó dentro del período: los días se cuentan desde su fecha de ingreso">ingresó {String(f.persona.fecha_ingreso ?? '').slice(8, 10)}/{String(f.persona.fecha_ingreso ?? '').slice(5, 7)}</span>
+                  )}<div className="muted" style={{ fontSize: '.72rem' }}>{f.persona.cedula ? `${f.persona.cedula} · ` : ''}{f.persona.departamento || ''}{f.persona.cargo ? ` · ${f.persona.cargo}` : ''}</div></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(f.persona.sueldo_base)}</td>
                   <td style={{ textAlign: 'center' }}>
                     <input className="input mono" type="number" min={0} max={31} value={f.dias} disabled={!f.incluido}
