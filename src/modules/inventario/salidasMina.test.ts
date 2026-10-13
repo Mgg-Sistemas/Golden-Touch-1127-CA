@@ -6,18 +6,19 @@ import {
 
 const salida = (x: Partial<SalidaMina> = {}): SalidaMina => ({
   id: 's1', codigo: 'SDM-0001', producto_id: 'p1', producto_nombre: 'MANGUERA 2 PULGADAS', unidad: 'und',
-  cantidad: 2, motivo: 'Para la bomba del pozo 3', retorna: true, retornado: 0, retornos: [], fotos: [],
+  cantidad: 2, motivo: 'Para la bomba del pozo 3', autorizado_por: 'JESUS GARCIA', retorna: true, retornado: 0, retornos: [], fotos: [],
   estado: 'por_retornar', actor: 'x@y', actor_name: 'Pedro', created_at: '2026-10-13T13:45:00Z', ...x,
 });
 
 describe('salida del Depósito Mina', () => {
-  const ok = { productoId: 'p1', cantidad: 2, stock: 5, motivo: 'Bomba', retorna: false };
+  const ok = { productoId: 'p1', cantidad: 2, stock: 5, motivo: 'Bomba', autorizado: 'JESUS GARCIA', retorna: false };
   it('pide material, cantidad, que alcance, motivo y si retorna', () => {
     expect(errorSalidaMina(ok)).toBeNull();
     expect(errorSalidaMina({ ...ok, productoId: null })).toMatch(/material/);
     expect(errorSalidaMina({ ...ok, cantidad: 0 })).toMatch(/cuánto sale/);
     expect(errorSalidaMina({ ...ok, cantidad: 6 })).toMatch(/No alcanza/);
     expect(errorSalidaMina({ ...ok, motivo: ' a ' })).toMatch(/motivo/);
+    expect(errorSalidaMina({ ...ok, autorizado: ' ' })).toMatch(/quién autorizó/);
     expect(errorSalidaMina({ ...ok, retorna: null })).toMatch(/SÍ o NO/);
   });
   it('lee cantidades con coma', () => {
@@ -50,6 +51,7 @@ describe('aviso de WhatsApp', () => {
     expect(t).toContain('📦 *Material:* MANGUERA 2 PULGADAS');
     expect(t).toContain('🔢 *Cantidad:* 2 und');
     expect(t).toContain('📝 *Motivo:* Para la bomba del pozo 3');
+    expect(t).toContain('✅ *Autorizado por:* JESUS GARCIA');
     expect(t).toContain('🔄 *Retorna:* SÍ');
     expect(t).toContain('📷 *Fotos:* 1');
     expect(t).toContain('👷 *Registrado por:* Pedro');

@@ -47,10 +47,10 @@ export async function listPorRetornarMina(): Promise<SalidaMina[]> {
 }
 
 export async function registrarSalidaMina(d: {
-  productoId: string; cantidad: number; motivo: string; retorna: boolean; actor: string; actorName: string | null;
+  productoId: string; cantidad: number; motivo: string; autorizadoPor: string; retorna: boolean; actor: string; actorName: string | null;
 }): Promise<SalidaMina> {
   const { data, error } = await supabase.rpc('deposito_mina_registrar_salida', {
-    p: { producto_id: d.productoId, cantidad: d.cantidad, motivo: d.motivo.trim(), retorna: d.retorna, actor: d.actor, actor_name: d.actorName },
+    p: { producto_id: d.productoId, cantidad: d.cantidad, motivo: d.motivo.trim(), autorizado_por: d.autorizadoPor.trim(), retorna: d.retorna, actor: d.actor, actor_name: d.actorName },
   });
   if (error) throw err(error, 'No se pudo registrar la salida.');
   return normalizar(data as Record<string, unknown>);
