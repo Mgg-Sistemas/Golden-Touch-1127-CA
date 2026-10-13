@@ -2,7 +2,7 @@
    Golden Touch · RRHH · Tabulador de sueldos por cargo (base)
 
    Toda escritura pasa por funciones de la base:
-     · `tabulador_guardar` / `tabulador_borrar`: alta, cambio y baja de un
+     · `tabulador_guardar` / `tabulador_borrar` / `tabulador_guardar_lote`: alta, cambio y baja de un
        cargo; un disparador deja el renglón en `rrhh_tabulador_historial`
        con el motivo que se indique.
      · `aplicar_tabulador`: iguala el sueldo de los activos al de su cargo y
@@ -11,7 +11,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { EmpresaRrhh } from '@/shared/lib/types';
-import type { FilaHistorialSalarial, TabuladorCargo, TabuladorHistorial } from './tabulador';
+import type { FilaHistorialSalarial, RenglonLote, TabuladorCargo, TabuladorHistorial } from './tabulador';
 
 export async function listTabulador(empresa: EmpresaRrhh): Promise<TabuladorCargo[]> {
   const { data, error } = await supabase
@@ -54,6 +54,23 @@ export async function guardarTabulador(input: GuardarTabuladorInput): Promise<Ta
   });
   if (error) throw new Error(mensaje(error, 'No se pudo guardar el cargo.'));
   return data as TabuladorCargo;
+}
+
+/**
+ * Guarda varios cargos de una vez (crear el tabulador desde los cargos del
+ * personal o ponerle sueldo nuevo a todos): todo o nada, y cada cambio queda
+ * en el historial del tabulador con el motivo.
+ */
+export async function guardarTabuladorLote(
+  empresa: EmpresaRrhh, filas: RenglonLote[], motivo?: string | null,
+): Promise<TabuladorCargo[]> {
+  const { data, error } = await supabase.rpc('tabulador_guardar_lote', {
+    p_empresa: empresa,
+    p_filas: filas.map((f) => ({ id: f.id, cargo: f.cargo, monto: f.monto, nota: f.nota })),
+    p_motivo: motivo?.trim() || null,
+  });
+  if (error) throw new Error(mensaje(error, 'No se pudo guardar el tabulador.'));
+  return (data ?? []) as TabuladorCargo[];
 }
 
 export async function borrarTabulador(id: string, motivo?: string | null): Promise<void> {

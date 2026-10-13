@@ -201,3 +201,145 @@ export function etiquetaRango(desde?: string | null, hasta?: string | null): str
   if (b.length === 10) return `hasta el ${d(b)}`;
   return 'todo el histórico';
 }
+
+/* ---------- Tabulador desde los cargos (en bloque) y su reporte (13/10/2026) ---------- */
+
+/** El sueldo que más se repite (en un empate, el mayor). */
+export function sueldoMasComun(sueldos: number[]): number | null {
+  if (!sueldos.length) return null;
+  const veces = new Map<number, number>();
+  for (const s of sueldos) veces.set(r2(s), (veces.get(r2(s)) ?? 0) + 1);
+  let mejor = r2(sueldos[0]);
+  let n = 0;
+  for (const [s, k] of veces) if (k > n || (k === n && s > mejor)) { mejor = s; n = k; }
+  return mejor;
+}
+
+/** «300», «300,5» o «1.250,00» → número; vacío → null; basura → NaN. */
+export function leerMonto(texto: string): number | null {
+  let t = String(texto ?? '').trim().replace(/\s/g, '');
+  if (!t) return null;
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  const n = Number(t);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** Sube (o baja) un sueldo en un porcentaje, redondeado a céntimos. */
+export function ajustarPorcentaje(sueldo: number, pct: number): number {
+  return r2(num(sueldo) * (1 + num(pct) / 100));
+}
+
+export interface FilaLoteTabulador {
+  /** Renglón del tabulador; `null` = cargo del personal que todavía no está. */
+  id: string | null;
+  cargo: string;
+  nota: string | null;
+  activos: number;
+  /** Lo que dice hoy el tabulador o, si el cargo no está, el sueldo más común de sus activos. */
+  anterior: number | null;
+  /** Lo que ganan hoy los activos del cargo (para ver si no es parejo). */
+  minHoy: number | null;
+  maxHoy: number | null;
+}
+
+/**
+ * Todos los cargos de la nómina para armar el tabulador de una vez: los que
+ * ya están y los de los activos que faltan, ordenados por cargo.
+ */
+export function filasDesdeCargos(
+  personas: Personal[],
+  tabulador: Pick<TabuladorCargo, 'id' | 'empresa' | 'cargo' | 'monto' | 'nota'>[],
+  empresa: EmpresaRrhh,
+): FilaLoteTabulador[] {
+  const conteo = conteoPorCargo(personas, empresa);
+  const deEsta = tabulador.filter((t) => t.empresa === empresa);
+  const hoy = (cargo: string) => {
+    const c = conteo.get(claveCargo(cargo));
+    return {
+      activos: c?.activos ?? 0,
+      minHoy: c?.sueldos.length ? Math.min(...c.sueldos) : null,
+      maxHoy: c?.sueldos.length ? Math.max(...c.sueldos) : null,
+      sueldos: c?.sueldos ?? [],
+    };
+  };
+  const filas: FilaLoteTabulador[] = deEsta.map((t) => {
+    const h = hoy(t.cargo);
+    return { id: t.id, cargo: t.cargo, nota: t.nota ?? null, activos: h.activos, anterior: r2(num(t.monto)), minHoy: h.minHoy, maxHoy: h.maxHoy };
+  });
+  for (const cargo of cargosFaltantes(personas, deEsta, empresa)) {
+    const h = hoy(cargo);
+    filas.push({ id: null, cargo, nota: null, activos: h.activos, anterior: sueldoMasComun(h.sueldos), minHoy: h.minHoy, maxHoy: h.maxHoy });
+  }
+  return filas.sort((a, b) => a.cargo.localeCompare(b.cargo, 'es'));
+}
+
+export interface EntradaLote { fila: FilaLoteTabulador; nuevo: number | null }
+export interface RenglonLote { id: string | null; cargo: string; monto: number; nota: string | null }
+
+/** Lo que se manda a guardar (solo lo nuevo o lo que cambia) o por qué no se puede. */
+export function loteParaGuardar(entradas: EntradaLote[]): { guardar: RenglonLote[]; error: string | null } {
+  const guardar: RenglonLote[] = [];
+  for (const { fila, nuevo } of entradas) {
+    if (nuevo === null || !Number.isFinite(nuevo)) return { guardar: [], error: `Falta el sueldo nuevo de ${fila.cargo}.` };
+    if (nuevo < 0) return { guardar: [], error: `El sueldo de ${fila.cargo} no puede ser negativo.` };
+    const monto = r2(nuevo);
+    if (fila.id && monto === fila.anterior) continue;
+    guardar.push({ id: fila.id, cargo: fila.cargo, monto, nota: fila.nota });
+  }
+  if (!guardar.length) return { guardar, error: 'No hay cambios que guardar: todos los sueldos nuevos son iguales a los del tabulador.' };
+  return { guardar, error: null };
+}
+
+/** Un renglón del PDF / Excel del tabulador: sueldo anterior y nuevo del cargo. */
+export interface FilaReporteTabulador {
+  cargo: string;
+  activos: number;
+  /** `null` = no hay sueldo anterior (cargo recién agregado y sin cambios). */
+  anterior: number | null;
+  nuevo: number;
+  minHoy?: number | null;
+  maxHoy?: number | null;
+  nota?: string | null;
+}
+
+/** El monto que tenía el cargo antes de su último cambio de monto (según el historial). */
+export function montoAnteriorDelCargo(t: Pick<TabuladorCargo, 'id'>, historial: TabuladorHistorial[]): number | null {
+  const ultimo = historial
+    .filter((h) => h.tabulador_id === t.id && h.monto_anterior != null && h.monto_nuevo != null
+      && r2(num(h.monto_anterior)) !== r2(num(h.monto_nuevo)))
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+  return ultimo ? r2(num(ultimo.monto_anterior)) : null;
+}
+
+/** El tabulador vigente para imprimir: cada cargo con su monto anterior y el actual. */
+export function filasReporteTabulador(
+  tabulador: TabuladorCargo[],
+  historial: TabuladorHistorial[],
+  personas: Personal[],
+  empresa: EmpresaRrhh,
+): FilaReporteTabulador[] {
+  const conteo = conteoPorCargo(personas, empresa);
+  return tabulador.filter((t) => t.empresa === empresa).map((t) => {
+    const c = conteo.get(claveCargo(t.cargo));
+    return {
+      cargo: t.cargo,
+      activos: c?.activos ?? 0,
+      anterior: montoAnteriorDelCargo(t, historial),
+      nuevo: r2(num(t.monto)),
+      minHoy: c?.sueldos.length ? Math.min(...c.sueldos) : null,
+      maxHoy: c?.sueldos.length ? Math.max(...c.sueldos) : null,
+      nota: t.nota ?? null,
+    };
+  }).sort((a, b) => a.cargo.localeCompare(b.cargo, 'es'));
+}
+
+/** Costo mensual de los activos (activos × sueldo) antes y después. */
+export function totalesReporteTabulador(filas: FilaReporteTabulador[]): { activos: number; antes: number; despues: number } {
+  let activos = 0; let antes = 0; let despues = 0;
+  for (const f of filas) {
+    activos += f.activos;
+    antes += f.activos * (f.anterior ?? f.nuevo);
+    despues += f.activos * f.nuevo;
+  }
+  return { activos, antes: r2(antes), despues: r2(despues) };
+}

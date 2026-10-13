@@ -147,7 +147,7 @@ export async function descargarHistorialSalarialGeneralPdf(filas: FilaHistorialS
 
 /* ---------------- Excel (general e individual) ---------------- */
 
-interface HojaExcel {
+export interface HojaExcel {
   titulo: string;
   empresa: EmpresaRrhh;
   subtitulo: string;
@@ -157,9 +157,13 @@ interface HojaExcel {
   /** Índices (0-based) de columnas con montos. */
   montos: number[];
   archivo: string;
+  /** Nombre de la hoja (por defecto «Histórico salarial»). */
+  hoja?: string;
+  /** Filas (0-based dentro de `filas`) que van en negrita, como un total. */
+  negritas?: number[];
 }
 
-async function bajarExcel(h: HojaExcel): Promise<void> {
+export async function bajarExcel(h: HojaExcel): Promise<void> {
   const [{ default: ExcelJS }, { identidadEmpresa }] = await Promise.all([
     import('exceljs'),
     import('@/shared/lib/empresa'),
@@ -167,7 +171,7 @@ async function bajarExcel(h: HojaExcel): Promise<void> {
   const emp = identidadEmpresa(h.empresa);
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Histórico salarial', {
+  const ws = wb.addWorksheet(h.hoja ?? 'Histórico salarial', {
     pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
     views: [{ state: 'frozen', ySplit: 5 }],
   });
@@ -204,7 +208,7 @@ async function bajarExcel(h: HojaExcel): Promise<void> {
     const r = ws.getRow(6 + i);
     r.values = f;
     r.eachCell({ includeEmpty: true }, (c, col) => {
-      c.font = { name: 'Arial', size: 10 };
+      c.font = { name: 'Arial', size: 10, bold: !!h.negritas?.includes(i) };
       c.border = bordes;
       c.alignment = { vertical: 'middle', horizontal: 'left', indent: 1, wrapText: true };
       if (i % 2 === 1) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAF6F0' } };

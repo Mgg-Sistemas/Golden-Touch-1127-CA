@@ -8,7 +8,10 @@
        con vista previa de quién cambia y de cuánto a cuánto; cada cambio
        entra al histórico salarial de la persona;
      · los históricos salariales imprimibles (PDF y Excel, general o de una
-       persona, con filtro de nómina y fechas).
+       persona, con filtro de nómina y fechas);
+     · «Desde los cargos» (13/10/2026): arma el tabulador con los cargos del
+       personal y el sueldo nuevo de cada uno, e imprime anterior y nuevo;
+       el tabulador vigente también sale en PDF y Excel.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
@@ -21,8 +24,9 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import type { EmpresaRrhh, Personal } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
 import { CargarSueldosHistoricosModal } from './CargarSueldosHistoricosModal';
+import { TabuladorLoteModal } from './TabuladorLoteModal';
 import {
-  ETIQUETA_ACCION, cargosFaltantes, claveCargo, conteoPorCargo, errorTabulador, filtrarHistorialSalarial,
+  ETIQUETA_ACCION, cargosFaltantes, claveCargo, conteoPorCargo, errorTabulador, filasReporteTabulador, filtrarHistorialSalarial,
   nombreCompleto, normalizarCargo, planAplicarTabulador, type TabuladorCargo, type TabuladorHistorial,
   type FilaHistorialSalarial,
 } from './tabulador';
@@ -60,6 +64,8 @@ export function TabuladorModal({ empresa, canWrite, onClose }: { empresa: Empres
   const [motivoBorrar, setMotivoBorrar] = useState('');
   const [aplicando, setAplicando] = useState(false);
   const [historicos, setHistoricos] = useState(false);
+  const [lote, setLote] = useState(false);
+  const [ocupado, setOcupado] = useState<'pdf' | 'xlsx' | null>(null);
 
   const recargar = useCallback(async () => {
     try {
@@ -86,6 +92,19 @@ export function TabuladorModal({ empresa, canWrite, onClose }: { empresa: Empres
     } catch (e) { toast(errMsg(e, 'No se pudo borrar'), 'error'); }
   }
 
+  // El tabulador vigente impreso: cada cargo con su monto anterior y el actual.
+  async function bajar(formato: 'pdf' | 'xlsx') {
+    setOcupado(formato);
+    try {
+      const rep = await import('./tabuladorReportes');
+      const filas = filasReporteTabulador(tab, hist, personal, empresa);
+      const o = { empresa, tipo: 'vigente' as const };
+      if (formato === 'pdf') await rep.descargarTabuladorPdf(filas, o);
+      else await rep.descargarTabuladorExcel(filas, o);
+    } catch (e) { toast(errMsg(e, 'No se pudo generar el archivo'), 'error'); }
+    finally { setOcupado(null); }
+  }
+
   const porBorrarConteo = porBorrar ? conteo.get(claveCargo(porBorrar.cargo)) : undefined;
 
   return (
@@ -98,6 +117,12 @@ export function TabuladorModal({ empresa, canWrite, onClose }: { empresa: Empres
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
           <button className="btn btn-ghost" onClick={() => setHistoricos(true)}
             title="Históricos salariales en PDF o Excel: general o de una persona">📄 Históricos salariales</button>
+          <button className="btn btn-ghost" disabled={!tab.length || !!ocupado} onClick={() => void bajar('xlsx')}
+            title="El tabulador en Excel: sueldo anterior y nuevo de cada cargo">{ocupado === 'xlsx' ? 'Generando…' : '📊 Excel'}</button>
+          <button className="btn btn-ghost" disabled={!tab.length || !!ocupado} onClick={() => void bajar('pdf')}
+            title="El tabulador en PDF: sueldo anterior y nuevo de cada cargo">{ocupado === 'pdf' ? 'Generando…' : '📄 PDF'}</button>
+          {canWrite && <button className="btn btn-ghost" onClick={() => setLote(true)}
+            title="Armar el tabulador con los cargos del personal y ponerle el sueldo nuevo a cada uno">📋 Desde los cargos</button>}
           {canWrite && <button className="btn btn-ghost" onClick={() => setEditando('nuevo')}>+ Agregar cargo</button>}
           {canWrite && (
             <button className="btn btn-primary" onClick={() => setAplicando(true)} disabled={!plan.cambios.length}
@@ -140,7 +165,11 @@ export function TabuladorModal({ empresa, canWrite, onClose }: { empresa: Empres
 
       {!cargando && vista === 'tabulador' && (
         <>
-          {!tab.length && <EmptyState icon="📊" message="Todavía no hay cargos en el tabulador de esta nómina." />}
+          {!tab.length && (
+            <EmptyState icon="📊" message={canWrite
+              ? 'Todavía no hay cargos en el tabulador de esta nómina. Con «📋 Desde los cargos» se arma de una vez con los cargos del personal.'
+              : 'Todavía no hay cargos en el tabulador de esta nómina.'} />
+          )}
           {!!tab.length && (
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '.85rem' }}>
@@ -268,6 +297,11 @@ export function TabuladorModal({ empresa, canWrite, onClose }: { empresa: Empres
           onClose={() => setAplicando(false)}
           onAplicado={() => { setAplicando(false); void recargar(); }}
         />
+      )}
+
+      {lote && (
+        <TabuladorLoteModal empresa={empresa} personal={personal} tabulador={tab}
+          onClose={() => setLote(false)} onGuardado={() => { setLote(false); void recargar(); }} />
       )}
 
       {historicos && <HistoricosSalarialesModal empresaInicial={empresa} canWrite={canWrite} onClose={() => setHistoricos(false)} />}
