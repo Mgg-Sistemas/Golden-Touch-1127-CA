@@ -7,7 +7,10 @@
    · «Entrada»: busca un producto que ya está y le suma lo que llegó.
    Escribe en las MISMAS tablas que el módulo de PC (createProducto +
    registrarMovimiento), así que aparece al instante en Inventario → Depósito
-   Mina (realtime). Editar, desactivar o hacer salidas es tarea de la PC.
+   Mina (realtime). Editar o desactivar productos es tarea de la PC.
+   · «Salida» (13/10/2026): material, cantidad, motivo, ¿retorna? SÍ/NO y
+     hasta 4 fotos, con aviso para WhatsApp. Lo que retorna queda en «Por
+     retornar» y desde ahí vuelve al inventario (todo o por partes).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
@@ -21,6 +24,9 @@ import { createProducto, findBySku, getCategorias, getUnidades, listProductos, n
 import { registrarMovimiento } from './movimientos.repository';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from './categoriaReal';
 import { DEPOSITOS } from './depositos';
+import { FormSalidaMina, PorRetornarMina } from './SalidaMinaMovil';
+import { listPorRetornarMina } from './salidasMina.repository';
+import type { SalidaMina } from './salidasMina';
 
 const DEP = DEPOSITOS.mina;
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el inventario entero. */
@@ -28,7 +34,7 @@ const SIN_BUSCAR = 15;
 
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-type Paso = 'inicio' | 'nuevo' | 'entrada';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos';
 
 export function DepositoMinaMovilView() {
   const { user } = useSession();
@@ -44,6 +50,7 @@ export function DepositoMinaMovilView() {
   const [paso, setPaso] = useState<Paso>('inicio');
   const [elegido, setElegido] = useState<Producto | null>(null);
   const [busca, setBusca] = useState('');
+  const [porRetornar, setPorRetornar] = useState<SalidaMina[]>([]);
 
   const reload = useCallback(async () => {
     const ps = await listProductos('mina');
@@ -51,6 +58,7 @@ export function DepositoMinaMovilView() {
     const [cats, uds] = await Promise.all([getCategorias(ps), getUnidades(ps)]);
     setCategorias(cats);
     setUnidades(uds);
+    setPorRetornar(await listPorRetornarMina().catch(() => [] as SalidaMina[]));
   }, []);
 
   useEffect(() => {
@@ -59,7 +67,7 @@ export function DepositoMinaMovilView() {
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
-  useRealtime(['productos', 'movimientos', 'taxonomias'], () => { void reload().catch(() => {}); });
+  useRealtime(['productos', 'movimientos', 'taxonomias', 'deposito_mina_salidas'], () => { void reload().catch(() => {}); });
 
   const lista = useMemo(() => {
     const q = sinAcentos(busca.trim());
@@ -97,11 +105,22 @@ export function DepositoMinaMovilView() {
             <span>Producto nuevo</span>
             <small>Algo que todavía no está en el depósito</small>
           </button>
-          <button type="button" className="surt-btn entrada" style={{ gridColumn: '1 / -1' }}
+          <button type="button" className="surt-btn entrada"
             onClick={() => { setElegido(null); setPaso('entrada'); }}>
             <span className="icono" aria-hidden>⬇</span>
             <span>Entrada</span>
             <small>Llegó más de un producto que ya está</small>
+          </button>
+          <button type="button" className="surt-btn salida"
+            onClick={() => { setElegido(null); setPaso('salida'); }}>
+            <span className="icono" aria-hidden>⬆</span>
+            <span>Salida</span>
+            <small>Sale material del depósito</small>
+          </button>
+          <button type="button" className="surt-btn retorno" style={{ gridColumn: '1 / -1', minHeight: 84 }}
+            onClick={() => setPaso('retornos')}>
+            <span>🔄 Por retornar ({porRetornar.length})</span>
+            <small>{porRetornar.length ? 'Dar retorno al inventario de lo que salió y vuelve' : 'No hay nada pendiente por retornar'}</small>
           </button>
         </div>
       )}
@@ -118,11 +137,22 @@ export function DepositoMinaMovilView() {
           onSaved={async () => { volver(); await reload().catch(() => {}); }} />
       )}
 
-      {(paso === 'inicio' || (paso === 'entrada' && !elegido)) && (
+      {paso === 'salida' && elegido && (
+        <FormSalidaMina producto={elegido} actor={actor} actorName={actorName}
+          onCancel={() => setElegido(null)}
+          onSaved={() => { volver(); void reload().catch(() => {}); }} />
+      )}
+
+      {paso === 'retornos' && (
+        <PorRetornarMina salidas={porRetornar} actor={actor} actorName={actorName} canWrite={canWrite}
+          onVolver={volver} onSaved={() => { void reload().catch(() => {}); }} />
+      )}
+
+      {(paso === 'inicio' || ((paso === 'entrada' || paso === 'salida') && !elegido)) && (
         <section className="surt-lista">
-          {paso === 'entrada' && (
+          {(paso === 'entrada' || paso === 'salida') && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '.5rem 0' }}>
-              <strong style={{ fontSize: '1.1rem' }}>⬇ ¿A qué producto le llegó?</strong>
+              <strong style={{ fontSize: '1.1rem' }}>{paso === 'salida' ? '⬆ ¿Qué material sale?' : '⬇ ¿A qué producto le llegó?'}</strong>
               <button type="button" className="btn btn-ghost" onClick={volver}>Cancelar</button>
             </div>
           )}
@@ -136,8 +166,8 @@ export function DepositoMinaMovilView() {
           {!loading && !productos.length && <p className="muted">El Depósito Mina no tiene productos todavía. Carga el primero con «Producto nuevo».</p>}
           {lista.map((p) => (
             <button key={p.id} type="button" className="surt-mov"
-              onClick={() => { if (canWrite) { setElegido(p); setPaso('entrada'); } }}
-              disabled={!canWrite}>
+              onClick={() => { if (canWrite) { setElegido(p); if (paso !== 'salida') setPaso('entrada'); } }}
+              disabled={!canWrite || (paso === 'salida' && !(Number(p.stock) > 0))}>
               <span className="icono" aria-hidden>📦</span>
               <span style={{ minWidth: 0 }}>
                 <div className="titulo">{p.nombre}</div>
