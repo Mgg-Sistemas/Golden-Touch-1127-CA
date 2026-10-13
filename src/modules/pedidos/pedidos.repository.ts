@@ -6,7 +6,6 @@ import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, reco
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
-import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { rotuloMarcaModelo, descripcionConMarcaModelo, marcaRecibida, cambioDeMarca } from '@/shared/lib/marcaModelo';
 import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
@@ -2176,16 +2175,9 @@ export async function finalizarPedido(o: Orden, actorEmail: string): Promise<Ord
     .select('*')
     .single();
   if (error) throw error;
-  // OC de SERVICIO (Solicitud → Control de Servicio) casada a un equipo de Maquinaria:
-  // al finalizarse la compra del mantenimiento, REINICIA el contador (horas/km restantes)
-  // del equipo a la lectura vigente. Best-effort: si falla no revierte la finalización.
-  if (o.tipo === 'servicio') {
-    const equipoIds = new Set<string>();
-    for (const it of o.items ?? []) if (it.equipo_id) equipoIds.add(it.equipo_id);
-    for (const id of equipoIds) {
-      try { await reiniciarMantenimientoDeEquipo(id); } catch { /* la finalización ya quedó hecha */ }
-    }
-  }
+  // El contador de mantenimiento del equipo (horas/km) NO se reinicia solo al finalizar la
+  // compra (13/10/2026): cuando la máquina llega a sus horas (p. ej. 250 h) lo reinicia el
+  // usuario con «✔ Mantt. hecho» en Servicio de Mantenimiento o en el expediente.
   return data as Orden;
 }
 

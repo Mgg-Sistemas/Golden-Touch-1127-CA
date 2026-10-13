@@ -175,6 +175,32 @@ export function diasDelPeriodo(desde: string, hasta: string): number {
   return Math.round((b - a) / 86400000) + 1;
 }
 
+/**
+ * Días que se le pagan a quien INGRESÓ dentro del período (13/10/2026). Antes todos
+ * salían con la quincena completa (11 + 4) aunque hubieran entrado el día 10.
+ *
+ * Cuenta los días de almanaque desde la fecha de ingreso hasta el final del período
+ * (sin pasar de la quincena: 11 + 4 = 15) y los reparte en trabajados y descanso en
+ * la misma proporción que la quincena normal. Ej.: ingresó el 10/10, período 01–15:
+ * 6 días → 2 de descanso y 4 trabajados. Quien ingresó antes del período (o sin fecha
+ * de ingreso) tiene la quincena completa; quien ingresa después, 0.
+ */
+export function diasSegunIngreso(
+  ingreso: string | null | undefined, desde: string, hasta: string, diasBase: number, descansoBase: number,
+): { dias: number; descanso: number; desdeIngreso: boolean } {
+  const base = Math.max(0, Number(diasBase) || 0);
+  const desc = Math.max(0, Number(descansoBase) || 0);
+  const completa = { dias: base, descanso: desc, desdeIngreso: false };
+  const ing = String(ingreso ?? '').slice(0, 10);
+  if (ing.length !== 10 || !desde || !hasta || ing <= desde) return completa;
+  if (ing > hasta) return { dias: 0, descanso: 0, desdeIngreso: true };
+  const total = base + desc;
+  const n = Math.min(diasDelPeriodo(ing, hasta), total);
+  if (n >= total || total <= 0) return completa;
+  const descanso = Math.round((n * desc) / total);
+  return { dias: n - descanso, descanso, desdeIngreso: true };
+}
+
 /* ───────── Préstamos y anticipos: se descuentan del BONO en dólares ─────────
    Desde el 09/10/2026 los préstamos y anticipos salen del BONO (la parte que
    se paga en divisas, más las asignaciones), nunca del sueldo que declara el

@@ -15,7 +15,7 @@ import {
 import { addMantenimiento } from './maquinariaMant.repository';
 import {
   ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
-  accionesEquipo, servicioPorId, servicioReiniciaContador, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
+  accionesEquipo, servicioPorId, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
   faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, etiquetaServicio,
   puedeBorrarOrden,
   type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
@@ -841,7 +841,8 @@ function CerrarOrdenModal({ orden, estado, equipo, horometro, km, actor, actorNa
   const s = servicioPorId(orden.tipo);
   const [nota, setNota] = useState('');
   const [bitacora, setBitacora] = useState(true);
-  const [reiniciar, setReiniciar] = useState(servicioReiniciaContador(orden.tipo));
+  // El contador lo reinicia el usuario (13/10/2026): la casilla viene sin marcar.
+  const [reiniciar, setReiniciar] = useState(false);
   const [saving, setSaving] = useState(false);
   const falta = !realizar && nota.trim().length < 3;
 

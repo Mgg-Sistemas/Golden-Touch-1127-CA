@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DIAS_QUINCENA, SUELDO_PCT_DEFECTO, aBs, aUsd, avisosQuincena, calcularQuincena,
-  descontarDelBono, diasDelPeriodo, pctValido, quincenaDe,
+  descontarDelBono, diasDelPeriodo, diasSegunIngreso, pctValido, quincenaDe,
 } from './nominaCalculo';
 
 /* Los números de estas pruebas salen de la planilla real del Drive
@@ -185,5 +185,27 @@ describe('préstamos y anticipos se descuentan del bono en $', () => {
     const r = descontarDelBono(0, [d('a', 'prestamo', 50)]);
     expect(r.aplicadas).toEqual([]);
     expect(r.sinCubrir).toBe(50);
+  });
+});
+
+describe('días según la fecha de ingreso (13/10/2026)', () => {
+  it('quien ingresó antes del período (o sin fecha) cobra la quincena completa', () => {
+    expect(diasSegunIngreso('2026-09-01', '2026-10-01', '2026-10-15', 11, 4)).toEqual({ dias: 11, descanso: 4, desdeIngreso: false });
+    expect(diasSegunIngreso(null, '2026-10-01', '2026-10-15', 11, 4)).toEqual({ dias: 11, descanso: 4, desdeIngreso: false });
+    expect(diasSegunIngreso('2026-10-01', '2026-10-01', '2026-10-15', 11, 4).desdeIngreso).toBe(false);
+  });
+  it('ingresó el 10/10: 6 días (4 trabajados + 2 de descanso), no 11 + 4', () => {
+    expect(diasSegunIngreso('2026-10-10', '2026-10-01', '2026-10-15', 11, 4)).toEqual({ dias: 4, descanso: 2, desdeIngreso: true });
+  });
+  it('ingresó el 06/10 y el 07/10', () => {
+    expect(diasSegunIngreso('2026-10-06', '2026-10-01', '2026-10-15', 11, 4)).toEqual({ dias: 7, descanso: 3, desdeIngreso: true });
+    expect(diasSegunIngreso('2026-10-07', '2026-10-01', '2026-10-15', 11, 4)).toEqual({ dias: 7, descanso: 2, desdeIngreso: true });
+  });
+  it('segunda quincena de un mes de 31: el 16 cobra completa; nunca pasa de 15', () => {
+    expect(diasSegunIngreso('2026-10-17', '2026-10-16', '2026-10-31', 11, 4)).toEqual({ dias: 11, descanso: 4, desdeIngreso: false });
+    expect(diasSegunIngreso('2026-10-25', '2026-10-16', '2026-10-31', 11, 4)).toEqual({ dias: 5, descanso: 2, desdeIngreso: true });
+  });
+  it('ingresa después del período: 0 días', () => {
+    expect(diasSegunIngreso('2026-10-20', '2026-10-01', '2026-10-15', 11, 4)).toEqual({ dias: 0, descanso: 0, desdeIngreso: true });
   });
 });
