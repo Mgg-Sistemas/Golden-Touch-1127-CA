@@ -34,7 +34,7 @@ const cuentaFilas = (r: ResumenArmado) => r.bloques.reduce((a, b) => a + b.filas
 
 export async function descargarResumenPdf(r: ResumenArmado, meta: MetaResumen): Promise<void> {
   validar(r);
-  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfEmpresa, dibujarLogoPdf }, { identidadEmpresa }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf }, { identidadEmpresa }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
@@ -47,28 +47,81 @@ export async function descargarResumenPdf(r: ResumenArmado, meta: MetaResumen): 
   const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
   if (logo) dibujarLogoPdf(doc, logo, MARGIN, y, 52);
+  // El título y los datos van centrados en el espacio A LA DERECHA del logo (13/10/2026):
+  // centrados en toda la hoja, la línea larga del alcance se montaba sobre el logo.
+  const xIni = logo ? MARGIN + anchoLogoPdf(52) + 16 : MARGIN;
+  const anchoTexto = W - MARGIN - xIni;
+  const xCentro = xIni + anchoTexto / 2;
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-  doc.text(pdfSafe('RESUMEN DE NÓMINA'), W / 2, y + 16, { align: 'center' });
+  doc.text(pdfSafe('RESUMEN DE NÓMINA'), xCentro, y + 16, { align: 'center' });
   doc.setTextColor(80, 80, 80); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(pdfSafe(`${emp.nombre} · RIF ${emp.rif}`), W / 2, y + 31, { align: 'center' });
-  const lineasAlcance = doc.splitTextToSize(pdfSafe(`${meta.alcance} · ${cuentaFilas(r)} renglón(es) · ${new Date().toLocaleString('es-VE')}`), W - MARGIN * 2 - 160);
-  doc.text(lineasAlcance, W / 2, y + 44, { align: 'center' });
+  doc.text(pdfSafe(`${emp.nombre} · RIF ${emp.rif}`), xCentro, y + 31, { align: 'center' });
+  const lineasAlcance = doc.splitTextToSize(pdfSafe(`${meta.alcance} · ${cuentaFilas(r)} renglón(es) · ${new Date().toLocaleString('es-VE')}`), anchoTexto);
+  doc.text(lineasAlcance, xCentro, y + 44, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 70 + Math.max(0, lineasAlcance.length - 1) * 11;
 
   const anchoTotal = r.campos.reduce((a, c) => a + c.ancho, 0);
   const COL_N = 40;
   const util = W - MARGIN * 2 - COL_N;
-  const letra = letraQueEntra(util, anchoTotal);
+
+  // Anchos que NO parten palabras (13/10/2026): cada columna mide al menos su palabra más
+  // larga (en la cabecera y en las celdas: «QUINCENA», «ESTADO», «NOM-2026-0005»); lo que
+  // sobra se reparte según el ancho pensado de cada una. Si no entra, se achica la letra.
+  // Los montos, la cédula, el período, el estado y las fechas van ENTEROS en un renglón
+  // (en papel salían «$» arriba y «120,00» abajo, y «Por» / «pagar»).
+  const ENTEROS = new Set(['cedula', 'empresa', 'periodo', 'fechas', 'estado', 'fecha_pago', 'moneda_pago']);
+  const entero = (k: number) => r.campos[k].tipo !== 'texto' || ENTEROS.has(r.campos[k].clave);
+  const cabeceras = r.campos.map((c) => pdfSafe(c.etiqueta.toUpperCase()));
+  const celdas = r.campos.map((c, k) => {
+    const xs: string[] = [];
+    for (const b of r.bloques) {
+      for (const fila of b.filas) xs.push(pdfSafe(formatoCelda(c.tipo, fila[k])));
+      if (b.subtotal) xs.push(formatoCelda(c.tipo, b.subtotal[k]));
+    }
+    if (r.total) xs.push(formatoCelda(c.tipo, r.total[k]));
+    return xs;
+  });
+  const palabraMasLarga = (textos: string[], tam: number, negrita: boolean, completo = false) => {
+    doc.setFont('helvetica', negrita ? 'bold' : 'normal'); doc.setFontSize(tam);
+    let m = 0;
+    for (const t of textos) for (const p of completo ? [String(t)] : String(t).split(/\s+/)) if (p) m = Math.max(m, doc.getTextWidth(p));
+    return m;
+  };
+  let letra = letraQueEntra(util, anchoTotal);
+  let anchos: number[] = [];
+  for (let tam = letra; tam >= 5.5; tam -= 0.5) {
+    const pad = tam < 8 ? 3.5 : 6;
+    const minimos = r.campos.map((_, k) => Math.max(
+      palabraMasLarga([cabeceras[k]], Math.min(9, tam), true),
+      palabraMasLarga(celdas[k], tam, false, entero(k)),
+    ) + pad * 2 + 1.5);
+    const suma = minimos.reduce((a, v) => a + v, 0);
+    letra = tam;
+    if (suma <= util || tam - 0.5 < 5.5) {
+      const sobra = Math.max(0, util - suma);
+      anchos = minimos.map((m, k) => m + (sobra * r.campos[k].ancho) / anchoTotal);
+      break;
+    }
+  }
+  doc.setFont('helvetica', 'normal');
   const columnStyles: Record<number, { cellWidth: number; halign?: 'right' | 'center' }> = { 0: { cellWidth: COL_N, halign: 'center' } };
   r.campos.forEach((c, i) => {
-    columnStyles[i + 1] = { cellWidth: (util * c.ancho) / anchoTotal, ...(c.tipo !== 'texto' ? { halign: 'right' as const } : {}) };
+    columnStyles[i + 1] = { cellWidth: anchos[i] ?? (util * c.ancho) / anchoTotal, ...(c.tipo !== 'texto' ? { halign: 'right' as const } : {}) };
   });
   const totalCols = r.campos.length + 1;
-  const filaSuma = (etiqueta: string, sumas: (number | null)[], fondo: [number, number, number]) => [
-    { content: etiqueta, styles: { fontStyle: 'bold' as const, fillColor: fondo, halign: 'center' as const } },
-    ...sumas.map((v, k) => ({ content: v == null ? '' : formatoCelda(r.campos[k].tipo, v), styles: { fontStyle: 'bold' as const, fillColor: fondo } })),
-  ];
+  // «Subtotal»/«TOTAL» no cabe en la columna N°: si la primera columna no suma, la
+  // etiqueta ocupa las dos (13/10/2026), así no se parte en «TOTA / L».
+  const filaSuma = (etiqueta: string, sumas: (number | null)[], fondo: [number, number, number]) => {
+    const junta = sumas.length > 1 && sumas[0] == null;
+    return [
+      { content: etiqueta, colSpan: junta ? 2 : 1, styles: { fontStyle: 'bold' as const, fillColor: fondo, halign: 'center' as const } },
+      ...sumas.slice(junta ? 1 : 0).map((v, j) => {
+        const k = junta ? j + 1 : j;
+        return { content: v == null ? '' : formatoCelda(r.campos[k].tipo, v), styles: { fontStyle: 'bold' as const, fillColor: fondo } };
+      }),
+    ];
+  };
 
   type Celda = string | { content: string; colSpan?: number; styles?: Record<string, unknown> };
   const body: Celda[][] = [];
@@ -86,7 +139,7 @@ export async function descargarResumenPdf(r: ResumenArmado, meta: MetaResumen): 
   autoTable(doc, {
     theme: 'grid',
     startY: y,
-    head: [['N°', ...r.campos.map((c) => pdfSafe(c.etiqueta.toUpperCase()))]],
+    head: [['N°', ...cabeceras]],
     body: body as never,
     styles: { fontSize: letra, cellPadding: letra < 8 ? 3.5 : 6, overflow: 'linebreak', valign: 'middle', lineColor: [150, 156, 164], lineWidth: 0.6, textColor: [20, 24, 30] },
     headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', valign: 'middle', fontSize: Math.min(9, letra), lineColor: [150, 156, 164], lineWidth: 0.6 },
