@@ -129,7 +129,7 @@ export function avisoMasUrgente(a: AvisoServicio | null, b: AvisoServicio | null
 /* ───────── Órdenes de servicio ───────── */
 
 export const SERVICIOS: { id: string; label: string; icon: string; hint: string; bitacora: string }[] = [
-  { id: 'preventivo', label: 'Mantenimiento preventivo', icon: '🧰', hint: 'Según horas / km · reinicia el contador', bitacora: 'servicio' },
+  { id: 'preventivo', label: 'Mantenimiento preventivo', icon: '🧰', hint: 'Según horas / km', bitacora: 'servicio' },
   { id: 'reparacion', label: 'Reparación', icon: '🛠️', hint: 'Corrige una avería', bitacora: 'reparacion' },
   { id: 'cambio_pieza', label: 'Cambio de piezas', icon: '⚙️', hint: 'Repuestos y componentes', bitacora: 'cambio_pieza' },
   { id: 'cauchos', label: 'Cauchos / neumáticos', icon: '🛞', hint: 'Cambio o reparación', bitacora: 'cambio_caucho' },
@@ -174,11 +174,6 @@ export function trabajosDe(tipo: string | null | undefined): string[] {
 export function etiquetaServicio(tipo: string | null | undefined, trabajos?: string[] | null): string {
   const base = servicioPorId(tipo)?.label ?? tipo ?? 'Servicio';
   return trabajos?.length ? `${base}: ${trabajos.join(', ')}` : base;
-}
-
-/** ¿Este servicio reinicia el contador de mantenimiento al realizarse? (sugerencia, se puede cambiar). */
-export function servicioReiniciaContador(tipo: string | null | undefined): boolean {
-  return tipo === 'preventivo' || tipo === 'aceite';
 }
 
 /** Sugiere el tipo de servicio a partir del motivo de la avería o del aviso de horas. */

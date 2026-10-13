@@ -35,7 +35,7 @@ export interface MaquinariaEquipo {
   /** Intervalo de mantenimiento por KILOMETRAJE (km). Alerta al acercarse al próximo múltiplo. */
   mantenimiento_cada_km: number | null;
   /** Horómetro registrado al ÚLTIMO mantenimiento (base del contador de horas restantes).
-   *  Al concretar la compra del mantenimiento se reinicia a la lectura vigente → el próximo
+   *  La reinicia el USUARIO a la lectura vigente («✔ Mantt. hecho», 13/10/2026) → el próximo
    *  toca `base + mantenimiento_cada_hrs`. null = todavía sin base (usa el múltiplo del horómetro). */
   mantenimiento_base_hrs: number | null;
   /** Kilometraje al último mantenimiento (base del contador de km restantes). */

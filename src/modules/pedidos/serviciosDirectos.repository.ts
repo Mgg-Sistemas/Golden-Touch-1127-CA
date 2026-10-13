@@ -13,24 +13,12 @@ import { egresarDivisa, revertirEgresoDivisa, saldosDeCaja } from '@/modules/tes
 import { CATEGORIA_REEMBOLSO, errorRetencionPago, montoLegadoARevertir, netoAPagar, patasConMonto } from './pagoDirecto';
 import { convertirConTasa, errorTasaPago } from './tasaPago';
 import { columnasPagoExterno, type PagoExternoInput } from '@/modules/pedidos/compras.repository';
-import { reiniciarMantenimientoDeEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { CuentaCaja, DetalleServicioItem } from '@/shared/lib/types';
 
 export type { PagoExternoInput };
 
-/**
- * Al concretar la compra de un servicio casado a un equipo de Maquinaria, REINICIA su
- * contador de mantenimiento (horas/km restantes) a la lectura vigente. Best-effort: no
- * bloquea ni revierte el pago si falla. Cubre el equipo de cabecera y el de cada renglón.
- */
-async function reiniciarMantenimientoServicio(servicio: ServicioDirecto): Promise<void> {
-  const ids = new Set<string>();
-  if (servicio.equipo_id) ids.add(servicio.equipo_id);
-  for (const it of servicio.items ?? []) if (it.equipo_id) ids.add(it.equipo_id);
-  for (const id of ids) {
-    try { await reiniciarMantenimientoDeEquipo(id); } catch { /* best-effort: el pago ya quedó hecho */ }
-  }
-}
+// Pagar un servicio casado a un equipo NO reinicia su contador de mantenimiento (13/10/2026):
+// cuando la máquina llega a sus horas (p. ej. 250 h) lo reinicia el usuario con «✔ Mantt. hecho».
 
 /** Pata de pago multimoneda: cuánto sale de cada (cuenta, moneda) de la caja.
  *  `cajaId` opcional habilita el multipago ENTRE CAJAS (cada pata de su propia caja);
@@ -386,8 +374,6 @@ export async function finalizarServicioDirecto(input: FinalizarServicioDirectoIn
     })
     .eq('id', servicio.id);
   if (error) throw error;
-  // Compra del mantenimiento concretada → reinicia el contador del equipo casado.
-  await reiniciarMantenimientoServicio({ ...servicio, items });
 }
 
 /* ───────── NUEVO FLUJO: montar (Por pagar) → Tesorería paga (Finalizada) ───────── */
@@ -600,8 +586,6 @@ export async function pagarServicioDirecto(input: PagarServicioInput): Promise<{
         + 'Si se reabre, revisa a mano lo que vuelve a la caja.';
     }
   }
-  // Compra del mantenimiento concretada (Tesorería pagó) → reinicia el contador del equipo.
-  await reiniciarMantenimientoServicio({ ...servicio, items });
   return aviso ? { aviso } : {};
 }
 
@@ -734,8 +718,6 @@ export async function registrarAbonoServicio(input: RegistrarAbonoServicioInput)
   }
   const { error } = await supabase.from('servicios_directos').update(patch).eq('id', servicio.id);
   if (error) throw error;
-  // Si el último abono saldó el servicio (compra concretada), reinicia el contador del equipo.
-  if (saldado) await reiniciarMantenimientoServicio(servicio);
 }
 
 /** Bitácora de abonos de un servicio (orden cronológico). */

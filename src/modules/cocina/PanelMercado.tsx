@@ -314,6 +314,8 @@ export function SelectorVista({ vista, onElegir }: { vista: VistaMercado; onEleg
 
 /* ───────── CAPA 3 · Disponible a consumir ───────── */
 
+const sinTildes = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
 export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre = false, maxHeight = 420 }: {
   items: ResumenViver[];
   soloDif: boolean;
@@ -325,9 +327,16 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
   maxHeight?: number | string;
 }) {
   const [verQuietos, setVerQuietos] = useState(false);
-  const { filas, quietosOcultables, difPorProducto } = useMemo(
-    () => filasDisponible(items, { verQuietos, soloDif }),
-    [items, verQuietos, soloDif],
+  // Buscador (13/10/2026): busca en TODOS los víveres del mercado, también en los que no se movieron.
+  const [busca, setBusca] = useState('');
+  const q = sinTildes(busca.trim());
+  const { filas: todas, quietosOcultables, difPorProducto } = useMemo(
+    () => filasDisponible(items, { verQuietos: verQuietos || !!q, soloDif }),
+    [items, verQuietos, soloDif, q],
+  );
+  const filas = useMemo(
+    () => (q ? todas.filter((r) => sinTildes(`${r.nombre} ${r.sku ?? ''}`).includes(q)) : todas),
+    [todas, q],
   );
 
   return (
@@ -337,6 +346,12 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
         <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
           · saldo inicial + entradas − consumos − mermas{onElegir ? ' · toca un víver para el detalle' : ''}
         </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5rem' }}>
+        <input id="coc-disponible-buscar" className="input" type="search" value={busca} onChange={(e) => setBusca(e.target.value)}
+          placeholder="🔍 Buscar víver o código…" aria-label="Buscar víver" autoComplete="off" style={{ flex: '1 1 220px', maxWidth: 360 }} />
+        {q && <span className="muted" style={{ fontSize: '.8rem' }}>{filas.length} de {items.length}</span>}
       </div>
 
       {/* Una tabla filtrada que no lo dice se lee como si fuera todo el mercado. El aviso
@@ -355,7 +370,9 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
 
       {!filas.length ? (
         <p className="muted" style={{ margin: 0 }}>
-          {soloDif
+          {q
+            ? `Ningún víver coincide con «${busca.trim()}».`
+            : soloDif
             ? 'Ya no queda ningún víver descuadrado: la cuenta del ciclo y el inventario coinciden.'
             : items.length ? 'Ningún víver se movió en este mercado todavía.' : 'Sin víveres en este mercado todavía.'}
         </p>
@@ -420,7 +437,7 @@ export function TablaDisponible({ items, soloDif, onSoloDif, onElegir, alCierre 
 
       {/* Los que no se movieron no desaparecen: su stock sigue siendo real. Con el filtro
           encendido el botón no va: contradiría al filtro. */}
-      {!soloDif && quietosOcultables > 0 && (
+      {!soloDif && !q && quietosOcultables > 0 && (
         <button className="btn btn-sm btn-ghost" style={{ marginTop: '.5rem' }} onClick={() => setVerQuietos((v) => !v)}>
           {verQuietos ? `Ocultar los ${quietosOcultables} que no se movieron` : `Ver los ${quietosOcultables} víveres que no se movieron`}
         </button>
