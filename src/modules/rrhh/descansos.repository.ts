@@ -25,6 +25,10 @@ export interface Descanso extends DescansoRango {
 const TABLA = 'rrhh_descansos';
 const TABLA_CFG = 'rrhh_descansos_config';
 
+/** De quién es la configuración: una nómina, o los choferes (13/10/2026: su propio tope y selección). */
+export type ClaveDescansos = EmpresaRrhh | 'choferes';
+const tablaCfg = (c: ClaveDescansos) => (c === 'choferes' ? 'choferes_descansos_config' : TABLA_CFG);
+
 /** Descansos de esas personas (todas las fechas). */
 export async function listDescansos(personalIds: string[]): Promise<Descanso[]> {
   if (!personalIds.length) return [];
@@ -39,15 +43,15 @@ export async function listDescansos(personalIds: string[]): Promise<Descanso[]> 
   return out;
 }
 
-export async function getConfigDescansos(empresa: EmpresaRrhh): Promise<ConfigDescansos> {
-  const { data, error } = await supabase.from(TABLA_CFG).select('dias_trabajo, dias_descanso, max_simultaneos')
+export async function getConfigDescansos(empresa: ClaveDescansos): Promise<ConfigDescansos> {
+  const { data, error } = await supabase.from(tablaCfg(empresa)).select('dias_trabajo, dias_descanso, max_simultaneos')
     .eq('empresa', empresa).maybeSingle();
   if (error) throw error;
   return (data as ConfigDescansos | null) ?? CONFIG_POR_DEFECTO;
 }
 
-export async function guardarConfigDescansos(empresa: EmpresaRrhh, cfg: ConfigDescansos, actor: string): Promise<void> {
-  const { error } = await supabase.from(TABLA_CFG)
+export async function guardarConfigDescansos(empresa: ClaveDescansos, cfg: ConfigDescansos, actor: string): Promise<void> {
+  const { error } = await supabase.from(tablaCfg(empresa))
     .upsert({ empresa, ...cfg, updated_at: new Date().toISOString(), updated_by: actor }, { onConflict: 'empresa' });
   if (error) throw error;
 }
@@ -55,8 +59,8 @@ export async function guardarConfigDescansos(empresa: EmpresaRrhh, cfg: ConfigDe
 /** Selección guardada para el próximo «Generar plan» (ids de personal), por nómina. */
 export interface SeleccionPlanGuardada { ids: string[]; en: string | null; por: string | null }
 
-export async function getSeleccionPlan(empresa: EmpresaRrhh): Promise<SeleccionPlanGuardada> {
-  const { data, error } = await supabase.from(TABLA_CFG).select('seleccion_plan, seleccion_plan_en, seleccion_plan_por')
+export async function getSeleccionPlan(empresa: ClaveDescansos): Promise<SeleccionPlanGuardada> {
+  const { data, error } = await supabase.from(tablaCfg(empresa)).select('seleccion_plan, seleccion_plan_en, seleccion_plan_por')
     .eq('empresa', empresa).maybeSingle();
   if (error) throw error;
   const row = data as { seleccion_plan?: unknown; seleccion_plan_en?: string | null; seleccion_plan_por?: string | null } | null;
@@ -65,8 +69,8 @@ export async function getSeleccionPlan(empresa: EmpresaRrhh): Promise<SeleccionP
 }
 
 /** Guarda (o limpia, con []) la selección para el próximo plan. No toca la rotación. */
-export async function guardarSeleccionPlan(empresa: EmpresaRrhh, ids: string[], actor: string): Promise<void> {
-  const { error } = await supabase.from(TABLA_CFG)
+export async function guardarSeleccionPlan(empresa: ClaveDescansos, ids: string[], actor: string): Promise<void> {
+  const { error } = await supabase.from(tablaCfg(empresa))
     .upsert({ empresa, seleccion_plan: ids, seleccion_plan_en: new Date().toISOString(), seleccion_plan_por: actor }, { onConflict: 'empresa' });
   if (error) throw error;
 }

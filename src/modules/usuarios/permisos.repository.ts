@@ -19,6 +19,7 @@ export type ModuleKey =
   | 'rrhh'
   | 'geodesta'
   | 'asignaciones'
+  | 'choferes'
   | 'maquinaria'
   | 'usuarios'
   | 'ajustes';
@@ -51,6 +52,7 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'geodesta',    label: 'Geodesta' },
   { key: 'asignaciones', label: 'Asignaciones' },
+  { key: 'choferes',    label: 'Choferes / Conductores' },
   { key: 'maquinaria',  label: 'Control de Maquinaria y Vehículos' },
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },

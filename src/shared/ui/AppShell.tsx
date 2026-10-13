@@ -50,7 +50,7 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
-  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones'));
+  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('ventas') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes'));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -161,7 +161,7 @@ export function AppShell() {
       ['recepciones', '/app/recepciones'], ['proveedores', '/app/proveedores'], ['combustible', '/app/combustible'],
       ['acopio', '/app/acopio'], ['cocina', '/app/cocina'], ['maquinaria', '/app/maquinaria'],
       ['maquinaria', '/app/maquinaria/servicio-mantenimiento'], ['maquinaria', '/app/maquinaria/ordenes'], ['maquinaria', '/app/maquinaria/averias'], ['maquinaria', '/app/maquinaria/lavados'], ['maquinaria', '/app/maquinaria/repuestos'], ['retenciones', '/app/retenciones'], ['documentacion', '/app/documentacion'],
-      ['rrhh', '/app/rrhh'], ['asignaciones', '/app/asignaciones'], ['usuarios', '/app/usuarios'], ['ajustes', '/app/ajustes'],
+      ['rrhh', '/app/rrhh'], ['asignaciones', '/app/asignaciones'], ['choferes', '/app/choferes'], ['usuarios', '/app/usuarios'], ['ajustes', '/app/ajustes'],
       ['geodesta', '/app/geodesta'],
     ] as Array<[ModuleKey, string]>)
       .filter(([permiso]) => can(permiso))
@@ -334,6 +334,7 @@ export function AppShell() {
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}
           {can('geodesta') && <NavItem to="/app/geodesta" icon="🧭" label="Geodesta" />}
           {can('asignaciones') && <NavItem to="/app/asignaciones" icon="🎒" label="Asignaciones" />}
+          {can('choferes') && <NavItem to="/app/choferes" icon="🚛" label="Choferes / Conductores" />}
           {/* Sus submódulos (órdenes, averías, lavados, repuestos, servicio de mantenimiento)
               se manejan DENTRO del módulo, con la tira de arriba: aquí solo va la entrada. */}
           {can('maquinaria') && <NavItem to="/app/maquinaria" icon="🚜" label="Control de Maquinaria y Vehículos" incluyeSubrutas />}
