@@ -1,14 +1,17 @@
 /* ============================================================
    Golden Touch · Depósito Mina · Salida y retorno en el teléfono (13/10/2026)
 
-   · FormSalidaMina: material (ya elegido), cantidad, motivo, ¿retorna?
-     SÍ / NO y hasta 4 fotos. Al guardar, el aviso para WhatsApp.
+   · FormSalidaMina: material (ya elegido), cantidad, motivo, quién autorizó
+     (la lista de Combustible), ¿retorna? SÍ / NO y hasta 4 fotos. Al guardar, el aviso para WhatsApp.
    · PorRetornarMina: las salidas que retornan y no volvieron completas;
      a cada una se le da retorno (todo o una parte) al inventario.
    ============================================================ */
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import type { Producto } from '@/shared/lib/types';
 import {
   MAX_FOTOS_SALIDA_MINA, errorFotosSalidaMina, errorRetornoMina, errorSalidaMina, fechaHoraVE, leerCantidad,
@@ -35,12 +38,20 @@ export function FormSalidaMina({ producto, actor, actorName, onCancel, onSaved }
 }) {
   const [cantidad, setCantidad] = useState('');
   const [motivo, setMotivo] = useState('');
+  const [autorizado, setAutorizado] = useState('');
+  const [autorizadores, setAutorizadores] = useState<string[]>([]);
   const [retorna, setRetorna] = useState<boolean | null>(null);
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [hecha, setHecha] = useState<SalidaMina | null>(null);
   const cant = leerCantidad(cantidad);
   const stock = Number(producto.stock) || 0;
+  // Quién autoriza: la MISMA lista que Combustible (Catálogos › Autorizado por).
+  const cargarAutorizadores = () => listCatalogos()
+    .then((cs) => setAutorizadores(cs.filter((c) => c.tipo === 'autorizado' && c.activo).map((c) => c.valor)))
+    .catch(() => {});
+  useEffect(() => { void cargarAutorizadores(); }, []);
+  useRealtime(['combustible_catalogos'], () => { void cargarAutorizadores(); });
   const previas = useMemo(() => fotos.map((f) => URL.createObjectURL(f)), [fotos]);
   useEffect(() => () => { previas.forEach((u) => URL.revokeObjectURL(u)); }, [previas]);
 
@@ -54,11 +65,11 @@ export function FormSalidaMina({ producto, actor, actorName, onCancel, onSaved }
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    const problema = errorSalidaMina({ productoId: producto.id, cantidad: cant, stock, motivo, retorna });
+    const problema = errorSalidaMina({ productoId: producto.id, cantidad: cant, stock, motivo, autorizado, retorna });
     if (problema) return toast(problema, 'error');
     setGuardando(true);
     try {
-      let s = await registrarSalidaMina({ productoId: producto.id, cantidad: cant, motivo, retorna: !!retorna, actor, actorName });
+      let s = await registrarSalidaMina({ productoId: producto.id, cantidad: cant, motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName });
       if (fotos.length) {
         try { s = await subirFotosSalidaMina(s, fotos); }
         catch (err) { toast(`La salida quedó registrada, pero las fotos no subieron: ${errMsg(err, 'error')}`, 'warning'); }
@@ -90,6 +101,14 @@ export function FormSalidaMina({ producto, actor, actorName, onCancel, onSaved }
           placeholder="Para qué sale, a quién, a qué equipo…" autoComplete="off" />
       </div>
       <div className="surt-campo">
+        <label htmlFor="mina-salida-autorizado">Autorizado por</label>
+        <div className="surt-buscable">
+          <SearchSelect id="mina-salida-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Busca quién autorizó…"
+            options={autorizadores.map((v) => ({ value: v, label: v }))} />
+        </div>
+        {!autorizadores.length && <small className="muted">La lista sale de Combustible › Catálogos › Autorizado por.</small>}
+      </div>
+      <div className="surt-campo">
         <span className="surt-rotulo" id="mina-salida-retorna">¿Retorna?</span>
         <div className="surt-sino" role="group" aria-labelledby="mina-salida-retorna">
           <button type="button" className={`surt-btn si${retorna === true ? ' sel' : ''}`} aria-pressed={retorna === true} onClick={() => setRetorna(true)}>
@@ -118,7 +137,7 @@ export function FormSalidaMina({ producto, actor, actorName, onCancel, onSaved }
           </div>
         )}
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || cant <= 0 || cant > stock || retorna === null}>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || cant <= 0 || cant > stock || retorna === null || !autorizado.trim()}>
         {guardando ? 'Guardando…' : '✓ Guardar salida'}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro material</button>
@@ -188,6 +207,7 @@ export function PorRetornarMina({ salidas, actor, actorName, canWrite, onVolver,
           <div className="surt-fila"><span>Salida</span><span className="mono">{elegida.codigo}</span></div>
           <div className="surt-fila"><span>Salió</span><span>{num(elegida.cantidad)} {u} · {fechaHoraVE(elegida.created_at)}</span></div>
           <div className="surt-fila"><span>Motivo</span><span>{elegida.motivo}</span></div>
+          {elegida.autorizado_por && <div className="surt-fila"><span>Autorizó</span><span>{elegida.autorizado_por}</span></div>}
           {elegida.retornado > 0 && <div className="surt-fila"><span>Ya retornó</span><span>{num(elegida.retornado)} {u}</span></div>}
           <div className="surt-fila"><span>Falta</span><span>{num(falta)} {u}</span></div>
         </div>

@@ -33,6 +33,8 @@ export interface SalidaMina {
   unidad: string | null;
   cantidad: number;
   motivo: string;
+  /** Quién autorizó la salida (lista de Combustible). */
+  autorizado_por: string | null;
   retorna: boolean;
   retornado: number;
   retornos: RetornoSalidaMina[];
@@ -65,12 +67,13 @@ export function pendienteRetorno(s: Pick<SalidaMina, 'retorna' | 'cantidad' | 'r
 
 /** Lo que impide registrar la salida. `null` = se puede. */
 export function errorSalidaMina(d: {
-  productoId: string | null; cantidad: number; stock: number; motivo: string; retorna: boolean | null;
+  productoId: string | null; cantidad: number; stock: number; motivo: string; autorizado: string; retorna: boolean | null;
 }): string | null {
   if (!d.productoId) return 'Elige el material.';
   if (!(d.cantidad > 0)) return 'Escribe cuánto sale.';
   if (d.cantidad > d.stock) return `No alcanza: en el depósito hay ${num(d.stock)}.`;
   if (d.motivo.trim().length < 3) return 'Escribe el motivo de la salida.';
+  if (!d.autorizado.trim()) return 'Indica quién autorizó la salida.';
   if (d.retorna === null) return '¿Retorna? Marca SÍ o NO.';
   return null;
 }
@@ -125,8 +128,9 @@ export function mensajeSalidaMina(s: SalidaMina, quien?: string | null): string 
     `📦 *Material:* ${s.producto_nombre}`,
     `🔢 *Cantidad:* ${num(s.cantidad)}${u}`,
     `📝 *Motivo:* ${s.motivo}`,
-    s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO',
   ];
+  if (s.autorizado_por) lineas.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
+  lineas.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
   if (s.fotos.length) lineas.push(`📷 *Fotos:* ${s.fotos.length}`);
   lineas.push('', ...pie(quien ?? s.actor_name ?? s.actor, s.created_at));
   return lineas.join('\n');
