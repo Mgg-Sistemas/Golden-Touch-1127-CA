@@ -14,8 +14,8 @@ import {
 } from './resumenNomina';
 
 export interface MetaResumen {
-  /** Empresa del logo y del nombre: 'GT' | 'MTO'. */
-  empresa: 'GT' | 'MTO';
+  /** Empresa del logo y del nombre (GT, MTO u otra). */
+  empresa: string;
   /** Qué se resume: «NOM-2026-0004 · 2da quincena…» o «Todas las nóminas · GT y MTO…». */
   alcance: string;
   claves: string[];

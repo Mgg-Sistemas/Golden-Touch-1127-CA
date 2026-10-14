@@ -1385,8 +1385,9 @@ export interface AbonoCredito {
   at: string;
 }
 
-/** Las dos nóminas. Son independientes: cada una con su gente y sus períodos. */
-export type EmpresaRrhh = 'GT' | 'MTO';
+/** Clave de la empresa (nómina): GT, MTO o las que se creen en RRHH (tabla rrhh_empresas,
+ *  14/10/2026). Son independientes: cada una con su gente y sus períodos. */
+export type EmpresaRrhh = string;
 
 /** Personal de nómina (no necesariamente usuario del sistema). */
 export interface Personal {

@@ -6,6 +6,7 @@
    general (todas, con fechas y empresa), agrupado con subtotales.
    Es un reporte de solo lectura: no necesita Realtime.
    ============================================================ */
+import { empresasRrhh } from '@/shared/lib/empresa';
 import { useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -64,14 +65,14 @@ export function ResumenNominaModal({ empresa, nominas, onClose }: Props) {
       guardarSeleccion(marcados);
       let filas;
       let alcanceTxt: string;
-      let empresaDoc: 'GT' | 'MTO';
+      let empresaDoc: string;
       let archivo: string;
       if (alcance === 'periodo') {
         const p = periodos.find((x) => x.id === periodoId);
         if (!p) throw new Error('Elige el período de nómina.');
         filas = await listFilasResumen({ periodoId: p.id });
         alcanceTxt = [p.codigo, p.nombre, fechasPeriodo(p)].filter(Boolean).join(' · ');
-        empresaDoc = p.empresa === 'MTO' ? 'MTO' : 'GT';
+        empresaDoc = p.empresa || 'GT';
         archivo = `resumen-nomina-${p.codigo}`;
       } else {
         if (desde && hasta && desde > hasta) throw new Error('La fecha «desde» es posterior a «hasta».');
@@ -79,9 +80,9 @@ export function ResumenNominaModal({ empresa, nominas, onClose }: Props) {
         filas = filtrarGeneral(todas, { desde, hasta, empresa: empresaFiltro });
         const rango = desde || hasta ? `del ${desde ? date(desde) : 'inicio'} al ${hasta ? date(hasta) : 'día de hoy'}` : 'todas las fechas';
         const agr = agrupar === 'periodo' ? 'por período' : agrupar === 'trabajador' ? 'por trabajador' : 'sin agrupar';
-        alcanceTxt = `Todas las nóminas · ${empresaFiltro === 'ambas' ? 'GT y MTO' : empresaFiltro} · ${rango} · ${agr}`;
-        empresaDoc = empresaFiltro === 'MTO' ? 'MTO' : 'GT';
-        archivo = `resumen-nomina-general-${empresaFiltro === 'ambas' ? 'gt-y-mto' : empresaFiltro.toLowerCase()}-${hoy()}`;
+        alcanceTxt = `Todas las nóminas · ${empresaFiltro === 'ambas' ? 'todas las empresas' : empresaFiltro} · ${rango} · ${agr}`;
+        empresaDoc = empresaFiltro === 'ambas' ? 'GT' : empresaFiltro;
+        archivo = `resumen-nomina-general-${empresaFiltro === 'ambas' ? 'todas' : empresaFiltro.toLowerCase()}-${hoy()}`;
       }
       const r = armarResumen(filas, marcados, { alcance, agrupar, totales: conTotales });
       const meta = { empresa: empresaDoc, alcance: alcanceTxt, claves: marcados, orientacion, archivo };
@@ -141,9 +142,8 @@ export function ResumenNominaModal({ empresa, nominas, onClose }: Props) {
           <div>
             <label htmlFor="res-nom-empresa" style={{ ...etiqueta, display: 'block' }}>Empresa</label>
             <select id="res-nom-empresa" className="input" style={{ width: 'auto' }} value={empresaFiltro} onChange={(e) => setEmpresaFiltro(e.target.value as EmpresaRrhh | 'ambas')}>
-              <option value="GT">GT</option>
-              <option value="MTO">MTO</option>
-              <option value="ambas">GT y MTO</option>
+              {empresasRrhh().map((e) => <option key={e.clave} value={e.clave}>{e.clave}</option>)}
+              <option value="ambas">Todas</option>
             </select>
           </div>
           <div>

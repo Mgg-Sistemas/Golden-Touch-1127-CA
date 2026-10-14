@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type CSSProperties } from 'react';
+import { TransferirEmpresaModal } from './TransferirEmpresaModal';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { FechaInput } from '@/shared/ui/FechaInput';
@@ -155,6 +156,8 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
   const [porBorrar, setPorBorrar] = useState<Personal | null>(null);
   // Reactivar / desactivar con motivo y fecha (queda en el historial laboral).
   const [estadoPersona, setEstadoPersona] = useState<Personal | null>(null);
+  // Pasar a la persona a otra empresa (14/10/2026).
+  const [transferir, setTransferir] = useState<Personal | null>(null);
   const [resumenBorrado, setResumenBorrado] = useState<ResumenBorradoPersonal | null>(null);
   const [estadoResumen, setEstadoResumen] = useState<'cargando' | 'listo' | 'error'>('cargando');
   const [fotoPorBorrar, setFotoPorBorrar] = useState<string | null>(null);
@@ -753,6 +756,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                     {p.activo
                       ? <button className="btn btn-sm btn-ghost" onClick={() => setEstadoPersona(p)} title="Desactivar (renuncia, despido, fin de contrato…)">⏸</button>
                       : <button className="btn btn-sm btn-success" onClick={() => setEstadoPersona(p)} title="Reactivar: vuelve a la empresa o la baja fue por error">↩ Reactivar</button>}
+                    <button className="btn btn-sm btn-ghost" onClick={() => setTransferir(p)} title="Transferir a otra empresa (pasa a la otra nómina)">🔁</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(p)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
                   </>}
                 </td>
@@ -1174,6 +1178,7 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
         />
       )}
 
+      {transferir && <TransferirEmpresaModal persona={transferir} onClose={() => setTransferir(null)} onHecho={() => void recargar()} />}
       {estadoPersona && (
         <EstadoPersonalModal persona={estadoPersona} actor={actor} onClose={() => setEstadoPersona(null)} onHecho={() => void recargar()} />
       )}

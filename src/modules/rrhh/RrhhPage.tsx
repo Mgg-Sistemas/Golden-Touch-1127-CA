@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { EmpresaRrhh } from '@/shared/lib/types';
-import { EMPRESAS } from './fichaPersonal';
 import { contarPersonalPorEmpresa, type ConteoPorEmpresa } from './empresas.repository';
+import { identidadEmpresa } from '@/shared/lib/empresa';
+import { cargarEmpresasRrhh, useEmpresasRrhh } from '@/shared/lib/empresasRrhh';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { EmpresasModal } from './EmpresasModal';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -25,21 +28,13 @@ const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'minutas', label: 'Minutas', icon: '📝' },
 ];
 
-/** Un ícono por nómina, solo para que las dos pastillas del switch se
- *  distingan de reojo (van con aria-hidden: no aportan nada al lector). */
-const ICONO_EMPRESA: Record<EmpresaRrhh, string> = { GT: '🏢', MTO: '🔧' };
-
-const AYUDA_EMPRESA: Record<EmpresaRrhh, string> = {
-  GT: 'Personal y nómina de Golden Touch',
-  MTO: 'Personal y nómina de MTO, separados de los de GT',
-};
 
 /** La última nómina elegida se recuerda: quien trabaja con MTO no quiere
  *  volver a GT en cada recarga. Si el navegador no deja guardar, no pasa nada. */
 const CLAVE_EMPRESA = 'gt.rrhh.empresa';
 function empresaGuardada(): EmpresaRrhh {
   try {
-    return localStorage.getItem(CLAVE_EMPRESA) === 'MTO' ? 'MTO' : 'GT';
+    return localStorage.getItem(CLAVE_EMPRESA) || 'GT';
   } catch { return 'GT'; }
 }
 
@@ -73,6 +68,14 @@ export function RrhhPage() {
   // encabezado se actualiza solo, sin recargar la pantalla.
   useRealtime(['personal'], cargarConteo);
 
+  // Empresas (14/10/2026): las que se creen en RRHH. Con más de dos, el switch
+  // pasa a ser una lista plegable con buscador.
+  const empresas = useEmpresasRrhh();
+  useRealtime(['rrhh_empresas'], () => { void cargarEmpresasRrhh(true).catch(() => undefined); });
+  const visibles = empresas.filter((e) => e.activa || e.clave === empresa);
+  const emp = identidadEmpresa(empresa);
+  const [verEmpresas, setVerEmpresas] = useState(false);
+
   return (
     <div>
       {/* Encabezado: título a la izquierda, switch de nómina a la derecha y la
@@ -83,41 +86,50 @@ export function RrhhPage() {
             <span aria-hidden="true">👥</span>
             {' RRHH · '}
             <span className="rrhh-titulo-nomina">
-              {empresa === 'MTO' ? 'Nómina MTO' : 'Nómina GT'}
+              Nómina {empresa}
             </span>
           </h1>
 
-          {/* Son dos botones que conmutan, no pestañas: por eso `group` +
-              `aria-pressed` y no `tablist`. */}
-          <div className="rrhh-nominas" role="group" aria-label="Nómina">
-            {EMPRESAS.map((e) => {
-              const activa = empresa === e.valor;
-              const cuantos = conteo?.[e.valor];
-              return (
-                <button key={e.valor} type="button"
-                  className={`rrhh-nomina-btn${activa ? ' activa' : ''}`}
-                  aria-pressed={activa}
-                  title={AYUDA_EMPRESA[e.valor]}
-                  onClick={() => setEmpresa(e.valor)}>
-                  <span aria-hidden="true">{ICONO_EMPRESA[e.valor]}</span>
-                  <span>{e.label}</span>
-                  {/* Sin conteo (aún cargando o consulta caída) no se muestra
-                      nada: mejor sin número que con un cero mentiroso. */}
-                  {cuantos != null && (
-                    <span className="rrhh-nomina-cuenta">({cuantos})</span>
-                  )}
-                </button>
-              );
-            })}
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {visibles.length <= 2 ? (
+              /* Dos empresas: botones que conmutan (group + aria-pressed, no pestañas). */
+              <div className="rrhh-nominas" role="group" aria-label="Nómina">
+                {visibles.map((e) => {
+                  const activa = empresa === e.clave;
+                  const cuantos = conteo ? (conteo[e.clave] ?? 0) : null;
+                  return (
+                    <button key={e.clave} type="button"
+                      className={`rrhh-nomina-btn${activa ? ' activa' : ''}`}
+                      aria-pressed={activa}
+                      title={`Personal y nómina de ${e.nombre}`}
+                      onClick={() => setEmpresa(e.clave)}>
+                      <span aria-hidden="true">{e.icono}</span>
+                      <span>Nómina {e.clave}</span>
+                      {/* Sin conteo (aún cargando o consulta caída) no se muestra nada. */}
+                      {cuantos != null && <span className="rrhh-nomina-cuenta">({cuantos})</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              /* Más de dos: lista plegable con buscador. */
+              <div className="rrhh-nominas-lista">
+                <SearchSelect id="rrhh-empresa" value={empresa} onChange={(v) => { if (v) setEmpresa(v); }}
+                  placeholder="🔍 Buscar empresa…"
+                  options={visibles.map((e) => ({ value: e.clave, label: `${e.icono} Nómina ${e.clave} · ${e.nombre}${conteo ? ` (${conteo[e.clave] ?? 0})` : ''}` }))} />
+              </div>
+            )}
+            {canWrite && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setVerEmpresas(true)} title="Crear o editar empresas">🏢 Empresas</button>}
           </div>
         </div>
 
         <p className="muted rrhh-cabecera-nota">
-          {empresa === 'MTO'
-            ? 'Nómina de MTO: personal propio, independiente del de GT. La paga Tesorería igual que la de GT.'
-            : 'Personal, nómina quincenal y administrativo. La nómina se paga desde Tesorería.'}
+          {empresa === 'GT'
+            ? 'Personal, nómina quincenal y administrativo. La nómina se paga desde Tesorería.'
+            : `Nómina de ${emp.clave === empresa ? emp.nombre : empresa}: personal propio, independiente de las demás. La paga Tesorería igual que la de GT.`}
         </p>
       </header>
+      {verEmpresas && <EmpresasModal conteo={conteo} actor={actor} onClose={() => setVerEmpresas(false)} onElegir={(c) => setEmpresa(c)} />}
 
       <div className="view-toggle" role="tablist" aria-label="Vista de RRHH" style={{ marginBottom: '1rem', flexWrap: 'wrap' }}>
         {TABS.map((t) => (

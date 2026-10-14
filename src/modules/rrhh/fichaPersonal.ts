@@ -10,11 +10,6 @@ import type { Personal, PersonalFamiliar } from '@/shared/lib/types';
 
 /* ───────── Catálogos ───────── */
 
-export const EMPRESAS = [
-  { valor: 'GT' as const, label: 'Nómina GT', corto: 'GT' },
-  { valor: 'MTO' as const, label: 'Nómina MTO', corto: 'MTO' },
-];
-
 export const GENEROS = [
   { valor: 'M', label: 'Masculino' },
   { valor: 'F', label: 'Femenino' },
@@ -48,8 +43,8 @@ const label = (lista: { valor: string; label: string }[], v: string | null | und
 export const labelGenero = (v: string | null | undefined) => label(GENEROS, v);
 export const labelEstadoCivil = (v: string | null | undefined) => label(ESTADOS_CIVILES, v);
 export const labelParentesco = (v: string | null | undefined) => label(PARENTESCOS, v);
-export const labelEmpresa = (v: string | null | undefined) =>
-  EMPRESAS.find((e) => e.valor === v)?.label ?? 'Nómina GT';
+/** «Nómina GT», «Nómina MTO»… (las empresas se crean en RRHH, 14/10/2026). */
+export const labelEmpresa = (v: string | null | undefined) => `Nómina ${v || 'GT'}`;
 
 /* ───────── Edad y antigüedad ───────── */
 

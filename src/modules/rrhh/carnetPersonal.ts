@@ -18,7 +18,7 @@
    ============================================================ */
 import QRCode from 'qrcode';
 import { recorteDeEncuadre, type Encuadre } from './encuadreFoto';
-import { identidadEmpresa } from '@/shared/lib/empresa';
+import { identidadEmpresa, razonSocialTexto } from '@/shared/lib/empresa';
 import { loadLogoPdfEmpresa } from '@/shared/lib/pdfLogo';
 import { lineasSaludQr } from './saludPersonal';
 import { fechaCarnet } from './vigenciaCarnet';
@@ -275,7 +275,7 @@ export async function generarCarnetPersonalDataUrl(
 
   // ARRIBA, solo el logo de la empresa con su RIF: Golden Touch, o Minería Tin Oxide si es de la nómina MTO.
   const logoY = 38, logoH = 148;
-  const logoEmpresa = p.empresa === 'MTO' ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
+  const logoEmpresa = p.empresa && p.empresa !== 'GT' ? await loadLogoPdfEmpresa(p.empresa).catch(() => LOGOS.golden) : LOGOS.golden;
   await dibujarContain(ctx, logoEmpresa, 66, logoY, CARNET_W - 132, logoH, tema);
 
   // Foto con borde naranja.
@@ -373,12 +373,12 @@ export async function generarCarnetReversoDataUrl(tema: TemaCarnet = 'claro', em
   // El reverso no lleva el marco dorado: solo el fondo.
   ctx.fillStyle = pal.fondo;
   ctx.fillRect(0, 0, CARNET_W, CARNET_H);
-  const esMto = emp.clave === 'MTO';
-  const razon = esMto ? 'Minería Tin Oxide, C.A.' : 'Golden Touch 1127 C.A.';
+  const esMto = emp.clave !== 'GT';
+  const razon = razonSocialTexto(emp);
 
   // ARRIBA, el logo de la empresa.
   const logoY = 40, logoH = 140;
-  const logoEmpresa = esMto ? await loadLogoPdfEmpresa('MTO').catch(() => LOGOS.golden) : LOGOS.golden;
+  const logoEmpresa = esMto ? await loadLogoPdfEmpresa(emp.clave).catch(() => LOGOS.golden) : LOGOS.golden;
   await dibujarContain(ctx, logoEmpresa, 76, logoY, CARNET_W - 152, logoH, tema);
 
   // Recuadro punteado con el texto de la credencial y el contacto (el alto sale del texto).
