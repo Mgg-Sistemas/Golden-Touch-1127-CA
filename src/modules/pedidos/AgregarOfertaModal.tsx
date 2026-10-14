@@ -14,6 +14,7 @@ import { esRecargaAgua } from './servicios.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { ActividadEconomicaSelect } from '@/modules/proveedores/ActividadEconomicaSelect';
 import { useActividadesEconomicas, fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
+import { textoActividad } from '@/modules/proveedores/actividadesEconomicas';
 import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { aplicarPresentacion, nombrePresentacion, precioEnUso, presentacionesPara, rotuloConversion, tienePresentacion, type Presentacion } from '@/modules/inventario/presentaciones';
@@ -80,9 +81,14 @@ export function AgregarOfertaModal({
   const { actividades, recargar: recargarActividades } = useActividadesEconomicas();
   const actividadDe = (id: string) => proveedores.find((p) => p.id === id)?.actividad_economica ?? '';
   const [actividad, setActividad] = useState<string>(ofertaEditar?.actividad_economica ?? actividadDe(proveedorId));
+  // Se pide solo la primera vez: si el proveedor ya la tiene en su ficha, sale sola
+  // (con «Cambiar» por si hace falta corregirla).
+  const [cambiarActividad, setCambiarActividad] = useState(false);
+  const actividadDeFicha = nuevoProveedor ? '' : actividadDe(proveedorId);
   function elegirProveedor(id: string) {
     setProveedorId(id);
     setActividad(actividadDe(id));
+    setCambiarActividad(false);
   }
 
   // Campos del proveedor nuevo (cuando nuevoProveedor=true)
@@ -712,12 +718,26 @@ export function AgregarOfertaModal({
         </div>
       )}
 
-      <div className="form-row">
-        <label htmlFor="of-actividad">Actividad económica del proveedor (CIIU · SENIAT) *</label>
-        <ActividadEconomicaSelect id="of-actividad" value={actividad} onChange={setActividad}
-          actividades={actividades} onCreada={recargarActividades} />
-        <small className="muted">Queda también en la ficha del proveedor (módulo Proveedores).</small>
-      </div>
+      {actividadDeFicha && !cambiarActividad && actividad === actividadDeFicha ? (
+        // Ya la tiene en su ficha: se toma sola, sin volver a preguntarla.
+        <div className="form-row">
+          <label>Actividad económica del proveedor</label>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', fontSize: '.88rem' }}>
+            <span>🏷️ {textoActividad(actividad, actividades)}</span>
+            <span className="muted" style={{ fontSize: '.78rem' }}>(de la ficha del proveedor)</span>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCambiarActividad(true)}>Cambiar</button>
+          </div>
+        </div>
+      ) : (
+        <div className="form-row">
+          <label htmlFor="of-actividad">Actividad económica del proveedor (CIIU · SENIAT) *</label>
+          <ActividadEconomicaSelect id="of-actividad" value={actividad} onChange={setActividad}
+            actividades={actividades} onCreada={recargarActividades} />
+          <small className="muted">{actividadDeFicha
+            ? 'Se actualiza también en la ficha del proveedor.'
+            : 'Este proveedor aún no la tiene: se carga esta vez y queda en su ficha (módulo Proveedores); en sus próximas cotizaciones sale sola.'}</small>
+        </div>
+      )}
 
       {/* Conversor Bs↔$ a la tasa del día (o la que se escriba): ayuda a pasar el precio
           que el proveedor dio en Bs a $ (o al revés) para tipearlo en las columnas. */}
