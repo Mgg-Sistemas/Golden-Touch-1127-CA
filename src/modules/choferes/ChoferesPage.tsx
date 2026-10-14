@@ -8,6 +8,7 @@
      Expediente  → licencia, certificado médico y seguro de cada conductor; la flota
      Rutas       → órdenes de ruta con paradas, vehículo y estado
      Descansos   → la MISMA pestaña de RRHH, solo con los choferes y su propio tope
+     Guías       → guías en PDF, buscables, por fecha y con vista previa (14/10/2026)
 
    El conductor es una ficha de RRHH (`personal`): acá no se crea gente, se le
    abre expediente a quien ya está en la nómina.
@@ -29,13 +30,15 @@ import { hoyVE } from './choferes';
 import { TableroTab } from './TableroTab';
 import { ExpedienteTab } from './ExpedienteTab';
 import { ViajesTab } from './ViajesTab';
+import { GuiasTab } from './GuiasTab';
 
-export type Vista = 'tablero' | 'expediente' | 'viajes' | 'descansos';
+export type Vista = 'tablero' | 'expediente' | 'viajes' | 'guias' | 'descansos';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'tablero', label: 'Tablero', icon: '📊' },
   { key: 'expediente', label: 'Expediente y flota', icon: '🪪' },
   { key: 'viajes', label: 'Rutas y viajes', icon: '🗺' },
+  { key: 'guias', label: 'Guías', icon: '📑' },
   { key: 'descansos', label: 'Descansos', icon: '🏠' },
 ];
 
@@ -143,6 +146,7 @@ export function ChoferesPage() {
       {vista === 'tablero' && <TableroTab {...props} irA={(v) => setVista(v)} />}
       {vista === 'expediente' && <ExpedienteTab {...props} />}
       {vista === 'viajes' && <ViajesTab {...props} />}
+      {vista === 'guias' && <GuiasTab {...props} />}
       {vista === 'descansos' && (
         <DescansosTab canWrite={canWrite} actor={actor} actorName={actorName} empresa="GT"
           soloPersonal={soloChoferes} claveConfig={CLAVE_DESCANSOS_CHOFERES} etiquetaGente="conductores activos" />
