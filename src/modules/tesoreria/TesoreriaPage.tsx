@@ -2980,7 +2980,7 @@ function RetencionesTesoreriaModal({ onClose }: { onClose: () => void }) {
                 return (
                   <tr key={o.id} style={{ cursor: 'pointer', background: activo ? 'var(--bg-1)' : undefined }} onClick={() => setSel(it)}>
                     <td className="mono">{o.oc_codigo ?? o.codigo}</td>
-                    <td>{it.proveedorNombre}{o.numero_administracion ? <div className="muted mono" style={{ fontSize: '.74rem' }}>N° adm. {o.numero_administracion}</div> : null}</td>
+                    <td>{it.proveedorNombre}{o.numero_administracion ? <div className="muted mono" style={{ fontSize: '.74rem' }}>📞 Adm. {o.numero_administracion}</div> : null}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{monto(o.total, 'USD')}</td>
                     <td>{o.retencion_finalizada_en ? fmtDate(o.retencion_finalizada_en) : '—'}</td>
                     <td style={{ textAlign: 'center' }}>
@@ -3006,7 +3006,7 @@ function RetencionesTesoreriaModal({ onClose }: { onClose: () => void }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
               <div><span className="muted">OC:</span> <strong className="mono">{o.oc_codigo ?? o.codigo}</strong></div>
               <div><span className="muted">Proveedor:</span> <strong>{selLive.proveedorNombre}</strong></div>
-              <div><span className="muted">N° de administración del proveedor:</span> <strong className="mono">{o.numero_administracion || '—'}</strong></div>
+              <div><span className="muted">Tlf. de administración del proveedor:</span> <strong className="mono">{o.numero_administracion || '—'}</strong></div>
               <div><span className="muted">Modo retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
               <div><span className="muted">Total OC:</span> <strong className="mono">{monto(o.total, 'USD')}</strong></div>
               <div><span className="muted">Finalizada:</span> {o.retencion_finalizada_en ? dateTime(o.retencion_finalizada_en) : '—'}</div>
@@ -5837,7 +5837,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
           <div className="card" style={{ marginBottom: '.75rem' }}>
             <div className="card-title" style={{ marginBottom: '.5rem', fontSize: '1rem' }}>Método de pago indicado{comprobanteOpcional ? ' · efectivo (sin comprobante)' : ''}</div>
             {o.numero_administracion && (
-              <div style={{ fontSize: '.88rem', marginBottom: '.35rem' }}>N° de administración del proveedor: <strong className="mono">{o.numero_administracion}</strong></div>
+              <div style={{ fontSize: '.88rem', marginBottom: '.35rem' }}>Tlf. de administración del proveedor: <strong className="mono">📞 {o.numero_administracion}</strong></div>
             )}
             {o.metodo_pago.map((m, i) => (
               <div key={i} style={{ padding: '.3rem 0' }}>
