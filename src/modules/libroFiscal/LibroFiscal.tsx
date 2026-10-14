@@ -523,7 +523,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       if (archivo) await adjuntarComprobante(r.id, archivo).catch(() => toast('La retención quedó registrada, pero el adjunto no subió: se puede adjuntar después', 'error'));
       notify(
         `${labelDireccion(direccion)} · ${labelImpuesto(tipo)} · ${monto(r.montoRetenido, r.moneda)}${r.numeroComprobante ? ` · ${r.numeroComprobante}` : ''}`,
-        'success', { link: '#/app/retenciones/nuevo' },
+        'success', { link: '#/app/retenciones' },
       );
       onHecho();
     } catch (e) {

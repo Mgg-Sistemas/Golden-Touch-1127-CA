@@ -14,18 +14,15 @@ import {
   urlRetencion, comprobantesDeOrden, labelRetencionModo,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
-import { LibroRetencionesPanel } from './LibroRetencionesPanel';
+import { LibroFiscalView } from '@/modules/libroFiscal/LibroFiscal';
 import { norm } from '@/shared/lib/texto';
 
 type Vista = 'pendientes' | 'hechas' | 'libro';
 
 export function RetencionesPage() {
   const { user } = useSession();
-  const { can, appUser } = usePermissions();
+  const { can, appUser, isAdmin } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
-  // La tabla `retenciones` (compras directas) tiene su propia RLS:
-  // is_admin() or puede('tesoreria'). Escribir en Retenciones no alcanza.
-  const puedeCargarDirectas = can('tesoreria', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
@@ -100,7 +97,7 @@ export function RetencionesPage() {
           favor) y lo poco que retenemos. Las otras dos vistas son el trámite de
           adjuntar comprobantes a una OC, que es otra cosa. */}
       {vista === 'libro' ? (
-        <LibroRetencionesPanel puedeCargar={puedeCargarDirectas} actor={actor} actorName={actorName} />
+        <LibroFiscalView canWrite={canWrite} esAdmin={isAdmin} actor={actor} actorName={actorName} />
       ) : (
       <>
       {/* Tarjeta total pendientes (solo en la vista Por realizar) */}
