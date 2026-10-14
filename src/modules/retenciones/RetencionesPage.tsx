@@ -15,6 +15,9 @@ import {
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
 import { LibroFiscalView } from '@/modules/libroFiscal/LibroFiscal';
+import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
+import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
+import '@/modules/libroFiscal/libroFiscal.css';
 import { norm } from '@/shared/lib/texto';
 
 type Vista = 'pendientes' | 'hechas' | 'libro';
@@ -32,12 +35,17 @@ export function RetencionesPage() {
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<RetencionItem | null>(null);
 
-  // Filtros del historial (vista Realizadas).
+  // Búsqueda, filtros, orden y página de las dos listas de OC (Por realizar y Realizadas).
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
   const [fTipo, setFTipo] = useState<'' | TipoRetencion>('');
+  const [fTesoreria, setFTesoreria] = useState('');
   const [fTexto, setFTexto] = useState('');
-  const limpiarFiltros = () => { setFDesde(''); setFHasta(''); setFTipo(''); setFTexto(''); };
+  const [orden, setOrden] = useState<'reciente' | 'antiguo' | 'proveedor'>('reciente');
+  const [pag, setPag] = useState(1);
+  const [tam, setTam] = useState(25);
+  const limpiarFiltros = () => { setFDesde(''); setFHasta(''); setFTipo(''); setFTesoreria(''); setFTexto(''); };
+  useEffect(() => { setPag(1); }, [vista, fDesde, fHasta, fTipo, fTesoreria, fTexto, orden]);
 
   const reload = useCallback(async () => {
     const [p, h] = await Promise.all([
@@ -57,24 +65,58 @@ export function RetencionesPage() {
   // Realtime multiusuario: lo que registra otro (o paga Tesorería) se refleja al instante.
   useRealtime(['ordenes'], () => { void reload(); });
 
-  // Historial filtrado (solo aplica a la vista Realizadas).
-  const hechasFiltradas = useMemo(() => {
+  // La lista de la vista: búsqueda y fechas (las de siempre), filtros con su conteo y orden.
+  const baseLista = useMemo(() => {
     const txt = norm(fTexto);
-    return hechas.filter(({ orden: o, proveedorNombre }) => {
-      const fin = (o.retencion_finalizada_en ?? '').slice(0, 10);
-      if (fDesde && fin && fin < fDesde) return false;
-      if (fHasta && fin && fin > fHasta) return false;
-      if (fDesde && !fin) return false;
-      if (fTipo && !comprobantesDeOrden(o).some((c) => c.tipo === fTipo)) return false;
+    const xs = vista === 'pendientes' ? pendientes : hechas;
+    return xs.filter(({ orden: o, proveedorNombre }) => {
+      if (vista === 'hechas') {
+        const fin = (o.retencion_finalizada_en ?? '').slice(0, 10);
+        if (fDesde && fin && fin < fDesde) return false;
+        if (fHasta && fin && fin > fHasta) return false;
+        if (fDesde && !fin) return false;
+      }
       if (txt) {
         const hay = norm(`${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre} ${o.numero_administracion ?? ''}`);
         if (!hay.includes(txt)) return false;
       }
       return true;
     });
-  }, [hechas, fDesde, fHasta, fTipo, fTexto]);
+  }, [vista, pendientes, hechas, fDesde, fHasta, fTexto]);
 
-  const filas = vista === 'pendientes' ? pendientes : hechasFiltradas;
+  const filtrosLista = useMemo<FiltroLista<RetencionItem>[]>(() => [
+    {
+      campo: 'tesoreria', etiqueta: 'Tesorería', valor: fTesoreria,
+      opciones: [['pagada', 'Pagada'], ['por_pagar', 'Por pagar']],
+      pasa: ({ orden: o }, v) => (v === 'pagada' ? !!o.retencion_pagada : !o.retencion_pagada),
+    },
+    ...(vista === 'hechas' ? [{
+      campo: 'tipo', etiqueta: 'Tipo de retención', valor: fTipo,
+      opciones: TIPOS_RETENCION.map((t): [string, string] => [t.key, t.label]),
+      pasa: ({ orden: o }: RetencionItem, v: string) => comprobantesDeOrden(o).some((c) => c.tipo === v),
+    }] : []),
+  ], [vista, fTesoreria, fTipo]);
+
+  const filas = useMemo(() => {
+    const fecha = ({ orden: o }: RetencionItem) => String((vista === 'hechas' ? o.retencion_finalizada_en : o.metodo_pago_en) ?? '');
+    const xs = aplicarFiltros(baseLista, filtrosLista);
+    const reciente = (a: RetencionItem, b: RetencionItem) => fecha(b).localeCompare(fecha(a));
+    xs.sort(orden === 'antiguo' ? (a, b) => -reciente(a, b)
+      : orden === 'proveedor' ? (a, b) => a.proveedorNombre.localeCompare(b.proveedorNombre) || reciente(a, b)
+        : reciente);
+    return xs;
+  }, [vista, baseLista, filtrosLista, orden]);
+  const pagina = useMemo(() => paginar(filas, pag, tam), [filas, pag, tam]);
+
+  const controles: ControlFiltro[] = filtrosLista.map((f) => ({
+    campo: f.campo, etiqueta: f.etiqueta, valor: f.valor,
+    total: aplicarFiltros(baseLista, filtrosLista.filter((o) => o.campo !== f.campo)).length,
+    opciones: f.opciones.map(([v, t]) => ({ valor: v, texto: t, cuenta: conteoOpcion(baseLista, filtrosLista, f.campo, v) })),
+  }));
+  const ponerFiltro = (campo: string, v: string) => {
+    if (campo === 'tesoreria') setFTesoreria(v);
+    else if (campo === 'tipo') setFTipo(v as '' | TipoRetencion);
+  };
 
   return (
     <div>
@@ -110,34 +152,22 @@ export function RetencionesPage() {
         </div>
       )}
 
-      {/* Filtros del historial (solo en Realizadas) */}
-      {vista === 'hechas' && (
-        <div className="card" style={{ marginBottom: '.75rem' }}>
-          <div className="filterbar" style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div className="form-row" style={{ margin: 0 }}>
-              <label>Desde</label>
-              <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} />
-            </div>
-            <div className="form-row" style={{ margin: 0 }}>
-              <label>Hasta</label>
-              <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} />
-            </div>
-            <div className="form-row" style={{ margin: 0 }}>
-              <label>Tipo de retención</label>
-              <select className="select" value={fTipo} onChange={(e) => setFTipo(e.target.value as '' | TipoRetencion)}>
-                <option value="">Todas</option>
-                {TIPOS_RETENCION.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-              </select>
-            </div>
-            <div className="form-row" style={{ margin: 0, flex: '1 1 200px' }}>
-              <label>Buscar (OC / proveedor)</label>
-              <input className="input" value={fTexto} onChange={(e) => setFTexto(e.target.value)} placeholder="N° OC, OP o proveedor…" />
-            </div>
-            <button className="btn btn-ghost" onClick={limpiarFiltros}>Limpiar</button>
-            <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{hechasFiltradas.length} de {hechas.length}</span>
-          </div>
-        </div>
-      )}
+      <div className="card" style={{ marginBottom: '.75rem' }}>
+        <BarraLista
+          q={fTexto} onQ={setFTexto} placeholder="Buscar por N° de OC, OP o proveedor"
+          resultados={filas.length} unidad="OC"
+          filtros={controles} onFiltro={ponerFiltro}
+          orden={{ valor: orden, opciones: [['reciente', 'Más reciente primero'], ['antiguo', 'Más antiguo primero'], ['proveedor', 'Proveedor (A–Z)']] }}
+          onOrden={(v) => setOrden(v as typeof orden)}
+          onQuitar={limpiarFiltros}
+          extra={vista === 'hechas' ? (
+            <>
+              <label className="lf-campo"><span>Realizada desde</span><input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} /></label>
+              <label className="lf-campo"><span>Hasta</span><input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} /></label>
+            </>
+          ) : undefined}
+        />
+      </div>
 
       <div className="card">
         <div className="table-wrap">
@@ -155,7 +185,7 @@ export function RetencionesPage() {
               {!loading && !filas.length && (
                 <tr><td colSpan={vista === 'hechas' ? 9 : 8}><EmptyState icon={vista === 'pendientes' ? '✅' : '🧾'} message={vista === 'pendientes' ? 'No hay retenciones pendientes' : 'Sin retenciones en el historial con esos filtros'} /></td></tr>
               )}
-              {!loading && filas.map(({ orden: o, proveedorNombre }) => (
+              {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => (
                 <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
                   <td className="mono">{o.oc_codigo ?? '—'}</td>
                   <td className="mono">{o.codigo}</td>
@@ -173,6 +203,9 @@ export function RetencionesPage() {
             </tbody>
           </table>
         </div>
+        {!loading && (
+          <Paginador pagina={pagina} tam={tam} unidad="OC" onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+        )}
       </div>
       </>
       )}
