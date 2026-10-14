@@ -15,6 +15,9 @@ import { RecibirCompraModal } from '@/modules/inventario/RecepcionesPendientes';
 import type { Almacen } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
 import { list as listProveedores, insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
+import { ActividadFaltanteCampo } from '@/modules/proveedores/ActividadFaltanteCampo';
+import { fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
+import { pideActividad } from '@/modules/proveedores/actividadesEconomicas';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import { listSaldos, round2 } from '@/modules/tesoreria/cajaSaldos.repository';
 import { getTasaHoy, getTasasMercado, type TasasMercado } from '@/modules/tesoreria/tasas.repository';
@@ -537,6 +540,8 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
   // Proveedor (opcional): se elige del directorio o se da de alta en el momento.
   const [proveedorId, setProveedorId] = useState(editCompra?.proveedor_id ?? '');
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
+  // Actividad económica: obligatoria al dar de alta y para el que no la tiene (14/10/2026).
+  const [actividad, setActividad] = useState('');
   const [provRazon, setProvRazon] = useState('');
   const [provRif, setProvRif] = useState('J-');
   const [provTelefono, setProvTelefono] = useState('');
@@ -641,6 +646,10 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
       }
     }
     // Validación del proveedor nuevo (si se eligió darlo de alta ahora).
+    const provElegido = nuevoProveedor ? null : provActivos.find((p) => p.id === proveedorId) ?? null;
+    if ((nuevoProveedor || provElegido) && pideActividad(provElegido, nuevoProveedor) && !actividad) {
+      setError('Elige la actividad económica del proveedor (o agrégala con ➕ si no está).'); return;
+    }
     if (nuevoProveedor) {
       if (!provRazon.trim() || !rifPartes.numero) { setError('Razón social y RIF (con número) son obligatorios para el nuevo proveedor.'); return; }
       const emailClean = provEmail.trim();
@@ -663,11 +672,13 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
           categorias: [],
           origen: provOrigen,
           estado: 'activo',
+          actividad_economica: actividad,
         });
         proveedorIdFinal = creado.id;
         proveedorNombreFinal = creado.razon_social;
         notify(`Proveedor "${creado.razon_social}" registrado`, 'success', { link: '#/app/proveedores' });
       } else if (proveedorId) {
+        if (pideActividad(provActivos.find((p) => p.id === proveedorId), false)) await fijarActividadProveedor(proveedorId, actividad);
         proveedorIdFinal = proveedorId;
         proveedorNombreFinal = provActivos.find((p) => p.id === proveedorId)?.razon_social ?? null;
       }
@@ -754,6 +765,9 @@ function CrearCompraModal({ productos, categorias, unidades, proveedores, editCo
             </div>
           )}
         </div>
+        {(nuevoProveedor || proveedorId) && pideActividad(nuevoProveedor ? null : provActivos.find((p) => p.id === proveedorId), nuevoProveedor) && (
+          <ActividadFaltanteCampo id="cd-actividad" nuevo={nuevoProveedor} value={actividad} onChange={setActividad} />
+        )}
 
         {lineas.map((l, idx) => (
           <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>

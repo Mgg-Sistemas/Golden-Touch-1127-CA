@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizarCodigoActividad, etiquetaActividad, textoActividad, ordenarActividades, validarActividadNueva, type ActividadEconomica } from './actividadesEconomicas';
+import { pideActividad, normalizarCodigoActividad, etiquetaActividad, textoActividad, ordenarActividades, validarActividadNueva, type ActividadEconomica } from './actividadesEconomicas';
 
 const L: ActividadEconomica[] = [
   { codigo: '7412', descripcion: 'Contabilidad', tipo: 'actividad', activa: true },
@@ -28,5 +28,12 @@ describe('actividad económica CIIU (14/10/2026)', () => {
     expect(validarActividadNueva('x', 'Algo', L)).toMatch(/dígitos/);
     expect(validarActividadNueva('7494', 'ab', L)).toMatch(/descripción/);
     expect(validarActividadNueva('7494', 'Fotografía', L)).toBeNull();
+  });
+
+  it('pide la actividad al nuevo y al que no la tiene, una sola vez', () => {
+    expect(pideActividad(null, true)).toBe(true);
+    expect(pideActividad({ actividad_economica: null }, false)).toBe(true);
+    expect(pideActividad({ actividad_economica: '5110' }, false)).toBe(false);
+    expect(pideActividad(null, false)).toBe(false);
   });
 });
