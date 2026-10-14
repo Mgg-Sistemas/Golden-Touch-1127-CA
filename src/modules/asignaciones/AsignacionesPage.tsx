@@ -9,6 +9,7 @@
    registre la devolución; la dotación y el material de oficina no retornan,
    pero igual quedan en el historial de la persona.
    ============================================================ */
+import { empresasRrhh } from '@/shared/lib/empresa';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -255,7 +256,7 @@ export function AsignacionesPage() {
             <div className="lt-campo">
               <label htmlFor="asg-empresa">Nómina</label>
               <select id="asg-empresa" className="select" value={f.empresa} onChange={(e) => set('empresa', e.target.value as FiltrosAsignacion['empresa'])}>
-                <option value="">Ambas</option><option value="GT">GT</option><option value="MTO">MTO</option>
+                <option value="">Todas</option>{empresasRrhh().map((e) => <option key={e.clave} value={e.clave}>{e.clave}</option>)}
               </select>
             </div>
             <div className="lt-campo">

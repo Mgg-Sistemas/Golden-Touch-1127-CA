@@ -11,7 +11,8 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/shared/lib/supabase';
-import { identidadEmpresa, type IdentidadEmpresa } from '@/shared/lib/empresa';
+import { identidadEmpresa, urlArchivoPublico, type IdentidadEmpresa } from '@/shared/lib/empresa';
+import { useEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { lineasSaludQr } from './saludPersonal';
 import { PARENTESCOS } from './fichaPersonal';
 import { estadoCarnet, fechaCarnet } from './vigenciaCarnet';
@@ -30,7 +31,7 @@ interface CarnetPublico {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const urlPublica = (archivo: string) => `${import.meta.env.BASE_URL}${encodeURIComponent(archivo)}`;
+const urlPublica = urlArchivoPublico;
 
 const fondo: CSSProperties = {
   minHeight: '100vh', background: '#12151a', color: '#e7ecf3', display: 'flex',
@@ -38,11 +39,11 @@ const fondo: CSSProperties = {
   fontFamily: "'Segoe UI', Arial, sans-serif",
 };
 
-/** GT: el logo redondo. MTO: su logo horizontal sobre una placa blanca. */
+/** GT: el logo redondo. Las demás (MTO…): su logo horizontal sobre una placa blanca. */
 function SoloLogo({ emp }: { emp: IdentidadEmpresa }) {
   return (
     <div style={fondo}>
-      {emp.clave === 'MTO'
+      {emp.clave !== 'GT'
         ? <img src={urlPublica(emp.logoPantalla)} alt={emp.nombre} style={{ width: 'min(420px, 88vw)', borderRadius: 18, background: '#fff', padding: 12 }} />
         : <img src={urlPublica(emp.logoPantalla)} alt={emp.nombre} style={{ width: 'min(320px, 80vw)', borderRadius: '50%', background: '#fff' }} />}
     </div>
@@ -52,6 +53,8 @@ function SoloLogo({ emp }: { emp: IdentidadEmpresa }) {
 export function CarnetPublicoPage() {
   const { token = '' } = useParams();
   const [dato, setDato] = useState<CarnetPublico | null | undefined>(undefined);
+  // Nombre, RIF y logo de las empresas creadas en RRHH (se leen sin sesión).
+  useEmpresasRrhh();
 
   useEffect(() => {
     if (!UUID.test(token)) { setDato(null); return; }
@@ -85,7 +88,7 @@ export function CarnetPublicoPage() {
     <div style={{ ...fondo, alignItems: 'flex-start', background: '#14110d', color: '#f4efe6' }}>
       <div style={{ width: '100%', maxWidth: 440 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-          {emp.clave === 'MTO'
+          {emp.clave !== 'GT'
             ? <img src={urlPublica(emp.logoPantalla)} alt="" style={{ height: 56, width: 112, borderRadius: 12, objectFit: 'contain', background: '#fff', padding: 4 }} />
             : <img src={urlPublica(emp.logoPantalla)} alt="" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover', background: '#fff' }} />}
           <div>

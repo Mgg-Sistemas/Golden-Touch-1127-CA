@@ -760,3 +760,6 @@ body.hints-off .hint { display: none !important; }
   .rrhh-titulo { font-size: 1.4rem; }
   .rrhh-nomina-btn { padding: .35rem .7rem; font-size: .85rem; }
 }
+
+/* Más de dos empresas en RRHH (14/10/2026): lista plegable con buscador. */
+.rrhh-nominas-lista { min-width: min(360px, 100%); flex: 1 1 280px; }

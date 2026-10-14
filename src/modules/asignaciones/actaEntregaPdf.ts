@@ -11,7 +11,7 @@
 import { loadLogoPdfEmpresa, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { previewPdf } from '@/shared/lib/reportePreview';
-import { identidadEmpresa } from '@/shared/lib/empresa';
+import { identidadEmpresa, razonSocialTexto, ciudadCorta } from '@/shared/lib/empresa';
 import { date as fmtDate } from '@/shared/lib/format';
 import { CATEGORIA, type Asignacion, type PersonaMin } from './asignacionesReglas';
 import { ITEMS_EN_TABLA, cedulaConPuntos, fechaCartaVE, nombreCarta, parrafoActa, textoItemActa } from './actas';
@@ -23,10 +23,6 @@ const NARANJA: [number, number, number] = [255, 138, 0];
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-/** Razón social para el texto de la carta: «Golden Touch 1127 C.A.» / «Minería Tin Oxide, C.A.». */
-function razonSocial(clave: 'GT' | 'MTO'): string {
-  return clave === 'MTO' ? 'Minería Tin Oxide, C.A.' : 'Golden Touch 1127 C.A.';
-}
 
 export async function verActaEntregaPdf(
   acta: ActaAsignacion,
@@ -35,7 +31,7 @@ export async function verActaEntregaPdf(
   fotos: { dataUrl: string; filename: string }[] = [],
 ): Promise<void> {
   const emp = identidadEmpresa(recibe?.empresa);
-  const empresa = razonSocial(emp.clave);
+  const empresa = razonSocialTexto(emp);
   const [{ jsPDF }, { default: autoTable }, logo] = await Promise.all([
     import('jspdf'), import('jspdf-autotable'), loadLogoPdfEmpresa(recibe?.empresa).catch(() => null),
   ]);
@@ -63,7 +59,7 @@ export async function verActaEntregaPdf(
 
   let y = membrete();
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...TINTA);
-  doc.text(pdfSafe(fechaCartaVE(acta.fecha, emp.clave === 'MTO' ? 'Upata' : 'Puerto Ordaz')), W - M, y, { align: 'right' });
+  doc.text(pdfSafe(fechaCartaVE(acta.fecha, ciudadCorta(emp))), W - M, y, { align: 'right' });
   y += 30;
 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(12);

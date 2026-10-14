@@ -13,6 +13,7 @@
        personal y el sueldo nuevo de cada uno, e imprime anterior y nuevo;
        el tabulador vigente también sale en PDF y Excel.
    ============================================================ */
+import { empresasRrhh } from '@/shared/lib/empresa';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
@@ -660,9 +661,8 @@ export function HistoricosSalarialesModal({ empresaInicial, canWrite = false, on
         <div className="form-row">
           <label>Nómina</label>
           <select className="input" value={empresa} onChange={(e) => { setEmpresa(e.target.value as EmpresaRrhh | 'todas'); setPersonaId(''); }}>
-            <option value="GT">Nómina GT</option>
-            <option value="MTO">Nómina MTO</option>
-            <option value="todas">Las dos (GT y MTO)</option>
+            {empresasRrhh().map((e) => <option key={e.clave} value={e.clave}>Nómina {e.clave}</option>)}
+            <option value="todas">Todas las nóminas</option>
           </select>
         </div>
         <div className="form-row">

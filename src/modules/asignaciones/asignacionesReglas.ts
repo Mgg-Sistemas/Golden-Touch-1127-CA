@@ -138,7 +138,8 @@ export interface FiltrosAsignacion {
   estado: '' | EstadoAsignacion | 'pendientes';
   desde: string;
   hasta: string;
-  empresa: '' | 'GT' | 'MTO';
+  /** '' = todas; si no, la clave de la empresa (GT, MTO…). */
+  empresa: string;
   origen: '' | 'inventario' | 'externo';
   retorna: '' | 'si' | 'no';
 }

@@ -11,7 +11,7 @@
 import type { Personal } from '@/shared/lib/types';
 import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { EMPRESAS, ESTADOS_CIVILES, GENEROS, PARENTESCOS, edad } from './fichaPersonal';
+import { labelEmpresa, ESTADOS_CIVILES, GENEROS, PARENTESCOS, edad } from './fichaPersonal';
 import { GRADOS } from './instruccionYTrabajo';
 
 export interface CampoPersonal {
@@ -37,7 +37,7 @@ export const CAMPOS_PERSONAL: CampoPersonal[] = [
   { clave: 'apellido', etiqueta: 'Apellidos', ancho: 20, valor: (p) => txt(p.apellido) },
   { clave: 'cedula', etiqueta: 'Cédula', ancho: 13, valor: (p) => txt(p.cedula) },
   { clave: 'rif', etiqueta: 'RIF', ancho: 14, valor: (p) => txt(p.rif) },
-  { clave: 'empresa', etiqueta: 'Nómina', ancho: 11, valor: (p) => EMPRESAS.find((e) => e.valor === p.empresa)?.label ?? p.empresa },
+  { clave: 'empresa', etiqueta: 'Nómina', ancho: 11, valor: (p) => labelEmpresa(p.empresa) },
   { clave: 'cargo', etiqueta: 'Cargo', ancho: 22, valor: (p) => txt(p.cargo) },
   { clave: 'departamento', etiqueta: 'Departamento', ancho: 20, valor: (p) => txt(p.departamento) },
   { clave: 'estado', etiqueta: 'Estado', ancho: 9, valor: (p) => (p.activo ? 'Activo' : 'Inactivo') },
@@ -97,11 +97,12 @@ const hoy = () => new Date().toISOString().slice(0, 10);
 export type OrientacionHoja = 'auto' | 'vertical' | 'horizontal';
 
 /**
- * De qué empresa es la lista: si TODOS son de MTO (Minería Tin Oxide) sale con
- * su nombre y su logo; si son de GT o están mezclados, con los de GT.
+ * De qué empresa es la lista: si TODOS son de la misma empresa sale con su nombre
+ * y su logo; si están mezclados, con los de GT.
  */
-export function empresaDeLista(personas: Pick<Personal, 'empresa'>[]): 'GT' | 'MTO' {
-  return personas.length > 0 && personas.every((p) => p.empresa === 'MTO') ? 'MTO' : 'GT';
+export function empresaDeLista(personas: Pick<Personal, 'empresa'>[]): string {
+  const e = personas[0]?.empresa || 'GT';
+  return personas.length > 0 && personas.every((p) => (p.empresa || 'GT') === e) ? e : 'GT';
 }
 
 export function orientacionFinal(claves: string[], elegida: OrientacionHoja = 'auto'): 'portrait' | 'landscape' {

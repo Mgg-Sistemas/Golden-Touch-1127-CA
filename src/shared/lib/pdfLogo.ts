@@ -1,5 +1,5 @@
 import type { jsPDF } from 'jspdf';
-import { identidadEmpresa } from './empresa';
+import { identidadEmpresa, urlArchivoPublico } from './empresa';
 
 let cachedDataUrl: string | null = null;
 let cachedPdfDataUrl: string | null = null;
@@ -36,8 +36,10 @@ const cacheLogoEmpresa = new Map<string, Promise<string>>();
  * `dibujarLogoPdf` / `anchoLogoPdf` sirven igual para los dos sin tocar nada.
  */
 export async function loadLogoPdfEmpresa(empresa?: string | null): Promise<string> {
-  if (empresa !== 'MTO') return loadLogoPdfDataUrl();
-  const archivo = identidadEmpresa('MTO').logoPdf;
+  // GT, o una empresa sin logo propio todavía: el de Golden Touch.
+  const emp = identidadEmpresa(empresa);
+  if (!empresa || emp.clave === 'GT' || emp.logoPdf === identidadEmpresa('GT').logoPdf) return loadLogoPdfDataUrl();
+  const archivo = emp.logoPdf;
   if (!cacheLogoEmpresa.has(archivo)) {
     const p = cargarLogoRecortado(archivo);
     cacheLogoEmpresa.set(archivo, p);
@@ -47,7 +49,7 @@ export async function loadLogoPdfEmpresa(empresa?: string | null): Promise<strin
 }
 
 async function cargarLogoRecortado(archivo: string): Promise<string> {
-  const resp = await fetch(`${import.meta.env.BASE_URL}${encodeURIComponent(archivo)}`);
+  const resp = await fetch(urlArchivoPublico(archivo));
   if (!resp.ok) throw new Error(`No se pudo cargar el logo (${resp.status})`);
   const objectUrl = URL.createObjectURL(await resp.blob());
   try {

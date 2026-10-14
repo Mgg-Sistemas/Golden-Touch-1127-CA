@@ -116,7 +116,7 @@ export function calcularRenglon(input: RenglonCalcInput): RenglonCalc {
 
 /* ───────────── Carga de la nómina ───────────── */
 
-/** El correlativo es POR EMPRESA, y MTO lleva su marca para no confundir papeles. */
+/** El correlativo es POR EMPRESA, y toda empresa que no sea GT lleva su marca (NOM-MTO-…). */
 async function nextCodigoNomina(empresa: EmpresaRrhh): Promise<string> {
   const year = new Date().getFullYear();
   // El MAYOR correlativo usado, no la cantidad de filas: al vaciar la papelera
@@ -127,7 +127,7 @@ async function nextCodigoNomina(empresa: EmpresaRrhh): Promise<string> {
     .map((x) => Number(/(\d+)\s*$/.exec(x.codigo ?? '')?.[1] ?? 0))
     .filter((x) => Number.isFinite(x));
   const n = String(Math.max(usados.length, ...usados, 0) + 1).padStart(4, '0');
-  return empresa === 'MTO' ? `NOM-MTO-${year}-${n}` : `NOM-${year}-${n}`;
+  return empresa && empresa !== 'GT' ? `NOM-${empresa}-${year}-${n}` : `NOM-${year}-${n}`;
 }
 
 export interface RenglonInput {

@@ -39,8 +39,8 @@ export interface FiltroReporte {
 }
 
 /** Con «todas» el papel lleva la identidad de GT (la empresa principal). */
-const empresaDelPapel = (e: EmpresaRrhh | 'todas'): EmpresaRrhh => (e === 'MTO' ? 'MTO' : 'GT');
-const nominaTexto = (e: EmpresaRrhh | 'todas') => (e === 'todas' ? 'Nóminas GT y MTO' : `Nómina ${e}`);
+const empresaDelPapel = (e: EmpresaRrhh | 'todas'): EmpresaRrhh => (e === 'todas' ? 'GT' : e);
+const nominaTexto = (e: EmpresaRrhh | 'todas') => (e === 'todas' ? 'Todas las nóminas' : `Nómina ${e}`);
 
 function variacionTexto(r: Pick<PersonalSueldo, 'sueldo_anterior' | 'sueldo_nuevo'>): string {
   if (r.sueldo_anterior == null) return 'Sueldo inicial';
@@ -262,7 +262,7 @@ export async function descargarHistorialSueldoExcel(persona: Personal, filas: Pe
     `Sueldo vigente ${usd(persona.sueldo_base)}`].filter(Boolean).join(' · ');
   await bajarExcel({
     titulo: 'HISTORIAL DE SUELDO',
-    empresa: persona.empresa === 'MTO' ? 'MTO' : 'GT',
+    empresa: persona.empresa || 'GT',
     subtitulo: datos,
     encabezados: ['Desde', 'Sueldo anterior (USD)', 'Sueldo nuevo (USD)', 'Variación (USD)', 'Variación (%)', 'Motivo', 'Nota', 'Registrado', 'Registrado por'],
     anchos: [12, 16, 16, 14, 12, 30, 34, 18, 28],

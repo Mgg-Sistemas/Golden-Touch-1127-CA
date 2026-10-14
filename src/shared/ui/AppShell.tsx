@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { cargarEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -107,6 +108,8 @@ export function AppShell() {
 
   // Inicializa el contexto de audio (se "desbloquea" en el primer click/tecla).
   useEffect(() => { initSound(); }, []);
+  // Empresas de RRHH (nombre, RIF, logo) para los papeles de cualquier módulo.
+  useEffect(() => { void cargarEmpresasRrhh().catch(() => undefined); }, []);
 
   // Latido de sesión (supervisión de actividad): mientras la app esté abierta y el
   // usuario autenticado, marca presencia cada 60 s. La RPC prolonga la sesión
