@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventario/presentaciones';
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
@@ -42,13 +43,15 @@ const BUCKET_OC = 'compras-oc';
 
 const TABLE = 'ordenes';
 
+/** Todas las órdenes, por páginas: PostgREST corta en 1.000 filas sin avisar, y pasado
+ *  ese número «Ver detalle» (?detalle=ID) no encontraría las viejas (reporte MGG, 14/10/2026). */
 export async function listOrdenes(): Promise<Orden[]> {
-  const { data, error } = await supabase
+  return todasLasFilas<Orden>((d, h) => supabase
     .from(TABLE)
     .select('*')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as Orden[];
+    .order('created_at', { ascending: false })
+    .order('id')
+    .range(d, h));
 }
 
 export async function getOrdenById(id: string): Promise<Orden | null> {
@@ -1395,7 +1398,8 @@ async function subirComprobantesOc(ordenId: string, files: File[]): Promise<{ pa
   const tanda = files.slice(0, MAX_COMPROBANTES_PAGO);
   for (let i = 0; i < tanda.length; i++) {
     const file = tanda[i];
-    const safe = file.name.replace(/[^w.-]+/g, '_');
+    // Ojo con la \ de \w: sin ella el nombre del archivo perdía todas las letras.
+    const safe = file.name.replace(/[^\w.-]+/g, '_');
     const path = `${ordenId}/${i === 0 ? 'factura' : `factura-${i + 1}`}-${safe}`;
     const { error } = await conTimeout(
       supabase.storage.from(BUCKET_OC).upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' }),
